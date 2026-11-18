@@ -163,10 +163,12 @@ type RequestParts struct {
 // with no trailing newline. The method is uppercased. Fields that could break
 // the line structure are rejected.
 func CanonicalRequest(p RequestParts) (string, error) {
-	method := strings.ToUpper(p.Method)
-	if method == "" || strings.Trim(method, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+	// ASCII letters only, checked before uppercasing (strings.ToUpper would
+	// turn some non-ASCII letters into ASCII ones, e.g. "ı" into "I").
+	if p.Method == "" || strings.Trim(p.Method, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") != "" {
 		return "", fmt.Errorf("%w: method", ErrMalformed)
 	}
+	method := strings.ToUpper(p.Method)
 	if !strings.HasPrefix(p.Path, "/") || hasControlOrSpace(p.Path) || strings.ContainsAny(p.Path, "?#") {
 		return "", fmt.Errorf("%w: path", ErrMalformed)
 	}

@@ -121,6 +121,7 @@ func TestCanonicalRequestRejectsMalformed(t *testing.T) {
 		"empty-method":      func(p *RequestParts) { p.Method = "" },
 		"method-newline":    func(p *RequestParts) { p.Method = "GET\nX" },
 		"method-digit":      func(p *RequestParts) { p.Method = "G3T" },
+		"method-dotless-i":  func(p *RequestParts) { p.Method = "getı" },
 		"relative-path":     func(p *RequestParts) { p.Path = "api/v1/device" },
 		"path-newline":      func(p *RequestParts) { p.Path = "/api\n/v1" },
 		"path-space":        func(p *RequestParts) { p.Path = "/api /v1" },
