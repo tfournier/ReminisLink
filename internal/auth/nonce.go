@@ -48,8 +48,12 @@ type nonceEntry struct {
 }
 
 // NewNonceCache returns a cache. A nil now uses time.Now; pass the same
-// clock as the Verifier.
+// clock as the Verifier. It panics if ttl < 2 × MaxClockSkew: a shorter
+// TTL would let a request be replayed while its timestamp is accepted.
 func NewNonceCache(ttl time.Duration, capacity int, now func() time.Time) *NonceCache {
+	if ttl < 2*MaxClockSkew {
+		panic("auth: nonce TTL must be at least 2 x MaxClockSkew")
+	}
 	if now == nil {
 		now = time.Now
 	}

@@ -125,23 +125,21 @@ func TestNonceCacheConcurrentAddIsAtomic(t *testing.T) {
 
 func TestNonceCacheQueueCompaction(t *testing.T) {
 	clock := newFakeClock()
-	c := NewNonceCache(time.Second, 5, clock.Now)
+	c := NewNonceCache(NonceTTL, 5, clock.Now)
 	for i := 0; i < 1000; i++ {
-		// An old signed time, so the short TTL decides the expiry.
-		if err := c.Add("a", fmt.Sprint(i), c.now().Add(-time.Hour)); err != nil {
+		if err := c.Add("a", fmt.Sprint(i), c.now()); err != nil {
 			t.Fatalf("add %d: %v", i, err)
 		}
-		clock.Advance(time.Second)
+		clock.Advance(NonceTTL / 2)
 	}
-	if len(c.order)-c.head > 2 || cap(c.order) > 64 {
+	if len(c.order)-c.head > 3 || cap(c.order) > 64 {
 		t.Fatalf("queue grows without bound: len %d head %d cap %d", len(c.order), c.head, cap(c.order))
 	}
 }
 
 func TestNonceKeptWhileItsSignedTimeIsAccepted(t *testing.T) {
 	clock := newFakeClock()
-	// Even with a short TTL, a nonce stays until signed time + MaxClockSkew.
-	c := NewNonceCache(time.Second, 10, clock.Now)
+	c := NewNonceCache(NonceTTL, 10, clock.Now)
 	signed := clock.Now().Add(MaxClockSkew)
 	if err := c.Add("a", "n", signed); err != nil {
 		t.Fatal(err)
@@ -178,7 +176,7 @@ func TestNonceSurvivesWallClockGoingBack(t *testing.T) {
 
 func TestNonceCacheSweepsWhenQueueIsOutOfOrder(t *testing.T) {
 	clock := newFakeClock()
-	c := NewNonceCache(time.Minute, 2, clock.Now)
+	c := NewNonceCache(NonceTTL, 2, clock.Now)
 	old := clock.Now().Add(-24 * time.Hour) // the TTL decides the expiry
 	if err := c.Add("a", "1", old); err != nil {
 		t.Fatal(err)
@@ -187,7 +185,7 @@ func TestNonceCacheSweepsWhenQueueIsOutOfOrder(t *testing.T) {
 	if err := c.Add("a", "2", old); err != nil {
 		t.Fatal(err)
 	}
-	clock.Advance(2 * time.Minute) // entry 2 expired, entry 1 (queue head) not
+	clock.Advance(NonceTTL + time.Minute) // entry 2 expired, entry 1 (queue head) not
 	if err := c.Add("a", "3", old); err != nil {
 		t.Fatalf("expired entry behind the queue head not reclaimed: %v", err)
 	}
@@ -204,4 +202,13 @@ func TestNonceRetryAfter(t *testing.T) {
 	if got := c.RetryAfter(); got != time.Second {
 		t.Fatalf("near expiry: %v, want the 1 s floor", got)
 	}
+}
+
+func TestNewNonceCacheRefusesShortTTL(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a TTL below 2 x MaxClockSkew was accepted")
+		}
+	}()
+	NewNonceCache(2*MaxClockSkew-time.Nanosecond, 10, nil)
 }
