@@ -1067,7 +1067,10 @@ paths:
         on the SD card and returns `uploadId` and `chunkSize` (default 4 MiB,
         at most 16 MiB). The announced `sha256` protects the unsigned chunks.
         `onConflict`: `fail` (`409 conflict`), `rename` (adds ` (2)`,
-        ` (3)`...), `overwrite` (the old file goes to the trash). Uploads idle
+        ` (3)`...), `overwrite` (the old file goes to the trash). It only
+        applies to the `rom` and `staging` targets (a staging file never
+        conflicts); for `save` and `state` the existing file is always
+        replaced, after being moved to the trash. Uploads idle
         for 24 h are deleted; uploads are lost when the pak closes.
       requestBody:
         required: true
@@ -1345,7 +1348,11 @@ paths:
       tags: [Jobs]
       operationId: cancelJob
       summary: Cancel a job
-      description: Cancels a queued or running job (its partial file is deleted). Returns the job in its new state.
+      description: |
+        Cancels a queued or running job (its partial file is deleted).
+        Returns the job in its new state. A job cancelled while it is
+        already installing its file can still end `succeeded` (the file is
+        in place and `result` says where).
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -1963,6 +1970,7 @@ components:
 
     OnConflict:
       type: string
+      description: Only for the `rom` and `staging` targets; `save` and `state` always replace the existing file after moving it to the trash.
       enum: [fail, rename, overwrite]
       default: fail
     UploadTarget:
