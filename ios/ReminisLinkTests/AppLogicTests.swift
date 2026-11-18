@@ -18,21 +18,25 @@ struct AppLogicTests {
         return pak
     }
 
-    func makeApp(_ pak: FakePak, discovered: Bool = true, lookup: Duration = .milliseconds(300),
-                 fallbackDelay: Duration = .milliseconds(100)) -> AppModel {
+    func makeApp(_ pak: FakePak, discovered: Bool = true, lookup: Duration = .milliseconds(300)) -> AppModel {
         let suite = "ReminisLinkTests.\(UUID().uuidString)"
         return AppModel(
             store: DeviceStore(secureStore: secure, defaults: UserDefaults(suiteName: suite)!),
             discovery: Discovery(fixedDevices: discovered ? [pak.discoveredDevice] : []),
             artCache: ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: suite)),
-            lookupTimeout: lookup, fallbackDelay: fallbackDelay,
+            lookupTimeout: lookup,
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
     }
 
-    func link(_ pak: FakePak, fallback: Bool) -> PairingLink {
-        PairingLink(deviceId: pak.deviceId, deviceName: pak.deviceName, secret: pak.secret,
-                    fallbackEndpoint: fallback ? pak.endpoint : nil)
+    func link(_ pak: FakePak) -> PairingLink {
+        PairingLink(deviceId: pak.deviceId, deviceName: pak.deviceName, secret: pak.secret)
+    }
+
+    /// The link as the pak prints it, with the (ignored) `h` and `p` of the
+    /// pak's real address.
+    func urlWithAddress(_ pak: FakePak) -> URL {
+        URL(string: link(pak).url.absoluteString + "&h=\(pak.host)&p=\(pak.port)")!
     }
 
     func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async {
@@ -57,7 +61,7 @@ struct AppLogicTests {
         let pak = makePak()
         pak.responseDelay = 0.5
         let app = makeApp(pak)
-        let flow = app.startPairing(.link(link(pak, fallback: false)))
+        let flow = app.startPairing(.link(link(pak)))
         await waitUntil { flow.step == .pairing }
         flow.cancel()
         await flow.wait()
@@ -69,10 +73,10 @@ struct AppLogicTests {
         #expect(app.sheet == nil)
     }
 
-    @Test func cancelDuringSearchNeverUsesTheFallback() async throws {
+    @Test func cancelDuringSearchSendsNothing() async throws {
         let pak = makePak()
-        let app = makeApp(pak, discovered: false, lookup: .seconds(5), fallbackDelay: .seconds(2))
-        let flow = app.startPairing(.link(link(pak, fallback: true)))
+        let app = makeApp(pak, discovered: false, lookup: .seconds(5))
+        let flow = app.startPairing(.link(try #require(PairingLink(url: urlWithAddress(pak)))))
         try await Task.sleep(for: .milliseconds(100))
         flow.cancel()
         await flow.wait()
@@ -82,10 +86,25 @@ struct AppLogicTests {
         #expect(flow.error == nil)
     }
 
-    @Test func newConsoleCanUseTheFallback() async throws {
+    /// The address of the QR code is never used (docs/specs/03-protocole.md
+    /// §3.1): without Bonjour, a new console is not found.
+    @Test func newConsoleWithoutBonjourIsNotFound() async throws {
         let pak = makePak()
         let app = makeApp(pak, discovered: false)
-        let flow = app.startPairing(.link(link(pak, fallback: true)))
+        app.handle(url: urlWithAddress(pak))
+        guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
+        await flow.wait()
+        #expect(flow.error == .consoleNotFound)
+        #expect(flow.error?.action == .retry)
+        #expect(pak.log.isEmpty)
+        #expect(app.store.devices.isEmpty)
+    }
+
+    @Test func newConsoleWithBonjourIgnoresTheLinkAddress() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        app.handle(url: urlWithAddress(pak))
+        guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
         #expect(flow.step == .done)
         #expect(app.store.device(id: pak.deviceId) != nil)
@@ -96,7 +115,7 @@ struct AppLogicTests {
     @Test func linkForAPairedConsoleAsksFirst() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        let link = link(pak, fallback: false)
+        let link = link(pak)
         app.handle(url: link.url)
         #expect(app.pendingRepair?.deviceId == link.deviceId)
         #expect(app.sheet == nil)
@@ -109,7 +128,7 @@ struct AppLogicTests {
         let app = try await pairedApp(pak, discovered: false)
         let before = try #require(try app.store.credentials(for: pak.deviceId)).key
         let requests = pak.log.count
-        app.pendingRepair = .link(link(pak, fallback: true))
+        app.pendingRepair = .link(try #require(PairingLink(url: urlWithAddress(pak))))
         app.confirmRepair()
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
@@ -122,7 +141,7 @@ struct AppLogicTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let before = try #require(try app.store.credentials(for: pak.deviceId)).key
-        app.pendingRepair = .link(link(pak, fallback: false))
+        app.pendingRepair = .link(link(pak))
         app.confirmRepair()
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
@@ -185,7 +204,7 @@ struct AppLogicTests {
         let before = try #require(try app.store.credentials(for: pak.deviceId)).key
         pak.pairDelay = 1
         let pairs = pak.log.filter { $0.path == "/api/v1/pair" }.count
-        app.pendingRepair = .link(link(pak, fallback: false))
+        app.pendingRepair = .link(link(pak))
         app.confirmRepair()
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
@@ -239,10 +258,10 @@ struct AppLogicTests {
     @Test func startPairingStopsThePreviousFlow() async throws {
         let pak = makePak()
         let app = makeApp(pak, discovered: false, lookup: .seconds(5))
-        let first = app.startPairing(.link(link(pak, fallback: false)))
+        let first = app.startPairing(.link(link(pak)))
         try await Task.sleep(for: .milliseconds(50))
-        app.pendingRepair = .link(link(pak, fallback: false))
-        let second = app.startPairing(.link(link(pak, fallback: false)))
+        app.pendingRepair = .link(link(pak))
+        let second = app.startPairing(.link(link(pak)))
         let start = ContinuousClock.now
         await first.wait()
         #expect(ContinuousClock.now - start < .seconds(1))
@@ -257,7 +276,7 @@ struct AppLogicTests {
         let pak = makePak()
         pak.responseDelay = 0.2
         let app = makeApp(pak)
-        let flow = app.startPairing(.link(link(pak, fallback: false)))
+        let flow = app.startPairing(.link(link(pak)))
         flow.start()
         flow.start()
         await flow.wait()
@@ -277,7 +296,7 @@ struct AppLogicTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         app.sheet = .addConsole
-        app.requestPairing(link(pak, fallback: false))
+        app.requestPairing(link(pak))
         #expect(app.sheet == nil)
         #expect(app.pendingRepair == nil)
         app.sheetDismissed()

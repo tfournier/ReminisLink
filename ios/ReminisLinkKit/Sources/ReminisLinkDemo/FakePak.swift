@@ -107,10 +107,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
 
     public var endpoint: Endpoint { Endpoint(host: host, port: port) }
 
-    /// The link of the QR code. The demo host never resolves, so the link
-    /// carries no `h`/`p`: the demo discovery provides the endpoint.
+    /// The link of the QR code. The demo discovery provides the endpoint.
     public var pairingLink: PairingLink {
-        PairingLink(deviceId: deviceId, deviceName: deviceName, secret: secret, fallbackEndpoint: nil)
+        PairingLink(deviceId: deviceId, deviceName: deviceName, secret: secret)
     }
 
     /// What a Bonjour browser would see.

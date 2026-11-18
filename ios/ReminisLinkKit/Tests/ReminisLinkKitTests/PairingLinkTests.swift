@@ -12,25 +12,26 @@ struct PairingLinkTests {
         #expect(link.deviceId == id)
         #expect(link.deviceName == "Brick de Thomas")
         #expect(link.secret == Data(repeating: 7, count: 32))
-        #expect(link.fallbackEndpoint == Endpoint(host: "192.168.1.42", port: 47821))
+        // h and p are accepted but ignored, and never written back.
+        #expect(!link.url.absoluteString.contains("h="))
+        #expect(!link.url.absoluteString.contains("p="))
     }
 
     @Test func plusIsASpaceInTheName() throws {
         let link = try #require(PairingLink(string: "reminislink://pair?v=1&id=\(id)&n=Brick+de+Thomas&s=\(secret)"))
         #expect(link.deviceName == "Brick de Thomas")
-        #expect(link.fallbackEndpoint == nil)
     }
 
     @Test func roundTrip() throws {
-        let link = PairingLink(deviceId: id, deviceName: "Brick é 🎮", secret: Data(repeating: 1, count: 32),
-                               fallbackEndpoint: Endpoint(host: "10.0.0.2", port: 47822))
+        let link = PairingLink(deviceId: id, deviceName: "Brick é 🎮", secret: Data(repeating: 1, count: 32))
         #expect(PairingLink(url: link.url) == link)
     }
 
-    @Test func invalidEndpointIsIgnored() throws {
-        for hp in ["h=192.168.1.256&p=47821", "h=8.8.8.8&p=47821", "h=172.32.0.1&p=47821", "h=127.0.0.1&p=47821", "h=example.com&p=47821", "h=192.168.1.4&p=0", "h=192.168.1.4&p=70000", "h=01.2.3.4&p=1", "h=192.168.1.4"] {
+    @Test func anyAddressInTheLinkIsIgnored() throws {
+        let plain = try #require(PairingLink(string: "reminislink://pair?v=1&id=\(id)&s=\(secret)"))
+        for hp in ["h=192.168.1.42&p=47821", "h=8.8.8.8&p=47821", "h=example.com&p=47821", "h=192.168.1.4&p=0", "h=192.168.1.4"] {
             let link = try #require(PairingLink(string: "reminislink://pair?v=1&id=\(id)&s=\(secret)&\(hp)"), "\(hp)")
-            #expect(link.fallbackEndpoint == nil, "\(hp)")
+            #expect(link == plain, "\(hp)")
         }
     }
 
@@ -57,15 +58,6 @@ struct PairingLinkTests {
         ]
         for string in bad {
             #expect(PairingLink(string: string) == nil, "\(string)")
-        }
-    }
-
-    @Test func onlyLocalIPv4Fallbacks() {
-        for ok in ["10.0.0.1", "10.255.255.255", "172.16.0.1", "172.31.255.1", "192.168.1.42", "169.254.10.2"] {
-            #expect(PairingLink.isLocalIPv4(ok), "\(ok)")
-        }
-        for bad in ["8.8.8.8", "172.15.0.1", "172.32.0.1", "192.169.0.1", "127.0.0.1", "169.253.0.1", "0.0.0.0", "1.2.3"] {
-            #expect(!PairingLink.isLocalIPv4(bad), "\(bad)")
         }
     }
 

@@ -57,8 +57,6 @@ final class AppModel {
     #endif
     /// How long to look for a console with Bonjour.
     let lookupTimeout: Duration
-    /// How long to wait for Bonjour before using the QR code endpoint.
-    let fallbackDelay: Duration
 
     var path: [Route] = []
     var sheet: Sheet?
@@ -71,20 +69,16 @@ final class AppModel {
 
     @ObservationIgnored private let makeSession: () -> URLSession
     @ObservationIgnored private var sessions: [String: ConsoleSession] = [:]
-    /// Endpoints learned from a QR code during this run, used when Bonjour
-    /// fails. Never persisted (docs/specs/03-protocole.md §3.1).
-    @ObservationIgnored private var sessionEndpoints: [String: Endpoint] = [:]
 
     init(
         store: DeviceStore, discovery: Discovery, artCache: ArtCache,
-        lookupTimeout: Duration = Discovery.lookupTimeout, fallbackDelay: Duration = .seconds(3),
+        lookupTimeout: Duration = Discovery.lookupTimeout,
         makeSession: @escaping () -> URLSession
     ) {
         self.store = store
         self.discovery = discovery
         self.artCache = artCache
         self.lookupTimeout = lookupTimeout
-        self.fallbackDelay = fallbackDelay
         self.makeSession = makeSession
     }
 
@@ -182,27 +176,13 @@ final class AppModel {
         return session
     }
 
-    func rememberEndpoint(_ endpoint: Endpoint, for deviceId: String) {
-        sessionEndpoints[deviceId] = endpoint
-    }
-
-    /// Finds a paired device: Bonjour by id first, then the endpoint of a QR
-    /// code scanned during this run.
+    /// Finds a console with Bonjour by its id, for a paired console as for a
+    /// pairing link: the `h`/`p` of a QR code are never used
+    /// (docs/specs/03-protocole.md §3.1).
     func endpoint(for deviceId: String) async throws -> Endpoint {
-        try await locate(deviceId: deviceId, fallback: sessionEndpoints[deviceId])
-    }
-
-    /// Endpoint for a pairing link: Bonjour by id, else `h`/`p` of the link,
-    /// but never for a console that is already paired.
-    func endpoint(for link: PairingLink) async throws -> Endpoint {
-        let fallback = DeviceLocator.pairingFallback(for: link, pairedIds: Set(store.devices.map(\.id)))
-        return try await locate(deviceId: link.deviceId, fallback: fallback)
-    }
-
-    private func locate(deviceId: String, fallback: Endpoint?) async throws -> Endpoint {
         let discovery = discovery
         return try await DeviceLocator.locate(
-            fallback: fallback, timeout: lookupTimeout, fallbackDelay: fallbackDelay,
+            timeout: lookupTimeout,
             find: { await discovery.waitForDevice(id: deviceId, timeout: $0) },
             resolve: { try await EndpointResolver.resolve($0) },
             isLocalNetworkDenied: { discovery.status == .localNetworkDenied }
@@ -212,7 +192,6 @@ final class AppModel {
     /// Forgets a device on this iPhone (after unpairing).
     func forget(deviceId: String) throws {
         sessions[deviceId] = nil
-        sessionEndpoints[deviceId] = nil
         try store.remove(deviceId)
         path.removeAll()
     }
