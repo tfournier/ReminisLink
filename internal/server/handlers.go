@@ -195,22 +195,24 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
+	s.presence.forget(client.ID)
 	s.log.Info("client unpaired", "client", client.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 type deviceResponse struct {
-	DeviceID      string          `json:"deviceId"`
-	DeviceName    string          `json:"deviceName"`
-	Model         string          `json:"model"`
-	Platform      string          `json:"platform"`
-	OS            string          `json:"os"`
-	OSVersion     *string         `json:"osVersion"`
-	PakVersion    string          `json:"pakVersion"`
-	Network       networkInfo     `json:"network"`
-	Battery       *batteryInfo    `json:"battery"`
-	Storage       []storageVolume `json:"storage"`
-	UptimeSeconds int64           `json:"uptimeSeconds"`
+	DeviceID         string            `json:"deviceId"`
+	DeviceName       string            `json:"deviceName"`
+	Model            string            `json:"model"`
+	Platform         string            `json:"platform"`
+	OS               string            `json:"os"`
+	OSVersion        *string           `json:"osVersion"`
+	PakVersion       string            `json:"pakVersion"`
+	Network          networkInfo       `json:"network"`
+	Battery          *batteryInfo      `json:"battery"`
+	Storage          []storageVolume   `json:"storage"`
+	UptimeSeconds    int64             `json:"uptimeSeconds"`
+	ConnectedClients []ConnectedClient `json:"connectedClients"`
 }
 
 type networkInfo struct {
@@ -237,16 +239,17 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := deviceResponse{
-		DeviceID:      s.opts.Identity.DeviceID,
-		DeviceName:    s.opts.Identity.DeviceName,
-		Model:         info.Model,
-		Platform:      info.Platform,
-		OS:            info.OS,
-		OSVersion:     info.OSVersion,
-		PakVersion:    s.opts.Identity.PakVersion,
-		Network:       networkInfo{IPv4: unknownIPv4, SSID: info.SSID},
-		Storage:       []storageVolume{},
-		UptimeSeconds: max(int64(s.now().Sub(s.started)/time.Second), 0),
+		DeviceID:         s.opts.Identity.DeviceID,
+		DeviceName:       s.opts.Identity.DeviceName,
+		Model:            info.Model,
+		Platform:         info.Platform,
+		OS:               info.OS,
+		OSVersion:        info.OSVersion,
+		PakVersion:       s.opts.Identity.PakVersion,
+		Network:          networkInfo{IPv4: unknownIPv4, SSID: info.SSID},
+		Storage:          []storageVolume{},
+		UptimeSeconds:    max(int64(s.now().Sub(s.started)/time.Second), 0),
+		ConnectedClients: s.ConnectedClients(),
 	}
 	if ip, ok := s.opts.IPv4(info.WirelessInterface); ok {
 		resp.Network.IPv4 = ip

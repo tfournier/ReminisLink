@@ -208,7 +208,11 @@ paths:
       summary: Device state
       responses:
         '200':
-          description: Device state. `ssid`, `battery` and `osVersion` may be null when unknown.
+          description: |
+            Device state. `ssid`, `battery` and `osVersion` may be null when
+            unknown. `connectedClients` lists the paired clients with a signed
+            request accepted in the last 30 seconds, the caller included; the
+            pak keeps it in memory only (empty at launch).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Device' }
@@ -225,6 +229,8 @@ paths:
                 storage:
                   - { id: sd, label: SD, totalBytes: 127865454592, freeBytes: 40265318400 }
                 uptimeSeconds: 512
+                connectedClients:
+                  - { clientName: iPhone de Thomas, lastSeenAt: '2026-11-18T17:00:00Z' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -1655,7 +1661,7 @@ components:
         proof: { $ref: '#/components/schemas/B64U32' }
     Device:
       type: object
-      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, network, battery, storage, uptimeSeconds]
+      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, network, battery, storage, uptimeSeconds, connectedClients]
       properties:
         deviceId: { $ref: '#/components/schemas/Uuid' }
         deviceName: { type: string }
@@ -1680,6 +1686,16 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Storage' }
         uptimeSeconds: { type: integer, format: int64, minimum: 0 }
+        connectedClients:
+          type: array
+          description: Paired clients with a signed request accepted in the last 30 seconds (caller included). In memory only.
+          items: { $ref: '#/components/schemas/ConnectedClient' }
+    ConnectedClient:
+      type: object
+      required: [clientName, lastSeenAt]
+      properties:
+        clientName: { type: string }
+        lastSeenAt: { $ref: '#/components/schemas/Timestamp' }
     Storage:
       type: object
       required: [id, label, totalBytes, freeBytes]

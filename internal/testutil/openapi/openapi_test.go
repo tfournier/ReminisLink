@@ -196,7 +196,7 @@ func TestValidateNullable(t *testing.T) {
 	if err := s.ValidateResponse("GET", "/hello", 200, h, []byte(helloExample)); err != nil {
 		t.Fatalf("null osVersion: %v", err)
 	}
-	device := `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"desktop","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","network":{"ipv4":"10.0.0.1","ssid":null},"battery":null,"storage":[],"uptimeSeconds":0}`
+	device := `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"desktop","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","network":{"ipv4":"10.0.0.1","ssid":null},"battery":null,"storage":[],"uptimeSeconds":0,"connectedClients":[]}`
 	if err := s.ValidateResponse("GET", "/device", 200, h, []byte(device)); err != nil {
 		t.Fatalf("null battery: %v", err)
 	}

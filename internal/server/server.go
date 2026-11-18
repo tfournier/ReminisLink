@@ -68,6 +68,7 @@ type Server struct {
 	opts         Options
 	log          *slog.Logger
 	rejectLog    *slog.Logger // sampled: lines about rejected requests
+	presence     *presence
 	now          func() time.Time
 	started      time.Time
 	shuttingDown atomic.Bool
@@ -112,6 +113,7 @@ func New(opts Options) (*Server, error) {
 		started:   opts.Now(),
 		hello:     newRateLimiter(HelloRate, HelloBurst, opts.Now),
 		pair:      newRateLimiter(PairRate, PairBurst, opts.Now),
+		presence:  newPresence(),
 		timeouts: timeouts{
 			bodyIdle: BodyIdleTimeout,
 			shutdown: ShutdownTimeout,
@@ -146,7 +148,7 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	v := s.opts.Verifier
 	signed := func(pattern string, opts auth.RouteOptions, h http.HandlerFunc) {
-		mux.Handle(pattern, v.Require(opts, h))
+		mux.Handle(pattern, v.Require(opts, s.markSeen(h)))
 	}
 
 	// Unsigned routes.
