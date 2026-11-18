@@ -220,7 +220,9 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	}
 	lib := library.New(adapter, layout)
 	trash := store.NewTrash(layout, r.SD, nil, logger)
-	guard, err := store.NewTimeGuard(layout.ConfigFile(), nil)
+	// From here config.json is only written through configFile.
+	configFile := store.NewConfigFile(layout.ConfigFile())
+	guard, err := store.NewTimeGuard(configFile, nil)
 	if err != nil {
 		return err
 	}
