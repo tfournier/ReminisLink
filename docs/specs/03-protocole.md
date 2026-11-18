@@ -155,7 +155,7 @@ Les suites Go et Swift DOIVENT les lire et les vérifier.
 ## 5. Identifiants
 
 - `systemId` = `b64u` du nom du dossier système (ex. `Game Boy Advance (GBA)`).
-- `gameId` = `b64u` du chemin du jeu relatif à `Roms/`, séparateur `/` (ex. `Game Boy Advance (GBA)/Hacks/Pokemon Unbound.gba`).
+- `gameId` = `b64u` du chemin du jeu relatif à `Roms/`, séparateur `/` (ex. `Game Boy Advance (GBA)/Hacks/Sky Garden Quest DX.gba`).
 - `folderId` = `b64u` du chemin d'un sous-dossier relatif à `Roms/`, même format.
 - `sdFileId`, `stagingId`, `backupId`, `entryId`, `uploadId`, `jobId` : identifiants générés par le pak, opaques eux aussi.
 - Ce sont des identifiants **opaques** : l'app ne les décode pas et ne les construit pas, elle les renvoie tels quels.

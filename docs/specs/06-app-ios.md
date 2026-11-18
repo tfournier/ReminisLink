@@ -62,7 +62,7 @@ Réglages de l'app
 
 ### 4.3 Tableau de bord
 
-Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés. Actions : **Corbeille** (liste des entrées avec taille et date d'expiration, suppression d'une entrée, **Vider la corbeille** avec confirmation), **Se désappairer**.
+Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés (champ `connectedClients` de `GET /device`). Actions : **Corbeille** (liste des entrées avec taille et date d'expiration, suppression d'une entrée, **Vider la corbeille** avec confirmation), **Se désappairer**.
 
 ### 4.4 Bibliothèque
 

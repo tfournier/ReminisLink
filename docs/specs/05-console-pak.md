@@ -170,7 +170,7 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 │  Brick de Thomas · 192.168.1.42      │
 │                                      │
 │  Appareils connectés : iPhone de T.  │
-│  ▸ Envoi : Pokemon Unbound.gba  62 % │
+│  ▸ Envoi : Sky Garden Quest DX.gba  62 % │
 │                                      │
 │ A Masquer le QR   Y Réglages   B Quitter │
 └──────────────────────────────────────┘
@@ -178,7 +178,7 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 
 - L'état en haut à droite : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s), `Transfert en cours`.
 - La liste des transferts et tâches en cours avec leur progression.
-- Un bandeau de notification bref quand une action modifie la carte SD (« Save restaurée : Pokemon Emerald »).
+- Un bandeau de notification bref quand une action modifie la carte SD (« Save restaurée : Sky Garden Quest »).
 
 ### 7.2 Réglages (Y)
 
