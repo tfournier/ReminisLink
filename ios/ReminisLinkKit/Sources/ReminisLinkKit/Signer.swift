@@ -76,16 +76,19 @@ public struct Signer: Sendable {
     ///   - rawQuery: the query as it will be sent (without `?`). Build it with
     ///     ``encodeQuery(_:)`` so the device reads exactly what was signed.
     ///   - unsignedBody: only for upload chunks.
+    ///   - bodySHA256: the hash of a body sent from a file (computed while
+    ///     reading it), used instead of hashing `body`.
     public func headers(
         method: String,
         path: String,
         rawQuery: String = "",
         body: Data = Data(),
+        bodySHA256: String? = nil,
         unsignedBody: Bool = false,
         time: Int64,
         nonce: String = Signer.makeNonce()
     ) throws -> SignedHeaders {
-        let content = unsignedBody ? Self.unsignedPayload : Self.contentSHA256(body)
+        let content = unsignedBody ? Self.unsignedPayload : (bodySHA256 ?? Self.contentSHA256(body))
         let timeString = String(time)
         let canonical = try Self.canonicalRequest(
             method: method, path: path, rawQuery: rawQuery,
@@ -99,14 +102,17 @@ public struct Signer: Sendable {
 
     /// Returns a copy of `request` with an uppercased method and the signature
     /// headers. The path and query are taken percent-encoded from its URL.
+    /// A body sent from a file is signed with `bodySHA256` (its hash), or
+    /// as `UNSIGNED` with `unsignedBody` (upload chunks only).
     public func sign(
         _ request: URLRequest,
         time: Int64,
         unsignedBody: Bool = false,
+        bodySHA256: String? = nil,
         nonce: String = Signer.makeNonce()
     ) throws -> URLRequest {
         guard let url = request.url else { throw SignerError.missingURL }
-        if request.httpBody == nil, request.httpBodyStream != nil, !unsignedBody {
+        if request.httpBody == nil, request.httpBodyStream != nil, !unsignedBody, bodySHA256 == nil {
             throw SignerError.bodyStreamNotSignable
         }
         var signed = request
@@ -116,6 +122,7 @@ public struct Signer: Sendable {
             path: url.path(percentEncoded: true),
             rawQuery: url.query(percentEncoded: true) ?? "",
             body: request.httpBody ?? Data(),
+            bodySHA256: bodySHA256,
             unsignedBody: unsignedBody,
             time: time,
             nonce: nonce

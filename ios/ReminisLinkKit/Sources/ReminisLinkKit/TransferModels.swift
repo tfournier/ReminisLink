@@ -115,15 +115,15 @@ public struct UploadStatus: Codable, Sendable, Equatable {
 }
 
 /// `200` of `POST /uploads/{uploadId}/complete`, depending on the target:
-/// `gameId` (rom), `backup` (save), `slot` (state) or `stagingId` (staging).
-/// `backup` and `slot` are kept as raw JSON until their screens exist (M5).
+/// `gameId` (rom), `backup` (save: the copy of the previous save, null if
+/// there was none), `slot` (state) or `stagingId` (staging).
 public struct UploadResult: Codable, Sendable, Equatable {
     public let gameId: String?
     public let stagingId: String?
-    public let backup: JSONValue?
-    public let slot: JSONValue?
+    public let backup: SaveBackup?
+    public let slot: StateSlot?
 
-    public init(gameId: String? = nil, stagingId: String? = nil, backup: JSONValue? = nil, slot: JSONValue? = nil) {
+    public init(gameId: String? = nil, stagingId: String? = nil, backup: SaveBackup? = nil, slot: StateSlot? = nil) {
         self.gameId = gameId
         self.stagingId = stagingId
         self.backup = backup
