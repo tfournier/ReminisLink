@@ -148,3 +148,17 @@ func verifyMAC(expected []byte, receivedB64U string) bool {
 	}
 	return hmac.Equal(expected, got)
 }
+
+// PairingURLScheme is the scheme of the link carried by the QR code.
+const PairingURLScheme = "reminislink"
+
+// PairingURL returns the link of the QR code (docs/specs/03-protocole.md
+// §3.1):
+//
+//	reminislink://pair?v=1&id=<deviceId>&n=<name>&s=<b64u secret>&h=<IPv4>&p=<port>
+//
+// The name is percent-encoded per RFC 3986 (a space is %20).
+func PairingURL(deviceID, name string, secret []byte, host string, port int) string {
+	return fmt.Sprintf("%s://pair?v=1&id=%s&n=%s&s=%s&h=%s&p=%d",
+		PairingURLScheme, EncodeRFC3986(deviceID), EncodeRFC3986(name), EncodeB64U(secret), EncodeRFC3986(host), port)
+}

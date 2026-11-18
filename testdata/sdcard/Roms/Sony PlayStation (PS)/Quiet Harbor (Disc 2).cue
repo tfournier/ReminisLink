@@ -1,0 +1,1 @@
+FILE "Quiet Harbor (Disc 2).bin" BINARY

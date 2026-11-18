@@ -222,7 +222,7 @@ func signingVectors() (signingFile, error) {
 	const client1 = "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
 	const client2 = "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a"
 	gba := library.EncodeID("Game Boy Advance (GBA)")
-	game := library.EncodeID("Game Boy Advance (GBA)/Pokemon Emerald.gba")
+	game := library.EncodeID("Game Boy Advance (GBA)/Sky Garden Quest.gba")
 	// A game id whose encoding contains both "-" and "_".
 	odd := library.EncodeID("Nintendo DS (NDS)/Kôdo ÿ Ëxtra ÿÿ~.nds")
 	if !strings.ContainsAny(odd, "-") || !strings.ContainsAny(odd, "_") {
@@ -245,8 +245,8 @@ func signingVectors() (signingFile, error) {
 			time: "1795539600"},
 		{name: "get-query-sorted-and-encoded", key: key1, clientID: client1, method: "GET",
 			path:           "/api/v1/systems/" + gba + "/games",
-			query:          "q=Pok%c3%a9mon+Emerald&path=a/b&plus=1%2B1&z=%7E~&a=2&a=10&flag",
-			canonicalQuery: "a=10&a=2&flag=&path=a%2Fb&plus=1%2B1&q=Pok%C3%A9mon%20Emerald&z=~~",
+			query:          "q=Caf%c3%a9+R%c3%aaverie&path=a/b&plus=1%2B1&z=%7E~&a=2&a=10&flag",
+			canonicalQuery: "a=10&a=2&flag=&path=a%2Fb&plus=1%2B1&q=Caf%C3%A9%20R%C3%AAverie&z=~~",
 			time:           "1795539601"},
 		{name: "get-query-raw-utf8-and-reserved", key: key2, clientID: client2, method: "GET",
 			path:           "/api/v1/systems/" + gba + "/games",
@@ -352,8 +352,8 @@ func idVectors() (idsFile, error) {
 	valid := []struct{ name, path string }{
 		{"system-folder", "Game Boy Advance (GBA)"},
 		{"system-with-sort-prefix", "01) Game Boy (GB)"},
-		{"game-at-system-root", "Game Boy Advance (GBA)/Pokemon Emerald.gba"},
-		{"game-in-subfolder", "Game Boy Advance (GBA)/Hacks/Pokemon Unbound.gba"},
+		{"game-at-system-root", "Game Boy Advance (GBA)/Sky Garden Quest.gba"},
+		{"game-in-subfolder", "Game Boy Advance (GBA)/Hacks/Sky Garden Quest DX.gba"},
 		{"deep-subfolders", "Super Nintendo (SFC)/Homebrew/2024/Jam/Tiny Quest (v1.2).sfc"},
 		{"accents-nfc", "Super Nintendo (SFC)/La Légende du Héros (Français).sfc"},
 		{"accents-nfd", "Super Nintendo (SFC)/La Légende du Héros (Français).sfc"},

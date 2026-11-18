@@ -144,6 +144,34 @@ func unhex(c byte) byte {
 	}
 }
 
+// HasDuplicateQueryKey reports whether a raw query names the same key more
+// than once. Keys are compared once decoded ("a=1&%61=2" repeats "a"), the
+// way the handlers read them. A malformed query is reported as an error
+// (ErrMalformed). The pak refuses such requests with 400 invalid_request
+// (docs/specs/03-protocole.md §4.2): with a repeated key, the handler and
+// the canonical string could disagree on which value counts.
+func HasDuplicateQueryKey(rawQuery string) (bool, error) {
+	if rawQuery == "" {
+		return false, nil
+	}
+	seen := make(map[string]bool)
+	for _, part := range strings.Split(rawQuery, "&") {
+		if part == "" {
+			continue
+		}
+		k, _, _ := strings.Cut(part, "=")
+		dk, err := queryUnescape(k)
+		if err != nil {
+			return false, err
+		}
+		if seen[dk] {
+			return true, nil
+		}
+		seen[dk] = true
+	}
+	return false, nil
+}
+
 // RequestParts are the inputs of the canonical string. Path is the path as
 // sent on the request line (still percent-encoded, without the query) and
 // RawQuery the query as sent (without "?").

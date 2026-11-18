@@ -208,7 +208,11 @@ paths:
       summary: Device state
       responses:
         '200':
-          description: Device state. `ssid`, `battery` and `osVersion` may be null when unknown.
+          description: |
+            Device state. `ssid`, `battery` and `osVersion` may be null when
+            unknown. `connectedClients` lists the paired clients with a signed
+            request accepted in the last 30 seconds, the caller included; the
+            pak keeps it in memory only (empty at launch).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Device' }
@@ -225,6 +229,8 @@ paths:
                 storage:
                   - { id: sd, label: SD, totalBytes: 127865454592, freeBytes: 40265318400 }
                 uptimeSeconds: 512
+                connectedClients:
+                  - { clientName: iPhone de Thomas, lastSeenAt: '2026-11-18T17:00:00Z' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -288,9 +294,9 @@ paths:
                 folders:
                   - { id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw, name: Hacks, gameCount: 3 }
                 games:
-                  - id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh
-                    name: Pokemon Emerald
-                    fileName: Pokemon Emerald.gba
+                  - id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ
+                    name: Sky Garden Quest
+                    fileName: Sky Garden Quest.gba
                     kind: file
                     sizeBytes: 16777216
                     modifiedAt: '2026-10-02T09:12:00Z'
@@ -321,17 +327,17 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/GameDetail' }
               example:
-                id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh
+                id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ
                 systemId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ
-                name: Pokemon Emerald
-                fileName: Pokemon Emerald.gba
+                name: Sky Garden Quest
+                fileName: Sky Garden Quest.gba
                 kind: file
                 files:
-                  - { role: rom, path: Roms/Game Boy Advance (GBA)/Pokemon Emerald.gba, sizeBytes: 16777216, modifiedAt: '2026-10-02T09:12:00Z' }
-                  - { role: save, path: Saves/GBA/Pokemon Emerald.gba.sav, sizeBytes: 131072, modifiedAt: '2026-11-18T16:55:00Z' }
-                  - { role: state, slot: 0, path: .userdata/shared/.minui/GBA/Pokemon Emerald.gba.st0, sizeBytes: 401408, modifiedAt: '2026-11-18T16:55:00Z' }
-                  - { role: cheats, path: Cheats/GBA/Pokemon Emerald.gba.cht, sizeBytes: 2048, modifiedAt: '2026-10-02T09:12:00Z' }
-                  - { role: art, path: Roms/Game Boy Advance (GBA)/.media/Pokemon Emerald.png, sizeBytes: 50211, modifiedAt: '2026-10-02T09:12:00Z' }
+                  - { role: rom, path: Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba, sizeBytes: 16777216, modifiedAt: '2026-10-02T09:12:00Z' }
+                  - { role: save, path: Saves/GBA/Sky Garden Quest.gba.sav, sizeBytes: 131072, modifiedAt: '2026-11-18T16:55:00Z' }
+                  - { role: state, slot: 0, path: .userdata/shared/.minui/GBA/Sky Garden Quest.gba.st0, sizeBytes: 401408, modifiedAt: '2026-11-18T16:55:00Z' }
+                  - { role: cheats, path: Cheats/GBA/Sky Garden Quest.gba.cht, sizeBytes: 2048, modifiedAt: '2026-10-02T09:12:00Z' }
+                  - { role: art, path: Roms/Game Boy Advance (GBA)/.media/Sky Garden Quest.png, sizeBytes: 50211, modifiedAt: '2026-10-02T09:12:00Z' }
                 totalBytes: 17377096
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -368,9 +374,9 @@ paths:
               example:
                 trashEntryId: tr_20261118T170000Z_a1b2
                 moved:
-                  - Roms/Game Boy Advance (GBA)/Pokemon Emerald.gba
-                  - Saves/GBA/Pokemon Emerald.gba.sav
-                  - Cheats/GBA/Pokemon Emerald.gba.cht
+                  - Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba
+                  - Saves/GBA/Sky Garden Quest.gba.sav
+                  - Cheats/GBA/Sky Garden Quest.gba.cht
                 movedBytes: 17377096
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -437,10 +443,10 @@ paths:
                   - id: tr_20261118T170000Z_a1b2
                     trashedAt: '2026-11-18T17:00:00Z'
                     reason: delete-game
-                    label: Pokemon Emerald
+                    label: Sky Garden Quest
                     files:
-                      - Roms/Game Boy Advance (GBA)/Pokemon Emerald.gba
-                      - Saves/GBA/Pokemon Emerald.gba.sav
+                      - Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba
+                      - Saves/GBA/Sky Garden Quest.gba.sav
                     sizeBytes: 17377096
                     expiresAt: '2026-12-18T17:00:00Z'
                 totalBytes: 17377096
@@ -747,7 +753,7 @@ paths:
               schema: { $ref: '#/components/schemas/TrashMoveResult' }
               example:
                 trashEntryId: tr_20261118T171500Z_0c1d
-                moved: [.userdata/shared/.minui/GBA/Pokemon Emerald.gba.st1]
+                moved: [.userdata/shared/.minui/GBA/Sky Garden Quest.gba.st1]
                 movedBytes: 401408
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -1043,7 +1049,7 @@ paths:
               schema: { $ref: '#/components/schemas/SdFileList' }
               example:
                 files:
-                  - { id: sd_Q2hlYXRzL0dCQS9Qb2tlbW9uIEVtZXJhbGQuZ2JhLmNodA, path: Cheats/GBA/Pokemon Emerald.gba.cht, sizeBytes: 2048 }
+                  - { id: sd_Q2hlYXRzL0dCQS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYS5jaHQ, path: Cheats/GBA/Sky Garden Quest.gba.cht, sizeBytes: 2048 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -1069,7 +1075,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CreateUploadRequest' }
             example:
-              target: { kind: rom, systemId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ, folderId: null, fileName: Pokemon Unbound.gba }
+              target: { kind: rom, systemId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ, folderId: null, fileName: Sky Garden Quest DX.gba }
               sizeBytes: 33554432
               sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
               onConflict: fail
@@ -1192,7 +1198,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UploadResult' }
-              example: { gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcy9Qb2tlbW9uIFVuYm91bmQuZ2Jh }
+              example: { gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcy9Ta3kgR2FyZGVuIFF1ZXN0IERYLmdiYQ }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1258,7 +1264,7 @@ paths:
             schema: { $ref: '#/components/schemas/PatchRequest' }
             example:
               patch: { type: staging, stagingId: st_01JD3Y4K5M6N }
-              output: { mode: new-file, fileName: Pokemon Emerald (FR).gba }
+              output: { mode: new-file, fileName: Sky Garden Quest (FR).gba }
       responses:
         '202':
           description: Job created.
@@ -1326,7 +1332,7 @@ paths:
                 progress: { done: 16777216, total: 16777216 }
                 createdAt: '2026-11-18T17:00:00Z'
                 updatedAt: '2026-11-18T17:00:04Z'
-                result: { gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQgKEZSKS5nYmE }
+                result: { gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0IChGUikuZ2Jh }
                 error: null
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -1407,7 +1413,7 @@ components:
       required: true
       description: Game identifier (opaque).
       schema: { $ref: '#/components/schemas/OpaqueId' }
-      example: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh
+      example: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ
     BackupId:
       name: backupId
       in: path
@@ -1655,7 +1661,7 @@ components:
         proof: { $ref: '#/components/schemas/B64U32' }
     Device:
       type: object
-      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, network, battery, storage, uptimeSeconds]
+      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, network, battery, storage, uptimeSeconds, connectedClients]
       properties:
         deviceId: { $ref: '#/components/schemas/Uuid' }
         deviceName: { type: string }
@@ -1680,6 +1686,16 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Storage' }
         uptimeSeconds: { type: integer, format: int64, minimum: 0 }
+        connectedClients:
+          type: array
+          description: Paired clients with a signed request accepted in the last 30 seconds (caller included). In memory only.
+          items: { $ref: '#/components/schemas/ConnectedClient' }
+    ConnectedClient:
+      type: object
+      required: [clientName, lastSeenAt]
+      properties:
+        clientName: { type: string }
+        lastSeenAt: { $ref: '#/components/schemas/Timestamp' }
     Storage:
       type: object
       required: [id, label, totalBytes, freeBytes]

@@ -21,8 +21,8 @@ struct SignerTests {
     }
 
     @Test func encodeQueryIsCanonical() throws {
-        let q = Signer.encodeQuery([(name: "q", value: "Pokémon Emerald"), (name: "plus", value: "1+1"), (name: "path", value: "a/b")])
-        #expect(q == "path=a%2Fb&plus=1%2B1&q=Pok%C3%A9mon%20Emerald")
+        let q = Signer.encodeQuery([(name: "q", value: "Café Rêverie"), (name: "plus", value: "1+1"), (name: "path", value: "a/b")])
+        #expect(q == "path=a%2Fb&plus=1%2B1&q=Caf%C3%A9%20R%C3%AAverie")
         #expect(try Signer.canonicalQuery(rawQuery: q) == q)
     }
 

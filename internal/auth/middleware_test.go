@@ -551,3 +551,73 @@ func TestRouteOptionsAreFixedAtRegistration(t *testing.T) {
 	}
 	<-f.seen
 }
+
+func TestMiddlewareRefusesDuplicateQueryKeys(t *testing.T) {
+	f := newMWFixture(t, 0)
+	for _, target := range []string{
+		"/api/v1/systems/x/games?folderId=a&folderId=b",
+		"/api/v1/systems/x/games?folderId=a&folderId=a",
+		"/api/v1/systems/x/games?folderId=a&%66olderId=b", // %66 is "f"
+		"/api/v1/x?a&a=",
+	} {
+		req := f.request(signOpts{method: "GET", target: target})
+		if status, code := f.do(req); status != http.StatusBadRequest || code != CodeInvalidRequest {
+			t.Errorf("%s: got %d %s, want 400 %s", target, status, code, CodeInvalidRequest)
+		}
+		// The nonce is consumed: the same request again is a replay.
+		again := req.Clone(req.Context())
+		again.Body = http.NoBody
+		if status, code := f.do(again); status != http.StatusUnauthorized || code != CodeReplayedRequest {
+			t.Errorf("%s replayed: got %d %s, want 401 %s", target, status, code, CodeReplayedRequest)
+		}
+	}
+	// Distinct keys and repeated empty pairs are fine.
+	req := f.request(signOpts{method: "GET", target: "/api/v1/x?a=1&&b=1&c"})
+	if status, code := f.do(req); status != http.StatusNoContent {
+		t.Errorf("distinct keys: got %d %s", status, code)
+	}
+}
+
+func TestMiddlewareRefusesSemicolons(t *testing.T) {
+	f := newMWFixture(t, 0)
+	for _, target := range []string{"/api/v1/x?a=1;b=2", "/api/v1/x?a=1&b=;"} {
+		if status, code := f.do(f.request(signOpts{method: "GET", target: target})); status != http.StatusBadRequest || code != CodeInvalidRequest {
+			t.Errorf("%s: got %d %s", target, status, code)
+		}
+	}
+	// An encoded semicolon is a plain character.
+	if status, code := f.do(f.request(signOpts{method: "GET", target: "/api/v1/x?a=1%3Bb"})); status != http.StatusNoContent {
+		t.Errorf("encoded semicolon: %d %s", status, code)
+	}
+}
+
+func TestMiddlewareDuplicateKeyNeedsValidSignature(t *testing.T) {
+	f := newMWFixture(t, 0)
+	req := f.request(signOpts{method: "GET", target: "/api/v1/x?a=1&a=2", key: bytes.Repeat([]byte{1}, KeySize)})
+	if status, code := f.do(req); status != http.StatusUnauthorized || code != CodeBadSignature {
+		t.Errorf("got %d %s, want 401 %s", status, code, CodeBadSignature)
+	}
+}
+
+func TestNewVerifierSharesTheClock(t *testing.T) {
+	clock := newFakeClock()
+	v := NewVerifier(nil, clock.Now, 10, nil)
+	if v.Now == nil || v.Nonces == nil {
+		t.Fatal("NewVerifier left a field empty")
+	}
+	signedAt := clock.Now()
+	if err := v.Nonces.Add(testClientA, "n", signedAt); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(NonceTTL)
+	if !v.Nonces.Seen(testClientA, "n") {
+		t.Fatal("nonce forgotten before its TTL on the shared clock")
+	}
+	clock.Advance(time.Second)
+	if v.Nonces.Seen(testClientA, "n") {
+		t.Fatal("nonce still remembered after its TTL: the cache does not use the verifier clock")
+	}
+	if got := NewVerifier(nil, nil, 0, nil); got.Now == nil {
+		t.Fatal("nil clock not defaulted")
+	}
+}

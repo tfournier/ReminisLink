@@ -25,6 +25,18 @@ ReminisLink/
 └── prompts/               # prompts for the AI coding agents (French)
 ```
 
+## Running the pak on a Mac
+
+```sh
+make headless                  # server + Bonjour on a temporary copy of testdata/sdcard
+dns-sd -B _reminislink._tcp    # the pak is announced on the local network
+echo '<pairing link printed by make headless>' | scripts/smoke.sh   # pair, then a signed GET /systems
+```
+
+The headless mode prints the pairing link, the PIN and a QR code in the
+terminal. `HEADLESS_ARGS="--port 48000 --name Test" make headless` changes the
+port and the name for that run.
+
 ## Documentation
 
 - [Specifications](docs/specs/README.md)

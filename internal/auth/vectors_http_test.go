@@ -76,6 +76,15 @@ func TestSigningVectorsThroughHTTPServer(t *testing.T) {
 			}
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
+			// The pak refuses repeated query keys after checking the
+			// signature (03 §4.2): 400 invalid_request, not 401, proves
+			// the vector's signature was accepted.
+			if dup, _ := HasDuplicateQueryKey(c.Query); dup {
+				if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), CodeInvalidRequest) {
+					t.Fatalf("duplicate keys: status %d: %s", resp.StatusCode, body)
+				}
+				return
+			}
 			if resp.StatusCode != http.StatusNoContent {
 				t.Fatalf("status %d: %s", resp.StatusCode, body)
 			}

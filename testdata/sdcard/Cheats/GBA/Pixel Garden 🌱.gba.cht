@@ -1,0 +1,5 @@
+cheats = 1
+
+cheat0_desc = "All seeds"
+cheat0_code = "02000010+00FF"
+cheat0_enable = false

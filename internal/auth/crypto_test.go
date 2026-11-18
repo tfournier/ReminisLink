@@ -197,3 +197,45 @@ func FuzzCanonicalQuery(f *testing.F) {
 		}
 	})
 }
+
+func TestHasDuplicateQueryKey(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  bool
+		err   bool
+	}{
+		{"", false, false},
+		{"a=1&b=2", false, false},
+		{"a=1&&b=2", false, false},
+		{"a=1&a=2", true, false},
+		{"a&a", true, false},
+		{"a=1&%61=2", true, false},
+		{"a+b=1&a%20b=2", true, false},
+		{"a=1&A=2", false, false}, // keys are case-sensitive
+		{"a=%zz", false, false},   // values are not decoded here
+		{"%zz=1", false, true},
+	} {
+		got, err := HasDuplicateQueryKey(tc.query)
+		if (err != nil) != tc.err || got != tc.want {
+			t.Errorf("HasDuplicateQueryKey(%q) = %v, %v; want %v, err=%v", tc.query, got, err, tc.want, tc.err)
+		}
+	}
+}
+
+func TestLogString(t *testing.T) {
+	if LogString("abc", 5) != "abc" {
+		t.Fatal("short string changed")
+	}
+	got := LogString(strings.Repeat("a", 600), MaxLoggedPath)
+	if !strings.HasPrefix(got, strings.Repeat("a", 512)+"...[88 bytes truncated]") || len(got) > 540 {
+		t.Fatalf("got %q", got)
+	}
+	// Never cut inside a rune.
+	got = LogString("ééé", 3)
+	if got != "é...[4 bytes truncated]" {
+		t.Fatalf("got %q", got)
+	}
+	if LogClient("x\nfake log line") != "" || LogClient(testClientA) != testClientA {
+		t.Fatal("LogClient")
+	}
+}
