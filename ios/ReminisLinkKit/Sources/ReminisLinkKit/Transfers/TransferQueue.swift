@@ -26,6 +26,7 @@ final class PauseFlag: @unchecked Sendable {
     private var value = false
     var isSet: Bool { lock.withLock { value } }
     func set() { lock.withLock { value = true } }
+    func clear() { lock.withLock { value = false } }
 }
 
 /// One upload of the queue.
@@ -63,6 +64,11 @@ public final class UploadItem: Identifiable {
     /// Why it is paused or failed.
     public internal(set) var failure: (any Error)?
     public internal(set) var result: UploadResult?
+    /// `complete` is in flight: the outcome is up to the device now, the
+    /// upload can no longer be cancelled.
+    public internal(set) var isCompleting = false
+    /// `complete` was sent without a definite answer yet.
+    public internal(set) var completeSent = false
 
     let fileURL: URL
     /// The file is a copy made for this upload: deleted once finished.
@@ -136,6 +142,9 @@ public final class JobItem: Identifiable {
 public final class TransferQueue {
     public private(set) var uploads: [UploadItem] = []
     public private(set) var jobs: [JobItem] = []
+    /// The app is in the background: no upload or hashing starts, the
+    /// running one stops after its current chunk.
+    public private(set) var isSuspended = false
 
     /// Called on the main actor when an upload is done.
     @ObservationIgnored public var onUploadFinished: ((UploadItem) -> Void)?
@@ -190,9 +199,34 @@ public final class TransferQueue {
         return item
     }
 
-    /// Cancels an upload, on the device too (best effort).
+    /// Cancels an upload, on the device too (best effort). Ignored while
+    /// `complete` is in flight: its real outcome is shown instead. After a
+    /// `complete` whose answer was lost, the upload is only shown cancelled
+    /// if the device still had it; otherwise the outcome is unknown.
     public func cancel(_ item: UploadItem) {
-        guard !item.phase.isFinished else { return }
+        guard !item.phase.isFinished, !item.isCompleting else { return }
+        if item.completeSent, let upload = item.upload {
+            item.task?.cancel()
+            let client = client
+            Task {
+                let outcome: ResumableUpload.CancelOutcome
+                if let api = try? await client() {
+                    outcome = await upload.cancel(client: api)
+                } else {
+                    outcome = .outcomeUnknown
+                }
+                if outcome == .cancelled {
+                    item.phase = .cancelled
+                    item.failure = nil
+                    item.completeSent = false
+                    self.cleanUp(item)
+                } else {
+                    item.phase = .failed
+                    item.failure = UploadFailure.outcomeUnknown
+                }
+            }
+            return
+        }
         item.phase = .cancelled
         item.failure = nil
         item.task?.cancel()
@@ -224,15 +258,25 @@ public final class TransferQueue {
         resume(item)
     }
 
-    /// Resumes every paused upload (the app is active again).
+    /// Resumes every paused upload.
     public func resumePaused() {
         for item in uploads where item.phase == .paused { resume(item) }
     }
 
     /// The app goes to the background: the running upload stops after its
-    /// current chunk.
-    public func pauseAfterCurrentChunk() {
+    /// current chunk (or hashing buffer) and nothing else starts.
+    public func suspend() {
+        isSuspended = true
         for item in uploads where item.phase == .uploading || item.phase == .hashing { item.pauseFlag.set() }
+    }
+
+    /// The app is active again: a running upload that has not stopped yet
+    /// goes on, and paused uploads resume.
+    public func resumeAfterSuspension() {
+        isSuspended = false
+        for item in uploads where item.phase == .uploading || item.phase == .hashing { item.pauseFlag.clear() }
+        resumePaused()
+        pump()
     }
 
     /// Removes the finished uploads and jobs from the lists.
@@ -247,9 +291,9 @@ public final class TransferQueue {
     }
 
     private func pump() {
-        guard worker == nil else { return }
+        guard worker == nil, !isSuspended else { return }
         worker = Task {
-            while let item = uploads.first(where: { $0.phase == .waiting }) {
+            while !isSuspended, let item = uploads.first(where: { $0.phase == .waiting }) {
                 let task = Task { await self.process(item) }
                 item.task = task
                 await task.value
@@ -261,13 +305,17 @@ public final class TransferQueue {
     private func process(_ item: UploadItem) async {
         let flag = PauseFlag()
         item.pauseFlag = flag
-        let token = background.begin(name: "Upload \(item.fileName)") { flag.set() }
+        let token = background.begin(name: "Upload \(item.fileName)") { [weak self] in
+            // Out of background time: stop after the current chunk.
+            self?.suspend()
+            flag.set()
+        }
         defer { background.end(token) }
         do {
             if item.sha256 == nil {
                 item.phase = .hashing
                 item.hashedBytes = 0
-                let sha = try await FileDigest.sha256(of: item.fileURL) { bytes in
+                let sha = try await FileDigest.sha256(of: item.fileURL, shouldPause: { flag.isSet }) { bytes in
                     Task { @MainActor in item.hashedBytes = bytes }
                 }
                 item.sha256 = sha
@@ -291,11 +339,25 @@ public final class TransferQueue {
             let api = try await client()
             let start = start
             let clock = clock
-            let result = try await upload.run(client: api, shouldPause: { flag.isSet }, progress: { offset in
-                let elapsed = clock.now - start
-                let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
-                await item.report(offset: offset, at: seconds)
-            })
+            let result: UploadResult
+            do {
+                result = try await upload.run(client: api, shouldPause: { flag.isSet }, progress: { offset in
+                    let elapsed = clock.now - start
+                    let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+                    await item.report(offset: offset, at: seconds)
+                }, willComplete: {
+                    await MainActor.run {
+                        item.isCompleting = true
+                        item.completeSent = true
+                    }
+                })
+            } catch {
+                item.isCompleting = false
+                item.completeSent = await upload.completeSent
+                throw error
+            }
+            item.isCompleting = false
+            item.completeSent = false
             guard item.phase != .cancelled else { return }
             item.result = result
             item.sentBytes = item.sizeBytes
@@ -310,7 +372,8 @@ public final class TransferQueue {
             item.secondsRemaining = nil
             switch error {
             case UploadFailure.paused, is CancellationError:
-                item.phase = .paused
+                // Back in the foreground before the chunk ended: go on.
+                item.phase = isSuspended || error is CancellationError ? .paused : .waiting
                 item.failure = nil
             case APIError.network:
                 item.phase = .paused

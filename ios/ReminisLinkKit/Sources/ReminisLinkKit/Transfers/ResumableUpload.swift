@@ -52,8 +52,15 @@ public struct RetryPolicy: Sendable {
 ///   the offset received, and goes on from there. A `409 conflict` on a
 ///   chunk carries the expected offset (`details.offset`): the run goes on
 ///   from it.
-/// - An upload the device no longer knows (`404`: the pak was restarted,
-///   uploads in progress are lost) is created again from the start.
+/// - The pak keeps uploads in progress across its restarts (the offset
+///   given by `GET /uploads/{id}` is recomputed from the bytes written). An
+///   upload it no longer knows (`404`: purged after 24 h idle, or lost) is
+///   created again from the start, unless `complete` was already sent.
+/// - Once `complete` is sent, the outcome is only known from its answer:
+///   if the answer is lost and the device then no longer knows the upload,
+///   the file may or may not have been written. The run then fails with
+///   ``UploadFailure/outcomeUnknown`` and never sends the file again by
+///   itself (this state survives across runs).
 /// - Every request is a new signed request (new nonce): a nonce is consumed
 ///   even when the request fails after the signature.
 ///
@@ -70,6 +77,8 @@ public actor ResumableUpload {
     /// Bytes confirmed by the device.
     public private(set) var offset: Int64 = 0
     public private(set) var chunkSize: Int64 = ResumableUpload.defaultChunkSize
+    /// `complete` was sent and no definite answer came back yet.
+    public private(set) var completeSent = false
 
     private let scratchDirectory: URL
     private let retry: RetryPolicy
@@ -95,6 +104,7 @@ public actor ResumableUpload {
         uploadId = nil
         offset = 0
         needsSync = false
+        completeSent = false
         return previous
     }
 
@@ -104,15 +114,18 @@ public actor ResumableUpload {
     ///   - shouldPause: checked between chunks; true stops the run with
     ///     ``UploadFailure/paused``.
     ///   - progress: the offset confirmed by the device, after every change.
+    ///   - willComplete: called just before `complete` is sent.
     public func run(
         client: APIClient,
         shouldPause: @escaping @Sendable () -> Bool = { false },
-        progress: @escaping @Sendable (Int64) async -> Void = { _ in }
+        progress: @escaping @Sendable (Int64) async -> Void = { _ in },
+        willComplete: @escaping @Sendable () async -> Void = {}
     ) async throws -> UploadResult {
         var failures = 0
         var restarts = 0
         var conflicts = 0
-        var completing = false
+        // A previous run sent `complete` and the device forgot the upload.
+        if completeSent && uploadId == nil { throw UploadFailure.outcomeUnknown }
         if uploadId != nil { needsSync = true }
         try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
         let chunkFile = scratchDirectory.appending(path: "chunk-\(UUID().uuidString)")
@@ -165,8 +178,23 @@ public actor ResumableUpload {
                 }
 
                 if shouldPause() { throw UploadFailure.paused }
-                completing = true
-                let result = try await client.completeUpload(id: id)
+                await willComplete()
+                let sentBefore = completeSent
+                completeSent = true
+                let result: UploadResult
+                do {
+                    result = try await client.completeUpload(id: id)
+                } catch let error as APIError {
+                    // A definite refusal (conflict, checksum, or an upload
+                    // unknown to a first `complete`): nothing was written.
+                    // A lost answer keeps the doubt.
+                    if case .server(let server) = error, !Self.isTransient(error),
+                       server.code != .notFound || !sentBefore {
+                        completeSent = false
+                    }
+                    throw error
+                }
+                completeSent = false
                 uploadId = nil
                 return result
             } catch let error as APIError where Self.isTransient(error) {
@@ -181,8 +209,8 @@ public actor ResumableUpload {
             } catch let error as APIError {
                 switch error {
                 case .server(let server) where server.code == .notFound && uploadId != nil:
-                    // The device lost the upload (restarted, or expired).
-                    if completing { uploadId = nil; throw UploadFailure.outcomeUnknown }
+                    // The device lost the upload (purged, or lost).
+                    if completeSent { uploadId = nil; throw UploadFailure.outcomeUnknown }
                     try forget(&restarts)
                 case .server(let server) where server.code == .checksumMismatch:
                     // The device deleted the upload.
@@ -196,12 +224,30 @@ public actor ResumableUpload {
         }
     }
 
+    /// What a cancellation achieved.
+    public enum CancelOutcome: Sendable, Equatable {
+        /// Nothing written on the device.
+        case cancelled
+        /// `complete` had been sent and the device no longer knows the
+        /// upload: the file may have been written.
+        case outcomeUnknown
+    }
+
     /// Cancels the upload on the device (best effort) and forgets it.
-    public func cancel(client: APIClient) async {
-        guard let id = uploadId else { return }
+    @discardableResult
+    public func cancel(client: APIClient) async -> CancelOutcome {
+        guard let id = uploadId else { return completeSent ? .outcomeUnknown : .cancelled }
         uploadId = nil
         offset = 0
-        try? await client.cancelUpload(id: id)
+        do {
+            try await client.cancelUpload(id: id)
+            completeSent = false
+            return .cancelled
+        } catch APIError.server(let error) where error.code == .notFound && completeSent {
+            return .outcomeUnknown
+        } catch {
+            return completeSent ? .outcomeUnknown : .cancelled
+        }
     }
 
     private func forget(_ restarts: inout Int) throws {

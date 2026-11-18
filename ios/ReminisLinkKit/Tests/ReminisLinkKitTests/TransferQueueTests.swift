@@ -104,10 +104,78 @@ struct TransferQueueTests {
         background.expireAll()
         await queue.waitUntilIdle()
         #expect(item.phase == .paused)
+        #expect(queue.isSuspended)
         #expect(item.sentBytes > 0 && item.sentBytes < 400_000)
-        queue.resume(item)
+        queue.resumeAfterSuspension()
         await queue.waitUntilIdle()
         #expect(item.phase == .done)
+    }
+
+    /// Regression: in the background, the next upload must not start.
+    @Test func waitingItemStartsInBackground() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        pak.responseDelay = 0.02
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let first = try queue.enqueue(fileURL: try makeFile(size: 200_000, name: "G1.gba"),
+                                      target: .rom(systemId: gbaSystemId, fileName: "G1.gba"), destination: "", ownsFile: false)
+        let second = try queue.enqueue(fileURL: try makeFile(size: 50_000, name: "G2.gba"),
+                                       target: .rom(systemId: gbaSystemId, fileName: "G2.gba"), destination: "", ownsFile: false)
+        while first.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        queue.suspend()
+        await queue.waitUntilIdle()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(first.phase == .paused)
+        #expect(second.phase == .waiting)
+        #expect(second.hashedBytes == 0)
+        #expect(Set(pak.chunkLog.map(\.uploadId)).count == 1)
+        queue.resumeAfterSuspension()
+        await queue.waitUntilIdle()
+        #expect(first.phase == .done)
+        #expect(second.phase == .done)
+    }
+
+    /// Regression: back in the foreground before the chunk ends, the upload
+    /// must not stay paused.
+    @Test func quickReturnLeavesUploadPaused() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        pak.responseDelay = 0.05
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 100_000), target: .rom(systemId: gbaSystemId, fileName: "H.gba"),
+                                     destination: "", ownsFile: false)
+        while item.sentBytes == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        queue.suspend()
+        queue.resumeAfterSuspension()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+        // Also when the run already stopped on the flag.
+        let other = try queue.enqueue(fileURL: try makeFile(size: 100_000, name: "I.gba"),
+                                      target: .rom(systemId: gbaSystemId, fileName: "I.gba"), destination: "", ownsFile: false)
+        while other.sentBytes == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        queue.suspend()
+        try await Task.sleep(for: .milliseconds(120))
+        queue.resumeAfterSuspension()
+        await queue.waitUntilIdle()
+        #expect(other.phase == .done)
+    }
+
+    @Test func cancelDuringCompleteShowsTheRealOutcome() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        pak.dropCompleteAnswers(1)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 10_000), target: .rom(systemId: gbaSystemId, fileName: "J.gba"),
+                                     destination: "", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .failed)
+        #expect(item.failure as? UploadFailure == .outcomeUnknown)
+        #expect(item.completeSent)
+        queue.cancel(item)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(item.phase == .failed, "never shown cancelled: the file may be on the console")
     }
 
     @Test func conflictFailsThenReplaceOrKeepBoth() async throws {

@@ -101,7 +101,7 @@ struct TransferTests {
 
         let baseline = try #require(physicalFootprint())
         let peak = PeakMemory(baseline)
-        let digest = try await FileDigest.sha256(of: url) { _ in peak.sample() }
+        let digest = try await FileDigest.sha256(of: url, progress: { _ in peak.sample() })
         #expect(digest == expected)
         let growth = peak.value - baseline
         #expect(growth < 50 << 20, "memory grew by \(growth >> 20) MiB")
@@ -202,6 +202,48 @@ struct TransferTests {
         let creates = pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/uploads") && $0.status == 201 }
         #expect(creates.count == 2)
         #expect(pak.chunkLog.map(\.offset) == [0, 65536, 0, 65536, 131072, 196608])
+    }
+
+    /// Regression: the "complete was sent" state must survive across runs.
+    /// The answer of `complete` is lost, the run gives up; the next runs
+    /// must report an unknown outcome, never create the upload again.
+    @Test func outcomeUnknownLostAcrossRuns() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let file = try makeFile(size: 10_000)
+        let upload = try upload(file, retry: RetryPolicy(delays: [], sleep: { _ in }))
+        pak.dropCompleteAnswers(1)
+        await #expect(throws: APIError.network(.networkConnectionLost)) { try await upload.run(client: client) }
+        #expect(await upload.completeSent)
+        await #expect(throws: UploadFailure.outcomeUnknown) { try await upload.run(client: client) }
+        await #expect(throws: UploadFailure.outcomeUnknown) { try await upload.run(client: client) }
+        let names = try await gameNames(client)
+        #expect(names.filter { $0.hasPrefix("Test Game") } == ["Test Game.gba"])
+        #expect(pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/uploads") }.count == 1)
+        // Cancelling now cannot claim nothing was written.
+        #expect(await upload.cancel(client: client) == .outcomeUnknown)
+    }
+
+    @Test func lostCompleteAnswerWithinOneRunIsAnUnknownOutcome() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let upload = try upload(try makeFile(size: 10_000))
+        pak.dropCompleteAnswers(1)
+        await #expect(throws: UploadFailure.outcomeUnknown) { try await upload.run(client: client) }
+        #expect(pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/uploads") }.count == 1)
+    }
+
+    @Test func definiteRefusalOfCompleteClearsTheDoubt() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let upload = try upload(try makeFile(size: 10_000), sha: String(repeating: "0", count: 64))
+        await #expect(throws: APIError.self) { try await upload.run(client: client) }
+        #expect(await !upload.completeSent)
+    }
+
+    @Test func hashingStopsOnPause() throws {
+        let file = try makeFile(size: 3 * FileDigest.bufferSize)
+        #expect(throws: UploadFailure.paused) { try FileDigest.sha256Sync(of: file, shouldPause: { true }) }
     }
 
     @Test func checksumMismatchIsReportedAndForgotten() async throws {

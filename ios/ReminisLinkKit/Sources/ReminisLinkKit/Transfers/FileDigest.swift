@@ -8,18 +8,22 @@ public enum FileDigest {
 
     /// Lowercase hex SHA-256 of a file, computed while reading it.
     /// `progress` gets the number of bytes hashed so far.
+    /// `shouldPause` is checked between buffers; true stops with
+    /// ``UploadFailure/paused``.
     @concurrent
     public static func sha256(
         of url: URL,
+        shouldPause: (@Sendable () -> Bool)? = nil,
         progress: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> String {
-        try sha256Sync(of: url, progress: progress)
+        try sha256Sync(of: url, shouldPause: shouldPause, progress: progress)
     }
 
     /// Synchronous version (checks the task cancellation between buffers).
     public static func sha256Sync(
         of url: URL,
         bufferSize: Int = FileDigest.bufferSize,
+        shouldPause: (@Sendable () -> Bool)? = nil,
         progress: (@Sendable (Int64) -> Void)? = nil
     ) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
@@ -28,6 +32,7 @@ public enum FileDigest {
         var total: Int64 = 0
         while true {
             if Task.isCancelled { throw CancellationError() }
+            if shouldPause?() == true { throw UploadFailure.paused }
             let read = try autoreleasepool { () throws -> Int in
                 guard let data = try handle.read(upToCount: bufferSize), !data.isEmpty else { return 0 }
                 hasher.update(data: data)

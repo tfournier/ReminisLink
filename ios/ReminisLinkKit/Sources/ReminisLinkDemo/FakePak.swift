@@ -66,6 +66,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var uploads: [String: FakeUpload] = [:]
     private var jobs: [String: FakeJob] = [:]
     private var chunkFaults: [ChunkFault] = []
+    private var completeFaults = 0
     private var _chunkSize: Int64 = 4 << 20
     private var _freeBytes: Int64 = 40_265_318_400
     private var _downloadSize: Int64 = 8 << 20
@@ -197,6 +198,12 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     }
 
     public var chunkLog: [ChunkRecord] { lock.withLock { _chunkLog } }
+
+    /// The next `count` successful `complete` requests write the file, then
+    /// their answer is lost.
+    public func dropCompleteAnswers(_ count: Int) {
+        lock.withLock { completeFaults += count }
+    }
 
     public var uploadIds: [String] { lock.withLock { uploads.keys.sorted() } }
 
@@ -778,10 +785,14 @@ extension FakePak {
         }
         let response = store(target: upload.target, sizeBytes: upload.sizeBytes, onConflict: upload.onConflict)
         if response.status == 200 {
-            lock.withLock {
+            let drop = lock.withLock { () -> Bool in
                 _ = uploads.removeValue(forKey: id)
                 _freeBytes -= upload.sizeBytes
+                guard completeFaults > 0 else { return false }
+                completeFaults -= 1
+                return true
             }
+            if drop { return .networkFailure(.networkConnectionLost) }
         }
         return response
     }
