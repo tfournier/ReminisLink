@@ -1,0 +1,23 @@
+// Shared build settings of the ReminisLink Xcode project.
+//
+// RL_BUNDLE_PREFIX is the only value to change once the Apple Developer
+// account is known (docs/specs/06-app-ios.md §1): every identifier, the app
+// group and the shared Keychain group derive from it. com.example is a
+// neutral placeholder that builds for the simulator without any account.
+
+RL_BUNDLE_PREFIX = com.example
+
+RL_APP_BUNDLE_ID = $(RL_BUNDLE_PREFIX).reminislink
+RL_SHARE_BUNDLE_ID = $(RL_BUNDLE_PREFIX).reminislink.share
+RL_APP_GROUP = group.$(RL_BUNDLE_PREFIX).reminislink
+// AppIdentifierPrefix is empty without a team (simulator builds).
+RL_KEYCHAIN_GROUP = $(AppIdentifierPrefix)$(RL_BUNDLE_PREFIX).reminislink.shared
+
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = 1
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
+
+// No signing team: set DEVELOPMENT_TEAM here (or in a local, untracked
+// xcconfig) to run on a device.
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic

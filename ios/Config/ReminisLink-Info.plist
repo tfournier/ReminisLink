@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>ReminisLink</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>$(RL_APP_BUNDLE_ID)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>reminislink</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_reminislink._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>To scan the QR code shown by your console.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>ReminisLink connects to your console on your Wi-Fi network.</string>
+	<key>RLAppGroup</key>
+	<string>$(RL_APP_GROUP)</string>
+</dict>
+</plist>
