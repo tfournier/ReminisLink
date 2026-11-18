@@ -251,12 +251,12 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 		var r retryable
 		if apiErr != nil || !errors.As(err, &r) || attempt >= MaxDownloadRetries {
 			if apiErr == nil {
-				s.log.Warn("download failed", "url", safeURL(u), "error", err)
+				s.log.Warn("download failed", "url", safeURL(u), "error", downloadErrorText(err))
 				apiErr = internal("Download failed: " + downloadErrorText(err))
 			}
 			return nil, apiErr
 		}
-		s.log.Info("download interrupted, retrying", "url", safeURL(u), "offset", d.written, "attempt", attempt+1, "error", err)
+		s.log.Info("download interrupted, retrying", "url", safeURL(u), "offset", d.written, "attempt", attempt+1, "error", downloadErrorText(err))
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():

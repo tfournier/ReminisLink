@@ -399,3 +399,18 @@ func TestParseContentRange(t *testing.T) {
 		t.Fatal("unknown total")
 	}
 }
+
+func TestDownloadLogsNoQuery(t *testing.T) {
+	fs := newFileServer(t, []byte("x"), false)
+	e := newEnv(t)
+	q := e.svc.Jobs()
+	for _, u := range []string{"http://127.0.0.1:1/x?token=s3cret", fs.srv.URL + "/error?token=s3cret", fs.srv.URL + "/redirect/9?token=s3cret"} {
+		j := waitJob(t, q, e.download(u, staging(), nil, ""), JobSucceeded, JobFailed)
+		if j.State != JobFailed || strings.Contains(j.Error.Message, "s3cret") {
+			t.Errorf("%s: %+v", u, j.Error)
+		}
+	}
+	if strings.Contains(e.logs.String(), "s3cret") || strings.Contains(e.logs.String(), "/x?") {
+		t.Fatalf("query in the log:\n%s", e.logs.String())
+	}
+}
