@@ -90,9 +90,14 @@ Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuit
   "storage": [
     { "id": "sd", "label": "SD", "totalBytes": 127865454592, "freeBytes": 40265318400 }
   ],
-  "uptimeSeconds": 512
+  "uptimeSeconds": 512,
+  "connectedClients": [
+    { "clientName": "iPhone de Thomas", "lastSeenAt": "2026-11-18T17:00:00Z" }
+  ]
 }
 ```
+
+`connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
 
 `ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible **[À VÉRIFIER M0 : sources sur NextUI]**.
 
@@ -127,9 +132,9 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
   "folders": [ { "id": "...", "name": "Hacks", "gameCount": 3 } ],
   "games": [
     {
-      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh",
-      "name": "Pokemon Emerald",
-      "fileName": "Pokemon Emerald.gba",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ",
+      "name": "Sky Garden Quest",
+      "fileName": "Sky Garden Quest.gba",
       "kind": "file",
       "sizeBytes": 16777216,
       "modifiedAt": "2026-10-02T09:12:00Z",
@@ -153,15 +158,15 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 {
   "id": "...",
   "systemId": "...",
-  "name": "Pokemon Emerald",
-  "fileName": "Pokemon Emerald.gba",
+  "name": "Sky Garden Quest",
+  "fileName": "Sky Garden Quest.gba",
   "kind": "file",
   "files": [
-    { "role": "rom",   "path": "Roms/Game Boy Advance (GBA)/Pokemon Emerald.gba", "sizeBytes": 16777216, "modifiedAt": "..." },
-    { "role": "save",  "path": "Saves/GBA/Pokemon Emerald.gba.sav", "sizeBytes": 131072, "modifiedAt": "..." },
+    { "role": "rom",   "path": "Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba", "sizeBytes": 16777216, "modifiedAt": "..." },
+    { "role": "save",  "path": "Saves/GBA/Sky Garden Quest.gba.sav", "sizeBytes": 131072, "modifiedAt": "..." },
     { "role": "state", "slot": 0, "path": "...", "sizeBytes": 401408, "modifiedAt": "..." },
-    { "role": "cheats","path": "Cheats/GBA/Pokemon Emerald.gba.cht", "sizeBytes": 2048, "modifiedAt": "..." },
-    { "role": "art",   "path": "Roms/Game Boy Advance (GBA)/.media/Pokemon Emerald.png", "sizeBytes": 50211, "modifiedAt": "..." }
+    { "role": "cheats","path": "Cheats/GBA/Sky Garden Quest.gba.cht", "sizeBytes": 2048, "modifiedAt": "..." },
+    { "role": "art",   "path": "Roms/Game Boy Advance (GBA)/.media/Sky Garden Quest.png", "sizeBytes": 50211, "modifiedAt": "..." }
   ],
   "totalBytes": 17377096
 }
@@ -200,8 +205,8 @@ L'espace n'est libéré qu'à la purge de la corbeille : automatiquement après 
       "id": "tr_20261118T170000Z_a1b2",
       "trashedAt": "2026-11-18T17:00:00Z",
       "reason": "delete-game",
-      "label": "Pokemon Emerald",
-      "files": ["Roms/Game Boy Advance (GBA)/Pokemon Emerald.gba", "Saves/GBA/Pokemon Emerald.gba.sav"],
+      "label": "Sky Garden Quest",
+      "files": ["Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba", "Saves/GBA/Sky Garden Quest.gba.sav"],
       "sizeBytes": 17377096,
       "expiresAt": "2026-12-18T17:00:00Z"
     }
@@ -341,7 +346,7 @@ Corps : `{ "cheats": [ ... ] }` (liste complète, dans l'ordre) avec l'en-tête 
 Liste les fichiers utilisables de la carte SD : `.cht` sous `Cheats/` pour `type=cht`, patchs (`.ips`, `.bps`, `.ups`) sous `Roms/` et sous le dossier `ReminisLink/patches/` pour `type=patch`.
 
 ```json
-{ "files": [ { "id": "...", "path": "Cheats/GBA/Pokemon Emerald.gba.cht", "sizeBytes": 2048 } ] }
+{ "files": [ { "id": "...", "path": "Cheats/GBA/Sky Garden Quest.gba.cht", "sizeBytes": 2048 } ] }
 ```
 
 ---
@@ -352,7 +357,7 @@ Liste les fichiers utilisables de la carte SD : `.cht` sous `Cheats/` pour `type
 
 ```json
 {
-  "target": { "kind": "rom", "systemId": "...", "folderId": null, "fileName": "Pokemon Unbound.gba" },
+  "target": { "kind": "rom", "systemId": "...", "folderId": null, "fileName": "Sky Garden Quest DX.gba" },
   "sizeBytes": 33554432,
   "sha256": "9f86d08...",
   "onConflict": "fail"
@@ -406,7 +411,7 @@ Même `target` que pour `/uploads` (le nom de fichier est déduit de `Content-Di
 ```json
 {
   "patch": { "type": "staging", "stagingId": "..." },
-  "output": { "mode": "new-file", "fileName": "Pokemon Emerald (FR).gba" }
+  "output": { "mode": "new-file", "fileName": "Sky Garden Quest (FR).gba" }
 }
 ```
 
