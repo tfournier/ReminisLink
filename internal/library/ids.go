@@ -24,10 +24,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 )
 
@@ -37,6 +39,10 @@ const MaxIDPathBytes = 4096
 // ErrInvalidID is returned for any identifier that must be answered with
 // 400 invalid_id.
 var ErrInvalidID = errors.New("invalid id")
+
+// ErrResolveRoot means the root itself cannot be resolved: a server-side
+// problem (500 internal), not a bad identifier.
+var ErrResolveRoot = errors.New("cannot resolve root")
 
 var b64u = base64.RawURLEncoding.Strict()
 
@@ -123,6 +129,8 @@ func checkRelPath(p string) error {
 }
 
 // ResolveID decodes id and returns the absolute path it names under root.
+// Its errors wrap ErrInvalidID (400 invalid_id) or ErrResolveRoot (500) and
+// never contain an absolute path.
 // The result is checked to stay inside root, lexically and after resolving
 // symbolic links of the deepest existing ancestor (the SD card is exFAT and
 // has none, but the desktop mode runs on other file systems).
@@ -137,7 +145,7 @@ func ResolveID(root, id string) (string, error) {
 func resolveUnder(root, rel string) (string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
-		return "", fmt.Errorf("resolve root %s: %w", root, err)
+		return "", fmt.Errorf("%w: %w", ErrResolveRoot, withoutPath(err))
 	}
 	full := filepath.Join(absRoot, filepath.FromSlash(rel))
 	if !within(absRoot, full) {
@@ -145,7 +153,7 @@ func resolveUnder(root, rel string) (string, error) {
 	}
 	realRoot, err := filepath.EvalSymlinks(absRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve root %s: %w", root, err)
+		return "", fmt.Errorf("%w: %w", ErrResolveRoot, withoutPath(err))
 	}
 	existing := full
 	for {
@@ -156,8 +164,12 @@ func resolveUnder(root, rel string) (string, error) {
 			}
 			break
 		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("resolve %s: %w", existing, err)
+		// A missing component, or a file used as a directory
+		// ("x.gb/y"): the path does not exist, check its parent.
+		if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+			// Link loops and other failures: refuse the id, without
+			// leaking the absolute path in the error.
+			return "", fmt.Errorf("%w: cannot resolve: %w", ErrInvalidID, withoutPath(err))
 		}
 		if existing == absRoot {
 			break
@@ -165,6 +177,20 @@ func resolveUnder(root, rel string) (string, error) {
 		existing = filepath.Dir(existing)
 	}
 	return full, nil
+}
+
+// withoutPath drops the path of an *fs.PathError (or *fs.LinkError) so the
+// error can be shown without revealing the SD card layout.
+func withoutPath(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err
+	}
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return le.Err
+	}
+	return err
 }
 
 func within(root, p string) bool {

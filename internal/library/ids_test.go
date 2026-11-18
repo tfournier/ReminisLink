@@ -117,3 +117,45 @@ func FuzzDecodeID(f *testing.F) {
 		}
 	})
 }
+
+func TestResolveIDThroughAFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "GB (GB)"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "GB (GB)", "x.gb"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// ENOTDIR is "does not exist", not an unexpected error.
+	got, err := ResolveID(root, EncodeID("GB (GB)/x.gb/y"))
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if want := filepath.Join(root, "GB (GB)", "x.gb", "y"); got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+}
+
+func TestResolveIDErrorsDoNotLeakPaths(t *testing.T) {
+	root := t.TempDir()
+	loop := filepath.Join(root, "Loop (LP)")
+	if err := os.Symlink(loop, loop); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+	_, err := ResolveID(root, EncodeID("Loop (LP)/x.gb"))
+	if !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("error = %v, want ErrInvalidID", err)
+	}
+	if strings.Contains(err.Error(), root) {
+		t.Fatalf("error leaks the absolute path: %v", err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing-root")
+	_, err = ResolveID(missing, EncodeID("GB (GB)/x.gb"))
+	if !errors.Is(err, ErrResolveRoot) || errors.Is(err, ErrInvalidID) {
+		t.Fatalf("error = %v, want ErrResolveRoot", err)
+	}
+	if strings.Contains(err.Error(), missing) {
+		t.Fatalf("error leaks the absolute path: %v", err)
+	}
+}
