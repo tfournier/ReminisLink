@@ -431,12 +431,12 @@
         }
       }
     },
-    "Choose games, saves (.sav), patches (.ips, .bps, .ups) or cheats (.cht) in Files." : {
+    "Choose games, patches (.ips, .bps, .ups) or cheats (.cht) in Files." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choisis des jeux, des saves (.sav), des patchs (.ips, .bps, .ups) ou des cheats (.cht) dans Fichiers."
+            "value" : "Choisis des jeux, des patchs (.ips, .bps, .ups) ou des cheats (.cht) dans Fichiers."
           }
         }
       }
@@ -801,6 +801,16 @@
         }
       }
     },
+    "If the file is already on the console, sending it again keeps both copies." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si le fichier est déjà sur la console, le renvoyer garde les deux copies."
+          }
+        }
+      }
+    },
     "In progress" : {
       "localizations" : {
         "fr" : {
@@ -1087,6 +1097,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Non envoyé"
+          }
+        }
+      }
+    },
+    "Not supported yet" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas encore pris en charge"
           }
         }
       }
@@ -1381,16 +1401,6 @@
         }
       }
     },
-    "Replaces the save of the game. The current save is kept as a backup copy." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Remplace la save du jeu. La save actuelle est gardée en copie de sauvegarde."
-          }
-        }
-      }
-    },
     "Resume" : {
       "localizations" : {
         "fr" : {
@@ -1407,6 +1417,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Save"
+          }
+        }
+      }
+    },
+    "Saves cannot be sent from here yet." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves ne peuvent pas encore être envoyées d’ici."
+          }
+        }
+      }
+    },
+    "Saves cannot be sent from here yet. Copy them with a card reader for now." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves ne peuvent pas encore être envoyées d’ici. Copie-les avec un lecteur de cartes pour l’instant."
           }
         }
       }
@@ -1451,22 +1481,22 @@
         }
       }
     },
-    "Selected" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sélectionné"
-          }
-        }
-      }
-    },
     "Send" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Envoyer"
+          }
+        }
+      }
+    },
+    "Send Again" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renvoyer"
           }
         }
       }
@@ -1751,6 +1781,16 @@
         }
       }
     },
+    "The locks of its states and its resume history are deleted too." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les verrous de ses states et son historique de reprise sont aussi supprimés."
+          }
+        }
+      }
+    },
     "The pairing information could not be read or saved on this iPhone." : {
       "localizations" : {
         "fr" : {
@@ -1781,12 +1821,32 @@
         }
       }
     },
+    "The shared link is offered in the Link tab once the files are sent." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le lien partagé est proposé dans l’onglet Lien une fois les fichiers envoyés."
+          }
+        }
+      }
+    },
     "The trash is empty" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La corbeille est vide"
+          }
+        }
+      }
+    },
+    "The whole folder of this multi-disc game is moved." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout le dossier de ce jeu multi-disques est déplacé."
           }
         }
       }

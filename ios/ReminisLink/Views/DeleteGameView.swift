@@ -80,7 +80,13 @@ struct DeleteGameView: View {
         } header: {
             Text("Moved to the trash of the console")
         } footer: {
-            Text("Total: \(files.reduce(0) { $0 + $1.sizeBytes }.byteString)")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Total: \(files.reduce(0) { $0 + $1.sizeBytes }.byteString)")
+                if detail.kind == .folderM3U {
+                    Text("The whole folder of this multi-disc game is moved.")
+                }
+                Text("The locks of its states and its resume history are deleted too.")
+            }
         }
         .accessibilityIdentifier("delete.files")
         if hasSaveData {
@@ -129,7 +135,14 @@ struct DeleteGameView: View {
                 Label("\(emptied.byteString) freed", systemImage: "checkmark.circle")
                     .accessibilityIdentifier("delete.emptied")
             } else {
-                Button("Empty Trash Now", role: .destructive) { confirmEmpty = true }
+                Button("Empty Trash Now", role: .destructive) {
+                    // The trash may hold more than this game: show its
+                    // current size in the confirmation.
+                    Task {
+                        await app.session(for: target.deviceId).loadTrash()
+                        confirmEmpty = true
+                    }
+                }
                     .disabled(isWorking)
                     .accessibilityIdentifier("delete.emptyNow")
             }

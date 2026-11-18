@@ -98,6 +98,23 @@ struct TransferAppTests {
         #expect(app.shareInbox.request(id: request.id) != nil)
     }
 
+    /// Regression: swiping the Add sheet down consumes the request, which
+    /// must not open again.
+    @Test func dismissedAddSheetConsumesTheRequest() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let request = try sharedFile(app)
+        app.becomeActive()
+        guard case .add = app.sheet else { Issue.record("no add sheet"); return }
+        app.sheet = nil
+        app.sheetDismissed()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(app.shareInbox.request(id: request.id) == nil)
+        #expect(app.sheet == nil)
+        app.becomeActive()
+        #expect(app.sheet == nil)
+    }
+
     @Test func finishedShareIsRemoved() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
@@ -116,10 +133,12 @@ struct TransferAppTests {
         let request = try sharedFile(app)
         let copy = try await AddView.makeLocalCopy(
             of: AddFile(url: app.shareInbox.fileURL("Shared.gba", in: request), name: "Shared.gba", sizeBytes: 50_000,
-                        isSecurityScoped: false, kind: .rom),
-            in: app.transferDirectory
+                        isSecurityScoped: false, request: request, kind: .rom),
+            in: app.transferDirectory, inbox: app.shareInbox
         )
         #expect(copy.path.hasPrefix(app.transferDirectory.path))
+        // Moved out of the inbox, not copied.
+        #expect(!FileManager.default.fileExists(atPath: app.shareInbox.fileURL("Shared.gba", in: request).path))
         let item = try session.transfers.enqueue(
             fileURL: copy, fileName: "Shared.gba", target: .rom(systemId: DemoLibrary.id("Game Boy Advance (GBA)"), fileName: "Shared.gba"),
             destination: "Game Boy Advance", ownsFile: true
@@ -147,6 +166,7 @@ struct TransferAppTests {
         app.enterBackground()
         await session.transfers.waitUntilIdle()
         #expect(item.phase == .paused)
+        #expect(session.transfers.isSuspended)
         app.becomeActive()
         await session.transfers.waitUntilIdle()
         #expect(item.phase == .done)

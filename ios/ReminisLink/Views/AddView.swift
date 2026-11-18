@@ -10,21 +10,20 @@ struct AddFile: Identifiable, Equatable {
     let sizeBytes: Int64
     /// From the document picker: needs `startAccessingSecurityScopedResource`.
     let isSecurityScoped: Bool
+    /// Taken from a share request: moved (not copied) to the transfers.
+    var request: ShareRequest?
     var kind: AddKind
     var systemId: String?
-    var game: PickedGame?
-}
-
-/// A game chosen as the destination of a save.
-struct PickedGame: Hashable {
-    let id: String
-    let name: String
 }
 
 /// Add screen (docs/specs/06-app-ios.md §4.6): files from Files (several at
 /// once, system suggested from the extension) or a link downloaded by the
 /// console. Prefilled by the share extension. The app proposes no source
 /// of games.
+///
+/// Saves cannot be sent from here until milestone M5: the pak of M4 moves
+/// the previous save to the trash, without the named backup copy the
+/// screen would promise. A `.sav` is listed as not supported yet.
 struct AddView: View {
     enum Mode: Hashable {
         case files
@@ -38,6 +37,11 @@ struct AddView: View {
     @State private var deviceId: String?
     @State private var mode: Mode = .files
     @State private var files: [AddFile] = []
+    /// Shared `.sav` files, not sendable before M5.
+    @State private var unsupported: [String] = []
+    /// Links of a share request that also held files: offered once the
+    /// files are sent.
+    @State private var pendingLinks: [String] = []
     @State private var showImporter = false
     @State private var systems: [GameSystem]?
     @State private var linkText = ""
@@ -120,20 +124,11 @@ struct AddView: View {
             Section {
                 LabeledContent("Size", value: file.sizeBytes.byteString)
                 Picker("Type", selection: $file.kind) {
-                    ForEach(AddKind.allCases, id: \.self) { Text($0.title).tag($0) }
+                    ForEach(AddKind.sendable, id: \.self) { Text($0.title).tag($0) }
                 }
                 .accessibilityIdentifier("add.kind")
-                if file.kind == .rom || file.kind == .save {
+                if file.kind == .rom {
                     systemPicker(selection: $file.systemId)
-                }
-                if file.kind == .save {
-                    if let deviceId, let systemId = file.systemId {
-                        NavigationLink {
-                            GamePickerView(deviceId: deviceId, systemId: systemId, selection: $file.game)
-                        } label: {
-                            LabeledContent("Game", value: file.game?.name ?? String(localized: "Choose"))
-                        }
-                    }
                 }
                 Text(file.kind.help)
                     .font(.footnote)
@@ -145,6 +140,24 @@ struct AddView: View {
                     .accessibilityIdentifier("add.file")
             }
         }
+        if !unsupported.isEmpty {
+            Section {
+                ForEach(unsupported, id: \.self) { name in
+                    Label(name, systemImage: "externaldrive.badge.xmark")
+                }
+            } header: {
+                Text("Not supported yet")
+            } footer: {
+                Text("Saves cannot be sent from here yet. Copy them with a card reader for now.")
+            }
+        }
+        if !pendingLinks.isEmpty {
+            Section {
+                ForEach(pendingLinks, id: \.self) { Text($0).font(.footnote) }
+            } footer: {
+                Text("The shared link is offered in the Link tab once the files are sent.")
+            }
+        }
         Section {
             Button {
                 showImporter = true
@@ -154,7 +167,7 @@ struct AddView: View {
             .accessibilityIdentifier("add.choose")
         } footer: {
             if files.isEmpty {
-                Text("Choose games, saves (.sav), patches (.ips, .bps, .ups) or cheats (.cht) in Files.")
+                Text("Choose games, patches (.ips, .bps, .ups) or cheats (.cht) in Files.")
             }
         }
     }
@@ -217,8 +230,8 @@ struct AddView: View {
             return !files.isEmpty && files.allSatisfy { file in
                 switch file.kind {
                 case .rom: file.systemId != nil
-                case .save: file.game != nil
                 case .patch, .cheats: true
+                case .save: false
                 }
             }
         case .link:
@@ -230,17 +243,30 @@ struct AddView: View {
         guard !didLoadRequest, let request = context.request else { return }
         didLoadRequest = true
         for name in request.files {
+            let kind = AddKind.suggested(forFileName: name)
+            if kind == .save {
+                unsupported.append(name)
+                continue
+            }
             let url = app.shareInbox.fileURL(name, in: request)
             guard let size = try? FileDigest.size(of: url) else { continue }
             files.append(AddFile(url: url, name: name, sizeBytes: size, isSecurityScoped: false,
-                                 kind: AddKind.suggested(forFileName: name)))
+                                 request: request, kind: kind))
         }
-        if files.isEmpty, let link = request.urls.first {
-            mode = .link
-            linkText = link
-            if let url = URL(string: link) { linkKind = AddKind.suggested(forFileName: url.lastPathComponent) == .patch ? .patch : linkKind }
+        if files.isEmpty {
+            if let link = request.urls.first { useLink(link) }
+        } else {
+            pendingLinks = request.urls
         }
         suggestSystems()
+    }
+
+    private func useLink(_ link: String) {
+        mode = .link
+        linkText = link
+        if let url = URL(string: link), AddKind.suggested(forFileName: url.lastPathComponent) == .patch {
+            linkKind = .patch
+        }
     }
 
     private func addPicked(_ urls: [URL]) {
@@ -248,13 +274,17 @@ struct AddView: View {
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let name = url.lastPathComponent
+            let kind = AddKind.suggested(forFileName: name)
+            if kind == .save {
+                unsupported.append(name)
+                continue
+            }
             guard let size = try? FileDigest.size(of: url) else {
                 error = .file
                 continue
             }
-            let name = url.lastPathComponent
-            files.append(AddFile(url: url, name: name, sizeBytes: size, isSecurityScoped: scoped,
-                                 kind: AddKind.suggested(forFileName: name)))
+            files.append(AddFile(url: url, name: name, sizeBytes: size, isSecurityScoped: scoped, kind: kind))
         }
         suggestSystems()
     }
@@ -290,12 +320,21 @@ struct AddView: View {
         do {
             switch mode {
             case .files:
+                // Each file leaves the list once queued: after a failure, a
+                // new tap only sends the others.
                 for file in files {
-                    let copy = try await Self.makeLocalCopy(of: file, in: app.transferDirectory)
+                    let copy = try await Self.makeLocalCopy(of: file, in: app.transferDirectory, inbox: app.shareInbox)
                     try session.transfers.enqueue(
                         fileURL: copy, fileName: file.name, target: target(for: file),
                         destination: destination(for: file), ownsFile: true
                     )
+                    files.removeAll { $0.id == file.id }
+                }
+                if let link = pendingLinks.first {
+                    // The share also held a link: offer it now.
+                    pendingLinks = []
+                    useLink(link)
+                    return
                 }
             case .link:
                 guard let url = DownloadURL.validated(linkText) else { return }
@@ -325,31 +364,36 @@ struct AddView: View {
     private func target(for file: AddFile) -> TransferTarget {
         switch file.kind {
         case .rom: .rom(systemId: file.systemId ?? "", fileName: file.name)
-        case .save: .save(gameId: file.game?.id ?? "")
-        case .patch, .cheats: .staging(fileName: file.name)
+        // Never offered before M5 (see the type comment).
+        case .patch, .cheats, .save: .staging(fileName: file.name)
         }
     }
 
     private func destination(for file: AddFile) -> String {
         switch file.kind {
         case .rom: systems?.first { $0.id == file.systemId }?.label ?? ""
-        case .save: file.game?.name ?? ""
-        case .patch, .cheats: String(localized: "Staging area of the console")
+        case .patch, .cheats, .save: String(localized: "Staging area of the console")
         }
     }
 
-    /// Copies a file into the app's transfer directory, so an upload can be
+    /// Puts a file into the app's transfer directory, so an upload can be
     /// resumed later without the document picker's access (a directory per
-    /// copy, deleted when the upload ends). The copy is made by the file
-    /// system, never through memory.
-    nonisolated static func makeLocalCopy(of file: AddFile, in root: URL) async throws -> URL {
+    /// file, deleted when the upload ends). A file of a share request is
+    /// moved out of the inbox; a file from Files is copied. Either way the
+    /// file system does it, never memory.
+    nonisolated static func makeLocalCopy(of file: AddFile, in root: URL, inbox: ShareInbox) async throws -> URL {
         let source = file.url
         let scoped = file.isSecurityScoped
         let name = file.name
+        let request = file.request
         return try await Task.detached(priority: .userInitiated) {
             let directory = root.appending(path: UUID().uuidString, directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let destination = directory.appending(path: name)
+            if let request {
+                try inbox.takeFile(name, from: request, to: destination)
+                return destination
+            }
             let accessing = scoped && source.startAccessingSecurityScopedResource()
             defer { if accessing { source.stopAccessingSecurityScopedResource() } }
             try FileManager.default.copyItem(at: source, to: destination)
@@ -373,88 +417,12 @@ extension AddKind {
         case .rom: "Added to the library of the chosen system."
         case .patch: "Kept in the staging area of the console for 24 hours, to apply it to a game."
         case .cheats: "Kept in the staging area of the console for 24 hours, to import it into a game."
-        case .save: "Replaces the save of the game. The current save is kept as a backup copy."
+        case .save: "Saves cannot be sent from here yet."
         }
     }
 }
 
-/// Games of a system (and of its folders), to choose the destination of a
-/// save.
-struct GamePickerView: View {
-    @Environment(AppModel.self) private var app
-    @Environment(\.dismiss) private var dismiss
-    let deviceId: String
-    let systemId: String
-    @Binding var selection: PickedGame?
-
-    @State private var groups: [(folder: String, games: [GameSummary])]?
-    @State private var error: AppError?
-
-    var body: some View {
-        List {
-            if let error {
-                Section { ErrorView(error: error, retry: load) }
-            }
-            ForEach(groups ?? [], id: \.folder) { group in
-                Section {
-                    ForEach(group.games) { game in
-                        Button {
-                            selection = PickedGame(id: game.id, name: game.name)
-                            dismiss()
-                        } label: {
-                            HStack {
-                                Text(game.name).foregroundStyle(.primary)
-                                Spacer()
-                                if selection?.id == game.id {
-                                    Image(systemName: "checkmark")
-                                        .accessibilityLabel(Text("Selected"))
-                                }
-                            }
-                        }
-                    }
-                } header: {
-                    if !group.folder.isEmpty { Text(group.folder).textCase(nil) }
-                }
-            }
-        }
-        .overlay {
-            if groups == nil && error == nil {
-                ProgressView()
-            } else if groups?.isEmpty == true {
-                ContentUnavailableView("No games in this folder", systemImage: "gamecontroller")
-            }
-        }
-        .navigationTitle("Game")
-        .task { if groups == nil { await load() } }
-    }
-
-    /// The system root, then its folders (three levels at most).
-    private func load() async {
-        let systemId = systemId
-        do {
-            let found = try await app.session(for: deviceId).perform { client in
-                var result: [(folder: String, games: [GameSummary])] = []
-                var pending: [(id: String?, name: String, depth: Int)] = [(nil, "", 0)]
-                while !pending.isEmpty {
-                    let next = pending.removeFirst()
-                    let listing = try await client.games(systemId: systemId, folderId: next.id)
-                    if !listing.games.isEmpty {
-                        result.append((next.name, listing.games.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }))
-                    }
-                    if next.depth < 3 {
-                        for folder in listing.folders {
-                            let name = next.name.isEmpty ? folder.name : next.name + "/" + folder.name
-                            pending.append((folder.id, name, next.depth + 1))
-                        }
-                    }
-                }
-                return result
-            }
-            groups = found
-            error = nil
-        } catch {
-            let error = AppError(error)
-            if !error.isCancellation { self.error = error }
-        }
-    }
+extension AddKind {
+    /// The types the Add screen offers (saves come with milestone M5).
+    static let sendable: [AddKind] = [.rom, .patch, .cheats]
 }

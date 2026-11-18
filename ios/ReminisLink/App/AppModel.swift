@@ -85,6 +85,9 @@ final class AppModel {
     @ObservationIgnored private var queuedRepair: PairingSource?
     /// A share request to open once the current sheet is dismissed.
     @ObservationIgnored private var queuedShare: ShareRequest?
+    /// The share request shown by the Add sheet: consumed when the sheet
+    /// closes, however it closes (sent, cancelled, swiped down).
+    @ObservationIgnored private var presentedShare: ShareRequest?
 
     @ObservationIgnored private let makeSession: () -> URLSession
     @ObservationIgnored private var sessions: [String: ConsoleSession] = [:]
@@ -155,6 +158,10 @@ final class AppModel {
 
     /// Called when a sheet is dismissed.
     func sheetDismissed() {
+        if let request = presentedShare {
+            presentedShare = nil
+            finishShare(request)
+        }
         if let source = queuedRepair {
             queuedRepair = nil
             pendingRepair = source
@@ -192,6 +199,7 @@ final class AppModel {
             return
         }
         let deviceId = store.devices.count == 1 ? store.devices.first?.id : nil
+        presentedShare = request
         sheet = .add(AddContext(deviceId: deviceId, request: request))
     }
 
@@ -201,14 +209,15 @@ final class AppModel {
     }
 
     /// The app goes to the background: running uploads stop after their
-    /// current chunk (with a background task to finish it).
+    /// current chunk (with a background task to finish it) and nothing else
+    /// starts.
     func enterBackground() {
-        for session in sessions.values { session.transfers.pauseAfterCurrentChunk() }
+        for session in sessions.values { session.transfers.suspend() }
     }
 
-    /// The app is active again: paused uploads resume.
+    /// The app is active again: uploads go on or resume.
     func becomeActive() {
-        for session in sessions.values { session.transfers.resumePaused() }
+        for session in sessions.values { session.transfers.resumeAfterSuspension() }
         checkShareInbox()
     }
 
@@ -322,12 +331,12 @@ extension AppModel {
         UserDefaults.standard.removePersistentDomain(forName: suite)
         let artDirectory = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoArt")
         try? FileManager.default.removeItem(at: artDirectory)
-        let group = Bundle.main.object(forInfoDictionaryKey: "RLAppGroup") as? String
         let app = AppModel(
             store: DeviceStore(secureStore: InMemorySecureStore(), defaults: UserDefaults(suiteName: suite)!),
             discovery: Discovery(fixedDevices: [pak.discoveredDevice]),
             artCache: ArtCache(directory: artDirectory),
-            shareInbox: group.flatMap { ShareInbox.appGroup($0) } ?? ShareInbox(root: localInbox()),
+            // Its own inbox: the demo never consumes real shared files.
+            shareInbox: ShareInbox(root: FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoInbox")),
             transferDirectory: cleanTransferDirectory(), background: UIKitBackgroundActivity(),
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )

@@ -82,12 +82,17 @@ TEST_RUNNER_RL_UITEST_PAIR_URL='reminislink://pair?...' TEST_RUNNER_RL_UITEST_SH
 
 - Uploads (`POST /uploads`, `PUT /uploads/{id}` signed `UNSIGNED`, chunk
   streamed from a scratch file, `complete`) resume at the offset of
-  `GET /uploads/{id}` or of a `409 conflict`; an upload the pak forgot (pak
-  restarted) is created again. Each request is signed with a new nonce.
+  `GET /uploads/{id}` or of a `409 conflict` (the pak keeps uploads across
+  its restarts); an upload the pak purged is created again, unless
+  `complete` was already sent: then the outcome is reported as unknown and
+  the file is never sent again without the user. Each request is signed
+  with a new nonce.
+- Saves cannot be sent from the Add screen before M5 (the M4 pak trashes
+  the previous save without a named backup copy).
 - Files chosen in Files are copied into `Application Support/Transfers`
   (deleted when the upload ends, and at launch) so they can be resumed.
-- When the app goes to the background, the running upload finishes its
-  chunk under `beginBackgroundTask` and pauses; it resumes when the app is
-  active again.
+- When the app goes to the background, the queue is suspended: the running
+  upload finishes its chunk under `beginBackgroundTask` and pauses, and no
+  other upload or hashing starts. It resumes when the app is active again.
 - `swift test` measures the memory of a streamed SHA-256 over 100 MiB
   (`phys_footprint` peak minus baseline, under 50 MiB).

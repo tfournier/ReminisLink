@@ -6,6 +6,7 @@ import SwiftUI
 /// the screen is visible.
 struct TransfersView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.scenePhase) private var scenePhase
     let deviceId: String
 
     var body: some View {
@@ -51,7 +52,9 @@ struct TransfersView: View {
                     .disabled(!queue.uploads.contains { $0.phase.isFinished } && !queue.jobs.contains { $0.isFinished })
             }
         }
-        .task {
+        // Every second while the screen is visible and the app active.
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
             while !Task.isCancelled {
                 await queue.refreshJobs()
                 try? await Task.sleep(for: .seconds(1))
@@ -73,7 +76,7 @@ struct UploadRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(item.fileName).font(.headline)
                 Spacer()
-                if !item.phase.isFinished {
+                if !item.phase.isFinished && !item.isCompleting {
                     Button {
                         queue.cancel(item)
                     } label: {
@@ -109,7 +112,7 @@ struct UploadRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("upload.\(item.fileName)")
         .swipeActions {
-            if !item.phase.isFinished {
+            if !item.phase.isFinished && !item.isCompleting {
                 Button("Cancel", role: .destructive) { queue.cancel(item) }
             }
         }
@@ -121,6 +124,12 @@ struct UploadRow: View {
         case .paused:
             Button("Resume") { queue.resume(item) }
                 .buttonStyle(.bordered)
+        case .failed where (item.failure as? UploadFailure) == .outcomeUnknown:
+            Button("Send Again") { Task { await queue.retry(item, onConflict: .rename) } }
+                .buttonStyle(.bordered)
+            Text("If the file is already on the console, sending it again keeps both copies.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         case .failed where isConflict:
             HStack {
                 Button("Keep Both") { Task { await queue.retry(item, onConflict: .rename) } }
@@ -212,7 +221,8 @@ struct JobRow: View {
             }
         }
         .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
+        // Children kept apart: Cancel must not become the default action.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("job.\(item.title)")
     }
 
