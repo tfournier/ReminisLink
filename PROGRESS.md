@@ -3,7 +3,7 @@
 ## Jalons
 | Jalon | Statut | Branche | Revue Antigravity | Intégré le |
 |---|---|---|---|---|
-| M0 | analyse du code source + firmware faite ; specs en cours de mise à jour ; relevés console réduits | `m0-specs-source` | — | — |
+| M0 | intégré (variante code source) ; 3 vérifications console restantes | `m0-specs-source` | — (documentation ; preuves par fichier:ligne) | 2026-11-19 |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
@@ -62,6 +62,13 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — Purge de la corbeille par **âge crédité** (horloge propre du pak : monotone pendant les sessions, au plus 7 jours crédités par période d'extinction ; purge à 30 jours) ; `expiresAt` devient une estimation « au plus tôt ». Specs 04, 05 §2/§4, 06 mises à jour. Décidé par la personne (option B recommandée).
 
 ## Questions ouvertes pour la personne
+8. **Décisions issues de M0** (détail et options dans `docs/specs/m0/questions.md`, D1 à D6). Recommandations de l'agent principal :
+   - D1 certificats racine (aucun sur la console) : autoriser `certifiable` en dépendance directe (déjà tirée par gabagool, même mécanisme que Cheat Manager).
+   - D2 veille : rien ne met la console en veille pendant un pak → pas de prévention à coder ; en M7, éteindre l'écran après 2 min sans interaction (rallumé par une touche), le pak reste joignable.
+   - D3 formats `saveFormat`/`stateFormat` non par défaut : v1 = format par défaut seulement ; autres formats listés en lecture seule, écritures refusées avec une erreur claire.
+   - D4 `osVersion` : renvoyer la chaîne de `.system/version.txt` (ex. `NextUI-20261112-1`) et corriger les exemples du contrat.
+   - D5 vignettes : servies telles quelles (PNG 1024×768, cache ETag), réduction faite par l'app.
+   - D6 `/systems` : lister tous les dossiers à tag (comme aujourd'hui) avec un champ `emulatorInstalled` (ajout au contrat).
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
