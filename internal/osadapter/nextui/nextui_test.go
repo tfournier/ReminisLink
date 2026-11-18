@@ -522,3 +522,38 @@ func TestExactNamesOnly(t *testing.T) {
 		t.Errorf("exact name refused: %v", err)
 	}
 }
+
+// A disc listed with another case is hidden from the folder listing and
+// resolved, under its real name, in the game (the same case-insensitive
+// comparison on both sides, whatever the file system).
+func TestM3UDiscsMatchedIgnoringCase(t *testing.T) {
+	a, sd := newAdapter(t)
+	testutil.WriteFile(t, sd, "Roms/"+ps+"/Odd Case.m3u", "odd case (DISC 1).CUE\n")
+	testutil.WriteFile(t, sd, "Roms/"+ps+"/Odd Case (Disc 1).cue", "disc")
+	sys, _ := a.System(ps)
+	l, err := a.ListFolder(sys, ps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oddSize int64 = -1
+	for _, g := range l.Games {
+		if g.FileName == "Odd Case (Disc 1).cue" {
+			t.Error("the disc is listed as a game")
+		}
+		if g.FileName == "Odd Case.m3u" {
+			oddSize = g.Size
+		}
+	}
+	want := int64(len("odd case (DISC 1).CUE\n") + len("disc"))
+	if oddSize != want {
+		t.Errorf("m3u size %d, want %d", oddSize, want)
+	}
+	g, err := a.Game(ps + "/Odd Case.m3u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _ := a.GameFiles(g)
+	if len(files.ROM) != 2 || files.ROM[1].Rel != "Roms/"+ps+"/Odd Case (Disc 1).cue" || files.ROM[1].Size != 4 {
+		t.Errorf("roms = %+v", files.ROM)
+	}
+}

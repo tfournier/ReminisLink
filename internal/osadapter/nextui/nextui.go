@@ -438,7 +438,7 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 		s.ModTime = info.ModTime().UTC()
 		if g.Kind == osadapter.KindM3U {
 			// Same total as the ROM files of GET /games/{gameId}.
-			for _, d := range a.m3uDiscs(g, filepath.Join(dir, name)) {
+			for _, d := range a.m3uDiscs(g, filepath.Join(dir, name), map[string][]fs.DirEntry{dir: entries}) {
 				s.Size += d.Size
 			}
 		}
@@ -584,7 +584,7 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 		if err != nil {
 			return files, err
 		}
-		files.ROM = append([]osadapter.File{f}, a.m3uDiscs(g, main)...)
+		files.ROM = append([]osadapter.File{f}, a.m3uDiscs(g, main, nil)...)
 	case osadapter.KindFolderM3U:
 		m3u, err := a.fileAt(filepath.Join(main, g.ROMName))
 		if err != nil {
@@ -624,23 +624,63 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 }
 
 // m3uDiscs returns the files listed by a .m3u that exist inside the system
-// folder. Entries that leave the system folder are ignored.
-func (a *Adapter) m3uDiscs(g osadapter.Game, m3uPath string) []osadapter.File {
+// folder. Entries that leave the system folder are ignored. Each entry is
+// matched against the listing of its folder with the case-insensitive
+// comparison m3uSiblings uses to hide the discs from the folder listing,
+// so a disc never vanishes from both the listing and the game. listed
+// holds the folder listings already read (may be nil); size and date come
+// from the listing.
+func (a *Adapter) m3uDiscs(g osadapter.Game, m3uPath string, listed map[string][]fs.DirEntry) []osadapter.File {
 	sysDir := filepath.Join(a.roots.Roms, g.System.Folder)
 	base := filepath.Dir(m3uPath)
+	if listed == nil {
+		listed = map[string][]fs.DirEntry{}
+	}
 	seen := map[string]bool{}
 	var out []osadapter.File
 	for _, clean := range readM3U(m3uPath) {
 		full := filepath.Join(base, filepath.FromSlash(clean))
-		if !strings.HasPrefix(full, sysDir+string(filepath.Separator)) || seen[full] {
+		if !strings.HasPrefix(full, sysDir+string(filepath.Separator)) {
 			continue
 		}
-		if file, err := a.fileAt(full); err == nil {
-			seen[full] = true
-			out = append(out, file)
+		dir, name := filepath.Dir(full), filepath.Base(full)
+		entries, ok := listed[dir]
+		if !ok {
+			entries = readNames(dir)
+			listed[dir] = entries
 		}
+		e := matchFold(entries, name)
+		if e == nil {
+			continue
+		}
+		actual := filepath.Join(dir, e.Name())
+		if seen[actual] || actual == m3uPath {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		seen[actual] = true
+		out = append(out, osadapter.File{Path: actual, Rel: a.relToSD(actual), Size: info.Size(), ModTime: info.ModTime().UTC()})
 	}
 	return out
+}
+
+// matchFold returns the regular, visible entry named name ignoring case
+// (an exact match wins), or nil.
+func matchFold(entries []fs.DirEntry, name string) fs.DirEntry {
+	want := fold(name)
+	var match fs.DirEntry
+	for _, e := range entries {
+		if !e.Type().IsRegular() || hidden(e.Name()) || fold(e.Name()) != want {
+			continue
+		}
+		if match == nil || e.Name() == name {
+			match = e
+		}
+	}
+	return match
 }
 
 // readM3U returns the entries of a .m3u file as cleaned relative paths
