@@ -171,6 +171,9 @@ struct UploadRow: View {
         case .failed:
             return String(localized: "Not sent")
         case .done:
+            if case .save = item.target, item.result?.backup != nil {
+                return String(localized: "Sent. The previous save was kept as a backup copy.")
+            }
             return String(localized: "Sent")
         case .cancelled:
             return String(localized: "Cancelled")

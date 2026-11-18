@@ -135,6 +135,8 @@ enum AppError: Error, Equatable {
                 return String(localized: "ReminisLink is closing on the console.")
             case .tooLarge:
                 return String(localized: "The request is too large for the console.")
+            case .conflict where server.status == 412:
+                return String(localized: "The list changed on the console. Reload it.")
             case .conflict:
                 if case .string(let existing)? = server.details["existing"] {
                     return String(localized: "A file with this name already exists on the console: \(existing)")
@@ -147,7 +149,9 @@ enum AppError: Error, Equatable {
             case .invalidRequest:
                 return String(localized: "The console refused the request.")
             case .stateLocked:
-                return String(localized: "This state is locked on the console.")
+                return String(localized: "This state is locked on the console. Unlock it first.")
+            case .unsupportedFormat:
+                return String(localized: "The console found nothing it can use in this file.")
             case .internal:
                 return String(localized: "The console ran into an error. Details are in its log.")
             default:

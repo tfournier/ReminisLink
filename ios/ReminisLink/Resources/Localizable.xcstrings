@@ -71,6 +71,16 @@
         }
       }
     },
+    "%@ · %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "%@/s" : {
       "localizations" : {
         "fr" : {
@@ -261,12 +271,32 @@
         }
       }
     },
+    "%lld/%lld · A copy of the current save is made on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld/%2$lld · Une copie de la save actuelle est faite sur la console."
+          }
+        }
+      }
+    },
     "6-digit PIN" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PIN à 6 chiffres"
+          }
+        }
+      }
+    },
+    "A RetroArch cheat file (.cht). It is sent to the console, then imported." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier de cheats RetroArch (.cht). Il est envoyé à la console, puis importé."
           }
         }
       }
@@ -287,6 +317,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un fichier de ce nom existe déjà sur la console : %@"
+          }
+        }
+      }
+    },
+    "A lock keeps a copy of the state on the console. It cannot stop a game from overwriting the state: the state is restored the next time ReminisLink is opened on the console if it was overwritten in game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un verrou garde une copie du state sur la console. Il ne peut pas empêcher un jeu d’écraser le state : le state est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu."
           }
         }
       }
@@ -321,12 +361,32 @@
         }
       }
     },
+    "Add a Cheat…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un cheat…"
+          }
+        }
+      }
+    },
     "Add a Console" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ajouter une console"
+          }
+        }
+      }
+    },
+    "Add to the List" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter à la liste"
           }
         }
       }
@@ -361,12 +421,122 @@
         }
       }
     },
+    "Automatic" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatique"
+          }
+        }
+      }
+    },
+    "Automatic copies are limited to 10 per game: the oldest ones are deleted. Copies you make yourself are kept." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les copies automatiques sont limitées à 10 par jeu : les plus anciennes sont supprimées. Les copies que tu fais toi-même sont conservées."
+          }
+        }
+      }
+    },
+    "Automatic copy" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie automatique"
+          }
+        }
+      }
+    },
+    "Backup Copies" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copies de sauvegarde"
+          }
+        }
+      }
+    },
+    "Backup copy" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie de sauvegarde"
+          }
+        }
+      }
+    },
+    "Backup copy created." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie de sauvegarde créée."
+          }
+        }
+      }
+    },
     "Battery" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Batterie"
+          }
+        }
+      }
+    },
+    "Before deletion" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avant suppression"
+          }
+        }
+      }
+    },
+    "Before patch" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avant patch"
+          }
+        }
+      }
+    },
+    "Before replacement" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avant remplacement"
+          }
+        }
+      }
+    },
+    "Before replacing or restoring the save, the console always copies the current one (backup copy)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avant de remplacer ou de restaurer la save, la console copie toujours la save actuelle (copie de sauvegarde)."
+          }
+        }
+      }
+    },
+    "Before restoration" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avant restauration"
           }
         }
       }
@@ -401,12 +571,32 @@
         }
       }
     },
+    "Changes are kept on this iPhone until you save them." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les modifications restent sur cet iPhone tant que tu ne les as pas enregistrées."
+          }
+        }
+      }
+    },
     "Cheats" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cheats"
+          }
+        }
+      }
+    },
+    "Cheats saved." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cheats enregistrés."
           }
         }
       }
@@ -421,6 +611,16 @@
         }
       }
     },
+    "Choose Another File…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir un autre fichier…"
+          }
+        }
+      }
+    },
     "Choose Files…" : {
       "localizations" : {
         "fr" : {
@@ -431,12 +631,32 @@
         }
       }
     },
-    "Choose games, patches (.ips, .bps, .ups) or cheats (.cht) in Files." : {
+    "Choose a File…" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choisis des jeux, des patchs (.ips, .bps, .ups) ou des cheats (.cht) dans Fichiers."
+            "value" : "Choisir un fichier…"
+          }
+        }
+      }
+    },
+    "Choose games, saves (.sav, .srm), patches (.ips, .bps, .ups) or cheats (.cht) in Files." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisis des jeux, des saves (.sav, .srm), des patchs (.ips, .bps, .ups) ou des cheats (.cht) dans Fichiers."
+          }
+        }
+      }
+    },
+    "Choose the Game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir le jeu"
           }
         }
       }
@@ -447,6 +667,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Effacer les terminés"
+          }
+        }
+      }
+    },
+    "Code" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code"
           }
         }
       }
@@ -531,6 +761,56 @@
         }
       }
     },
+    "Copy deleted." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie supprimée."
+          }
+        }
+      }
+    },
+    "Copy restored." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie restaurée."
+          }
+        }
+      }
+    },
+    "Copy restored. The previous save was kept as a backup copy." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie restaurée. La save précédente a été gardée en copie de sauvegarde."
+          }
+        }
+      }
+    },
+    "Create" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Créer"
+          }
+        }
+      }
+    },
+    "Current Save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save actuelle"
+          }
+        }
+      }
+    },
     "Date" : {
       "localizations" : {
         "fr" : {
@@ -571,6 +851,36 @@
         }
       }
     },
+    "Delete slot %lld?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer l’emplacement %lld ?"
+          }
+        }
+      }
+    },
+    "Delete this copy?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer cette copie ?"
+          }
+        }
+      }
+    },
+    "Deleted states go to the trash of the console for at least 30 days." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les states supprimés vont dans la corbeille de la console pendant au moins 30 jours."
+          }
+        }
+      }
+    },
     "Delete…" : {
       "localizations" : {
         "fr" : {
@@ -591,12 +901,52 @@
         }
       }
     },
+    "Description" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Description"
+          }
+        }
+      }
+    },
     "Desktop" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ordinateur"
+          }
+        }
+      }
+    },
+    "Discard" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abandonner"
+          }
+        }
+      }
+    },
+    "Discard Changes" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abandonner les modifications"
+          }
+        }
+      }
+    },
+    "Discard your changes?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abandonner tes modifications ?"
           }
         }
       }
@@ -641,6 +991,36 @@
         }
       }
     },
+    "Each time ReminisLink opens on the console, it archives the resume state if it changed. The last 5 versions are kept." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À chaque ouverture de ReminisLink sur la console, le state de reprise est archivé s’il a changé. Les 5 dernières versions sont conservées."
+          }
+        }
+      }
+    },
+    "Edit Cheat" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifier le cheat"
+          }
+        }
+      }
+    },
+    "Edits this cheat" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifie ce cheat"
+          }
+        }
+      }
+    },
     "Empty Trash" : {
       "localizations" : {
         "fr" : {
@@ -667,6 +1047,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vider la corbeille ?"
+          }
+        }
+      }
+    },
+    "Enabled" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activé"
           }
         }
       }
@@ -821,6 +1211,46 @@
         }
       }
     },
+    "Import" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer"
+          }
+        }
+      }
+    },
+    "Import Cheats" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer des cheats"
+          }
+        }
+      }
+    },
+    "Imported: %lld. Cheats in the list: %lld." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importés : %1$lld. Cheats dans la liste : %2$lld."
+          }
+        }
+      }
+    },
+    "Import…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer…"
+          }
+        }
+      }
+    },
     "In progress" : {
       "localizations" : {
         "fr" : {
@@ -911,6 +1341,16 @@
         }
       }
     },
+    "Label" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Libellé"
+          }
+        }
+      }
+    },
     "Last seen %@" : {
       "localizations" : {
         "fr" : {
@@ -951,12 +1391,52 @@
         }
       }
     },
+    "Lock" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verrouiller"
+          }
+        }
+      }
+    },
+    "Locked" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verrouillé"
+          }
+        }
+      }
+    },
+    "Locked states cannot be deleted: unlock it first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un state verrouillé ne peut pas être supprimé : déverrouille-le d’abord."
+          }
+        }
+      }
+    },
     "Looking for consoles…" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Recherche des consoles…"
+          }
+        }
+      }
+    },
+    "Make a Backup Copy…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faire une copie de sauvegarde…"
           }
         }
       }
@@ -971,12 +1451,32 @@
         }
       }
     },
+    "Missing on the console. The locked copy is kept: restore it to bring the state back." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Absent de la console. La copie verrouillée est conservée : restaure-la pour récupérer le state."
+          }
+        }
+      }
+    },
     "Model" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Modèle"
+          }
+        }
+      }
+    },
+    "Modified" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifiée"
           }
         }
       }
@@ -1031,6 +1531,26 @@
         }
       }
     },
+    "New Backup Copy" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelle copie de sauvegarde"
+          }
+        }
+      }
+    },
+    "New Cheat" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau cheat"
+          }
+        }
+      }
+    },
     "Next Shared Links" : {
       "localizations" : {
         "fr" : {
@@ -1051,12 +1571,62 @@
         }
       }
     },
+    "No .cht file in the Cheats folder of the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun fichier .cht dans le dossier Cheats de la carte SD."
+          }
+        }
+      }
+    },
+    "No backup copy yet." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune copie de sauvegarde pour l’instant."
+          }
+        }
+      }
+    },
+    "No cheat for this game. Add one, or import a RetroArch cheat file (.cht)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun cheat pour ce jeu. Ajoutes-en un, ou importe un fichier de cheats RetroArch (.cht)."
+          }
+        }
+      }
+    },
+    "No cheat was found in this file. Choose a RetroArch cheat file (.cht). Nothing was changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun cheat n’a été trouvé dans ce fichier. Choisis un fichier de cheats RetroArch (.cht). Rien n’a été modifié."
+          }
+        }
+      }
+    },
     "No device connected" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun appareil connecté"
+          }
+        }
+      }
+    },
+    "No game in this folder." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun jeu dans ce dossier."
           }
         }
       }
@@ -1081,12 +1651,32 @@
         }
       }
     },
+    "No state for this game on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun state pour ce jeu sur la console."
+          }
+        }
+      }
+    },
     "No transfers" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun transfert"
+          }
+        }
+      }
+    },
+    "No version archived yet." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune version archivée pour l’instant."
           }
         }
       }
@@ -1117,16 +1707,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Non envoyé"
-          }
-        }
-      }
-    },
-    "Not supported yet" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pas encore pris en charge"
           }
         }
       }
@@ -1197,6 +1777,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ouvrir la console"
+          }
+        }
+      }
+    },
+    "Optional" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Facultatif"
           }
         }
       }
@@ -1371,6 +1961,16 @@
         }
       }
     },
+    "Reload" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recharger"
+          }
+        }
+      }
+    },
     "ReminisLink does not have access to the local network." : {
       "localizations" : {
         "fr" : {
@@ -1421,12 +2021,132 @@
         }
       }
     },
+    "Replace from Files…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer depuis Fichiers…"
+          }
+        }
+      }
+    },
     "Replace moves the file on the console to its trash." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer déplace le fichier de la console dans sa corbeille."
+          }
+        }
+      }
+    },
+    "Replace the List" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la liste"
+          }
+        }
+      }
+    },
+    "Replace the list?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la liste ?"
+          }
+        }
+      }
+    },
+    "Replace the save?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la save ?"
+          }
+        }
+      }
+    },
+    "Restore" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer"
+          }
+        }
+      }
+    },
+    "Restore slot %lld?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer l’emplacement %lld ?"
+          }
+        }
+      }
+    },
+    "Restore the Locked Copy…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer la copie verrouillée…"
+          }
+        }
+      }
+    },
+    "Restore this copy?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer cette copie ?"
+          }
+        }
+      }
+    },
+    "Restore this version?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer cette version ?"
+          }
+        }
+      }
+    },
+    "Restored" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restauré"
+          }
+        }
+      }
+    },
+    "Restores this version of the resume state" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaure cette version du state de reprise"
+          }
+        }
+      }
+    },
+    "Restore…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer…"
           }
         }
       }
@@ -1441,6 +2161,46 @@
         }
       }
     },
+    "Resume History" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Historique de reprise"
+          }
+        }
+      }
+    },
+    "Resume State" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprise"
+          }
+        }
+      }
+    },
+    "Resume state restored." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "State de reprise restauré."
+          }
+        }
+      }
+    },
+    "SD Card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carte SD"
+          }
+        }
+      }
+    },
     "Save" : {
       "localizations" : {
         "fr" : {
@@ -1451,22 +2211,22 @@
         }
       }
     },
-    "Saves cannot be sent from here yet." : {
+    "Save replaced." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les saves ne peuvent pas encore être envoyées d’ici."
+            "value" : "Save remplacée."
           }
         }
       }
     },
-    "Saves cannot be sent from here yet. Copy them with a card reader for now." : {
+    "Save replaced. The previous save was kept as a backup copy." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les saves ne peuvent pas encore être envoyées d’ici. Copie-les avec un lecteur de cartes pour l’instant."
+            "value" : "Save remplacée. La save précédente a été gardée en copie de sauvegarde."
           }
         }
       }
@@ -1541,12 +2301,102 @@
         }
       }
     },
+    "Sent. The previous save was kept as a backup copy." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyé. La save précédente a été gardée en copie de sauvegarde."
+          }
+        }
+      }
+    },
+    "Shows the actions for this copy" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche les actions de cette copie"
+          }
+        }
+      }
+    },
+    "Shows the actions for this slot" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche les actions de cet emplacement"
+          }
+        }
+      }
+    },
     "Size" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Taille"
+          }
+        }
+      }
+    },
+    "Slot %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emplacement %lld"
+          }
+        }
+      }
+    },
+    "Slot %lld locked." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emplacement %lld verrouillé."
+          }
+        }
+      }
+    },
+    "Slot %lld moved to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emplacement %lld mis dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "Slot %lld restored from its locked copy." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emplacement %lld restauré depuis sa copie verrouillée."
+          }
+        }
+      }
+    },
+    "Slot %lld unlocked." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emplacement %lld déverrouillé."
+          }
+        }
+      }
+    },
+    "Slots" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emplacements"
           }
         }
       }
@@ -1651,12 +2501,42 @@
         }
       }
     },
+    "The .cht files of the Cheats folder of the SD card. Those named after this game come first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers .cht du dossier Cheats de la carte SD. Ceux qui portent le nom de ce jeu sont en premier."
+          }
+        }
+      }
+    },
+    "The automatic resume state is in slot %lld." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le state de reprise automatique est dans l’emplacement %lld."
+          }
+        }
+      }
+    },
     "The clocks of the console and of this iPhone are too far apart." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les horloges de la console et de cet iPhone sont trop décalées."
+          }
+        }
+      }
+    },
+    "The code is written as in a RetroArch cheat file (for example several codes joined with +)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le code s’écrit comme dans un fichier de cheats RetroArch (par exemple plusieurs codes reliés par +)."
           }
         }
       }
@@ -1681,12 +2561,32 @@
         }
       }
     },
+    "The console downloads the .cht file itself (5 MB at most)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console télécharge elle-même le fichier .cht (5 Mo au maximum)."
+          }
+        }
+      }
+    },
     "The console downloads the file itself, on its own Wi-Fi connection." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console télécharge le fichier elle-même, par sa propre connexion Wi-Fi."
+          }
+        }
+      }
+    },
+    "The console found nothing it can use in this file." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console n’a rien trouvé d’utilisable dans ce fichier."
           }
         }
       }
@@ -1781,6 +2681,76 @@
         }
       }
     },
+    "The copy is deleted from the console and cannot be recovered. The current save does not change." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La copie est supprimée de la console et ne pourra pas être récupérée. La save actuelle ne change pas."
+          }
+        }
+      }
+    },
+    "The current cheats are replaced by the imported ones. The previous file is kept on the console (.cht.bak)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les cheats actuels sont remplacés par ceux importés. Le fichier précédent est gardé sur la console (.cht.bak)."
+          }
+        }
+      }
+    },
+    "The current cheats are replaced. The previous file is kept on the console (.cht.bak)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les cheats actuels sont remplacés. Le fichier précédent est gardé sur la console (.cht.bak)."
+          }
+        }
+      }
+    },
+    "The current resume state is archived first, then replaced by the version of %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le state de reprise actuel est d’abord archivé, puis remplacé par la version du %@."
+          }
+        }
+      }
+    },
+    "The current save is first copied (backup copy)" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save actuelle est d’abord copiée (copie de sauvegarde)"
+          }
+        }
+      }
+    },
+    "The current save is first copied (backup copy), then replaced by the copy of %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save actuelle est d’abord copiée (copie de sauvegarde), puis remplacée par la copie du %@."
+          }
+        }
+      }
+    },
+    "The current state goes to the trash of the console, then the locked copy replaces it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le state actuel va dans la corbeille de la console, puis la copie verrouillée le remplace."
+          }
+        }
+      }
+    },
     "The file arrived damaged on the console and was discarded. Send it again." : {
       "localizations" : {
         "fr" : {
@@ -1807,6 +2777,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le fichier n’a pas pu être lu sur cet iPhone."
+          }
+        }
+      }
+    },
+    "The imported cheats are added after the current ones." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les cheats importés sont ajoutés après les cheats actuels."
+          }
+        }
+      }
+    },
+    "The list changed on the console. Reload it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La liste a changé sur la console. Recharge-la."
+          }
+        }
+      }
+    },
+    "The list changed on the console. Reload?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La liste a changé sur la console. Recharger ?"
+          }
+        }
+      }
+    },
+    "The list of the console stays as it is." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La liste de la console reste telle quelle."
+          }
+        }
+      }
+    },
+    "The locked copy is deleted. The state itself does not change, but it is no longer restored if a game overwrites it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La copie verrouillée est supprimée. Le state lui-même ne change pas, mais il ne sera plus restauré si un jeu l’écrase."
           }
         }
       }
@@ -1841,6 +2861,16 @@
         }
       }
     },
+    "The save is larger than 64 MB: it is being sent in Transfers. The current save is copied first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save dépasse 64 Mo : elle est envoyée dans Transferts. La save actuelle est d’abord copiée."
+          }
+        }
+      }
+    },
     "The scanner is not available on this device. Scan the QR code with the Camera app, or use the PIN." : {
       "localizations" : {
         "fr" : {
@@ -1857,6 +2887,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les liens partagés sont proposés dans l’onglet Lien une fois les fichiers envoyés."
+          }
+        }
+      }
+    },
+    "The state goes to the trash of the console, where it stays for at least 30 days." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le state va dans la corbeille de la console, où il reste au moins 30 jours."
           }
         }
       }
@@ -1891,6 +2931,16 @@
         }
       }
     },
+    "This cheat has other settings from its file. They are kept as they are." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce cheat a d’autres réglages venant de son fichier. Ils sont conservés tels quels."
+          }
+        }
+      }
+    },
     "This console is already paired. Pair it again?" : {
       "localizations" : {
         "fr" : {
@@ -1907,6 +2957,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette console ne reconnaît plus ton iPhone."
+          }
+        }
+      }
+    },
+    "This game has no save on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu n’a pas de save sur la console."
           }
         }
       }
@@ -1931,12 +2991,12 @@
         }
       }
     },
-    "This state is locked on the console." : {
+    "This state is locked on the console. Unlock it first." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce state est verrouillé sur la console."
+            "value" : "Ce state est verrouillé sur la console. Déverrouille-le d’abord."
           }
         }
       }
@@ -2051,12 +3111,52 @@
         }
       }
     },
+    "Turn a cheat on or off, tap it to edit it, and use Edit to reorder or delete. The previous file is kept on the console (.cht.bak)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Active ou désactive un cheat, touche-le pour le modifier, et utilise Modifier pour réordonner ou supprimer. Le fichier précédent est gardé sur la console (.cht.bak)."
+          }
+        }
+      }
+    },
     "Type" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Type"
+          }
+        }
+      }
+    },
+    "Unlock" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déverrouiller"
+          }
+        }
+      }
+    },
+    "Unlock slot %lld?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déverrouiller l’emplacement %lld ?"
+          }
+        }
+      }
+    },
+    "Unlock…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déverrouiller…"
           }
         }
       }
@@ -2137,6 +3237,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oui"
+          }
+        }
+      }
+    },
+    "Your changes were not saved. Reloading shows the list of the console and discards your changes on this iPhone." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tes modifications n’ont pas été enregistrées. Recharger affiche la liste de la console et abandonne tes modifications sur cet iPhone."
+          }
+        }
+      }
+    },
+    "“%@” replaces the save of %@. The current save is first copied (backup copy)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "« %1$@ » remplace la save de %2$@. La save actuelle est d’abord copiée (copie de sauvegarde)."
           }
         }
       }

@@ -26,6 +26,9 @@ struct RootView: View {
                     case .library(let id): LibraryView(deviceId: id)
                     case .folder(let folder): FolderView(route: folder)
                     case .game(let game): GameDetailView(route: game)
+                    case .save(let game): SaveView(route: game)
+                    case .states(let game): StatesView(route: game)
+                    case .cheats(let game): CheatsView(route: game)
                     case .trash(let id): TrashView(deviceId: id)
                     case .transfers(let id): TransfersView(deviceId: id)
                     }

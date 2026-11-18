@@ -123,7 +123,7 @@ struct FolderView: View {
                 ForEach(games) { game in
                     NavigationLink(value: Route.game(GameRoute(
                         deviceId: route.deviceId, gameId: game.id, systemLabel: route.systemLabel,
-                        name: game.name, hasArt: game.hasArt
+                        name: game.name, hasArt: game.hasArt, fileName: game.fileName
                     ))) {
                         GameRow(deviceId: route.deviceId, game: game)
                     }
