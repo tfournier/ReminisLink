@@ -5,8 +5,8 @@
 |---|---|---|---|---|
 | M0 | en attente des relevés de la console | — | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
-| M2 | en revue | `m2-serveur-lecture` | GPT-OSS 120B (Antigravity) : prêt à fusionner (3 remarques, faux positifs) ; revue Claude neuve : à corriger, 1 bloquant confirmé (journal de la carte SD remplissable par un client non authentifié), 4 à corriger (coût de `cheatCount`, échappement Bonjour, identifiants insensibles à la casse, erreur fatale non journalisée) ; aller-retour 1 en cours | — |
-| M3 | en revue | `m3-ios-base` | GPT-OSS 120B (Antigravity) : à corriger, 1 point retenu (IP de secours du QR limitée au réseau local), le reste faux positifs ; revue Claude neuve : à corriger, aucun bloquant (annulation de l'appairage, ré-appairage silencieux d'une console déjà appairée, session annulée laissée en erreur, `notPaired` sans action) ; aller-retour 1 en cours | — |
+| M2 | en revue | `m2-serveur-lecture` | GPT-OSS 120B (Antigravity) : prêt à fusionner (3 remarques, faux positifs) ; revue Claude neuve : à corriger, 1 bloquant confirmé (journal de la carte SD remplissable par un client non authentifié), 4 à corriger (coût de `cheatCount`, échappement Bonjour, identifiants insensibles à la casse, erreur fatale non journalisée) ; aller-retour 1 fait (13 points + `connectedClients` + noms inventés), contrôles OK ; revue ciblée en cours | — |
+| M3 | en revue | `m3-ios-base` | GPT-OSS 120B (Antigravity) : à corriger, 1 point retenu (IP de secours du QR limitée au réseau local), le reste faux positifs ; revue Claude neuve : à corriger, aucun bloquant (annulation de l'appairage, ré-appairage silencieux d'une console déjà appairée, session annulée laissée en erreur, `notPaired` sans action) ; aller-retour 1 fait et revu (aucun bloquant, 3 points d'annulation restants) ; aller-retour 2 en cours | — |
 | M4 | à faire | — | — | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
@@ -59,6 +59,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- M2 : `github.com/miekg/dns` passe en dépendance directe (déjà tirée par zeroconf), utilisée seulement par un test d'échappement du nom Bonjour ; accepté par l'agent principal.
+- M2 : les `.bin` référencés par un `.cue` (et non par le `.m3u`) restent listés comme jeux : à revoir au M0.
 - M2 : `make headless` laisse ses copies dans `$TMPDIR/reminislink-sd.*`.
 - M2 : le vecteur `get-query-sorted-and-encoded` contient une clé en double (`a=2&a=10`) : refusé en HTTP (`400`) depuis M2 ; envisager un vecteur HTTP sans doublon.
 - Revue Antigravity M1 : dans `byteBudget.acquire`, remettre à `nil` la case libérée de `waiters` après retrait (mineur).
