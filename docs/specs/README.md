@@ -4,7 +4,7 @@ Version 0.1 — 18/11/2026. Statut : brouillon validé sur le fond, à affiner p
 
 | # | Document | Contenu |
 |---|---|---|
-| M0 | [Relevés sur la console](m0/README.md) | Procédure à faire sur la Brick avant le code : chemins NextUI, débit Wi-Fi, veille |
+| M0 | [Relevés sur la console](m0/README.md) | [Analyse du code NextUI et du firmware](m0/source-analysis.md) (chemins NextUI établis), procédure réduite sur la Brick (veille, mDNS, horloge), [questions et décisions ouvertes](m0/questions.md) |
 | 01 | [Vision et périmètre](01-vision-perimetre.md) | Le produit, les utilisateurs, ce qui est dans la v1 et ce qui n'y est pas |
 | 02 | [Architecture](02-architecture.md) | Les deux composants, leurs responsabilités, le dépôt |
 | 03 | [Protocole](03-protocole.md) | Découverte Bonjour, appairage QR, signature HMAC, erreurs, transferts |
