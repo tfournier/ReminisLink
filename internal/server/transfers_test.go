@@ -408,3 +408,15 @@ func TestDownloadOverHTTP(t *testing.T) {
 	bad := mustJSON(t, map[string]any{"url": "ftp://example.org/x", "target": map[string]any{"kind": "staging"}})
 	f.do(http.MethodPost, "/api/v1/downloads", "/downloads", bad, http.StatusBadRequest)
 }
+
+func TestTooManyUploadsOverHTTP(t *testing.T) {
+	f := newFixture(t)
+	body := map[string]any{"target": map[string]any{"kind": "staging", "fileName": "x.bin"}, "sizeBytes": 1, "sha256": sha([]byte{1})}
+	for i := 0; i < 32; i++ {
+		f.createUpload(body, http.StatusCreated)
+	}
+	_, r := f.createUpload(body, http.StatusTooManyRequests)
+	if r.ErrorCode() != "too_many_attempts" || r.Header.Get("Retry-After") == "" || !strings.Contains(string(r.Body), "Too many open uploads") {
+		t.Fatalf("429: %v %s", r.Header, r.Body)
+	}
+}

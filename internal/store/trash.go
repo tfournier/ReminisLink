@@ -100,8 +100,8 @@ type entryFile struct {
 	Internal []string `json:"internal,omitempty"`
 	// ClockUntrusted: TrashedAt came from an untrusted clock (see
 	// TimeGuard); never purged, dated again once the clock is trusted.
-	ClockUntrusted bool `json:"clockUntrusted,omitempty"`
-	SizeBytes int64    `json:"sizeBytes"`
+	ClockUntrusted bool  `json:"clockUntrusted,omitempty"`
+	SizeBytes      int64 `json:"sizeBytes"`
 }
 
 func (e entryFile) public() TrashEntry {

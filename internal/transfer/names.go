@@ -33,9 +33,11 @@ const exFATForbidden = `"*:<>?|`
 // from the one checked for conflicts.
 //
 // Also refused, beyond the spec: names starting with "." (hidden, the
-// library would not list them), Unicode format characters (category Cf,
-// e.g. U+202E which reverses the displayed text; the joiners U+200C and
-// U+200D are kept for emoji sequences and scripts that need them), and
+// library would not list them), Unicode format characters (category Cf:
+// U+202E which reverses the displayed text, U+200B zero width space,
+// U+00AD soft hyphen, U+FEFF...; kept: the joiners U+200C and U+200D for
+// emoji sequences and the scripts that need them, and the tags
+// U+E0020-U+E007F of the subdivision flags such as 🏴󠁧󠁢󠁳󠁣󠁴󠁿), and
 // the names Windows reserves (CON, PRN, AUX, NUL, COM1-9, LPT1-9, with or
 // without extension), so the card stays readable on a computer.
 func CleanFileName(name string) (string, error) {
@@ -49,7 +51,7 @@ func CleanFileName(name string) (string, error) {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
 			return "", ErrInvalidName
 		}
-		if unicode.Is(unicode.Cf, r) && r != 0x200c && r != 0x200d {
+		if unicode.Is(unicode.Cf, r) && r != 0x200c && r != 0x200d && (r < 0xe0020 || r > 0xe007f) {
 			return "", ErrInvalidName
 		}
 	}

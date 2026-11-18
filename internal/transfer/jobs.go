@@ -72,6 +72,7 @@ type job struct {
 	run    RunFunc
 	cancel context.CancelFunc
 	done   chan struct{} // closed when run returned
+	order  uint64        // finishing order, to drop the oldest
 }
 
 // Jobs is the job queue.
@@ -83,6 +84,7 @@ type Jobs struct {
 	queue   []*job
 	running *job
 	closed  bool
+	ended   uint64 // finished jobs so far
 	wg      sync.WaitGroup
 }
 
@@ -168,6 +170,8 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 		j.Error = &body
 	}
 	j.UpdatedAt = q.stamp()
+	q.ended++
+	j.order = q.ended
 	close(j.done)
 	q.running = nil
 	q.startNextLocked()
@@ -183,13 +187,30 @@ func runSafely(ctx context.Context, run RunFunc, report func(int64, *int64)) (re
 	return run(ctx, report)
 }
 
-// pruneLocked forgets the jobs finished more than JobRetention ago.
+// MaxFinishedJobs bounds the finished jobs kept (the oldest are dropped).
+const MaxFinishedJobs = 200
+
+// pruneLocked forgets the jobs finished more than JobRetention ago, and
+// the oldest finished ones beyond MaxFinishedJobs.
 func (q *Jobs) pruneLocked() {
 	limit := q.now().Add(-JobRetention)
+	var done []*job
 	for id, j := range q.jobs {
-		if finished(j.State) && j.UpdatedAt.Before(limit) {
-			delete(q.jobs, id)
+		if !finished(j.State) {
+			continue
 		}
+		if j.UpdatedAt.Before(limit) {
+			delete(q.jobs, id)
+			continue
+		}
+		done = append(done, j)
+	}
+	if len(done) <= MaxFinishedJobs {
+		return
+	}
+	sort.Slice(done, func(a, b int) bool { return done[a].order < done[b].order })
+	for _, j := range done[:len(done)-MaxFinishedJobs] {
+		delete(q.jobs, j.ID)
 	}
 }
 
@@ -260,6 +281,8 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 		}
 		j.State = JobCancelled
 		j.UpdatedAt = q.stamp()
+		q.ended++
+		j.order = q.ended
 		close(j.done)
 		out := j.Job
 		q.mu.Unlock()

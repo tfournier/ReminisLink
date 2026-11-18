@@ -53,17 +53,110 @@ func TestStagingTmpNameResolves(t *testing.T) {
 	}
 }
 
-func TestDownloadROMNeedsAGameName(t *testing.T) {
+func TestROMNamesFollowTheListing(t *testing.T) {
 	fs := newFileServer(t, []byte("data"), false)
 	e := newEnv(t)
-	for _, path := range []string{"/files/", "/files/readme.txt", "/files/noext"} {
-		j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+path, &Target{Kind: KindROM, SystemID: gameID(gbaSystem)}, nil, ""), JobSucceeded, JobFailed)
-		if j.State != JobFailed || j.Error.Code != CodeInvalidName {
-			t.Errorf("%s: %s %+v", path, j.State, j.Error)
+	sys := gameID(gbaSystem)
+	// Refused at creation: the library would not list it.
+	req := CreateUploadRequest{Target: romTarget("notes.txt"), SizeBytes: ptr(int64(1)), SHA256: ptr(sum([]byte{1}))}
+	if _, apiErr, _ := e.svc.CreateUpload(req); apiErr == nil || apiErr.Code != CodeInvalidName {
+		t.Fatalf("upload notes.txt: %v", apiErr)
+	}
+	dl := DownloadRequest{URL: ptr(fs.srv.URL + "/files/x"), Target: &Target{Kind: KindROM, SystemID: sys, FileName: ptr("notes.txt")}}
+	if _, apiErr, _ := e.svc.StartDownload(dl); apiErr == nil || apiErr.Code != CodeInvalidName {
+		t.Fatalf("download notes.txt: %v", apiErr)
+	}
+	// A deduced name the listing ignores fails the job.
+	j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+"/files/notes.txt", &Target{Kind: KindROM, SystemID: sys}, nil, ""), JobSucceeded, JobFailed)
+	if j.State != JobFailed || j.Error.Code != CodeInvalidName || e.exists("Roms/"+gbaSystem+"/notes.txt") {
+		t.Fatalf("deduced notes.txt: %+v", j)
+	}
+	// A name without extension is listed, so it is accepted, with a
+	// gameId the library resolves.
+	for _, path := range []string{"/files/", "/files/noext"} {
+		j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+path, &Target{Kind: KindROM, SystemID: sys}, nil, ""), JobSucceeded, JobFailed)
+		if j.State != JobSucceeded {
+			t.Fatalf("%s: %+v", path, j.Error)
+		}
+		if _, err := e.lib.Game(j.Result["gameId"].(string)); err != nil {
+			t.Fatalf("%s: gameId not listed: %v", path, err)
 		}
 	}
-	if e.exists("Roms/"+gbaSystem+"/download") || e.exists("Roms/"+gbaSystem+"/noext") { // readme.txt was already there
-		t.Fatal("installed")
+}
+
+func TestResumedUploadIsVerifiedInBackground(t *testing.T) {
+	e := newEnv(t, func(o *Options) { o.VerifyWait = 50 * time.Millisecond })
+	data := randomBytes(t, 3000)
+	c := e.create(romTarget("Verified.gba"), data, "")
+	e.send(c.UploadID, data, 0, 2048)
+	e.svc.Close()
+	// Restart with the verification slots taken: the hash is not ready.
+	s, err := New(e.opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < MaxParallelVerify; i++ {
+		s.verifySem <- struct{}{}
+	}
+	if err := s.LoadUploads(); err != nil {
+		t.Fatal(err)
+	}
+	e.svc = s
+	// GET does not wait.
+	if st, apiErr := s.Status(c.UploadID); apiErr != nil || st.Offset != 2048 {
+		t.Fatalf("status %+v %v", st, apiErr)
+	}
+	_, apiErr, _ := s.WriteChunk(c.UploadID, 2048, 952, bytes.NewReader(data[2048:]))
+	if apiErr == nil || apiErr.Status != http.StatusTooManyRequests || apiErr.Message != "Upload is being verified" {
+		t.Fatalf("chunk during verification: %v", apiErr)
+	}
+	if _, apiErr, _ := s.CompleteUpload(c.UploadID); apiErr == nil || apiErr.Status != http.StatusTooManyRequests {
+		t.Fatalf("complete during verification: %v", apiErr)
+	}
+	for i := 0; i < MaxParallelVerify; i++ {
+		<-s.verifySem
+	}
+	e.send(c.UploadID, data, 2048, len(data))
+	e.complete(c.UploadID)
+	if e.read("Roms/"+gbaSystem+"/Verified.gba") != string(data) {
+		t.Fatal("content")
+	}
+
+	// Close stops a pending verification and keeps the files.
+	c = e.create(romTarget("Stopped.gba"), data, "")
+	e.send(c.UploadID, data, 0, 1024)
+	e.svc.Close()
+	s, _ = New(e.opts)
+	s.verifySem <- struct{}{}
+	s.verifySem <- struct{}{}
+	s.LoadUploads()
+	s.Close()
+	if _, err := os.Stat(filepath.Join(e.layout.UploadsDir(), c.UploadID+partExt)); err != nil {
+		t.Fatal("partial file lost at close")
+	}
+	e.svc = e.newService()
+}
+
+func TestFinishedJobsAreBounded(t *testing.T) {
+	q := NewJobs(nil)
+	defer q.Close()
+	quick := func(context.Context, func(int64, *int64)) (map[string]any, *Error) { return nil, nil }
+	var first string
+	for i := 0; i < MaxFinishedJobs+10; i++ {
+		id, err := q.Submit(JobDownload, quick)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			first = id
+		}
+		waitJob(t, q, id, JobSucceeded)
+	}
+	if n := len(q.List()); n != MaxFinishedJobs {
+		t.Fatalf("%d jobs kept", n)
+	}
+	if _, apiErr := q.Get(first); apiErr == nil {
+		t.Fatal("oldest job kept")
 	}
 }
 

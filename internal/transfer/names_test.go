@@ -15,9 +15,10 @@ func TestCleanFileName(t *testing.T) {
 		`a"b*c:d<e>f?g|h.gba`:     "a_b_c_d_e_f_g_h.gba",
 		"name. . ":                "name",
 		"COM0.gba":                "COM0.gba",
-		"CONSOLE.gba":             "CONSOLE.gba",
-		"Family 👨\u200d👩.gba":     "Family 👨\u200d👩.gba",
-		strings.Repeat("é", 127):  strings.Repeat("é", 127), // 254 bytes
+		"Flag 🏴\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f.gba": "Flag 🏴\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f.gba",
+		"CONSOLE.gba":            "CONSOLE.gba",
+		"Family 👨\u200d👩.gba":    "Family 👨\u200d👩.gba",
+		strings.Repeat("é", 127): strings.Repeat("é", 127), // 254 bytes
 	}
 	for in, want := range ok {
 		got, err := CleanFileName(in)
@@ -27,7 +28,7 @@ func TestCleanFileName(t *testing.T) {
 	}
 	for _, in := range []string{"", ".", "..", "...", " ", "a/b", `a\b`, "../x", "a\x00b", "a\nb", "a\x7fb", "a\u0085b",
 		"\xff.gba", strings.Repeat("a", 256), strings.Repeat("é", 128),
-		"..hidden", ".hidden.gba", "abc\u202egba.exe", "a\u200bb.gba", "\ufeffx.gba",
+		"..hidden", ".hidden.gba", "abc\u202egba.exe", "a\u200bb.gba", "\ufeffx.gba", "soft\u00adhyphen.gba",
 		"CON", "con.gba", "Com1.txt", "LPT9", "nul.tar.gz", "aux .gba"} {
 		if got, err := CleanFileName(in); err == nil {
 			t.Errorf("CleanFileName(%q) = %q, want an error", in, got)

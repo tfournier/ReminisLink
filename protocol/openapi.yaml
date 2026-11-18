@@ -1070,7 +1070,9 @@ paths:
         ` (3)`...), `overwrite` (the old file goes to the trash). It only
         applies to the `rom` and `staging` targets (a staging file never
         conflicts); for `save` and `state` the existing file is always
-        replaced, after being moved to the trash. Uploads idle
+        replaced, after being moved to the trash. At most 32 uploads are
+        open at once (`429 too_many_attempts` with `Retry-After` beyond).
+        Uploads idle
         for 24 h are deleted; uploads are lost when the pak closes.
       requestBody:
         required: true
@@ -1221,6 +1223,8 @@ paths:
         Same `target` as `POST /uploads`; `fileName` may be omitted (taken
         from `Content-Disposition` or the URL). `http` and `https` only, 5
         redirects, 4 GiB max. The result of the job is the created resource.
+        At most 100 jobs are queued or running (`429 too_many_attempts`
+        with `Retry-After` beyond).
       requestBody:
         required: true
         content:
@@ -1528,9 +1532,15 @@ components:
           example: { error: { code: too_many_attempts, message: Pairing is blocked, details: {} } }
     TooManyRequests:
       description: |
-        The device cannot take more signed requests right now
-        (`too_many_attempts`): its cache of recent request nonces is full
-        and it never forgets a live nonce to make room. Retry later.
+        The device cannot take this request right now (`too_many_attempts`,
+        always with `Retry-After`). Retry later. Cases: its cache of recent
+        request nonces is full (it never forgets a live nonce to make room);
+        too many open uploads (32, message `Too many open uploads`) on
+        `POST /uploads`; too many queued and running jobs (100, message
+        `Too many jobs`) on `POST /downloads`; an upload resumed after a
+        restart of the pak is still being verified (message `Upload is
+        being verified`) on `PUT /uploads/{uploadId}` and
+        `POST /uploads/{uploadId}/complete`.
       headers:
         Retry-After:
           description: Seconds before trying again.
