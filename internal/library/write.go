@@ -68,9 +68,10 @@ type DeleteResult struct {
 // DeleteGame moves a game and its data to the trash in one entry
 // (docs/specs/04-api-v1.md, DELETE /games/{gameId}): the ROM (the .m3u and
 // its discs, or the whole folder of a folder-m3u game), the cheats, the
-// art and, unless keepSave, the save and the states. The locks and the
-// resume history of the game (ReminisLink copies) are moved into the same
-// entry rather than erased, so nothing is lost before the trash is purged.
+// art and, unless keepSave, the save, the states, their locks and the
+// resume history (ReminisLink copies, moved into the same entry rather
+// than erased, so nothing is lost before the trash is purged). With
+// keepSave, the save, the states, the locks and the resume history stay.
 // Nothing is erased.
 func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (DeleteResult, error) {
 	g, err := l.game(gameID)
@@ -106,16 +107,15 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 		for _, s := range files.States {
 			items = append(items, store.MoveItem{Path: s.Path})
 		}
-	}
-	// TODO(M5): with keepSave the states stay in place; check whether their
-	// locks should stay too (docs/specs/04-api-v1.md says the locks are
-	// deleted in every case).
-	if dir := findDirFold(l.layout.LocksDir(g.System.Tag), g.ROMName); dir != "" {
-		items = append(items, store.MoveItem{Path: dir, Internal: true})
-	}
-	if romDir := findDirFold(l.layout.BackupsDir(g.System.Tag), g.ROMName); romDir != "" {
-		if dir := findDirFold(romDir, "resume"); dir != "" {
+		// The locks and the resume history go with the states; with
+		// keepSave they stay with them (docs/specs/04-api-v1.md).
+		if dir := findDirFold(l.layout.LocksDir(g.System.Tag), g.ROMName); dir != "" {
 			items = append(items, store.MoveItem{Path: dir, Internal: true})
+		}
+		if romDir := findDirFold(l.layout.BackupsDir(g.System.Tag), g.ROMName); romDir != "" {
+			if dir := findDirFold(romDir, "resume"); dir != "" {
+				items = append(items, store.MoveItem{Path: dir, Internal: true})
+			}
 		}
 	}
 	res, err := trash.Move(store.ReasonDeleteGame, g.Name, items)

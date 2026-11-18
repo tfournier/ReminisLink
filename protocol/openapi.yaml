@@ -353,16 +353,17 @@ paths:
       description: |
         Moves to the ReminisLink trash (a rename on the same SD card, nothing
         is erased): the ROM (or the `.m3u` and its folder), the save, the
-        states, the cheats and the art. The locks and the resume history of
-        the game are deleted. With `keepSave=true`, the save and the states
-        stay in place. Space is only freed when the trash is purged
+        states, the cheats and the art; the locks and the resume history of
+        the game (ReminisLink copies) go into the same trash entry. With
+        `keepSave=true`, the save, the states, the locks and the resume
+        history stay in place. Space is only freed when the trash is purged
         (automatically after 30 days, or with `DELETE /trash`).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: keepSave
           in: query
           required: false
-          description: Keep the save and the states in place.
+          description: Keep the save, the states, their locks and the resume history in place.
           schema: { type: boolean, default: false }
           example: false
       responses:
@@ -1072,8 +1073,14 @@ paths:
         conflicts); for `save` and `state` the existing file is always
         replaced, after being moved to the trash. At most 32 uploads are
         open at once (`429 too_many_attempts` with `Retry-After` beyond).
-        Uploads idle
-        for 24 h are deleted; uploads are lost when the pak closes.
+        Uploads idle for 24 h are deleted. Uploads survive a restart of the
+        pak: the offset is the size of the partial file on the card, and the
+        SHA-256 of the bytes received is computed again in the background
+        from the bytes really present. `GET /uploads/{uploadId}` answers at
+        once; `PUT` and `complete` answer `429 too_many_attempts` with
+        `Retry-After` while that verification runs. An upload purged
+        (idle 24 h) or whose partial file became unreadable answers `404`:
+        the app creates it again.
       requestBody:
         required: true
         content:

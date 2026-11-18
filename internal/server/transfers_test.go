@@ -302,11 +302,22 @@ func TestDeleteGameAndTrash(t *testing.T) {
 		t.Error("destructive operation not logged")
 	}
 
-	// keepSave: the save and the states stay.
+	// keepSave: the save, the states, the locks and the resume history stay.
+	pixelLock := filepath.Join(f.layout.LocksDir("GBA"), "Pixel Garden 🌱.gba", "slot9.st")
+	pixelResume := filepath.Join(f.layout.BackupsDir("GBA"), "Pixel Garden 🌱.gba", "resume", "rh_1.st")
+	for _, p := range []string{pixelLock, pixelResume} {
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte("copy"), 0o644)
+	}
 	pixel := library.EncodeID(gbaFolder + "/Pixel Garden 🌱.gba")
 	f.do(http.MethodDelete, "/api/v1/games/"+pixel+"?keepSave=true", "/games/{gameId}", nil, http.StatusOK).JSON(t, &res)
 	if !f.exists(".userdata/shared/.minui/GBA/Pixel Garden 🌱.gba.st9") || f.exists("Cheats/GBA/Pixel Garden 🌱.gba.cht") {
 		t.Fatalf("keepSave: %v", res.Moved)
+	}
+	for _, p := range []string{pixelLock, pixelResume} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("keepSave moved %s", p)
+		}
 	}
 	f.do(http.MethodDelete, "/api/v1/games/"+pixel+"?keepSave=maybe", "/games/{gameId}", nil, http.StatusBadRequest)
 
