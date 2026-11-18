@@ -4,7 +4,7 @@
 | Jalon | Statut | Branche | Revue Antigravity | Intégré le |
 |---|---|---|---|---|
 | M0 | en attente des relevés de la console | — | — | — |
-| M1 | prêt à intégrer, en attente des décisions de spec | `m1-contrat-crypto` | 3 revues Claude neuves (non croisées, `agy` absent) : plus aucun bloquant — `docs/reviews/m1-claude.md` | — |
+| M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | à faire | — | — | — |
 | M3 | à faire | — | — | — |
 | M4 | à faire | — | — | — |
@@ -13,7 +13,7 @@
 | M7 | à faire | — | — | — |
 
 ## En cours
-- M1 : code livré (10 commits). Contrôles §4 OK le 2026-11-18 : `make lint test`, `make contract`, `swift test` (21 tests), vecteurs 5 appairage / 10 signature / 15+23 identifiants, aucun `TODO(M0)`, diff dans le périmètre. Revue (agent Claude neuf) : 1 bloquant confirmé (dépassement du contrôle d'horloge, `X-RL-Time` très lointain accepté), corps lu avant le HMAC (épuisement mémoire), `ENOTDIR` non typé dans `ResolveID`, 429 non déclaré au contrat. Corrections faites (5 commits, `d433abf2`..`77d7d44f`), contrôles §4 de nouveau OK (Swift : 23 tests). Revue ciblée : 1 nouveau bloquant (rejeu pendant un envoi en cours → corps lus en mémoire), horloges murale/monotone mélangées, `Retry-After` absent. Aller-retour 2 fait (`a6a94b98`, `bcd73fe9`) ; contrôles §4 OK, `go test -race` OK. Revue ciblée n° 2 : aucun bloquant ; points mineurs corrigés à l'aller-retour 3 (`73cde9e1`, `57259f3c`, `186f40d3`), diff relu par l'agent principal ; contrôles §4 OK (`go test -race -count=2` OK). En attente des décisions de spec de la personne avant fusion.
+- M1 : code livré (10 commits). Contrôles §4 OK le 2026-11-18 : `make lint test`, `make contract`, `swift test` (21 tests), vecteurs 5 appairage / 10 signature / 15+23 identifiants, aucun `TODO(M0)`, diff dans le périmètre. Revue (agent Claude neuf) : 1 bloquant confirmé (dépassement du contrôle d'horloge, `X-RL-Time` très lointain accepté), corps lu avant le HMAC (épuisement mémoire), `ENOTDIR` non typé dans `ResolveID`, 429 non déclaré au contrat. Corrections faites (5 commits, `d433abf2`..`77d7d44f`), contrôles §4 de nouveau OK (Swift : 23 tests). Revue ciblée : 1 nouveau bloquant (rejeu pendant un envoi en cours → corps lus en mémoire), horloges murale/monotone mélangées, `Retry-After` absent. Aller-retour 2 fait (`a6a94b98`, `bcd73fe9`) ; contrôles §4 OK, `go test -race` OK. Revue ciblée n° 2 : aucun bloquant ; points mineurs corrigés à l'aller-retour 3 (`73cde9e1`, `57259f3c`, `186f40d3`), diff relu par l'agent principal ; contrôles §4 OK (`go test -race -count=2` OK). Spec mise à jour (décisions de la personne), revue croisée Antigravity : prêt à fusionner. Fusionné dans `main` le 2026-11-18.
 - M0 : en attente de `survey-1-before.txt`, `survey-2-after.txt` et de `notes.md` rempli dans `docs/specs/m0/`.
 
 ## État du dépôt (2026-11-18)
@@ -45,7 +45,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — M1 peut démarrer sans attendre M0 (aucune dépendance aux points « À VÉRIFIER M0 »). Proposé par Claude (session de cadrage) ; considéré comme validé sauf objection de la personne.
 
 - 2026-11-18 — Spec mise à jour avec les choix de M1 (03 §4.2, §4.3, §5, §6 ; 04 ; 07) et `CLAUDE.md` (commandes `make contract`, `make vectors`). Doublons de clés de requête refusés (`400`), à implémenter en M2. Rejeu après redémarrage du pak : risque résiduel accepté (07). Décidé par la personne (« oui pour tout »).
-- 2026-11-18 — `agy` installé ; `Bash(make *)` autorisé par la personne.
+- 2026-11-18 — `agy` installé ; `Bash(make *)` autorisé par la personne. Revues Antigravity : `agy -p` sans `--mode plan` (qui l'embrouille) et sans approbation automatique, avec une liste blanche de commandes en lecture seule passée par `--settings` (règles `command(<préfixe>)`), une commande à la fois. Si Gemini Flash High est saturé (503), repli sur Medium.
+- 2026-11-18 — La personne demande de continuer sans s'arrêter tant que possible : M1 intégré, puis M2 et M3 lancés en parallèle sans attendre un accord de fin de jalon ; arrêts maintenus pour les décisions de spec, de contrat, de sécurité, la console et l'échec répété d'un sous-agent.
 
 ## Questions ouvertes pour la personne
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
@@ -53,6 +54,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- Revue Antigravity M1 : dans `byteBudget.acquire`, remettre à `nil` la case libérée de `waiters` après retrait (mineur).
+- Revue Antigravity M1 : l'app doit toujours construire ses URL avec `Signer.encodeQuery` (à vérifier en M3).
 - Revue M1 : imposer la même horloge au `Verifier` et au cache de nonces (constructeur unique).
 - M2 : refuser les clés de requête en double (`400 invalid_request`, 03 §4.2).
 - M2 : `ReadHeaderTimeout`, délai d'inactivité de lecture, `BaseContext` annulé à l'arrêt ; brancher `Require(RouteSave)` et `Require(RouteChunk)`.
