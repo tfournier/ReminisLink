@@ -578,6 +578,19 @@ func TestMiddlewareRefusesDuplicateQueryKeys(t *testing.T) {
 	}
 }
 
+func TestMiddlewareRefusesSemicolons(t *testing.T) {
+	f := newMWFixture(t, 0)
+	for _, target := range []string{"/api/v1/x?a=1;b=2", "/api/v1/x?a=1&b=;"} {
+		if status, code := f.do(f.request(signOpts{method: "GET", target: target})); status != http.StatusBadRequest || code != CodeInvalidRequest {
+			t.Errorf("%s: got %d %s", target, status, code)
+		}
+	}
+	// An encoded semicolon is a plain character.
+	if status, code := f.do(f.request(signOpts{method: "GET", target: "/api/v1/x?a=1%3Bb"})); status != http.StatusNoContent {
+		t.Errorf("encoded semicolon: %d %s", status, code)
+	}
+}
+
 func TestMiddlewareDuplicateKeyNeedsValidSignature(t *testing.T) {
 	f := newMWFixture(t, 0)
 	req := f.request(signOpts{method: "GET", target: "/api/v1/x?a=1&a=2", key: bytes.Repeat([]byte{1}, KeySize)})

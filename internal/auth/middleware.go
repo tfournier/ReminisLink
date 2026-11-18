@@ -128,8 +128,9 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 //     UNSIGNED on a route without AllowUnsigned → 401 bad_signature;
 //  5. the nonce is reserved atomically: a concurrent copy of the request
 //     gets 401 replayed_request, a full cache 429 too_many_attempts;
-//  6. a query key present more than once → 400 invalid_request (the nonce
-//     is consumed, docs/specs/03-protocole.md §4.2);
+//  6. a query key present more than once, or a raw ";" in the query →
+//     400 invalid_request (the nonce is consumed, docs/specs/03-protocole.md
+//     §4.2; net/url ignores the pairs holding a ";");
 //  7. body larger than the route limit → 413 too_large; body hash mismatch
 //     → 401 bad_signature.
 //
@@ -254,6 +255,11 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	if dup, err := HasDuplicateQueryKey(rawQuery); err != nil || dup {
 		// err cannot happen here (CanonicalRequest parsed the same query).
 		return fail(http.StatusBadRequest, CodeInvalidRequest, "Duplicate query parameter")
+	}
+	if strings.Contains(rawQuery, ";") {
+		// net/url drops the pairs holding a raw ";": the handler would not
+		// see what was signed.
+		return fail(http.StatusBadRequest, CodeInvalidRequest, "Semicolon in query")
 	}
 
 	if unsigned {
