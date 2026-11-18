@@ -30,7 +30,7 @@ struct RootView: View {
                     }
                 }
         }
-        .sheet(item: $app.sheet) { sheet in
+        .sheet(item: $app.sheet, onDismiss: { app.sheetDismissed() }) { sheet in
             switch sheet {
             case .addConsole: AddConsoleView()
             case .pairing(let flow): PairingProgressView(flow: flow)

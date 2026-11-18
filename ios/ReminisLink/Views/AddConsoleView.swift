@@ -51,6 +51,7 @@ struct AddConsoleView: View {
                     Label("Less secure than the QR code. Avoid on public Wi-Fi.", systemImage: "exclamationmark.shield")
                 }
 
+                #if DEBUG
                 if let link = app.demoPairingLink {
                     Section {
                         Button("Pair with the Demo Console") { app.requestPairing(link) }
@@ -59,6 +60,7 @@ struct AddConsoleView: View {
                         Text("Demo mode: no real console is used.")
                     }
                 }
+                #endif
             }
             .navigationTitle("Add a Console")
             .navigationBarTitleDisplayMode(.inline)
@@ -100,7 +102,7 @@ struct PINEntryView: View {
                     .foregroundStyle(.orange)
             }
             Section {
-                Button("Pair") { app.startPairing(.pin(pin, device)) }
+                Button("Pair") { app.requestPairing(.pin(pin, device)) }
                     .disabled(!isValid)
                     .accessibilityIdentifier("pin.pair")
             }

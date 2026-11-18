@@ -64,6 +64,8 @@ enum AppError: Error, Equatable {
         case .api(let error):
             switch error {
             case .server(let server) where server.code == .unknownClient: .repair
+            // The keys of the app and of the pak no longer match.
+            case .server(let server) where server.code == .badSignature: .repair
             case .server(let server) where server.code == .pairingFailed: nil
             case .notPaired: .repair
             case .incompatible, .pairing: nil

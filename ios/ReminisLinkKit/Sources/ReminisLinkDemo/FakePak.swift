@@ -47,6 +47,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private let lock = NSLock()
     private var _clockOffset: TimeInterval = 0
     private var _responseDelay: TimeInterval = 0
+    private var _pairDelay: TimeInterval = 0
     private var clients: [String: SymmetricKey] = [:]
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
@@ -128,6 +129,13 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public var responseDelay: TimeInterval {
         get { lock.withLock { _responseDelay } }
         set { lock.withLock { _responseDelay = newValue } }
+    }
+
+    /// `POST /pair` waits this long after registering the client, as if
+    /// the answer were slow (to test a cancellation during `/pair`).
+    public var pairDelay: TimeInterval {
+        get { lock.withLock { _pairDelay } }
+        set { lock.withLock { _pairDelay = newValue } }
     }
 
     public var log: [LoggedRequest] { lock.withLock { _log } }
@@ -299,6 +307,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             ikm: ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: deviceId, clientId: request.clientId
         ) else { return .error(500, code: "internal", message: "Key derivation failed") }
         addClient(id: request.clientId, key: key)
+        if pairDelay > 0 { Thread.sleep(forTimeInterval: pairDelay) }
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName,
             "deviceNonce": Base64URL.encode(deviceNonce),

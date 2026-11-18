@@ -98,7 +98,7 @@ struct AppLogicTests {
         let app = try await pairedApp(pak)
         let link = link(pak, fallback: false)
         app.handle(url: link.url)
-        #expect(app.pendingRepair == link)
+        #expect(app.pendingRepair?.deviceId == link.deviceId)
         #expect(app.sheet == nil)
         app.pendingRepair = nil
         #expect(app.sheet == nil)
@@ -109,7 +109,7 @@ struct AppLogicTests {
         let app = try await pairedApp(pak, discovered: false)
         let before = try #require(try app.store.credentials(for: pak.deviceId)).key
         let requests = pak.log.count
-        app.pendingRepair = link(pak, fallback: true)
+        app.pendingRepair = .link(link(pak, fallback: true))
         app.confirmRepair()
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
@@ -122,7 +122,7 @@ struct AppLogicTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let before = try #require(try app.store.credentials(for: pak.deviceId)).key
-        app.pendingRepair = link(pak, fallback: false)
+        app.pendingRepair = .link(link(pak, fallback: false))
         app.confirmRepair()
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
@@ -141,6 +141,7 @@ struct AppLogicTests {
         #expect(session.state == .connecting)
         task.cancel()
         await task.value
+        await waitUntil(timeout: .seconds(1)) { session.state == .idle }
         #expect(session.state == .idle)
         #expect(AppError(CancellationError()) == .cancelled)
         #expect(AppError(CancellationError()).isCancellation)
@@ -174,5 +175,120 @@ struct AppLogicTests {
         #expect(first.count == 3)
         #expect(second.count == 3)
         #expect(pak.log.filter { $0.path == "/api/v1/hello" }.count == 1)
+    }
+
+    // MARK: Round 2
+
+    @Test func cancelDuringPairStillStoresTheNewKey() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let before = try #require(try app.store.credentials(for: pak.deviceId)).key
+        pak.pairDelay = 1
+        let pairs = pak.log.filter { $0.path == "/api/v1/pair" }.count
+        app.pendingRepair = .link(link(pak, fallback: false))
+        app.confirmRepair()
+        guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
+        await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
+        try await Task.sleep(for: .milliseconds(300)) // /pair is now in flight
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == pairs) // not answered yet
+        flow.cancel()
+        #expect(app.sheet == nil)
+        await flow.wait()
+        let after = try #require(try app.store.credentials(for: pak.deviceId)).key
+        #expect(after != before)
+        let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
+        #expect(systems.count == 3)
+    }
+
+    @Test func badSignatureOffersRepair() {
+        let error = AppError.api(.server(ServerError(status: 401, code: .badSignature, message: "")))
+        #expect(error.action == .repair)
+    }
+
+    @Test func cancelledCallerDoesNotCancelTheOthers() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        pak.responseDelay = 0.3
+        let session = app.session(for: pak.deviceId)
+        let a = Task { await session.connect() }
+        let b = Task { try await session.perform { try await $0.systems() } }
+        try await Task.sleep(for: .milliseconds(50))
+        let start = ContinuousClock.now
+        a.cancel()
+        await a.value
+        #expect(ContinuousClock.now - start < .milliseconds(250))
+        #expect(try await b.value.count == 3)
+        #expect(session.state == .connected)
+    }
+
+    @Test func callerArrivingAfterACancelledConnectionStartsANewOne() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        pak.responseDelay = 0.3
+        let session = app.session(for: pak.deviceId)
+        let a = Task { await session.connect() }
+        try await Task.sleep(for: .milliseconds(50))
+        a.cancel()
+        await a.value
+        let b = Task { try await session.perform { try await $0.systems() } }
+        #expect(try await b.value.count == 3)
+        try await Task.sleep(for: .milliseconds(500)) // the cancelled one has ended
+        #expect(session.state == .connected)
+    }
+
+    @Test func startPairingStopsThePreviousFlow() async throws {
+        let pak = makePak()
+        let app = makeApp(pak, discovered: false, lookup: .seconds(5))
+        let first = app.startPairing(.link(link(pak, fallback: false)))
+        try await Task.sleep(for: .milliseconds(50))
+        app.pendingRepair = .link(link(pak, fallback: false))
+        let second = app.startPairing(.link(link(pak, fallback: false)))
+        let start = ContinuousClock.now
+        await first.wait()
+        #expect(ContinuousClock.now - start < .seconds(1))
+        #expect(first.error == nil)
+        #expect(app.pendingRepair == nil)
+        guard case .pairing(let shown) = app.sheet else { Issue.record("no pairing sheet"); return }
+        #expect(shown === second)
+        second.cancel()
+    }
+
+    @Test func startIsIdempotent() async throws {
+        let pak = makePak()
+        pak.responseDelay = 0.2
+        let app = makeApp(pak)
+        let flow = app.startPairing(.link(link(pak, fallback: false)))
+        flow.start()
+        flow.start()
+        await flow.wait()
+        #expect(flow.step == .done)
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == 1)
+    }
+
+    @Test func pinForAPairedConsoleAsksFirst() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.requestPairing(.pin(pak.pin, pak.discoveredDevice))
+        #expect(app.pendingRepair?.deviceId == pak.deviceId)
+        #expect(app.sheet == nil)
+    }
+
+    @Test func confirmationWaitsForTheSheetToClose() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.sheet = .addConsole
+        app.requestPairing(link(pak, fallback: false))
+        #expect(app.sheet == nil)
+        #expect(app.pendingRepair == nil)
+        app.sheetDismissed()
+        #expect(app.pendingRepair?.deviceId == pak.deviceId)
+    }
+
+    @Test func keychainReadErrorIsNotTakenForNoKey() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        try secure.set(Data("garbage".utf8), for: "device." + pak.deviceId)
+        await #expect(throws: (any Error).self) { try await app.session(for: pak.deviceId).unpair() }
+        #expect(app.store.device(id: pak.deviceId) != nil)
     }
 }

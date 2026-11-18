@@ -46,18 +46,26 @@ final class PairingFlow: Identifiable {
         self.source = source
     }
 
-    /// Runs the pairing in a task that ``cancel()`` stops.
+    /// Runs the pairing in a task that ``cancel()`` stops. Does nothing if
+    /// a run is already in progress.
     func start() {
-        guard !isRunning else { return }
-        task = Task { await run() }
-    }
-
-    /// Prefer ``start()``: a pairing run directly cannot be cancelled.
-    func run() async {
-        guard !isRunning else { return }
+        guard task == nil else { return }
         isRunning = true
         error = nil
         step = .searching
+        task = Task {
+            await execute()
+            task = nil
+        }
+    }
+
+    /// Runs the pairing and waits for its end.
+    func run() async {
+        start()
+        await wait()
+    }
+
+    private func execute() async {
         defer { isRunning = false }
         do {
             let endpoint: Endpoint
@@ -78,18 +86,26 @@ final class PairingFlow: Identifiable {
             let client = app.makeClient(endpoint: endpoint, expectedDeviceId: deviceId)
             let hello = try await client.hello()
             guard hello.pairingOpen else { throw AppError.pairingClosed }
-            try Task.checkCancellation()
             let clientId = try app.store.installationClientId()
             let attempt = try PairingAttempt(secret: secret, deviceId: deviceId, clientId: clientId, clientName: app.clientName)
-            let key = try await client.pair(attempt)
-            // Cancelled while the pak answered: the key is dropped.
+            // Last point where cancelling changes anything.
             try Task.checkCancellation()
-            let device = try app.store.save(
-                deviceId: deviceId, name: suggestedName ?? hello.deviceName, model: hello.model, clientId: clientId, key: key
-            )
-            app.rememberEndpoint(endpoint, for: deviceId)
+            // Once /pair is sent, the pak may already hold the new key (and
+            // have dropped the previous one): the exchange runs to its end in
+            // its own task, not cancelled with the screen, and the key is
+            // stored as soon as the device proof is valid.
+            let app = app
+            let name = suggestedName ?? hello.deviceName
+            let exchange = Task { () throws -> PairedDevice in
+                let key = try await client.pair(attempt)
+                let device = try app.store.save(deviceId: deviceId, name: name, model: hello.model, clientId: clientId, key: key)
+                app.rememberEndpoint(endpoint, for: deviceId)
+                app.didReplaceKey(for: deviceId)
+                return device
+            }
+            let device = try await exchange.value
             paired = device
-            name = device.name
+            self.name = device.name
             step = .done
         } catch {
             let error = AppError(error)
@@ -116,10 +132,10 @@ final class PairingFlow: Identifiable {
     /// Stops a pairing in progress (the sheet went away).
     func stop() {
         task?.cancel()
-        task = nil
     }
 
-    /// Waits for the current run (tests).
+    /// Waits for the current run, including a `/pair` exchange that goes
+    /// on after a cancellation.
     func wait() async {
         await task?.value
     }

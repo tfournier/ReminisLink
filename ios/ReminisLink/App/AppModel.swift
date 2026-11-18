@@ -51,8 +51,10 @@ final class AppModel {
     let store: DeviceStore
     let discovery: Discovery
     let artCache: ArtCache
-    /// Pairing link of the fake pak in the demo mode (Debug builds only).
-    let demoPairingLink: PairingLink?
+    #if DEBUG
+    /// Pairing link of the fake pak in the demo mode.
+    var demoPairingLink: PairingLink?
+    #endif
     /// How long to look for a console with Bonjour.
     let lookupTimeout: Duration
     /// How long to wait for Bonjour before using the QR code endpoint.
@@ -61,9 +63,11 @@ final class AppModel {
     var path: [Route] = []
     var sheet: Sheet?
     var linkError: AppError?
-    /// A link for a console that is already paired, waiting for the user
-    /// to confirm that it should be paired again.
-    var pendingRepair: PairingLink?
+    /// A pairing with a console that is already paired, waiting for the
+    /// user to confirm that it should be paired again.
+    var pendingRepair: PairingSource?
+    /// A confirmation to ask once the current sheet is dismissed.
+    @ObservationIgnored private var queuedRepair: PairingSource?
 
     @ObservationIgnored private let makeSession: () -> URLSession
     @ObservationIgnored private var sessions: [String: ConsoleSession] = [:]
@@ -72,14 +76,13 @@ final class AppModel {
     @ObservationIgnored private var sessionEndpoints: [String: Endpoint] = [:]
 
     init(
-        store: DeviceStore, discovery: Discovery, artCache: ArtCache, demoPairingLink: PairingLink? = nil,
+        store: DeviceStore, discovery: Discovery, artCache: ArtCache,
         lookupTimeout: Duration = Discovery.lookupTimeout, fallbackDelay: Duration = .seconds(3),
         makeSession: @escaping () -> URLSession
     ) {
         self.store = store
         self.discovery = discovery
         self.artCache = artCache
-        self.demoPairingLink = demoPairingLink
         self.lookupTimeout = lookupTimeout
         self.fallbackDelay = fallbackDelay
         self.makeSession = makeSession
@@ -103,29 +106,56 @@ final class AppModel {
         requestPairing(link)
     }
 
-    /// Pairs with a link, after a confirmation if the console is already
-    /// paired (its key would be replaced).
     func requestPairing(_ link: PairingLink) {
-        if store.device(id: link.deviceId) != nil {
+        requestPairing(.link(link))
+    }
+
+    /// Pairs, after a confirmation if the console is already paired (its
+    /// key would be replaced). The confirmation waits for the current sheet
+    /// to be dismissed.
+    func requestPairing(_ source: PairingSource) {
+        guard store.device(id: source.deviceId) != nil else {
+            startPairing(source)
+            return
+        }
+        if sheet != nil {
+            queuedRepair = source
             sheet = nil
-            pendingRepair = link
         } else {
-            startPairing(.link(link))
+            pendingRepair = source
+        }
+    }
+
+    /// Called when a sheet is dismissed.
+    func sheetDismissed() {
+        if let source = queuedRepair {
+            queuedRepair = nil
+            pendingRepair = source
         }
     }
 
     func confirmRepair() {
-        guard let link = pendingRepair else { return }
+        guard let source = pendingRepair else { return }
         pendingRepair = nil
-        startPairing(.link(link))
+        startPairing(source)
     }
 
+    /// Starts a pairing now, stopping any previous one: no pairing runs
+    /// without its screen.
     @discardableResult
     func startPairing(_ source: PairingSource) -> PairingFlow {
+        if case .pairing(let previous) = sheet { previous.stop() }
+        pendingRepair = nil
+        queuedRepair = nil
         let flow = PairingFlow(app: self, source: source)
         sheet = .pairing(flow)
         flow.start()
         return flow
+    }
+
+    /// A new key was stored: connections signed with the old one are dropped.
+    func didReplaceKey(for deviceId: String) {
+        sessions[deviceId] = nil
     }
 
     func finishPairing(deviceId: String?) {
@@ -203,13 +233,16 @@ extension AppModel {
         let group = Bundle.main.object(forInfoDictionaryKey: "RLAppGroup") as? String
         let defaults = group.flatMap { UserDefaults(suiteName: $0) } ?? .standard
         let store = DeviceStore(secureStore: KeychainStore(service: "ReminisLink.devices"), defaults: defaults)
+        #if DEBUG
         if environment["RL_RESET_STORE"] == "1" {
             for device in store.devices { try? store.remove(device.id) }
         }
-        return AppModel(
+        #endif
+        let app = AppModel(
             store: store, discovery: Discovery(), artCache: ArtCache(directory: ArtCache.defaultDirectory()),
             makeSession: { APIClient.makeSession() }
         )
+        return app
     }
 
     #if DEBUG
@@ -221,13 +254,14 @@ extension AppModel {
         UserDefaults.standard.removePersistentDomain(forName: suite)
         let artDirectory = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoArt")
         try? FileManager.default.removeItem(at: artDirectory)
-        return AppModel(
+        let app = AppModel(
             store: DeviceStore(secureStore: InMemorySecureStore(), defaults: UserDefaults(suiteName: suite)!),
             discovery: Discovery(fixedDevices: [pak.discoveredDevice]),
             artCache: ArtCache(directory: artDirectory),
-            demoPairingLink: pak.pairingLink,
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
+        app.demoPairingLink = pak.pairingLink
+        return app
     }
     #endif
 }

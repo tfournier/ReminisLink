@@ -37,6 +37,25 @@ final class PairingUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba"].waitForExistence(timeout: 10))
     }
 
+    /// Pairing again a console that is already paired asks first, once the
+    /// add sheet is closed.
+    @MainActor
+    func testRepairAsksForConfirmationInDemoMode() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["RL_DEMO"] = "1"
+        app.launch()
+        app.open(URL(string: Self.demoLink)!)
+        try pairAndOpenConsole(app, deviceId: Self.demoDeviceId)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        app.buttons["consoles.add"].tapAfterWaiting()
+        app.buttons["demo.pair"].tapAfterWaiting()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), "no confirmation")
+        alert.buttons["repair.confirm"].tap()
+        XCTAssertTrue(app.buttons["pairing.done"].waitForExistence(timeout: 15))
+    }
+
     /// Against a real pak (`make headless` on the Mac). Disabled unless the
     /// pairing link printed by the pak is given:
     ///
