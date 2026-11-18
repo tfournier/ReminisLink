@@ -488,3 +488,31 @@ func TestDefaultDeviceName(t *testing.T) {
 		}
 	}
 }
+
+// An identifier must name the exact bytes on the card: another case (or,
+// on APFS, another Unicode normalization) is not the same game, even if
+// the file system finds the file.
+func TestExactNamesOnly(t *testing.T) {
+	a, _ := newAdapter(t)
+	for _, rel := range []string{
+		"game boy advance (GBA)/Starlight Courier.gba",
+		gba + "/starlight courier.gba",
+		gba + "/HACKS/Starlight Courier Remix.gba",
+		ps + "/mossy hollow",
+		"Game Boy Advance (GBA)/Café Rêverie (France).gba", // NFD é
+	} {
+		if _, err := a.Game(rel); !errors.Is(err, osadapter.ErrNotFound) {
+			t.Errorf("Game(%q) = %v, want ErrNotFound", rel, err)
+		}
+	}
+	if _, err := a.System("game boy advance (GBA)"); !errors.Is(err, osadapter.ErrNotFound) {
+		t.Errorf("System with another case: %v", err)
+	}
+	sys, _ := a.System(gba)
+	if _, err := a.ListFolder(sys, gba+"/hacks"); !errors.Is(err, osadapter.ErrNotFound) {
+		t.Errorf("ListFolder with another case: %v", err)
+	}
+	if _, err := a.Game(gba + "/Café Rêverie (France).gba"); err != nil {
+		t.Errorf("exact name refused: %v", err)
+	}
+}

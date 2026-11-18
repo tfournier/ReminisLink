@@ -110,6 +110,7 @@ func TestGame(t *testing.T) {
 		"missing game":   {"/api/v1/games/" + id(gba+"/Missing.gba"), 404, CodeNotFound},
 		"folder as game": {"/api/v1/games/" + id(gba+"/Hacks"), 404, CodeNotFound},
 		"ignored file":   {"/api/v1/games/" + id(gba+"/readme.txt"), 404, CodeNotFound},
+		"other case":     {"/api/v1/games/" + id(gba+"/starlight courier.gba"), 404, CodeNotFound},
 	} {
 		r := f.client.Do(t, http.MethodGet, tc.target, nil)
 		f.check(http.MethodGet, "/games/{gameId}", r)

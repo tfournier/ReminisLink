@@ -157,10 +157,34 @@ func (a *Adapter) System(folder string) (osadapter.System, error) {
 	}
 	dir := filepath.Join(a.roots.Roms, folder)
 	fi, err := os.Lstat(dir)
-	if err != nil || !fi.IsDir() || !hasVisible(dir) {
+	if err != nil || !fi.IsDir() || !hasExactEntry(a.roots.Roms, folder) || !hasVisible(dir) {
 		return osadapter.System{}, osadapter.ErrNotFound
 	}
 	return sys, nil
+}
+
+// hasExactEntry reports whether dir holds an entry named exactly name.
+// exFAT (and APFS) find a file whatever the case (and, on APFS, the Unicode
+// normalization) of the name asked; identifiers must match the bytes on
+// the card so that a file has a single identifier
+// (docs/specs/03-protocole.md §5).
+func hasExactEntry(dir, name string) bool {
+	f, err := os.Open(dir)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	for {
+		names, err := f.Readdirnames(256)
+		for _, n := range names {
+			if n == name {
+				return true
+			}
+		}
+		if err != nil {
+			return false
+		}
+	}
 }
 
 func hasVisible(dir string) bool {
@@ -430,9 +454,10 @@ func (a *Adapter) checkPlainFolders(sys osadapter.System, rel string, includeLas
 	}
 	cur := filepath.Join(a.roots.Roms, sys.Folder)
 	for i := 1; i < end; i++ {
+		parent := cur
 		cur = filepath.Join(cur, parts[i])
 		fi, err := os.Lstat(cur)
-		if err != nil || !fi.IsDir() {
+		if err != nil || !fi.IsDir() || !hasExactEntry(parent, parts[i]) {
 			return osadapter.ErrNotFound
 		}
 		if _, ok := m3uIn(parts[i], readNames(cur)); ok {
@@ -461,11 +486,11 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 		return osadapter.Game{}, err
 	}
 	full := filepath.Join(a.roots.Roms, filepath.FromSlash(rel))
+	base := parts[len(parts)-1]
 	fi, err := os.Lstat(full)
-	if err != nil {
+	if err != nil || !hasExactEntry(filepath.Dir(full), base) {
 		return osadapter.Game{}, osadapter.ErrNotFound
 	}
-	base := parts[len(parts)-1]
 	switch {
 	case fi.IsDir():
 		m3u, ok := m3uIn(base, readNames(full))

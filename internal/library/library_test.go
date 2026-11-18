@@ -237,11 +237,28 @@ func TestLibraryNFDNames(t *testing.T) {
 	if d.FileName != nfd || len(d.Files) != 2 || d.Files[1].Role != "save" {
 		t.Errorf("NFD detail = %+v", d)
 	}
-	// The NFC spelling is another identifier. Whether it resolves depends
-	// on the file system (APFS ignores normalization, Linux file systems do
-	// not): it must never answer with the identifier of the NFD file.
-	if d2, err := l.Game(EncodeID(gba + "/" + nfc)); err == nil && d2.ID == found.ID {
-		t.Errorf("NFC id answered with the NFD id")
+	// The NFC spelling is another identifier, and no file has exactly that
+	// name: not found, even on APFS which would find the file.
+	if _, err := l.Game(EncodeID(gba + "/" + nfc)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("NFC id of an NFD file: %v, want ErrNotFound", err)
+	}
+}
+
+func TestLibraryCaseMismatch(t *testing.T) {
+	l, _ := newLibrary(t)
+	if _, err := l.Game(EncodeID(gba + "/STARLIGHT COURIER.gba")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("game: %v", err)
+	}
+	if _, err := l.ListGames(EncodeID("game boy advance (gba)"), ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("system: %v", err)
+	}
+	if _, err := l.ListGames(EncodeID(gba), EncodeID(gba+"/hacks")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("folder: %v", err)
+	}
+	// The system part of a folderId is compared byte for byte with the
+	// route: another case is a folder of another system.
+	if _, err := l.ListGames(EncodeID(gba), EncodeID("game boy advance (gba)/Hacks")); !errors.Is(err, ErrInvalidID) {
+		t.Errorf("folder of another case of the system: %v", err)
 	}
 }
 
