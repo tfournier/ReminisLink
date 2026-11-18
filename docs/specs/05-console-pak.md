@@ -196,6 +196,11 @@ Si un transfert ou une tâche est en cours : demande de confirmation (« Un tran
 
 `$LOGS_PATH/ReminisLink.txt` via `log/slog` : démarrage, adresse et port, appairages (sans secrets), chaque requête (méthode, route, code, durée, client), chaque opération destructive avec le chemin de la sauvegarde créée. Jamais de clé, de secret, de PIN ni de signature dans le journal.
 
+Protection de la carte SD (jalon M2) : un appareil non appairé ne doit pas pouvoir remplir le journal.
+- Les lignes qu'une requête **non acceptée par la vérification de signature** peut provoquer (requêtes refusées, routes non signées `/hello` et `/pair`, redirections du routeur, erreurs du serveur HTTP) sont échantillonnées (quelques lignes par seconde) ; les lignes perdues sont comptées par type dans une ligne récapitulative.
+- Les valeurs venant du réseau sont bornées (chemin 512 octets, méthode 16 octets) ou validées (`clientId`) avant d'être journalisées ; en-têtes limités à 16 Kio.
+- Au lancement, un journal de plus de 5 Mio est renommé en `ReminisLink.old.txt` (l'ancien est remplacé) ; au-delà de 20 Mio pendant une session, seules les lignes des requêtes acceptées et les erreurs du pak sont encore écrites.
+
 ## 9. Mode desktop
 
 `reminislink --desktop --sd ./testdata/sdcard` lance le pak sur Mac ou Linux, avec la même UI dans une fenêtre et une carte SD factice. `--headless` lance seulement le serveur et la découverte, sans UI ni SDL. Ces deux modes permettent de développer et tester l'app iOS sans console (voir [08](08-tests-qualite.md)).

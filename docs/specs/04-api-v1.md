@@ -150,6 +150,8 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 
 - `kind` : `file` (ROM simple), `m3u` (fichier `.m3u`), `folder-m3u` (dossier contenant un `.m3u` du même nom, jeu multi-disques).
 - Les fichiers ignorés sont ceux de Cheat Manager (`.txt`, `.png`, `.sav`, `.cht`, `.bak`...) et les fichiers cachés.
+- Les fichiers cités par un `.m3u` du même dossier (les disques d'un jeu multi-disques) ne sont pas listés comme jeux séparés ; la taille du jeu `m3u` inclut ses disques.
+- Les identifiants désignent un nom **exact** du dossier : un identifiant qui ne diffère que par la casse donne `404 not_found` (un seul identifiant par fichier, 03 §5).
 - Le comptage `stateCount` et `cheatCount` DOIT rester rapide (≤ 300 ms pour 500 jeux sur la console) : une lecture de dossier par système, pas un `stat` par jeu.
 
 ### `GET /games/{gameId}`

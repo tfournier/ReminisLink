@@ -129,7 +129,8 @@ Précisions (fixées au jalon M1, vecteurs dans `signing.json`) :
 - le décodage suit `application/x-www-form-urlencoded` : `+` vaut une espace ; un `%` mal formé rend la requête invalide (`401 bad_signature`) ;
 - les paires vides (`a=1&&b=2`) sont ignorées ; une clé sans `=` vaut `clé=` ;
 - le tri compare les clés **encodées** puis les valeurs **encodées**, octet par octet ;
-- une même clé présente plusieurs fois est refusée par le pak (`400 invalid_request`) ; l'app n'envoie jamais de clé en double. *(Décision du 18/11/2026, à implémenter au jalon M2.)*
+- une même clé présente plusieurs fois est refusée par le pak (`400 invalid_request`) ; l'app n'envoie jamais de clé en double. *(Décision du 18/11/2026, implémentée au jalon M2.)*
+- un `;` non encodé dans la requête est refusé (`400 invalid_request`), car certains analyseurs le traitent comme un séparateur ; l'app encode toujours `;` en `%3B` (c'est le cas de `Signer.encodeQuery`). *(Jalon M2.)*
 - l'app envoie toujours la requête déjà sous sa forme canonique.
 
 ### 4.3 Vérification côté pak
