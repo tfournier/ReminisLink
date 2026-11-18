@@ -48,7 +48,7 @@ Le pak génère au démarrage un **secret d'appairage** de 32 octets aléatoires
 reminislink://pair?v=1&id=<deviceId>&n=<nom URL-encodé>&s=<secret base64url sans padding>&h=<IPv4>&p=<port>
 ```
 
-- `h` et `p` ne servent qu'à la session en cours, si Bonjour échoue. L'app NE DOIT PAS les mémoriser.
+- `h` et `p` sont **informatifs** (affichage, outils de test comme `scripts/smoke.sh`). L'app NE DOIT PAS s'en servir pour se connecter ni les mémoriser : la console est toujours trouvée par Bonjour avec son `id`, sinon l'app affiche « Console introuvable ». *(Décision du 18/11/2026 : un repli sur l'IP permettrait à un faux pak du même réseau, annonçant l'`id` d'une console éteinte, de se faire appairer à sa place.)*
 - Après chaque appairage réussi, ou à expiration, le pak génère un nouveau secret et un nouveau QR code.
 
 **PIN de secours** : 6 chiffres affichés sous le QR code, valables 10 minutes. Ils servent si l'appareil photo n'est pas utilisable. Ce mode est plus faible (voir [07](07-securite.md)) ; l'app l'indique à l'utilisateur.
@@ -188,7 +188,7 @@ Toute réponse d'erreur a la forme :
 | 413 | `too_large` | Corps ou fichier trop gros |
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
-| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée (avec `Retry-After`) |
+| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
 | 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
 | 507 | `insufficient_storage` | Espace libre insuffisant (`details.required`, `details.available`) |
@@ -203,7 +203,7 @@ Envoi en morceaux, reprenable, inspiré de tus.
 4. **Fin** : `POST /api/v1/uploads/{id}/complete`. Le pak calcule le SHA-256 (incrémental pendant la réception) ; s'il diffère : `409 checksum_mismatch` et l'envoi est supprimé. Sinon, `fsync`, application de la règle de conflit (`fail`, `rename`, `overwrite` avec sauvegarde), renommage vers la destination, puis réponse avec la ressource créée.
 5. **Annulation** : `DELETE /api/v1/uploads/{id}`.
 
-Un envoi sans activité pendant 24 h est supprimé. Les envois en cours sont perdus à la fermeture du pak (l'app les recrée).
+Un envoi sans activité pendant 24 h est supprimé. Les envois en cours **survivent** à la fermeture du pak : au relancement, le pak recalcule en arrière-plan le SHA-256 à partir des octets réellement présents sur la carte (l'offset repris est la taille du fichier partiel) ; pendant ce calcul, `GET /uploads/{id}` répond aussitôt et `PUT`/`complete` peuvent répondre `429` avec `Retry-After`. Un envoi purgé ou illisible répond `404` : l'app le recrée. *(Décision du 18/11/2026.)*
 
 L'intégrité des morceaux (non signés) est garantie par le SHA-256 final, annoncé dans la requête de création, elle signée.
 

@@ -70,7 +70,7 @@ Le code de lecture et d'écriture des `.cht` de Cheat Manager (`internal/cheats`
 
 1. L'utilisateur ouvre ReminisLink sur la console. La console affiche un QR code.
 2. Il le scanne avec l'appareil photo de l'iPhone (lien `reminislink://pair?...`) ou depuis l'app.
-3. L'app cherche la console par Bonjour (par son `id`), sinon utilise l'IP du QR code pour cette session.
+3. L'app cherche la console par Bonjour (par son `id`). Si elle ne la trouve pas, elle affiche une erreur (aucun repli sur l'IP du QR code, voir [03 §3.1](03-protocole.md#31-contenu-du-qr-code)).
 4. Échange d'appairage → les deux côtés dérivent la même clé sans la transmettre (voir [03](03-protocole.md)).
 5. L'app enregistre la console et sa clé dans le Trousseau.
 
