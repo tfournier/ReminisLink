@@ -48,16 +48,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — `agy` installé ; `Bash(make *)` autorisé par la personne.
 
 ## Questions ouvertes pour la personne
-   - b. 03 §4.3 : HMAC vérifié avant l'empreinte du corps, nonce réservé juste après le HMAC et consommé même si la suite échoue (oui).
-   - c. 03 §5 : identifiants non canoniques (`a//b`, `a/`, `./a`) refusés au lieu d'être nettoyés par `filepath.Clean`, pas de normalisation Unicode (oui).
-   - d. 03 §4.2 : `+` décodé en espace, paires vides ignorées, tri par octets des paires encodées (oui).
-   - e. 04 : corps de réponse ajoutés par `openapi.yaml` là où 04 ne disait rien, `clientName` 1–64 caractères (oui).
-1. Relevés M0 sur la console (voir le compte rendu de démarrage).
-2. ~~CLI Antigravity~~ : installée (`agy` 1.5.11, modèles Gemini 3.8).
-6. ~~Report dans la spec des choix de M1~~ : oui pour tout (voir Décisions).
-3. ~~Premier commit de `main`~~ : tranché (voir Décisions).
-4. ~~Lancer M1 pendant l'attente de M0~~ : oui (voir Décisions).
-5. ~~Écart `DELETE /games/{gameId}`~~ : tranché, tout va dans la corbeille (voir Décisions).
+1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
+
+Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
 - Revue M1 : imposer la même horloge au `Verifier` et au cache de nonces (constructeur unique).
