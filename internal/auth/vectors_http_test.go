@@ -40,11 +40,15 @@ func TestSigningVectorsThroughHTTPServer(t *testing.T) {
 				Now:     func() time.Time { return time.Unix(ts, 0) },
 			}
 			var gotBody string
-			srv := httptest.NewServer(v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				b, _ := io.ReadAll(r.Body)
 				gotBody = string(b)
 				w.WriteHeader(http.StatusNoContent)
-			})))
+			})
+			mux := http.NewServeMux()
+			mux.Handle("PUT /api/v1/uploads/{uploadId}", v.Require(RouteChunk, h))
+			mux.Handle("/", v.Require(RouteJSON, h))
+			srv := httptest.NewServer(mux)
 			defer srv.Close()
 
 			target := c.Path

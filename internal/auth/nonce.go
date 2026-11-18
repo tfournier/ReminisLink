@@ -7,12 +7,8 @@ import (
 )
 
 const (
-	// NonceTTL is how long a request nonce is remembered. It must be at
-	// least 2 × MaxClockSkew so a request cannot be replayed while its
-	// timestamp is still accepted. Both bounds are inclusive: the clock
-	// accepts |t - now| <= MaxClockSkew and the cache remembers a nonce
-	// until now <= added + NonceTTL, so at the exact instant
-	// added + 2 × MaxClockSkew the nonce is still known.
+	// NonceTTL is the minimum time a request nonce is remembered (spec:
+	// 10 minutes). It must be at least 2 × MaxClockSkew.
 	NonceTTL = 10 * time.Minute
 	// DefaultNonceCapacity bounds the memory of the cache.
 	DefaultNonceCapacity = 50000
@@ -27,15 +23,22 @@ var (
 	ErrNonceCacheFull = errors.New("nonce cache full")
 )
 
-// NonceCache remembers request nonces per client for a fixed time, in
-// memory, with a bounded number of entries and an injectable clock.
+// NonceCache remembers request nonces per client, in memory, with a
+// bounded number of entries and an injectable clock.
+//
+// A nonce is kept until max(signed time + MaxClockSkew, added + ttl),
+// bounds included: as long as the clock check could still accept the
+// request (|X-RL-Time - now| <= MaxClockSkew), its nonce is known. All
+// comparisons use the wall clock (monotonic reading stripped), the same
+// clock as the skew check, so a wall clock change (NTP on Wi-Fi connection)
+// moves both together.
 type NonceCache struct {
 	mu       sync.Mutex
 	ttl      time.Duration
 	capacity int
 	now      func() time.Time
 	expiry   map[string]time.Time
-	order    []nonceEntry // insertion order, which is expiry order
+	order    []nonceEntry // insertion order (usually expiry order)
 	head     int
 }
 
@@ -44,7 +47,8 @@ type nonceEntry struct {
 	expires time.Time
 }
 
-// NewNonceCache returns a cache. A nil now uses time.Now.
+// NewNonceCache returns a cache. A nil now uses time.Now; pass the same
+// clock as the Verifier.
 func NewNonceCache(ttl time.Duration, capacity int, now func() time.Time) *NonceCache {
 	if now == nil {
 		now = time.Now
@@ -62,37 +66,66 @@ func NewNonceCache(ttl time.Duration, capacity int, now func() time.Time) *Nonce
 
 func nonceKey(clientID, nonce string) string { return clientID + "\x00" + nonce }
 
+func (c *NonceCache) wallNow() time.Time { return c.now().Round(0) }
+
 // Seen reports whether the nonce is currently remembered for the client.
 func (c *NonceCache) Seen(clientID, nonce string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	exp, ok := c.expiry[nonceKey(clientID, nonce)]
-	return ok && !c.now().After(exp)
+	return ok && !c.wallNow().After(exp)
 }
 
-// Add records the nonce for the client. It returns ErrReplay if it is
-// already remembered and ErrNonceCacheFull if there is no room. Check and
-// insertion are atomic.
-func (c *NonceCache) Add(clientID, nonce string) error {
+// Add records the nonce of a request signed at signedAt (X-RL-Time). It
+// returns ErrReplay if the nonce is already remembered and
+// ErrNonceCacheFull if there is no room. Check and insertion are atomic.
+func (c *NonceCache) Add(clientID, nonce string, signedAt time.Time) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	now := c.now()
+	now := c.wallNow()
 	c.evictLocked(now)
 	key := nonceKey(clientID, nonce)
 	if exp, ok := c.expiry[key]; ok && !now.After(exp) {
 		return ErrReplay
 	}
 	if len(c.expiry) >= c.capacity {
-		return ErrNonceCacheFull
+		// The queue may be out of expiry order after a wall clock change:
+		// sweep everything before giving up.
+		c.sweepLocked(now)
+		if len(c.expiry) >= c.capacity {
+			return ErrNonceCacheFull
+		}
 	}
 	exp := now.Add(c.ttl)
+	if bySignature := signedAt.Round(0).Add(MaxClockSkew); bySignature.After(exp) {
+		exp = bySignature
+	}
 	c.expiry[key] = exp
 	c.order = append(c.order, nonceEntry{key: key, expires: exp})
 	return nil
 }
 
+// RetryAfter returns how long until the next nonce expires (at least one
+// second), for the Retry-After header of a "cache full" answer.
+func (c *NonceCache) RetryAfter() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.wallNow()
+	var next time.Time
+	for _, exp := range c.expiry {
+		if next.IsZero() || exp.Before(next) {
+			next = exp
+		}
+	}
+	d := next.Sub(now) + time.Nanosecond // expiry is inclusive
+	if next.IsZero() || d < time.Second {
+		return time.Second
+	}
+	return d
+}
+
 // Len returns the number of remembered nonces (expired ones included until
-// the next Add).
+// they are evicted).
 func (c *NonceCache) Len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -111,9 +144,32 @@ func (c *NonceCache) evictLocked(now time.Time) {
 		c.order[c.head] = nonceEntry{}
 		c.head++
 	}
-	// Compact the queue once half of it is consumed.
+	c.compactLocked()
+}
+
+func (c *NonceCache) sweepLocked(now time.Time) {
+	for key, exp := range c.expiry {
+		if now.After(exp) {
+			delete(c.expiry, key)
+		}
+	}
+	kept := c.order[:0]
+	for _, e := range c.order[c.head:] {
+		if exp, ok := c.expiry[e.key]; ok && exp.Equal(e.expires) {
+			kept = append(kept, e)
+		}
+	}
+	clear(c.order[len(kept):])
+	c.order = kept
+	c.head = 0
+}
+
+// compactLocked drops the consumed head of the queue once it is half of it.
+func (c *NonceCache) compactLocked() {
 	if c.head > 0 && c.head*2 >= len(c.order) {
-		c.order = append(c.order[:0], c.order[c.head:]...)
+		n := copy(c.order, c.order[c.head:])
+		clear(c.order[n:])
+		c.order = c.order[:n]
 		c.head = 0
 	}
 }

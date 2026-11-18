@@ -50,11 +50,8 @@ func newMWFixtureWith(t *testing.T, maxBody int64, nonceCapacity int) *mwFixture
 		Nonces:  NewNonceCache(NonceTTL, nonceCapacity, clock.Now),
 		Now:     clock.Now,
 	}
-	if maxBody > 0 {
-		v.BodyLimit = func(string, string) int64 { return maxBody }
-	}
 	f := &mwFixture{t: t, clock: clock, key: key, seen: make(chan seenRequest, 10), verifier: v}
-	f.handler = v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, ok := ClientFromContext(r.Context())
 		if !ok {
 			t.Error("no client in context")
@@ -62,7 +59,17 @@ func newMWFixtureWith(t *testing.T, maxBody int64, nonceCapacity int) *mwFixture
 		body, _ := io.ReadAll(r.Body)
 		f.seen <- seenRequest{client: c, body: string(body)}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
+	// Route options are fixed at registration, as the M2 router will do.
+	jsonRoute, saveRoute := RouteJSON, RouteSave
+	if maxBody > 0 {
+		jsonRoute.BodyLimit, saveRoute.BodyLimit = maxBody, maxBody
+	}
+	mux := http.NewServeMux()
+	mux.Handle("PUT /api/v1/uploads/{uploadId}", v.Require(RouteChunk, h))
+	mux.Handle("PUT /api/v1/games/{gameId}/save", v.Require(saveRoute, h))
+	mux.Handle("/", v.Require(jsonRoute, h))
+	f.handler = mux
 	f.server = httptest.NewServer(f.handler)
 	t.Cleanup(f.server.Close)
 	return f
@@ -261,9 +268,9 @@ func TestMiddlewareDoesNotReadBodyOfForgedRequest(t *testing.T) {
 	// Signed with the wrong key, announcing the hash of a small body.
 	req := f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: []byte("small"),
 		key: bytes.Repeat([]byte{1}, KeySize)})
-	body := &countingReader{size: MaxSaveBody}
+	body := &countingReader{size: BodyLimitSave}
 	req.Body = io.NopCloser(body)
-	req.ContentLength = MaxSaveBody
+	req.ContentLength = BodyLimitSave
 	req.RequestURI = "/api/v1/games/R2FtZQ/save"
 	rec := httptest.NewRecorder()
 	f.handler.ServeHTTP(rec, req)
@@ -277,35 +284,17 @@ func TestMiddlewareDoesNotReadBodyOfForgedRequest(t *testing.T) {
 
 func TestMiddlewareDefaultBodyLimits(t *testing.T) {
 	f := newMWFixture(t, 0)
-	big := bytes.Repeat([]byte{'a'}, MaxJSONBody+1)
+	big := bytes.Repeat([]byte{'a'}, BodyLimitJSON+1)
 	status, code := f.do(f.request(signOpts{method: "POST", target: "/api/v1/games/R2FtZQ/save/backups", body: big}))
 	if status != http.StatusRequestEntityTooLarge || code != CodeTooLarge {
 		t.Fatalf("JSON route: %d %s", status, code)
 	}
-	save := bytes.Repeat([]byte{'s'}, 2*MaxJSONBody)
+	save := bytes.Repeat([]byte{'s'}, 2*BodyLimitJSON)
 	if status, code := f.do(f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: save})); status != http.StatusNoContent {
 		t.Fatalf("save route: %d %s", status, code)
 	}
 	if got := <-f.seen; len(got.body) != len(save) {
 		t.Fatalf("handler got %d bytes", len(got.body))
-	}
-}
-
-func TestDefaultBodyLimit(t *testing.T) {
-	cases := map[string]int64{
-		"PUT /api/v1/games/R2FtZQ/save":          MaxSaveBody,
-		"put /api/v1/games/R2FtZQ/save":          MaxSaveBody,
-		"POST /api/v1/games/R2FtZQ/save":         MaxJSONBody,
-		"PUT /api/v1/games//save":                MaxJSONBody,
-		"PUT /api/v1/games/a/b/save":             MaxJSONBody,
-		"PUT /api/v1/games/R2FtZQ/cheats":        MaxJSONBody,
-		"POST /api/v1/games/R2FtZQ/save/backups": MaxJSONBody,
-	}
-	for in, want := range cases {
-		m, p, _ := strings.Cut(in, " ")
-		if got := DefaultBodyLimit(m, p); got != want {
-			t.Errorf("%s: %d, want %d", in, got, want)
-		}
 	}
 }
 
@@ -449,20 +438,116 @@ func TestMiddlewareCheckOrder(t *testing.T) {
 	}
 }
 
-func TestAllowsUnsignedBody(t *testing.T) {
-	cases := map[string]bool{
-		"PUT /api/v1/uploads/up_1":          true,
-		"put /api/v1/uploads/up_1":          true,
-		"PUT /api/v1/uploads/":              false,
-		"PUT /api/v1/uploads/up_1/complete": false,
-		"POST /api/v1/uploads/up_1":         false,
-		"PUT /api/v1/games/x/save":          false,
-		"PUT /api/v1/uploadsx/up_1":         false,
+// Replaying the headers of a request whose body is still being received
+// must not make the pak read a second body.
+func TestMiddlewareConcurrentReplayDoesNotReadBody(t *testing.T) {
+	f := newMWFixture(t, 0)
+	body := bytes.Repeat([]byte{'s'}, 1024)
+	opts := signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: body,
+		nonce: EncodeB64U(bytes.Repeat([]byte{8}, 16))}
+
+	pr, pw := io.Pipe()
+	first := f.request(opts)
+	first.Body = pr
+	first.RequestURI = "/api/v1/games/R2FtZQ/save"
+	done := make(chan int)
+	go func() {
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, first)
+		done <- rec.Code
+	}()
+	// Wait until the first request reserved its nonce.
+	for !f.verifier.Nonces.Seen(testClientA, opts.nonce) {
+		time.Sleep(time.Millisecond)
 	}
-	for in, want := range cases {
-		m, p, _ := strings.Cut(in, " ")
-		if got := AllowsUnsignedBody(m, p); got != want {
-			t.Errorf("%s: %v, want %v", in, got, want)
+
+	replay := f.request(opts)
+	counter := &countingReader{size: BodyLimitSave}
+	replay.Body = io.NopCloser(counter)
+	replay.ContentLength = BodyLimitSave
+	replay.RequestURI = "/api/v1/games/R2FtZQ/save"
+	rec := httptest.NewRecorder()
+	f.handler.ServeHTTP(rec, replay)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), CodeReplayedRequest) {
+		t.Fatalf("replay: %d %s", rec.Code, rec.Body.String())
+	}
+	if counter.n != 0 {
+		t.Fatalf("%d body bytes of the replay were read", counter.n)
+	}
+
+	go func() { _, _ = pw.Write(body); _ = pw.Close() }()
+	if code := <-done; code != http.StatusNoContent {
+		t.Fatalf("first request: %d", code)
+	}
+	<-f.seen
+}
+
+func TestMiddlewareFailureAfterReservationConsumesNonce(t *testing.T) {
+	f := newMWFixture(t, 0)
+	opts := signOpts{method: "POST", target: "/api/v1/games/R2FtZQ/save/backups", body: []byte(`{"label":"a"}`),
+		nonce: EncodeB64U(bytes.Repeat([]byte{9}, 16))}
+	r := f.request(opts)
+	r.Body = io.NopCloser(strings.NewReader(`{"label":"b"}`))
+	if _, code := f.do(r); code != CodeBadSignature {
+		t.Fatalf("modified body: %s", code)
+	}
+	if _, code := f.do(f.request(opts)); code != CodeReplayedRequest {
+		t.Fatalf("same nonce after a body failure: %s, want %s", code, CodeReplayedRequest)
+	}
+}
+
+func TestMiddlewareRetryAfterOnFullCache(t *testing.T) {
+	f := newMWFixtureWith(t, 0, 1)
+	if status, _ := f.do(f.request(signOpts{method: "GET", target: "/api/v1/device"})); status != http.StatusNoContent {
+		t.Fatal("first request refused")
+	}
+	<-f.seen
+	f.clock.Advance(4 * time.Minute)
+	resp, err := http.DefaultClient.Do(f.request(signOpts{method: "GET", target: "/api/v1/device"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	// The only nonce expires 10 min after it was added: 6 min from now.
+	if got := resp.Header.Get("Retry-After"); got != "361" && got != "360" {
+		t.Fatalf("Retry-After = %q", got)
+	}
+}
+
+// The body limit comes from the route registration: spelling the path
+// differently ("..", %2F, %73ave) cannot reach a larger limit.
+func TestRouteOptionsAreFixedAtRegistration(t *testing.T) {
+	f := newMWFixture(t, 0)
+	big := bytes.Repeat([]byte{'a'}, 2*BodyLimitJSON)
+	for _, target := range []string{
+		"/api/v1/games/R2FtZQ/x/../save",
+		"/api/v1/games/R2FtZQ%2Fsave",
+		"/api/v1/games/R2FtZQ/%73ave/x",
+		"/api/v1/games/R2FtZQ/cheats",
+	} {
+		req := f.request(signOpts{method: "PUT", target: target, body: big})
+		rec := httptest.NewRecorder()
+		req.RequestURI = target
+		f.handler.ServeHTTP(rec, req)
+		if rec.Code == http.StatusNoContent {
+			<-f.seen
+			t.Fatalf("%s: a 2 MiB body was accepted outside the save route", target)
 		}
 	}
+	// UNSIGNED is only accepted on the route registered with RouteChunk.
+	for _, target := range []string{"/api/v1/uploads/up_1/complete", "/api/v1/games/R2FtZQ/save"} {
+		req := f.request(signOpts{method: "PUT", target: target, body: []byte("x"), unsigned: true})
+		if status, code := f.do(req); status != 401 || code != CodeBadSignature {
+			t.Fatalf("%s: %d %s", target, status, code)
+		}
+	}
+	// A chunk may also be sent with its real hash, up to BodyLimitChunk.
+	chunk := bytes.Repeat([]byte{'c'}, 4*BodyLimitJSON)
+	if status, code := f.do(f.request(signOpts{method: "PUT", target: "/api/v1/uploads/up_1", body: chunk})); status != http.StatusNoContent {
+		t.Fatalf("signed chunk: %d %s", status, code)
+	}
+	<-f.seen
 }
