@@ -7,14 +7,15 @@
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
-| M4 | Go livré (en revue), iOS en cours | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS et revue Claude neuve en cours | — |
+| M4 | Go et iOS livrés, en revue | `m4-transferts-go`, `m4-transferts-ios` | GPT-OSS (Go) et revues Claude neuves (Go, iOS) en cours | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
 - M2 et M3 fusionnés dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (81), `xcodebuild test` (18 tests app, 3 tests UI dont le parcours réel contre `make headless` : appairage par lien → tableau de bord → bibliothèque → fiche de jeu) tous verts.
-- M4 : deux sous-agents lancés le 2026-11-18 : Go dans `../reminislink-m4-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m4-ios` (uniquement `ios/`, faux pak étendu ; affiche aussi `connectedClients`).
+- M4 : intégration Go + iOS testée le 2026-11-18 dans un worktree temporaire `../reminislink-m4-integ` : contre `make headless`, appairage trouvé **par Bonjour depuis le simulateur** (plus de repli IP) et parcours « envoi de 200 Mio (50 morceaux) → bibliothèque → suppression → vidage de la corbeille » réussis. Côté Go : `smoke-transfers.sh` (reprise après SIGINT à 100 Mio, téléchargement local, corbeille) OK. Non testé de bout en bout depuis l'app : coupure du pak pendant l'envoi puis reprise, et ajout par URL (couverts par les tests Go et le faux pak iOS).
+- M4 (historique) : deux sous-agents lancés le 2026-11-18 : Go dans `../reminislink-m4-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m4-ios` (uniquement `ios/`, faux pak étendu ; affiche aussi `connectedClients`).
 - M0 : en attente des relevés de la console.
 
 ## État du dépôt (2026-11-18)
@@ -62,6 +63,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- M4 iOS : ouverture de l'app depuis l'extension de partage via `openURL` remonté par la chaîne des répondeurs (pas d'API publique) — risque en revue App Store, à valider avant M7.
+- M4 iOS : table extension → tag NextUI pour suggérer le système (`TODO(M0)`).
+- M4 Go : certificats racine HTTPS — magasin système, `$REMINISLINK_CA_BUNDLE`, sinon `/etc/ssl/certs/ca-certificates.crt` (`TODO(M0)`) ; si absent sur la console : autoriser `certifiable` ou embarquer un bundle dans le pak (M7).
 - M2 : `github.com/miekg/dns` passe en dépendance directe (déjà tirée par zeroconf), utilisée seulement par un test d'échappement du nom Bonjour ; accepté par l'agent principal.
 - M2 : les `.bin` référencés par un `.cue` (et non par le `.m3u`) restent listés comme jeux : à revoir au M0.
 - M2 : `make headless` laisse ses copies dans `$TMPDIR/reminislink-sd.*`.
