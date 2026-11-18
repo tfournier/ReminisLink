@@ -41,12 +41,12 @@
         }
       }
     },
-    "%@ stay on the SD card for 30 days, until the trash is emptied." : {
+    "%@ stay on the SD card for at least 30 days, until the trash is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ restent sur la carte SD pendant 30 jours, jusqu’à ce que la corbeille soit vidée."
+            "value" : "%@ restent sur la carte SD pendant au moins 30 jours, jusqu’à ce que la corbeille soit vidée."
           }
         }
       }
@@ -571,16 +571,6 @@
         }
       }
     },
-    "Deleted for good on %@" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supprimé définitivement le %@"
-          }
-        }
-      }
-    },
     "Delete…" : {
       "localizations" : {
         "fr" : {
@@ -701,12 +691,22 @@
         }
       }
     },
-    "Everything stays in the trash of the console for 30 days. The space is only freed when the trash is emptied." : {
+    "Everything stays in the trash of the console for at least 30 days. The space is only freed when the trash is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tout reste dans la corbeille de la console pendant 30 jours. L’espace n’est libéré qu’en vidant la corbeille."
+            "value" : "Tout reste dans la corbeille de la console pendant au moins 30 jours. L’espace n’est libéré qu’en vidant la corbeille."
+          }
+        }
+      }
+    },
+    "Expires no earlier than %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expire au plus tôt le %@"
           }
         }
       }
@@ -731,12 +731,12 @@
         }
       }
     },
-    "Files stay in the trash of the console for 30 days. Their space is only freed when the trash is emptied." : {
+    "Files stay in the trash of the console for at least 30 days. Their space is only freed when the trash is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les fichiers restent 30 jours dans la corbeille de la console. Leur espace n’est libéré qu’en vidant la corbeille."
+            "value" : "Les fichiers restent au moins 30 jours dans la corbeille de la console. Leur espace n’est libéré qu’en vidant la corbeille."
           }
         }
       }

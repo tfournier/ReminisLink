@@ -144,7 +144,7 @@ struct TrashView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(entry.label).font(.headline)
                         Text(entry.sizeBytes.byteString)
-                        Text("Deleted for good on \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
+                        Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -154,7 +154,7 @@ struct TrashView: View {
                     }
                 }
             } footer: {
-                Text("Files stay in the trash of the console for 30 days. Their space is only freed when the trash is emptied.")
+                Text("Files stay in the trash of the console for at least 30 days. Their space is only freed when the trash is emptied.")
             }
         }
         .overlay {
