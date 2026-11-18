@@ -31,7 +31,7 @@
 | `xcodebuild -version` | Xcode 27.2 (27B52) |
 | `swift --version` | Swift 6.4.2 |
 | `make --version` | GNU Make 3.81 |
-| `agy --version` | **absent** : `Antigravity.app` est installée mais la CLI `agy` n'est pas dans le `PATH` |
+| `agy --version` | 1.5.11 (`~/.local/bin/agy`), installée le 2026-11-18 ; modèles Gemini 3.8 Flash |
 | Simulateurs iOS | runtimes iOS 18.3 et 18.5 installés, **aucun appareil créé** (pas d'« iPhone 16 » comme l'attend `CLAUDE.md`) ; runtimes iOS 26.x indisponibles |
 
 Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous-agent Claude neuf (revue non croisée, à signaler à chaque jalon).
@@ -44,24 +44,25 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — Commits **non signés** pendant le développement (clé GPG sur YubiKey avec PIN, personne absente) : `commit.gpgsign=false` et `tag.gpgsign=false` en config **locale** du dépôt (la config globale n'est pas modifiée). À la fin : retirer ces deux réglages (`git config --local --unset ...`) et re-signer l'historique. Décidé par la personne.
 - 2026-11-18 — M1 peut démarrer sans attendre M0 (aucune dépendance aux points « À VÉRIFIER M0 »). Proposé par Claude (session de cadrage) ; considéré comme validé sauf objection de la personne.
 
+- 2026-11-18 — Spec mise à jour avec les choix de M1 (03 §4.2, §4.3, §5, §6 ; 04 ; 07) et `CLAUDE.md` (commandes `make contract`, `make vectors`). Doublons de clés de requête refusés (`400`), à implémenter en M2. Rejeu après redémarrage du pak : risque résiduel accepté (07). Décidé par la personne (« oui pour tout »).
+- 2026-11-18 — `agy` installé ; `Bash(make *)` autorisé par la personne.
+
 ## Questions ouvertes pour la personne
-6. Report dans la spec des choix de M1 (recommandation de l'agent principal entre parenthèses) :
-   - a. 03 §6 : `429 too_many_attempts` (+ `Retry-After`) aussi sur les routes signées quand le cache de nonces est plein (oui).
    - b. 03 §4.3 : HMAC vérifié avant l'empreinte du corps, nonce réservé juste après le HMAC et consommé même si la suite échoue (oui).
    - c. 03 §5 : identifiants non canoniques (`a//b`, `a/`, `./a`) refusés au lieu d'être nettoyés par `filepath.Clean`, pas de normalisation Unicode (oui).
    - d. 03 §4.2 : `+` décodé en espace, paires vides ignorées, tri par octets des paires encodées (oui).
    - e. 04 : corps de réponse ajoutés par `openapi.yaml` là où 04 ne disait rien, `clientName` 1–64 caractères (oui).
 1. Relevés M0 sur la console (voir le compte rendu de démarrage).
-2. Installer et connecter la CLI Antigravity (`agy`) pour la revue croisée.
+2. ~~CLI Antigravity~~ : installée (`agy` 1.5.11, modèles Gemini 3.8).
+6. ~~Report dans la spec des choix de M1~~ : oui pour tout (voir Décisions).
 3. ~~Premier commit de `main`~~ : tranché (voir Décisions).
 4. ~~Lancer M1 pendant l'attente de M0~~ : oui (voir Décisions).
 5. ~~Écart `DELETE /games/{gameId}`~~ : tranché, tout va dans la corbeille (voir Décisions).
 
 ## Plus tard
-- Revue M1 : rejeu possible après un redémarrage du pak (cache de nonces en mémoire) à moins de 300 s d'une requête capturée — à ajouter au modèle de menace (07) ou à traiter (persister les nonces récents).
 - Revue M1 : imposer la même horloge au `Verifier` et au cache de nonces (constructeur unique).
+- M2 : refuser les clés de requête en double (`400 invalid_request`, 03 §4.2).
 - M2 : `ReadHeaderTimeout`, délai d'inactivité de lecture, `BaseContext` annulé à l'arrêt ; brancher `Require(RouteSave)` et `Require(RouteChunk)`.
-- Revue M1 : rejeter les clés de requête dupliquées (`a=1&a=2` réordonnables sans casser la signature) — touche à la sécurité, à valider par la personne.
 - Revue M1 (pour M2) : vérifier qu'un `folderId` appartient au `systemId` de la route.
 - Revue M1 : NFC/NFD non normalisés dans les identifiants — à vérifier en mode desktop sur macOS (noms souvent en NFD).
 - Créer un simulateur « iPhone 16 » (`xcrun simctl create`) avant M1/M3, ou adapter la commande de `CLAUDE.md` au runtime disponible.
