@@ -6,16 +6,19 @@
 #
 # Usage:
 #   make headless            # in another terminal: prints "Pairing link: ..."
-#   scripts/smoke.sh 'reminislink://pair?v=1&id=...&n=...&s=...&h=...&p=...' [base URL]
+#   echo '<pairing link>' | scripts/smoke.sh [base URL]
 #
-# The base URL defaults to http://<h>:<p> from the link.
+# The link is read from the standard input so the pairing secret never
+# shows in the process list; the HMAC is computed with "openssl dgst"
+# reading the key from a pipe, never from its arguments. The base URL
+# defaults to http://<h>:<p> from the link.
 set -euo pipefail
 
-if [ $# -lt 1 ] || [ $# -gt 2 ]; then
-	sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+if [ $# -gt 1 ] || [ -t 0 ]; then
+	sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 fi
-link=$1
+IFS= read -r link || [ -n "$link" ]
 
 fail() { echo "smoke: $*" >&2; exit 1; }
 
@@ -25,12 +28,16 @@ secret_b64u=$(param s)
 host=$(param h)
 port=$(param p)
 [ -n "$device_id" ] && [ -n "$secret_b64u" ] && [ -n "$host" ] && [ -n "$port" ] || fail "not a pairing link: $link"
-base=${2:-http://$host:$port}
+base=${1:-http://$host:$port}
 api=$base/api/v1
 
 # --- encodings -------------------------------------------------------------
 
-hex_to_bin() { printf "$(printf '%s' "$1" | sed 's/../\\x&/g')"; }
+hex_to_bin() {
+	local hex=$1 out="" i
+	for ((i = 0; i < ${#hex}; i += 2)); do out+="\\x${hex:i:2}"; done
+	printf "$out"
+}
 bin_to_hex() { od -An -v -tx1 | tr -d ' \n'; }
 hex_to_b64u() { hex_to_bin "$1" | openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 b64u_to_hex() {
@@ -39,8 +46,26 @@ b64u_to_hex() {
 	while [ $((${#s} % 4)) -ne 0 ]; do s="$s="; done
 	printf '%s' "$s" | openssl base64 -d -A | bin_to_hex
 }
-# hmac_hex KEY_HEX < message: HMAC-SHA256 in hex.
-hmac_hex() { openssl dgst -sha256 -mac HMAC -macopt "hexkey:$1" -binary | bin_to_hex; }
+sha256_hex() { openssl dgst -sha256 -binary | bin_to_hex; }
+# hmac_hex KEY_HEX < message: HMAC-SHA256 (RFC 2104) in hex. Built on the
+# plain digest so the key never appears in the arguments of a process
+# (printf and the string handling are bash builtins).
+hmac_hex() {
+	local key=$1 ipad="" opad="" i b x
+	if [ ${#key} -gt 128 ]; then key=$(hex_to_bin "$key" | sha256_hex); fi
+	while [ ${#key} -lt 128 ]; do key="${key}00"; done
+	for ((i = 0; i < 128; i += 2)); do
+		b=$((16#${key:i:2}))
+		printf -v x '%02x' $((b ^ 0x36)); ipad+=$x
+		printf -v x '%02x' $((b ^ 0x5c)); opad+=$x
+	done
+	local inner
+	inner=$({ hex_to_bin "$ipad"; cat; } | sha256_hex)
+	{ hex_to_bin "$opad"; hex_to_bin "$inner"; } | sha256_hex
+}
+# Self-test with RFC 4231 test case 2 (public key "Jefe").
+[ "$(printf 'what do ya want for nothing?' | hmac_hex 4a656665)" = \
+	5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843 ] || fail "HMAC self-test failed"
 json_field() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
 uuid() {
 	if [ -r /proc/sys/kernel/random/uuid ]; then cat /proc/sys/kernel/random/uuid; else uuidgen; fi | tr 'A-F' 'a-f'

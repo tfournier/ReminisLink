@@ -30,7 +30,7 @@ ReminisLink/
 ```sh
 make headless                  # server + Bonjour on a temporary copy of testdata/sdcard
 dns-sd -B _reminislink._tcp    # the pak is announced on the local network
-scripts/smoke.sh '<pairing link printed by make headless>'   # pair, then a signed GET /systems
+echo '<pairing link printed by make headless>' | scripts/smoke.sh   # pair, then a signed GET /systems
 ```
 
 The headless mode prints the pairing link, the PIN and a QR code in the
