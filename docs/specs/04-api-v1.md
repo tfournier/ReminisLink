@@ -99,7 +99,7 @@ Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuit
 
 `connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
 
-`ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible **[À VÉRIFIER M0 : sources sur NextUI]**.
+`ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible. Sources sur NextUI ([05 §6](05-console-pak.md#6-informations-de-la-console)) : `osVersion` = `.system/version.txt` (nom de release `NextUI-AAAAMMJJ-N` et hash, pas le numéro `v6.x.y` : l'exemple ci-dessus est à aligner, voir [m0/questions.md](m0/questions.md)) ; `battery` = `axp2202-battery/capacity` et `axp2202-usb/online` + `time_to_full_now` ; `ssid` = `wpa_supplicant` (`null` si `wpa_state` ≠ `COMPLETED`).
 
 ---
 
@@ -278,7 +278,8 @@ Télécharger le fichier de la copie ; supprimer la copie (`204`).
 ```
 
 - `lockStatus` : `intact` (identique à la copie verrouillée), `restored` (écrasé en jeu, restauré automatiquement au lancement du pak), `missing` (le state a disparu, la copie verrouillée existe).
-- `resumeSlot` : numéro de l'emplacement de reprise automatique **[À VÉRIFIER M0]**, ou `null`.
+- `slot` : numéro d'emplacement de NextUI. Les emplacements 0 à 7 sont ceux de l'utilisateur (affichés 1 à 8 dans NextUI, l'app DEVRAIT afficher `slot + 1`), 8 est un state « par défaut » caché, 9 la reprise automatique (code NextUI `ma_menu.c:117`, `defines.h:28`).
+- `resumeSlot` : numéro de l'emplacement de reprise automatique, `9` sur NextUI (code NextUI `defines.h:28`), ou `null`. Représentation de la reprise quand `stateFormat` ≠ 0 (fichier `.state.auto`) : décision ouverte, voir [m0/questions.md](m0/questions.md).
 
 ### `GET` / `DELETE /games/{gameId}/states/{slot}`
 
@@ -286,7 +287,7 @@ Télécharger ; supprimer (le state est déplacé dans la corbeille). La suppres
 
 ### `GET /games/{gameId}/states/{slot}/thumbnail`
 
-`image/png` si NextUI enregistre une capture avec le state **[À VÉRIFIER M0]**, sinon `404`.
+`image/png` si une vignette existe, sinon `404`. NextUI en enregistre une pour les emplacements 0 à 7 (pas pour 8 ni 9) dans `.userdata/shared/.minui/<TAG>/<rom.ext>.<N>.bmp` ; malgré l'extension, le contenu est un PNG, capture plein écran (1024×768 sur Brick) (code NextUI `ma_menu.c:1617, 1713-1714`). Le pak vérifie la signature PNG avant de servir le fichier. Taille servie (telle quelle ou réduite) : décision ouverte, voir [m0/questions.md](m0/questions.md).
 
 ### `PUT /games/{gameId}/states/{slot}/lock`
 
