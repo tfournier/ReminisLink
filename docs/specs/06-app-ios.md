@@ -57,6 +57,9 @@ Réglages de l'app
 
 - Scanner intégré (VisionKit `DataScannerViewController`) qui reconnaît les liens `reminislink://pair`.
 - Le même lien ouvert depuis l'appareil photo de l'iPhone lance directement l'appairage.
+- Si la console du lien (ou du PIN) est **déjà appairée**, l'app demande d'abord confirmation (« Cette console est déjà appairée. Refaire l'appairage ? ») ; le nouvel appairage remplace la clé. *(Décision du 18/11/2026.)*
+- La console est toujours trouvée par Bonjour avec l'`id` du lien ; sinon, erreur « Console introuvable » (06 §5). L'IP du QR code n'est jamais utilisée (03 §3.1).
+- Une fois `POST /pair` envoyé, annuler ne fait que fermer l'écran : l'échange va à son terme et la clé est enregistrée si la preuve de la console est valide, pour ne jamais désynchroniser la clé avec le pak.
 - Saisie du PIN en secours, avec un avertissement : « Moins sûr que le QR code. À éviter sur un Wi-Fi public. »
 - Étapes visibles : Recherche de la console → Appairage → Terminé. Champ pour renommer la console côté app.
 

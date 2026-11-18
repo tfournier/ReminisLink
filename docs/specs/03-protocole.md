@@ -48,7 +48,7 @@ Le pak génère au démarrage un **secret d'appairage** de 32 octets aléatoires
 reminislink://pair?v=1&id=<deviceId>&n=<nom URL-encodé>&s=<secret base64url sans padding>&h=<IPv4>&p=<port>
 ```
 
-- `h` et `p` ne servent qu'à la session en cours, si Bonjour échoue. L'app NE DOIT PAS les mémoriser.
+- `h` et `p` sont **informatifs** (affichage, outils de test comme `scripts/smoke.sh`). L'app NE DOIT PAS s'en servir pour se connecter ni les mémoriser : la console est toujours trouvée par Bonjour avec son `id`, sinon l'app affiche « Console introuvable ». *(Décision du 18/11/2026 : un repli sur l'IP permettrait à un faux pak du même réseau, annonçant l'`id` d'une console éteinte, de se faire appairer à sa place.)*
 - Après chaque appairage réussi, ou à expiration, le pak génère un nouveau secret et un nouveau QR code.
 
 **PIN de secours** : 6 chiffres affichés sous le QR code, valables 10 minutes. Ils servent si l'appareil photo n'est pas utilisable. Ce mode est plus faible (voir [07](07-securite.md)) ; l'app l'indique à l'utilisateur.

@@ -52,8 +52,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-18 — `GET /device` gagne `connectedClients: [{ clientName, lastSeenAt }]` (en mémoire, requête signée de moins de 30 s) pour les « appareils connectés » de 06 §4.3 ; noms de jeux commerciaux remplacés par des noms inventés dans les specs, le contrat et les vecteurs. Décidé par la personne. Specs mises à jour sur `main` ; contrat, vecteurs et serveur confiés à l'agent M2 ; affichage dans l'app après fusion de M2.
 
+- 2026-11-18 — Appairage : aucun repli sur l'IP du QR code (`h`/`p` informatifs seulement) ; console introuvable par Bonjour = erreur. Confirmation avant de ré-appairer une console déjà appairée. Specs 02, 03 §3.1 et 06 §4.2 mises à jour. Décidé par la personne. L'app (M3 autorisait le repli pour une nouvelle console) est adaptée dans le lot iOS de M4.
+
 ## Questions ouvertes pour la personne
-4. **Ré-appairage d'une console déjà appairée (sécurité, M3)** : 06 §4.2 dit qu'un lien `reminislink://pair` « lance directement l'appairage ». La revue a montré qu'un faux pak sur le même Wi-Fi peut ainsi remplacer la clé d'une console déjà appairée (console réelle éteinte, repli sur l'IP du QR). L'agent principal fait implémenter : confirmation quand la console est déjà appairée, et dans ce cas pas de repli sur l'IP du QR (Bonjour obligatoire) ; l'IP de secours n'est acceptée que si elle est privée ou de lien local. À valider, puis reporter dans 06 §4.2 et 03 §3.1.
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
