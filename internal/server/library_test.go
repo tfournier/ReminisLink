@@ -50,7 +50,7 @@ func TestSystemGames(t *testing.T) {
 	r = f.get("/api/v1/systems/"+id(ps)+"/games", "/systems/{systemId}/games", 200)
 	var psListing library.Listing
 	r.JSON(t, &psListing)
-	if len(psListing.Games) != 4 || psListing.Games[0].Kind != "folder-m3u" || psListing.Games[3].Kind != "m3u" {
+	if len(psListing.Games) != 2 || psListing.Games[0].Kind != "folder-m3u" || psListing.Games[1].Kind != "m3u" {
 		t.Fatalf("ps listing = %+v", psListing)
 	}
 }

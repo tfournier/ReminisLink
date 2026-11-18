@@ -22,7 +22,7 @@ What it covers (`docs/specs/08-tests-qualite.md` §2):
 | Two folders with different tags for the same console | `Game Boy Advance (GBA)`, `Game Boy Advance (MGBA)` |
 | Sort prefix removed from the label | `01) Game Boy (GB)` |
 | Subfolders, two levels | `Game Boy Advance (GBA)/Hacks/Deeper/` |
-| Multi-disc folder (`folder-m3u`) and loose `.m3u` | `Sony PlayStation (PS)/` |
+| Multi-disc folder (`folder-m3u`) and loose `.m3u` (the discs it lists are part of it, not games) | `Sony PlayStation (PS)/` |
 | Accents, spaces, parentheses, brackets, emoji | `Café Rêverie (France).gba`, `Lantern Keeper [b1].gba`, `Pixel Garden 🌱.gba` |
 | Save with a different case than its ROM | `Saves/GBA/café rêverie (france).gba.sav` |
 | States, resume slot (`.st9`) | `.userdata/shared/.minui/GBA/` |

@@ -114,7 +114,7 @@ func TestParseSystemLabels(t *testing.T) {
 
 func TestCountGames(t *testing.T) {
 	a, _ := newAdapter(t)
-	for folder, want := range map[string]int{gba: 6, mgba: 1, gb: 1, ps: 4} {
+	for folder, want := range map[string]int{gba: 6, mgba: 1, gb: 1, ps: 2} {
 		sys, err := a.System(folder)
 		if err != nil {
 			t.Fatal(err)
@@ -220,7 +220,8 @@ func TestListFolderMultiDisc(t *testing.T) {
 	if len(folders) != 0 {
 		t.Errorf("folders = %q (the multi-disc folder is a game)", folders)
 	}
-	want := []string{"Mossy Hollow", "Quiet Harbor (Disc 1).cue", "Quiet Harbor (Disc 2).cue", "Quiet Harbor.m3u"}
+	// The discs listed by Quiet Harbor.m3u are part of that game.
+	want := []string{"Mossy Hollow", "Quiet Harbor.m3u"}
 	if !reflect.DeepEqual(games, want) {
 		t.Fatalf("games = %q", games)
 	}
@@ -231,8 +232,13 @@ func TestListFolderMultiDisc(t *testing.T) {
 		!mossy.HasSave || mossy.StateCount != 1 || !mossy.HasArt {
 		t.Errorf("Mossy Hollow = %+v (want size %d)", mossy, wantSize)
 	}
-	if l.Games[3].Kind != osadapter.KindM3U || l.Games[3].Name != "Quiet Harbor" {
-		t.Errorf("Quiet Harbor = %+v", l.Games[3])
+	quiet := l.Games[1]
+	quietSize := int64(len("Quiet Harbor (Disc 1).cue\nQuiet Harbor (Disc 2).cue\n") + 2*len(`FILE "Quiet Harbor (Disc 1).bin" BINARY`))
+	if quiet.Kind != osadapter.KindM3U || quiet.Name != "Quiet Harbor" || quiet.Size != quietSize {
+		t.Errorf("Quiet Harbor = %+v (want size %d)", quiet, quietSize)
+	}
+	if _, err := a.Game(ps + "/Quiet Harbor (Disc 1).cue"); !errors.Is(err, osadapter.ErrNotFound) {
+		t.Errorf("a disc of a .m3u game is a game: %v", err)
 	}
 	// The game folder cannot be listed as a folder.
 	if _, err := a.ListFolder(sys, ps+"/Mossy Hollow"); !errors.Is(err, osadapter.ErrNotFound) {

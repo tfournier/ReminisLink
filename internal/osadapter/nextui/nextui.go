@@ -257,6 +257,7 @@ func (a *Adapter) CountGames(sys osadapter.System) (int, error) {
 
 func countGames(dir string, entries []fs.DirEntry, depth int) int {
 	n := 0
+	discs := m3uSiblings(dir, entries)
 	for _, e := range entries {
 		name := e.Name()
 		if hidden(name) || isSymlink(e) {
@@ -278,7 +279,7 @@ func countGames(dir string, entries []fs.DirEntry, depth int) int {
 			n += countGames(sub, subEntries, depth+1)
 			continue
 		}
-		if e.Type().IsRegular() && isGameFile(name) {
+		if e.Type().IsRegular() && isGameFile(name) && !discs[fold(name)] {
 			n++
 		}
 	}
@@ -382,6 +383,7 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 		return osadapter.Listing{}, fmt.Errorf("list folder: %w", withoutPath(err))
 	}
 	idx := a.index(sys, dir)
+	discs := m3uSiblings(dir, entries)
 	listing := osadapter.Listing{Folders: []osadapter.Folder{}, Games: []osadapter.GameSummary{}}
 	for _, e := range entries {
 		name := e.Name()
@@ -420,7 +422,7 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 			})
 			continue
 		}
-		if !e.Type().IsRegular() || !isGameFile(name) {
+		if !e.Type().IsRegular() || !isGameFile(name) || discs[fold(name)] {
 			continue
 		}
 		info, err := e.Info()
@@ -434,6 +436,12 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 		s := idx.summary(a, g)
 		s.Size = info.Size()
 		s.ModTime = info.ModTime().UTC()
+		if g.Kind == osadapter.KindM3U {
+			// Same total as the ROM files of GET /games/{gameId}.
+			for _, d := range a.m3uDiscs(g, filepath.Join(dir, name)) {
+				s.Size += d.Size
+			}
+		}
 		listing.Games = append(listing.Games, s)
 	}
 	sort.Slice(listing.Folders, func(i, j int) bool { return lessFold(listing.Folders[i].Name, listing.Folders[j].Name) })
@@ -511,6 +519,9 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 			System: sys, Path: rel, FileName: base, Name: base, Kind: osadapter.KindFolderM3U, ROMName: m3u,
 		}, nil
 	case fi.Mode().IsRegular() && isGameFile(base):
+		if m3uSiblings(filepath.Dir(full), readNames(filepath.Dir(full)))[fold(base)] {
+			return osadapter.Game{}, osadapter.ErrNotFound // a disc of a .m3u game
+		}
 		return osadapter.Game{
 			System: sys, Path: rel, FileName: base, Name: displayName(base), Kind: fileKind(base), ROMName: base,
 		}, nil
@@ -615,26 +626,11 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 // m3uDiscs returns the files listed by a .m3u that exist inside the system
 // folder. Entries that leave the system folder are ignored.
 func (a *Adapter) m3uDiscs(g osadapter.Game, m3uPath string) []osadapter.File {
-	f, err := os.Open(m3uPath)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
 	sysDir := filepath.Join(a.roots.Roms, g.System.Folder)
 	base := filepath.Dir(m3uPath)
 	seen := map[string]bool{}
 	var out []osadapter.File
-	sc := bufio.NewScanner(io.LimitReader(f, maxM3UBytes))
-	for sc.Scan() {
-		line := strings.TrimSpace(strings.TrimPrefix(sc.Text(), "\ufeff"))
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		line = strings.ReplaceAll(line, `\`, "/")
-		clean := path.Clean(line)
-		if path.IsAbs(clean) {
-			continue
-		}
+	for _, clean := range readM3U(m3uPath) {
 		full := filepath.Join(base, filepath.FromSlash(clean))
 		if !strings.HasPrefix(full, sysDir+string(filepath.Separator)) || seen[full] {
 			continue
@@ -642,6 +638,51 @@ func (a *Adapter) m3uDiscs(g osadapter.Game, m3uPath string) []osadapter.File {
 		if file, err := a.fileAt(full); err == nil {
 			seen[full] = true
 			out = append(out, file)
+		}
+	}
+	return out
+}
+
+// readM3U returns the entries of a .m3u file as cleaned relative paths
+// ("/" separator); absolute entries are dropped.
+func readM3U(m3uPath string) []string {
+	f, err := os.Open(m3uPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var out []string
+	sc := bufio.NewScanner(io.LimitReader(f, maxM3UBytes))
+	for sc.Scan() {
+		line := strings.TrimSpace(strings.TrimPrefix(sc.Text(), "\ufeff"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		clean := path.Clean(strings.ReplaceAll(line, `\`, "/"))
+		if !path.IsAbs(clean) {
+			out = append(out, clean)
+		}
+	}
+	return out
+}
+
+// m3uSiblings returns the folded names of the files of dir that a .m3u of
+// dir lists (the discs of a loose multi-disc game). They belong to that
+// game and are not games of their own. A .m3u is never hidden this way.
+func m3uSiblings(dir string, entries []fs.DirEntry) map[string]bool {
+	var out map[string]bool
+	for _, e := range entries {
+		if !e.Type().IsRegular() || hidden(e.Name()) || fileKind(e.Name()) != osadapter.KindM3U {
+			continue
+		}
+		for _, clean := range readM3U(filepath.Join(dir, e.Name())) {
+			if strings.Contains(clean, "/") || clean == "." || clean == ".." || fileKind(clean) == osadapter.KindM3U {
+				continue
+			}
+			if out == nil {
+				out = map[string]bool{}
+			}
+			out[fold(clean)] = true
 		}
 	}
 	return out
