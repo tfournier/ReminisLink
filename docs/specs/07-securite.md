@@ -18,7 +18,8 @@
 | Un appareil inconnu sur le Wi-Fi appelle l'API | Toutes les routes métier sont signées avec une clé connue des seuls clients appairés |
 | Écoute du Wi-Fi pendant l'appairage | La clé est dérivée des deux côtés (HKDF) à partir du secret du QR code, qui ne passe jamais sur le réseau |
 | Écoute du Wi-Fi ensuite | La clé ne circule jamais. Le contenu des fichiers transite en clair : risque accepté en v1 (ROMs et saves) |
-| Rejeu d'une requête capturée | Nonce unique (cache de 10 min) + horodatage (±300 s) dans la signature |
+| Rejeu d'une requête capturée | Nonce unique (cache d'au moins 10 min, en mémoire) + horodatage (±300 s) dans la signature. **Risque résiduel accepté** : le cache est perdu quand le pak se ferme ; une requête capturée peut être rejouée si le pak est relancé moins de 300 s après elle (décision du 18/11/2026) |
+| Faire lire de gros corps par des requêtes forgées ou rejouées | Signature vérifiée et nonce réservé avant toute lecture du corps ; limite de corps par route ; budget mémoire global (voir [03 §4.3](03-protocole.md#43-vérification-côté-pak)) |
 | Modification d'une requête en transit | Méthode, chemin, paramètres et SHA-256 du corps sont signés |
 | Morceaux d'envoi modifiés (non signés) | SHA-256 du fichier complet annoncé dans la requête de création, signée, et vérifié avant d'écrire la destination |
 | Force brute de l'appairage | Secret QR de 256 bits ; PIN : 5 essais puis blocage de 30 s et nouveau PIN ; secret et PIN valables 10 min, à usage unique |

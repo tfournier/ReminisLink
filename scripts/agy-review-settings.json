@@ -1,0 +1,6 @@
+{"permissions":{"allow":[
+"command(git diff)","command(git log)","command(git show)","command(git status)","command(git ls-files)","command(git grep)",
+"command(make lint)","command(make test)","command(make contract)","command(go test)","command(go vet)",
+"command(swift test)","command(cd ios/ReminisLinkKit && swift test)",
+"command(ls)","command(cat)","command(head)","command(tail)","command(grep)","command(rg)","command(wc)","command(find)","command(sed -n)"
+]}}

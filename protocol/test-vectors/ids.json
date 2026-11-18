@@ -1,0 +1,212 @@
+{
+  "description": "Identifiers (docs/specs/03-protocole.md §5): id = base64url without padding of the UTF-8 bytes of the path relative to Roms/ ('/' separator). No Unicode normalization: pathUtf8Hex gives the exact bytes (the NFC and NFD spellings differ). invalid lists ids the pak must reject with 400 invalid_id; reason is informative.",
+  "valid": [
+    {
+      "name": "system-folder",
+      "path": "Game Boy Advance (GBA)",
+      "pathUtf8Hex": "47616d6520426f7920416476616e6365202847424129",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ"
+    },
+    {
+      "name": "system-with-sort-prefix",
+      "path": "01) Game Boy (GB)",
+      "pathUtf8Hex": "3031292047616d6520426f792028474229",
+      "id": "MDEpIEdhbWUgQm95IChHQik"
+    },
+    {
+      "name": "game-at-system-root",
+      "path": "Game Boy Advance (GBA)/Pokemon Emerald.gba",
+      "pathUtf8Hex": "47616d6520426f7920416476616e63652028474241292f506f6b656d6f6e20456d6572616c642e676261",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh"
+    },
+    {
+      "name": "game-in-subfolder",
+      "path": "Game Boy Advance (GBA)/Hacks/Pokemon Unbound.gba",
+      "pathUtf8Hex": "47616d6520426f7920416476616e63652028474241292f4861636b732f506f6b656d6f6e20556e626f756e642e676261",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcy9Qb2tlbW9uIFVuYm91bmQuZ2Jh"
+    },
+    {
+      "name": "deep-subfolders",
+      "path": "Super Nintendo (SFC)/Homebrew/2024/Jam/Tiny Quest (v1.2).sfc",
+      "pathUtf8Hex": "5375706572204e696e74656e646f2028534643292f486f6d65627265772f323032342f4a616d2f54696e79205175657374202876312e32292e736663",
+      "id": "U3VwZXIgTmludGVuZG8gKFNGQykvSG9tZWJyZXcvMjAyNC9KYW0vVGlueSBRdWVzdCAodjEuMikuc2Zj"
+    },
+    {
+      "name": "accents-nfc",
+      "path": "Super Nintendo (SFC)/La Légende du Héros (Français).sfc",
+      "pathUtf8Hex": "5375706572204e696e74656e646f2028534643292f4c61204cc3a967656e64652064752048c3a9726f7320284672616ec3a7616973292e736663",
+      "id": "U3VwZXIgTmludGVuZG8gKFNGQykvTGEgTMOpZ2VuZGUgZHUgSMOpcm9zIChGcmFuw6dhaXMpLnNmYw"
+    },
+    {
+      "name": "accents-nfd",
+      "path": "Super Nintendo (SFC)/La Légende du Héros (Français).sfc",
+      "pathUtf8Hex": "5375706572204e696e74656e646f2028534643292f4c61204c65cc8167656e6465206475204865cc81726f7320284672616e63cca7616973292e736663",
+      "id": "U3VwZXIgTmludGVuZG8gKFNGQykvTGEgTGXMgWdlbmRlIGR1IEhlzIFyb3MgKEZyYW5jzKdhaXMpLnNmYw"
+    },
+    {
+      "name": "spaces-double-and-trailing",
+      "path": "Arcade (FBN)/Street  Brawler .zip",
+      "pathUtf8Hex": "417263616465202846424e292f5374726565742020427261776c6572202e7a6970",
+      "id": "QXJjYWRlIChGQk4pL1N0cmVldCAgQnJhd2xlciAuemlw"
+    },
+    {
+      "name": "brackets-and-parentheses",
+      "path": "PlayStation (PS)/Space Odyssey (Disc 1) [!] (Rev 1).cue",
+      "pathUtf8Hex": "506c617953746174696f6e20285053292f5370616365204f647973736579202844697363203129205b215d20285265762031292e637565",
+      "id": "UGxheVN0YXRpb24gKFBTKS9TcGFjZSBPZHlzc2V5IChEaXNjIDEpIFshXSAoUmV2IDEpLmN1ZQ"
+    },
+    {
+      "name": "folder-m3u",
+      "path": "PlayStation (PS)/Night Trip (Europe)/Night Trip (Europe).m3u",
+      "pathUtf8Hex": "506c617953746174696f6e20285053292f4e69676874205472697020284575726f7065292f4e69676874205472697020284575726f7065292e6d3375",
+      "id": "UGxheVN0YXRpb24gKFBTKS9OaWdodCBUcmlwIChFdXJvcGUpL05pZ2h0IFRyaXAgKEV1cm9wZSkubTN1"
+    },
+    {
+      "name": "emoji",
+      "path": "Nintendo (FC)/🎮 Homebrew/Rocket 🚀.nes",
+      "pathUtf8Hex": "4e696e74656e646f20284643292ff09f8eae20486f6d65627265772f526f636b657420f09f9a802e6e6573",
+      "id": "TmludGVuZG8gKEZDKS_wn46uIEhvbWVicmV3L1JvY2tldCDwn5qALm5lcw"
+    },
+    {
+      "name": "japanese",
+      "path": "Game Boy (GB)/ゲームボーイの冒険.gb",
+      "pathUtf8Hex": "47616d6520426f7920284742292fe382b2e383bce383a0e3839ce383bce382a4e381aee58692e999ba2e6762",
+      "id": "R2FtZSBCb3kgKEdCKS_jgrLjg7zjg6Djg5zjg7zjgqTjga7lhpLpmbouZ2I"
+    },
+    {
+      "name": "ascii-punctuation",
+      "path": "Game Boy (GB)/Tic-Tac-Toe #2 + 100% & More, Vol.1 ~ 'Final'.gb",
+      "pathUtf8Hex": "47616d6520426f7920284742292f5469632d5461632d546f65202332202b20313030252026204d6f72652c20566f6c2e31207e202746696e616c272e6762",
+      "id": "R2FtZSBCb3kgKEdCKS9UaWMtVGFjLVRvZSAjMiArIDEwMCUgJiBNb3JlLCBWb2wuMSB-ICdGaW5hbCcuZ2I"
+    },
+    {
+      "name": "b64url-dash-and-underscore",
+      "path": "Nintendo DS (NDS)/Kôdo ÿ Ëxtra ÿÿ~.nds",
+      "pathUtf8Hex": "4e696e74656e646f20445320284e4453292f4bc3b4646f20c3bf20c38b7874726120c3bfc3bf7e2e6e6473",
+      "id": "TmludGVuZG8gRFMgKE5EUykvS8O0ZG8gw78gw4t4dHJhIMO_w79-Lm5kcw"
+    },
+    {
+      "name": "dots-inside-names",
+      "path": "Game Boy (GB)/...Dots.../a..b.gb",
+      "pathUtf8Hex": "47616d6520426f7920284742292f2e2e2e446f74732e2e2e2f612e2e622e6762",
+      "id": "R2FtZSBCb3kgKEdCKS8uLi5Eb3RzLi4uL2EuLmIuZ2I"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty",
+      "id": "",
+      "reason": "empty id"
+    },
+    {
+      "name": "dot-dot",
+      "id": "Li4",
+      "reason": "parent component"
+    },
+    {
+      "name": "dot-dot-prefix",
+      "id": "Li4vU2F2ZXMvR0JBL3guc2F2",
+      "reason": "parent component"
+    },
+    {
+      "name": "dot-dot-middle",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS8uLi8uLi9ldGMvcGFzc3dk",
+      "reason": "parent component"
+    },
+    {
+      "name": "dot-dot-suffix",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS8uLg",
+      "reason": "parent component"
+    },
+    {
+      "name": "absolute",
+      "id": "L2V0Yy9wYXNzd2Q",
+      "reason": "absolute path"
+    },
+    {
+      "name": "absolute-sdcard",
+      "id": "L21udC9TRENBUkQvUm9tcy9HYW1lIEJveSBBZHZhbmNlIChHQkEpL3guZ2Jh",
+      "reason": "absolute path"
+    },
+    {
+      "name": "nul-byte",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS94LmdiYQAucG5n",
+      "reason": "NUL byte"
+    },
+    {
+      "name": "control-char",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS94Ci5nYmE",
+      "reason": "control character"
+    },
+    {
+      "name": "backslash-traversal",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKVwuLlwuLlx4",
+      "reason": "backslash"
+    },
+    {
+      "name": "invalid-utf8",
+      "id": "R2FtZSBCb3kgKEdCKS___i5nYg",
+      "reason": "invalid UTF-8"
+    },
+    {
+      "name": "double-slash",
+      "id": "R2FtZSBCb3kgKEdCKS8veC5nYg",
+      "reason": "non-canonical path"
+    },
+    {
+      "name": "dot-component",
+      "id": "Li9HYW1lIEJveSAoR0IpL3guZ2I",
+      "reason": "dot component"
+    },
+    {
+      "name": "single-dot",
+      "id": "Lg",
+      "reason": "dot component"
+    },
+    {
+      "name": "trailing-slash",
+      "id": "R2FtZSBCb3kgKEdCKS8",
+      "reason": "non-canonical path"
+    },
+    {
+      "name": "base64-standard-alphabet",
+      "id": "R2FtZSBCb3kgKEdCKS9+P2E/",
+      "reason": "invalid base64url"
+    },
+    {
+      "name": "base64-padding",
+      "id": "R2FtZQ==",
+      "reason": "invalid base64url"
+    },
+    {
+      "name": "base64-bad-length",
+      "id": "R2FtZ",
+      "reason": "invalid base64url"
+    },
+    {
+      "name": "base64-non-canonical-bits",
+      "id": "R2FtZR",
+      "reason": "invalid base64url"
+    },
+    {
+      "name": "base64-whitespace",
+      "id": "R2Ft ZQ",
+      "reason": "invalid base64url"
+    },
+    {
+      "name": "base64-newline",
+      "id": "R2Ft\nZQ",
+      "reason": "invalid base64url"
+    },
+    {
+      "name": "base64-carriage-return",
+      "id": "\rR2FtZQ",
+      "reason": "invalid base64url"
+    },
+    {
+      "name": "base64-percent-encoded",
+      "id": "R2FtZQ%3D%3D",
+      "reason": "invalid base64url"
+    }
+  ]
+}

@@ -125,13 +125,23 @@ RL1-HMAC-SHA256
 
 Requête canonique : paramètres décodés puis ré-encodés en RFC 3986 (seuls `A-Z a-z 0-9 - . _ ~` restent en clair), triés par clé puis par valeur, au format `clé=valeur` joints par `&`. Ligne vide s'il n'y a pas de paramètres.
 
+Précisions (fixées au jalon M1, vecteurs dans `signing.json`) :
+- le décodage suit `application/x-www-form-urlencoded` : `+` vaut une espace ; un `%` mal formé rend la requête invalide (`401 bad_signature`) ;
+- les paires vides (`a=1&&b=2`) sont ignorées ; une clé sans `=` vaut `clé=` ;
+- le tri compare les clés **encodées** puis les valeurs **encodées**, octet par octet ;
+- une même clé présente plusieurs fois est refusée par le pak (`400 invalid_request`) ; l'app n'envoie jamais de clé en double. *(Décision du 18/11/2026, à implémenter au jalon M2.)*
+- l'app envoie toujours la requête déjà sous sa forme canonique.
+
 ### 4.3 Vérification côté pak
 
 1. Client inconnu → `401 unknown_client` (l'app propose de refaire l'appairage).
 2. `|X-RL-Time − heure console| > 300 s` → `401 clock_skew`. L'app corrige l'écart grâce à `serverTime` de `/hello` et réessaie une fois.
-3. Nonce déjà vu pour ce client dans les 10 dernières minutes → `401 replayed_request`.
-4. Si `X-RL-Content-SHA256` n'est pas `UNSIGNED`, le pak recalcule le SHA-256 du corps reçu ; différent → `401 bad_signature`.
-5. Signature comparée en temps constant ; différente → `401 bad_signature`.
+3. Nonce déjà vu pour ce client → `401 replayed_request`. Un nonce est conservé au moins 10 minutes, et au moins jusqu'à `X-RL-Time + 300 s` (heure murale), pour qu'un recul de l'horloge de la console ne rouvre pas de fenêtre de rejeu.
+4. Signature comparée en temps constant ; différente → `401 bad_signature`. Elle porte sur l'en-tête `X-RL-Content-SHA256`, pas sur le corps : elle est donc vérifiée **avant** de lire le corps, et le corps d'une requête forgée n'est jamais lu.
+5. Le nonce est alors réservé (atomiquement). Si le cache de nonces est plein → `429 too_many_attempts` avec `Retry-After`. Un échec à une étape suivante **consomme** le nonce : l'app réessaie avec un nouveau nonce.
+6. Si `X-RL-Content-SHA256` n'est pas `UNSIGNED`, le pak lit le corps (limite fixée par route : 1 Mio par défaut, 64 Mio pour `PUT /games/{gameId}/save`, 16 Mio pour `PUT /uploads/{uploadId}`, sinon `413 too_large`), dans un budget mémoire global, puis recalcule son SHA-256 ; différent → `401 bad_signature`. `UNSIGNED` n'est accepté que sur `PUT /uploads/{uploadId}`.
+
+*(Ordre fixé au jalon M1, décision du 18/11/2026 : la version précédente vérifiait le corps avant la signature, ce qui permettait à un tiers de faire lire 64 Mio par requête forgée.)*
 
 ### 4.4 Vecteurs de test
 
@@ -149,7 +159,9 @@ Les suites Go et Swift DOIVENT les lire et les vérifier.
 - `folderId` = `b64u` du chemin d'un sous-dossier relatif à `Roms/`, même format.
 - `sdFileId`, `stagingId`, `backupId`, `entryId`, `uploadId`, `jobId` : identifiants générés par le pak, opaques eux aussi.
 - Ce sont des identifiants **opaques** : l'app ne les décode pas et ne les construit pas, elle les renvoie tels quels.
-- Le pak DOIT décoder, nettoyer (`filepath.Clean`), refuser tout composant `..`, chemin absolu ou caractère nul, puis vérifier que le chemin final reste sous la racine attendue (`400 invalid_id` sinon).
+- Le pak DOIT décoder, refuser tout composant `..`, chemin absolu ou caractère nul, puis vérifier que le chemin final, liens symboliques résolus, reste sous la racine attendue (`400 invalid_id` sinon).
+- Le décodage est **strict** : base64url non canonique, UTF-8 invalide, caractère de contrôle, `\` et chemin non canonique (`a//b`, `./a`, `a/`, `a/.`) sont refusés (`400 invalid_id`) au lieu d'être nettoyés par `filepath.Clean`, pour qu'un fichier ait un seul identifiant. *(Décision du 18/11/2026.)*
+- Aucune normalisation Unicode : les octets du nom sur la carte sont utilisés tels quels ; une écriture NFC et une écriture NFD du même nom donnent deux identifiants différents.
 - Les noms de fichiers fournis par l'app (envoi, renommage) DOIVENT être nettoyés : pas de `/`, `\`, `..`, caractère de contrôle, ni nom vide ; longueur ≤ 255 octets ; caractères interdits en exFAT (`" * / : < > ? \ |`) remplacés par `_`.
 
 ## 6. Erreurs
@@ -164,7 +176,7 @@ Toute réponse d'erreur a la forme :
 
 | HTTP | `code` | Cas |
 |---|---|---|
-| 400 | `invalid_request` | JSON invalide, champ manquant |
+| 400 | `invalid_request` | JSON invalide, champ manquant, corps illisible ou tronqué, clé de requête en double |
 | 400 | `invalid_id` | Identifiant illisible ou hors racine |
 | 400 | `invalid_name` | Nom de fichier refusé |
 | 401 | `unknown_client`, `bad_signature`, `clock_skew`, `replayed_request`, `pairing_failed` | Authentification |
@@ -175,9 +187,9 @@ Toute réponse d'erreur a la forme :
 | 413 | `too_large` | Corps ou fichier trop gros |
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
-| 429 | `too_many_attempts` | Appairage bloqué temporairement |
+| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée (avec `Retry-After`) |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
-| 503 | `shutting_down` | Le pak se ferme |
+| 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
 | 507 | `insufficient_storage` | Espace libre insuffisant (`details.required`, `details.available`) |
 
 ## 7. Envois de fichiers (iPhone → console)

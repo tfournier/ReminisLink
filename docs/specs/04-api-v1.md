@@ -64,11 +64,11 @@ Sert à vérifier qu'on parle bien à la bonne console, à mesurer l'écart d'ho
 }
 ```
 
-Aucune autre information (pas de liste de jeux, pas de clients). Limitée à 10 requêtes par seconde par IP.
+Aucune autre information (pas de liste de jeux, pas de clients). Limitée à 10 requêtes par seconde par IP (au-delà : `429 too_many_attempts`).
 
 ### `POST /pair` (non signée)
 
-Voir [03 §3](03-protocole.md#3-appairage). `method` : `qr` ou `pin`.
+Voir [03 §3](03-protocole.md#3-appairage). `method` : `qr` ou `pin`. `clientName` : 1 à 64 caractères. `clientId` et `deviceId` : UUID en minuscules.
 
 ### `DELETE /clients/me`
 
@@ -171,7 +171,7 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 
 ### `GET /games/{gameId}/art`
 
-`image/png`, ou `404 not_found`. En-têtes `ETag` et `Cache-Control: private, max-age=86400` ; l'app met en cache.
+`image/png`, ou `404 not_found`. En-têtes `ETag` et `Cache-Control: private, max-age=86400` ; l'app met en cache et envoie `If-None-Match` (réponse `304` si inchangée).
 
 ### `DELETE /games/{gameId}?keepSave=false`
 
@@ -248,7 +248,7 @@ Corps : `{ "label": "Avant le boss final" }` (optionnel, 80 caractères maximum)
 
 ### `POST /games/{gameId}/save/backups/{backupId}/restore`
 
-Copie d'abord la save actuelle (`before-restore`), puis remplace la save par la copie choisie. Réponse `200`.
+Copie d'abord la save actuelle (`before-restore`), puis remplace la save par la copie choisie. Réponse `200` : `{ "backup": {...} }`, la copie de sécurité créée, ou `null` s'il n'y avait pas de save.
 
 ### `GET` / `DELETE /games/{gameId}/save/backups/{backupId}`
 
@@ -275,7 +275,7 @@ Télécharger le fichier de la copie ; supprimer la copie (`204`).
 
 ### `GET` / `DELETE /games/{gameId}/states/{slot}`
 
-Télécharger ; supprimer (avec copie préalable dans la corbeille). La suppression d'un emplacement verrouillé renvoie `409 state_locked`.
+Télécharger ; supprimer (le state est déplacé dans la corbeille). La suppression d'un emplacement verrouillé renvoie `409 state_locked`. Réponse de `DELETE` : `200` avec `{ "trashEntryId": "...", "moved": [...], "movedBytes": 401408 }`, comme `DELETE /games/{gameId}`.
 
 ### `GET /games/{gameId}/states/{slot}/thumbnail`
 
@@ -287,11 +287,11 @@ Copie le state dans la zone des verrous et enregistre son SHA-256. Réponse `200
 
 ### `DELETE /games/{gameId}/states/{slot}/lock`
 
-Retire le verrou et supprime la copie verrouillée. Le state lui-même ne change pas.
+Retire le verrou et supprime la copie verrouillée. Le state lui-même ne change pas. Réponse `200` avec l'emplacement mis à jour.
 
 ### `POST /games/{gameId}/states/{slot}/restore`
 
-Remplace le state par la copie verrouillée (le state actuel part d'abord dans la corbeille).
+Remplace le state par la copie verrouillée (le state actuel part d'abord dans la corbeille). Réponse `200` avec l'emplacement mis à jour.
 
 ### `GET /games/{gameId}/resume-history`
 
@@ -303,7 +303,7 @@ Les 5 dernières versions distinctes du state de reprise, archivées par le pak 
 
 ### `POST /games/{gameId}/resume-history/{entryId}/restore`
 
-Remplace le state de reprise par cette version (la version actuelle est d'abord archivée).
+Remplace le state de reprise par cette version (la version actuelle est d'abord archivée). Réponse `200` avec l'historique mis à jour (même forme que `GET /resume-history`).
 
 ---
 
@@ -386,7 +386,7 @@ En-têtes : `Upload-Offset`, `Content-Length`, `X-RL-Content-SHA256: UNSIGNED`. 
 
 ### `POST /uploads/{uploadId}/complete`
 
-Réponse `200` selon la cible : `{ "gameId": "..." }`, `{ "backup": {...} }` ou `{ "stagingId": "..." }`.
+Réponse `200` selon la cible : `{ "gameId": "..." }` (`rom`), `{ "backup": {...} }` (`save`), `{ "slot": {...} }` (`state`) ou `{ "stagingId": "..." }` (`staging`).
 
 ### `POST /downloads`
 
@@ -417,4 +417,4 @@ Même `target` que pour `/uploads` (le nom de fichier est déduit de `Content-Di
 
 ### `GET /jobs`, `GET /jobs/{jobId}`, `DELETE /jobs/{jobId}`
 
-Format décrit en [03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console). `DELETE` annule une tâche en attente ou en cours (le fichier partiel est supprimé).
+Format décrit en [03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console). `DELETE` annule une tâche en attente ou en cours (le fichier partiel est supprimé) ; réponse `200` avec la tâche annulée.
