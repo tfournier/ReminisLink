@@ -1,0 +1,10 @@
+cheats = 2
+
+cheat0_desc = "Infinite lanterns"
+cheat0_code = "02000000+0063"
+cheat0_enable = false
+
+cheat1_desc = "Moon jump"
+cheat1_code = "02000004+0001"
+cheat1_enable = true
+cheat1_handler = "1"
