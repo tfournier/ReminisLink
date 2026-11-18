@@ -37,7 +37,7 @@ const exFATForbidden = `"*:<>?|`
 // U+202E which reverses the displayed text, U+200B zero width space,
 // U+00AD soft hyphen, U+FEFF...; kept: the joiners U+200C and U+200D for
 // emoji sequences and the scripts that need them, and the tags
-// U+E0020-U+E007F of the subdivision flags such as 🏴󠁧󠁢󠁳󠁣󠁴󠁿), and
+// U+E0020-U+E007F inside a subdivision flag such as 🏴󠁧󠁢󠁳󠁣󠁴󠁿 only), and
 // the names Windows reserves (CON, PRN, AUX, NUL, COM1-9, LPT1-9, with or
 // without extension), so the card stays readable on a computer.
 func CleanFileName(name string) (string, error) {
@@ -51,9 +51,12 @@ func CleanFileName(name string) (string, error) {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
 			return "", ErrInvalidName
 		}
-		if unicode.Is(unicode.Cf, r) && r != 0x200c && r != 0x200d && (r < 0xe0020 || r > 0xe007f) {
+		if unicode.Is(unicode.Cf, r) && r != 0x200c && r != 0x200d && !isTag(r) {
 			return "", ErrInvalidName
 		}
+	}
+	if !validTagSequences(name) {
+		return "", ErrInvalidName
 	}
 	var b strings.Builder
 	for _, r := range name {
@@ -67,6 +70,39 @@ func CleanFileName(name string) (string, error) {
 		return "", ErrInvalidName
 	}
 	return clean, nil
+}
+
+// Tag characters (U+E0020-U+E007F) only exist inside a subdivision flag:
+// U+1F3F4 (black flag), tags U+E0020-U+E007E, then U+E007F (cancel tag).
+const (
+	blackFlag = 0x1f3f4
+	cancelTag = 0xe007f
+)
+
+func isTag(r rune) bool { return r >= 0xe0020 && r <= cancelTag }
+
+// validTagSequences accepts tag characters only in a complete flag
+// sequence: after U+1F3F4 and ended by U+E007F.
+func validTagSequences(name string) bool {
+	inFlag, prev := false, rune(0)
+	for _, r := range name {
+		switch {
+		case isTag(r) && r != cancelTag:
+			if !inFlag && prev != blackFlag {
+				return false
+			}
+			inFlag = true
+		case r == cancelTag:
+			if !inFlag {
+				return false
+			}
+			inFlag = false
+		case inFlag:
+			return false // a flag sequence without its cancel tag
+		}
+		prev = r
+	}
+	return !inFlag
 }
 
 // windowsReserved reports whether the part of name before its first dot

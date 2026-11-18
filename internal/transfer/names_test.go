@@ -29,6 +29,7 @@ func TestCleanFileName(t *testing.T) {
 	for _, in := range []string{"", ".", "..", "...", " ", "a/b", `a\b`, "../x", "a\x00b", "a\nb", "a\x7fb", "a\u0085b",
 		"\xff.gba", strings.Repeat("a", 256), strings.Repeat("é", 128),
 		"..hidden", ".hidden.gba", "abc\u202egba.exe", "a\u200bb.gba", "\ufeffx.gba", "soft\u00adhyphen.gba",
+		"tag\U000e0067\U000e007f.gba", "\U0001f3f4\U000e0067\U000e0062.gba", "x\U000e007f.gba", "\U0001f3f4\U000e007f\U000e007f.gba",
 		"CON", "con.gba", "Com1.txt", "LPT9", "nul.tar.gz", "aux .gba"} {
 		if got, err := CleanFileName(in); err == nil {
 			t.Errorf("CleanFileName(%q) = %q, want an error", in, got)
