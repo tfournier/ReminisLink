@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/netip"
 	"sync"
 	"time"
 )
@@ -16,8 +17,8 @@ const (
 	// by the pairing session itself (5 failures, then 30 s block).
 	PairRate  = 0.5
 	PairBurst = 5
-	// maxBuckets bounds the memory of a limiter; full buckets are dropped
-	// first when it is reached.
+	// maxBuckets bounds the memory of a limiter; the least recently used
+	// bucket is dropped when it is reached.
 	maxBuckets = 4096
 )
 
@@ -48,7 +49,7 @@ func (l *rateLimiter) allow(key string) (bool, time.Duration) {
 	b, ok := l.buckets[key]
 	if !ok {
 		if len(l.buckets) >= maxBuckets {
-			l.pruneLocked(now)
+			l.pruneLocked()
 		}
 		b = &bucket{tokens: l.burst, last: now}
 		l.buckets[key] = b
@@ -65,15 +66,32 @@ func (l *rateLimiter) allow(key string) (bool, time.Duration) {
 	return false, wait
 }
 
-// pruneLocked drops the buckets that are full again (idle clients), or
-// all of them if none is.
-func (l *rateLimiter) pruneLocked(now time.Time) {
+// pruneLocked drops the least recently used bucket.
+func (l *rateLimiter) pruneLocked() {
+	var oldest string
+	var oldestAt time.Time
 	for k, b := range l.buckets {
-		if b.tokens+now.Sub(b.last).Seconds()*l.rate >= l.burst {
-			delete(l.buckets, k)
+		if oldest == "" || b.last.Before(oldestAt) {
+			oldest, oldestAt = k, b.last
 		}
 	}
-	if len(l.buckets) >= maxBuckets {
-		clear(l.buckets)
+	delete(l.buckets, oldest)
+}
+
+// limitKey is the rate limit key of a client address: the IPv4 address, or
+// the /64 prefix of an IPv6 address (one host usually owns a whole /64).
+func limitKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
 	}
+	addr = addr.Unmap()
+	if addr.Is4() {
+		return addr.String()
+	}
+	p, err := addr.WithZone("").Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
 }

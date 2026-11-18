@@ -143,7 +143,7 @@ func (b *idleReader) Read(p []byte) (int, error) {
 // Retry-After).
 func (s *Server) limit(l *rateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if ok, wait := l.allow(remoteIP(r)); !ok {
+		if ok, wait := l.allow(limitKey(remoteIP(r))); !ok {
 			secs := int64((wait + time.Second - 1) / time.Second)
 			w.Header().Set("Retry-After", strconv.FormatInt(max(secs, 1), 10))
 			s.rejectLog.Info("rate limited", "path", auth.LogString(r.URL.Path, auth.MaxLoggedPath), "remote", remoteIP(r))
