@@ -230,18 +230,24 @@ func TestTrashPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// An entry with a broken entry.json is dated by its id.
+	// An entry with a broken entry.json is never purged on its id date,
+	// nor one written by a future version.
 	broken := write(t, tr.Dir(), "tr_20261001T000000Z_ffff/x", "456")
 	if err := os.WriteFile(filepath.Join(filepath.Dir(broken), trashEntryFile), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	future := write(t, tr.Dir(), "tr_20261001T000000Z_eeee/y", "7")
+	os.WriteFile(filepath.Join(filepath.Dir(future), trashEntryFile), []byte(`{"version":2,"trashedAt":"2026-10-01T00:00:00Z"}`), 0o644)
 	clk.t = clk.t.Add(25 * 24 * time.Hour) // old is 35 days old, recent 25
 	freed, err := tr.Purge(TrashRetention)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if freed != 2+3+1 { // old (2) + broken (3 + the 1-byte entry.json)
+	if freed != 2 { // old only
 		t.Fatalf("freed %d", freed)
+	}
+	if !exists(filepath.Dir(broken)) || !exists(filepath.Dir(future)) {
+		t.Fatal("unreadable entry purged")
 	}
 	if exists(filepath.Join(tr.Dir(), old.Entry.ID)) || !exists(filepath.Join(tr.Dir(), recent.Entry.ID)) {
 		t.Fatal("wrong entries purged")

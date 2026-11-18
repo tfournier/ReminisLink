@@ -658,8 +658,8 @@ func hasRegularFile(dir string) bool {
 }
 
 // Purge erases the entries older than maxAge (TrashRetention at launch)
-// and returns the bytes freed. The date is the one of entry.json, or the
-// one of the id when entry.json is unreadable.
+// and returns the bytes freed. The date is the one of entry.json; an entry
+// whose entry.json is unreadable is kept.
 func (t *Trash) Purge(maxAge time.Duration) (int64, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -711,15 +711,14 @@ func (t *Trash) redateUntrusted(names []string, now time.Time) {
 // entryTime returns the date used by the purge; false when the entry must
 // not be purged (dated by an untrusted clock).
 func (t *Trash) entryTime(name string) (time.Time, bool) {
-	if e, err := readEntry(filepath.Join(t.dir, name)); err == nil && !e.TrashedAt.IsZero() {
-		return e.TrashedAt, !e.ClockUntrusted
-	}
-	m := trashIDRe.FindStringSubmatch(name)
-	if m == nil {
+	e, err := readEntry(filepath.Join(t.dir, name))
+	if err != nil || e.TrashedAt.IsZero() {
+		// Unreadable, or written by a future version: never purged on the
+		// sole date of its id. "Empty the trash" still erases it.
+		t.log.Warn("trash: entry kept by the purge, entry.json unreadable", "entry", name, "error", err)
 		return time.Time{}, false
 	}
-	at, err := time.Parse(trashIDTimeLayout, m[1])
-	return at, err == nil
+	return e.TrashedAt, !e.ClockUntrusted
 }
 
 // withoutPathErr drops the path of a *fs.PathError or *os.LinkError.
