@@ -7,7 +7,7 @@
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
-| M4 | en cours | `m4-transferts-go`, `m4-transferts-ios` | — | — |
+| M4 | Go livré (en revue), iOS en cours | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS et revue Claude neuve en cours | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
@@ -55,6 +55,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — Appairage : aucun repli sur l'IP du QR code (`h`/`p` informatifs seulement) ; console introuvable par Bonjour = erreur. Confirmation avant de ré-appairer une console déjà appairée. Specs 02, 03 §3.1 et 06 §4.2 mises à jour. Décidé par la personne. L'app (M3 autorisait le repli pour une nouvelle console) est adaptée dans le lot iOS de M4.
 
 ## Questions ouvertes pour la personne
+5. **Envois après un redémarrage du pak (M4)** : 03 §7 dit que les envois en cours sont perdus à la fermeture du pak, mais le « Fait quand » de M4 exige la reprise après relance. L'agent Go a suivi le « Fait quand » : les envois survivent au redémarrage (fichier `.part` + état SHA-256, recalcul si incohérent, `409 checksum_mismatch` à la fin si des octets ont été abîmés ; purge après 24 h d'inactivité). Recommandation : garder ce comportement et corriger 03 §7 et la description d'`openapi.yaml`. Bloque : rien (comportement déjà codé).
+6. **Verrous avec `keepSave=true` (M4/M5)** : 04 dit que `DELETE /games` supprime les verrous et l'historique de reprise ; avec `keepSave=true` les states restent mais perdent leur verrou. Recommandation : avec `keepSave=true`, garder aussi les verrous et l'historique de reprise (ils protègent les states gardés). Bloque : rien pour M4 (à appliquer en M5).
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
