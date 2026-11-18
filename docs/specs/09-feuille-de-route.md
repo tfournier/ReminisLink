@@ -6,8 +6,8 @@ Chaque jalon a un prompt dédié dans `prompts/`. Un jalon est terminé quand to
 
 But : remplacer toutes les mentions **[À VÉRIFIER M0]** par des faits.
 
-- Suivre la procédure de [m0/README.md](m0/README.md) : deux relevés avec `scripts/verify-device.sh` (avant et après une partie), débit Wi-Fi et carte SD, comportement en veille, notes dans `m0/notes.md`.
-- Mettre à jour le tableau de [05 §3.1](05-console-pak.md#31-organisation-nextui).
+- Fait le 19/11/2026 : analyse du code source de NextUI et du firmware d'origine ([m0/source-analysis.md](m0/source-analysis.md)), tableau de [05 §3.1](05-console-pak.md#31-organisation-nextui) mis à jour.
+- Reste : la procédure réduite de [m0/README.md](m0/README.md) sur la console (veille, mDNS en Wi-Fi, RTC, batterie, version, confirmation rapide des chemins), puis les points de [m0/questions.md](m0/questions.md).
 
 **Fait quand** : plus aucune mention **[À VÉRIFIER M0]** dans les spécifications.
 

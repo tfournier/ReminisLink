@@ -1,40 +1,41 @@
-# M0 — Notes de la session de relevés
+# M0 — Notes de la session de relevés (procédure réduite)
 
 Date :
 Console : TrimUI Brick (préciser : Brick / Brick Hammer / Brick Pro)
 Version de NextUI (affichée dans les réglages) :
-Carte SD (capacité, marque si connue) :
+« Network time sync » activé ? (oui / non)
 
-## Jeu de test (étape 4)
+## Jeu de test (étape 2)
 
 - Dossier du système (tel que dans `Roms/`) :
 - Nom exact du fichier ROM (avec extension) :
-- Le menu des states affiche-t-il une vignette ? (oui / non)
-- Nombre d'emplacements de states proposés par le menu :
-- Remarques :
+- Heure du Mac au moment du relevé 1 :
+- Batterie affichée au moment du relevé 1 (%) :
 
-## Débits (étape 3)
+## Veille et bouton d'alimentation (étape 3)
+
+- 10 minutes sans toucher, dans Cheat Manager : écran éteint ? veille ? ping continu ?
+- Appui court sur le bouton d'alimentation : effet, ping ?
+- Appui long (~3 s) : effet, ping ?
+- Au réveil (si veille ou extinction) : délai avant reprise du ping, IP inchangée ?
+
+## Bonjour à côté d'avahi (étape 4)
+
+- Version du pak testée :
+- `dns-sd -B _reminislink._tcp` sur le Mac : console trouvée ? TXT complet ?
+- Découverte dans l'app iPhone : oui / non
+
+## Horloge (étape 5)
+
+- Heure du Mac à l'extinction :
+- Durée console éteinte :
+- Heure du Mac au moment du relevé 2 :
+- Batterie affichée au moment du relevé 2 (%), en charge :
+
+## Débit Wi-Fi (optionnel)
 
 | Mesure | Lieu | Durée | Débit (Mo/s) |
 |---|---|---|---|
-| Écriture SD, 256 Mo (`dd`) | — | | |
-| Wi-Fi Mac → console, 512 Mo (`wget`) | près de la box | | |
-| Wi-Fi Mac → console, 512 Mo (`wget`) | lieu de jeu habituel | | |
-| `iperf3` (si disponible) | | | |
-
-## Veille (étape 5)
-
-- Délai avant extinction de l'écran pendant un pak :
-- Délai avant mise en veille pendant un pak :
-- Le ping continue-t-il écran éteint ? 
-- Veille manuelle : le ping s'arrête-t-il ?
-- Au réveil : délai avant reprise du ping, IP inchangée ?
-- Réglages de veille trouvés dans NextUI (nom et valeur) :
-
-## Informations NextUI (étape 6)
-
-- Nom du Wi-Fi affiché :
-- Batterie affichée au moment du second relevé (%) :
-- En charge pendant le relevé ? (oui / non)
+| Wi-Fi Mac → console, 512 Mo (`wget`) | | | |
 
 ## Autres observations
