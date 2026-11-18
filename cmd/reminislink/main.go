@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"syscall"
 
@@ -222,12 +223,22 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	trash := store.NewTrash(layout, r.SD, nil, logger)
 	// From here config.json is only written through configFile.
 	configFile := store.NewConfigFile(layout.ConfigFile())
-	guard, err := store.NewTimeGuard(configFile, nil)
+	// The credited-age clock of the trash (docs/specs/05-console-pak.md
+	// §4): saved every 5 minutes and marked closed when the pak exits.
+	credit, err := store.NewCreditClock(configFile, nil, nil)
 	if err != nil {
 		return err
 	}
-	trash.UseTimeGuard(guard)
-	defer func() { _ = guard.Save() }()
+	trash.UseCreditClock(credit)
+	stopCredit := make(chan struct{})
+	go credit.Run(stopCredit)
+	closeCredit := sync.OnceFunc(func() {
+		close(stopCredit)
+		if err := credit.Close(); err != nil {
+			slog.Warn("cannot save the trash credit clock", "error", err)
+		}
+	})
+	defer closeCredit()
 	xfer, err := transfer.New(transfer.Options{
 		Library: lib, Adapter: adapter, Layout: layout, Trash: trash,
 		FreeSpace: func(path string) (int64, error) {
@@ -243,9 +254,6 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	defer xfer.Close()
 	if err := maintain(trash, xfer); err != nil {
 		return err
-	}
-	if err := guard.Save(); err != nil {
-		slog.Warn("cannot save the latest observed time", "error", err)
 	}
 
 	ln, port, err := server.Listen("0.0.0.0", port)
@@ -298,7 +306,8 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 
 	err = srv.Serve(ctx, ln)
 	announcement.Shutdown()
-	xfer.Close() // cancels a running download (its partial file is deleted)
+	xfer.Close()  // cancels a running download (its partial file is deleted)
+	closeCredit() // before the sync below
 	syscall.Sync()
 	slog.Info("ReminisLink stopped")
 	return err
@@ -310,7 +319,7 @@ const CABundleEnv = "REMINISLINK_CA_BUNDLE"
 
 // maintain runs the maintenance of docs/specs/05-console-pak.md §2.3
 // before the server opens: interrupted trash operations are finished, the
-// trash entries older than 30 days are erased, the uploads idle for 24 h
+// trash entries with a credited age of 30 days are erased, the uploads idle for 24 h
 // and the staging files older than 24 h are deleted, and the other uploads
 // are resumed.
 // TODO(M5): archive the resume states and check the locks first.

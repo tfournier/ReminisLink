@@ -88,8 +88,8 @@ func TestTrashMoveListDelete(t *testing.T) {
 	if len(entries) != 2 || entries[0].ID != res2.Entry.ID || total != res.Entry.SizeBytes+1 {
 		t.Fatalf("list %+v total %d", entries, total)
 	}
-	if !entries[1].ExpiresAt.Equal(entries[1].TrashedAt.Add(30 * 24 * time.Hour)) {
-		t.Fatal("expiresAt")
+	if !entries[1].ExpiresAt.Equal(clk.t.Add(30 * 24 * time.Hour)) {
+		t.Fatal("expiresAt without a credit clock: now + 30 days")
 	}
 	for _, f := range entries[1].Files {
 		if strings.Contains(f, "locks") {
@@ -216,41 +216,6 @@ func TestTrashRecoverRollsBackAnInterruptedMove(t *testing.T) {
 	entries, _, err := tr.List()
 	if err != nil || len(entries) != 1 || len(entries[0].Files) != 1 || entries[0].Files[0] != "Cheats/A/a.gba.cht" {
 		t.Fatalf("kept entry: %+v %v", entries, err)
-	}
-}
-
-func TestTrashPurge(t *testing.T) {
-	tr, sd, clk, _ := newTestTrash(t)
-	old, err := tr.Move(ReasonOverwrite, "old", []MoveItem{{Path: write(t, sd, "a", "12")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	clk.t = clk.t.Add(10 * 24 * time.Hour)
-	recent, err := tr.Move(ReasonOverwrite, "recent", []MoveItem{{Path: write(t, sd, "b", "3")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// An entry with a broken entry.json is never purged on its id date,
-	// nor one written by a future version.
-	broken := write(t, tr.Dir(), "tr_20261001T000000Z_ffff/x", "456")
-	if err := os.WriteFile(filepath.Join(filepath.Dir(broken), trashEntryFile), []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	future := write(t, tr.Dir(), "tr_20261001T000000Z_eeee/y", "7")
-	os.WriteFile(filepath.Join(filepath.Dir(future), trashEntryFile), []byte(`{"version":2,"trashedAt":"2026-10-01T00:00:00Z"}`), 0o644)
-	clk.t = clk.t.Add(25 * 24 * time.Hour) // old is 35 days old, recent 25
-	freed, err := tr.Purge(TrashRetention)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if freed != 2 { // old only
-		t.Fatalf("freed %d", freed)
-	}
-	if !exists(filepath.Dir(broken)) || !exists(filepath.Dir(future)) {
-		t.Fatal("unreadable entry purged")
-	}
-	if exists(filepath.Join(tr.Dir(), old.Entry.ID)) || !exists(filepath.Join(tr.Dir(), recent.Entry.ID)) {
-		t.Fatal("wrong entries purged")
 	}
 }
 

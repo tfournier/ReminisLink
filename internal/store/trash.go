@@ -98,20 +98,29 @@ type entryFile struct {
 	// Internal are the moved ReminisLink copies (locks, resume history),
 	// relative to the SD card; not listed in Files.
 	Internal []string `json:"internal,omitempty"`
-	// ClockUntrusted: TrashedAt came from an untrusted clock (see
-	// TimeGuard); never purged, dated again once the clock is trusted.
-	ClockUntrusted bool  `json:"clockUntrusted,omitempty"`
-	SizeBytes      int64 `json:"sizeBytes"`
+	// Credit is the credited-age clock (seconds, see CreditClock) when the
+	// entry was made; an entry without it is never purged automatically.
+	Credit    *int64 `json:"credit,omitempty"`
+	SizeBytes int64  `json:"sizeBytes"`
 }
 
-func (e entryFile) public() TrashEntry {
+// public returns the API form of an entry. expiresAt is the earliest time
+// it can be purged: now + (TrashRetention - credited age), never in the
+// past. Without a credit (or a credit clock) the entry is never purged
+// automatically and expiresAt is now + TrashRetention.
+func (e entryFile) public(now time.Time, credit *time.Duration) TrashEntry {
 	files := e.Files
 	if files == nil {
 		files = []string{}
 	}
+	left := TrashRetention
+	if e.Credit != nil && credit != nil {
+		age := max(*credit-time.Duration(*e.Credit)*time.Second, 0)
+		left = max(TrashRetention-age, 0)
+	}
 	return TrashEntry{
 		ID: e.ID, TrashedAt: e.TrashedAt, Reason: e.Reason, Label: e.Label,
-		Files: files, SizeBytes: e.SizeBytes, ExpiresAt: e.TrashedAt.Add(TrashRetention),
+		Files: files, SizeBytes: e.SizeBytes, ExpiresAt: now.Add(left).UTC().Truncate(time.Second),
 	}
 }
 
@@ -137,8 +146,8 @@ type Trash struct {
 	now  func() time.Time
 	log  *slog.Logger
 	rand io.Reader
-	// guard protects the dates from a clock set back (nil: plain clock).
-	guard *TimeGuard
+	// credit ages the entries (nil: no automatic purge).
+	credit *CreditClock
 	// rename is os.Rename; tests replace it to simulate failures.
 	rename func(oldpath, newpath string) error
 
@@ -157,17 +166,17 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 	return &Trash{dir: layout.TrashDir(), sd: sdRoot, now: now, log: log, rand: rand.Reader, rename: os.Rename}
 }
 
-// UseTimeGuard dates the entries with g.Now() (never before the latest
-// time observed) and makes Purge skip when g does not trust the clock.
-// Call it before the trash is used.
-func (t *Trash) UseTimeGuard(g *TimeGuard) { t.guard = g }
+// UseCreditClock ages the entries with c (docs/specs/05-console-pak.md
+// §4). Call it before the trash is used; without it nothing is purged.
+func (t *Trash) UseCreditClock(c *CreditClock) { t.credit = c }
 
-// clock returns the time used to date entries and whether it is trusted.
-func (t *Trash) clock() (time.Time, bool) {
-	if t.guard != nil {
-		return t.guard.Now()
+// creditNow returns the current credit, or nil without a credit clock.
+func (t *Trash) creditNow() *time.Duration {
+	if t.credit == nil {
+		return nil
 	}
-	return t.now(), true
+	c := t.credit.Now()
+	return &c
 }
 
 // Dir returns the trash folder.
@@ -289,7 +298,7 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 	if err := os.MkdirAll(t.dir, 0o755); err != nil {
 		return MoveResult{}, fmt.Errorf("trash: %w", err)
 	}
-	at, trusted := t.clock()
+	at := t.now()
 	var id string
 	for attempt := 0; ; attempt++ {
 		if id, err = t.newID(at); err != nil {
@@ -304,9 +313,14 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 		}
 	}
 	entryDir := filepath.Join(t.dir, id)
+	credit := t.creditNow()
 	e := entryFile{
 		Version: trashEntryVersion, State: stateMoving, ID: id,
-		TrashedAt: at.UTC().Truncate(time.Second), Reason: reason, Label: label, ClockUntrusted: !trusted,
+		TrashedAt: at.UTC().Truncate(time.Second), Reason: reason, Label: label,
+	}
+	if credit != nil {
+		seconds := int64(*credit / time.Second)
+		e.Credit = &seconds
 	}
 	res := MoveResult{Moved: []string{}}
 	for _, p := range planned {
@@ -352,7 +366,7 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 		// The files are safe in the trash; Recover would put them back.
 		return MoveResult{}, err
 	}
-	res.Entry = e.public()
+	res.Entry = e.public(t.now(), credit)
 	t.log.Info("moved to the trash", "entry", id, "reason", reason, "label", label,
 		"backup", entryDir, "files", e.Files, "internal", e.Internal, "bytes", e.SizeBytes)
 	return res, nil
@@ -442,6 +456,7 @@ func (t *Trash) List() ([]TrashEntry, int64, error) {
 	}
 	out := []TrashEntry{}
 	var total int64
+	now, credit := t.now(), t.creditNow()
 	for _, name := range names {
 		e, err := readEntry(filepath.Join(t.dir, name))
 		if err != nil || e.State != stateDone || e.ID != name || !validReasons[e.Reason] {
@@ -450,7 +465,7 @@ func (t *Trash) List() ([]TrashEntry, int64, error) {
 			}
 			continue
 		}
-		out = append(out, e.public())
+		out = append(out, e.public(now, credit))
 		total += e.SizeBytes
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -657,27 +672,29 @@ func hasRegularFile(dir string) bool {
 	return found
 }
 
-// Purge erases the entries older than maxAge (TrashRetention at launch)
-// and returns the bytes freed. The date is the one of entry.json; an entry
-// whose entry.json is unreadable is kept.
+// Purge erases the entries whose credited age reached maxAge
+// (TrashRetention at launch) and returns the bytes freed. An entry without
+// a credit (unreadable entry.json, older version) is kept, and nothing is
+// purged without a credit clock.
 func (t *Trash) Purge(maxAge time.Duration) (int64, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.credit == nil {
+		return 0, nil
+	}
 	names, err := t.entryDirs()
 	if err != nil {
 		return 0, err
 	}
-	now, trusted := t.clock()
-	if !trusted {
-		t.log.Warn("trash: purge skipped, the clock is not trusted")
-		return 0, nil
-	}
-	t.redateUntrusted(names, now)
-	limit := now.Add(-maxAge)
+	now := t.credit.Now()
 	var freed int64
 	for _, name := range names {
-		at, ok := t.entryTime(name)
-		if !ok || !at.Before(limit) {
+		e, err := readEntry(filepath.Join(t.dir, name))
+		if err != nil || e.Credit == nil {
+			t.log.Warn("trash: entry kept by the purge, no credited age", "entry", name, "error", err)
+			continue
+		}
+		if now-time.Duration(*e.Credit)*time.Second < maxAge {
 			continue
 		}
 		n, err := t.erase(name, "expired")
@@ -688,37 +705,6 @@ func (t *Trash) Purge(maxAge time.Duration) (int64, error) {
 	}
 	t.finishDeletions()
 	return freed, nil
-}
-
-// redateUntrusted dates the entries made with an untrusted clock at now,
-// the first trusted time. Called with t.mu held.
-func (t *Trash) redateUntrusted(names []string, now time.Time) {
-	for _, name := range names {
-		dir := filepath.Join(t.dir, name)
-		e, err := readEntry(dir)
-		if err != nil || !e.ClockUntrusted || e.State != stateDone {
-			continue
-		}
-		e.TrashedAt, e.ClockUntrusted = now.UTC().Truncate(time.Second), false
-		if err := writeEntry(dir, e); err != nil {
-			t.log.Warn("trash: cannot date an entry again", "entry", name, "error", err)
-			continue
-		}
-		t.log.Info("trash: entry dated again with a trusted clock", "entry", name, "trashedAt", e.TrashedAt)
-	}
-}
-
-// entryTime returns the date used by the purge; false when the entry must
-// not be purged (dated by an untrusted clock).
-func (t *Trash) entryTime(name string) (time.Time, bool) {
-	e, err := readEntry(filepath.Join(t.dir, name))
-	if err != nil || e.TrashedAt.IsZero() {
-		// Unreadable, or written by a future version: never purged on the
-		// sole date of its id. "Empty the trash" still erases it.
-		t.log.Warn("trash: entry kept by the purge, entry.json unreadable", "entry", name, "error", err)
-		return time.Time{}, false
-	}
-	return e.TrashedAt, !e.ClockUntrusted
 }
 
 // withoutPathErr drops the path of a *fs.PathError or *os.LinkError.

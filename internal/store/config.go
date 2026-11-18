@@ -28,9 +28,9 @@ type Config struct {
 	Language   string `json:"language,omitempty"`
 }
 
-// The keys of config.json managed by TimeGuard (lastSeenTime,
-// candidateTime) are not in Config: only the guard reads and writes them,
-// through ConfigFile.Update.
+// The keys of config.json managed by CreditClock (creditSeconds,
+// creditWall, creditOpen) are not in Config: only CreditClock reads and
+// writes them, through ConfigFile.Update.
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 

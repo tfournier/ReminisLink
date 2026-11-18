@@ -431,8 +431,11 @@ paths:
       summary: Trash content and size
       description: |
         One entry groups everything a single operation moved to the trash.
-        Entries expire after 30 days (purged when the pak starts). Restoring
-        from the trash is not part of v1.
+        Entries are purged when the pak starts once their credited age
+        reaches 30 days: the age grows with the running time of the pak and,
+        at each launch, with the time since the last close (at most 7 days
+        per launch), so a wrong console clock can only delay the purge.
+        Restoring from the trash is not part of v1.
       responses:
         '200':
           description: Trash entries.
@@ -1819,14 +1822,23 @@ components:
       required: [id, trashedAt, reason, label, files, sizeBytes, expiresAt]
       properties:
         id: { $ref: '#/components/schemas/OpaqueId' }
-        trashedAt: { $ref: '#/components/schemas/Timestamp' }
+        trashedAt:
+          $ref: '#/components/schemas/Timestamp'
+          description: Wall clock time of the console when the entry was made (informative; the console clock may be wrong).
         reason: { type: string, enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore] }
         label: { type: string }
         files:
           type: array
           items: { type: string }
         sizeBytes: { $ref: '#/components/schemas/Bytes' }
-        expiresAt: { $ref: '#/components/schemas/Timestamp' }
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+          description: |
+            Earliest time the entry can be purged, an estimate: the current
+            console time plus 30 days minus the credited age of the entry,
+            never in the past. The credited age only grows while the pak
+            runs and by at most 7 days per launch, so the real purge can come
+            later, never earlier.
     TrashList:
       type: object
       required: [entries, totalBytes]
