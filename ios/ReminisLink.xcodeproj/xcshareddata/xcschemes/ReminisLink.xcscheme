@@ -33,6 +33,17 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
+               BlueprintIdentifier = "7A0000000000000000000033"
+               BuildableName = "ReminisLinkTests.xctest"
+               BlueprintName = "ReminisLinkTests"
+               ReferencedContainer = "container:ReminisLink.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
                BlueprintIdentifier = "7A0000000000000000000032"
                BuildableName = "ReminisLinkUITests.xctest"
                BlueprintName = "ReminisLinkUITests"

@@ -18,13 +18,18 @@ enum AppError: Error, Equatable {
     case invalidPairingLink
     case pairingClosed
     case storage
+    /// The task was cancelled (the screen went away): never shown.
+    case cancelled
     case unexpected
 
     init(_ error: Error) {
         switch error {
         case let error as AppError: self = error
+        case is CancellationError: self = .cancelled
         case let error as APIError: self = .api(error)
         case is ResolveError: self = .consoleNotFound
+        case DeviceLookupError.localNetworkDenied: self = .localNetworkDenied
+        case DeviceLookupError.notFound: self = .consoleNotFound
         case is KeychainError, is DeviceStoreError: self = .storage
         case let error as PairingError: self = .api(.pairing(error))
         default: self = .unexpected
@@ -43,6 +48,8 @@ enum AppError: Error, Equatable {
             String(localized: "Pairing is not open on the console. Open ReminisLink on the console and show the QR code.")
         case .storage:
             String(localized: "The pairing information could not be read or saved on this iPhone.")
+        case .cancelled:
+            String(localized: "Cancelled.")
         case .unexpected:
             String(localized: "Something went wrong.")
         case .api(let error):
@@ -58,13 +65,16 @@ enum AppError: Error, Equatable {
             switch error {
             case .server(let server) where server.code == .unknownClient: .repair
             case .server(let server) where server.code == .pairingFailed: nil
-            case .incompatible, .pairing, .notPaired: nil
+            case .notPaired: .repair
+            case .incompatible, .pairing: nil
             default: .retry
             }
-        case .invalidPairingLink, .storage: nil
+        case .invalidPairingLink, .storage, .cancelled: nil
         case .pairingClosed, .unexpected: .retry
         }
     }
+
+    var isCancellation: Bool { self == .cancelled }
 
     private static func message(for error: APIError) -> String {
         switch error {

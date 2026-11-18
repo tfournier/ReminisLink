@@ -34,6 +34,13 @@
 			remoteGlobalIDString = 7A0000000000000000000030;
 			remoteInfo = ReminisLink;
 		};
+		7A0000000000000000000074 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7A0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A0000000000000000000030;
+			remoteInfo = ReminisLink;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -60,6 +67,7 @@
 		7A0000000000000000000020 /* ReminisLink.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ReminisLink.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A0000000000000000000021 /* ReminisLinkShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ReminisLinkShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A0000000000000000000022 /* ReminisLinkUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ReminisLinkUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A0000000000000000000023 /* ReminisLinkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ReminisLinkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -76,6 +84,11 @@
 		7A0000000000000000000012 /* ReminisLinkUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ReminisLinkUITests;
+			sourceTree = "<group>";
+		};
+		7A0000000000000000000013 /* ReminisLinkTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ReminisLinkTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -104,6 +117,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A000000000000000000004B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -113,6 +133,7 @@
 				7A0000000000000000000010 /* ReminisLink */,
 				7A0000000000000000000011 /* ReminisLinkShare */,
 				7A0000000000000000000012 /* ReminisLinkUITests */,
+				7A0000000000000000000013 /* ReminisLinkTests */,
 				7A000000000000000000000A /* ReminisLinkKit */,
 				7A0000000000000000000004 /* Config */,
 				7A0000000000000000000003 /* Products */,
@@ -125,6 +146,7 @@
 				7A0000000000000000000020 /* ReminisLink.app */,
 				7A0000000000000000000021 /* ReminisLinkShare.appex */,
 				7A0000000000000000000022 /* ReminisLinkUITests.xctest */,
+				7A0000000000000000000023 /* ReminisLinkTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -211,6 +233,27 @@
 			productReference = 7A0000000000000000000022 /* ReminisLinkUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		7A0000000000000000000033 /* ReminisLinkTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A0000000000000000000084 /* Build configuration list for PBXNativeTarget "ReminisLinkTests" */;
+			buildPhases = (
+				7A000000000000000000004A /* Sources */,
+				7A000000000000000000004B /* Frameworks */,
+				7A000000000000000000004C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7A0000000000000000000075 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7A0000000000000000000013 /* ReminisLinkTests */,
+			);
+			name = ReminisLinkTests;
+			productName = ReminisLinkTests;
+			productReference = 7A0000000000000000000023 /* ReminisLinkTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -228,6 +271,10 @@
 						CreatedOnToolsVersion = 27.2;
 					};
 					7A0000000000000000000032 = {
+						CreatedOnToolsVersion = 27.2;
+						TestTargetID = 7A0000000000000000000030;
+					};
+					7A0000000000000000000033 = {
 						CreatedOnToolsVersion = 27.2;
 						TestTargetID = 7A0000000000000000000030;
 					};
@@ -254,6 +301,7 @@
 				7A0000000000000000000030 /* ReminisLink */,
 				7A0000000000000000000031 /* ReminisLinkShare */,
 				7A0000000000000000000032 /* ReminisLinkUITests */,
+				7A0000000000000000000033 /* ReminisLinkTests */,
 			);
 		};
 /* End PBXProject section */
@@ -274,6 +322,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7A0000000000000000000049 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A000000000000000000004C /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -304,6 +359,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A000000000000000000004A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -316,6 +378,11 @@
 			isa = PBXTargetDependency;
 			target = 7A0000000000000000000030 /* ReminisLink */;
 			targetProxy = 7A0000000000000000000071 /* PBXContainerItemProxy */;
+		};
+		7A0000000000000000000075 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A0000000000000000000030 /* ReminisLink */;
+			targetProxy = 7A0000000000000000000074 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -464,6 +531,32 @@
 			};
 			name = Release;
 		};
+		7A0000000000000000000098 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(RL_BUNDLE_PREFIX).reminislink.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ReminisLink.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ReminisLink";
+			};
+			name = Debug;
+		};
+		7A0000000000000000000099 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(RL_BUNDLE_PREFIX).reminislink.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ReminisLink.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ReminisLink";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -499,6 +592,15 @@
 			buildConfigurations = (
 				7A0000000000000000000096 /* Debug */,
 				7A0000000000000000000097 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A0000000000000000000084 /* Build configuration list for PBXNativeTarget "ReminisLinkTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A0000000000000000000098 /* Debug */,
+				7A0000000000000000000099 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

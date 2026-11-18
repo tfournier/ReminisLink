@@ -51,7 +51,7 @@ struct ConsoleRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name).font(.headline)
-                Text(device.model.displayName)
+                Text(device.model.localizedName)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

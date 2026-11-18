@@ -12,7 +12,7 @@ struct AddConsoleView: View {
             List {
                 Section {
                     if QRScannerView.isAvailable {
-                        QRScannerView { link in app.startPairing(.link(link)) }
+                        QRScannerView { link in app.requestPairing(link) }
                             .frame(height: 280)
                             .listRowInsets(EdgeInsets())
                             .accessibilityLabel(Text("QR code scanner"))
@@ -51,9 +51,9 @@ struct AddConsoleView: View {
                     Label("Less secure than the QR code. Avoid on public Wi-Fi.", systemImage: "exclamationmark.shield")
                 }
 
-                if let pak = app.demoPak {
+                if let link = app.demoPairingLink {
                     Section {
-                        Button("Pair with the Demo Console") { app.startPairing(.link(pak.pairingLink)) }
+                        Button("Pair with the Demo Console") { app.requestPairing(link) }
                             .accessibilityIdentifier("demo.pair")
                     } footer: {
                         Text("Demo mode: no real console is used.")

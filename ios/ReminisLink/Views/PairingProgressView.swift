@@ -17,7 +17,7 @@ struct PairingProgressView: View {
 
                 if let error = flow.error {
                     Section {
-                        ErrorView(error: error, retry: { await flow.run() })
+                        ErrorView(error: error, retry: { flow.start() })
                     }
                 }
 
@@ -39,6 +39,7 @@ struct PairingProgressView: View {
             .navigationTitle("Pairing")
             .navigationBarTitleDisplayMode(.inline)
             .interactiveDismissDisabled(flow.isRunning)
+            .onDisappear { flow.stop() }
             .toolbar {
                 if flow.step != .done {
                     ToolbarItem(placement: .cancellationAction) {

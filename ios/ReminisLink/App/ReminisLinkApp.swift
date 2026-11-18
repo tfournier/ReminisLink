@@ -45,6 +45,16 @@ struct RootView: View {
         } message: { error in
             Text(error.message)
         }
+        .alert(
+            "This console is already paired. Pair it again?",
+            isPresented: Binding(get: { app.pendingRepair != nil }, set: { if !$0 { app.pendingRepair = nil } })
+        ) {
+            Button("Pair Again") { app.confirmRepair() }
+                .accessibilityIdentifier("repair.confirm")
+            Button("Cancel", role: .cancel) { app.pendingRepair = nil }
+        } message: {
+            Text("Its key on this iPhone will be replaced. The console must be found on the network under the same identity.")
+        }
         .onOpenURL { app.handle(url: $0) }
         .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active { app.discovery.start() } else if phase == .background { app.discovery.stop() }

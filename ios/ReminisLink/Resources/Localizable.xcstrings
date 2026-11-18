@@ -271,6 +271,16 @@
         }
       }
     },
+    "Cancelled." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annulé."
+          }
+        }
+      }
+    },
     "Cheats" : {
       "localizations" : {
         "fr" : {
@@ -397,6 +407,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mode démo : aucune vraie console n’est utilisée."
+          }
+        }
+      }
+    },
+    "Desktop" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateur"
           }
         }
       }
@@ -537,6 +557,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lien non valide"
+          }
+        }
+      }
+    },
+    "Its key on this iPhone will be replaced. The console must be found on the network under the same identity." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sa clé sur cet iPhone sera remplacée. La console doit être trouvée sur le réseau sous la même identité."
           }
         }
       }
@@ -1107,6 +1137,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La corbeille est vide"
+          }
+        }
+      }
+    },
+    "This console is already paired. Pair it again?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette console est déjà appairée. Refaire l’appairage ?"
           }
         }
       }

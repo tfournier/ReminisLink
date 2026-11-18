@@ -38,7 +38,7 @@ struct ConsoleView: View {
             if let status = session.status {
                 Section("Console") {
                     LabeledContent("Name", value: status.deviceName)
-                    LabeledContent("Model", value: status.model.displayName)
+                    LabeledContent("Model", value: status.model.localizedName)
                     LabeledContent("System", value: [status.os, status.osVersion].compactMap { $0 }.joined(separator: " "))
                     LabeledContent("ReminisLink version", value: status.pakVersion)
                     LabeledContent("IP address", value: status.network.ipv4)
@@ -85,7 +85,8 @@ struct ConsoleView: View {
                     do {
                         try await session.unpair()
                     } catch {
-                        actionError = AppError(error)
+                        let error = AppError(error)
+                        if !error.isCancellation { actionError = error }
                     }
                 }
             }
@@ -167,7 +168,8 @@ struct TrashView: View {
             try await operation()
             error = nil
         } catch {
-            self.error = AppError(error)
+            let error = AppError(error)
+            if !error.isCancellation { self.error = error }
         }
     }
 }

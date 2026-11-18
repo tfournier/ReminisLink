@@ -21,6 +21,8 @@ final class ConsoleSession {
     private(set) var client: APIClient?
 
     @ObservationIgnored private unowned let app: AppModel
+    /// The connection in progress, shared by every caller.
+    @ObservationIgnored private var connectTask: Task<Void, Never>?
 
     init(deviceId: String, app: AppModel) {
         self.deviceId = deviceId
@@ -33,14 +35,32 @@ final class ConsoleSession {
     }
 
     func connectIfNeeded() async {
-        if state == .idle { await connect() }
+        if state == .idle || connectTask != nil { await connect() }
     }
 
     /// Finds the console, checks it with `/hello` (which also measures the
-    /// clock offset), then loads the dashboard.
+    /// clock offset), then loads the dashboard. A caller arriving while a
+    /// connection is in progress waits for it. Cancelling the caller
+    /// cancels the connection, which goes back to `.idle` (never cached as
+    /// a failure).
     func connect() async {
-        guard state != .connecting else { return }
-        state = .connecting
+        let task: Task<Void, Never>
+        if let connectTask {
+            task = connectTask
+        } else {
+            state = .connecting
+            task = Task { await self.runConnection() }
+            connectTask = task
+        }
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func runConnection() async {
+        defer { connectTask = nil }
         do {
             guard let credentials = try app.store.credentials(for: deviceId) else {
                 throw AppError.api(.notPaired)
@@ -48,12 +68,14 @@ final class ConsoleSession {
             let endpoint = try await app.endpoint(for: deviceId)
             let client = app.makeClient(endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials)
             hello = try await client.hello()
-            self.client = client
             status = try await client.device()
+            try Task.checkCancellation()
+            self.client = client
             state = .connected
             await loadTrash()
         } catch {
-            state = .failed(AppError(error))
+            let error = AppError(error)
+            state = error.isCancellation || Task.isCancelled ? .idle : .failed(error)
         }
     }
 
@@ -65,7 +87,8 @@ final class ConsoleSession {
             state = .connected
             await loadTrash()
         } catch {
-            state = .failed(AppError(error))
+            let error = AppError(error)
+            if !error.isCancellation { state = .failed(error) }
         }
     }
 
@@ -75,10 +98,12 @@ final class ConsoleSession {
         trash = try? await client?.trash()
     }
 
-    /// Runs a request; a failure also marks the session failed when the
-    /// console is gone or no longer knows this iPhone.
+    /// Runs a request, connecting first if needed (or waiting for the
+    /// connection in progress). A failure also marks the session failed
+    /// when the console is gone or no longer knows this iPhone.
     func perform<T: Sendable>(_ operation: @Sendable (APIClient) async throws -> T) async throws -> T {
         if client == nil { await connect() }
+        try Task.checkCancellation()
         guard let client else { throw error ?? AppError.consoleNotFound }
         do {
             return try await operation(client)
@@ -108,12 +133,16 @@ final class ConsoleSession {
         await loadTrash()
     }
 
-    /// `DELETE /clients/me`, then forgets the key. If the console no longer
-    /// knows this iPhone, the key is useless: it is forgotten anyway.
+    /// `DELETE /clients/me`, then forgets the key. Without a usable key,
+    /// or if the console no longer knows this iPhone, the entry is only
+    /// forgotten on this iPhone.
     func unpair() async throws {
-        do {
-            try await perform { try await $0.unpair() }
-        } catch AppError.api(let error) where error.code == .unknownClient {
+        let credentials = try? app.store.credentials(for: deviceId)
+        if credentials != nil {
+            do {
+                try await perform { try await $0.unpair() }
+            } catch AppError.api(let error) where error.code == .unknownClient {
+            }
         }
         try app.forget(deviceId: deviceId)
     }

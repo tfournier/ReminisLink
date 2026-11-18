@@ -74,7 +74,8 @@ struct GameDetailView: View {
             detail = try await app.session(for: route.deviceId).perform { try await $0.game(id: gameId) }
             error = nil
         } catch {
-            self.error = AppError(error)
+            let error = AppError(error)
+            if !error.isCancellation { self.error = error }
         }
     }
 }

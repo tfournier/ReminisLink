@@ -9,6 +9,12 @@ extension Int64 {
 
 extension DeviceModel {
     var symbolName: String { self == .desktop ? "desktopcomputer" : "gamecontroller" }
+
+    /// Product names stay as they are; "Desktop" (the pak on a computer) is
+    /// translated.
+    var localizedName: String {
+        self == .desktop ? String(localized: "Desktop") : displayName
+    }
 }
 
 /// An error with the action of docs/specs/06-app-ios.md §5.
@@ -102,14 +108,21 @@ struct GameArtView: View {
         .task(id: gameId) { await load() }
     }
 
+    /// Best effort: an art error never touches the session. The disk cache
+    /// is read off the main actor.
     private func load() async {
         guard hasArt else { return }
-        let session = app.session(for: deviceId)
         let cache = app.artCache
-        if let cached = cache.entry(deviceId: deviceId, gameId: gameId) {
-            image = UIImage(data: cached.data)
-        }
-        guard let data = try? await session.perform({ try await cache.load(gameId: gameId, client: $0) }) else { return }
+        let deviceId = deviceId
+        let gameId = gameId
+        let cached = await Task.detached(priority: .utility) {
+            cache.entry(deviceId: deviceId, gameId: gameId)?.data
+        }.value
+        if let cached { image = UIImage(data: cached) }
+        guard let client = app.session(for: deviceId).client,
+              let data = try? await cache.load(gameId: gameId, client: client),
+              data != cached
+        else { return }
         image = UIImage(data: data)
     }
 }

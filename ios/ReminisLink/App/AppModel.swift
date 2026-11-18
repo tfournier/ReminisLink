@@ -1,6 +1,8 @@
 import Foundation
 import Observation
+#if DEBUG
 import ReminisLinkDemo
+#endif
 import ReminisLinkKit
 import UIKit
 
@@ -49,12 +51,19 @@ final class AppModel {
     let store: DeviceStore
     let discovery: Discovery
     let artCache: ArtCache
-    /// The fake pak of the demo mode, nil otherwise.
-    let demoPak: FakePak?
+    /// Pairing link of the fake pak in the demo mode (Debug builds only).
+    let demoPairingLink: PairingLink?
+    /// How long to look for a console with Bonjour.
+    let lookupTimeout: Duration
+    /// How long to wait for Bonjour before using the QR code endpoint.
+    let fallbackDelay: Duration
 
     var path: [Route] = []
     var sheet: Sheet?
     var linkError: AppError?
+    /// A link for a console that is already paired, waiting for the user
+    /// to confirm that it should be paired again.
+    var pendingRepair: PairingLink?
 
     @ObservationIgnored private let makeSession: () -> URLSession
     @ObservationIgnored private var sessions: [String: ConsoleSession] = [:]
@@ -62,28 +71,26 @@ final class AppModel {
     /// fails. Never persisted (docs/specs/03-protocole.md §3.1).
     @ObservationIgnored private var sessionEndpoints: [String: Endpoint] = [:]
 
-    init(store: DeviceStore, discovery: Discovery, artCache: ArtCache, demoPak: FakePak?, makeSession: @escaping () -> URLSession) {
+    init(
+        store: DeviceStore, discovery: Discovery, artCache: ArtCache, demoPairingLink: PairingLink? = nil,
+        lookupTimeout: Duration = Discovery.lookupTimeout, fallbackDelay: Duration = .seconds(3),
+        makeSession: @escaping () -> URLSession
+    ) {
         self.store = store
         self.discovery = discovery
         self.artCache = artCache
-        self.demoPak = demoPak
+        self.demoPairingLink = demoPairingLink
+        self.lookupTimeout = lookupTimeout
+        self.fallbackDelay = fallbackDelay
         self.makeSession = makeSession
     }
-
-    var isDemo: Bool { demoPak != nil }
-
-    /// Wait for Bonjour before using the QR code endpoint.
-    static let fallbackDelay: Duration = .seconds(3)
 
     static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
 
-    /// The name sent at pairing: 1 to 64 characters.
-    var clientName: String {
-        let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "iPhone" : String(name.prefix(DeviceStore.maxNameLength))
-    }
+    /// The name sent at pairing: 1 to 64 Unicode scalars.
+    var clientName: String { Pairing.clientName(from: UIDevice.current.name) }
 
     // MARK: - Pairing
 
@@ -93,13 +100,32 @@ final class AppModel {
             linkError = .invalidPairingLink
             return
         }
+        requestPairing(link)
+    }
+
+    /// Pairs with a link, after a confirmation if the console is already
+    /// paired (its key would be replaced).
+    func requestPairing(_ link: PairingLink) {
+        if store.device(id: link.deviceId) != nil {
+            sheet = nil
+            pendingRepair = link
+        } else {
+            startPairing(.link(link))
+        }
+    }
+
+    func confirmRepair() {
+        guard let link = pendingRepair else { return }
+        pendingRepair = nil
         startPairing(.link(link))
     }
 
-    func startPairing(_ source: PairingSource) {
+    @discardableResult
+    func startPairing(_ source: PairingSource) -> PairingFlow {
         let flow = PairingFlow(app: self, source: source)
         sheet = .pairing(flow)
-        Task { await flow.run() }
+        flow.start()
+        return flow
     }
 
     func finishPairing(deviceId: String?) {
@@ -133,24 +159,24 @@ final class AppModel {
     /// Finds a paired device: Bonjour by id first, then the endpoint of a QR
     /// code scanned during this run.
     func endpoint(for deviceId: String) async throws -> Endpoint {
-        let wait = sessionEndpoints[deviceId] == nil ? Discovery.lookupTimeout : Self.fallbackDelay
-        if let device = await discovery.waitForDevice(id: deviceId, timeout: wait),
-           let endpoint = try? await EndpointResolver.resolve(device) {
-            return endpoint
-        }
-        if let endpoint = sessionEndpoints[deviceId] { return endpoint }
-        throw discovery.status == .localNetworkDenied ? AppError.localNetworkDenied : AppError.consoleNotFound
+        try await locate(deviceId: deviceId, fallback: sessionEndpoints[deviceId])
     }
 
-    /// Endpoint for a pairing link: Bonjour by id, else `h`/`p` of the link.
+    /// Endpoint for a pairing link: Bonjour by id, else `h`/`p` of the link,
+    /// but never for a console that is already paired.
     func endpoint(for link: PairingLink) async throws -> Endpoint {
-        let wait = link.fallbackEndpoint == nil ? Discovery.lookupTimeout : Self.fallbackDelay
-        if let device = await discovery.waitForDevice(id: link.deviceId, timeout: wait),
-           let endpoint = try? await EndpointResolver.resolve(device) {
-            return endpoint
-        }
-        if let endpoint = link.fallbackEndpoint { return endpoint }
-        throw discovery.status == .localNetworkDenied ? AppError.localNetworkDenied : AppError.consoleNotFound
+        let fallback = DeviceLocator.pairingFallback(for: link, pairedIds: Set(store.devices.map(\.id)))
+        return try await locate(deviceId: link.deviceId, fallback: fallback)
+    }
+
+    private func locate(deviceId: String, fallback: Endpoint?) async throws -> Endpoint {
+        let discovery = discovery
+        return try await DeviceLocator.locate(
+            fallback: fallback, timeout: lookupTimeout, fallbackDelay: fallbackDelay,
+            find: { await discovery.waitForDevice(id: deviceId, timeout: $0) },
+            resolve: { try await EndpointResolver.resolve($0) },
+            isLocalNetworkDenied: { discovery.status == .localNetworkDenied }
+        )
     }
 
     /// Forgets a device on this iPhone (after unpairing).
@@ -165,13 +191,15 @@ final class AppModel {
 // MARK: - Construction
 
 extension AppModel {
-    /// The live app, or the demo mode with `RL_DEMO=1` (environment) or
-    /// `-RLDemo YES` (launch argument).
+    /// The live app, or (Debug builds only) the demo mode with `RL_DEMO=1`
+    /// (environment) or `-RLDemo YES` (launch argument).
     static func make(processInfo: ProcessInfo = .processInfo) -> AppModel {
         let environment = processInfo.environment
+        #if DEBUG
         if environment["RL_DEMO"] == "1" || UserDefaults.standard.bool(forKey: "RLDemo") {
             return makeDemo()
         }
+        #endif
         let group = Bundle.main.object(forInfoDictionaryKey: "RLAppGroup") as? String
         let defaults = group.flatMap { UserDefaults(suiteName: $0) } ?? .standard
         let store = DeviceStore(secureStore: KeychainStore(service: "ReminisLink.devices"), defaults: defaults)
@@ -180,10 +208,11 @@ extension AppModel {
         }
         return AppModel(
             store: store, discovery: Discovery(), artCache: ArtCache(directory: ArtCache.defaultDirectory()),
-            demoPak: nil, makeSession: { APIClient.makeSession() }
+            makeSession: { APIClient.makeSession() }
         )
     }
 
+    #if DEBUG
     /// Everything in memory, against the fake pak: no network, no Keychain.
     static func makeDemo() -> AppModel {
         let pak = FakePak()
@@ -196,8 +225,9 @@ extension AppModel {
             store: DeviceStore(secureStore: InMemorySecureStore(), defaults: UserDefaults(suiteName: suite)!),
             discovery: Discovery(fixedDevices: [pak.discoveredDevice]),
             artCache: ArtCache(directory: artDirectory),
-            demoPak: pak,
+            demoPairingLink: pak.pairingLink,
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
     }
+    #endif
 }

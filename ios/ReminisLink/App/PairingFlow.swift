@@ -39,12 +39,20 @@ final class PairingFlow: Identifiable {
     var name = ""
 
     @ObservationIgnored private unowned let app: AppModel
+    @ObservationIgnored private var task: Task<Void, Never>?
 
     init(app: AppModel, source: PairingSource) {
         self.app = app
         self.source = source
     }
 
+    /// Runs the pairing in a task that ``cancel()`` stops.
+    func start() {
+        guard !isRunning else { return }
+        task = Task { await run() }
+    }
+
+    /// Prefer ``start()``: a pairing run directly cannot be cancelled.
     func run() async {
         guard !isRunning else { return }
         isRunning = true
@@ -70,9 +78,12 @@ final class PairingFlow: Identifiable {
             let client = app.makeClient(endpoint: endpoint, expectedDeviceId: deviceId)
             let hello = try await client.hello()
             guard hello.pairingOpen else { throw AppError.pairingClosed }
+            try Task.checkCancellation()
             let clientId = try app.store.installationClientId()
             let attempt = try PairingAttempt(secret: secret, deviceId: deviceId, clientId: clientId, clientName: app.clientName)
             let key = try await client.pair(attempt)
+            // Cancelled while the pak answered: the key is dropped.
+            try Task.checkCancellation()
             let device = try app.store.save(
                 deviceId: deviceId, name: suggestedName ?? hello.deviceName, model: hello.model, clientId: clientId, key: key
             )
@@ -81,7 +92,8 @@ final class PairingFlow: Identifiable {
             name = device.name
             step = .done
         } catch {
-            self.error = AppError(error)
+            let error = AppError(error)
+            self.error = error.isCancellation ? nil : error
         }
     }
 
@@ -95,7 +107,20 @@ final class PairingFlow: Identifiable {
         app.finishPairing(deviceId: paired.id)
     }
 
+    /// Stops a pairing in progress and closes the sheet.
     func cancel() {
+        stop()
         app.finishPairing(deviceId: paired?.id)
+    }
+
+    /// Stops a pairing in progress (the sheet went away).
+    func stop() {
+        task?.cancel()
+        task = nil
+    }
+
+    /// Waits for the current run (tests).
+    func wait() async {
+        await task?.value
     }
 }

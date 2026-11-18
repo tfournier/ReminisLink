@@ -43,7 +43,8 @@ struct LibraryView: View {
             systems = try await app.session(for: deviceId).perform { try await $0.systems() }
             error = nil
         } catch {
-            self.error = AppError(error)
+            let error = AppError(error)
+            if !error.isCancellation { self.error = error }
         }
     }
 }
@@ -167,7 +168,8 @@ struct FolderView: View {
             }
             error = nil
         } catch {
-            self.error = AppError(error)
+            let error = AppError(error)
+            if !error.isCancellation { self.error = error }
         }
     }
 }
