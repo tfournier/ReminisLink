@@ -197,3 +197,27 @@ func FuzzCanonicalQuery(f *testing.F) {
 		}
 	})
 }
+
+func TestHasDuplicateQueryKey(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  bool
+		err   bool
+	}{
+		{"", false, false},
+		{"a=1&b=2", false, false},
+		{"a=1&&b=2", false, false},
+		{"a=1&a=2", true, false},
+		{"a&a", true, false},
+		{"a=1&%61=2", true, false},
+		{"a+b=1&a%20b=2", true, false},
+		{"a=1&A=2", false, false}, // keys are case-sensitive
+		{"a=%zz", false, false},   // values are not decoded here
+		{"%zz=1", false, true},
+	} {
+		got, err := HasDuplicateQueryKey(tc.query)
+		if (err != nil) != tc.err || got != tc.want {
+			t.Errorf("HasDuplicateQueryKey(%q) = %v, %v; want %v, err=%v", tc.query, got, err, tc.want, tc.err)
+		}
+	}
+}

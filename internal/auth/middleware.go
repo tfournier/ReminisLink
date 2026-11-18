@@ -81,6 +81,22 @@ type Verifier struct {
 	budget     *byteBudget
 }
 
+// NewVerifier returns a Verifier and its nonce cache, both on the same clock
+// (a nil now uses time.Now). Prefer it to filling the struct by hand: the
+// nonce expiry and the clock skew check must compare the same instants.
+// nonceCapacity <= 0 uses DefaultNonceCapacity.
+func NewVerifier(clients ClientLookup, now func() time.Time, nonceCapacity int, logger *slog.Logger) *Verifier {
+	if now == nil {
+		now = time.Now
+	}
+	return &Verifier{
+		Clients: clients,
+		Nonces:  NewNonceCache(NonceTTL, nonceCapacity, now),
+		Now:     now,
+		Logger:  logger,
+	}
+}
+
 type clientContextKey struct{}
 
 // ClientFromContext returns the client authenticated by the middleware.
@@ -112,7 +128,9 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 //     UNSIGNED on a route without AllowUnsigned → 401 bad_signature;
 //  5. the nonce is reserved atomically: a concurrent copy of the request
 //     gets 401 replayed_request, a full cache 429 too_many_attempts;
-//  6. body larger than the route limit → 413 too_large; body hash mismatch
+//  6. a query key present more than once → 400 invalid_request (the nonce
+//     is consumed, docs/specs/03-protocole.md §4.2);
+//  7. body larger than the route limit → 413 too_large; body hash mismatch
 //     → 401 bad_signature.
 //
 // Signature and body hash are checked in the reverse order of the spec
@@ -229,6 +247,11 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		return fail(http.StatusTooManyRequests, CodeTooManyAttempts, "Too many requests")
 	case err != nil:
 		return fail(http.StatusInternalServerError, CodeInternal, "Internal error")
+	}
+
+	if dup, err := HasDuplicateQueryKey(rawQuery); err != nil || dup {
+		// err cannot happen here (CanonicalRequest parsed the same query).
+		return fail(http.StatusBadRequest, CodeInvalidRequest, "Duplicate query parameter")
 	}
 
 	if unsigned {
