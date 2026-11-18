@@ -6,7 +6,7 @@
 | M0 | en attente des relevés de la console | — | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | en cours | `m2-serveur-lecture` | — | — |
-| M3 | en cours | `m3-ios-base` | — | — |
+| M3 | en revue | `m3-ios-base` | en cours (Antigravity) | — |
 | M4 | à faire | — | — | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
@@ -14,7 +14,7 @@
 
 ## En cours
 - M2 : sous-agent Claude dans `../reminislink-m2-serveur-lecture` (branche `m2-serveur-lecture`), lancé le 2026-11-18. Hypothèses `TODO(M0)` et carte SD factice provisoire en attendant M0. Seul à pouvoir modifier `protocol/openapi.yaml` pendant M2/M3.
-- M3 : sous-agent Claude dans `../reminislink-m3-ios-base` (branche `m3-ios-base`), lancé le 2026-11-18. Réponses factices tirées d'`openapi.yaml` tant que le pak headless n'est pas fusionné ; ne modifie que `ios/`.
+- M3 : livré (5 commits). Contrôles §4 OK : `swift test` 73 tests, `xcodebuild test` iPhone 16 / iOS 18.5 réussi (test démo passé, test contre le pak réel ignoré tant que M2 n'est pas fusionné), diff limité à `ios/`. Revue Antigravity en cours. Validation contre `make headless` après fusion de M2.
 - M0 : en attente des relevés de la console.
 
 ## État du dépôt (2026-11-18)
@@ -50,6 +50,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — La personne demande de continuer sans s'arrêter tant que possible : M1 intégré, puis M2 et M3 lancés en parallèle sans attendre un accord de fin de jalon ; arrêts maintenus pour les décisions de spec, de contrat, de sécurité, la console et l'échec répété d'un sous-agent.
 
 ## Questions ouvertes pour la personne
+2. **Contrat incomplet (M3)** : 06 §4.3 demande d'afficher les « appareils connectés » au tableau de bord, mais aucune route ne les expose (`/device` n'a pas ce champ). Recommandation : ajouter à `GET /device` un champ `connectedClients: [{ clientName, lastSeenAt }]` tenu **en mémoire** par le pak (requête signée de moins de 30 s, comme l'état « Connecté » de 05 §7.1), sans écriture sur la carte SD. Bloque : l'affichage dans l'app (masqué en attendant).
+3. **Noms commerciaux dans les exemples** : `04-api-v1.md` et `openapi.yaml` utilisent « Pokemon Emerald » / « Pokemon Unbound » dans les exemples. Recommandation : les remplacer par des noms inventés (exemples seulement, aucun changement de comportement). Bloque : rien.
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
