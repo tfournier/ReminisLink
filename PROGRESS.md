@@ -8,14 +8,14 @@
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
-| M5 | à faire | — | — | — |
+| M5 | en cours | `m5-saves-go`, `m5-saves-ios` | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
 - M4 fusionné dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (135), `xcodebuild test` (30 tests app, UI démo) verts ; contre `make headless` : appairage **par Bonjour** depuis le simulateur → fiche de jeu, et envoi de 200 Mio (50 morceaux) → bibliothèque → suppression → vidage de la corbeille, réussis. `scripts/smoke-transfers.sh` : reprise d'un envoi après arrêt du pak, téléchargement local, corbeille OK.
 - **En attente de la personne** : tests sur la vraie console (checklist `docs/specs/checklists/console.md`, scénarios 3, 4, 5, 9, 10), qui supposent les relevés M0 (chemins des saves/states, horloge, certificats).
-- M5 prêt à lancer (saves, states, verrous, cheats).
+- M5 : deux sous-agents lancés le 2026-11-19 : Go dans `../reminislink-m5-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m5-ios` (uniquement `ios/`, faux pak étendu, réactive le type « Save »).
 
 ## État du dépôt (2026-11-18)
 - Branche `main` sans aucun commit : tous les fichiers sont non suivis (`CLAUDE.md`, `README.md`, `docs/`, `go.mod`, `prompts/`, `scripts/`, `skills/`, `.gitignore`).
