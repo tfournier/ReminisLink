@@ -13,6 +13,8 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
+	"github.com/tfournier/ReminisLink/internal/saves"
+	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
@@ -82,8 +84,18 @@ func newEnv(t *testing.T, tweak ...func(*Options)) *env {
 	e := &env{t: t, sd: sd, clock: clk, free: &free, logs: logs, layout: layout}
 	e.trash = store.NewTrash(layout, sd, clk.Now, logger)
 	e.lib = library.New(adapter, layout)
+	lock := &sync.Mutex{}
+	sv, err := saves.New(saves.Options{Adapter: adapter, Layout: layout, Trash: e.trash, Lock: lock, Now: clk.Now, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := states.New(states.Options{Adapter: adapter, Layout: layout, Trash: e.trash, Lock: lock, Now: clk.Now, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
 	e.opts = Options{
 		Library: e.lib, Adapter: adapter, Layout: layout, Trash: e.trash,
+		Saves: sv, States: st, Lock: lock,
 		FreeSpace: func(string) (int64, error) { return *e.free, nil },
 		Now:       clk.Now, Logger: logger, ChunkSize: 1 << 10,
 		Downloads: DownloadOptions{RetryDelay: time.Millisecond},

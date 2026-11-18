@@ -71,6 +71,13 @@ type Options struct {
 	Adapter osadapter.Adapter
 	Layout  store.Layout
 	Trash   *store.Trash
+	// Saves and States install the files of the "save" and "state"
+	// targets (backup copy, locks).
+	Saves  *saves.Service
+	States *states.Service
+	// Lock serializes the changes of the SD card files; share it with
+	// Saves, States and the cheats (nil: a lock of its own).
+	Lock *sync.Mutex
 	// FreeSpace returns the free bytes of the file system holding path
 	// (the SD card). Tests inject it to simulate a full card.
 	FreeSpace func(path string) (int64, error)
@@ -114,10 +121,17 @@ type Service struct {
 	// destination: check for a conflict, move the old file to the trash,
 	// rename. rename(2) replaces an existing file silently, so two
 	// installs to the same name must never run together.
-	installMu sync.Mutex
+	installMu *sync.Mutex
 
 	uploads uploads
 	jobs    *Jobs
+
+	// completedStaging maps the uploadId of a completed staging upload
+	// to its stagingId (cheat import with an "upload" source). In memory:
+	// lost when the pak closes, then the app uses the stagingId.
+	stagingMu        sync.Mutex
+	completedStaging map[string]string
+	stagingOrder     []string
 
 	// Background verification of the resumed uploads.
 	verifyCtx    context.Context
@@ -133,8 +147,12 @@ type Service struct {
 // New returns a Service. Call LoadUploads at start (after the maintenance)
 // to resume the uploads of a previous run, and Close at shutdown.
 func New(opts Options) (*Service, error) {
-	if opts.Library == nil || opts.Adapter == nil || opts.Trash == nil || opts.Layout.Root == "" {
+	if opts.Library == nil || opts.Adapter == nil || opts.Trash == nil || opts.Layout.Root == "" ||
+		opts.Saves == nil || opts.States == nil {
 		return nil, errors.New("transfer: missing dependency")
+	}
+	if opts.Lock == nil {
+		opts.Lock = &sync.Mutex{}
 	}
 	if opts.FreeSpace == nil {
 		return nil, errors.New("transfer: missing FreeSpace")
@@ -151,7 +169,7 @@ func New(opts Options) (*Service, error) {
 	if opts.ChunkSize > MaxChunkSize {
 		opts.ChunkSize = MaxChunkSize
 	}
-	s := &Service{opts: opts, log: opts.Logger, now: opts.Now, rand: rand.Reader}
+	s := &Service{opts: opts, log: opts.Logger, now: opts.Now, rand: rand.Reader, installMu: opts.Lock}
 	s.uploads.m = map[string]*upload{}
 	s.jobs = NewJobs(opts.Now)
 	s.verifyCtx, s.verifyCancel = context.WithCancel(context.Background())
@@ -263,10 +281,26 @@ func (s *Service) resolve(t Target, needName bool) (destination, *Error, error) 
 		if t.Kind == KindState && states.IsLocked(s.opts.Layout, g, d.slot) {
 			return d, stateLocked(), nil
 		}
+		check := s.opts.Adapter.CheckSaveFormat
+		if t.Kind == KindState {
+			check = s.opts.Adapter.CheckStateFormat
+			if s.opts.Adapter.StatePath(g, d.slot) == "" {
+				return d, unsupportedFormat("No state folder for this system (emulator pak not found)"), nil
+			}
+		}
+		if err := check(); err != nil {
+			return d, unsupportedFormat(err.Error()), nil
+		}
 	default:
 		return d, badRequest("Unknown target.kind"), nil
 	}
 	return d, nil, nil
+}
+
+// unsupportedFormat: the saves or states of the card use a format the
+// pak does not write.
+func unsupportedFormat(message string) *Error {
+	return newError(http.StatusUnprocessableEntity, CodeUnsupportedFormat, message)
 }
 
 func tooMany(message string) *Error {
@@ -338,6 +372,38 @@ func (s *Service) StagingFile(stagingID string) (string, error) {
 	return "", ErrStagingNotFound
 }
 
+// MaxRememberedStaging bounds the completed staging uploads remembered.
+const MaxRememberedStaging = 256
+
+func (s *Service) rememberStaging(uploadID, stagingID string) {
+	s.stagingMu.Lock()
+	defer s.stagingMu.Unlock()
+	if s.completedStaging == nil {
+		s.completedStaging = map[string]string{}
+	}
+	if _, ok := s.completedStaging[uploadID]; !ok {
+		s.stagingOrder = append(s.stagingOrder, uploadID)
+	}
+	s.completedStaging[uploadID] = stagingID
+	for len(s.stagingOrder) > MaxRememberedStaging {
+		delete(s.completedStaging, s.stagingOrder[0])
+		s.stagingOrder = s.stagingOrder[1:]
+	}
+}
+
+// StagingForUpload returns the file of the staging entry made by a
+// completed upload (target "staging") of this run: ErrStagingNotFound when
+// the upload is unknown, not completed, or its file was purged.
+func (s *Service) StagingForUpload(uploadID string) (string, error) {
+	s.stagingMu.Lock()
+	id, ok := s.completedStaging[uploadID]
+	s.stagingMu.Unlock()
+	if !ok {
+		return "", ErrStagingNotFound
+	}
+	return s.StagingFile(id)
+}
+
 // ErrStagingNotFound means the stagingId names no file.
 var ErrStagingNotFound = errors.New("staging file not found")
 
@@ -375,21 +441,26 @@ func (s *Service) installLocked(d destination, tmp, onConflict string) (map[stri
 		store.SyncDir(filepath.Dir(tmp))
 		return map[string]any{"stagingId": id}, nil, nil
 	case KindSave:
-		backup, err := saves.Install(s.opts.Adapter, s.opts.Trash, d.game, tmp)
+		// The previous save is kept as a before-replace backup copy.
+		backup, err := s.opts.Saves.InstallLocked(d.game, tmp)
+		if errors.Is(err, osadapter.ErrUnsupportedFormat) {
+			return nil, unsupportedFormat(err.Error()), nil
+		}
 		if err != nil {
 			return nil, nil, err
 		}
-		s.log.Info("save replaced", "game", d.game.Path)
 		return map[string]any{"backup": backup}, nil, nil
 	case KindState:
-		slot, err := states.Install(s.opts.Adapter, s.opts.Trash, s.opts.Layout, d.game, d.slot, tmp)
+		slot, err := s.opts.States.InstallLocked(d.game, d.slot, tmp)
 		if errors.Is(err, states.ErrLocked) {
 			return nil, stateLocked(), nil
 		}
+		if errors.Is(err, osadapter.ErrUnsupportedFormat) {
+			return nil, unsupportedFormat(err.Error()), nil
+		}
 		if err != nil {
 			return nil, nil, err
 		}
-		s.log.Info("state replaced", "game", d.game.Path, "slot", d.slot)
 		return map[string]any{"slot": slot}, nil, nil
 	}
 	return nil, nil, fmt.Errorf("install: unknown kind %q", d.kind)

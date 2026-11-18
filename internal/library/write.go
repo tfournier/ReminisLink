@@ -96,6 +96,10 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 	}
 	if files.Cheats != nil {
 		items = append(items, store.MoveItem{Path: files.Cheats.Path})
+		// The previous version kept by the cheat routes (<file>.cht.bak).
+		if bak := store.FindFold(filepath.Dir(files.Cheats.Path), filepath.Base(files.Cheats.Path)+".bak", false); bak != "" {
+			items = append(items, store.MoveItem{Path: bak})
+		}
 	}
 	if files.Art != nil {
 		items = append(items, store.MoveItem{Path: files.Art.Path})
