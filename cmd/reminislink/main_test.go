@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -112,8 +113,9 @@ func TestFatalErrorReachesTheLogFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := runHeadlessTo(options{headless: true, sd: sd}, io.Discard)
-	if err == nil {
-		t.Fatal("broken config.json accepted")
+	var logged loggedError
+	if err == nil || !errors.As(err, &logged) {
+		t.Fatalf("broken config.json: %v (must be a loggedError, so main does not print it twice)", err)
 	}
 	data, _ := os.ReadFile(filepath.Join(sd, ".userdata", "tg5040", "logs", LogFileName))
 	if !strings.Contains(string(data), "level=ERROR msg=fatal") {

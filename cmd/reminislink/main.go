@@ -80,8 +80,12 @@ func main() {
 		os.Exit(2)
 	}
 	if err := runHeadless(opts); err != nil {
-		// Already in the log file (runHeadless logs it before closing it).
-		fmt.Fprintln(os.Stderr, "reminislink:", err)
+		// Once the log is open, the error is logged (file and stderr):
+		// print it only when it was not.
+		var logged loggedError
+		if !errors.As(err, &logged) {
+			fmt.Fprintln(os.Stderr, "reminislink:", err)
+		}
 		os.Exit(1)
 	}
 }
@@ -151,6 +155,13 @@ func runHeadless(opts options) error {
 	return runHeadlessTo(opts, os.Stderr)
 }
 
+// loggedError is an error already written to the log (and to stderr in
+// headless mode).
+type loggedError struct{ err error }
+
+func (e loggedError) Error() string { return e.err.Error() }
+func (e loggedError) Unwrap() error { return e.err }
+
 // runHeadlessTo runs the headless mode; the log also goes to logOut. A
 // fatal error is written to the log file before it is closed.
 func runHeadlessTo(opts options, logOut io.Writer) (err error) {
@@ -163,6 +174,7 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	defer func() {
 		if err != nil {
 			logger.Error("fatal", "error", err)
+			err = loggedError{err}
 		}
 	}()
 	slog.SetDefault(logger)

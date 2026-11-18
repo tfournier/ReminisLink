@@ -80,6 +80,8 @@ func (l *rateLimiter) pruneLocked() {
 
 // limitKey is the rate limit key of a client address: the IPv4 address, or
 // the /64 prefix of an IPv6 address (one host usually owns a whole /64).
+// The pak listens on IPv4 (0.0.0.0) today; if it ever serves IPv6, review
+// this grouping (a /64 can be shared by several devices of a network).
 func limitKey(ip string) string {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
