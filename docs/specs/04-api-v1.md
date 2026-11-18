@@ -375,7 +375,9 @@ Liste les fichiers utilisables de la carte SD : `.cht` sous `Cheats/` pour `type
 | `state` | `gameId`, `slot` | Un emplacement de state (refusé si verrouillé) |
 | `staging` | `fileName` | Zone temporaire ReminisLink, pour un patch ou un `.cht` à importer ensuite (supprimée après 24 h) |
 
-`onConflict` : `fail` (par défaut, `409 conflict`), `rename` (ajoute ` (2)`, ` (3)`...), `overwrite` (l'ancien fichier part dans la corbeille).
+`onConflict` : `fail` (par défaut, `409 conflict`), `rename` (ajoute ` (2)`, ` (3)`...), `overwrite` (l'ancien fichier part dans la corbeille). Ne s'applique qu'aux cibles `rom` et `staging` : pour `save` et `state`, le fichier existant est toujours remplacé, après avoir été mis à la corbeille (M4 ; M5 y ajoute la copie de sauvegarde `before-replace`).
+
+Limites (M4) : au plus 32 envois ouverts et 100 tâches en file ou en cours par console ; au-delà, `429 too_many_attempts` avec `Retry-After`. Une ROM (`target.kind = "rom"`) doit porter un nom que la bibliothèque liste comme jeu, sinon `400 invalid_name` dès la création. Les noms commençant par `.`, contenant des caractères de mise en forme Unicode ou réservés sous Windows (`CON`, `NUL`, `COM1`…) sont refusés (`invalid_name`).
 
 Réponse `201` :
 
@@ -424,4 +426,4 @@ Même `target` que pour `/uploads` (le nom de fichier est déduit de `Content-Di
 
 ### `GET /jobs`, `GET /jobs/{jobId}`, `DELETE /jobs/{jobId}`
 
-Format décrit en [03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console). `DELETE` annule une tâche en attente ou en cours (le fichier partiel est supprimé) ; réponse `200` avec la tâche annulée.
+Format décrit en [03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console). `DELETE` annule une tâche en attente ou en cours (le fichier partiel est supprimé) ; réponse `200` avec la tâche dans son nouvel état. Une tâche annulée pendant l'installation de son fichier peut finir `succeeded` (le fichier est en place, `result` l'indique).

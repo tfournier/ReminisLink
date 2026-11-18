@@ -188,7 +188,7 @@ Toute réponse d'erreur a la forme :
 | 413 | `too_large` | Corps ou fichier trop gros |
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
-| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée (avec `Retry-After`) |
+| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
 | 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
 | 507 | `insufficient_storage` | Espace libre insuffisant (`details.required`, `details.available`) |
