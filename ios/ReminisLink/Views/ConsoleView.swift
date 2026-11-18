@@ -8,6 +8,7 @@ struct ConsoleView: View {
     let deviceId: String
     @State private var confirmUnpair = false
     @State private var actionError: AppError?
+    @State private var isVisible = false
 
     var body: some View {
         let session = app.session(for: deviceId)
@@ -78,6 +79,15 @@ struct ConsoleView: View {
         }
         .navigationTitle(device?.name ?? "")
         .task { await session.connectIfNeeded() }
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
+        // A connection cancelled by another screen leaves .idle: never stay
+        // on "Connecting…" without trying again.
+        .onChange(of: session.state) { _, state in
+            if state == .idle && isVisible {
+                Task { await session.connectIfNeeded() }
+            }
+        }
         .refreshable { await session.refresh() }
         .confirmationDialog("Unpair this console?", isPresented: $confirmUnpair, titleVisibility: .visible) {
             Button("Unpair", role: .destructive) {

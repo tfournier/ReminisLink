@@ -22,7 +22,7 @@ final class ConsoleSession {
 
     @ObservationIgnored private unowned let app: AppModel
     /// The connection in progress, shared by every caller.
-    @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var attempt: ConnectionAttempt?
 
     init(deviceId: String, app: AppModel) {
         self.deviceId = deviceId
@@ -35,32 +35,47 @@ final class ConsoleSession {
     }
 
     func connectIfNeeded() async {
-        if state == .idle || connectTask != nil { await connect() }
+        if state == .idle || attempt != nil { await connect() }
     }
 
     /// Finds the console, checks it with `/hello` (which also measures the
-    /// clock offset), then loads the dashboard. A caller arriving while a
-    /// connection is in progress waits for it. Cancelling the caller
-    /// cancels the connection, which goes back to `.idle` (never cached as
-    /// a failure).
+    /// clock offset), then loads the dashboard.
+    ///
+    /// Callers arriving while a connection is in progress wait for it. A
+    /// cancelled caller stops waiting at once; the connection itself is
+    /// only cancelled when its last caller is gone, and then goes back to
+    /// `.idle` (never cached as a failure). A cancelled connection is never
+    /// joined: a new one starts.
     func connect() async {
-        let task: Task<Void, Never>
-        if let connectTask {
-            task = connectTask
+        let attempt: ConnectionAttempt
+        if let current = self.attempt, !current.isCancelled {
+            attempt = current
         } else {
+            attempt = ConnectionAttempt()
+            self.attempt = attempt
             state = .connecting
-            task = Task { await self.runConnection() }
-            connectTask = task
+            attempt.task = Task { await self.runConnection(attempt) }
         }
+        let waiter = UUID()
         await withTaskCancellationHandler {
-            await task.value
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if attempt.isFinished || Task.isCancelled {
+                    continuation.resume()
+                } else {
+                    attempt.waiters[waiter] = continuation
+                }
+            }
         } onCancel: {
-            task.cancel()
+            Task { @MainActor in attempt.leave(waiter) }
         }
+        if Task.isCancelled { attempt.leave(waiter) }
     }
 
-    private func runConnection() async {
-        defer { connectTask = nil }
+    private func runConnection(_ attempt: ConnectionAttempt) async {
+        defer {
+            if self.attempt === attempt { self.attempt = nil }
+            attempt.finish()
+        }
         do {
             guard let credentials = try app.store.credentials(for: deviceId) else {
                 throw AppError.api(.notPaired)
@@ -70,10 +85,13 @@ final class ConsoleSession {
             hello = try await client.hello()
             status = try await client.device()
             try Task.checkCancellation()
+            guard self.attempt === attempt else { return }
             self.client = client
             state = .connected
             await loadTrash()
         } catch {
+            // A cancelled connection replaced by a newer one changes nothing.
+            guard self.attempt === attempt else { return }
             let error = AppError(error)
             state = error.isCancellation || Task.isCancelled ? .idle : .failed(error)
         }
@@ -104,7 +122,7 @@ final class ConsoleSession {
     func perform<T: Sendable>(_ operation: @Sendable (APIClient) async throws -> T) async throws -> T {
         if client == nil { await connect() }
         try Task.checkCancellation()
-        guard let client else { throw error ?? AppError.consoleNotFound }
+        guard let client else { throw error ?? AppError.unexpected }
         do {
             return try await operation(client)
         } catch {
@@ -133,17 +151,39 @@ final class ConsoleSession {
         await loadTrash()
     }
 
-    /// `DELETE /clients/me`, then forgets the key. Without a usable key,
-    /// or if the console no longer knows this iPhone, the entry is only
-    /// forgotten on this iPhone.
+    /// `DELETE /clients/me`, then forgets the key. Without a key, or if the
+    /// console no longer knows this iPhone, the entry is only forgotten on
+    /// this iPhone. A Keychain read error is reported, not taken for "no key".
     func unpair() async throws {
-        let credentials = try? app.store.credentials(for: deviceId)
-        if credentials != nil {
+        if try app.store.credentials(for: deviceId) != nil {
             do {
                 try await perform { try await $0.unpair() }
             } catch AppError.api(let error) where error.code == .unknownClient {
             }
         }
         try app.forget(deviceId: deviceId)
+    }
+}
+
+/// One connection, awaited by one or more callers.
+@MainActor
+private final class ConnectionAttempt {
+    var task: Task<Void, Never>?
+    var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private(set) var isFinished = false
+
+    var isCancelled: Bool { task?.isCancelled ?? false }
+
+    /// A caller stops waiting; the last one cancels the connection.
+    func leave(_ waiter: UUID) {
+        waiters.removeValue(forKey: waiter)?.resume()
+        if waiters.isEmpty && !isFinished { task?.cancel() }
+    }
+
+    func finish() {
+        isFinished = true
+        let continuations = waiters.values
+        waiters.removeAll()
+        for continuation in continuations { continuation.resume() }
     }
 }
