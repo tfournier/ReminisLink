@@ -466,3 +466,16 @@ struct GameDataAPITests {
         #expect(try await client.game(id: skyGarden).stateCount == 2)
     }
 }
+
+@Suite("File size")
+struct FileSizeTests {
+    @Test func sizeIsNotCachedByTheURL() throws {
+        let file = try makeFile(size: 10)
+        #expect(try FileDigest.size(of: file) == 10)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.truncate(atOffset: 1_000)
+        try handle.close()
+        #expect(try FileDigest.size(of: file) == 1_000)
+        #expect(throws: (any Error).self) { try FileDigest.size(of: file.deletingLastPathComponent()) }
+    }
+}
