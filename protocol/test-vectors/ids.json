@@ -15,15 +15,15 @@
     },
     {
       "name": "game-at-system-root",
-      "path": "Game Boy Advance (GBA)/Pokemon Emerald.gba",
-      "pathUtf8Hex": "47616d6520426f7920416476616e63652028474241292f506f6b656d6f6e20456d6572616c642e676261",
-      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh"
+      "path": "Game Boy Advance (GBA)/Sky Garden Quest.gba",
+      "pathUtf8Hex": "47616d6520426f7920416476616e63652028474241292f536b792047617264656e2051756573742e676261",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ"
     },
     {
       "name": "game-in-subfolder",
-      "path": "Game Boy Advance (GBA)/Hacks/Pokemon Unbound.gba",
-      "pathUtf8Hex": "47616d6520426f7920416476616e63652028474241292f4861636b732f506f6b656d6f6e20556e626f756e642e676261",
-      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcy9Qb2tlbW9uIFVuYm91bmQuZ2Jh"
+      "path": "Game Boy Advance (GBA)/Hacks/Sky Garden Quest DX.gba",
+      "pathUtf8Hex": "47616d6520426f7920416476616e63652028474241292f4861636b732f536b792047617264656e2051756573742044582e676261",
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcy9Ta3kgR2FyZGVuIFF1ZXN0IERYLmdiYQ"
     },
     {
       "name": "deep-subfolders",
