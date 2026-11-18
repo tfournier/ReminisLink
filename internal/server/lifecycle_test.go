@@ -23,6 +23,14 @@ func TestHTTPServerSettings(t *testing.T) {
 	if srv.ReadHeaderTimeout != 10*time.Second || srv.IdleTimeout != 60*time.Second || srv.ReadTimeout != 0 || srv.WriteTimeout != 0 || srv.MaxHeaderBytes != 16<<10 {
 		t.Errorf("timeouts: header %v idle %v read %v write %v", srv.ReadHeaderTimeout, srv.IdleTimeout, srv.ReadTimeout, srv.WriteTimeout)
 	}
+	if srv.ErrorLog == nil {
+		t.Error("ErrorLog not set")
+	} else {
+		srv.ErrorLog.Print("probe from net/http")
+		if !strings.Contains(f.logs.String(), "probe from net/http") {
+			t.Error("ErrorLog does not reach the log")
+		}
+	}
 	if srv.BaseContext(nil) != ctx {
 		t.Error("BaseContext does not return the shutdown context")
 	}
