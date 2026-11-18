@@ -183,8 +183,8 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 ### `DELETE /games/{gameId}?keepSave=false`
 
 1. **Déplace** dans la corbeille ReminisLink (`trash/<horodatage>/`, en conservant le chemin d'origine, voir [05](05-console-pak.md)) : la ROM (ou le `.m3u` et son dossier), la save, les states, les cheats et la jaquette. Rien n'est effacé définitivement par cette route : c'est un renommage sur la même carte SD, donc instantané.
-2. Supprime les verrous et l'historique de reprise du jeu (copies internes de ReminisLink, sans valeur une fois le jeu supprimé).
-3. Avec `keepSave=true`, la save et les states restent en place.
+2. Déplace aussi dans cette entrée de corbeille les verrous et l'historique de reprise du jeu (copies internes de ReminisLink, non listées).
+3. Avec `keepSave=true`, la save et les states restent en place, **ainsi que les verrous et l'historique de reprise**, qui les protègent. *(Décision du 18/11/2026.)*
 
 Réponse :
 
