@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
@@ -134,7 +135,7 @@ func TestGameArt(t *testing.T) {
 		req.Header.Set("If-None-Match", inm)
 		r = f.client.Send(t, req)
 		f.check(http.MethodGet, path, r)
-		if r.Status != 304 || len(r.Body) != 0 || r.Header.Get("ETag") != etag {
+		if r.Status != 304 || len(r.Body) != 0 || r.Header.Get("ETag") != etag || r.Header.Get("Cache-Control") != ArtCacheControl {
 			t.Errorf("If-None-Match %s: %d", inm, r.Status)
 		}
 	}
@@ -155,6 +156,23 @@ func TestGameArt(t *testing.T) {
 		t.Errorf("no art: %s", r.Body)
 	}
 	f.get("/api/v1/games/!/art", path, 400)
+}
+
+func TestGameArtLargerThanTheHashLimit(t *testing.T) {
+	f := newFixture(t)
+	big := strings.Repeat("p", MaxArtBytes+10)
+	testutil.WriteFile(t, f.sd, "Roms/"+gba+"/.media/Starlight Courier.png", big)
+	target := "/api/v1/games/" + id(gba+"/Starlight Courier.gba") + "/art"
+	r := f.get(target, "/games/{gameId}/art", 200)
+	etag := r.Header.Get("ETag")
+	if len(r.Body) != len(big) || !strings.HasPrefix(etag, `"mt-`) {
+		t.Fatalf("large art: %d bytes, ETag %s", len(r.Body), etag)
+	}
+	req := f.client.Request(t, http.MethodGet, target, nil)
+	req.Header.Set("If-None-Match", etag)
+	if r = f.client.Send(t, req); r.Status != 304 {
+		t.Fatalf("large art revalidation: %d", r.Status)
+	}
 }
 
 func TestEtagMatches(t *testing.T) {

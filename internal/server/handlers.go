@@ -22,8 +22,8 @@ import (
 const (
 	// MaxClientNameRunes is the longest clientName (docs/specs/04-api-v1.md).
 	MaxClientNameRunes = 64
-	// MaxArtBytes is the largest art file served (it is read in memory to
-	// compute its ETag).
+	// MaxArtBytes is the largest art file read in memory to hash its ETag;
+	// larger files are streamed.
 	MaxArtBytes = 8 << 20
 	// ArtCacheControl is the Cache-Control of GET /games/{gameId}/art.
 	ArtCacheControl = "private, max-age=86400"
@@ -336,43 +336,45 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 		s.libraryError(w, r, err)
 		return
 	}
-	if f.Size > MaxArtBytes {
-		s.internal(w, r, errors.New("art file too large"))
-		return
-	}
-	data, err := readLimited(f.Path, MaxArtBytes)
+	file, err := os.Open(f.Path)
 	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	sum := sha256.Sum256(data)
-	etag := `"sha256-` + hex.EncodeToString(sum[:16]) + `"`
+	defer file.Close()
+	var etag string
+	var data []byte
+	if f.Size <= MaxArtBytes {
+		// Small enough to hash: the ETag follows the content.
+		if data, err = io.ReadAll(io.LimitReader(file, MaxArtBytes+1)); err != nil {
+			s.internal(w, r, err)
+			return
+		}
+		sum := sha256.Sum256(data)
+		etag = `"sha256-` + hex.EncodeToString(sum[:16]) + `"`
+	} else {
+		// Too large to read in memory: streamed, with an ETag made of the
+		// size and the modification time.
+		etag = `"mt-` + strconv.FormatInt(f.Size, 16) + "-" + strconv.FormatInt(f.ModTime.UnixNano(), 16) + `"`
+	}
 	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", ArtCacheControl)
 	if etagMatches(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	w.Header().Set("Cache-Control", ArtCacheControl)
 	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	if data != nil {
+		w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(data)
+		return
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
-}
-
-func readLimited(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
+	if _, err := io.CopyN(w, file, f.Size); err != nil {
+		s.log.Warn("art transfer interrupted", "error", err)
 	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, errors.New("file too large")
-	}
-	return data, nil
 }
 
 // etagMatches implements the weak comparison of If-None-Match (RFC 9110
