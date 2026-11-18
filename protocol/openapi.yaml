@@ -52,8 +52,11 @@ info:
     malformed signature headers (`401 bad_signature`); clock skew above 300 s
     (`401 clock_skew`, the app corrects with `serverTime` from `/hello` and
     retries once); nonce already used in the last 10 minutes
-    (`401 replayed_request`); body SHA-256 (`401 bad_signature`); HMAC
-    compared in constant time (`401 bad_signature`).
+    (`401 replayed_request`); HMAC compared in constant time, then body
+    SHA-256 (both `401 bad_signature`; the body of a request whose signature
+    is wrong is never read). A signed body is limited to 1 MiB (64 MiB for
+    `PUT /games/{gameId}/save`), otherwise `413 too_large`. If the device
+    cannot remember more nonces, it answers `429 too_many_attempts`.
 
     Shared test vectors: `protocol/test-vectors/`.
 
@@ -188,6 +191,7 @@ paths:
       responses:
         '204': { description: Unpaired. }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
@@ -216,6 +220,7 @@ paths:
                   - { id: sd, label: SD, totalBytes: 127865454592, freeBytes: 40265318400 }
                 uptimeSeconds: 512
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
@@ -242,6 +247,7 @@ paths:
                     tag: GBA
                     gameCount: 42
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
@@ -285,6 +291,7 @@ paths:
                     hasArt: true
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -317,6 +324,7 @@ paths:
                 totalBytes: 17377096
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -354,6 +362,7 @@ paths:
                 movedBytes: 17377096
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -382,12 +391,14 @@ paths:
           content:
             image/png:
               schema: { type: string, contentMediaType: image/png }
+              example: '<PNG image bytes>'
         '304':
           description: The cached art is still valid.
           headers:
             ETag: { $ref: '#/components/headers/ETag' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -420,6 +431,7 @@ paths:
                     expiresAt: '2026-12-18T17:00:00Z'
                 totalBytes: 17377096
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
     delete:
@@ -441,6 +453,7 @@ paths:
               example: { freedBytes: 17377096 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
@@ -467,6 +480,7 @@ paths:
               example: { freedBytes: 17377096 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -486,8 +500,10 @@ paths:
           content:
             application/octet-stream:
               schema: { $ref: '#/components/schemas/Binary' }
+              example: '<binary file content>'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -507,6 +523,7 @@ paths:
         content:
           application/octet-stream:
             schema: { $ref: '#/components/schemas/Binary' }
+            example: '<binary file content>'
       responses:
         '200':
           description: Save replaced. `backup` is the copy of the previous save (null if there was none).
@@ -517,6 +534,7 @@ paths:
                 backup: { id: bk_20261118T170000Z_c3d4, label: Avant remplacement, createdAt: '2026-11-18T17:00:00Z', sizeBytes: 131072, reason: before-replace }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '500': { $ref: '#/components/responses/Internal' }
@@ -541,6 +559,7 @@ paths:
                   - { id: bk_20261118T170000Z_a1b2, label: Avant le boss final, createdAt: '2026-11-18T17:00:00Z', sizeBytes: 131072, reason: manual }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -565,7 +584,9 @@ paths:
               example: { id: bk_20261118T170000Z_a1b2, label: Avant le boss final, createdAt: '2026-11-18T17:00:00Z', sizeBytes: 131072, reason: manual }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
         '507': { $ref: '#/components/responses/InsufficientStorage' }
@@ -586,8 +607,10 @@ paths:
           content:
             application/octet-stream:
               schema: { $ref: '#/components/schemas/Binary' }
+              example: '<binary file content>'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -602,6 +625,7 @@ paths:
         '204': { description: Backup deleted. }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -628,6 +652,7 @@ paths:
                 backup: { id: bk_20261118T171000Z_e5f6, label: null, createdAt: '2026-11-18T17:10:00Z', sizeBytes: 131072, reason: before-restore }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -653,6 +678,7 @@ paths:
                 resumeSlot: 9
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -673,8 +699,10 @@ paths:
           content:
             application/octet-stream:
               schema: { $ref: '#/components/schemas/Binary' }
+              example: '<binary file content>'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -698,6 +726,7 @@ paths:
                 movedBytes: 401408
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/Internal' }
@@ -717,8 +746,10 @@ paths:
           content:
             image/png:
               schema: { type: string, contentMediaType: image/png }
+              example: '<PNG image bytes>'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -741,6 +772,7 @@ paths:
               example: { slot: 0, sizeBytes: 401408, modifiedAt: '2026-11-18T16:55:00Z', hasThumbnail: true, locked: true, lockStatus: intact }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -762,6 +794,7 @@ paths:
               example: { slot: 0, sizeBytes: 401408, modifiedAt: '2026-11-18T16:55:00Z', hasThumbnail: true, locked: false, lockStatus: null }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -784,6 +817,7 @@ paths:
               example: { slot: 0, sizeBytes: 401408, modifiedAt: '2026-11-18T17:20:00Z', hasThumbnail: true, locked: true, lockStatus: intact }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -808,6 +842,7 @@ paths:
                   - { id: rh_20261118T165500Z, capturedAt: '2026-11-18T16:55:00Z', sizeBytes: 401408 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -838,6 +873,7 @@ paths:
                   - { id: rh_20261118T165500Z, capturedAt: '2026-11-18T16:55:00Z', sizeBytes: 401408 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -865,6 +901,7 @@ paths:
                 etag: '"sha256-9b1f"'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -906,6 +943,7 @@ paths:
                 etag: '"sha256-77ac"'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/PreconditionFailed' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -942,6 +980,7 @@ paths:
               example: { imported: 15, total: 27 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
@@ -974,6 +1013,7 @@ paths:
                   - { id: sd_Q2hlYXRzL0dCQS9Qb2tlbW9uIEVtZXJhbGQuZ2JhLmNodA, path: Cheats/GBA/Pokemon Emerald.gba.cht, sizeBytes: 2048 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
@@ -1008,6 +1048,7 @@ paths:
               example: { uploadId: up_01JD3X5V7Q9W, chunkSize: 4194304, offset: 0, expiresAt: '2026-11-19T17:00:00Z' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -1031,6 +1072,7 @@ paths:
               example: { uploadId: up_01JD3X5V7Q9W, offset: 12582912, sizeBytes: 33554432 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1062,6 +1104,7 @@ paths:
         content:
           application/octet-stream:
             schema: { $ref: '#/components/schemas/Binary' }
+            example: '<binary file content>'
       responses:
         '204':
           description: Chunk stored.
@@ -1071,6 +1114,7 @@ paths:
               schema: { type: integer, format: int64, minimum: 0 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -1087,6 +1131,7 @@ paths:
         '204': { description: Upload cancelled and its temporary file deleted. }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1114,6 +1159,7 @@ paths:
               example: { gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcy9Qb2tlbW9uIFVuYm91bmQuZ2Jh }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/Internal' }
@@ -1148,7 +1194,9 @@ paths:
               example: { jobId: job_01JD3Y0A2B3C }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
@@ -1183,7 +1231,9 @@ paths:
               example: { jobId: job_01JD3Y7P8Q9R }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Unprocessable' }
         '500': { $ref: '#/components/responses/Internal' }
@@ -1212,6 +1262,7 @@ paths:
                     result: null
                     error: null
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
@@ -1240,6 +1291,7 @@ paths:
                 error: null
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1267,6 +1319,7 @@ paths:
                 error: null
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1419,6 +1472,19 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: { code: too_many_attempts, message: Pairing is blocked, details: {} } }
+    TooManyRequests:
+      description: |
+        The device cannot take more signed requests right now
+        (`too_many_attempts`): its cache of recent request nonces is full
+        and it never forgets a live nonce to make room. Retry later.
+      headers:
+        Retry-After:
+          description: Seconds before trying again.
+          schema: { type: integer, minimum: 0 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: too_many_attempts, message: Too many requests, details: {} } }
     Internal:
       description: Unexpected error (`internal`); details are in the device log.
       content:
