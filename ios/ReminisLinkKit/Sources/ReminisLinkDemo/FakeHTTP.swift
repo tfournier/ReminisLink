@@ -1,3 +1,5 @@
+// Debug builds only: the fake pak never ships in a release build.
+#if DEBUG
 import Foundation
 
 /// A canned HTTP response.
@@ -116,3 +118,4 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 }
+#endif

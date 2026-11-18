@@ -1,3 +1,5 @@
+// Debug builds only: the fake pak never ships in a release build.
+#if DEBUG
 import CryptoKit
 import Foundation
 import ReminisLinkKit
@@ -426,3 +428,4 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         }
     }
 }
+#endif
