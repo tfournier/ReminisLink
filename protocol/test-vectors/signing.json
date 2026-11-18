@@ -1,0 +1,243 @@
+{
+  "description": "Request signing (docs/specs/03-protocole.md §4). key and nonce are base64url without padding. query is the raw query as sent (without '?'); body is the UTF-8 request body. method is as given by the caller and is uppercased in the canonical request and the request line. headers lists the signature headers to send.",
+  "cases": [
+    {
+      "name": "get-no-query",
+      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "method": "GET",
+      "path": "/api/v1/systems",
+      "query": "",
+      "time": "1795539600",
+      "nonce": "fRcnvGM1KB6G5R8dIJTzVA",
+      "body": "",
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonicalQuery": "",
+      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/systems\n\n1795539600\nfRcnvGM1KB6G5R8dIJTzVA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "KyECtxwtnP4qkHUVe7jMpY0pqwqnPw_JLCUhDKN_wyA",
+      "headers": {
+        "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "X-RL-Nonce": "fRcnvGM1KB6G5R8dIJTzVA",
+        "X-RL-Signature": "KyECtxwtnP4qkHUVe7jMpY0pqwqnPw_JLCUhDKN_wyA",
+        "X-RL-Time": "1795539600"
+      }
+    },
+    {
+      "name": "get-query-sorted-and-encoded",
+      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "method": "GET",
+      "path": "/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games",
+      "query": "q=Pok%c3%a9mon+Emerald&path=a/b&plus=1%2B1&z=%7E~&a=2&a=10&flag",
+      "time": "1795539601",
+      "nonce": "xbrSnvape7-9ysbc5EeGFA",
+      "body": "",
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonicalQuery": "a=10&a=2&flag=&path=a%2Fb&plus=1%2B1&q=Pok%C3%A9mon%20Emerald&z=~~",
+      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games\na=10&a=2&flag=&path=a%2Fb&plus=1%2B1&q=Pok%C3%A9mon%20Emerald&z=~~\n1795539601\nxbrSnvape7-9ysbc5EeGFA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "CDbprW7Jrw_L8LVjp74UFsiGsRWyin91hrD4RVF1-3M",
+      "headers": {
+        "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "X-RL-Nonce": "xbrSnvape7-9ysbc5EeGFA",
+        "X-RL-Signature": "CDbprW7Jrw_L8LVjp74UFsiGsRWyin91hrD4RVF1-3M",
+        "X-RL-Time": "1795539601"
+      }
+    },
+    {
+      "name": "get-query-raw-utf8-and-reserved",
+      "key": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "clientId": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+      "method": "GET",
+      "path": "/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games",
+      "query": "sp%20ace=x%2Fy*&name=Café%20🎮&&empty=&folderId=R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw",
+      "time": "1795539602",
+      "nonce": "zVa8P1_7-Mwc2SLAC90aug",
+      "body": "",
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonicalQuery": "empty=&folderId=R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw&name=Caf%C3%A9%20%F0%9F%8E%AE&sp%20ace=x%2Fy%2A",
+      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games\nempty=&folderId=R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw&name=Caf%C3%A9%20%F0%9F%8E%AE&sp%20ace=x%2Fy%2A\n1795539602\nzVa8P1_7-Mwc2SLAC90aug\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "-yKpb36pWgtY1jO2SeyXk2oAMrR95wU7RV7FrvnYedw",
+      "headers": {
+        "X-RL-Client": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+        "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "X-RL-Nonce": "zVa8P1_7-Mwc2SLAC90aug",
+        "X-RL-Signature": "-yKpb36pWgtY1jO2SeyXk2oAMrR95wU7RV7FrvnYedw",
+        "X-RL-Time": "1795539602"
+      }
+    },
+    {
+      "name": "get-single-param",
+      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "method": "GET",
+      "path": "/api/v1/sd/files",
+      "query": "type=cht",
+      "time": "1795539603",
+      "nonce": "kNcYBuUoS0_igGjWbW-aSA",
+      "body": "",
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonicalQuery": "type=cht",
+      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/sd/files\ntype=cht\n1795539603\nkNcYBuUoS0_igGjWbW-aSA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "1vcAwVfeBAqMQGt4LHK_ysyZKrZfZrbI1LQ2UnyG-Uk",
+      "headers": {
+        "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "X-RL-Nonce": "kNcYBuUoS0_igGjWbW-aSA",
+        "X-RL-Signature": "1vcAwVfeBAqMQGt4LHK_ysyZKrZfZrbI1LQ2UnyG-Uk",
+        "X-RL-Time": "1795539603"
+      }
+    },
+    {
+      "name": "post-json",
+      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "method": "POST",
+      "path": "/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh/save/backups",
+      "query": "",
+      "time": "1795539604",
+      "nonce": "fb4bKOrU1xJAB0mg9I_xwQ",
+      "body": "{\"label\":\"Avant le boss final\"}",
+      "contentSha256": "a60648d033fbbd88786bffd808427eea8e2569a820c4fe2cbf406c9fd450795a",
+      "canonicalQuery": "",
+      "canonicalRequest": "RL1-HMAC-SHA256\nPOST\n/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh/save/backups\n\n1795539604\nfb4bKOrU1xJAB0mg9I_xwQ\na60648d033fbbd88786bffd808427eea8e2569a820c4fe2cbf406c9fd450795a",
+      "signature": "8mSsZVh4zS_Q6fhYNz8ClViayuPuKFjp4dvNKBF9RVY",
+      "headers": {
+        "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-RL-Content-SHA256": "a60648d033fbbd88786bffd808427eea8e2569a820c4fe2cbf406c9fd450795a",
+        "X-RL-Nonce": "fb4bKOrU1xJAB0mg9I_xwQ",
+        "X-RL-Signature": "8mSsZVh4zS_Q6fhYNz8ClViayuPuKFjp4dvNKBF9RVY",
+        "X-RL-Time": "1795539604"
+      }
+    },
+    {
+      "name": "post-json-utf8-body",
+      "key": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "clientId": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+      "method": "POST",
+      "path": "/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh/cheats/import",
+      "query": "",
+      "time": "1795539605",
+      "nonce": "LTm5z29y2uY05ER7aqbRew",
+      "body": "{\"source\":{\"type\":\"inline\",\"text\":\"cheats = 1\\n\\ncheat0_desc = \\\"Argent illimité 💰\\\"\\n\"},\"mode\":\"merge\"}",
+      "contentSha256": "3d9fe50d45fa3e1d2db26c33ccdc1a66856679a18bba08d7e8ca0a95f74f658f",
+      "canonicalQuery": "",
+      "canonicalRequest": "RL1-HMAC-SHA256\nPOST\n/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Qb2tlbW9uIEVtZXJhbGQuZ2Jh/cheats/import\n\n1795539605\nLTm5z29y2uY05ER7aqbRew\n3d9fe50d45fa3e1d2db26c33ccdc1a66856679a18bba08d7e8ca0a95f74f658f",
+      "signature": "gvKCBDFbuiKHyjt8sVTWi42kXDtrFNBCOr2GDtHCjbM",
+      "headers": {
+        "X-RL-Client": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+        "X-RL-Content-SHA256": "3d9fe50d45fa3e1d2db26c33ccdc1a66856679a18bba08d7e8ca0a95f74f658f",
+        "X-RL-Nonce": "LTm5z29y2uY05ER7aqbRew",
+        "X-RL-Signature": "gvKCBDFbuiKHyjt8sVTWi42kXDtrFNBCOr2GDtHCjbM",
+        "X-RL-Time": "1795539605"
+      }
+    },
+    {
+      "name": "delete-empty-body",
+      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "method": "DELETE",
+      "path": "/api/v1/clients/me",
+      "query": "",
+      "time": "1795539606",
+      "nonce": "Hn60gLNEKEMLLLaFmtCf-g",
+      "body": "",
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonicalQuery": "",
+      "canonicalRequest": "RL1-HMAC-SHA256\nDELETE\n/api/v1/clients/me\n\n1795539606\nHn60gLNEKEMLLLaFmtCf-g\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "0oFiRmfqoQD9sMcNkC4zx2edoZjLGlRCTyy8ByHUcjw",
+      "headers": {
+        "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "X-RL-Nonce": "Hn60gLNEKEMLLLaFmtCf-g",
+        "X-RL-Signature": "0oFiRmfqoQD9sMcNkC4zx2edoZjLGlRCTyy8ByHUcjw",
+        "X-RL-Time": "1795539606"
+      }
+    },
+    {
+      "name": "put-upload-chunk-unsigned",
+      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "method": "PUT",
+      "path": "/api/v1/uploads/up_01JD3X5V7Q9W",
+      "query": "",
+      "time": "1795539607",
+      "nonce": "3iPMdbCc1f-5o09Ny3PPsg",
+      "body": "raw chunk bytes",
+      "contentSha256": "UNSIGNED",
+      "canonicalQuery": "",
+      "canonicalRequest": "RL1-HMAC-SHA256\nPUT\n/api/v1/uploads/up_01JD3X5V7Q9W\n\n1795539607\n3iPMdbCc1f-5o09Ny3PPsg\nUNSIGNED",
+      "signature": "FOVSX1lQ4nHnpLFPaWI91DCivtumZgLmBhtuY7LkZGA",
+      "headers": {
+        "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-RL-Content-SHA256": "UNSIGNED",
+        "X-RL-Nonce": "3iPMdbCc1f-5o09Ny3PPsg",
+        "X-RL-Signature": "FOVSX1lQ4nHnpLFPaWI91DCivtumZgLmBhtuY7LkZGA",
+        "X-RL-Time": "1795539607"
+      }
+    },
+    {
+      "name": "get-path-with-b64url-id",
+      "key": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "clientId": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+      "method": "GET",
+      "path": "/api/v1/games/TmludGVuZG8gRFMgKE5EUykvS8O0ZG8gw78gw4t4dHJhIMO_w79-Lm5kcw",
+      "query": "",
+      "time": "1795539608",
+      "nonce": "SvjofTRVUEYcc26sUhJb-A",
+      "body": "",
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonicalQuery": "",
+      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/games/TmludGVuZG8gRFMgKE5EUykvS8O0ZG8gw78gw4t4dHJhIMO_w79-Lm5kcw\n\n1795539608\nSvjofTRVUEYcc26sUhJb-A\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "8NE6Xd5C5hHzinE8-Byc1Vm4Muq7SpKYnse_IEybKIM",
+      "headers": {
+        "X-RL-Client": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
+        "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "X-RL-Nonce": "SvjofTRVUEYcc26sUhJb-A",
+        "X-RL-Signature": "8NE6Xd5C5hHzinE8-Byc1Vm4Muq7SpKYnse_IEybKIM",
+        "X-RL-Time": "1795539608"
+      }
+    },
+    {
+      "name": "lowercase-method-normalized",
+      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "method": "delete",
+      "path": "/api/v1/trash/tr_20261118T170000Z_a1b2",
+      "query": "",
+      "time": "1795539609",
+      "nonce": "t-0bWYVUPGO-SnSC-QgmXA",
+      "body": "",
+      "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonicalQuery": "",
+      "canonicalRequest": "RL1-HMAC-SHA256\nDELETE\n/api/v1/trash/tr_20261118T170000Z_a1b2\n\n1795539609\nt-0bWYVUPGO-SnSC-QgmXA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "MXAcBKLKKy2oNSFU0Qu5BbsAkO5z_2YdSs7txCTZ2Kc",
+      "headers": {
+        "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+        "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "X-RL-Nonce": "t-0bWYVUPGO-SnSC-QgmXA",
+        "X-RL-Signature": "MXAcBKLKKy2oNSFU0Qu5BbsAkO5z_2YdSs7txCTZ2Kc",
+        "X-RL-Time": "1795539609"
+      }
+    }
+  ],
+  "invalidQueries": [
+    {
+      "name": "percent-not-hex",
+      "query": "a=%zz"
+    },
+    {
+      "name": "percent-truncated",
+      "query": "a=1%4"
+    },
+    {
+      "name": "percent-alone",
+      "query": "a=%"
+    },
+    {
+      "name": "percent-in-key",
+      "query": "%G1=1"
+    }
+  ]
+}
