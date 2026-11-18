@@ -57,6 +57,11 @@ func Listen(host string, preferred int) (net.Listener, int, error) {
 // every request is cancelled (requests still waiting for the body memory
 // budget answer 503) and the connections are closed. It returns nil after
 // a shutdown requested by ctx.
+//
+// Note: http.Server.Shutdown closes the listener at once, so new
+// connections are refused at the TCP level; the 503 shutting_down answer
+// only reaches requests on connections already accepted (keep-alive
+// connections, or a request read just before the shutdown started).
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()

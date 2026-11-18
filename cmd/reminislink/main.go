@@ -204,6 +204,12 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go func() {
+		// Restore the default signal handling once the shutdown starts: a
+		// second Ctrl-C kills the pak instead of waiting for the shutdown.
+		<-ctx.Done()
+		stop()
+	}()
 	go display.run(ctx)
 
 	err = srv.Serve(ctx, ln)
