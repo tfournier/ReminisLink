@@ -1,0 +1,173 @@
+import ReminisLinkKit
+import SwiftUI
+
+/// Dashboard of a console (docs/specs/06-app-ios.md §4.3) and the entry to
+/// its library.
+struct ConsoleView: View {
+    @Environment(AppModel.self) private var app
+    let deviceId: String
+    @State private var confirmUnpair = false
+    @State private var actionError: AppError?
+
+    var body: some View {
+        let session = app.session(for: deviceId)
+        let device = app.store.device(id: deviceId)
+        List {
+            switch session.state {
+            case .idle, .connecting:
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Connecting to the console…").foregroundStyle(.secondary)
+                    }
+                }
+            case .failed(let error):
+                Section { ErrorView(error: error, retry: { await session.connect() }) }
+            case .connected:
+                EmptyView()
+            }
+
+            Section {
+                NavigationLink(value: Route.library(deviceId)) {
+                    Label("Library", systemImage: "square.grid.2x2")
+                }
+                .disabled(session.state != .connected)
+                .accessibilityIdentifier("console.library")
+            }
+
+            if let status = session.status {
+                Section("Console") {
+                    LabeledContent("Name", value: status.deviceName)
+                    LabeledContent("Model", value: status.model.displayName)
+                    LabeledContent("System", value: [status.os, status.osVersion].compactMap { $0 }.joined(separator: " "))
+                    LabeledContent("ReminisLink version", value: status.pakVersion)
+                    LabeledContent("IP address", value: status.network.ipv4)
+                    if let ssid = status.network.ssid {
+                        LabeledContent("Wi-Fi", value: ssid)
+                    }
+                    if let battery = status.battery {
+                        LabeledContent("Battery") {
+                            Text(battery.charging ? "\(battery.percent)%, charging" : "\(battery.percent)%")
+                        }
+                    }
+                }
+                Section("Storage") {
+                    ForEach(status.storage) { storage in
+                        StorageBar(storage: storage, trashBytes: session.trash?.totalBytes)
+                    }
+                }
+            }
+
+            Section {
+                if let trash = session.trash {
+                    NavigationLink(value: Route.trash(deviceId)) {
+                        LabeledContent {
+                            Text(trash.totalBytes.byteString)
+                        } label: {
+                            Label("Trash", systemImage: "trash")
+                        }
+                    }
+                }
+                Button("Unpair", role: .destructive) { confirmUnpair = true }
+                    .accessibilityIdentifier("console.unpair")
+            }
+
+            if let actionError {
+                Section { ErrorView(error: actionError) }
+            }
+        }
+        .navigationTitle(device?.name ?? "")
+        .task { await session.connectIfNeeded() }
+        .refreshable { await session.refresh() }
+        .confirmationDialog("Unpair this console?", isPresented: $confirmUnpair, titleVisibility: .visible) {
+            Button("Unpair", role: .destructive) {
+                Task {
+                    do {
+                        try await session.unpair()
+                    } catch {
+                        actionError = AppError(error)
+                    }
+                }
+            }
+        } message: {
+            Text("The console will forget this iPhone. You will need to scan the QR code again to reconnect.")
+        }
+    }
+}
+
+/// The trash of the console: entries, permanent deletion with confirmation.
+struct TrashView: View {
+    @Environment(AppModel.self) private var app
+    let deviceId: String
+    @State private var confirmEmpty = false
+    @State private var entryToDelete: TrashEntry?
+    @State private var error: AppError?
+
+    var body: some View {
+        let session = app.session(for: deviceId)
+        let entries = session.trash?.entries ?? []
+        List {
+            if let error {
+                Section { ErrorView(error: error, retry: { await session.loadTrash() }) }
+            }
+            Section {
+                ForEach(entries) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.label).font(.headline)
+                        Text(entry.sizeBytes.byteString)
+                        Text("Deleted for good on \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .swipeActions {
+                        Button("Delete", role: .destructive) { entryToDelete = entry }
+                    }
+                }
+            } footer: {
+                Text("Files stay in the trash of the console for 30 days. Their space is only freed when the trash is emptied.")
+            }
+        }
+        .overlay {
+            if entries.isEmpty {
+                ContentUnavailableView("The trash is empty", systemImage: "trash")
+            }
+        }
+        .navigationTitle("Trash")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Empty Trash", role: .destructive) { confirmEmpty = true }
+                    .disabled(entries.isEmpty)
+            }
+        }
+        .task { await session.loadTrash() }
+        .confirmationDialog("Empty the trash?", isPresented: $confirmEmpty, titleVisibility: .visible) {
+            Button("Empty Trash", role: .destructive) {
+                Task { await run { try await session.emptyTrash() } }
+            }
+        } message: {
+            Text("\((session.trash?.totalBytes ?? 0).byteString) will be permanently deleted from the SD card. This cannot be undone.")
+        }
+        .confirmationDialog(
+            "Delete permanently?",
+            isPresented: Binding(get: { entryToDelete != nil }, set: { if !$0 { entryToDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: entryToDelete
+        ) { entry in
+            Button("Delete", role: .destructive) {
+                Task { await run { try await session.deleteTrashEntry(entry.id) } }
+            }
+        } message: { entry in
+            Text("\(entry.label) will be permanently deleted from the SD card. This cannot be undone.")
+        }
+    }
+
+    private func run(_ operation: () async throws -> Void) async {
+        do {
+            try await operation()
+            error = nil
+        } catch {
+            self.error = AppError(error)
+        }
+    }
+}
