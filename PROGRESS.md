@@ -57,8 +57,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-18 — Les envois en cours survivent à un redémarrage du pak (03 §7 mis à jour, `openapi.yaml` à aligner par l'agent Go) ; avec `keepSave=true`, `DELETE /games` garde aussi les verrous et l'historique de reprise (04 mis à jour). Décidé par la personne.
 
+- 2026-11-18 — Purge de la corbeille par **âge crédité** (horloge propre du pak : monotone pendant les sessions, au plus 7 jours crédités par période d'extinction ; purge à 30 jours) ; `expiresAt` devient une estimation « au plus tôt ». Specs 04, 05 §2/§4, 06 mises à jour. Décidé par la personne (option B recommandée).
+
 ## Questions ouvertes pour la personne
-7. **Règle de purge automatique de la corbeille (M4, sécurité des données)** : la purge « > 30 jours » se fonde sur l'horloge de la console, dont la fiabilité est inconnue (`TODO(M0)` : pile, NTP). Après 3 revues, une horloge fausse mais plausible (heure figée pendant l'extinction puis NTP, faute de frappe sur l'année, date erronée persistante) peut encore faire effacer des entrées de quelques minutes. Options : (A) garder la garde d'horloge actuelle et accepter ces cas ; (B) **âge crédité** : chaque entrée accumule son âge à l'horloge monotone pendant les sessions, et au plus 7 jours par période d'extinction ; purge à 30 jours crédités — une horloge fausse ne peut jamais vieillir une entrée de plus de 7 jours d'un coup, au pire la purge est retardée ; (C) pas de purge automatique : la corbeille n'est vidée que depuis l'app (taille visible au tableau de bord). Recommandation de l'agent principal : (B). Bloque : la fin de M4 côté Go.
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).

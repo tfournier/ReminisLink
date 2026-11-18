@@ -196,7 +196,7 @@ Réponse :
 }
 ```
 
-L'espace n'est libéré qu'à la purge de la corbeille : automatiquement après 30 jours (au lancement du pak), ou tout de suite avec `DELETE /trash` ou `DELETE /trash/{entryId}`. L'app le dit à l'utilisateur.
+L'espace n'est libéré qu'à la purge de la corbeille : automatiquement après 30 jours d'âge crédité (au lancement du pak, voir [05 §4](05-console-pak.md#4-données-de-reminislink-sur-la-carte-sd)), ou tout de suite avec `DELETE /trash` ou `DELETE /trash/{entryId}`. L'app le dit à l'utilisateur. Le champ `expiresAt` d'une entrée est une **estimation** (« au plus tôt ») : la purge peut avoir lieu plus tard, jamais plus tôt.
 
 ### `GET /trash`
 

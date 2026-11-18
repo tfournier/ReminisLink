@@ -80,7 +80,7 @@ Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de re
 - **States** : un rang par emplacement (vignette, date, taille, cadenas). Actions : télécharger, verrouiller / déverrouiller, restaurer, supprimer. Section **Historique de reprise**. Texte d'aide sur le fonctionnement des verrous (voir [05 §5.2](05-console-pak.md#52-verrous-de-states)).
 - **Cheats** : liste avec interrupteurs, ajout, modification (description, code, activé), suppression, réordonnancement, import (URL, Fichiers, fichier de la carte SD ; fusion ou remplacement).
 - **Patch** : choisir le patch (Fichiers, URL, carte SD), choisir la sortie (nouveau fichier avec un nom proposé, ou remplacer), suivre la tâche, puis ouvrir la nouvelle ROM.
-- **Supprimer** : feuille de confirmation qui liste exactement ce qui sera supprimé et indique que tout part dans la corbeille de la console pendant 30 jours, et que l'espace ne sera libéré qu'en vidant la corbeille. Option « Garder la save et les states ». Après la suppression, un bouton **Vider la corbeille maintenant** (avec confirmation) permet de libérer l'espace tout de suite.
+- **Supprimer** : feuille de confirmation qui liste exactement ce qui sera supprimé et indique que tout part dans la corbeille de la console pendant au moins 30 jours, et que l'espace ne sera libéré qu'en vidant la corbeille. Option « Garder la save et les states ». Après la suppression, un bouton **Vider la corbeille maintenant** (avec confirmation) permet de libérer l'espace tout de suite.
 
 ### 4.6 Ajouter
 
