@@ -1,0 +1,66 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Done" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        }
+      }
+    },
+    "Nothing to add: share files or a web link." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rien à ajouter : partage des fichiers ou un lien web."
+          }
+        }
+      }
+    },
+    "Preparing…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation…"
+          }
+        }
+      }
+    },
+    "ReminisLink cannot receive files on this device." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink ne peut pas recevoir de fichiers sur cet appareil."
+          }
+        }
+      }
+    },
+    "Saved. Open ReminisLink to send it to your console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistré. Ouvre ReminisLink pour l’envoyer à ta console."
+          }
+        }
+      }
+    },
+    "The shared items could not be copied." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les éléments partagés n’ont pas pu être copiés."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

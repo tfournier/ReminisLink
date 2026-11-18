@@ -35,6 +35,28 @@ struct ModelsTests {
         #expect(device.storage.first?.usedBytes == 87_600_136_192, "\(String(describing: device.storage.first))")
     }
 
+    @Test func deviceConnectedClients() throws {
+        let device = try decode(DeviceStatus.self, """
+        {"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"Brick","model":"brick",
+         "platform":"tg5040","os":"nextui","osVersion":"6.14.0","pakVersion":"1.0.0",
+         "network":{"ipv4":"192.168.1.42","ssid":"MaBox"},"battery":{"percent":78,"charging":false},
+         "storage":[],"uptimeSeconds":512,
+         "connectedClients":[{"clientName":"iPhone de Thomas","lastSeenAt":"2026-11-18T17:00:00Z","extra":1}]}
+        """)
+        #expect(device.connectedClients == [
+            ConnectedClient(clientName: "iPhone de Thomas", lastSeenAt: Date(timeIntervalSince1970: 1_795_021_200)),
+        ])
+    }
+
+    @Test func deviceWithoutConnectedClientsIsTolerated() throws {
+        let device = try decode(DeviceStatus.self, """
+        {"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"Brick","model":"brick",
+         "platform":"tg5040","os":"nextui","osVersion":"6.14.0","pakVersion":"1.0.0",
+         "network":{"ipv4":"192.168.1.42","ssid":null},"battery":null,"storage":[],"uptimeSeconds":1}
+        """)
+        #expect(device.connectedClients.isEmpty)
+    }
+
     @Test func gameListingKeepsUnknownKinds() throws {
         let listing = try decode(GameListing.self, """
         {"folders":[{"id":"Zm9v","name":"Homebrew","gameCount":3}],

@@ -1,13 +1,15 @@
 import ReminisLinkKit
 import SwiftUI
 
-/// Game sheet, read-only in this milestone (docs/specs/06-app-ios.md §4.5):
-/// header, counters and the files of the game.
+/// Game sheet (docs/specs/06-app-ios.md §4.5): header, counters, the files
+/// of the game and its deletion.
 struct GameDetailView: View {
     @Environment(AppModel.self) private var app
     let route: GameRoute
     @State private var detail: GameDetail?
     @State private var error: AppError?
+    @State private var toDelete: DeleteTarget?
+    @State private var deleted = false
 
     var body: some View {
         List {
@@ -57,6 +59,12 @@ struct GameDetailView: View {
                     Text("Paths on the SD card, for information.")
                 }
                 .accessibilityIdentifier("game.files")
+                Section {
+                    Button("Delete…", role: .destructive) {
+                        toDelete = DeleteTarget(deviceId: route.deviceId, gameId: route.gameId, name: detail.name)
+                    }
+                    .accessibilityIdentifier("game.deleteButton")
+                }
             }
         }
         .overlay {
@@ -66,6 +74,12 @@ struct GameDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if detail == nil { await load() } }
         .refreshable { await load() }
+        .sheet(item: $toDelete, onDismiss: {
+            // The game is gone: back to its folder.
+            if deleted, app.path.last == .game(route) { app.path.removeLast() }
+        }) { target in
+            DeleteGameView(target: target, onDeleted: { deleted = true })
+        }
     }
 
     private func load() async {

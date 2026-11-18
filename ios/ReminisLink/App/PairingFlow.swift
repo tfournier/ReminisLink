@@ -73,7 +73,7 @@ final class PairingFlow: Identifiable {
             var suggestedName: String?
             switch source {
             case .link(let link):
-                endpoint = try await app.endpoint(for: link)
+                endpoint = try await app.endpoint(for: link.deviceId)
                 secret = .qr(link.secret)
                 suggestedName = link.deviceName
             case .pin(let pin, let device):
@@ -99,7 +99,6 @@ final class PairingFlow: Identifiable {
             let exchange = Task { () throws -> PairedDevice in
                 let key = try await client.pair(attempt)
                 let device = try app.store.save(deviceId: deviceId, name: name, model: hello.model, clientId: clientId, key: key)
-                app.rememberEndpoint(endpoint, for: deviceId)
                 app.didReplaceKey(for: deviceId)
                 return device
             }

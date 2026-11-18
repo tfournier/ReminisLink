@@ -106,7 +106,7 @@ public enum DiscoveryLogic {
         devices.first { $0.id == id }
     }
 
-    /// Devices that are not paired yet (for the PIN fallback).
+    /// Devices that are not paired yet (for the PIN).
     public static func unpaired(_ devices: [DiscoveredDevice], pairedIds: Set<String>) -> [DiscoveredDevice] {
         devices.filter { !pairedIds.contains($0.id) }
     }
@@ -253,20 +253,18 @@ public enum DeviceLookupError: Error, Equatable, Sendable {
     case localNetworkDenied
 }
 
-/// Finds the endpoint of a device: Bonjour by id first, then, only when one
-/// is allowed, a fallback endpoint (the `h`/`p` of a QR code). A cancelled
-/// lookup throws `CancellationError` and never falls back.
+/// Finds the endpoint of a device with Bonjour, by its id, and nothing
+/// else: the address of a QR code is never used (docs/specs/03-protocole.md
+/// §3.1). A cancelled lookup throws `CancellationError`.
 @MainActor
 public enum DeviceLocator {
     public static func locate(
-        fallback: Endpoint?,
         timeout: Duration,
-        fallbackDelay: Duration,
         find: (Duration) async -> DiscoveredDevice?,
         resolve: (DiscoveredDevice) async throws -> Endpoint,
         isLocalNetworkDenied: () -> Bool
     ) async throws -> Endpoint {
-        let device = await find(fallback == nil ? timeout : fallbackDelay)
+        let device = await find(timeout)
         try Task.checkCancellation()
         if let device {
             do {
@@ -274,19 +272,11 @@ public enum DeviceLocator {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                // Resolution failed: try the fallback below.
+                // Resolution failed: the device is not reachable.
             }
         }
         try Task.checkCancellation()
-        if let fallback { return fallback }
         throw isLocalNetworkDenied() ? DeviceLookupError.localNetworkDenied : DeviceLookupError.notFound
-    }
-
-    /// The fallback endpoint a pairing link may use: none for a device that
-    /// is already paired, which must be found with Bonjour under its id (a
-    /// link must not replace a key by talking to another address).
-    public static func pairingFallback(for link: PairingLink, pairedIds: Set<String>) -> Endpoint? {
-        pairedIds.contains(link.deviceId) ? nil : link.fallbackEndpoint
     }
 }
 

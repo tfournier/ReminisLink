@@ -34,6 +34,23 @@ struct ConsoleView: View {
                 }
                 .disabled(session.state != .connected)
                 .accessibilityIdentifier("console.library")
+                Button {
+                    app.showAdd(deviceId: deviceId)
+                } label: {
+                    Label("Add Files or a Link", systemImage: "plus.circle")
+                }
+                .disabled(session.state != .connected)
+                .accessibilityIdentifier("console.add")
+                NavigationLink(value: Route.transfers(deviceId)) {
+                    LabeledContent {
+                        let active = session.transfers.uploads.filter { !$0.phase.isFinished }.count
+                            + session.transfers.jobs.filter { !$0.isFinished }.count
+                        if active > 0 { Text(active, format: .number) }
+                    } label: {
+                        Label("Transfers", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+                .accessibilityIdentifier("console.transfers")
             }
 
             if let status = session.status {
@@ -57,6 +74,7 @@ struct ConsoleView: View {
                         StorageBar(storage: storage, trashBytes: session.trash?.totalBytes)
                     }
                 }
+                ConnectedClientsSection(clients: status.connectedClients)
             }
 
             Section {
@@ -126,7 +144,7 @@ struct TrashView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(entry.label).font(.headline)
                         Text(entry.sizeBytes.byteString)
-                        Text("Deleted for good on \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
+                        Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -136,7 +154,7 @@ struct TrashView: View {
                     }
                 }
             } footer: {
-                Text("Files stay in the trash of the console for 30 days. Their space is only freed when the trash is emptied.")
+                Text("Files stay in the trash of the console for at least 30 days. Their space is only freed when the trash is emptied.")
             }
         }
         .overlay {
@@ -181,5 +199,41 @@ struct TrashView: View {
             let error = AppError(error)
             if !error.isCancellation { self.error = error }
         }
+    }
+}
+
+/// `connectedClients` of `GET /device` (docs/specs/06-app-ios.md §4.3):
+/// the paired devices seen by the console in the last 30 seconds.
+struct ConnectedClientsSection: View {
+    let clients: [ConnectedClient]
+
+    var body: some View {
+        Section {
+            if clients.isEmpty {
+                Text("No device connected")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(clients, id: \.self) { client in
+                let seen = client.lastSeenAt.formatted(.relative(presentation: .named))
+                HStack {
+                    Image(systemName: "iphone")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text(client.clientName)
+                    Spacer()
+                    Text(seen)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(client.clientName))
+                .accessibilityValue(Text("Last seen \(seen)"))
+            }
+        } header: {
+            Text("Connected Devices")
+        } footer: {
+            Text("Paired devices that talked to the console in the last 30 seconds.")
+        }
+        .accessibilityIdentifier("console.connectedClients")
     }
 }

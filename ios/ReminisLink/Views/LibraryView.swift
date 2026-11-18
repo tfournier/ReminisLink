@@ -36,6 +36,7 @@ struct LibraryView: View {
         .navigationTitle("Library")
         .task { if systems == nil { await load() } }
         .refreshable { await load() }
+        .onChange(of: app.session(for: deviceId).libraryRevision) { Task { await load() } }
     }
 
     private func load() async {
@@ -81,6 +82,7 @@ struct FolderView: View {
     @State private var listing: GameListing?
     @State private var error: AppError?
     @State private var query = ""
+    @State private var toDelete: DeleteTarget?
     @AppStorage("gameSort") private var sort: GameSort = .name
 
     private var games: [GameSummary] {
@@ -126,6 +128,12 @@ struct FolderView: View {
                         GameRow(deviceId: route.deviceId, game: game)
                     }
                     .accessibilityIdentifier("game.\(game.name)")
+                    .swipeActions(edge: .trailing) {
+                        Button("Delete", role: .destructive) {
+                            toDelete = DeleteTarget(deviceId: route.deviceId, gameId: game.id, name: game.name)
+                        }
+                        .accessibilityIdentifier("game.delete")
+                    }
                 }
             }
         }
@@ -157,6 +165,10 @@ struct FolderView: View {
         }
         .task { if listing == nil { await load() } }
         .refreshable { await load() }
+        .onChange(of: app.session(for: route.deviceId).libraryRevision) { Task { await load() } }
+        .sheet(item: $toDelete) { target in
+            DeleteGameView(target: target)
+        }
     }
 
     private func load() async {

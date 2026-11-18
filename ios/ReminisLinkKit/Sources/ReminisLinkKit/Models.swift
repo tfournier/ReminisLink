@@ -138,11 +138,15 @@ public struct DeviceStatus: Codable, Sendable, Equatable {
     public let battery: Battery?
     public let storage: [Storage]
     public let uptimeSeconds: Int64
+    /// Paired clients with a signed request accepted in the last 30 s, the
+    /// caller included (kept in memory by the pak). Required by the
+    /// contract, but read leniently: missing means none.
+    public let connectedClients: [ConnectedClient]
 
     public init(
         deviceId: String, deviceName: String, model: DeviceModel, platform: String, os: String,
         osVersion: String?, pakVersion: String, network: Network, battery: Battery?,
-        storage: [Storage], uptimeSeconds: Int64
+        storage: [Storage], uptimeSeconds: Int64, connectedClients: [ConnectedClient] = []
     ) {
         self.deviceId = deviceId
         self.deviceName = deviceName
@@ -155,6 +159,34 @@ public struct DeviceStatus: Codable, Sendable, Equatable {
         self.battery = battery
         self.storage = storage
         self.uptimeSeconds = uptimeSeconds
+        self.connectedClients = connectedClients
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deviceId = try c.decode(String.self, forKey: .deviceId)
+        deviceName = try c.decode(String.self, forKey: .deviceName)
+        model = try c.decode(DeviceModel.self, forKey: .model)
+        platform = try c.decode(String.self, forKey: .platform)
+        os = try c.decode(String.self, forKey: .os)
+        osVersion = try c.decodeIfPresent(String.self, forKey: .osVersion)
+        pakVersion = try c.decode(String.self, forKey: .pakVersion)
+        network = try c.decode(Network.self, forKey: .network)
+        battery = try c.decodeIfPresent(Battery.self, forKey: .battery)
+        storage = try c.decode([Storage].self, forKey: .storage)
+        uptimeSeconds = try c.decode(Int64.self, forKey: .uptimeSeconds)
+        connectedClients = try c.decodeIfPresent([ConnectedClient].self, forKey: .connectedClients) ?? []
+    }
+}
+
+/// One entry of `connectedClients` in `GET /device`.
+public struct ConnectedClient: Codable, Sendable, Equatable, Hashable {
+    public let clientName: String
+    public let lastSeenAt: Date
+
+    public init(clientName: String, lastSeenAt: Date) {
+        self.clientName = clientName
+        self.lastSeenAt = lastSeenAt
     }
 }
 
