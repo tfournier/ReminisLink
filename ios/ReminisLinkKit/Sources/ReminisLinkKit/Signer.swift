@@ -10,6 +10,9 @@ public enum SignerError: Error, Equatable, Sendable {
     case malformedNonce
     case malformedContentSHA256
     case missingURL
+    /// The body is a stream: its hash cannot be signed. Use `httpBody`, or
+    /// `unsignedBody` for upload chunks.
+    case bodyStreamNotSignable
 }
 
 /// The five signature headers of a request.
@@ -103,6 +106,9 @@ public struct Signer: Sendable {
         nonce: String = Signer.makeNonce()
     ) throws -> URLRequest {
         guard let url = request.url else { throw SignerError.missingURL }
+        if request.httpBody == nil, request.httpBodyStream != nil, !unsignedBody {
+            throw SignerError.bodyStreamNotSignable
+        }
         var signed = request
         let method = (request.httpMethod ?? "GET")
         let h = try headers(

@@ -26,14 +26,14 @@ struct VectorTests {
             let deviceNonce = try #require(Base64URL.decode(c.deviceNonce))
             #expect((clientNonce + deviceNonce).hex == c.saltHex)
             #expect(Pairing.keyInfo(deviceId: c.deviceId, clientId: c.clientId) == c.keyInfo)
-            let key = Pairing.deriveKey(ikm: secret.ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: c.deviceId, clientId: c.clientId)
+            let key = try Pairing.deriveKey(ikm: secret.ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: c.deviceId, clientId: c.clientId)
             #expect(key.withUnsafeBytes { Base64URL.encode(Data($0)) } == c.key, "\(c.name)")
             #expect(Pairing.deviceProofMessage(deviceId: c.deviceId, clientId: c.clientId) == c.deviceProofMessage)
             #expect(Pairing.deviceProof(key: key, deviceId: c.deviceId, clientId: c.clientId) == c.deviceProof, "\(c.name)")
             #expect(Pairing.isValidDeviceProof(c.deviceProof, key: key, deviceId: c.deviceId, clientId: c.clientId))
 
             // Full exchange as the app runs it.
-            let attempt = PairingAttempt(secret: secret, deviceId: c.deviceId, clientId: c.clientId, clientName: "iPhone", clientNonce: clientNonce)
+            let attempt = try PairingAttempt(secret: secret, deviceId: c.deviceId, clientId: c.clientId, clientName: "iPhone", clientNonce: clientNonce)
             #expect(attempt.request.method.rawValue == c.method)
             #expect(attempt.request.clientNonce == c.clientNonce)
             #expect(attempt.request.proof == c.clientProof)

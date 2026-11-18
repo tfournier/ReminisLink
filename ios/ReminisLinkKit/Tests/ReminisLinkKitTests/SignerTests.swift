@@ -106,4 +106,18 @@ struct SignerTests {
         }
         #expect(Base64URL.decode("") == Data())
     }
+
+    @Test func bodyStreamIsRefusedUnlessUnsigned() throws {
+        let signer = Signer(clientId: "c", key: key)
+        var request = URLRequest(url: try #require(URL(string: "http://h/api/v1/games/R2FtZQ/save")))
+        request.httpMethod = "PUT"
+        request.httpBodyStream = InputStream(data: Data("save".utf8))
+        #expect(throws: SignerError.bodyStreamNotSignable) { try signer.sign(request, time: 1) }
+
+        var chunk = URLRequest(url: try #require(URL(string: "http://h/api/v1/uploads/up_1")))
+        chunk.httpMethod = "PUT"
+        chunk.httpBodyStream = InputStream(data: Data("chunk".utf8))
+        let signed = try signer.sign(chunk, time: 1, unsignedBody: true)
+        #expect(signed.value(forHTTPHeaderField: SignedHeaders.contentSHA256) == "UNSIGNED")
+    }
 }

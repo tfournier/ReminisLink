@@ -21,6 +21,21 @@ public enum PairingSecret: Sendable, Equatable {
         }
     }
 
+    /// Length of the QR secret.
+    public static let secretSize = 32
+    /// Number of digits of the PIN.
+    public static let pinLength = 6
+
+    /// Whether the secret has the expected shape: 32 bytes, or 6 ASCII digits.
+    public var isWellFormed: Bool {
+        switch self {
+        case .qr(let secret):
+            secret.count == Self.secretSize
+        case .pin(let pin):
+            pin.utf8.count == Self.pinLength && pin.utf8.allSatisfy { $0 >= UInt8(ascii: "0") && $0 <= UInt8(ascii: "9") }
+        }
+    }
+
     /// Input keying material: the secret bytes, or the UTF-8 bytes of the PIN.
     public var ikm: Data {
         switch self {
@@ -55,6 +70,11 @@ public struct PairResponse: Codable, Sendable, Equatable {
 }
 
 public enum PairingError: Error, Equatable, Sendable {
+    /// The QR secret is not 32 bytes, or the PIN is not 6 ASCII digits
+    /// (an empty ikm included).
+    case invalidSecret
+    /// clientNonce or deviceNonce is not 32 bytes.
+    case invalidNonce
     /// The device answered for another device id.
     case deviceMismatch
     /// `deviceNonce` is not 32 bytes of base64url.
@@ -100,11 +120,14 @@ public enum Pairing {
     }
 
     /// HKDF-SHA256(ikm, salt = clientNonce || deviceNonce,
-    /// info = "RL1-KEY|deviceId|clientId", L = 32).
+    /// info = "RL1-KEY|deviceId|clientId", L = 32). Like the pak, refuses an
+    /// empty ikm and nonces that are not 32 bytes.
     public static func deriveKey(
         ikm: Data, clientNonce: Data, deviceNonce: Data, deviceId: String, clientId: String
-    ) -> SymmetricKey {
-        HKDF<SHA256>.deriveKey(
+    ) throws -> SymmetricKey {
+        guard !ikm.isEmpty else { throw PairingError.invalidSecret }
+        guard clientNonce.count == nonceSize, deviceNonce.count == nonceSize else { throw PairingError.invalidNonce }
+        return HKDF<SHA256>.deriveKey(
             inputKeyMaterial: SymmetricKey(data: ikm),
             salt: clientNonce + deviceNonce,
             info: Data(keyInfo(deviceId: deviceId, clientId: clientId).utf8),
@@ -134,13 +157,18 @@ public struct PairingAttempt: Sendable {
     public let clientName: String
     public let clientNonce: Data
 
+    /// Throws ``PairingError/invalidSecret`` for a QR secret that is not 32
+    /// bytes or a PIN that is not 6 digits, ``PairingError/invalidNonce`` for
+    /// a client nonce that is not 32 bytes.
     public init(
         secret: PairingSecret,
         deviceId: String,
         clientId: String,
         clientName: String,
         clientNonce: Data = Pairing.makeNonce()
-    ) {
+    ) throws {
+        guard secret.isWellFormed else { throw PairingError.invalidSecret }
+        guard clientNonce.count == Pairing.nonceSize else { throw PairingError.invalidNonce }
         self.secret = secret
         self.deviceId = deviceId
         self.clientId = clientId
@@ -167,7 +195,7 @@ public struct PairingAttempt: Sendable {
         guard let deviceNonce = Base64URL.decode(response.deviceNonce), deviceNonce.count == Pairing.nonceSize else {
             throw PairingError.invalidDeviceNonce
         }
-        let key = Pairing.deriveKey(
+        let key = try Pairing.deriveKey(
             ikm: secret.ikm, clientNonce: clientNonce, deviceNonce: deviceNonce,
             deviceId: deviceId, clientId: clientId
         )

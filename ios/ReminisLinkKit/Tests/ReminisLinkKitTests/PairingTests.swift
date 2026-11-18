@@ -11,7 +11,7 @@ struct PairingTests {
     /// Plays the device side with the same primitives.
     func deviceResponse(for request: PairRequest, ikm: Data, deviceNonce: Data = Pairing.makeNonce()) throws -> PairResponse {
         let clientNonce = try #require(Base64URL.decode(request.clientNonce))
-        let key = Pairing.deriveKey(ikm: ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: deviceId, clientId: request.clientId)
+        let key = try Pairing.deriveKey(ikm: ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: deviceId, clientId: request.clientId)
         return PairResponse(
             deviceId: deviceId, deviceName: "Brick",
             deviceNonce: Base64URL.encode(deviceNonce),
@@ -39,7 +39,7 @@ struct PairingTests {
 
     @Test func fullExchangeQR() throws {
         let secret = Pairing.makeNonce()
-        let attempt = PairingAttempt(secret: .qr(secret), deviceId: deviceId, clientId: clientId, clientName: "iPhone de Thomas")
+        let attempt = try PairingAttempt(secret: .qr(secret), deviceId: deviceId, clientId: clientId, clientName: "iPhone de Thomas")
         let request = attempt.request
         #expect(request.clientName == "iPhone de Thomas")
         let response = try deviceResponse(for: request, ikm: secret)
@@ -48,7 +48,7 @@ struct PairingTests {
     }
 
     @Test func requestEncodesAsTheContract() throws {
-        let attempt = PairingAttempt(secret: .pin("123456"), deviceId: deviceId, clientId: clientId, clientName: "iPhone")
+        let attempt = try PairingAttempt(secret: .pin("123456"), deviceId: deviceId, clientId: clientId, clientName: "iPhone")
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(attempt.request)) as? [String: String]
         #expect(Set(json?.keys ?? [:].keys) == ["method", "clientId", "clientName", "clientNonce", "proof"])
         #expect(json?["method"] == "pin")
@@ -56,7 +56,7 @@ struct PairingTests {
 
     @Test func wrongDeviceProofIsRejected() throws {
         let secret = Pairing.makeNonce()
-        let attempt = PairingAttempt(secret: .qr(secret), deviceId: deviceId, clientId: clientId, clientName: "iPhone")
+        let attempt = try PairingAttempt(secret: .qr(secret), deviceId: deviceId, clientId: clientId, clientName: "iPhone")
         // A device that does not know the secret.
         let forged = try deviceResponse(for: attempt.request, ikm: Pairing.makeNonce())
         #expect(throws: PairingError.invalidDeviceProof) { try attempt.finish(forged) }
@@ -64,7 +64,7 @@ struct PairingTests {
 
     @Test func malformedResponsesAreRejected() throws {
         let secret = Pairing.makeNonce()
-        let attempt = PairingAttempt(secret: .qr(secret), deviceId: deviceId, clientId: clientId, clientName: "iPhone")
+        let attempt = try PairingAttempt(secret: .qr(secret), deviceId: deviceId, clientId: clientId, clientName: "iPhone")
         let good = try deviceResponse(for: attempt.request, ikm: secret)
         let otherDevice = PairResponse(deviceId: "00000000-0000-4000-8000-000000000000", deviceName: "x", deviceNonce: good.deviceNonce, proof: good.proof)
         #expect(throws: PairingError.deviceMismatch) { try attempt.finish(otherDevice) }
@@ -72,5 +72,32 @@ struct PairingTests {
         #expect(throws: PairingError.invalidDeviceNonce) { try attempt.finish(shortNonce) }
         let paddedProof = PairResponse(deviceId: deviceId, deviceName: "x", deviceNonce: good.deviceNonce, proof: good.proof + "=")
         #expect(throws: PairingError.invalidDeviceProof) { try attempt.finish(paddedProof) }
+    }
+
+    @Test func inputLengthsAreChecked() throws {
+        let n = Pairing.makeNonce()
+        #expect(throws: PairingError.invalidSecret) {
+            try PairingAttempt(secret: .qr(Data(count: 31)), deviceId: deviceId, clientId: clientId, clientName: "x")
+        }
+        #expect(throws: PairingError.invalidSecret) {
+            try PairingAttempt(secret: .qr(Data()), deviceId: deviceId, clientId: clientId, clientName: "x")
+        }
+        for pin in ["", "12345", "1234567", "12a456", "١٢٣٤٥٦"] {
+            #expect(throws: PairingError.invalidSecret, "\(pin)") {
+                try PairingAttempt(secret: .pin(pin), deviceId: deviceId, clientId: clientId, clientName: "x")
+            }
+        }
+        #expect(throws: PairingError.invalidNonce) {
+            try PairingAttempt(secret: .qr(n), deviceId: deviceId, clientId: clientId, clientName: "x", clientNonce: Data(count: 16))
+        }
+        #expect(throws: PairingError.invalidSecret) {
+            try Pairing.deriveKey(ikm: Data(), clientNonce: n, deviceNonce: n, deviceId: deviceId, clientId: clientId)
+        }
+        #expect(throws: PairingError.invalidNonce) {
+            try Pairing.deriveKey(ikm: n, clientNonce: Data(count: 31), deviceNonce: n, deviceId: deviceId, clientId: clientId)
+        }
+        #expect(throws: PairingError.invalidNonce) {
+            try Pairing.deriveKey(ikm: n, clientNonce: n, deviceNonce: n + Data([0]), deviceId: deviceId, clientId: clientId)
+        }
     }
 }
