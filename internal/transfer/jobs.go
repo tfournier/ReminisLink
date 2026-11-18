@@ -33,8 +33,14 @@ const (
 	JobCancelled = "cancelled"
 )
 
-// ErrJobsClosed is returned by Submit once Close was called.
-var ErrJobsClosed = errors.New("jobs: closed")
+// MaxPendingJobs bounds the queued and running jobs.
+const MaxPendingJobs = 100
+
+// Errors of Submit.
+var (
+	ErrJobsClosed  = errors.New("jobs: closed")
+	ErrTooManyJobs = errors.New("jobs: too many pending jobs")
+)
 
 var jobIDRe = regexp.MustCompile(`^job_[0-9a-f]{24}$`)
 
@@ -100,6 +106,13 @@ func (q *Jobs) Submit(kind string, run RunFunc) (string, error) {
 	defer q.mu.Unlock()
 	if q.closed {
 		return "", ErrJobsClosed
+	}
+	pending := len(q.queue)
+	if q.running != nil {
+		pending++
+	}
+	if pending >= MaxPendingJobs {
+		return "", ErrTooManyJobs
 	}
 	q.pruneLocked()
 	now := q.stamp()

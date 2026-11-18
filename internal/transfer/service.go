@@ -162,6 +162,15 @@ func (s *Service) randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
+// DeleteGame moves a game and its data to the trash (library.DeleteGame)
+// under the install lock, so no upload or download can install a file
+// between the checks of the move and its renames (or its roll back).
+func (s *Service) DeleteGame(gameID string, keepSave bool) (library.DeleteResult, error) {
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	return s.opts.Library.DeleteGame(gameID, keepSave, s.opts.Trash)
+}
+
 // libraryError maps an error of internal/library.
 func libraryError(err error, what string) *Error {
 	switch {
@@ -239,6 +248,10 @@ func (s *Service) resolve(t Target, needName bool) (destination, *Error, error) 
 	return d, nil, nil
 }
 
+func tooMany(message string) *Error {
+	return newError(http.StatusTooManyRequests, CodeTooManyAttempts, message)
+}
+
 func stateLocked() *Error {
 	return newError(http.StatusConflict, CodeStateLocked, "State slot is locked")
 }
@@ -284,7 +297,9 @@ var stagingIDRe = regexp.MustCompile(`^st_(\d{8}T\d{6}Z)_[0-9a-f]{8}$`)
 const idTimeLayout = "20060102T150405Z"
 
 // StagingFile returns the file of a staging entry (for the cheat import
-// and the patches): ErrStagingNotFound when it does not exist.
+// and the patches): ErrStagingNotFound when it does not exist. A staging
+// folder holds exactly one file, whatever its name (no suffix is ignored),
+// so a returned stagingId always resolves.
 func (s *Service) StagingFile(stagingID string) (string, error) {
 	if !stagingIDRe.MatchString(stagingID) {
 		return "", ErrStagingNotFound
@@ -295,7 +310,7 @@ func (s *Service) StagingFile(stagingID string) (string, error) {
 		return "", ErrStagingNotFound
 	}
 	for _, d := range des {
-		if d.Type().IsRegular() && !isTemp(d.Name()) {
+		if d.Type().IsRegular() {
 			return filepath.Join(dir, d.Name()), nil
 		}
 	}
@@ -305,11 +320,15 @@ func (s *Service) StagingFile(stagingID string) (string, error) {
 // ErrStagingNotFound means the stagingId names no file.
 var ErrStagingNotFound = errors.New("staging file not found")
 
-func isTemp(name string) bool { return filepath.Ext(name) == ".tmp" }
-
 // install moves the synced temporary file tmp to its destination,
 // applying onConflict, and returns the created resource (UploadResult).
 // The file being replaced, if any, goes to the trash first.
+//
+// Power loss during an overwrite: between the move of the old file to the
+// trash and the rename of the new one, the destination is briefly empty.
+// Nothing is lost: the old file is in a complete trash entry, and the
+// temporary file is still the .part of a resumable upload (complete it
+// again) or, for a download, the job simply failed and can be run again.
 func (s *Service) install(d destination, tmp, onConflict string) (map[string]any, *Error, error) {
 	s.installMu.Lock()
 	defer s.installMu.Unlock()

@@ -28,6 +28,8 @@ const (
 	MaxChunkSize     = 16 << 20
 	// SpaceMarginPercent is the free space required on top of the size.
 	SpaceMarginPercent = 5
+	// MaxOpenUploads bounds the uploads in progress (429 beyond).
+	MaxOpenUploads = 32
 )
 
 // Files of an upload in uploads/ (same file system as the destinations):
@@ -179,6 +181,9 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 
 	s.uploads.mu.Lock()
 	defer s.uploads.mu.Unlock()
+	if len(s.uploads.m) >= MaxOpenUploads {
+		return UploadCreated{}, tooMany("Too many uploads in progress"), nil
+	}
 	free, err := s.opts.FreeSpace(dir)
 	if err != nil {
 		return UploadCreated{}, nil, fmt.Errorf("free space: %w", err)

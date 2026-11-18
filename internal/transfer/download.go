@@ -129,6 +129,9 @@ func (s *Service) StartDownload(req DownloadRequest) (string, *Error, error) {
 	id, err := s.jobs.Submit(JobDownload, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runDownload(ctx, u, target, want, onConflict, report)
 	})
+	if errors.Is(err, ErrTooManyJobs) {
+		return "", tooMany("Too many jobs"), nil
+	}
 	if errors.Is(err, ErrJobsClosed) {
 		return "", newError(http.StatusServiceUnavailable, CodeShuttingDown, "Shutting down"), nil
 	}
@@ -285,6 +288,11 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 	}
 	if dest.name == "" {
 		dest.name = d.name
+	}
+	if dest.kind == KindROM && (filepath.Ext(dest.name) == "" || !s.opts.Adapter.IsGameFile(dest.name)) {
+		// The library would not list it: never install a ROM that cannot
+		// be found.
+		return nil, invalidName("Not a ROM file name: " + dest.name)
 	}
 	result, apiErr, err := s.install(dest, d.path, onConflict)
 	if err != nil {

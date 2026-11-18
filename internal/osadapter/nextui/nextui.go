@@ -227,6 +227,9 @@ func m3uIn(folder string, entries []fs.DirEntry) (string, bool) {
 	return "", false
 }
 
+// IsGameFile reports whether a file named name is listed as a game.
+func (a *Adapter) IsGameFile(name string) bool { return isGameFile(name) }
+
 func isGameFile(name string) bool {
 	return !hidden(name) && !ignoredExt[fold(filepath.Ext(name))]
 }

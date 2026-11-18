@@ -19,6 +19,9 @@ const (
 	// ConfirmEmptyTrash is the value of X-RL-Confirm required by the
 	// permanent deletions.
 	ConfirmEmptyTrash = "empty-trash"
+	// TransfersRetryAfter is the Retry-After (seconds) of a 429 answered
+	// when too many uploads or jobs are pending.
+	TransfersRetryAfter = 5
 )
 
 // decodeJSON reads the (already verified, at most 1 MiB) JSON body into v.
@@ -40,6 +43,9 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 // error.
 func (s *Server) transferError(w http.ResponseWriter, r *http.Request, apiErr *transfer.Error, err error) {
 	if apiErr != nil {
+		if apiErr.Status == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", strconv.Itoa(TransfersRetryAfter))
+		}
 		auth.WriteError(w, apiErr.Status, apiErr.Code, apiErr.Message, apiErr.Details)
 		return
 	}
@@ -60,7 +66,7 @@ func (s *Server) handleDeleteGame(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	res, err := s.opts.Library.DeleteGame(r.PathValue("gameId"), keepSave, s.opts.Trash)
+	res, err := s.opts.Transfers.DeleteGame(r.PathValue("gameId"), keepSave)
 	if err != nil {
 		s.libraryError(w, r, err)
 		return

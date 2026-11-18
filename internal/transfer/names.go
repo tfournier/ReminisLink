@@ -9,6 +9,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -30,6 +31,13 @@ const exFATForbidden = `"*:<>?|`
 // replaced by "_". Trailing spaces and dots are dropped too: the Linux
 // exFAT driver strips them, which would make the name on the card differ
 // from the one checked for conflicts.
+//
+// Also refused, beyond the spec: names starting with "." (hidden, the
+// library would not list them), Unicode format characters (category Cf,
+// e.g. U+202E which reverses the displayed text; the joiners U+200C and
+// U+200D are kept for emoji sequences and scripts that need them), and
+// the names Windows reserves (CON, PRN, AUX, NUL, COM1-9, LPT1-9, with or
+// without extension), so the card stays readable on a computer.
 func CleanFileName(name string) (string, error) {
 	if !utf8.ValidString(name) {
 		return "", ErrInvalidName
@@ -41,6 +49,9 @@ func CleanFileName(name string) (string, error) {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
 			return "", ErrInvalidName
 		}
+		if unicode.Is(unicode.Cf, r) && r != 0x200c && r != 0x200d {
+			return "", ErrInvalidName
+		}
 	}
 	var b strings.Builder
 	for _, r := range name {
@@ -50,10 +61,25 @@ func CleanFileName(name string) (string, error) {
 		b.WriteRune(r)
 	}
 	clean := strings.TrimRight(b.String(), " .")
-	if clean == "" || clean == "." || clean == ".." || len(clean) > MaxFileNameBytes {
+	if clean == "" || strings.HasPrefix(clean, ".") || len(clean) > MaxFileNameBytes || windowsReserved(clean) {
 		return "", ErrInvalidName
 	}
 	return clean, nil
+}
+
+// windowsReserved reports whether the part of name before its first dot
+// is a device name reserved by Windows.
+func windowsReserved(name string) bool {
+	base, _, _ := strings.Cut(name, ".")
+	base = strings.ToUpper(strings.TrimRight(base, " "))
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return true
+	}
+	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) {
+		return base[3] >= '1' && base[3] <= '9'
+	}
+	return false
 }
 
 // truncateName shortens name to MaxFileNameBytes, keeping its extension

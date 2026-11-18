@@ -144,6 +144,9 @@ type Adapter interface {
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.
 	GameFiles(g Game) (GameFiles, error)
+	// IsGameFile reports whether a file with this name, in a system
+	// folder, is listed as a game (not hidden, not an ignored extension).
+	IsGameFile(name string) bool
 
 	// Where each file of a game is (or would be) stored.
 	SavePath(g Game) string
