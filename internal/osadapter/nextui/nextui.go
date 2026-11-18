@@ -103,13 +103,20 @@ func lessFold(a, b string) bool {
 
 func isSymlink(de fs.DirEntry) bool { return de.Type()&fs.ModeSymlink != 0 }
 
+// validTag reports whether a tag can name the save, state and cheat
+// folders: not empty, not "." nor "..", no leading or trailing space, no
+// path separator.
+func validTag(tag string) bool {
+	return tag != "" && tag != "." && tag != ".." && strings.TrimSpace(tag) == tag && !strings.ContainsAny(tag, `/\`)
+}
+
 // parseSystem returns the system stored in a folder of Roms/.
 func parseSystem(folder string) (osadapter.System, bool) {
 	if hidden(folder) || strings.ContainsAny(folder, `/\`) {
 		return osadapter.System{}, false
 	}
 	m := tagRe.FindStringSubmatch(folder)
-	if m == nil || m[1] == "" {
+	if m == nil || !validTag(m[1]) {
 		return osadapter.System{}, false
 	}
 	label := leadingNum.ReplaceAllString(folder, "")

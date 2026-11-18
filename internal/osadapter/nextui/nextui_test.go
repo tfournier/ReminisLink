@@ -105,7 +105,7 @@ func TestParseSystemLabels(t *testing.T) {
 			t.Errorf("parseSystem(%q) = %+v, %v; want label %q", folder, sys, ok, label)
 		}
 	}
-	for _, folder := range []string{"Tools", "Empty ()", ".Hidden (H)"} {
+	for _, folder := range []string{"Tools", "Empty ()", ".Hidden (H)", "Dot (.)", "Dots (..)", "Space ( GBA)", "Space (GBA )", "Blank ( )"} {
 		if _, ok := parseSystem(folder); ok {
 			t.Errorf("parseSystem(%q) accepted", folder)
 		}
