@@ -142,7 +142,8 @@ func TestBodyIdleTimeout(t *testing.T) {
 // answers 503 shutting_down.
 func TestServeShutdown(t *testing.T) {
 	f := newFixture(t, func(o *Options) {
-		o.Verifier.BodyBudget = auth.BodyLimitJSON
+		// The smallest budget the routes allow: one signed upload chunk.
+		o.Verifier.BodyBudget = auth.BodyLimitChunk
 	})
 	f.server.timeouts.shutdown = 300 * time.Millisecond
 	f.server.timeouts.grace = 300 * time.Millisecond
@@ -161,8 +162,8 @@ func TestServeShutdown(t *testing.T) {
 	}
 
 	// The holder takes the whole budget and never finishes its body.
-	body := []byte(strings.Repeat(" ", auth.BodyLimitJSON))
-	holder := signedRaw(t, f, "DELETE", "/api/v1/clients/me", body)
+	body := []byte(strings.Repeat(" ", auth.BodyLimitChunk))
+	holder := signedRaw(t, f, "PUT", "/api/v1/uploads/up_000000000000000000000000", body)
 	hconn := dial(t, addr)
 	defer hconn.Close()
 	hconn.Write(holder[:len(holder)-10])

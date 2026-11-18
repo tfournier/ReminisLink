@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 	"github.com/tfournier/ReminisLink/internal/testutil/openapi"
+	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
 const testDeviceID = "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10"
@@ -85,6 +87,10 @@ type fixture struct {
 	clients *auth.ClientStore
 	pairing *auth.PairingSession
 	client  *testutil.Client // a paired client
+	layout  store.Layout
+	trash   *store.Trash
+	xfer    *transfer.Service
+	free    *atomic.Int64 // free space seen by the transfers
 }
 
 // newFixture serves the API on a copy of the fake SD card. The clock
@@ -107,17 +113,33 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	}
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	lib := library.New(adapter, layout)
+	trash := store.NewTrash(layout, sd, clk.Now, logger)
+	free := &atomic.Int64{}
+	free.Store(1 << 40)
+	xfer, err := transfer.New(transfer.Options{
+		Library: lib, Adapter: adapter, Layout: layout, Trash: trash,
+		FreeSpace: func(string) (int64, error) { return free.Load(), nil },
+		Now:       clk.Now, Logger: logger, ChunkSize: 64 << 10,
+		Downloads: transfer.DownloadOptions{RetryDelay: time.Millisecond},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(xfer.Close)
 	opts := Options{
-		Identity: Identity{DeviceID: testDeviceID, DeviceName: "Brick de test", PakVersion: "1.0.0-test"},
-		Adapter:  adapter,
-		Library:  library.New(adapter, layout),
-		Clients:  clients,
-		Pairing:  pairing,
-		Verifier: auth.NewVerifier(clients, clk.Now, 0, logger),
-		Now:      clk.Now,
-		Logger:   logger,
-		IPv4:     func(string) (string, bool) { return "192.168.1.42", true },
-		Storage:  func(string) (device.Storage, error) { return device.Storage{TotalBytes: 1000, FreeBytes: 400}, nil },
+		Identity:  Identity{DeviceID: testDeviceID, DeviceName: "Brick de test", PakVersion: "1.0.0-test"},
+		Adapter:   adapter,
+		Library:   lib,
+		Clients:   clients,
+		Pairing:   pairing,
+		Trash:     trash,
+		Transfers: xfer,
+		Verifier:  auth.NewVerifier(clients, clk.Now, 0, logger),
+		Now:       clk.Now,
+		Logger:    logger,
+		IPv4:      func(string) (string, bool) { return "192.168.1.42", true },
+		Storage:   func(string) (device.Storage, error) { return device.Storage{TotalBytes: 1000, FreeBytes: 400}, nil },
 	}
 	for _, f := range tweak {
 		f(&opts)
@@ -128,7 +150,8 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	}
 	hs := httptest.NewServer(s.Handler())
 	t.Cleanup(hs.Close)
-	f := &fixture{t: t, sd: sd, clock: clk, logs: logs, server: s, http: hs, clients: clients, pairing: pairing}
+	f := &fixture{t: t, sd: sd, clock: clk, logs: logs, server: s, http: hs, clients: clients, pairing: pairing,
+		layout: layout, trash: trash, xfer: xfer, free: free}
 	f.client = testutil.PairClient(t, clients, hs.URL)
 	f.client.Now = clk.Now
 	return f

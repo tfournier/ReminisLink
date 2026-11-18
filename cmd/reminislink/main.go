@@ -24,6 +24,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/store"
+	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -217,21 +218,42 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
+	lib := library.New(adapter, layout)
+	trash := store.NewTrash(layout, r.SD, nil, logger)
+	xfer, err := transfer.New(transfer.Options{
+		Library: lib, Adapter: adapter, Layout: layout, Trash: trash,
+		FreeSpace: func(path string) (int64, error) {
+			st, err := device.StorageOf(path)
+			return st.FreeBytes, err
+		},
+		Logger:    logger,
+		Downloads: transfer.DownloadOptions{CABundle: os.Getenv(CABundleEnv)},
+	})
+	if err != nil {
+		return err
+	}
+	defer xfer.Close()
+	if err := maintain(trash, xfer); err != nil {
+		return err
+	}
+
 	ln, port, err := server.Listen("0.0.0.0", port)
 	if err != nil {
 		return err
 	}
 	display := newPairingDisplay(os.Stdout, pairing, conf.DeviceID, name, ip, port)
 	srv, err := server.New(server.Options{
-		Identity: server.Identity{DeviceID: conf.DeviceID, DeviceName: name, PakVersion: version},
-		Adapter:  adapter,
-		Library:  library.New(adapter, layout),
-		Clients:  clients,
-		Pairing:  pairing,
-		Verifier: auth.NewVerifier(clients, nil, 0, logger),
-		Logger:   logger,
-		OnPaired: display.paired,
-		LogFull:  logf.full,
+		Identity:  server.Identity{DeviceID: conf.DeviceID, DeviceName: name, PakVersion: version},
+		Adapter:   adapter,
+		Library:   lib,
+		Clients:   clients,
+		Pairing:   pairing,
+		Trash:     trash,
+		Transfers: xfer,
+		Verifier:  auth.NewVerifier(clients, nil, 0, logger),
+		Logger:    logger,
+		OnPaired:  display.paired,
+		LogFull:   logf.full,
 	})
 	if err != nil {
 		ln.Close()
@@ -265,7 +287,36 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 
 	err = srv.Serve(ctx, ln)
 	announcement.Shutdown()
+	xfer.Close() // cancels a running download (its partial file is deleted)
 	syscall.Sync()
 	slog.Info("ReminisLink stopped")
 	return err
+}
+
+// CABundleEnv names the PEM bundle used for HTTPS downloads when the
+// system has no certificate store (default transfer.DefaultCABundle).
+const CABundleEnv = "REMINISLINK_CA_BUNDLE"
+
+// maintain runs the maintenance of docs/specs/05-console-pak.md §2.3
+// before the server opens: interrupted trash operations are finished, the
+// trash entries older than 30 days are erased, the uploads idle for 24 h
+// and the staging files older than 24 h are deleted, and the other uploads
+// are resumed.
+// TODO(M5): archive the resume states and check the locks first.
+func maintain(trash *store.Trash, xfer *transfer.Service) error {
+	if err := trash.Recover(); err != nil {
+		return fmt.Errorf("maintenance: %w", err)
+	}
+	if freed, err := trash.Purge(store.TrashRetention); err != nil {
+		return fmt.Errorf("maintenance: %w", err)
+	} else if freed > 0 {
+		slog.Info("trash purged", "freedBytes", freed)
+	}
+	if err := xfer.Maintain(); err != nil {
+		return fmt.Errorf("maintenance: %w", err)
+	}
+	if err := xfer.LoadUploads(); err != nil {
+		return fmt.Errorf("maintenance: %w", err)
+	}
+	return nil
 }
