@@ -5,7 +5,7 @@
 |---|---|---|---|---|
 | M0 | en attente des relevés de la console | — | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
-| M2 | en revue | `m2-serveur-lecture` | GPT-OSS 120B (Antigravity) : prêt à fusionner (3 remarques, faux positifs) ; revue Claude neuve en cours | — |
+| M2 | en revue | `m2-serveur-lecture` | GPT-OSS 120B (Antigravity) : prêt à fusionner (3 remarques, faux positifs) ; revue Claude neuve : à corriger, 1 bloquant confirmé (journal de la carte SD remplissable par un client non authentifié), 4 à corriger (coût de `cheatCount`, échappement Bonjour, identifiants insensibles à la casse, erreur fatale non journalisée) ; aller-retour 1 en cours | — |
 | M3 | en revue | `m3-ios-base` | GPT-OSS 120B (Antigravity) : à corriger, 1 point retenu (IP de secours du QR limitée au réseau local), le reste faux positifs ; revue Claude neuve : à corriger, aucun bloquant (annulation de l'appairage, ré-appairage silencieux d'une console déjà appairée, session annulée laissée en erreur, `notPaired` sans action) ; aller-retour 1 en cours | — |
 | M4 | à faire | — | — | — |
 | M5 | à faire | — | — | — |
