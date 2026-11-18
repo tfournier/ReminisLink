@@ -7,7 +7,10 @@ import (
 
 // byteBudget is a weighted semaphore counted in bytes: it bounds the memory
 // used by all signed bodies read at the same time. Waiters are served in
-// order and stop waiting when their context is cancelled (client gone).
+// order and stop waiting when their context is cancelled. With HTTP/1.1 the
+// request context is NOT cancelled when the client closes the connection
+// while its body is unread: only server shutdown (BaseContext) or a read
+// deadline frees such a waiter (see Verifier.Require).
 type byteBudget struct {
 	mu      sync.Mutex
 	size    int64
@@ -22,8 +25,9 @@ type budgetWaiter struct {
 
 func newByteBudget(size int64) *byteBudget { return &byteBudget{size: size} }
 
-// acquire reserves n bytes (capped at the budget size) and returns the
-// amount actually reserved, to pass to release.
+// acquire reserves n bytes and returns the amount reserved, to pass to
+// release. n must not exceed the budget size (Verifier.Require ensures it);
+// it is capped defensively.
 func (b *byteBudget) acquire(ctx context.Context, n int64) (int64, error) {
 	if n > b.size {
 		n = b.size

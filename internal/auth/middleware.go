@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -119,11 +120,24 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 // The nonce is reserved before the body is read, so replaying the headers
 // of a request in progress never makes the pak read another body; a
 // failure after step 5 consumes the nonce (the app retries with a new one).
-// Bodies are read within a global memory budget: when it is used up,
-// requests wait, and stop waiting if the client goes away.
+// Bodies are read within a global memory budget (Verifier.BodyBudget):
+// when it is used up, requests with a body wait for room; requests without
+// a body never wait. Require panics if the route limit exceeds the budget
+// (programming error), and fixes the budget size on first use.
+//
+// Note for the server (M2): a waiting request stops waiting only when its
+// context is cancelled, and with HTTP/1.1 net/http does not cancel it when
+// the client disconnects while its body is unread. The server must set
+// ReadHeaderTimeout, an idle read deadline on connections, and a
+// BaseContext cancelled at shutdown: that shutdown cancellation is what
+// makes the 503 shutting_down answer to a cancelled wait accurate. Do not
+// map a budget wait timeout onto that code.
 func (v *Verifier) Require(opts RouteOptions, next http.Handler) http.Handler {
 	if opts.BodyLimit <= 0 {
 		opts.BodyLimit = BodyLimitJSON
+	}
+	if budget := v.bodyBudget().size; opts.BodyLimit > budget {
+		panic(fmt.Sprintf("auth: route body limit %d exceeds the body budget %d", opts.BodyLimit, budget))
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		client, reserved, ok := v.verify(w, r, opts)
@@ -227,9 +241,13 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	if r.ContentLength >= 0 {
 		want = r.ContentLength
 	}
-	reserved, err = v.bodyBudget().acquire(r.Context(), want)
-	if err != nil {
-		return fail(http.StatusServiceUnavailable, CodeShuttingDown, "Request cancelled")
+	if want > 0 {
+		// A request without a body never queues behind large uploads.
+		reserved, err = v.bodyBudget().acquire(r.Context(), want)
+		if err != nil {
+			// Accurate once the server cancels BaseContext at shutdown.
+			return fail(http.StatusServiceUnavailable, CodeShuttingDown, "Request cancelled")
+		}
 	}
 	body, err := readBody(r, opts.BodyLimit)
 	if errors.Is(err, errBodyTooLarge) {
