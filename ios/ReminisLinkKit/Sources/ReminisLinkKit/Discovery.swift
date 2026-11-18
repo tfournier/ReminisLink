@@ -171,9 +171,13 @@ public final class Discovery {
         parameters.includePeerToPeer = false
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: parameters)
         browser.stateUpdateHandler = { [weak self] state in
+            // Our own cancel (after a failure, or stop()) must not hide a failure.
+            if case .cancelled = state { return }
             let status = DiscoveryLogic.status(for: state)
+            let isReady: Bool
+            if case .ready = state { isReady = true } else { isReady = false }
             MainActor.assumeIsolated {
-                self?.apply(status)
+                self?.apply(status, isReady: isReady)
             }
         }
         browser.browseResultsChangedHandler = { [weak self] results, _ in
@@ -188,7 +192,7 @@ public final class Discovery {
     }
 
     /// After a failure, restarts the browser with a growing delay.
-    private func apply(_ newStatus: DiscoveryStatus) {
+    private func apply(_ newStatus: DiscoveryStatus, isReady: Bool) {
         status = newStatus
         switch newStatus {
         case .failed:
@@ -202,10 +206,10 @@ public final class Discovery {
                 guard !Task.isCancelled else { return }
                 self?.start()
             }
-        case .searching:
-            failures = 0
         default:
-            break
+            // Only a browser that really works resets the backoff, not one
+            // that waits.
+            if isReady { failures = 0 }
         }
     }
 
