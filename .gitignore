@@ -1,0 +1,23 @@
+# Build outputs
+/build/
+/dist/
+
+# CI Go cache (GOPATH inside the project)
+/.go/
+
+# IDE
+/.idea/
+/.vscode/
+*.swp
+.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+.swiftpm/
+ios/**/.build/
+
+# Local agent settings and skills from other environments
+.claude/settings.local.json
+/skills/
