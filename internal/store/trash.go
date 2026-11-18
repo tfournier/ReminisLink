@@ -42,11 +42,14 @@ const (
 	ReasonReplaceROM  = "replace-rom"
 	ReasonLockRestore = "lock-restore"
 	ReasonRestore     = "restore"
+	// ReasonDeleteBackup: a save backup or a resume history entry deleted
+	// by the app or pushed out by the automatic limits.
+	ReasonDeleteBackup = "delete-backup"
 )
 
 var validReasons = map[string]bool{
 	ReasonDeleteGame: true, ReasonDeleteState: true, ReasonOverwrite: true,
-	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true,
+	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true, ReasonDeleteBackup: true,
 }
 
 // Errors of the trash.
