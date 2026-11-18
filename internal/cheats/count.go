@@ -15,11 +15,45 @@ import (
 	"strconv"
 )
 
-// MaxFileBytes is the largest .cht file read.
-const MaxFileBytes = 8 << 20
+const (
+	// MaxFileBytes is the largest .cht file read.
+	MaxFileBytes = 8 << 20
+	// HeaderBytes is how much of a file is read to find "cheats = N".
+	HeaderBytes = 4 << 10
+	// maxDeclared is the largest "cheats = N" trusted.
+	maxDeclared = 100000
+)
 
-// cheatLine is copied from Cheat Manager.
-var cheatLine = regexp.MustCompile(`^\s*cheat(\d+)_([A-Za-z0-9_]+)\s*=(.*)$`)
+var (
+	// cheatLine is copied from Cheat Manager.
+	cheatLine = regexp.MustCompile(`^\s*cheat(\d+)_([A-Za-z0-9_]+)\s*=(.*)$`)
+	// countLine is the "cheats = N" header RetroArch and Cheat Manager
+	// write before the first cheat.
+	countLine = regexp.MustCompile(`^\s*cheats\s*=\s*"?(\d{1,9})"?\s*$`)
+)
+
+// DeclaredCount returns N from the "cheats = N" line found in head (the
+// start of a file) before any cheat line, and false when there is none.
+func DeclaredCount(head []byte) (int, bool) {
+	lines := bytes.Split(head, []byte("\n"))
+	if len(head) == HeaderBytes && len(lines) > 1 {
+		lines = lines[:len(lines)-1] // the last line may be cut
+	}
+	for _, line := range lines {
+		line = bytes.TrimRight(line, "\r")
+		if m := countLine.FindSubmatch(line); m != nil {
+			n, err := strconv.Atoi(string(m[1]))
+			if err != nil || n > maxDeclared {
+				return 0, false
+			}
+			return n, true
+		}
+		if cheatLine.Match(line) {
+			return 0, false
+		}
+	}
+	return 0, false
+}
 
 // Count returns the number of cheats in the content of a .cht file: the
 // number of distinct indexes N of the "cheatN_<key> = ..." lines, as
@@ -41,17 +75,27 @@ func Count(data []byte) int {
 }
 
 // CountFile returns the number of cheats of a .cht file (0 if it cannot be
-// read). Files larger than MaxFileBytes are counted on their first
-// MaxFileBytes.
+// read). It reads only the start of the file when it declares its count
+// ("cheats = N", as RetroArch and Cheat Manager write it), otherwise it
+// parses the file (at most MaxFileBytes) like Cheat Manager.
 func CountFile(path string) int {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, MaxFileBytes))
+	head := make([]byte, HeaderBytes)
+	n, err := io.ReadFull(f, head)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return 0
+	}
+	head = head[:n]
+	if count, ok := DeclaredCount(head); ok {
+		return count
+	}
+	rest, err := io.ReadAll(io.LimitReader(f, MaxFileBytes-int64(n)))
 	if err != nil {
 		return 0
 	}
-	return Count(data)
+	return Count(append(head, rest...))
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -252,13 +253,22 @@ func TestLibraryListGamesPerformance(t *testing.T) {
 	}
 	sd := t.TempDir()
 	const n = 500
+	// A realistic .cht: 300 cheats, about 38 KB, as RetroArch writes it.
+	var cht strings.Builder
+	cht.WriteString("cheats = 300\n\n")
+	for c := 0; c < 300; c++ {
+		fmt.Fprintf(&cht, "cheat%d_desc = \"Cheat number %d with a long description\"\ncheat%d_code = \"0200%04X+00FF\"\ncheat%d_enable = false\n\n", c, c, c, c, c)
+	}
+	if cht.Len() < 30<<10 {
+		t.Fatalf("cht too small: %d", cht.Len())
+	}
 	for i := 0; i < n; i++ {
 		rom := fmt.Sprintf("Generated Game %03d.gba", i)
 		testutil.WriteFile(t, sd, "Roms/Perf (PERF)/"+rom, "rom")
 		testutil.WriteFile(t, sd, "Saves/PERF/"+rom+".sav", "sav")
 		testutil.WriteFile(t, sd, ".userdata/shared/.minui/PERF/"+rom+".st0", "st")
 		testutil.WriteFile(t, sd, ".userdata/shared/.minui/PERF/"+rom+".st9", "st")
-		testutil.WriteFile(t, sd, "Cheats/PERF/"+rom+".cht", "cheats = 1\ncheat0_desc = \"a\"\ncheat0_code = \"1\"\ncheat0_enable = false\n")
+		testutil.WriteFile(t, sd, "Cheats/PERF/"+rom+".cht", cht.String())
 		testutil.WriteFile(t, sd, "Roms/Perf (PERF)/.media/"+fmt.Sprintf("Generated Game %03d.png", i), "png")
 	}
 	l := libraryFor(sd)
@@ -269,7 +279,7 @@ func TestLibraryListGamesPerformance(t *testing.T) {
 		t.Fatalf("listing: %d games, %v", len(listing.Games), err)
 	}
 	for _, g := range listing.Games {
-		if !g.HasSave || g.StateCount != 2 || g.CheatCount != 1 || !g.HasArt {
+		if !g.HasSave || g.StateCount != 2 || g.CheatCount != 300 || !g.HasArt {
 			t.Fatalf("game = %+v", g)
 		}
 	}
