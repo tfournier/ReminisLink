@@ -13,6 +13,8 @@ import (
 	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
+	"github.com/tfournier/ReminisLink/internal/store"
+	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
 // API constants.
@@ -49,6 +51,10 @@ type Options struct {
 	Library  *library.Library
 	Clients  *auth.ClientStore
 	Pairing  *auth.PairingSession
+	// Trash receives the deleted and replaced files.
+	Trash *store.Trash
+	// Transfers holds the uploads, the downloads and the jobs.
+	Transfers *transfer.Service
 	// Verifier checks the signed routes. Build it with auth.NewVerifier on
 	// the same clock as Now.
 	Verifier *auth.Verifier
@@ -92,7 +98,8 @@ type timeouts struct {
 // New builds the server and its routes.
 func New(opts Options) (*Server, error) {
 	switch {
-	case opts.Adapter == nil, opts.Library == nil, opts.Clients == nil, opts.Pairing == nil, opts.Verifier == nil:
+	case opts.Adapter == nil, opts.Library == nil, opts.Clients == nil, opts.Pairing == nil, opts.Verifier == nil,
+		opts.Trash == nil, opts.Transfers == nil:
 		return nil, errors.New("server: missing dependency")
 	case !auth.ValidID(opts.Identity.DeviceID):
 		return nil, errors.New("server: device id must be a lowercase UUID")
@@ -169,10 +176,28 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleGame)
 	signed("GET "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.handleGameArt)
 
+	signed("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleDeleteGame)
+
+	// Trash.
+	signed("GET "+Prefix+"/trash", auth.RouteJSON, s.handleTrash)
+	signed("DELETE "+Prefix+"/trash", auth.RouteJSON, s.handleEmptyTrash)
+	signed("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.handleDeleteTrashEntry)
+
+	// Transfers. Only the chunk route accepts UNSIGNED bodies (read as a
+	// stream by the handler, bounded by the chunk size).
+	signed("POST "+Prefix+"/uploads", auth.RouteJSON, s.handleCreateUpload)
+	signed("GET "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, s.handleUploadStatus)
+	signed("PUT "+Prefix+"/uploads/{uploadId}", auth.RouteChunk, s.handleUploadChunk)
+	signed("DELETE "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, s.handleCancelUpload)
+	signed("POST "+Prefix+"/uploads/{uploadId}/complete", auth.RouteJSON, s.handleCompleteUpload)
+	signed("POST "+Prefix+"/downloads", auth.RouteJSON, s.handleCreateDownload)
+	signed("GET "+Prefix+"/jobs", auth.RouteJSON, s.handleJobs)
+	signed("GET "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleJob)
+	signed("DELETE "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleCancelJob)
+
 	// Routes of the next milestones register here, with their own body
 	// limits:
-	//   signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, ...)    // M4
-	//   signed("PUT "+Prefix+"/uploads/{uploadId}", auth.RouteChunk, ...)    // M5
+	//   signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, ...)    // M5
 	// Every other signed route uses auth.RouteJSON.
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

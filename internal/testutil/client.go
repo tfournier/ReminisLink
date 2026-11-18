@@ -56,8 +56,26 @@ func (c *Client) Request(t testing.TB, method, target string, body []byte) *http
 	return req
 }
 
+// RequestUnsigned builds a request signed with X-RL-Content-SHA256:
+// UNSIGNED (upload chunks): the body is not covered by the signature.
+func (c *Client) RequestUnsigned(t testing.TB, method, target string, body []byte) *http.Request {
+	t.Helper()
+	req, err := http.NewRequest(method, c.BaseURL+target, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.sign(req, auth.UnsignedPayload); err != nil {
+		t.Fatal(err)
+	}
+	return req
+}
+
 // Sign adds the X-RL-* headers to req, whose body is body.
 func (c *Client) Sign(req *http.Request, body []byte) error {
+	return c.sign(req, auth.ContentSHA256(body))
+}
+
+func (c *Client) sign(req *http.Request, content string) error {
 	now := time.Now
 	if c.Now != nil {
 		now = c.Now
@@ -67,7 +85,6 @@ func (c *Client) Sign(req *http.Request, body []byte) error {
 		return err
 	}
 	ts := strconv.FormatInt(now().Unix(), 10)
-	content := auth.ContentSHA256(body)
 	path := req.URL.EscapedPath()
 	canonical, err := auth.CanonicalRequest(auth.RequestParts{
 		Method: req.Method, Path: path, RawQuery: req.URL.RawQuery,

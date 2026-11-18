@@ -17,3 +17,19 @@ func (l Layout) ClientsFile() string { return filepath.Join(l.Root, "clients.jso
 // LocksDir is the folder of the state locks of a tag: one folder per ROM
 // file name, holding slot<N>.st and slot<N>.json.
 func (l Layout) LocksDir(tag string) string { return filepath.Join(l.Root, "locks", tag) }
+
+// BackupsDir is the folder of the backups of a tag: one folder per ROM
+// file name, holding saves/ and resume/.
+func (l Layout) BackupsDir(tag string) string { return filepath.Join(l.Root, "backups", tag) }
+
+// TrashDir is the trash: one folder per trash entry.
+func (l Layout) TrashDir() string { return filepath.Join(l.Root, "trash") }
+
+// UploadsDir holds the temporary files of the uploads and downloads.
+func (l Layout) UploadsDir() string { return filepath.Join(l.Root, "uploads") }
+
+// StagingDir holds the patches and .cht files waiting to be used.
+func (l Layout) StagingDir() string { return filepath.Join(l.Root, "staging") }
+
+// PatchesDir holds the patches dropped by the user (listed by /sd/files).
+func (l Layout) PatchesDir() string { return filepath.Join(l.Root, "patches") }

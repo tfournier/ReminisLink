@@ -353,16 +353,17 @@ paths:
       description: |
         Moves to the ReminisLink trash (a rename on the same SD card, nothing
         is erased): the ROM (or the `.m3u` and its folder), the save, the
-        states, the cheats and the art. The locks and the resume history of
-        the game are deleted. With `keepSave=true`, the save and the states
-        stay in place. Space is only freed when the trash is purged
+        states, the cheats and the art; the locks and the resume history of
+        the game (ReminisLink copies) go into the same trash entry. With
+        `keepSave=true`, the save, the states, the locks and the resume
+        history stay in place. Space is only freed when the trash is purged
         (automatically after 30 days, or with `DELETE /trash`).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: keepSave
           in: query
           required: false
-          description: Keep the save and the states in place.
+          description: Keep the save, the states, their locks and the resume history in place.
           schema: { type: boolean, default: false }
           example: false
       responses:
@@ -430,8 +431,11 @@ paths:
       summary: Trash content and size
       description: |
         One entry groups everything a single operation moved to the trash.
-        Entries expire after 30 days (purged when the pak starts). Restoring
-        from the trash is not part of v1.
+        Entries are purged when the pak starts once their credited age
+        reaches 30 days: the age grows with the running time of the pak and,
+        at each launch, with the time since the last close (at most 7 days
+        per launch), so a wrong console clock can only delay the purge.
+        Restoring from the trash is not part of v1.
       responses:
         '200':
           description: Trash entries.
@@ -1067,8 +1071,19 @@ paths:
         on the SD card and returns `uploadId` and `chunkSize` (default 4 MiB,
         at most 16 MiB). The announced `sha256` protects the unsigned chunks.
         `onConflict`: `fail` (`409 conflict`), `rename` (adds ` (2)`,
-        ` (3)`...), `overwrite` (the old file goes to the trash). Uploads idle
-        for 24 h are deleted; uploads are lost when the pak closes.
+        ` (3)`...), `overwrite` (the old file goes to the trash). It only
+        applies to the `rom` and `staging` targets (a staging file never
+        conflicts); for `save` and `state` the existing file is always
+        replaced, after being moved to the trash. At most 32 uploads are
+        open at once (`429 too_many_attempts` with `Retry-After` beyond).
+        Uploads idle for 24 h are deleted. Uploads survive a restart of the
+        pak: the offset is the size of the partial file on the card, and the
+        SHA-256 of the bytes received is computed again in the background
+        from the bytes really present. `GET /uploads/{uploadId}` answers at
+        once; `PUT` and `complete` answer `429 too_many_attempts` with
+        `Retry-After` while that verification runs. An upload purged
+        (idle 24 h) or whose partial file became unreadable answers `404`:
+        the app creates it again.
       requestBody:
         required: true
         content:
@@ -1218,6 +1233,8 @@ paths:
         Same `target` as `POST /uploads`; `fileName` may be omitted (taken
         from `Content-Disposition` or the URL). `http` and `https` only, 5
         redirects, 4 GiB max. The result of the job is the created resource.
+        At most 100 jobs are queued or running (`429 too_many_attempts`
+        with `Retry-After` beyond).
       requestBody:
         required: true
         content:
@@ -1345,7 +1362,11 @@ paths:
       tags: [Jobs]
       operationId: cancelJob
       summary: Cancel a job
-      description: Cancels a queued or running job (its partial file is deleted). Returns the job in its new state.
+      description: |
+        Cancels a queued or running job (its partial file is deleted).
+        Returns the job in its new state. A job cancelled while it is
+        already installing its file can still end `succeeded` (the file is
+        in place and `result` says where).
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -1521,9 +1542,15 @@ components:
           example: { error: { code: too_many_attempts, message: Pairing is blocked, details: {} } }
     TooManyRequests:
       description: |
-        The device cannot take more signed requests right now
-        (`too_many_attempts`): its cache of recent request nonces is full
-        and it never forgets a live nonce to make room. Retry later.
+        The device cannot take this request right now (`too_many_attempts`,
+        always with `Retry-After`). Retry later. Cases: its cache of recent
+        request nonces is full (it never forgets a live nonce to make room);
+        too many open uploads (32, message `Too many open uploads`) on
+        `POST /uploads`; too many queued and running jobs (100, message
+        `Too many jobs`) on `POST /downloads`; an upload resumed after a
+        restart of the pak is still being verified (message `Upload is
+        being verified`) on `PUT /uploads/{uploadId}` and
+        `POST /uploads/{uploadId}/complete`.
       headers:
         Retry-After:
           description: Seconds before trying again.
@@ -1795,14 +1822,23 @@ components:
       required: [id, trashedAt, reason, label, files, sizeBytes, expiresAt]
       properties:
         id: { $ref: '#/components/schemas/OpaqueId' }
-        trashedAt: { $ref: '#/components/schemas/Timestamp' }
+        trashedAt:
+          $ref: '#/components/schemas/Timestamp'
+          description: Wall clock time of the console when the entry was made (informative; the console clock may be wrong).
         reason: { type: string, enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore] }
         label: { type: string }
         files:
           type: array
           items: { type: string }
         sizeBytes: { $ref: '#/components/schemas/Bytes' }
-        expiresAt: { $ref: '#/components/schemas/Timestamp' }
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+          description: |
+            Earliest time the entry can be purged, an estimate: the current
+            console time plus 30 days minus the credited age of the entry,
+            never in the past. The credited age only grows while the pak
+            runs and by at most 7 days per launch, so the real purge can come
+            later, never earlier.
     TrashList:
       type: object
       required: [entries, totalBytes]
@@ -1963,6 +1999,7 @@ components:
 
     OnConflict:
       type: string
+      description: Only for the `rom` and `staging` targets; `save` and `state` always replace the existing file after moving it to the trash.
       enum: [fail, rename, overwrite]
       default: fail
     UploadTarget:

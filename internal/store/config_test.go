@@ -80,3 +80,22 @@ func TestLayout(t *testing.T) {
 		t.Fatal(l)
 	}
 }
+
+func TestConfigSavesKeepOtherKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(path, []byte(`{"version":1,"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","creditSeconds":42,"creditOpen":false,"future":{"a":1}}`), 0o644)
+	c, err := LoadConfig(path, defaultName, nil) // fills the missing fields: merge
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.DeviceName = "Renamed"
+	if err := NewConfigFile(path).Save(c); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	for _, want := range []string{`"deviceName": "Renamed"`, `"creditSeconds": 42`, `"future"`, `"port": 47821`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("%s missing in %s", want, data)
+		}
+	}
+}

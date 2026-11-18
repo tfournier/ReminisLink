@@ -42,13 +42,13 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return fmt.Errorf("rename %s: %w", tmp, err)
 	}
-	syncDir(dir)
+	SyncDir(dir)
 	return nil
 }
 
-// syncDir makes the rename durable where the file system supports it.
+// SyncDir makes the rename durable where the file system supports it.
 // Errors are ignored: some file systems (and macOS for directories) refuse it.
-func syncDir(dir string) {
+func SyncDir(dir string) {
 	d, err := os.Open(dir)
 	if err != nil {
 		return

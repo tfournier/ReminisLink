@@ -28,6 +28,10 @@ type Config struct {
 	Language   string `json:"language,omitempty"`
 }
 
+// The keys of config.json managed by CreditClock (creditSeconds,
+// creditWall, creditOpen) are not in Config: only CreditClock reads and
+// writes them, through ConfigFile.Update.
+
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // NewUUIDv4 returns a random lowercase UUID v4 read from r (nil: crypto/rand).
@@ -91,13 +95,10 @@ func LoadConfig(path string, defaultName func(deviceID string) string, random io
 	return c, nil
 }
 
-// SaveConfig writes config.json atomically.
+// SaveConfig writes the fields of c into config.json (read, merge, atomic
+// write): the keys Config does not know are kept.
 func SaveConfig(path string, c Config) error {
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode config: %w", err)
-	}
-	if err := WriteFileAtomic(path, append(data, '\n'), 0o644); err != nil {
+	if err := NewConfigFile(path).Save(c); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 	return nil
