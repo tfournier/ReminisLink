@@ -171,3 +171,25 @@ func TestTrashWithTimeGuard(t *testing.T) {
 		t.Fatalf("normal purge")
 	}
 }
+
+func TestConfigSavesNeverTouchGuardKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(path, []byte(`{"version":1,"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","lastSeenTime":"2026-11-18T17:00:00Z","candidateTime":"2030-01-01T00:00:00Z","future":{"a":1}}`), 0o644)
+	// The initial writer fills the missing fields (merge, not rewrite).
+	c, err := LoadConfig(path, defaultName, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cf := NewConfigFile(path)
+	c.DeviceName = "Renamed"
+	if err := cf.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	data, _ := os.ReadFile(path)
+	json.Unmarshal(data, &m)
+	if m["deviceName"] != "Renamed" || m["port"] != float64(DefaultPort) || m["lastSeenTime"] != "2026-11-18T17:00:00Z" ||
+		m["candidateTime"] != "2030-01-01T00:00:00Z" || m["future"] == nil {
+		t.Fatalf("config.json %s", data)
+	}
+}

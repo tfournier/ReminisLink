@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"time"
 )
 
 const (
@@ -27,9 +26,11 @@ type Config struct {
 	DeviceName string `json:"deviceName"`
 	Port       int    `json:"port"`
 	Language   string `json:"language,omitempty"`
-	// LastSeenTime is the latest time the pak observed (see TimeGuard).
-	LastSeenTime *time.Time `json:"lastSeenTime,omitempty"`
 }
+
+// The keys of config.json managed by TimeGuard (lastSeenTime,
+// candidateTime) are not in Config: only the guard reads and writes them,
+// through ConfigFile.Update.
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
@@ -94,13 +95,10 @@ func LoadConfig(path string, defaultName func(deviceID string) string, random io
 	return c, nil
 }
 
-// SaveConfig writes config.json atomically.
+// SaveConfig writes the fields of c into config.json (read, merge, atomic
+// write): the keys Config does not know are kept.
 func SaveConfig(path string, c Config) error {
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode config: %w", err)
-	}
-	if err := WriteFileAtomic(path, append(data, '\n'), 0o644); err != nil {
+	if err := NewConfigFile(path).Save(c); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 	return nil

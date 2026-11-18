@@ -61,9 +61,9 @@ func (c *ConfigFile) Update(fn func(fields map[string]json.RawMessage) error) er
 	return WriteFileAtomic(c.path, append(out, '\n'), 0o644)
 }
 
-// Save writes the fields of cfg, keeping the other fields of the file
-// (lastSeenTime included when cfg.LastSeenTime is nil). Settings changed
-// during a run (milestone M7) must go through it.
+// Save writes the fields of cfg, keeping every other key of the file (the
+// keys of TimeGuard included). Settings changed during a run (milestone
+// M7) must go through it.
 func (c *ConfigFile) Save(cfg Config) error {
 	data, err := json.Marshal(cfg)
 	if err != nil {
