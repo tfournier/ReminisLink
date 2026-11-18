@@ -12,12 +12,20 @@ import (
 // one: hidden, no tag, ignored file...).
 var ErrNotFound = errors.New("not found")
 
+// ErrUnsupportedFormat means the saves or the states of the card use a
+// layout the adapter does not write (a non-default format chosen in the OS
+// settings): the pak refuses to change them rather than guess.
+var ErrUnsupportedFormat = errors.New("unsupported save or state format")
+
 // Roots are the main folders of the SD card, as absolute paths.
 type Roots struct {
 	SD       string // SD card root
 	Roms     string // ROM folders, one per system
 	Saves    string // in-game saves
-	States   string // emulator save states
+	States   string // parent of the per-core state folders (<TAG>-<core>/)
+	Minui    string // OS data shared between platforms (state thumbnails...)
+	System   string // OS system folder of the platform (emulator paks)
+	Emus     string // extra emulator paks of the platform
 	Cheats   string // RetroArch .cht files
 	Userdata string // userdata of the platform (logs...)
 	Shared   string // userdata shared between platforms
@@ -93,6 +101,16 @@ type StateFile struct {
 	Slot int
 }
 
+// StateRef is a save state found on the card, with the tag and the ROM
+// file name it belongs to (the game itself may be gone: DELETE /games with
+// keepSave keeps the states).
+type StateRef struct {
+	Tag     string
+	ROMName string
+	Slot    int
+	File    File
+}
+
 // GameFiles are all the files of a game. Missing ones are nil or empty.
 type GameFiles struct {
 	ROM    []File // the ROM, or the .m3u and its discs
@@ -148,11 +166,26 @@ type Adapter interface {
 	// folder, is listed as a game (not hidden, not an ignored extension).
 	IsGameFile(name string) bool
 
-	// Where each file of a game is (or would be) stored.
+	// StateFiles lists every save state of the card (all systems).
+	StateFiles() ([]StateRef, error)
+
+	// Where each file of a game is (or would be) stored. The emulator data
+	// (save, states, cheats) depends only on g.System.Tag and g.ROMName,
+	// so these may be called with a Game holding only those two fields
+	// (the lock check at start, for a game deleted with keepSave).
 	SavePath(g Game) string
+	// StatePath is "" when the state folder of the system cannot be found
+	// (no emulator pak): states can then be neither read nor written.
 	StatePath(g Game, slot int) string
 	StateThumbnailPath(g Game, slot int) string // "" when the OS has none
+	// ResumeSlot is the slot written automatically by the OS (ok false
+	// when there is none, or the state format is not supported).
 	ResumeSlot() (slot int, ok bool)
+	// CheckSaveFormat and CheckStateFormat return an error wrapping
+	// ErrUnsupportedFormat when the OS settings use save or state files
+	// the adapter does not name.
+	CheckSaveFormat() error
+	CheckStateFormat() error
 	CheatPath(g Game) string
 	ArtPath(g Game) string
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/tfournier/ReminisLink/internal/osadapter"
@@ -26,13 +27,91 @@ func newAdapter(t *testing.T) (*Adapter, string) {
 	return New(RootsForSD(sd, "tg5040"), func(k string) string { return env[k] }), sd
 }
 
+// TestStateFolders checks how the state folder of a tag is found: the core
+// of the system pak, then of the extra pak, then a single <TAG>-* folder.
+func TestStateFolders(t *testing.T) {
+	a, sd := newAdapter(t)
+	shared := filepath.Join(sd, ".userdata", "shared")
+	game := func(tag string) osadapter.Game {
+		return osadapter.Game{System: osadapter.System{Tag: tag}, ROMName: "x.bin"}
+	}
+	cases := map[string]string{
+		"GBA":  filepath.Join(shared, "GBA-gpsp", "x.bin.st0"),        // system pak
+		"MGBA": filepath.Join(shared, "MGBA-mgba", "x.bin.st0"),       // extra pak
+		"GB":   filepath.Join(shared, "GB-gambatte", "x.bin.st0"),     // pak, no folder yet
+		"PS":   filepath.Join(shared, "PS-pcsx_rearmed", "x.bin.st0"), // system pak
+		"NOPE": "",                                                    // no pak, no folder
+	}
+	for tag, want := range cases {
+		if got := a.StatePath(game(tag), 0); got != want {
+			t.Errorf("%s: StatePath = %q, want %q", tag, got, want)
+		}
+	}
+	// No pak: a single <TAG>-<core> folder is used; two are ambiguous.
+	testutil.WriteFile(t, shared, "SFC-snes9x/a.sfc.st0", "s")
+	if got := a.StatePath(game("SFC"), 1); got != filepath.Join(shared, "SFC-snes9x", "x.bin.st1") {
+		t.Errorf("fallback: %q", got)
+	}
+	testutil.WriteFile(t, shared, "SFC-other/a.sfc.st0", "s")
+	if got := a.StatePath(game("SFC"), 1); got != "" {
+		t.Errorf("ambiguous: %q", got)
+	}
+	// Quoted EMU_EXE; a pak without a readable core hides the extra pak.
+	testutil.WriteFile(t, sd, ".system/tg5040/paks/Emus/MD.pak/launch.sh", "#!/bin/sh\nEMU_EXE=\"picodrive\"\n")
+	if got := a.StatePath(game("MD"), 0); got != filepath.Join(shared, "MD-picodrive", "x.bin.st0") {
+		t.Errorf("quoted: %q", got)
+	}
+	testutil.WriteFile(t, sd, ".system/tg5040/paks/Emus/MGBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=$CORE\n")
+	if got := a.StatePath(game("MGBA"), 0); got != filepath.Join(shared, "MGBA-mgba", "x.bin.st0") {
+		t.Errorf("unreadable core falls back to the single folder: %q", got)
+	}
+	// StateFiles only lists the folder of the current core of each tag.
+	refs, err := a.StateFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, r := range refs {
+		seen[r.Tag]++
+	}
+	if seen["GBA"] != 4 || seen["MGBA"] != 1 || seen["PS"] != 1 || seen["SFC"] != 0 {
+		t.Errorf("StateFiles: %v", seen)
+	}
+}
+
+// TestFormats checks minuisettings.txt: only the default formats are
+// handled.
+func TestFormats(t *testing.T) {
+	a, sd := newAdapter(t)
+	if a.CheckSaveFormat() != nil || a.CheckStateFormat() != nil {
+		t.Fatal("default formats refused")
+	}
+	testutil.WriteFile(t, sd, ".userdata/shared/minuisettings.txt", "saveFormat=1\r\nstateFormat=3\r\n")
+	if err := a.CheckSaveFormat(); !errors.Is(err, osadapter.ErrUnsupportedFormat) || !strings.Contains(err.Error(), "saveFormat=1") {
+		t.Errorf("save format: %v", err)
+	}
+	if err := a.CheckStateFormat(); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
+		t.Errorf("state format: %v", err)
+	}
+	if _, ok := a.ResumeSlot(); ok {
+		t.Error("resume slot with a .state.auto format")
+	}
+	os.Remove(filepath.Join(sd, ".userdata", "shared", "minuisettings.txt"))
+	if a.CheckSaveFormat() != nil || a.CheckStateFormat() != nil {
+		t.Error("no settings file: defaults")
+	}
+}
+
 func TestRootsFromEnv(t *testing.T) {
 	r := RootsFromEnv(func(string) string { return "" })
 	want := osadapter.Roots{
 		SD:       "/mnt/SDCARD",
 		Roms:     "/mnt/SDCARD/Roms",
 		Saves:    "/mnt/SDCARD/Saves",
-		States:   "/mnt/SDCARD/.userdata/shared/.minui",
+		States:   "/mnt/SDCARD/.userdata/shared",
+		Minui:    "/mnt/SDCARD/.userdata/shared/.minui",
+		System:   "/mnt/SDCARD/.system/tg5040",
+		Emus:     "/mnt/SDCARD/Emus/tg5040",
 		Cheats:   "/mnt/SDCARD/Cheats",
 		Userdata: "/mnt/SDCARD/.userdata/tg5040",
 		Shared:   "/mnt/SDCARD/.userdata/shared",
@@ -48,7 +127,7 @@ func TestRootsFromEnv(t *testing.T) {
 	}
 	r = RootsFromEnv(func(k string) string { return env[k] })
 	if r.Roms != "/r" || r.Saves != "/s" || r.Cheats != "/c" || r.Userdata != "/u" ||
-		r.States != "/sh/.minui" || r.Data != "/sh/ReminisLink" || r.Logs != "/l" {
+		r.States != "/sh" || r.Minui != "/sh/.minui" || r.Emus != "/sd/Emus/tg5050" || r.System != "/sd/.system/tg5050" || r.Data != "/sh/ReminisLink" || r.Logs != "/l" {
 		t.Errorf("from env: %+v", r)
 	}
 	r = RootsForSD("/card", "")
@@ -348,7 +427,7 @@ func TestGameFiles(t *testing.T) {
 	for _, s := range files.States {
 		slots = append(slots, s.Slot)
 	}
-	if !reflect.DeepEqual(slots, []int{0, 1, 9}) || files.States[0].Rel != ".userdata/shared/.minui/GBA/Starlight Courier.gba.st0" {
+	if !reflect.DeepEqual(slots, []int{0, 1, 9}) || files.States[0].Rel != ".userdata/shared/GBA-gpsp/Starlight Courier.gba.st0" {
 		t.Errorf("states = %+v", files.States)
 	}
 
@@ -423,7 +502,7 @@ func TestPaths(t *testing.T) {
 	if got, want := a.SavePath(g), filepath.Join(sd, "Saves", "GBA", "Starlight Courier Remix.gba.sav"); got != want {
 		t.Errorf("SavePath = %s", got)
 	}
-	if got, want := a.StatePath(g, 3), filepath.Join(sd, ".userdata", "shared", ".minui", "GBA", "Starlight Courier Remix.gba.st3"); got != want {
+	if got, want := a.StatePath(g, 3), filepath.Join(sd, ".userdata", "shared", "GBA-gpsp", "Starlight Courier Remix.gba.st3"); got != want {
 		t.Errorf("StatePath = %s", got)
 	}
 	if got, want := a.CheatPath(g), filepath.Join(sd, "Cheats", "GBA", "Starlight Courier Remix.gba.cht"); got != want {
@@ -432,8 +511,11 @@ func TestPaths(t *testing.T) {
 	if got, want := a.ArtPath(g), filepath.Join(sd, "Roms", gba, "Hacks", ".media", "Starlight Courier Remix.png"); got != want {
 		t.Errorf("ArtPath = %s", got)
 	}
-	if a.StateThumbnailPath(g, 0) != "" {
-		t.Error("StateThumbnailPath must be empty until M0")
+	if got, want := a.StateThumbnailPath(g, 7), filepath.Join(sd, ".userdata", "shared", ".minui", "GBA", "Starlight Courier Remix.gba.7.bmp"); got != want {
+		t.Errorf("StateThumbnailPath = %s", got)
+	}
+	if a.StateThumbnailPath(g, 8) != "" || a.StateThumbnailPath(g, 9) != "" {
+		t.Error("NextUI keeps thumbnails for the slots 0 to 7 only")
 	}
 	if slot, ok := a.ResumeSlot(); slot != ResumeSlot || !ok {
 		t.Errorf("ResumeSlot = %d, %v", slot, ok)

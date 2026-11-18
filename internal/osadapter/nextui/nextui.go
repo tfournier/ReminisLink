@@ -28,10 +28,14 @@ import (
 )
 
 const (
-	// ResumeSlot is the slot NextUI writes when the console is turned off
-	// in game.
-	// TODO(M0): MinUI convention (slot 9), not yet checked on NextUI.
+	// ResumeSlot is the slot NextUI writes when the console sleeps or is
+	// turned off in game (AUTO_RESUME_SLOT of NextUI defines.h).
 	ResumeSlot = 9
+	// ThumbnailSlots: NextUI saves a thumbnail for the slots 0 to 7 only
+	// (the user slots of its menu).
+	ThumbnailSlots = 8
+	// maxPakScriptBytes bounds the launch.sh read to find the core.
+	maxPakScriptBytes = 64 << 10
 	// MaxFolderDepth bounds the recursion when counting games.
 	MaxFolderDepth = 16
 	// maxM3UBytes bounds the .m3u files read to find the discs.
@@ -40,14 +44,15 @@ const (
 	OSName = "nextui"
 	// ModelDesktop is the model reported off the console.
 	ModelDesktop = "desktop"
-	// WirelessInterface is the Wi-Fi interface of the console.
-	// TODO(M0): wlan0 on tg5040 is not yet checked.
+	// WirelessInterface is the Wi-Fi interface of the console
+	// (wifi_init.sh of NextUI tg5040).
 	WirelessInterface = "wlan0"
 )
 
 // knownModels are the values of the NextUI DEVICE variable the API knows
 // (Model enum of protocol/openapi.yaml).
-// TODO(M0): check the exact DEVICE values exported by NextUI.
+// NextUI exports brick, brickpro or smartpro on tg5040 (MinUI.pak/launch.sh);
+// the other values are kept for the platforms to come.
 var knownModels = map[string]bool{
 	"brick": true, "brickpro": true, "smartpro": true, "smartpros": true, "h700": true, "my355": true,
 }
@@ -55,9 +60,12 @@ var knownModels = map[string]bool{
 var (
 	tagRe      = regexp.MustCompile(`\(([^()]*)\)\s*$`)
 	leadingNum = regexp.MustCompile(`^\d+[)._ -]+`)
-	// stateRe matches "<ROM file name>.st<slot>".
-	// TODO(M0): MinUI naming, number of slots not yet checked on NextUI.
+	// stateRe matches "<ROM file name>.st<slot>" (default stateFormat).
 	stateRe = regexp.MustCompile(`^(.+)\.st(\d{1,2})$`)
+	// emuExeRe is the core line of an emulator pak launch.sh.
+	emuExeRe = regexp.MustCompile(`^\s*EMU_EXE=["']?([A-Za-z0-9_.+-]+)["']?\s*$`)
+	// formatRe reads saveFormat=N and stateFormat=N of minuisettings.txt.
+	formatRe = regexp.MustCompile(`^\s*(saveFormat|stateFormat)\s*=\s*(-?\d+)\s*$`)
 )
 
 // ignoredExt are the files of a ROM folder that are not games (Cheat
@@ -318,7 +326,12 @@ func (a *Adapter) index(sys osadapter.System, dir string) systemIndex {
 			idx.saves[fold(e.Name())] = true
 		}
 	}
-	for _, e := range readNames(filepath.Join(a.roots.States, sys.Tag)) {
+	statesDir := a.statesDir(sys.Tag)
+	var stateEntries []fs.DirEntry
+	if statesDir != "" {
+		stateEntries = readNames(statesDir)
+	}
+	for _, e := range stateEntries {
 		if !e.Type().IsRegular() {
 			continue
 		}
@@ -539,25 +552,174 @@ func (a *Adapter) gamePath(g osadapter.Game) string {
 // folderOf returns the absolute folder that holds the game.
 func (a *Adapter) folderOf(g osadapter.Game) string { return filepath.Dir(a.gamePath(g)) }
 
-// SavePath is Saves/<TAG>/<ROM file name>.sav.
-// TODO(M0): MinUI convention, not yet checked on NextUI (and for .m3u games).
+// SavePath is Saves/<TAG>/<ROM file name>.sav (minarch ma_saves.c, default
+// saveFormat; a multi-disc game is named after its .m3u).
 func (a *Adapter) SavePath(g osadapter.Game) string {
 	return filepath.Join(a.roots.Saves, g.System.Tag, g.ROMName+".sav")
 }
 
-// StatePath is <States>/<TAG>/<ROM file name>.st<slot>.
-// TODO(M0): MinUI convention, not yet checked on NextUI.
+// StatePath is <shared userdata>/<TAG>-<core>/<ROM file name>.st<slot>
+// (minarch ma_core.c and ma_saves.c, default stateFormat), "" when the
+// core of the system is unknown.
 func (a *Adapter) StatePath(g osadapter.Game, slot int) string {
-	return filepath.Join(a.roots.States, g.System.Tag, g.ROMName+".st"+strconv.Itoa(slot))
+	dir := a.statesDir(g.System.Tag)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, g.ROMName+".st"+strconv.Itoa(slot))
 }
 
-// StateThumbnailPath returns "": where NextUI keeps the state previews is
-// not known yet.
-// TODO(M0): find the state thumbnails (if any) on NextUI.
-func (a *Adapter) StateThumbnailPath(osadapter.Game, int) string { return "" }
+// pakCore returns the libretro core of the emulator pak of a tag: the
+// EMU_EXE value of <TAG>.pak/launch.sh, looked up like NextUI does
+// (hasEmu in nextui.c): the system paks first, then the extra paks. minarch
+// names the core after "<EMU_EXE>_libretro.so" cut at its last "_", that
+// is EMU_EXE itself.
+func (a *Adapter) pakCore(tag string) string {
+	for _, dir := range []string{filepath.Join(a.roots.System, "paks", "Emus"), a.roots.Emus} {
+		f, err := os.Open(filepath.Join(dir, tag+".pak", "launch.sh"))
+		if err != nil {
+			continue
+		}
+		sc := bufio.NewScanner(io.LimitReader(f, maxPakScriptBytes))
+		core := ""
+		for sc.Scan() {
+			if m := emuExeRe.FindStringSubmatch(strings.TrimRight(sc.Text(), "\r")); m != nil {
+				core = m[1]
+				break
+			}
+		}
+		f.Close()
+		if core != "" && !strings.HasPrefix(core, ".") {
+			return core
+		}
+		// A pak whose core cannot be read: NextUI would still use it, so
+		// do not look at the next folder.
+		return ""
+	}
+	return ""
+}
 
-// ResumeSlot returns the slot NextUI writes when turned off in game.
-func (a *Adapter) ResumeSlot() (int, bool) { return ResumeSlot, true }
+// statesDir returns the state folder of a tag: <shared>/<TAG>-<core>,
+// with the core of its emulator pak. Without a readable pak (a card
+// copied without its .system folder), a single existing <TAG>-* folder
+// is used. "" when it cannot be found.
+func (a *Adapter) statesDir(tag string) string {
+	if core := a.pakCore(tag); core != "" {
+		return filepath.Join(a.roots.States, tag+"-"+core)
+	}
+	found := ""
+	for _, e := range readNames(a.roots.States) {
+		rest, ok := strings.CutPrefix(e.Name(), tag+"-")
+		if !ok || rest == "" || !e.IsDir() || strings.Contains(rest, "-") {
+			continue
+		}
+		if found != "" {
+			return "" // several cores: cannot choose
+		}
+		found = filepath.Join(a.roots.States, e.Name())
+	}
+	return found
+}
+
+// formats reads saveFormat and stateFormat in minuisettings.txt (0, the
+// NextUI default, when absent).
+func (a *Adapter) formats() (save, state int) {
+	f, err := os.Open(filepath.Join(a.roots.States, SettingsFileName))
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(io.LimitReader(f, maxPakScriptBytes))
+	for sc.Scan() {
+		if m := formatRe.FindStringSubmatch(strings.TrimRight(sc.Text(), "\r")); m != nil {
+			n, _ := strconv.Atoi(m[2])
+			if m[1] == "saveFormat" {
+				save = n
+			} else {
+				state = n
+			}
+		}
+	}
+	return save, state
+}
+
+// CheckSaveFormat accepts the default saveFormat (0: <ROM file>.sav).
+// The other formats (.srm, compressed or not, and <name>.sav) are refused.
+func (a *Adapter) CheckSaveFormat() error {
+	if save, _ := a.formats(); save != 0 {
+		return fmt.Errorf("%w: saveFormat=%d in %s", osadapter.ErrUnsupportedFormat, save, SettingsFileName)
+	}
+	return nil
+}
+
+// CheckStateFormat accepts the default stateFormat (0: <ROM file>.st<N>).
+// The other formats (.state.<N>, .state<N>, .state.auto) are refused.
+func (a *Adapter) CheckStateFormat() error {
+	if _, state := a.formats(); state != 0 {
+		return fmt.Errorf("%w: stateFormat=%d in %s", osadapter.ErrUnsupportedFormat, state, SettingsFileName)
+	}
+	return nil
+}
+
+// StateFiles lists the states of the state folder of every tag (the
+// <TAG>-<core> folders of the shared userdata used by the current core of
+// their tag; the folders of other cores are ignored).
+func (a *Adapter) StateFiles() ([]osadapter.StateRef, error) {
+	des, err := os.ReadDir(a.roots.States)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list states: %w", withoutPath(err))
+	}
+	var out []osadapter.StateRef
+	for _, d := range des {
+		i := strings.LastIndex(d.Name(), "-")
+		if !d.IsDir() || hidden(d.Name()) || i <= 0 {
+			continue
+		}
+		tag := d.Name()[:i]
+		dir := filepath.Join(a.roots.States, d.Name())
+		if !validTag(tag) || a.statesDir(tag) != dir {
+			continue
+		}
+		for _, e := range readNames(dir) {
+			if !e.Type().IsRegular() {
+				continue
+			}
+			rom, slot, ok := parseState(e.Name())
+			if !ok {
+				continue
+			}
+			f, err := a.fileAt(filepath.Join(dir, e.Name()))
+			if err != nil {
+				continue
+			}
+			out = append(out, osadapter.StateRef{Tag: tag, ROMName: rom, Slot: slot, File: f})
+		}
+	}
+	return out, nil
+}
+
+// StateThumbnailPath is <shared>/.minui/<TAG>/<ROM file name>.<slot>.bmp
+// (minarch ma_menu.c), slots 0 to 7 only. The file holds a PNG image
+// despite its extension.
+func (a *Adapter) StateThumbnailPath(g osadapter.Game, slot int) string {
+	if slot < 0 || slot >= ThumbnailSlots {
+		return ""
+	}
+	return filepath.Join(a.roots.Minui, g.System.Tag, g.ROMName+"."+strconv.Itoa(slot)+".bmp")
+}
+
+// ResumeSlot returns the slot NextUI writes when it sleeps or is turned
+// off in game. With a non-default stateFormat the resume state is a
+// ".state.auto" file the adapter does not handle: no resume slot.
+func (a *Adapter) ResumeSlot() (int, bool) {
+	if a.CheckStateFormat() != nil {
+		return 0, false
+	}
+	return ResumeSlot, true
+}
 
 // CheatPath is Cheats/<TAG>/<ROM file name>.cht (as in Cheat Manager).
 func (a *Adapter) CheatPath(g osadapter.Game) string {
@@ -608,9 +770,13 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 	files.Save = a.findFold(filepath.Join(a.roots.Saves, g.System.Tag), g.ROMName+".sav")
 	files.Cheats = a.findFold(filepath.Join(a.roots.Cheats, g.System.Tag), g.ROMName+".cht")
 	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), g.Name+".png")
-	statesDir := filepath.Join(a.roots.States, g.System.Tag)
+	statesDir := a.statesDir(g.System.Tag)
 	want := fold(g.ROMName)
-	for _, e := range readNames(statesDir) {
+	var stateEntries []fs.DirEntry
+	if statesDir != "" {
+		stateEntries = readNames(statesDir)
+	}
+	for _, e := range stateEntries {
 		if !e.Type().IsRegular() {
 			continue
 		}
