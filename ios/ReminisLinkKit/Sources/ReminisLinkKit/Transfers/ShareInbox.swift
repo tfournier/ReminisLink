@@ -87,15 +87,42 @@ public struct ShareInbox: Sendable {
         }
     }
 
-    /// Complete requests, oldest first.
+    /// Complete and valid requests, oldest first. `request.json` is read
+    /// as untrusted: a request whose directory does not match its id, or
+    /// with a file name that is not a plain name inside its directory, is
+    /// ignored (and purged later).
     public func pending() -> [ShareRequest] {
         let manager = FileManager.default
         guard let entries = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [] }
         return entries.compactMap { directory -> ShareRequest? in
-            guard let data = try? Data(contentsOf: directory.appending(path: "request.json")) else { return nil }
-            return try? ProtocolJSON.decoder().decode(ShareRequest.self, from: data)
+            guard let data = try? Data(contentsOf: directory.appending(path: "request.json")),
+                  let request = try? ProtocolJSON.decoder().decode(ShareRequest.self, from: data),
+                  directory.lastPathComponent == request.id.uuidString.lowercased(),
+                  isValid(request)
+            else { return nil }
+            return request
         }
         .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// Every file name is a plain name whose file is inside the request's
+    /// directory (symbolic links resolved).
+    public func isValid(_ request: ShareRequest) -> Bool {
+        let directory = directory(for: request.id).resolvingSymlinksInPath().standardizedFileURL.path + "/"
+        return request.files.allSatisfy { name in
+            guard name == Self.safeName(name), !name.contains("/") else { return false }
+            let path = fileURL(name, in: request).resolvingSymlinksInPath().standardizedFileURL.path
+            return path.hasPrefix(directory) && !path.dropFirst(directory.count).contains("/")
+        }
+    }
+
+    /// Moves a file of a request to `destination` (the request keeps its
+    /// other files). Refuses a name that is not valid for the request.
+    public func takeFile(_ name: String, from request: ShareRequest, to destination: URL) throws {
+        guard request.files.contains(name), isValid(ShareRequest(id: request.id, files: [name], urls: [])) else {
+            throw CocoaError(.fileReadInvalidFileName)
+        }
+        try FileManager.default.moveItem(at: fileURL(name, in: request), to: destination)
     }
 
     public func request(id: UUID) -> ShareRequest? {
@@ -117,7 +144,10 @@ public struct ShareInbox: Sendable {
             let json = directory.appending(path: "request.json")
             if let data = try? Data(contentsOf: json),
                let request = try? ProtocolJSON.decoder().decode(ShareRequest.self, from: data) {
-                if now.timeIntervalSince(request.createdAt) > age { try? manager.removeItem(at: directory) }
+                if now.timeIntervalSince(request.createdAt) > age || !isValid(request)
+                    || directory.lastPathComponent != request.id.uuidString.lowercased() {
+                    try? manager.removeItem(at: directory)
+                }
             } else {
                 let modified = (try? directory.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
                 if now.timeIntervalSince(modified ?? .distantPast) > 3600 { try? manager.removeItem(at: directory) }

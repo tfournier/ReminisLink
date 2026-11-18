@@ -341,6 +341,29 @@ struct AddSuggestionTests {
         #expect(!FileManager.default.fileExists(atPath: partial.path))
     }
 
+    @Test func inboxRejectsTamperedRequests() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "rl-inbox-\(UUID().uuidString)")
+        let inbox = ShareInbox(root: root)
+        let good = try inbox.write(files: [try makeFile(size: 10, name: "a.gba")], urls: [])
+        for names in [["../../etc/passwd"], ["sub/a.gba"], ["request.json"], [".."]] {
+            let id = UUID()
+            let tampered = ShareRequest(id: id, files: names, urls: [])
+            try FileManager.default.createDirectory(at: inbox.directory(for: id), withIntermediateDirectories: true)
+            try ProtocolJSON.encoder().encode(tampered).write(to: inbox.directory(for: id).appending(path: "request.json"))
+        }
+        // A request stored under another request's directory.
+        let other = ShareRequest(id: UUID(), files: [], urls: ["https://example.org/a"])
+        try ProtocolJSON.encoder().encode(other).write(to: inbox.directory(for: good.id).appending(path: "../x.json"))
+        #expect(inbox.pending().map(\.id) == [good.id])
+        let destination = root.appending(path: "moved.gba")
+        try inbox.takeFile("a.gba", from: good, to: destination)
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+        #expect(!FileManager.default.fileExists(atPath: inbox.fileURL("a.gba", in: good).path))
+        #expect(throws: CocoaError.self) {
+            try inbox.takeFile("../x.json", from: ShareRequest(id: good.id, files: ["../x.json"], urls: []), to: destination)
+        }
+    }
+
     @Test func safeNames() {
         #expect(ShareInbox.safeName("../a/b.gba") == ".._a_b.gba")
         #expect(ShareInbox.safeName("request.json") == "file")
