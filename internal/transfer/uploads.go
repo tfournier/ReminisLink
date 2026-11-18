@@ -34,17 +34,19 @@ const (
 //
 //	<id>.json  the request (target, size, sha256, onConflict), written once
 //	<id>.part  the bytes received so far
-//	<id>.hash  the SHA-256 state after the last chunk, to resume the hash
-//	           after a restart without reading the file again
 //
 // Uploads survive a restart of the pak: the offset is the size of the
-// .part file. The .hash file is written without fsync (cheap); after a
-// power loss it may be behind or ahead of the .part file, and the hash is
-// then computed again from the file. Bytes lost or damaged by a power loss
-// are caught by the final SHA-256 check (409 checksum_mismatch).
+// .part file. The .part file is not synced after each chunk, so after a
+// power loss its size may cover bytes that never reached the card (zeros
+// or garbage). The incremental SHA-256 is therefore kept in memory only:
+// after a restart it is computed again from the bytes really present in
+// the .part file (streamed, on the first chunk or completion), so the
+// final check always covers what will be installed, and damaged bytes end
+// in 409 checksum_mismatch, never in an installed corrupt file.
 const (
 	metaExt = ".json"
 	partExt = ".part"
+	// hashExt was a saved hash state (first M4 draft); only deleted now.
 	hashExt = ".hash"
 )
 
@@ -82,11 +84,6 @@ type uploadMeta struct {
 	SHA256     string    `json:"sha256"`
 	OnConflict string    `json:"onConflict"`
 	CreatedAt  time.Time `json:"createdAt"`
-}
-
-type hashState struct {
-	Offset int64  `json:"offset"`
-	State  []byte `json:"state"`
 }
 
 type upload struct {
@@ -376,21 +373,7 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 	}
 	u.offset += n
 	u.activity = s.now()
-	s.saveHashState(u)
 	return u.offset, nil, nil
-}
-
-// saveHashState writes the hash state of an upload (no fsync, see above).
-func (s *Service) saveHashState(u *upload) {
-	state, err := u.hash.(encoding.BinaryMarshaler).MarshalBinary()
-	if err != nil {
-		return
-	}
-	data, _ := json.Marshal(hashState{Offset: u.offset, State: state})
-	p := s.uploadPath(u.meta.ID, hashExt)
-	if err := os.WriteFile(p+".tmp", data, 0o644); err == nil {
-		_ = os.Rename(p+".tmp", p)
-	}
 }
 
 // CompleteUpload checks the SHA-256 and installs the file. On a mismatch
@@ -524,24 +507,8 @@ func (s *Service) loadUpload(id string) (*upload, error) {
 	if m.CreatedAt.After(u.activity) {
 		u.activity = m.CreatedAt
 	}
-	// Reuse the hash state if the file holds at least its bytes: the
-	// file is cut back to that offset (bytes past it were written but
-	// their hash state was not saved).
-	if raw, err := os.ReadFile(s.uploadPath(id, hashExt)); err == nil {
-		var hs hashState
-		if json.Unmarshal(raw, &hs) == nil && hs.Offset >= 0 && hs.Offset <= u.offset {
-			h := sha256.New()
-			if h.(encoding.BinaryUnmarshaler).UnmarshalBinary(hs.State) == nil {
-				if hs.Offset < u.offset {
-					if err := os.Truncate(s.uploadPath(id, partExt), hs.Offset); err != nil {
-						return nil, err
-					}
-					u.offset = hs.Offset
-				}
-				u.hash = h
-			}
-		}
-	}
+	// Never trust a saved hash state: ensureHash reads the real bytes.
+	_ = os.Remove(s.uploadPath(id, hashExt))
 	if u.offset == 0 {
 		u.hash = sha256.New()
 	}

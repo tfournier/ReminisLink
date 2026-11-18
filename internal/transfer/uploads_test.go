@@ -98,33 +98,45 @@ func TestUploadIntoSubfolderAndEmptyFile(t *testing.T) {
 }
 
 func TestUploadResumesAfterRestart(t *testing.T) {
-	for _, mode := range []string{"hash state", "hash state ahead", "no hash state"} {
+	for _, mode := range []string{"clean", "unsaved bytes", "zeroed tail"} {
 		t.Run(mode, func(t *testing.T) {
 			e := newEnv(t)
 			data := randomBytes(t, 4000)
 			c := e.create(romTarget("Resumed.gba"), data, "")
 			e.send(c.UploadID, data, 0, 2048)
 			part := filepath.Join(e.layout.UploadsDir(), c.UploadID+partExt)
-			hashFile := filepath.Join(e.layout.UploadsDir(), c.UploadID+hashExt)
+			want := int64(2048)
 			switch mode {
-			case "hash state ahead":
-				// Bytes written after the last saved hash state: cut back.
+			case "unsaved bytes":
+				// Bytes on the card past the last answered chunk: kept.
 				f, _ := os.OpenFile(part, os.O_WRONLY|os.O_APPEND, 0)
 				f.Write(data[2048:2100])
 				f.Close()
-			case "no hash state":
-				os.Remove(hashFile)
+				want = 2100
+			case "zeroed tail":
+				// Power loss: the size of the file persisted, not its data.
+				f, _ := os.OpenFile(part, os.O_WRONLY, 0)
+				f.WriteAt(make([]byte, 100), 1948)
+				f.Close()
 			}
+			// A stale hash state of the first draft is ignored.
+			os.WriteFile(filepath.Join(e.layout.UploadsDir(), c.UploadID+hashExt), []byte(`{"offset":2048}`), 0o644)
 			e.svc.Close()
 			e.svc = e.newService() // the pak restarts
 			st, apiErr := e.svc.Status(c.UploadID)
-			if apiErr != nil || st.Offset != 2048 && mode != "no hash state" {
+			if apiErr != nil || st.Offset != want {
 				t.Fatalf("after restart %+v %v", st, apiErr)
 			}
 			e.send(c.UploadID, data, int(st.Offset), len(data))
-			e.complete(c.UploadID)
-			if e.read("Roms/"+gbaSystem+"/Resumed.gba") != string(data) {
-				t.Fatal("content")
+			res, apiErr, err := e.svc.CompleteUpload(c.UploadID)
+			if mode == "zeroed tail" {
+				if apiErr == nil || apiErr.Code != CodeChecksumMismatch || e.exists("Roms/"+gbaSystem+"/Resumed.gba") {
+					t.Fatalf("corrupt file installed: %v %v %v", res, apiErr, err)
+				}
+				return
+			}
+			if apiErr != nil || err != nil || e.read("Roms/"+gbaSystem+"/Resumed.gba") != string(data) {
+				t.Fatalf("complete: %v %v", apiErr, err)
 			}
 		})
 	}
