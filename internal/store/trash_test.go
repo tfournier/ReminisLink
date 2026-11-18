@@ -263,3 +263,34 @@ func TestTrashEntryJSON(t *testing.T) {
 		t.Fatalf("entry.json %s", data)
 	}
 }
+
+func TestTrashFailedMoveRecountsWhatIsLeft(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	a := write(t, sd, "Roms/A (A)/a.gba", "aaaa")
+	b := write(t, sd, "Saves/A/a.gba.sav", "bb")
+	c := write(t, sd, "Cheats/A/a.gba.cht", "c")
+	calls := 0
+	tr.rename = func(oldpath, newpath string) error {
+		calls++
+		switch calls {
+		case 3:
+			// Third move fails; meanwhile a new file took a's place, so a
+			// cannot go back.
+			write(t, sd, "Roms/A (A)/a.gba", "new")
+			return errors.New("simulated failure")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	if _, err := tr.Move(ReasonDeleteGame, "a", []MoveItem{{Path: a}, {Path: b}, {Path: c}}); err == nil {
+		t.Fatal("expected an error")
+	}
+	tr.rename = os.Rename
+	if data, _ := os.ReadFile(b); string(data) != "bb" {
+		t.Fatal("b not put back")
+	}
+	entries, total, err := tr.List()
+	if err != nil || len(entries) != 1 || len(entries[0].Files) != 1 || entries[0].Files[0] != "Roms/A (A)/a.gba" ||
+		entries[0].SizeBytes != 4 || total != 4 {
+		t.Fatalf("entry %+v total %d %v", entries, total, err)
+	}
+}

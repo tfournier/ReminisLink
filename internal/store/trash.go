@@ -335,7 +335,7 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 			if len(left) == 0 {
 				os.RemoveAll(entryDir)
 			} else {
-				e.Moves, e.State = left, stateDone
+				recount(entryDir, &e, left)
 				_ = writeEntry(entryDir, e)
 				t.log.Error("trash: files left in the trash after a failed move", "entry", id, "files", left)
 			}
@@ -603,20 +603,7 @@ func (t *Trash) Recover() error {
 			}
 			continue
 		}
-		e.Moves, e.State = left, stateDone
-		e.Files, e.Internal, e.SizeBytes = nil, nil, 0
-		for _, rel := range left {
-			_ = filepath.WalkDir(filepath.Join(dir, filepath.FromSlash(rel)), func(p string, d fs.DirEntry, err error) error {
-				if err == nil && d.Type().IsRegular() {
-					r, _ := filepath.Rel(dir, p)
-					e.Files = append(e.Files, filepath.ToSlash(r))
-					if info, err := d.Info(); err == nil {
-						e.SizeBytes += info.Size()
-					}
-				}
-				return nil
-			})
-		}
+		recount(dir, &e, left)
 		if err := writeEntry(dir, e); err != nil {
 			return err
 		}
@@ -624,6 +611,35 @@ func (t *Trash) Recover() error {
 	}
 	t.finishDeletions()
 	return nil
+}
+
+// recount makes e describe what is really left in its folder: the moves
+// in left (relative paths), their files and size. Internal copies stay
+// marked internal. The entry becomes "done".
+func recount(dir string, e *entryFile, left []string) {
+	internal := map[string]bool{}
+	for _, rel := range e.Internal {
+		internal[rel] = true
+	}
+	e.Moves, e.State = left, stateDone
+	e.Files, e.Internal, e.SizeBytes = nil, nil, 0
+	for _, rel := range left {
+		if internal[rel] {
+			e.Internal = append(e.Internal, rel)
+		}
+		_ = filepath.WalkDir(filepath.Join(dir, filepath.FromSlash(rel)), func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() {
+				if info, err := d.Info(); err == nil {
+					e.SizeBytes += info.Size()
+				}
+				if !internal[rel] {
+					r, _ := filepath.Rel(dir, p)
+					e.Files = append(e.Files, filepath.ToSlash(r))
+				}
+			}
+			return nil
+		})
+	}
 }
 
 func hasRegularFile(dir string) bool {
