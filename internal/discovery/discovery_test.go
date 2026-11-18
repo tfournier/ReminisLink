@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/grandcat/zeroconf"
+	"github.com/miekg/dns"
 )
 
 func TestTXT(t *testing.T) {
@@ -51,7 +52,7 @@ func TestAnnounceAndBrowse(t *testing.T) {
 		t.Skip("set RL_MDNS_TEST=1 to test the real Bonjour announcement")
 	}
 	info := Info{DeviceID: "00000000-0000-4000-8000-000000000001", APIVersion: 1, Model: "desktop", Platform: "tg5040", OS: "nextui", PakVersion: "test"}
-	const instance = "ReminisLink test"
+	const instance = "ReminisLink v1.2 test"
 	a, err := Announce(instance, 47899, info, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -81,4 +82,48 @@ func TestAnnounceAndBrowse(t *testing.T) {
 		}
 	}
 	t.Fatal("announcement not found")
+}
+
+func TestEscapeInstance(t *testing.T) {
+	for in, want := range map[string]string{
+		"Brick":           "Brick",
+		"Brick v1.2":      `Brick\ v1\.2`,
+		`a\b`:             `a\\b`,
+		"(x);@\"y\"":      `\(x\)\;\@\"y\"`,
+		"Thomas's Brické": `Thomas's\ Brick\195\169`,
+	} {
+		if got := EscapeInstance(in); got != want {
+			t.Errorf("EscapeInstance(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{"..Brick v1.2..": "Brick v1.2", " . ": "ReminisLink"} {
+		if got := InstanceName(in); got != want {
+			t.Errorf("InstanceName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The escaped instance stays one label of the service, and decoding it
+// gives back the exact string zeroconf registered (queries match it).
+func TestEscapedInstanceRoundTrip(t *testing.T) {
+	for _, name := range []string{"Brick v1.2", `back\slash.`, "Brické de Thomas (2)", "a;b@c\"d"} {
+		inst := EscapeInstance(InstanceName(name))
+		full := inst + "." + ServiceType + "." + Domain
+		buf := make([]byte, 512)
+		n, err := dns.PackDomainName(full, buf, 0, nil, false)
+		if err != nil {
+			t.Fatalf("%q: pack: %v", name, err)
+		}
+		back, _, err := dns.UnpackDomainName(buf[:n], 0)
+		if err != nil || back != full {
+			t.Fatalf("%q: round trip %q, want %q (%v)", name, back, full, err)
+		}
+		labels := dns.SplitDomainName(full)
+		if len(labels) != 4 || labels[1] != "_reminislink" {
+			t.Fatalf("%q: labels %q", name, labels)
+		}
+		if buf[0] != byte(len(InstanceName(name))) {
+			t.Fatalf("%q: first label is %d bytes, want %d", name, buf[0], len(InstanceName(name)))
+		}
+	}
 }

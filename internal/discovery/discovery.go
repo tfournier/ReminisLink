@@ -66,9 +66,10 @@ func ascii(s string) string {
 }
 
 // InstanceName returns name cut to the 63-byte DNS label limit, on a rune
-// boundary. An empty name gives "ReminisLink".
+// boundary, without leading or trailing spaces and dots (zeroconf trims
+// the dots of the instance). An empty name gives "ReminisLink".
 func InstanceName(name string) string {
-	name = strings.TrimSpace(name)
+	name = strings.Trim(name, " .")
 	if name == "" {
 		return "ReminisLink"
 	}
@@ -76,7 +77,34 @@ func InstanceName(name string) string {
 		_, size := utf8.DecodeLastRuneInString(name)
 		name = name[:len(name)-size]
 	}
+	if name = strings.TrimRight(name, " ."); name == "" {
+		return "ReminisLink"
+	}
 	return name
+}
+
+// EscapeInstance escapes an instance name for zeroconf, which joins it
+// with the service name as text ("<instance>._reminislink._tcp.local.")
+// without escaping: a "." in the name would otherwise start a new label
+// and move the instance out of the service. The escaping is the one
+// github.com/miekg/dns produces when it decodes a name (backslash before
+// . ( ) ; space @ " \, \DDD for other bytes outside printable ASCII), so
+// the queries zeroconf receives match the registered name.
+func EscapeInstance(name string) string {
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case strings.IndexByte(`.();@"\ `, c) >= 0:
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case c < ' ' || c > '~':
+			fmt.Fprintf(&b, "\\%03d", c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // Announcement is a running Bonjour announcement.
@@ -87,7 +115,7 @@ type Announcement struct {
 // Announce registers the service on the given interfaces (nil: every
 // multicast interface) until Shutdown.
 func Announce(name string, port int, info Info, ifaces []net.Interface) (*Announcement, error) {
-	server, err := zeroconf.Register(InstanceName(name), ServiceType, Domain, port, TXT(info), ifaces)
+	server, err := zeroconf.Register(EscapeInstance(InstanceName(name)), ServiceType, Domain, port, TXT(info), ifaces)
 	if err != nil {
 		return nil, fmt.Errorf("bonjour: %w", err)
 	}
