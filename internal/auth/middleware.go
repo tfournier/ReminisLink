@@ -24,10 +24,27 @@ const (
 	CodeInternal        = "internal"
 )
 
-// DefaultMaxSignedBody is the largest body the verifier hashes in memory.
-// It matches the largest signed body of the API (PUT /games/{id}/save,
-// 64 MiB); routes with a lower limit (1 MiB for JSON) enforce it themselves.
-const DefaultMaxSignedBody = 64 << 20
+// Signed body limits. The verifier reads a signed body in memory to hash
+// it, and only once the signature of the headers is valid.
+const (
+	// MaxJSONBody is the default limit (docs/specs/03-protocole.md §1).
+	MaxJSONBody = 1 << 20
+	// MaxSaveBody is the limit of PUT /api/v1/games/{gameId}/save.
+	MaxSaveBody = 64 << 20
+)
+
+// DefaultBodyLimit returns the signed body limit of a route: MaxSaveBody
+// for PUT /api/v1/games/{gameId}/save, MaxJSONBody otherwise.
+func DefaultBodyLimit(method, path string) int64 {
+	if strings.ToUpper(method) == http.MethodPut {
+		if rest, ok := strings.CutPrefix(path, "/api/v1/games/"); ok {
+			if id, ok := strings.CutSuffix(rest, "/save"); ok && id != "" && !strings.Contains(id, "/") {
+				return MaxSaveBody
+			}
+		}
+	}
+	return MaxJSONBody
+}
 
 // ClientLookup finds a paired client. *ClientStore implements it.
 type ClientLookup interface {
@@ -36,11 +53,11 @@ type ClientLookup interface {
 
 // Verifier checks signed requests (docs/specs/03-protocole.md §4.3).
 type Verifier struct {
-	Clients      ClientLookup
-	Nonces       *NonceCache
-	Now          func() time.Time // nil: time.Now
-	MaxBodyBytes int64            // 0: DefaultMaxSignedBody
-	Logger       *slog.Logger     // nil: slog.Default()
+	Clients   ClientLookup
+	Nonces    *NonceCache
+	Now       func() time.Time                // nil: time.Now
+	BodyLimit func(method, path string) int64 // nil: DefaultBodyLimit
+	Logger    *slog.Logger                    // nil: slog.Default()
 }
 
 type clientContextKey struct{}
@@ -60,18 +77,23 @@ func WithClient(ctx context.Context, c Client) context.Context {
 // next with the client in the request context. The unsigned routes
 // (GET /hello, POST /pair) must not be wrapped.
 //
-// Checks, in the order of the spec:
+// Checks:
 //  1. unknown client (missing X-RL-Client included) → 401 unknown_client;
 //     then any missing or malformed signature header → 401 bad_signature;
 //  2. clock skew > 300 s → 401 clock_skew;
 //  3. nonce already seen → 401 replayed_request;
-//  4. body hash mismatch (unless UNSIGNED, only allowed on
-//     PUT /api/v1/uploads/{id}) → 401 bad_signature;
-//  5. signature mismatch (constant time) → 401 bad_signature.
+//  4. signature mismatch (constant time) → 401 bad_signature;
+//  5. UNSIGNED outside PUT /api/v1/uploads/{id}, or body hash mismatch →
+//     401 bad_signature; body above the route limit → 413 too_large.
 //
-// The nonce is only recorded once the signature is valid, so unsigned
+// Steps 4 and 5 are swapped compared with the spec: both answer
+// bad_signature, and checking the signature (which covers the announced
+// body hash) first means the body of a forged request is never read.
+//
+// The nonce is only recorded once the whole request is valid, so forged
 // requests cannot fill the cache; recording is atomic, so two identical
-// concurrent requests cannot both pass.
+// concurrent requests cannot both pass. A full cache answers 429
+// too_many_attempts (fail closed).
 func (v *Verifier) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		client, ok := v.verify(w, r)
@@ -119,11 +141,7 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request) (Client, bool)
 	}
 
 	ts, _ := strconv.ParseInt(parts.Time, 10, 64) // validated by CanonicalRequest
-	skew := now().Sub(time.Unix(ts, 0))
-	if skew < 0 {
-		skew = -skew
-	}
-	if skew > MaxClockSkew {
+	if !withinClockSkew(time.Unix(ts, 0), now()) {
 		return fail(http.StatusUnauthorized, CodeClockSkew, "Request time is too far from the device time")
 	}
 
@@ -131,16 +149,20 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request) (Client, bool)
 		return fail(http.StatusUnauthorized, CodeReplayedRequest, "Nonce already used")
 	}
 
+	if !Verify(client.Key, canonical, r.Header.Get(HeaderSignature)) {
+		return fail(http.StatusUnauthorized, CodeBadSignature, "Bad signature")
+	}
+
 	if parts.ContentSHA256 == UnsignedPayload {
 		if !AllowsUnsignedBody(parts.Method, path) {
 			return fail(http.StatusUnauthorized, CodeBadSignature, "UNSIGNED body not allowed on this route")
 		}
 	} else {
-		limit := v.MaxBodyBytes
-		if limit <= 0 {
-			limit = DefaultMaxSignedBody
+		bodyLimit := DefaultBodyLimit
+		if v.BodyLimit != nil {
+			bodyLimit = v.BodyLimit
 		}
-		body, err := readBody(r, limit)
+		body, err := readBody(r, bodyLimit(parts.Method, path))
 		if errors.Is(err, errBodyTooLarge) {
 			return fail(http.StatusRequestEntityTooLarge, CodeTooLarge, "Body too large")
 		}
@@ -154,20 +176,23 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request) (Client, bool)
 		r.ContentLength = int64(len(body))
 	}
 
-	if !Verify(client.Key, canonical, r.Header.Get(HeaderSignature)) {
-		return fail(http.StatusUnauthorized, CodeBadSignature, "Bad signature")
-	}
-
 	switch err := v.Nonces.Add(client.ID, parts.Nonce); {
 	case errors.Is(err, ErrReplay):
 		return fail(http.StatusUnauthorized, CodeReplayedRequest, "Nonce already used")
 	case errors.Is(err, ErrNonceCacheFull):
-		// The spec defines no code for this case (reported in the M1 notes).
+		// The spec defines no code for this case yet (reported in the M1 notes).
 		return fail(http.StatusTooManyRequests, CodeTooManyAttempts, "Too many requests")
 	case err != nil:
 		return fail(http.StatusInternalServerError, CodeInternal, "Internal error")
 	}
 	return client, true
+}
+
+// withinClockSkew reports whether |t - now| <= MaxClockSkew. It compares
+// instants instead of subtracting them: time.Time.Sub saturates for far
+// away times and the absolute value of the minimum Duration stays negative.
+func withinClockSkew(t, now time.Time) bool {
+	return !t.Before(now.Add(-MaxClockSkew)) && !t.After(now.Add(MaxClockSkew))
 }
 
 // AllowsUnsignedBody reports whether X-RL-Content-SHA256: UNSIGNED is

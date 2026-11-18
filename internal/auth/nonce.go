@@ -7,9 +7,12 @@ import (
 )
 
 const (
-	// NonceTTL is how long a request nonce is remembered. It must stay
-	// above 2 × MaxClockSkew so a request cannot be replayed while its
-	// timestamp is still accepted.
+	// NonceTTL is how long a request nonce is remembered. It must be at
+	// least 2 × MaxClockSkew so a request cannot be replayed while its
+	// timestamp is still accepted. Both bounds are inclusive: the clock
+	// accepts |t - now| <= MaxClockSkew and the cache remembers a nonce
+	// until now <= added + NonceTTL, so at the exact instant
+	// added + 2 × MaxClockSkew the nonce is still known.
 	NonceTTL = 10 * time.Minute
 	// DefaultNonceCapacity bounds the memory of the cache.
 	DefaultNonceCapacity = 50000
@@ -64,7 +67,7 @@ func (c *NonceCache) Seen(clientID, nonce string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	exp, ok := c.expiry[nonceKey(clientID, nonce)]
-	return ok && c.now().Before(exp)
+	return ok && !c.now().After(exp)
 }
 
 // Add records the nonce for the client. It returns ErrReplay if it is
@@ -76,7 +79,7 @@ func (c *NonceCache) Add(clientID, nonce string) error {
 	now := c.now()
 	c.evictLocked(now)
 	key := nonceKey(clientID, nonce)
-	if exp, ok := c.expiry[key]; ok && now.Before(exp) {
+	if exp, ok := c.expiry[key]; ok && !now.After(exp) {
 		return ErrReplay
 	}
 	if len(c.expiry) >= c.capacity {
@@ -99,7 +102,7 @@ func (c *NonceCache) Len() int {
 func (c *NonceCache) evictLocked(now time.Time) {
 	for c.head < len(c.order) {
 		e := c.order[c.head]
-		if now.Before(e.expires) {
+		if !now.After(e.expires) {
 			break
 		}
 		if exp, ok := c.expiry[e.key]; ok && exp.Equal(e.expires) {

@@ -15,11 +15,13 @@ import (
 )
 
 type mwFixture struct {
-	t      *testing.T
-	clock  *fakeClock
-	key    []byte
-	server *httptest.Server
-	seen   chan seenRequest
+	t        *testing.T
+	clock    *fakeClock
+	key      []byte
+	verifier *Verifier
+	handler  http.Handler
+	server   *httptest.Server
+	seen     chan seenRequest
 }
 
 type seenRequest struct {
@@ -28,6 +30,11 @@ type seenRequest struct {
 }
 
 func newMWFixture(t *testing.T, maxBody int64) *mwFixture {
+	t.Helper()
+	return newMWFixtureWith(t, maxBody, 100)
+}
+
+func newMWFixtureWith(t *testing.T, maxBody int64, nonceCapacity int) *mwFixture {
 	t.Helper()
 	clients, err := OpenClientStore(filepath.Join(t.TempDir(), "clients.json"))
 	if err != nil {
@@ -38,14 +45,16 @@ func newMWFixture(t *testing.T, maxBody int64) *mwFixture {
 		t.Fatal(err)
 	}
 	clock := newFakeClock()
-	f := &mwFixture{t: t, clock: clock, key: key, seen: make(chan seenRequest, 10)}
 	v := &Verifier{
-		Clients:      clients,
-		Nonces:       NewNonceCache(NonceTTL, 100, clock.Now),
-		Now:          clock.Now,
-		MaxBodyBytes: maxBody,
+		Clients: clients,
+		Nonces:  NewNonceCache(NonceTTL, nonceCapacity, clock.Now),
+		Now:     clock.Now,
 	}
-	f.server = httptest.NewServer(v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	if maxBody > 0 {
+		v.BodyLimit = func(string, string) int64 { return maxBody }
+	}
+	f := &mwFixture{t: t, clock: clock, key: key, seen: make(chan seenRequest, 10), verifier: v}
+	f.handler = v.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, ok := ClientFromContext(r.Context())
 		if !ok {
 			t.Error("no client in context")
@@ -53,7 +62,8 @@ func newMWFixture(t *testing.T, maxBody int64) *mwFixture {
 		body, _ := io.ReadAll(r.Body)
 		f.seen <- seenRequest{client: c, body: string(body)}
 		w.WriteHeader(http.StatusNoContent)
-	})))
+	}))
+	f.server = httptest.NewServer(f.handler)
 	t.Cleanup(f.server.Close)
 	return f
 }
@@ -65,6 +75,7 @@ type signOpts struct {
 	clientID       string
 	key            []byte
 	time           time.Time
+	timeRaw        string // overrides time when set
 	nonce          string
 }
 
@@ -91,6 +102,9 @@ func (f *mwFixture) request(o signOpts) *http.Request {
 		content = UnsignedPayload
 	}
 	ts := strconv.FormatInt(o.time.Unix(), 10)
+	if o.timeRaw != "" {
+		ts = o.timeRaw
+	}
 	canonical, err := CanonicalRequest(RequestParts{
 		Method: o.method, Path: path, RawQuery: query, Time: ts, Nonce: o.nonce, ContentSHA256: content,
 	})
@@ -170,6 +184,127 @@ func TestMiddlewareClockSkewBoundaries(t *testing.T) {
 		status, code := f.do(f.request(signOpts{method: "GET", target: "/api/v1/device", time: now.Add(d)}))
 		if status != http.StatusUnauthorized || code != CodeClockSkew {
 			t.Fatalf("skew %v: %d %s", d, status, code)
+		}
+	}
+	// Far away times must not overflow the comparison (time.Time.Sub
+	// saturates and the absolute value of the minimum Duration is negative).
+	for _, raw := range []string{"0", "1", "99999999999", "9223372036854775807", "253402300800"} {
+		status, code := f.do(f.request(signOpts{method: "GET", target: "/api/v1/device", timeRaw: raw}))
+		if status != http.StatusUnauthorized || code != CodeClockSkew {
+			t.Fatalf("time %s: %d %s, want 401 %s", raw, status, code, CodeClockSkew)
+		}
+	}
+}
+
+func TestWithinClockSkewExtremes(t *testing.T) {
+	now := newFakeClock().Now()
+	for _, ts := range []int64{0, -1 << 62, 1<<63 - 1, 99999999999} {
+		if withinClockSkew(time.Unix(ts, 0), now) {
+			t.Errorf("ts %d accepted", ts)
+		}
+	}
+}
+
+// A nonce must stay in the cache as long as the clock still accepts its
+// timestamp: a request sent with time = now + 300 s can be replayed until
+// now + 600 s, the exact instant the TTL ends.
+func TestMiddlewareReplayAtExactWindowEdge(t *testing.T) {
+	f := newMWFixture(t, 0)
+	start := f.clock.Now()
+	opts := signOpts{method: "GET", target: "/api/v1/device", time: start.Add(MaxClockSkew),
+		nonce: EncodeB64U(bytes.Repeat([]byte{7}, 16))}
+	if status, code := f.do(f.request(opts)); status != http.StatusNoContent {
+		t.Fatalf("first request: %d %s", status, code)
+	}
+	<-f.seen
+	f.clock.Advance(2 * MaxClockSkew)
+	if status, code := f.do(f.request(opts)); status != 401 || code != CodeReplayedRequest {
+		t.Fatalf("replay at the window edge: %d %s, want 401 %s", status, code, CodeReplayedRequest)
+	}
+	f.clock.Advance(time.Second)
+	if status, code := f.do(f.request(opts)); status != 401 || code != CodeClockSkew {
+		t.Fatalf("after the edge the clock refuses it: %d %s", status, code)
+	}
+}
+
+func TestMiddlewareNonceCacheFull(t *testing.T) {
+	f := newMWFixtureWith(t, 0, 1)
+	if status, _ := f.do(f.request(signOpts{method: "GET", target: "/api/v1/device"})); status != http.StatusNoContent {
+		t.Fatalf("first request: %d", status)
+	}
+	<-f.seen
+	status, code := f.do(f.request(signOpts{method: "GET", target: "/api/v1/device"}))
+	if status != http.StatusTooManyRequests || code != CodeTooManyAttempts {
+		t.Fatalf("full cache: %d %s, want 429 %s", status, code, CodeTooManyAttempts)
+	}
+}
+
+// countingReader counts the bytes read from it.
+type countingReader struct {
+	n, size int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	if c.n >= c.size {
+		return 0, io.EOF
+	}
+	k := min(len(p), c.size-c.n)
+	for i := range p[:k] {
+		p[i] = 'x'
+	}
+	c.n += k
+	return k, nil
+}
+
+func TestMiddlewareDoesNotReadBodyOfForgedRequest(t *testing.T) {
+	f := newMWFixture(t, 0)
+	// Signed with the wrong key, announcing the hash of a small body.
+	req := f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: []byte("small"),
+		key: bytes.Repeat([]byte{1}, KeySize)})
+	body := &countingReader{size: MaxSaveBody}
+	req.Body = io.NopCloser(body)
+	req.ContentLength = MaxSaveBody
+	req.RequestURI = "/api/v1/games/R2FtZQ/save"
+	rec := httptest.NewRecorder()
+	f.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), CodeBadSignature) {
+		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
+	}
+	if body.n != 0 {
+		t.Fatalf("%d body bytes read before the signature was checked", body.n)
+	}
+}
+
+func TestMiddlewareDefaultBodyLimits(t *testing.T) {
+	f := newMWFixture(t, 0)
+	big := bytes.Repeat([]byte{'a'}, MaxJSONBody+1)
+	status, code := f.do(f.request(signOpts{method: "POST", target: "/api/v1/games/R2FtZQ/save/backups", body: big}))
+	if status != http.StatusRequestEntityTooLarge || code != CodeTooLarge {
+		t.Fatalf("JSON route: %d %s", status, code)
+	}
+	save := bytes.Repeat([]byte{'s'}, 2*MaxJSONBody)
+	if status, code := f.do(f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: save})); status != http.StatusNoContent {
+		t.Fatalf("save route: %d %s", status, code)
+	}
+	if got := <-f.seen; len(got.body) != len(save) {
+		t.Fatalf("handler got %d bytes", len(got.body))
+	}
+}
+
+func TestDefaultBodyLimit(t *testing.T) {
+	cases := map[string]int64{
+		"PUT /api/v1/games/R2FtZQ/save":          MaxSaveBody,
+		"put /api/v1/games/R2FtZQ/save":          MaxSaveBody,
+		"POST /api/v1/games/R2FtZQ/save":         MaxJSONBody,
+		"PUT /api/v1/games//save":                MaxJSONBody,
+		"PUT /api/v1/games/a/b/save":             MaxJSONBody,
+		"PUT /api/v1/games/R2FtZQ/cheats":        MaxJSONBody,
+		"POST /api/v1/games/R2FtZQ/save/backups": MaxJSONBody,
+	}
+	for in, want := range cases {
+		m, p, _ := strings.Cut(in, " ")
+		if got := DefaultBodyLimit(m, p); got != want {
+			t.Errorf("%s: %d, want %d", in, got, want)
 		}
 	}
 }
@@ -274,11 +409,11 @@ func TestMiddlewareReplay(t *testing.T) {
 	if status, code := f.do(f.request(opts)); status != 401 || code != CodeReplayedRequest {
 		t.Fatalf("replay: %d %s", status, code)
 	}
-	// Still refused just before the TTL; accepted again after (the
+	// Still refused up to the TTL included; accepted again after (the
 	// timestamp is then refreshed by the client).
-	f.clock.Advance(NonceTTL - time.Second)
+	f.clock.Advance(NonceTTL)
 	if status, code := f.do(f.request(opts)); status != 401 || code != CodeReplayedRequest {
-		t.Fatalf("replay before TTL: %d %s", status, code)
+		t.Fatalf("replay at TTL: %d %s", status, code)
 	}
 	f.clock.Advance(time.Second)
 	if status, _ := f.do(f.request(opts)); status != http.StatusNoContent {

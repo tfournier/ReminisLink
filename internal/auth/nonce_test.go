@@ -59,11 +59,14 @@ func TestNonceCacheReplayAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	clock.Advance(NonceTTL - time.Second)
+	clock.Advance(NonceTTL)
 	if !c.Seen("a", "n1") {
-		t.Fatal("nonce forgotten before its TTL")
+		t.Fatal("nonce forgotten at its TTL (the bound is inclusive)")
 	}
-	clock.Advance(time.Second)
+	if err := c.Add("a", "n1"); !errors.Is(err, ErrReplay) {
+		t.Fatalf("replay at TTL: %v", err)
+	}
+	clock.Advance(time.Nanosecond)
 	if c.Seen("a", "n1") {
 		t.Fatal("nonce still remembered after its TTL")
 	}
@@ -92,7 +95,7 @@ func TestNonceCacheIsBoundedAndFailsClosed(t *testing.T) {
 			t.Fatalf("nonce %d dropped", i)
 		}
 	}
-	clock.Advance(NonceTTL)
+	clock.Advance(NonceTTL + time.Nanosecond)
 	if err := c.Add("a", "x"); err != nil {
 		t.Fatalf("room not reclaimed after expiry: %v", err)
 	}
@@ -129,7 +132,7 @@ func TestNonceCacheQueueCompaction(t *testing.T) {
 		}
 		clock.Advance(time.Second)
 	}
-	if len(c.order)-c.head > 5 || cap(c.order) > 64 {
+	if len(c.order)-c.head > 2 || cap(c.order) > 64 {
 		t.Fatalf("queue grows without bound: len %d head %d cap %d", len(c.order), c.head, cap(c.order))
 	}
 }
