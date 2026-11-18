@@ -40,6 +40,9 @@ const (
 	OSName = "nextui"
 	// ModelDesktop is the model reported off the console.
 	ModelDesktop = "desktop"
+	// WirelessInterface is the Wi-Fi interface of the console.
+	// TODO(M0): wlan0 on tg5040 is not yet checked.
+	WirelessInterface = "wlan0"
 )
 
 // knownModels are the values of the NextUI DEVICE variable the API knows
@@ -706,6 +709,9 @@ func (a *Adapter) DeviceInfo() (osadapter.DeviceInfo, error) {
 		// their location is checked; null until then.
 		OSVersion: nil,
 		Battery:   nil,
+		// TODO(M0): the source of the SSID on NextUI is not known yet.
+		SSID:              nil,
+		WirelessInterface: WirelessInterface,
 	}, nil
 }
 

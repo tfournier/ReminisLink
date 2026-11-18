@@ -152,7 +152,7 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	slog.Info("ReminisLink started", "version", version, "mode", "headless", "sd", r.SD, "device", conf.DeviceID,
 		"name", name, "model", info.Model, "platform", info.Platform)
 
-	ip, ok := device.IPv4()
+	ip, ok := device.IPv4(info.WirelessInterface)
 	if !ok {
 		// On the console the UI will refuse to start without Wi-Fi (M7).
 		slog.Warn("no IPv4 address found, the pairing link uses 127.0.0.1")

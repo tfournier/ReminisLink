@@ -242,7 +242,10 @@ func TestUnpair(t *testing.T) {
 }
 
 func TestDevice(t *testing.T) {
-	f := newFixture(t)
+	var asked string
+	f := newFixture(t, func(o *Options) {
+		o.IPv4 = func(iface string) (string, bool) { asked = iface; return "192.168.1.42", true }
+	})
 	f.clock.Advance(90 * time.Second)
 	r := f.get("/api/v1/device", "/device", 200)
 	var d deviceResponse
@@ -250,6 +253,9 @@ func TestDevice(t *testing.T) {
 	if d.DeviceID != testDeviceID || d.Model != "brick" || d.Network.IPv4 != "192.168.1.42" || d.Network.SSID != nil ||
 		d.Battery != nil || d.UptimeSeconds != 90 || len(d.Storage) != 1 || d.Storage[0] != (storageVolume{"sd", "SD", 1000, 400}) {
 		t.Errorf("device = %+v", d)
+	}
+	if asked != "wlan0" {
+		t.Errorf("IPv4 asked for interface %q, want the adapter's wlan0", asked)
 	}
 	for _, null := range []string{`"ssid":null`, `"battery":null`, `"osVersion":null`} {
 		if !strings.Contains(string(r.Body), null) {
@@ -260,7 +266,7 @@ func TestDevice(t *testing.T) {
 
 func TestDeviceWithoutNetworkNorStorage(t *testing.T) {
 	f := newFixture(t, func(o *Options) {
-		o.IPv4 = func() (string, bool) { return "", false }
+		o.IPv4 = func(string) (string, bool) { return "", false }
 		o.Storage = func(string) (device.Storage, error) { return device.Storage{}, fmt.Errorf("no statfs") }
 	})
 	r := f.get("/api/v1/device", "/device", 200)

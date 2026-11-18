@@ -115,6 +115,11 @@ type DeviceInfo struct {
 	OS        string // nextui
 	OSVersion *string
 	Battery   *Battery
+	// WirelessInterface is the network interface of the Wi-Fi ("" when
+	// unknown: any interface).
+	WirelessInterface string
+	// SSID is the name of the Wi-Fi network.
+	SSID *string
 }
 
 // Adapter is the file layout of one OS. Paths given to it (game and folder

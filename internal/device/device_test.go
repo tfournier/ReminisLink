@@ -41,7 +41,7 @@ func TestPickIPv4(t *testing.T) {
 }
 
 func TestIPv4DoesNotPanic(t *testing.T) {
-	ip, ok := IPv4()
+	ip, ok := IPv4("wlan0")
 	if ok && net.ParseIP(ip).To4() == nil {
 		t.Fatalf("not an IPv4: %q", ip)
 	}

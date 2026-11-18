@@ -54,8 +54,9 @@ type Options struct {
 	Verifier *auth.Verifier
 	Now      func() time.Time // nil: time.Now
 	Logger   *slog.Logger     // nil: slog.Default()
-	// IPv4 returns the address of the console (nil: device.IPv4).
-	IPv4 func() (string, bool)
+	// IPv4 returns the address of the console, preferring the given
+	// interface (nil: device.IPv4).
+	IPv4 func(preferredInterface string) (string, bool)
 	// Storage returns the space of the SD card (nil: device.StorageOf).
 	Storage func(path string) (device.Storage, error)
 	// OnPaired is called after a client is paired (may be nil).

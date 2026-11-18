@@ -237,19 +237,18 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := deviceResponse{
-		DeviceID:   s.opts.Identity.DeviceID,
-		DeviceName: s.opts.Identity.DeviceName,
-		Model:      info.Model,
-		Platform:   info.Platform,
-		OS:         info.OS,
-		OSVersion:  info.OSVersion,
-		PakVersion: s.opts.Identity.PakVersion,
-		// TODO(M0): the SSID source on NextUI is not known yet: null.
-		Network:       networkInfo{IPv4: unknownIPv4},
+		DeviceID:      s.opts.Identity.DeviceID,
+		DeviceName:    s.opts.Identity.DeviceName,
+		Model:         info.Model,
+		Platform:      info.Platform,
+		OS:            info.OS,
+		OSVersion:     info.OSVersion,
+		PakVersion:    s.opts.Identity.PakVersion,
+		Network:       networkInfo{IPv4: unknownIPv4, SSID: info.SSID},
 		Storage:       []storageVolume{},
 		UptimeSeconds: max(int64(s.now().Sub(s.started)/time.Second), 0),
 	}
-	if ip, ok := s.opts.IPv4(); ok {
+	if ip, ok := s.opts.IPv4(info.WirelessInterface); ok {
 		resp.Network.IPv4 = ip
 	}
 	if info.Battery != nil {

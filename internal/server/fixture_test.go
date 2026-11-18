@@ -116,7 +116,7 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 		Verifier: auth.NewVerifier(clients, clk.Now, 0, logger),
 		Now:      clk.Now,
 		Logger:   logger,
-		IPv4:     func() (string, bool) { return "192.168.1.42", true },
+		IPv4:     func(string) (string, bool) { return "192.168.1.42", true },
 		Storage:  func(string) (device.Storage, error) { return device.Storage{TotalBytes: 1000, FreeBytes: 400}, nil },
 	}
 	for _, f := range tweak {

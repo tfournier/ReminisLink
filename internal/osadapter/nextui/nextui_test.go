@@ -440,7 +440,7 @@ func TestPaths(t *testing.T) {
 func TestDeviceInfo(t *testing.T) {
 	a, _ := newAdapter(t)
 	info, err := a.DeviceInfo()
-	if err != nil || info.Model != "brick" || info.Platform != "tg5040" || info.OS != "nextui" || info.OSVersion != nil || info.Battery != nil {
+	if err != nil || info.Model != "brick" || info.Platform != "tg5040" || info.OS != "nextui" || info.OSVersion != nil || info.Battery != nil || info.SSID != nil || info.WirelessInterface != "wlan0" {
 		t.Errorf("info = %+v, %v", info, err)
 	}
 	info, _ = New(RootsForSD(t.TempDir(), ""), func(k string) string {

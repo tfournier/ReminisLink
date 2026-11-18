@@ -9,10 +9,6 @@ import (
 	"sort"
 )
 
-// WirelessInterface is the Wi-Fi interface of the console.
-// TODO(M0): wlan0 on tg5040 is not yet checked.
-const WirelessInterface = "wlan0"
-
 // Storage is the space of a volume.
 type Storage struct {
 	TotalBytes int64
@@ -94,11 +90,12 @@ func PickIPv4(ifaces []Iface, preferred string) (ip string, ok bool) {
 	return "", false
 }
 
-// IPv4 returns the IPv4 address of the console (WirelessInterface first).
-func IPv4() (string, bool) {
+// IPv4 returns the IPv4 address of the console, the one of the preferred
+// interface first (the Wi-Fi interface given by the OS adapter).
+func IPv4(preferred string) (string, bool) {
 	ifaces, err := Interfaces()
 	if err != nil {
 		return "", false
 	}
-	return PickIPv4(ifaces, WirelessInterface)
+	return PickIPv4(ifaces, preferred)
 }
