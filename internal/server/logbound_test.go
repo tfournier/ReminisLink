@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -73,7 +74,7 @@ func TestAcceptedRequestsAreNotSampled(t *testing.T) {
 func TestSampledHandler(t *testing.T) {
 	var buf bytes.Buffer
 	c := &clock{t: time.Unix(0, 0)}
-	h := newSampledHandler(slog.NewTextHandler(&buf, nil), 1, 2, c.Now)
+	h := newSampledHandler(slog.NewTextHandler(&buf, nil), 1, 2, c.Now, nil)
 	log := slog.New(h).With("k", "v")
 	for i := 0; i < 5; i++ {
 		log.Info("line")
@@ -83,11 +84,48 @@ func TestSampledHandler(t *testing.T) {
 	}
 	c.Advance(time.Second)
 	log.Info("line")
-	if !strings.Contains(buf.String(), "count=3") || strings.Count(buf.String(), "msg=line") != 3 {
+	if !strings.Contains(buf.String(), "count=3 by.line=3") || strings.Count(buf.String(), "msg=line") != 3 {
 		t.Fatalf("after refill:\n%s", buf.String())
 	}
 	if !h.Enabled(context.Background(), slog.LevelInfo) || h.WithGroup("g") == nil {
 		t.Fatal("handler methods")
+	}
+}
+
+func TestSampledHandlerCountsPerMessage(t *testing.T) {
+	var buf bytes.Buffer
+	c := &clock{t: time.Unix(0, 0)}
+	log := slog.New(newSampledHandler(slog.NewTextHandler(&buf, nil), 1, 1, c.Now, nil))
+	log.Info("request")
+	log.Info("pairing failed")
+	log.Info("pairing failed")
+	log.Info("request")
+	for i := 0; i < 30; i++ {
+		log.Info(fmt.Sprint("varied message ", i))
+	}
+	c.Advance(time.Second)
+	log.Info("request")
+	out := buf.String()
+	for _, want := range []string{`count=33`, `"by.pairing failed"=2`, `by.request=1`, `by.other=`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary lacks %s:\n%s", want, out)
+		}
+	}
+}
+
+func TestSampledHandlerStopsWhenTheLogIsFull(t *testing.T) {
+	var buf bytes.Buffer
+	full := false
+	c := &clock{t: time.Unix(0, 0)}
+	log := slog.New(newSampledHandler(slog.NewTextHandler(&buf, nil), 100, 100, c.Now, func() bool { return full }))
+	log.Info("before")
+	full = true
+	for i := 0; i < 10; i++ {
+		log.Info("after")
+	}
+	out := buf.String()
+	if strings.Count(out, "msg=before") != 1 || strings.Contains(out, "msg=after") || strings.Count(out, "log file full") != 1 {
+		t.Fatalf("full log:\n%s", out)
 	}
 }
 
@@ -110,5 +148,21 @@ func TestMaxHeaderBytes(t *testing.T) {
 	small, _ := http.NewRequest("GET", "http://"+ln.Addr().String()+"/api/v1/hello", nil)
 	if r := f.client.Send(t, small); r.Status != 200 {
 		t.Fatalf("normal request: %d", r.Status)
+	}
+}
+
+func TestFullLogKeepsAcceptedRequests(t *testing.T) {
+	f := newFixture(t, func(o *Options) { o.LogFull = func() bool { return true } })
+	f.unsigned("GET", "/api/v1/hello", nil)
+	f.unsigned("GET", "/api/v1/nope", nil)
+	if r := f.client.Do(t, "GET", "/api/v1/systems", nil); r.Status != 200 {
+		t.Fatal(r.Status)
+	}
+	logs := f.logs.String()
+	if strings.Contains(logs, "/api/v1/nope") || strings.Contains(logs, "path=/api/v1/hello") {
+		t.Errorf("sampled lines written to a full log:\n%s", logs)
+	}
+	if !strings.Contains(logs, "path=/api/v1/systems status=200") || strings.Count(logs, "log file full") != 1 {
+		t.Errorf("full log:\n%s", logs)
 	}
 }

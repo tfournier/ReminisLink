@@ -61,6 +61,10 @@ type Options struct {
 	Storage func(path string) (device.Storage, error)
 	// OnPaired is called after a client is paired (may be nil).
 	OnPaired func(auth.Client)
+	// LogFull reports that the log file reached its cap: the sampled lines
+	// (unsigned and rejected requests) are then no longer written (nil:
+	// never full).
+	LogFull func() bool
 }
 
 // Server serves the API. Create it with New.
@@ -108,7 +112,7 @@ func New(opts Options) (*Server, error) {
 	s := &Server{
 		opts:      opts,
 		log:       opts.Logger,
-		rejectLog: slog.New(newSampledHandler(opts.Logger.Handler(), RejectLogRate, RejectLogBurst, opts.Now)),
+		rejectLog: slog.New(newSampledHandler(opts.Logger.Handler(), RejectLogRate, RejectLogBurst, opts.Now, opts.LogFull)),
 		now:       opts.Now,
 		started:   opts.Now(),
 		hello:     newRateLimiter(HelloRate, HelloBurst, opts.Now),

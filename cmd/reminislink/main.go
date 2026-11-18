@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
@@ -92,21 +93,58 @@ func roots(opts options) osadapter.Roots {
 	return nextui.RootsFromEnv(os.Getenv)
 }
 
+// Size limits of the log file on the SD card.
+const (
+	// LogRotateBytes: a larger log file is renamed LogOldFileName at launch.
+	LogRotateBytes = 5 << 20
+	// LogCapBytes: past this size during a run, the sampled lines
+	// (unsigned and rejected requests) are no longer written.
+	LogCapBytes = 20 << 20
+	// LogOldFileName keeps the previous log file.
+	LogOldFileName = "ReminisLink.old.txt"
+)
+
+// logFile is the log file and its size, counted as it is written.
+type logFile struct {
+	f    *os.File
+	size atomic.Int64
+}
+
+func (l *logFile) Write(p []byte) (int, error) {
+	n, err := l.f.Write(p)
+	l.size.Add(int64(n))
+	return n, err
+}
+
+// full reports that the file reached LogCapBytes.
+func (l *logFile) full() bool { return l.size.Load() >= LogCapBytes }
+
 // openLog sends slog to $LOGS_PATH/ReminisLink.txt, and to also (stderr in
-// headless mode).
-func openLog(dir string, also io.Writer) (*slog.Logger, func(), error) {
+// headless mode). A file larger than LogRotateBytes is first renamed
+// ReminisLink.old.txt (replacing the previous one).
+func openLog(dir string, also io.Writer) (*slog.Logger, *logFile, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, nil, fmt.Errorf("create log folder: %w", err)
 	}
-	f, err := os.OpenFile(filepath.Join(dir, LogFileName), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	path := filepath.Join(dir, LogFileName)
+	if fi, err := os.Stat(path); err == nil && fi.Size() > LogRotateBytes {
+		if err := os.Rename(path, filepath.Join(dir, LogOldFileName)); err != nil {
+			return nil, nil, fmt.Errorf("rotate log: %w", err)
+		}
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open log: %w", err)
 	}
-	var w io.Writer = f
-	if also != nil {
-		w = io.MultiWriter(f, also)
+	lf := &logFile{f: f}
+	if fi, err := f.Stat(); err == nil {
+		lf.size.Store(fi.Size())
 	}
-	return slog.New(slog.NewTextHandler(w, nil)), func() { f.Close() }, nil
+	var w io.Writer = lf
+	if also != nil {
+		w = io.MultiWriter(lf, also)
+	}
+	return slog.New(slog.NewTextHandler(w, nil)), lf, nil
 }
 
 func runHeadless(opts options) error {
@@ -117,11 +155,11 @@ func runHeadless(opts options) error {
 // fatal error is written to the log file before it is closed.
 func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	r := roots(opts)
-	logger, closeLog, err := openLog(r.Logs, logOut)
+	logger, logf, err := openLog(r.Logs, logOut)
 	if err != nil {
 		return err
 	}
-	defer closeLog()
+	defer logf.f.Close()
 	defer func() {
 		if err != nil {
 			logger.Error("fatal", "error", err)
@@ -181,6 +219,7 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 		Verifier: auth.NewVerifier(clients, nil, 0, logger),
 		Logger:   logger,
 		OnPaired: display.paired,
+		LogFull:  logf.full,
 	})
 	if err != nil {
 		ln.Close()
