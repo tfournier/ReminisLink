@@ -7,14 +7,14 @@
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
-| M4 | à faire | — | — | — |
+| M4 | en cours | `m4-transferts-go`, `m4-transferts-ios` | — | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
 - M2 et M3 fusionnés dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (81), `xcodebuild test` (18 tests app, 3 tests UI dont le parcours réel contre `make headless` : appairage par lien → tableau de bord → bibliothèque → fiche de jeu) tous verts.
-- Prochain : M4 (transferts et suppression), deux sous-agents en parallèle (Go, iOS) ; l'affichage de `connectedClients` dans l'app est ajouté au lot iOS de M4.
+- M4 : deux sous-agents lancés le 2026-11-18 : Go dans `../reminislink-m4-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m4-ios` (uniquement `ios/`, faux pak étendu ; affiche aussi `connectedClients`).
 - M0 : en attente des relevés de la console.
 
 ## État du dépôt (2026-11-18)
@@ -52,8 +52,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-18 — `GET /device` gagne `connectedClients: [{ clientName, lastSeenAt }]` (en mémoire, requête signée de moins de 30 s) pour les « appareils connectés » de 06 §4.3 ; noms de jeux commerciaux remplacés par des noms inventés dans les specs, le contrat et les vecteurs. Décidé par la personne. Specs mises à jour sur `main` ; contrat, vecteurs et serveur confiés à l'agent M2 ; affichage dans l'app après fusion de M2.
 
+- 2026-11-18 — Appairage : aucun repli sur l'IP du QR code (`h`/`p` informatifs seulement) ; console introuvable par Bonjour = erreur. Confirmation avant de ré-appairer une console déjà appairée. Specs 02, 03 §3.1 et 06 §4.2 mises à jour. Décidé par la personne. L'app (M3 autorisait le repli pour une nouvelle console) est adaptée dans le lot iOS de M4.
+
 ## Questions ouvertes pour la personne
-4. **Ré-appairage d'une console déjà appairée (sécurité, M3)** : 06 §4.2 dit qu'un lien `reminislink://pair` « lance directement l'appairage ». La revue a montré qu'un faux pak sur le même Wi-Fi peut ainsi remplacer la clé d'une console déjà appairée (console réelle éteinte, repli sur l'IP du QR). L'agent principal fait implémenter : confirmation quand la console est déjà appairée, et dans ce cas pas de repli sur l'IP du QR (Bonjour obligatoire) ; l'IP de secours n'est acceptée que si elle est privée ou de lien local. À valider, puis reporter dans 06 §4.2 et 03 §3.1.
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
