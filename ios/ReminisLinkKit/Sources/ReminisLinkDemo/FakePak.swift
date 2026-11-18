@@ -67,6 +67,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var jobs: [String: FakeJob] = [:]
     private var chunkFaults: [ChunkFault] = []
     private var completeFaults = 0
+    private var lostCompleteRequests = 0
     private var _chunkSize: Int64 = 4 << 20
     private var _freeBytes: Int64 = 40_265_318_400
     private var _downloadSize: Int64 = 8 << 20
@@ -203,6 +204,12 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     /// their answer is lost.
     public func dropCompleteAnswers(_ count: Int) {
         lock.withLock { completeFaults += count }
+    }
+
+    /// The next `count` `complete` requests are lost before reaching the
+    /// pak (nothing is written, the upload stays).
+    public func loseCompleteRequests(_ count: Int) {
+        lock.withLock { lostCompleteRequests += count }
     }
 
     public var uploadIds: [String] { lock.withLock { uploads.keys.sorted() } }
@@ -772,6 +779,12 @@ extension FakePak {
     }
 
     func completeUpload(id: String) -> FakeResponse {
+        let lost = lock.withLock { () -> Bool in
+            guard lostCompleteRequests > 0 else { return false }
+            lostCompleteRequests -= 1
+            return true
+        }
+        if lost { return .networkFailure(.networkConnectionLost) }
         guard let upload = lock.withLock({ uploads[id] }) else {
             return .error(404, code: "not_found", message: "Upload not found")
         }

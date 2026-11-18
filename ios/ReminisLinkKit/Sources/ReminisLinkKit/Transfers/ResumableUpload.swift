@@ -147,7 +147,9 @@ public actor ResumableUpload {
                     let status = try await client.uploadStatus(id: id)
                     needsSync = false
                     guard status.sizeBytes == source.sizeBytes, (0...source.sizeBytes).contains(status.offset) else {
-                        // Not the upload we know: start over.
+                        // Not the upload we know. After `complete` was sent
+                        // the file may be written: never start over then.
+                        if completeSent { uploadId = nil; throw UploadFailure.outcomeUnknown }
                         try forget(&restarts)
                         continue
                     }

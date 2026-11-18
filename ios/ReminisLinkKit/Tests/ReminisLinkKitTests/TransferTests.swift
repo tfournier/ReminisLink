@@ -241,6 +241,22 @@ struct TransferTests {
         #expect(await !upload.completeSent)
     }
 
+    @Test func sizeMismatchAfterCompleteIsAnUnknownOutcome() async throws {
+        // The answer of `complete` is lost; the status then reports another
+        // size (a different upload under that id): never start over.
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let file = try makeFile(size: 10_000)
+        let upload = try upload(file, retry: RetryPolicy(delays: [], sleep: { _ in }))
+        pak.loseCompleteRequests(1)
+        await #expect(throws: APIError.self) { try await upload.run(client: client) }
+        #expect(await upload.completeSent)
+        let id = try #require(await upload.uploadId)
+        pak.enqueue(.json(200, ["uploadId": id, "offset": 0, "sizeBytes": 1]))
+        await #expect(throws: UploadFailure.outcomeUnknown) { try await upload.run(client: client) }
+        #expect(pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/uploads") }.count == 1)
+    }
+
     @Test func hashingStopsOnPause() throws {
         let file = try makeFile(size: 3 * FileDigest.bufferSize)
         #expect(throws: UploadFailure.paused) { try FileDigest.sha256Sync(of: file, shouldPause: { true }) }

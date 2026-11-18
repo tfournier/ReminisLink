@@ -69,6 +69,8 @@ public final class UploadItem: Identifiable {
     public internal(set) var isCompleting = false
     /// `complete` was sent without a definite answer yet.
     public internal(set) var completeSent = false
+    /// A cancellation after a lost `complete` answer is checking the device.
+    var isCancelling = false
 
     let fileURL: URL
     /// The file is a copy made for this upload: deleted once finished.
@@ -206,6 +208,7 @@ public final class TransferQueue {
     public func cancel(_ item: UploadItem) {
         guard !item.phase.isFinished, !item.isCompleting else { return }
         if item.completeSent, let upload = item.upload {
+            item.isCancelling = true
             item.task?.cancel()
             let client = client
             Task {
@@ -215,6 +218,7 @@ public final class TransferQueue {
                 } else {
                     outcome = .outcomeUnknown
                 }
+                item.isCancelling = false
                 if outcome == .cancelled {
                     item.phase = .cancelled
                     item.failure = nil
@@ -251,6 +255,8 @@ public final class TransferQueue {
     public func retry(_ item: UploadItem, onConflict: OnConflict) async {
         guard item.phase == .failed || item.phase == .paused else { return }
         item.setConflictRule(onConflict)
+        // An explicit new attempt: the previous `complete` no longer counts.
+        item.completeSent = false
         if let upload = item.upload, let previous = await upload.restart(onConflict: onConflict),
            let api = try? await client() {
             try? await api.cancelUpload(id: previous)
@@ -302,7 +308,12 @@ public final class TransferQueue {
         }
     }
 
-    private func process(_ item: UploadItem) async {
+    func process(_ item: UploadItem) async {
+        // Suspended between `pump` picking the item and now: start nothing.
+        guard !isSuspended else {
+            item.phase = .waiting
+            return
+        }
         let flag = PauseFlag()
         item.pauseFlag = flag
         let token = background.begin(name: "Upload \(item.fileName)") { [weak self] in
@@ -367,7 +378,8 @@ public final class TransferQueue {
             cleanUp(item)
             onUploadFinished?(item)
         } catch {
-            guard item.phase != .cancelled else { return }
+            // A cancellation in progress decides the phase itself.
+            guard item.phase != .cancelled, !item.isCancelling else { return }
             item.bytesPerSecond = nil
             item.secondsRemaining = nil
             switch error {

@@ -105,24 +105,49 @@ public struct ShareInbox: Sendable {
         .sorted { $0.createdAt < $1.createdAt }
     }
 
-    /// Every file name is a plain name whose file is inside the request's
-    /// directory (symbolic links resolved).
+    /// The request's directory is a real directory (not a symbolic link)
+    /// directly under the inbox, and every file name is a plain name. Files
+    /// already taken (moved out) are simply absent: no path is resolved
+    /// for them, so a partly used request stays valid.
     public func isValid(_ request: ShareRequest) -> Bool {
-        let directory = directory(for: request.id).resolvingSymlinksInPath().standardizedFileURL.path + "/"
-        return request.files.allSatisfy { name in
-            guard name == Self.safeName(name), !name.contains("/") else { return false }
-            let path = fileURL(name, in: request).resolvingSymlinksInPath().standardizedFileURL.path
-            return path.hasPrefix(directory) && !path.dropFirst(directory.count).contains("/")
-        }
+        guard Self.isRealDirectory(directory(for: request.id)) else { return false }
+        return request.files.allSatisfy(Self.isPlainName)
+    }
+
+    /// The files of a request still in the inbox (taken ones are skipped).
+    public func remainingFiles(of request: ShareRequest) -> [String] {
+        request.files.filter { Self.isRegularFile(fileURL($0, in: request)) }
     }
 
     /// Moves a file of a request to `destination` (the request keeps its
-    /// other files). Refuses a name that is not valid for the request.
+    /// other files). Refuses a name that is not valid for the request, a
+    /// symbolic link, or a file already taken.
     public func takeFile(_ name: String, from request: ShareRequest, to destination: URL) throws {
-        guard request.files.contains(name), isValid(ShareRequest(id: request.id, files: [name], urls: [])) else {
-            throw CocoaError(.fileReadInvalidFileName)
-        }
-        try FileManager.default.moveItem(at: fileURL(name, in: request), to: destination)
+        let source = fileURL(name, in: request)
+        guard request.files.contains(name), Self.isPlainName(name),
+              Self.isRealDirectory(directory(for: request.id)), Self.isRegularFile(source)
+        else { throw CocoaError(.fileReadInvalidFileName) }
+        try FileManager.default.moveItem(at: source, to: destination)
+    }
+
+    /// A name without directory parts, control characters, nor the names
+    /// the inbox uses (`uniqueName` results like `" (2).gba"` are fine).
+    static func isPlainName(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".." && name != "request.json"
+            && !name.contains("/") && !name.contains("\\") && name.utf8.count <= 255
+            && !name.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7f }
+    }
+
+    /// A directory, and not a symbolic link (checked without following it).
+    static func isRealDirectory(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey]) else { return false }
+        return values.isSymbolicLink != true && values.isDirectory == true
+    }
+
+    /// A regular file, and not a symbolic link.
+    static func isRegularFile(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey]) else { return false }
+        return values.isSymbolicLink != true && values.isRegularFile == true
     }
 
     public func request(id: UUID) -> ShareRequest? {

@@ -162,6 +162,79 @@ struct TransferQueueTests {
         #expect(other.phase == .done)
     }
 
+    /// Regression: suspended between `pump` and `process`, nothing starts.
+    @Test func processDoesNothingWhileSuspended() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        queue.suspend()
+        let item = try queue.enqueue(fileURL: try makeFile(size: 10_000), target: .rom(systemId: gbaSystemId, fileName: "K.gba"),
+                                     destination: "", ownsFile: false)
+        let requests = pak.log.count
+        await queue.process(item)
+        #expect(item.phase == .waiting)
+        #expect(item.hashedBytes == 0)
+        #expect(pak.log.count == requests)
+        queue.resumeAfterSuspension()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+    }
+
+    @Test func suspensionBetweenTwoItems() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        // Suspended right when the first upload ends.
+        queue.onUploadFinished = { _ in queue.suspend() }
+        let first = try queue.enqueue(fileURL: try makeFile(size: 10_000, name: "L1.gba"),
+                                      target: .rom(systemId: gbaSystemId, fileName: "L1.gba"), destination: "", ownsFile: false)
+        let second = try queue.enqueue(fileURL: try makeFile(size: 10_000, name: "L2.gba"),
+                                       target: .rom(systemId: gbaSystemId, fileName: "L2.gba"), destination: "", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(first.phase == .done)
+        #expect(second.phase == .waiting)
+        #expect(second.hashedBytes == 0)
+        queue.onUploadFinished = nil
+        queue.resumeAfterSuspension()
+        await queue.waitUntilIdle()
+        #expect(second.phase == .done)
+    }
+
+    /// After a lost `complete` request (nothing written), the pak still has
+    /// the upload: cancelling deletes it and shows it cancelled.
+    @Test func cancelAfterALostCompleteRequestWhenThePakStillHasTheUpload() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = TransferQueue(scratchDirectory: scratch, retry: RetryPolicy(delays: [], sleep: { _ in })) { client }
+        pak.loseCompleteRequests(1)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 10_000), target: .rom(systemId: gbaSystemId, fileName: "M.gba"),
+                                     destination: "", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .paused)
+        #expect(item.completeSent)
+        #expect(pak.uploadIds.count == 1)
+        queue.cancel(item)
+        for _ in 0..<50 where item.phase != .cancelled { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(item.phase == .cancelled)
+        #expect(pak.uploadIds.isEmpty)
+        #expect(try await !client.games(systemId: gbaSystemId).games.contains { $0.fileName == "M.gba" })
+    }
+
+    @Test func retryClearsTheCompleteSentMirror() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        pak.dropCompleteAnswers(1)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 10_000), target: .rom(systemId: gbaSystemId, fileName: "N.gba"),
+                                     destination: "", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.completeSent)
+        await queue.retry(item, onConflict: .rename)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+        #expect(!item.completeSent)
+    }
+
     @Test func cancelDuringCompleteShowsTheRealOutcome() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
@@ -362,6 +435,47 @@ struct AddSuggestionTests {
         #expect(throws: CocoaError.self) {
             try inbox.takeFile("../x.json", from: ShareRequest(id: good.id, files: ["../x.json"], urls: []), to: destination)
         }
+    }
+
+    /// Regression: on iPhone the container is under `/private/var`; a
+    /// partly used request must stay valid with its remaining files. Here
+    /// the root goes through the `/tmp` → `/private/tmp` link.
+    @Test func partlyTakenRequestUnderALinkedRootStays() throws {
+        let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = ShareInbox(root: root)
+        let request = try inbox.write(
+            files: [try makeFile(size: 10, name: "a.gba"), try makeFile(size: 20, name: "a.gba", seed: 2)], urls: []
+        )
+        #expect(request.files == ["a.gba", "a (2).gba"])
+        try inbox.takeFile("a.gba", from: request, to: root.appending(path: "moved.gba"))
+        #expect(inbox.pending().map(\.id) == [request.id])
+        inbox.purge()
+        #expect(inbox.request(id: request.id) != nil)
+        #expect(inbox.remainingFiles(of: request) == ["a (2).gba"])
+        #expect(throws: CocoaError.self) { try inbox.takeFile("a.gba", from: request, to: root.appending(path: "again.gba")) }
+    }
+
+    @Test func plainNamesFromUniqueNameAreAccepted() {
+        #expect(ShareInbox.isPlainName(" (2).gba"))
+        #expect(ShareInbox.isPlainName("Game (2).gba"))
+        for bad in ["", ".", "..", "request.json", "a/b", "a\\b", "a\u{1}b"] {
+            #expect(!ShareInbox.isPlainName(bad), "\(bad)")
+        }
+    }
+
+    @Test func requestDirectoryAsASymbolicLinkIsRefused() throws {
+        let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = ShareInbox(root: root)
+        // A real request elsewhere, linked into the inbox under another id.
+        let elsewhere = ShareInbox(root: root.appending(path: "elsewhere"))
+        let real = try elsewhere.write(files: [try makeFile(size: 10, name: "a.gba")], urls: [])
+        let id = real.id
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: inbox.directory(for: id), withDestinationURL: elsewhere.directory(for: id))
+        #expect(inbox.pending().isEmpty)
+        #expect(throws: CocoaError.self) { try inbox.takeFile("a.gba", from: real, to: root.appending(path: "x.gba")) }
     }
 
     @Test func safeNames() {
