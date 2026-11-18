@@ -5,7 +5,7 @@
 |---|---|---|---|---|
 | M0 | en attente des relevés de la console | — | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
-| M2 | en cours | `m2-serveur-lecture` | — | — |
+| M2 | en revue | `m2-serveur-lecture` | en cours (Antigravity) | — |
 | M3 | en revue | `m3-ios-base` | en cours (Antigravity) | — |
 | M4 | à faire | — | — | — |
 | M5 | à faire | — | — | — |
@@ -13,8 +13,8 @@
 | M7 | à faire | — | — | — |
 
 ## En cours
-- M2 : sous-agent Claude dans `../reminislink-m2-serveur-lecture` (branche `m2-serveur-lecture`), lancé le 2026-11-18. Hypothèses `TODO(M0)` et carte SD factice provisoire en attendant M0. Seul à pouvoir modifier `protocol/openapi.yaml` pendant M2/M3.
-- M3 : livré (5 commits). Contrôles §4 OK : `swift test` 73 tests, `xcodebuild test` iPhone 16 / iOS 18.5 réussi (test démo passé, test contre le pak réel ignoré tant que M2 n'est pas fusionné), diff limité à `ios/`. Revue Antigravity en cours. Validation contre `make headless` après fusion de M2.
+- M2 : livré (12 commits). Contrôles §4 OK : `make lint test` (13 paquets), `make contract`, `go test -race`, 12 `TODO(M0)` isolés dans l'adaptateur et `device`. « Fait quand » vérifié par l'agent principal : `make headless`, annonce vue par `dns-sd -B`, `scripts/smoke.sh` OK, arrêt propre. Dépendances : `grandcat/zeroconf`, `skip2/go-qrcode` (autorisées) ; `golang.org/x/net`, `x/sys`, `x/crypto`, `miekg/dns` en indirect (tirées par zeroconf, `x/net` et `x/sys` montées pour compiler avec Go 1.27 ; accepté par l'agent principal). Revue Antigravity en cours.
+- M3 : livré (5 commits). Contrôles §4 OK : `swift test` 73 tests, `xcodebuild test` iPhone 16 / iOS 18.5 réussi (test démo passé, test contre le pak réel ignoré tant que M2 n'est pas fusionné), diff limité à `ios/`. Revue Antigravity en cours. Vérification fonctionnelle (§5.3) faite le 2026-11-18 : test XCUITest contre le pak M2 en `make headless` **réussi** (lien d'appairage → `/pair` → `/device` → `/systems` → jeux → fiche de jeu ; `404` sur `/trash` attendu avant M4). Découverte Bonjour depuis le simulateur à confirmer (le test peut avoir utilisé l'IP du QR).
 - M0 : en attente des relevés de la console.
 
 ## État du dépôt (2026-11-18)
@@ -57,6 +57,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- M2 : créer la checklist console `docs/specs/checklists/` (08 §5, prévue au M2) — à faire par l'agent principal.
+- M2 : `make headless` laisse ses copies dans `$TMPDIR/reminislink-sd.*`.
+- M2 : le vecteur `get-query-sorted-and-encoded` contient une clé en double (`a=2&a=10`) : refusé en HTTP (`400`) depuis M2 ; envisager un vecteur HTTP sans doublon.
 - Revue Antigravity M1 : dans `byteBudget.acquire`, remettre à `nil` la case libérée de `waiters` après retrait (mineur).
 - Revue Antigravity M1 : l'app doit toujours construire ses URL avec `Signer.encodeQuery` (à vérifier en M3).
 - Revue M1 : imposer la même horloge au `Verifier` et au cache de nonces (constructeur unique).
