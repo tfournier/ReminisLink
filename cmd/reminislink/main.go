@@ -220,6 +220,12 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	}
 	lib := library.New(adapter, layout)
 	trash := store.NewTrash(layout, r.SD, nil, logger)
+	guard, err := store.NewTimeGuard(layout.ConfigFile(), nil)
+	if err != nil {
+		return err
+	}
+	trash.UseTimeGuard(guard)
+	defer func() { _ = guard.Save() }()
 	xfer, err := transfer.New(transfer.Options{
 		Library: lib, Adapter: adapter, Layout: layout, Trash: trash,
 		FreeSpace: func(path string) (int64, error) {
@@ -235,6 +241,9 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	defer xfer.Close()
 	if err := maintain(trash, xfer); err != nil {
 		return err
+	}
+	if err := guard.Save(); err != nil {
+		slog.Warn("cannot save the latest observed time", "error", err)
 	}
 
 	ln, port, err := server.Listen("0.0.0.0", port)

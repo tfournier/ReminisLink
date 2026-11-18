@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"time"
 )
 
 const (
@@ -26,6 +27,8 @@ type Config struct {
 	DeviceName string `json:"deviceName"`
 	Port       int    `json:"port"`
 	Language   string `json:"language,omitempty"`
+	// LastSeenTime is the latest time the pak observed (see TimeGuard).
+	LastSeenTime *time.Time `json:"lastSeenTime,omitempty"`
 }
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)

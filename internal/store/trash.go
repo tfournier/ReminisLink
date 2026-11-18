@@ -134,6 +134,8 @@ type Trash struct {
 	now  func() time.Time
 	log  *slog.Logger
 	rand io.Reader
+	// guard protects the dates from a clock set back (nil: plain clock).
+	guard *TimeGuard
 	// rename is os.Rename; tests replace it to simulate failures.
 	rename func(oldpath, newpath string) error
 
@@ -150,6 +152,19 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 		log = slog.Default()
 	}
 	return &Trash{dir: layout.TrashDir(), sd: sdRoot, now: now, log: log, rand: rand.Reader, rename: os.Rename}
+}
+
+// UseTimeGuard dates the entries with g.Now() (never before the latest
+// time observed) and makes Purge skip when g does not trust the clock.
+// Call it before the trash is used.
+func (t *Trash) UseTimeGuard(g *TimeGuard) { t.guard = g }
+
+// clock returns the time used to date entries.
+func (t *Trash) clock() time.Time {
+	if t.guard != nil {
+		return t.guard.Now()
+	}
+	return t.now()
 }
 
 // Dir returns the trash folder.
@@ -247,12 +262,12 @@ func isUnder(root, p string) bool {
 	return p == root || strings.HasPrefix(p, root+string(filepath.Separator))
 }
 
-func (t *Trash) newID() (string, error) {
+func (t *Trash) newID(at time.Time) (string, error) {
 	var b [2]byte
 	if _, err := io.ReadFull(t.rand, b[:]); err != nil {
 		return "", err
 	}
-	return "tr_" + t.now().UTC().Format(trashIDTimeLayout) + "_" + hex.EncodeToString(b[:]), nil
+	return "tr_" + at.UTC().Format(trashIDTimeLayout) + "_" + hex.EncodeToString(b[:]), nil
 }
 
 // Move renames items into a new trash entry. It either moves all of them
@@ -271,9 +286,10 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 	if err := os.MkdirAll(t.dir, 0o755); err != nil {
 		return MoveResult{}, fmt.Errorf("trash: %w", err)
 	}
+	at := t.clock()
 	var id string
 	for attempt := 0; ; attempt++ {
-		if id, err = t.newID(); err != nil {
+		if id, err = t.newID(at); err != nil {
 			return MoveResult{}, fmt.Errorf("trash: %w", err)
 		}
 		err = os.Mkdir(filepath.Join(t.dir, id), 0o755)
@@ -287,7 +303,7 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 	entryDir := filepath.Join(t.dir, id)
 	e := entryFile{
 		Version: trashEntryVersion, State: stateMoving, ID: id,
-		TrashedAt: t.now().UTC().Truncate(time.Second), Reason: reason, Label: label,
+		TrashedAt: at.UTC().Truncate(time.Second), Reason: reason, Label: label,
 	}
 	res := MoveResult{Moved: []string{}}
 	for _, p := range planned {
@@ -632,7 +648,11 @@ func (t *Trash) Purge(maxAge time.Duration) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	limit := t.now().Add(-maxAge)
+	if t.guard != nil && !t.guard.Trusted() {
+		t.log.Warn("trash: purge skipped, the clock is behind the latest observed time or jumped ahead")
+		return 0, nil
+	}
+	limit := t.clock().Add(-maxAge)
 	var freed int64
 	for _, name := range names {
 		at, ok := t.entryTime(name)
