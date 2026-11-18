@@ -66,6 +66,7 @@ type Options struct {
 type Server struct {
 	opts         Options
 	log          *slog.Logger
+	rejectLog    *slog.Logger // sampled: lines about rejected requests
 	now          func() time.Time
 	started      time.Time
 	shuttingDown atomic.Bool
@@ -103,18 +104,22 @@ func New(opts Options) (*Server, error) {
 		opts.Storage = device.StorageOf
 	}
 	s := &Server{
-		opts:    opts,
-		log:     opts.Logger,
-		now:     opts.Now,
-		started: opts.Now(),
-		hello:   newRateLimiter(HelloRate, HelloBurst, opts.Now),
-		pair:    newRateLimiter(PairRate, PairBurst, opts.Now),
+		opts:      opts,
+		log:       opts.Logger,
+		rejectLog: slog.New(newSampledHandler(opts.Logger.Handler(), RejectLogRate, RejectLogBurst, opts.Now)),
+		now:       opts.Now,
+		started:   opts.Now(),
+		hello:     newRateLimiter(HelloRate, HelloBurst, opts.Now),
+		pair:      newRateLimiter(PairRate, PairBurst, opts.Now),
 		timeouts: timeouts{
 			bodyIdle: BodyIdleTimeout,
 			shutdown: ShutdownTimeout,
 			grace:    shutdownGrace,
 		},
 	}
+	// The rejections of the verifier share the sampled logger. The
+	// verifier is configured here, before it serves any request.
+	opts.Verifier.Logger = s.rejectLog
 	s.handler = s.middlewares(s.routes())
 	return s, nil
 }
@@ -128,6 +133,12 @@ func (s *Server) BeginShutdown() { s.shuttingDown.Store(true) }
 // ShuttingDown reports whether BeginShutdown was called.
 func (s *Server) ShuttingDown() bool { return s.shuttingDown.Load() }
 
+// Patterns of the unsigned routes.
+const (
+	helloPattern = "GET " + Prefix + "/hello"
+	pairPattern  = "POST " + Prefix + "/pair"
+)
+
 // routes registers the API. Signed routes are wrapped one by one with the
 // body options of the route, fixed here (never deduced from the path).
 func (s *Server) routes() http.Handler {
@@ -138,8 +149,8 @@ func (s *Server) routes() http.Handler {
 	}
 
 	// Unsigned routes.
-	mux.Handle("GET "+Prefix+"/hello", s.limit(s.hello, http.HandlerFunc(s.handleHello)))
-	mux.Handle("POST "+Prefix+"/pair", s.limit(s.pair, http.HandlerFunc(s.handlePair)))
+	mux.Handle(helloPattern, s.limit(s.hello, http.HandlerFunc(s.handleHello)))
+	mux.Handle(pairPattern, s.limit(s.pair, http.HandlerFunc(s.handlePair)))
 
 	// Device.
 	signed("DELETE "+Prefix+"/clients/me", auth.RouteJSON, s.handleUnpair)

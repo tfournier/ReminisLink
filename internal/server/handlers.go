@@ -155,7 +155,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, err.Error(), nil)
 		return
 	case errors.Is(err, auth.ErrPairingFailed):
-		s.log.Info("pairing failed", "method", *req.Method, "remote", remoteIP(r))
+		s.rejectLog.Info("pairing failed", "method", auth.LogString(*req.Method, auth.MaxLoggedMethod), "remote", remoteIP(r))
 		auth.WriteError(w, http.StatusUnauthorized, CodePairingFailed, "Pairing failed", nil)
 		return
 	case errors.Is(err, auth.ErrTooManyAttempts):
@@ -291,7 +291,8 @@ func notFoundMessage(err error) string {
 }
 
 func (s *Server) internal(w http.ResponseWriter, r *http.Request, err error) {
-	s.log.Error("internal error", "method", r.Method, "path", r.URL.Path, "error", err)
+	s.log.Error("internal error", "method", auth.LogString(r.Method, auth.MaxLoggedMethod),
+		"path", auth.LogString(r.URL.Path, auth.MaxLoggedPath), "error", err)
 	auth.WriteError(w, http.StatusInternalServerError, auth.CodeInternal, "Internal error", nil)
 }
 

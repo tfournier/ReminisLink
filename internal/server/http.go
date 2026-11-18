@@ -21,6 +21,9 @@ const (
 	ReadHeaderTimeout = 10 * time.Second
 	// IdleTimeout closes keep-alive connections without a request.
 	IdleTimeout = 60 * time.Second
+	// MaxHeaderBytes bounds the request line and headers (the signed
+	// requests need well under 1 KiB of headers); beyond it, 431.
+	MaxHeaderBytes = 16 << 10
 	// ShutdownTimeout is how long running requests may finish at shutdown.
 	ShutdownTimeout = 10 * time.Second
 	// shutdownGrace lets cancelled requests answer before the connections
@@ -91,6 +94,7 @@ func (s *Server) httpServer(baseCtx context.Context) *http.Server {
 		Handler:           s.handler,
 		ReadHeaderTimeout: ReadHeaderTimeout,
 		IdleTimeout:       IdleTimeout,
+		MaxHeaderBytes:    MaxHeaderBytes,
 		// No ReadTimeout nor WriteTimeout: transfers can be long. The body
 		// has an inactivity deadline instead (BodyIdleTimeout).
 		BaseContext: func(net.Listener) context.Context { return baseCtx },

@@ -194,8 +194,10 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	var reserved int64
 	fail := func(status int, code, message string) (Client, int64, bool) {
 		// Never log keys, nonces or signatures.
-		log.Info("request rejected", "code", code, "method", r.Method, "path", r.URL.Path,
-			"client", r.Header.Get(HeaderClient), "remote", r.RemoteAddr)
+		// Every value from the network is bounded (see LogString).
+		log.Info("request rejected", "code", code, "method", LogString(r.Method, MaxLoggedMethod),
+			"path", LogString(r.URL.Path, MaxLoggedPath), "client", LogClient(r.Header.Get(HeaderClient)),
+			"remote", r.RemoteAddr)
 		WriteError(w, status, code, message, nil)
 		return Client{}, reserved, false
 	}

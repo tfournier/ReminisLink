@@ -221,3 +221,21 @@ func TestHasDuplicateQueryKey(t *testing.T) {
 		}
 	}
 }
+
+func TestLogString(t *testing.T) {
+	if LogString("abc", 5) != "abc" {
+		t.Fatal("short string changed")
+	}
+	got := LogString(strings.Repeat("a", 600), MaxLoggedPath)
+	if !strings.HasPrefix(got, strings.Repeat("a", 512)+"...[88 bytes truncated]") || len(got) > 540 {
+		t.Fatalf("got %q", got)
+	}
+	// Never cut inside a rune.
+	got = LogString("ééé", 3)
+	if got != "é...[4 bytes truncated]" {
+		t.Fatalf("got %q", got)
+	}
+	if LogClient("x\nfake log line") != "" || LogClient(testClientA) != testClientA {
+		t.Fatal("LogClient")
+	}
+}

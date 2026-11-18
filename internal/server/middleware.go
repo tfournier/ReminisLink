@@ -62,7 +62,7 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 			if v == http.ErrAbortHandler {
 				panic(v)
 			}
-			s.log.Error("panic in handler", "method", r.Method, "path", r.URL.Path, "panic", v, "stack", string(debug.Stack()))
+			s.log.Error("panic in handler", "method", auth.LogString(r.Method, auth.MaxLoggedMethod), "path", auth.LogString(r.URL.Path, auth.MaxLoggedPath), "panic", v, "stack", string(debug.Stack()))
 			if rec.status == 0 {
 				auth.WriteError(rec, http.StatusInternalServerError, auth.CodeInternal, "Internal error", nil)
 			}
@@ -81,22 +81,23 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 			rec = &statusRecorder{ResponseWriter: w}
 		}
 		next.ServeHTTP(rec, r)
-		client := r.Header.Get(auth.HeaderClient)
-		if !auth.ValidID(client) {
-			client = ""
-		}
 		status := rec.status
 		if status == 0 {
 			status = http.StatusOK
 		}
-		s.log.Info("request",
-			"method", r.Method,
+		log := s.log
+		if status >= 400 || r.Pattern == helloPattern || r.Pattern == pairPattern {
+			// Anyone can cause these lines (no signature): sampled.
+			log = s.rejectLog
+		}
+		log.Info("request",
+			"method", auth.LogString(r.Method, auth.MaxLoggedMethod),
 			"route", r.Pattern,
-			"path", r.URL.Path,
+			"path", auth.LogString(r.URL.Path, auth.MaxLoggedPath),
 			"status", status,
 			"bytes", rec.bytes,
 			"ms", time.Since(start).Milliseconds(),
-			"client", client,
+			"client", auth.LogClient(r.Header.Get(auth.HeaderClient)),
 			"remote", remoteIP(r),
 		)
 	})
@@ -145,7 +146,7 @@ func (s *Server) limit(l *rateLimiter, next http.Handler) http.Handler {
 		if ok, wait := l.allow(remoteIP(r)); !ok {
 			secs := int64((wait + time.Second - 1) / time.Second)
 			w.Header().Set("Retry-After", strconv.FormatInt(max(secs, 1), 10))
-			s.log.Info("rate limited", "path", r.URL.Path, "remote", remoteIP(r))
+			s.rejectLog.Info("rate limited", "path", auth.LogString(r.URL.Path, auth.MaxLoggedPath), "remote", remoteIP(r))
 			auth.WriteError(w, http.StatusTooManyRequests, auth.CodeTooManyAttempts, "Too many requests", nil)
 			return
 		}

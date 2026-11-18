@@ -20,7 +20,7 @@ func TestHTTPServerSettings(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	srv := f.server.httpServer(ctx)
-	if srv.ReadHeaderTimeout != 10*time.Second || srv.IdleTimeout != 60*time.Second || srv.ReadTimeout != 0 || srv.WriteTimeout != 0 {
+	if srv.ReadHeaderTimeout != 10*time.Second || srv.IdleTimeout != 60*time.Second || srv.ReadTimeout != 0 || srv.WriteTimeout != 0 || srv.MaxHeaderBytes != 16<<10 {
 		t.Errorf("timeouts: header %v idle %v read %v write %v", srv.ReadHeaderTimeout, srv.IdleTimeout, srv.ReadTimeout, srv.WriteTimeout)
 	}
 	if srv.BaseContext(nil) != ctx {
