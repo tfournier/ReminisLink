@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
+	"net/url"
 	"regexp"
 	"testing"
 	"time"
@@ -213,5 +214,27 @@ func TestPairingMalformedRequests(t *testing.T) {
 func TestPairingRandomFailure(t *testing.T) {
 	if _, err := NewPairingSession(testDeviceID, nil, bytes.NewReader(nil)); err == nil {
 		t.Fatal("empty random source accepted")
+	}
+}
+
+func TestPairingURL(t *testing.T) {
+	secret := make([]byte, SecretSize)
+	secret[0] = 0xfb
+	got := PairingURL("7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick de Thomas & co/é", secret, "192.168.1.42", 47821)
+	want := "reminislink://pair?v=1&id=7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10&n=Brick%20de%20Thomas%20%26%20co%2F%C3%A9" +
+		"&s=-wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&h=192.168.1.42&p=47821"
+	if got != want {
+		t.Fatalf("PairingURL =\n %s\nwant\n %s", got, want)
+	}
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	if u.Scheme != "reminislink" || u.Host != "pair" || q.Get("n") != "Brick de Thomas & co/é" || q.Get("p") != "47821" {
+		t.Fatalf("parsed: %+v %v", u, q)
+	}
+	if s, err := DecodeB64U(q.Get("s")); err != nil || len(s) != SecretSize || s[0] != 0xfb {
+		t.Fatalf("secret: %x %v", s, err)
 	}
 }

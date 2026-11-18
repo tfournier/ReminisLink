@@ -686,3 +686,22 @@ func withoutPath(err error) error {
 	}
 	return err
 }
+
+// modelLabels are the display names of the models.
+var modelLabels = map[string]string{
+	"brick": "Brick", "brickpro": "Brick Pro", "smartpro": "Smart Pro", "smartpros": "Smart Pro S",
+	"h700": "H700", "my355": "MY355", ModelDesktop: "Desktop",
+}
+
+// DefaultDeviceName is the name of a console that was never renamed:
+// "<Model> <last 4 characters of the device id>" (docs/specs/03-protocole.md §2).
+func DefaultDeviceName(model, deviceID string) string {
+	label, ok := modelLabels[model]
+	if !ok {
+		label = "ReminisLink"
+	}
+	if len(deviceID) < 4 {
+		return label
+	}
+	return label + " " + deviceID[len(deviceID)-4:]
+}

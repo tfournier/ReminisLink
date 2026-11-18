@@ -474,3 +474,17 @@ func TestParseState(t *testing.T) {
 		}
 	}
 }
+
+func TestDefaultDeviceName(t *testing.T) {
+	for _, tc := range []struct{ model, id, want string }{
+		{"brick", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick 3a10"},
+		{"smartpro", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Smart Pro 3a10"},
+		{"desktop", "abcd", "Desktop abcd"},
+		{"toaster", "12345", "ReminisLink 2345"},
+		{"brick", "", "Brick"},
+	} {
+		if got := DefaultDeviceName(tc.model, tc.id); got != tc.want {
+			t.Errorf("DefaultDeviceName(%q, %q) = %q, want %q", tc.model, tc.id, got, tc.want)
+		}
+	}
+}
