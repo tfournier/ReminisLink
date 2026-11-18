@@ -14,7 +14,7 @@
 3. **Maintenance** (avant d'ouvrir le serveur, en affichant « Préparation… ») :
    - archivage des states de reprise qui ont changé (§5.3) ;
    - contrôle des verrous et restauration automatique (§5.2) ;
-   - purge de la corbeille (> 30 jours), des envois expirés et des fichiers `staging` (> 24 h).
+   - purge de la corbeille (entrées de plus de 30 jours d'âge crédité, voir §4), des envois expirés et des fichiers `staging` (> 24 h).
 4. **Serveur** : écoute sur `0.0.0.0:47821` (ou le premier port libre parmi les 9 suivants), puis annonce Bonjour.
 5. **Écran principal** (§7).
 6. **Fermeture** (B, ou signal SIGTERM/SIGINT) : refus des nouvelles requêtes (`503 shutting_down`), attente des écritures en cours (10 s maximum), retrait de l'annonce, `sync`, sortie.
@@ -89,7 +89,8 @@ ReminisLink/
 ```
 
 - `clients.json` contient les clés en clair : sur exFAT il n'y a pas de permissions. Quelqu'un qui a la carte SD en main a déjà accès à tout, ce risque est accepté (voir [07](07-securite.md)).
-- **Corbeille** : tout fichier de l'utilisateur supprimé ou remplacé par ReminisLink y est *déplacé* (renommage, même carte SD), jamais effacé directement. Seules la purge automatique (> 30 jours) et les routes `DELETE /trash` effacent définitivement.
+- **Corbeille** : tout fichier de l'utilisateur supprimé ou remplacé par ReminisLink y est *déplacé* (renommage, même carte SD), jamais effacé directement. Seules la purge automatique (> 30 jours d'âge crédité) et les routes `DELETE /trash` effacent définitivement.
+- **Âge crédité** (décision du 18/11/2026) : l'horloge de la console n'est pas fiable (pile, NTP). Le pak tient une horloge propre, cumulée et enregistrée dans `config.json` : pendant qu'il tourne, elle avance selon l'horloge monotone du système (enregistrée régulièrement et à la fermeture) ; à chaque lancement, elle est créditée du temps écoulé depuis la dernière fermeture selon l'horloge murale, **borné entre 0 et 7 jours**. Une entrée de corbeille note la valeur de cette horloge à sa création ; elle est purgée quand l'écart atteint 30 jours. Une horloge murale fausse ne peut donc jamais vieillir une entrée de plus de 7 jours d'un coup ; au pire, la purge est retardée. Un arrêt brutal fait perdre au plus le temps depuis le dernier enregistrement (dans le sens prudent).
 - Toute écriture de fichier JSON est atomique (`.tmp`, `fsync`, renommage).
 - Les dossiers `uploads/`, `staging/` et `trash/` sont sur la même carte SD que les destinations : le renommage final est atomique.
 

@@ -188,7 +188,7 @@ Toute réponse d'erreur a la forme :
 | 413 | `too_large` | Corps ou fichier trop gros |
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
-| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée (avec `Retry-After`) |
+| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
 | 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
 | 507 | `insufficient_storage` | Espace libre insuffisant (`details.required`, `details.available`) |
@@ -203,7 +203,7 @@ Envoi en morceaux, reprenable, inspiré de tus.
 4. **Fin** : `POST /api/v1/uploads/{id}/complete`. Le pak calcule le SHA-256 (incrémental pendant la réception) ; s'il diffère : `409 checksum_mismatch` et l'envoi est supprimé. Sinon, `fsync`, application de la règle de conflit (`fail`, `rename`, `overwrite` avec sauvegarde), renommage vers la destination, puis réponse avec la ressource créée.
 5. **Annulation** : `DELETE /api/v1/uploads/{id}`.
 
-Un envoi sans activité pendant 24 h est supprimé. Les envois en cours sont perdus à la fermeture du pak (l'app les recrée).
+Un envoi sans activité pendant 24 h est supprimé. Les envois en cours **survivent** à la fermeture du pak : au relancement, le pak recalcule en arrière-plan le SHA-256 à partir des octets réellement présents sur la carte (l'offset repris est la taille du fichier partiel) ; pendant ce calcul, `GET /uploads/{id}` répond aussitôt et `PUT`/`complete` peuvent répondre `429` avec `Retry-After`. Un envoi purgé ou illisible répond `404` : l'app le recrée. *(Décision du 18/11/2026.)*
 
 L'intégrité des morceaux (non signés) est garantie par le SHA-256 final, annoncé dans la requête de création, elle signée.
 
