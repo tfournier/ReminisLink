@@ -29,6 +29,7 @@ public struct PairingLink: Sendable, Equatable {
     public init?(url: URL) {
         guard url.scheme?.lowercased() == Self.scheme,
               url.host(percentEncoded: true)?.lowercased() == Self.host,
+              url.user == nil, url.password == nil, url.port == nil, url.fragment == nil,
               url.path(percentEncoded: true).isEmpty || url.path(percentEncoded: true) == "/",
               let rawQuery = url.query(percentEncoded: true),
               let params = Self.parseQuery(rawQuery)
@@ -39,7 +40,9 @@ public struct PairingLink: Sendable, Equatable {
         else { return nil }
         let name = params["n"].map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }
         var endpoint: Endpoint?
-        if let h = params["h"], Self.isIPv4(h), let p = params["p"], let port = UInt16(p), port > 0 {
+        // Only a private or link-local IPv4: a link must not send the pairing
+        // exchange to an address outside the local network.
+        if let h = params["h"], Self.isLocalIPv4(h), let p = params["p"], let port = UInt16(p), port > 0 {
             endpoint = Endpoint(host: h, port: port)
         }
         self.init(deviceId: id, deviceName: name, secret: secret, fallbackEndpoint: endpoint)
@@ -110,6 +113,17 @@ public struct PairingLink: Sendable, Equatable {
 
     static func isLowercaseUUID(_ s: String) -> Bool {
         s.range(of: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", options: .regularExpression) != nil
+    }
+
+    /// 10/8, 172.16/12, 192.168/16 (private) or 169.254/16 (link-local).
+    public static func isLocalIPv4(_ s: String) -> Bool {
+        guard isIPv4(s) else { return false }
+        let b = s.split(separator: ".").compactMap { Int($0) }
+        switch (b[0], b[1]) {
+        case (10, _), (192, 168), (169, 254): return true
+        case (172, 16...31): return true
+        default: return false
+        }
     }
 
     static func isIPv4(_ s: String) -> Bool {

@@ -102,6 +102,24 @@ public enum Pairing {
         "RL1-KEY|" + deviceId + "|" + clientId
     }
 
+    /// Longest `clientName`, in Unicode scalars (the pak counts runes).
+    public static let maxClientNameScalars = 64
+
+    /// A `clientName` for `POST /pair`: trimmed, at most 64 Unicode scalars
+    /// without cutting a character in two, "iPhone" when empty.
+    public static func clientName(from deviceName: String) -> String {
+        var result = ""
+        var count = 0
+        for character in deviceName.trimmingCharacters(in: .whitespacesAndNewlines) {
+            let scalars = character.unicodeScalars.count
+            if count + scalars > maxClientNameScalars { break }
+            result.append(character)
+            count += scalars
+        }
+        result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.isEmpty ? "iPhone" : result
+    }
+
     /// A new client id: a lowercase UUID (the pak refuses uppercase).
     public static func makeClientId() -> String {
         UUID().uuidString.lowercased()
