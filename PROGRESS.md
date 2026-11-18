@@ -14,7 +14,7 @@
 
 ## En cours
 - M4 fusionné dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (135), `xcodebuild test` (30 tests app, UI démo) verts ; contre `make headless` : appairage **par Bonjour** depuis le simulateur → fiche de jeu, et envoi de 200 Mio (50 morceaux) → bibliothèque → suppression → vidage de la corbeille, réussis. `scripts/smoke-transfers.sh` : reprise d'un envoi après arrêt du pak, téléchargement local, corbeille OK.
-- M0 par le code source : la personne a autorisé (2026-11-19) le clone du dépôt NextUI et le firmware d'origine ; un sous-agent analyse le code (lecture seule, clone hors du dépôt) et identifie le firmware **sans le télécharger** (source et taille à confirmer avec la personne avant téléchargement).
+- M0 par le code source : la personne a autorisé (2026-11-19) le clone du dépôt NextUI et le firmware d'origine ; un sous-agent analyse le code (lecture seule, clone hors du dépôt) puis télécharge le firmware officiel (autorisé sans autre confirmation par la personne le 2026-11-19) et en extrait le rootfs dans un conteneur Docker jetable (rien du firmware n'est exécuté sur le Mac).
 - **En attente de la personne** : tests sur la vraie console (checklist `docs/specs/checklists/console.md`, scénarios 3, 4, 5, 9, 10), qui supposent les relevés M0 (chemins des saves/states, horloge, certificats).
 - M5 : deux sous-agents lancés le 2026-11-19 : Go dans `../reminislink-m5-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m5-ios` (uniquement `ios/`, faux pak étendu, réactive le type « Save »).
 
