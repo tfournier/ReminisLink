@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -80,19 +81,23 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 		if !ok {
 			rec = &statusRecorder{ResponseWriter: w}
 		}
-		next.ServeHTTP(rec, r)
+		accepted := new(bool)
+		req := r.WithContext(context.WithValue(r.Context(), acceptedKey{}, accepted))
+		next.ServeHTTP(rec, req)
 		status := rec.status
 		if status == 0 {
 			status = http.StatusOK
 		}
-		log := s.log
-		if status >= 400 || r.Pattern == helloPattern || r.Pattern == pairPattern {
-			// Anyone can cause these lines (no signature): sampled.
-			log = s.rejectLog
+		// Only a request accepted by the verifier goes to the full log:
+		// everything else (unsigned routes, redirects of uncleaned paths,
+		// errors) can be caused without a key and is sampled.
+		log := s.rejectLog
+		if *accepted {
+			log = s.log
 		}
 		log.Info("request",
 			"method", auth.LogString(r.Method, auth.MaxLoggedMethod),
-			"route", r.Pattern,
+			"route", req.Pattern, // set by the ServeMux on the request it received
 			"path", auth.LogString(r.URL.Path, auth.MaxLoggedPath),
 			"status", status,
 			"bytes", rec.bytes,
@@ -101,6 +106,17 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 			"remote", remoteIP(r),
 		)
 	})
+}
+
+// acceptedKey is the context key of the flag that tells accessLog the
+// request passed the signature check.
+type acceptedKey struct{}
+
+// markAccepted sets the flag of accessLog (no-op outside accessLog).
+func markAccepted(r *http.Request) {
+	if p, ok := r.Context().Value(acceptedKey{}).(*bool); ok {
+		*p = true
+	}
 }
 
 // shutdownGate answers 503 shutting_down once the pak is closing.

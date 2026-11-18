@@ -17,14 +17,16 @@ func TestLogSizeIsBounded(t *testing.T) {
 	f := newFixture(t)
 	hugeClient := strings.Repeat("x", 8<<10)
 	hugePath := "/api/v1/" + strings.Repeat("p", 4<<10)
+	// Paths ServeMux redirects (307) without any check, and unsigned routes.
+	targets := []string{"/api/v1/systems", hugePath, "/api/v1//" + strings.Repeat("p", 400),
+		"/api/v1/./systems", "/x/../api/v1/systems", "/api/v1/hello"}
 	const requests = 300
 	for i := 0; i < requests; i++ {
-		target := "/api/v1/systems"
-		if i%2 == 0 {
-			target = hugePath
-		}
+		target := targets[i%len(targets)]
 		req, _ := http.NewRequest("GET", f.http.URL+target, nil)
+		req.URL.Opaque = target // keep "//", "/./" and "/../" as sent
 		req.Header.Set("X-RL-Client", hugeClient)
+		f.client.HTTP = noRedirect
 		f.client.Send(t, req)
 	}
 	logs := f.logs.String()
@@ -32,6 +34,9 @@ func TestLogSizeIsBounded(t *testing.T) {
 		if len(line) > 1500 {
 			t.Fatalf("log line of %d bytes: %.200s", len(line), line)
 		}
+	}
+	if !strings.Contains(logs, "status=307") {
+		t.Error("the redirect cases did not reach the server as redirects")
 	}
 	if strings.Contains(logs, "xxxxxxxx") {
 		t.Error("raw X-RL-Client logged")
@@ -47,6 +52,21 @@ func TestLogSizeIsBounded(t *testing.T) {
 	f.unsigned("GET", "/api/v1/systems", nil)
 	if !strings.Contains(f.logs.String(), "log lines dropped") {
 		t.Error("dropped lines not reported")
+	}
+}
+
+var noRedirect = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
+func TestAcceptedRequestsAreNotSampled(t *testing.T) {
+	f := newFixture(t)
+	for i := 0; i < RejectLogBurst+20; i++ {
+		f.unsigned("GET", "/api/v1/nope", nil)
+	}
+	if r := f.client.Do(t, "GET", "/api/v1/systems", nil); r.Status != 200 {
+		t.Fatal(r.Status)
+	}
+	if !strings.Contains(f.logs.String(), `route="GET /api/v1/systems" path=/api/v1/systems status=200`) {
+		t.Errorf("accepted request not logged after the sample budget was spent:\n%s", f.logs.String())
 	}
 }
 

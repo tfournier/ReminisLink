@@ -63,6 +63,7 @@ func (s *Server) markSeen(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, ok := auth.ClientFromContext(r.Context()); ok {
 			s.presence.touch(c.ID, s.now())
+			markAccepted(r)
 		}
 		next.ServeHTTP(w, r)
 	})
