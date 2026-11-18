@@ -301,6 +301,16 @@
         }
       }
     },
+    "Connected Devices" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appareils connectés"
+          }
+        }
+      }
+    },
     "Connecting to the console…" : {
       "localizations" : {
         "fr" : {
@@ -571,6 +581,16 @@
         }
       }
     },
+    "Last seen %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vu %@"
+          }
+        }
+      }
+    },
     "Less secure than the QR code. Avoid on public Wi-Fi." : {
       "localizations" : {
         "fr" : {
@@ -647,6 +667,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Non"
+          }
+        }
+      }
+    },
+    "No device connected" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun appareil connecté"
           }
         }
       }
@@ -797,6 +827,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Appairer la console de démo"
+          }
+        }
+      }
+    },
+    "Paired devices that talked to the console in the last 30 seconds." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appareils appairés qui ont communiqué avec la console au cours des 30 dernières secondes."
           }
         }
       }

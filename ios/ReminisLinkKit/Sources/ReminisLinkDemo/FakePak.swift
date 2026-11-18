@@ -49,6 +49,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var _responseDelay: TimeInterval = 0
     private var _pairDelay: TimeInterval = 0
     private var clients: [String: SymmetricKey] = [:]
+    private var clientNames: [String: String] = [:]
+    /// Last accepted signed request per client (`connectedClients`).
+    private var lastSeen: [String: Date] = [:]
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
@@ -143,8 +146,11 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public var clientIds: [String] { lock.withLock { clients.keys.sorted() } }
 
     /// Registers a client directly, as if it had paired.
-    public func addClient(id: String, key: SymmetricKey) {
-        lock.withLock { clients[id] = key }
+    public func addClient(id: String, key: SymmetricKey, name: String = "Test iPhone") {
+        lock.withLock {
+            clients[id] = key
+            clientNames[id] = name
+        }
     }
 
     /// The next requests get these responses instead (after the signature
@@ -199,7 +205,10 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             return device()
         case ("DELETE", ["clients", "me"]):
             let clientId = request.value(forHTTPHeaderField: SignedHeaders.client) ?? ""
-            lock.withLock { _ = clients.removeValue(forKey: clientId) }
+            lock.withLock {
+                _ = clients.removeValue(forKey: clientId)
+                lastSeen[clientId] = nil
+            }
             return FakeResponse(status: 204)
         case ("GET", ["systems"]):
             return systems()
@@ -257,7 +266,11 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             method: method, path: path, rawQuery: query, time: time, nonce: nonce, contentSHA256: content
         ), Signer.isValidSignature(signature, key: key, canonical: canonical)
         else { return .error(401, code: "bad_signature", message: "Bad signature") }
-        lock.withLock { _ = nonces.insert(clientId + "|" + nonce) }
+        let seen = now()
+        lock.withLock {
+            _ = nonces.insert(clientId + "|" + nonce)
+            lastSeen[clientId] = seen
+        }
         let keys = Self.decodeQuery(query).map(\.0)
         guard Set(keys).count == keys.count else {
             return .error(400, code: "invalid_request", message: "Duplicate query key")
@@ -306,7 +319,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         guard let key = try? Pairing.deriveKey(
             ikm: ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: deviceId, clientId: request.clientId
         ) else { return .error(500, code: "internal", message: "Key derivation failed") }
-        addClient(id: request.clientId, key: key)
+        addClient(id: request.clientId, key: key, name: request.clientName)
         if pairDelay > 0 { Thread.sleep(forTimeInterval: pairDelay) }
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName,
@@ -316,13 +329,21 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     }
 
     private func device() -> FakeResponse {
-        .json(200, [
+        let limit = now().addingTimeInterval(-30)
+        let connected = lock.withLock { () -> [[String: Any]] in
+            return lastSeen.filter { $0.value >= limit && clients[$0.key] != nil }
+                .map { (name: clientNames[$0.key] ?? "", seen: $0.value) }
+                .sorted { $0.name < $1.name }
+                .map { ["clientName": $0.name, "lastSeenAt": ProtocolJSON.formatDate($0.seen)] }
+        }
+        return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
             "platform": "tg5040", "os": "nextui", "osVersion": "6.14.0", "pakVersion": "1.0.0",
             "network": ["ipv4": "192.168.1.42", "ssid": "DemoNet"],
             "battery": ["percent": 78, "charging": false],
             "storage": [["id": "sd", "label": "SD", "totalBytes": 127_865_454_592, "freeBytes": 40_265_318_400]],
             "uptimeSeconds": 512,
+            "connectedClients": connected,
         ])
     }
 

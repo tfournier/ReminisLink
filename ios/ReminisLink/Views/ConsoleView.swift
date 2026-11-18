@@ -57,6 +57,7 @@ struct ConsoleView: View {
                         StorageBar(storage: storage, trashBytes: session.trash?.totalBytes)
                     }
                 }
+                ConnectedClientsSection(clients: status.connectedClients)
             }
 
             Section {
@@ -181,5 +182,41 @@ struct TrashView: View {
             let error = AppError(error)
             if !error.isCancellation { self.error = error }
         }
+    }
+}
+
+/// `connectedClients` of `GET /device` (docs/specs/06-app-ios.md §4.3):
+/// the paired devices seen by the console in the last 30 seconds.
+struct ConnectedClientsSection: View {
+    let clients: [ConnectedClient]
+
+    var body: some View {
+        Section {
+            if clients.isEmpty {
+                Text("No device connected")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(clients, id: \.self) { client in
+                let seen = client.lastSeenAt.formatted(.relative(presentation: .named))
+                HStack {
+                    Image(systemName: "iphone")
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text(client.clientName)
+                    Spacer()
+                    Text(seen)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(client.clientName))
+                .accessibilityValue(Text("Last seen \(seen)"))
+            }
+        } header: {
+            Text("Connected Devices")
+        } footer: {
+            Text("Paired devices that talked to the console in the last 30 seconds.")
+        }
+        .accessibilityIdentifier("console.connectedClients")
     }
 }

@@ -72,6 +72,7 @@ struct APIClientTests {
         let device = try await client.device()
         #expect(device.deviceId == pak.deviceId)
         #expect(device.battery?.percent == 78)
+        #expect(device.connectedClients.map(\.clientName) == ["Test iPhone"])
         let last = try #require(pak.log.last)
         #expect(last.path == "/api/v1/device")
         #expect(last.status == 200)
