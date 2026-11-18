@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
@@ -79,6 +80,9 @@ type Options struct {
 	ChunkSize int64
 	// Downloads configures the HTTP client of POST /downloads.
 	Downloads DownloadOptions
+	// VerifyWait bounds the wait for the hash of a resumed upload (0:
+	// DefaultVerifyWait).
+	VerifyWait time.Duration
 }
 
 // DownloadOptions configure the downloads.
@@ -115,6 +119,12 @@ type Service struct {
 	uploads uploads
 	jobs    *Jobs
 
+	// Background verification of the resumed uploads.
+	verifyCtx    context.Context
+	verifyCancel context.CancelFunc
+	verifyWG     sync.WaitGroup
+	verifySem    chan struct{}
+
 	clientOnce sync.Once
 	client     *http.Client
 	clientErr  error
@@ -144,6 +154,8 @@ func New(opts Options) (*Service, error) {
 	s := &Service{opts: opts, log: opts.Logger, now: opts.Now, rand: rand.Reader}
 	s.uploads.m = map[string]*upload{}
 	s.jobs = NewJobs(opts.Now)
+	s.verifyCtx, s.verifyCancel = context.WithCancel(context.Background())
+	s.verifySem = make(chan struct{}, MaxParallelVerify)
 	return s, nil
 }
 
@@ -152,7 +164,11 @@ func (s *Service) Jobs() *Jobs { return s.jobs }
 
 // Close cancels the jobs and waits for them (their partial files are
 // deleted). Uploads stay on the card and are resumed at the next start.
-func (s *Service) Close() { s.jobs.Close() }
+func (s *Service) Close() {
+	s.verifyCancel()
+	s.verifyWG.Wait()
+	s.jobs.Close()
+}
 
 func (s *Service) randomHex(n int) string {
 	b := make([]byte, n)
@@ -199,6 +215,11 @@ func (s *Service) resolve(t Target, needName bool) (destination, *Error, error) 
 		}
 		if t.Kind == KindStaging {
 			return d, nil, nil
+		}
+		if d.name != "" && !s.opts.Adapter.IsGameFile(d.name) {
+			// Same rule as the library listing: an accepted ROM always
+			// gets a usable gameId.
+			return d, invalidName("Not a ROM file name"), nil
 		}
 		if t.SystemID == "" {
 			return d, badRequest("Missing target.systemId"), nil
@@ -332,6 +353,11 @@ var ErrStagingNotFound = errors.New("staging file not found")
 func (s *Service) install(d destination, tmp, onConflict string) (map[string]any, *Error, error) {
 	s.installMu.Lock()
 	defer s.installMu.Unlock()
+	return s.installLocked(d, tmp, onConflict)
+}
+
+// installLocked is install with s.installMu held.
+func (s *Service) installLocked(d destination, tmp, onConflict string) (map[string]any, *Error, error) {
 	switch d.kind {
 	case KindROM:
 		return s.installROM(d, tmp, onConflict)

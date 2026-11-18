@@ -278,23 +278,10 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 	}
 	d.file = nil
 
-	dest, apiErr, err := s.resolve(target, false)
-	if apiErr != nil || err != nil {
-		if err != nil {
-			s.log.Error("download: resolve", "error", err)
-			return nil, internal("Internal error")
-		}
-		return nil, apiErr
-	}
-	if dest.name == "" {
-		dest.name = d.name
-	}
-	if dest.kind == KindROM && (filepath.Ext(dest.name) == "" || !s.opts.Adapter.IsGameFile(dest.name)) {
-		// The library would not list it: never install a ROM that cannot
-		// be found.
-		return nil, invalidName("Not a ROM file name: " + dest.name)
-	}
-	result, apiErr, err := s.install(dest, d.path, onConflict)
+	// Resolve and install under the install lock (see CompleteUpload).
+	s.installMu.Lock()
+	result, apiErr, err := s.installDownload(target, d.name, d.path, onConflict)
+	s.installMu.Unlock()
 	if err != nil {
 		s.log.Error("download: install", "error", err)
 		return nil, internal("Internal error")
@@ -305,6 +292,24 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 	installed = true
 	s.log.Info("download finished", "url", safeURL(u), "bytes", d.written)
 	return result, nil
+}
+
+// installDownload resolves the target and installs the downloaded file.
+// Called with s.installMu held.
+func (s *Service) installDownload(target Target, deduced, path, onConflict string) (map[string]any, *Error, error) {
+	dest, apiErr, err := s.resolve(target, false)
+	if apiErr != nil || err != nil {
+		return nil, apiErr, err
+	}
+	if dest.name == "" {
+		dest.name = deduced
+		if dest.kind == KindROM && !s.opts.Adapter.IsGameFile(dest.name) {
+			// The library would not list it: never install a ROM that
+			// cannot be found.
+			return nil, invalidName("Not a ROM file name: " + dest.name), nil
+		}
+	}
+	return s.installLocked(dest, path, onConflict)
 }
 
 // downloadErrorText is a short reason without the URL (url.Error repeats

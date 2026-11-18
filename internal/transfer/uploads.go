@@ -96,6 +96,12 @@ type upload struct {
 	hash     hash.Hash // nil until computed again after a restart
 	activity time.Time
 	gone     bool // completed, cancelled or expired
+
+	// verified is closed when the hash of a resumed upload was computed
+	// again in the background (nil: nothing to compute); verifyErr is
+	// then set when it failed.
+	verified  chan struct{}
+	verifyErr error
 }
 
 type uploads struct {
@@ -182,7 +188,7 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 	s.uploads.mu.Lock()
 	defer s.uploads.mu.Unlock()
 	if len(s.uploads.m) >= MaxOpenUploads {
-		return UploadCreated{}, tooMany("Too many uploads in progress"), nil
+		return UploadCreated{}, tooMany("Too many open uploads"), nil
 	}
 	free, err := s.opts.FreeSpace(dir)
 	if err != nil {
@@ -287,6 +293,79 @@ func offsetConflict(message string, offset int64) *Error {
 	return &Error{Status: http.StatusConflict, Code: CodeConflict, Message: message, Details: map[string]any{"offset": offset}}
 }
 
+// MaxParallelVerify bounds the resumed uploads hashed at the same time.
+const MaxParallelVerify = 2
+
+// DefaultVerifyWait is how long a chunk or a completion waits for the hash
+// of a resumed upload before answering 429 (the app retries).
+const DefaultVerifyWait = 10 * time.Second
+
+// verify computes again, in the background, the SHA-256 of the bytes of a
+// resumed upload (streamed from its .part file). It stops when the
+// service closes.
+func (s *Service) verify(u *upload) {
+	defer s.verifyWG.Done()
+	defer close(u.verified)
+	select {
+	case s.verifySem <- struct{}{}:
+		defer func() { <-s.verifySem }()
+	case <-s.verifyCtx.Done():
+		u.verifyErr = s.verifyCtx.Err()
+		return
+	}
+	h := sha256.New()
+	f, err := os.Open(s.uploadPath(u.meta.ID, partExt))
+	if err != nil {
+		u.verifyErr = err
+		return
+	}
+	defer f.Close()
+	buf := make([]byte, 1<<20)
+	var done int64
+	for done < u.offset {
+		if err := s.verifyCtx.Err(); err != nil {
+			u.verifyErr = err
+			return
+		}
+		n, err := f.Read(buf[:min(int64(len(buf)), u.offset-done)])
+		h.Write(buf[:n])
+		done += int64(n)
+		if err != nil && done < u.offset {
+			u.verifyErr = fmt.Errorf("upload %s: %w", u.meta.ID, err)
+			s.log.Warn("uploads: cannot verify a resumed upload", "upload", u.meta.ID, "error", u.verifyErr)
+			return
+		}
+	}
+	u.hash = h
+	s.log.Info("upload verified", "upload", u.meta.ID, "offset", u.offset)
+}
+
+// waitVerified waits (at most the verify wait) for the background hash of
+// a resumed upload: 429 too_many_attempts while it is not done.
+func (s *Service) waitVerified(u *upload) *Error {
+	if u.verified == nil {
+		return nil
+	}
+	timer := time.NewTimer(s.verifyWait())
+	defer timer.Stop()
+	select {
+	case <-u.verified:
+		if u.verifyErr != nil {
+			return internal("Cannot verify the upload")
+		}
+		return nil
+	case <-timer.C:
+		return tooMany("Upload is being verified")
+	}
+}
+
+func (s *Service) verifyWait() time.Duration {
+	if s.opts.VerifyWait > 0 {
+		return s.opts.VerifyWait
+	}
+	return DefaultVerifyWait
+}
+
 // ensureHash computes the SHA-256 of the received bytes again after a
 // restart. Called with u.mu held.
 func (s *Service) ensureHash(u *upload) error {
@@ -324,6 +403,9 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 		return 0, newError(http.StatusConflict, CodeConflict, "Another chunk is in progress"), nil
 	}
 	u.mu.Unlock()
+	if apiErr := s.waitVerified(u); apiErr != nil {
+		return 0, apiErr, nil
+	}
 	if apiErr := s.acquire(u); apiErr != nil {
 		return 0, apiErr, nil
 	}
@@ -385,9 +467,17 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 // the upload is deleted (409 checksum_mismatch). When the destination
 // refuses the file (conflict, locked state), the upload stays and can be
 // completed again.
+//
+// A client that loses the answer of a successful complete (connection
+// cut) sees 404 on GET /uploads/{id} afterwards: the outcome is uncertain
+// and the app checks the destination (e.g. the game list) instead of
+// reporting a failure.
 func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 	u, apiErr := s.lookup(id)
 	if apiErr != nil {
+		return nil, apiErr, nil
+	}
+	if apiErr := s.waitVerified(u); apiErr != nil {
 		return nil, apiErr, nil
 	}
 	if apiErr := s.acquire(u); apiErr != nil {
@@ -408,11 +498,15 @@ func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 	if err := syncFile(partPath); err != nil {
 		return nil, nil, err
 	}
+	// Resolve and install under the install lock: a DELETE /games of the
+	// target game cannot slip in between (no orphan save recreated).
+	s.installMu.Lock()
 	d, apiErr, err := s.resolve(u.meta.Target, true)
-	if apiErr != nil || err != nil {
-		return nil, apiErr, err
+	var result map[string]any
+	if apiErr == nil && err == nil {
+		result, apiErr, err = s.installLocked(d, partPath, u.meta.OnConflict)
 	}
-	result, apiErr, err := s.install(d, partPath, u.meta.OnConflict)
+	s.installMu.Unlock()
 	if apiErr != nil || err != nil {
 		return nil, apiErr, err
 	}
@@ -484,6 +578,11 @@ func (s *Service) LoadUploads() error {
 			continue
 		}
 		s.uploads.m[id] = u
+		if u.hash == nil {
+			u.verified = make(chan struct{})
+			s.verifyWG.Add(1)
+			go s.verify(u)
+		}
 		s.log.Info("upload resumed", "upload", id, "offset", u.offset, "bytes", u.meta.SizeBytes)
 	}
 	return nil
