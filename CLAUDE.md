@@ -58,6 +58,8 @@ ReminisLink is an iPhone companion for Linux retro handhelds (first target: Trim
 ```sh
 make test      # Go unit tests (no toolchain)
 make lint      # gofmt + go vet
+make contract  # validate protocol/openapi.yaml (Docker) and check the test vectors
+make vectors   # regenerate protocol/test-vectors/ and copy them to the Swift tests
 make desktop   # run the pak against ./testdata/sdcard on the Mac
 make docker-release   # build the pak zip
 # iOS
