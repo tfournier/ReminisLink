@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding"
 	"encoding/hex"
@@ -300,9 +301,16 @@ const MaxParallelVerify = 2
 // of a resumed upload before answering 429 (the app retries).
 const DefaultVerifyWait = 10 * time.Second
 
+// verifyAttempts and verifyRetryDelay: a failed background hash is tried
+// again a few times (a transient read error of the SD card).
+const verifyAttempts = 3
+
+const verifyRetryDelay = 200 * time.Millisecond
+
 // verify computes again, in the background, the SHA-256 of the bytes of a
 // resumed upload (streamed from its .part file). It stops when the
-// service closes.
+// service closes. When it fails, the next chunk or completion tries again
+// under the upload lock (ensureHash).
 func (s *Service) verify(u *upload) {
 	defer s.verifyWG.Done()
 	defer close(u.verified)
@@ -313,35 +321,70 @@ func (s *Service) verify(u *upload) {
 		u.verifyErr = s.verifyCtx.Err()
 		return
 	}
-	h := sha256.New()
-	f, err := os.Open(s.uploadPath(u.meta.ID, partExt))
-	if err != nil {
+	for attempt := 1; ; attempt++ {
+		h, err := s.hashPart(s.verifyCtx, u.meta.ID, u.offset)
+		if err == nil {
+			u.hash = h
+			s.log.Info("upload verified", "upload", u.meta.ID, "offset", u.offset)
+			return
+		}
 		u.verifyErr = err
-		return
+		if s.verifyCtx.Err() != nil {
+			return
+		}
+		if attempt >= verifyAttempts {
+			s.log.Warn("uploads: cannot verify a resumed upload", "upload", u.meta.ID, "error", err)
+			return
+		}
+		select {
+		case <-time.After(verifyRetryDelay * time.Duration(attempt)):
+		case <-s.verifyCtx.Done():
+			u.verifyErr = s.verifyCtx.Err()
+			return
+		}
+	}
+}
+
+// hashPart hashes the first offset bytes of the .part file of an upload.
+func (s *Service) hashPart(ctx context.Context, id string, offset int64) (hash.Hash, error) {
+	f, err := os.Open(s.uploadPath(id, partExt))
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
+	h := sha256.New()
 	buf := make([]byte, 1<<20)
 	var done int64
-	for done < u.offset {
-		if err := s.verifyCtx.Err(); err != nil {
-			u.verifyErr = err
-			return
+	for done < offset {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		n, err := f.Read(buf[:min(int64(len(buf)), u.offset-done)])
+		n, err := f.Read(buf[:min(int64(len(buf)), offset-done)])
 		h.Write(buf[:n])
 		done += int64(n)
-		if err != nil && done < u.offset {
-			u.verifyErr = fmt.Errorf("upload %s: %w", u.meta.ID, err)
-			s.log.Warn("uploads: cannot verify a resumed upload", "upload", u.meta.ID, "error", u.verifyErr)
-			return
+		if err == io.EOF && done < offset {
+			return nil, errShortPart
+		}
+		if err != nil && err != io.EOF {
+			return nil, err
 		}
 	}
-	u.hash = h
-	s.log.Info("upload verified", "upload", u.meta.ID, "offset", u.offset)
+	return h, nil
+}
+
+// errShortPart: the .part file holds fewer bytes than its offset.
+var errShortPart = errors.New("partial file shorter than its offset")
+
+// shuttingDown is the answer of a request whose wait was cancelled by the
+// shutdown of the pak.
+func shuttingDown() *Error {
+	return newError(http.StatusServiceUnavailable, CodeShuttingDown, "Shutting down")
 }
 
 // waitVerified waits (at most the verify wait) for the background hash of
-// a resumed upload: 429 too_many_attempts while it is not done.
+// a resumed upload: 429 too_many_attempts while it is not done, 503
+// shutting_down when the pak is closing. A failed background hash is not
+// an error here: ensureHash tries again.
 func (s *Service) waitVerified(u *upload) *Error {
 	if u.verified == nil {
 		return nil
@@ -350,10 +393,12 @@ func (s *Service) waitVerified(u *upload) *Error {
 	defer timer.Stop()
 	select {
 	case <-u.verified:
-		if u.verifyErr != nil {
-			return internal("Cannot verify the upload")
+		if errors.Is(u.verifyErr, context.Canceled) {
+			return shuttingDown()
 		}
 		return nil
+	case <-s.verifyCtx.Done():
+		return shuttingDown()
 	case <-timer.C:
 		return tooMany("Upload is being verified")
 	}
@@ -366,27 +411,27 @@ func (s *Service) verifyWait() time.Duration {
 	return DefaultVerifyWait
 }
 
-// ensureHash computes the SHA-256 of the received bytes again after a
-// restart. Called with u.mu held.
-func (s *Service) ensureHash(u *upload) error {
+// ensureHash computes the SHA-256 of the received bytes again when the
+// background verification did not (or failed). A .part file that is gone
+// or shorter than its offset is lost for good: the upload is deleted and
+// 404 tells the app to create it again. Another read error is reported
+// (500) and tried again at the next request. Called with u.mu held.
+func (s *Service) ensureHash(u *upload) *Error {
 	if u.hash != nil {
 		return nil
 	}
-	h := sha256.New()
-	f, err := os.Open(s.uploadPath(u.meta.ID, partExt))
-	if err != nil {
-		return err
+	h, err := s.hashPart(context.Background(), u.meta.ID, u.offset)
+	if err == nil {
+		u.hash = h
+		return nil
 	}
-	defer f.Close()
-	n, err := io.Copy(h, io.LimitReader(f, u.offset))
-	if err != nil {
-		return err
+	if errors.Is(err, errShortPart) || errors.Is(err, fs.ErrNotExist) {
+		s.log.Warn("uploads: partial file lost, upload deleted", "upload", u.meta.ID, "error", err)
+		s.dropLocked(u, "partial file unreadable")
+		return notFound("Upload data is unreadable; create the upload again")
 	}
-	if n != u.offset {
-		return fmt.Errorf("upload %s: short file", u.meta.ID)
-	}
-	u.hash = h
-	return nil
+	s.log.Warn("uploads: cannot read the partial file", "upload", u.meta.ID, "error", err)
+	return internal("Cannot read the upload data; try again")
 }
 
 // WriteChunk appends a chunk of length bytes read from body at offset. It
@@ -419,8 +464,8 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 	if length > s.opts.ChunkSize || length > u.meta.SizeBytes-u.offset {
 		return 0, newError(http.StatusRequestEntityTooLarge, CodeTooLarge, "Chunk too large"), nil
 	}
-	if err := s.ensureHash(u); err != nil {
-		return 0, nil, err
+	if apiErr := s.ensureHash(u); apiErr != nil {
+		return 0, apiErr, nil
 	}
 	saved, err := u.hash.(encoding.BinaryMarshaler).MarshalBinary()
 	if err != nil {
@@ -487,8 +532,8 @@ func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 	if u.offset != u.meta.SizeBytes {
 		return nil, offsetConflict("Upload is not complete", u.offset), nil
 	}
-	if err := s.ensureHash(u); err != nil {
-		return nil, nil, err
+	if apiErr := s.ensureHash(u); apiErr != nil {
+		return nil, apiErr, nil
 	}
 	if got := hex.EncodeToString(u.hash.Sum(nil)); got != u.meta.SHA256 {
 		s.dropLocked(u, "checksum mismatch")

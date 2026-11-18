@@ -273,3 +273,79 @@ func TestCancelJobDuringInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// restartHeld restarts the service with the verification slots taken; the
+// returned release lets the background hash run.
+func (e *env) restartHeld() (*Service, func()) {
+	e.t.Helper()
+	e.svc.Close()
+	s, err := New(e.opts)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	for i := 0; i < MaxParallelVerify; i++ {
+		s.verifySem <- struct{}{}
+	}
+	if err := s.LoadUploads(); err != nil {
+		e.t.Fatal(err)
+	}
+	e.svc = s
+	return s, func() {
+		for i := 0; i < MaxParallelVerify; i++ {
+			<-s.verifySem
+		}
+	}
+}
+
+func TestVerifyFailures(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads unreadable files")
+	}
+	e := newEnv(t)
+	data := randomBytes(t, 3000)
+
+	// Transient: the .part cannot be read for a while.
+	c := e.create(romTarget("Transient.gba"), data, "")
+	e.send(c.UploadID, data, 0, 2048)
+	part := filepath.Join(e.layout.UploadsDir(), c.UploadID+partExt)
+	os.Chmod(part, 0)
+	s, release := e.restartHeld()
+	release()
+	_, apiErr, _ := s.WriteChunk(c.UploadID, 2048, 952, bytes.NewReader(data[2048:]))
+	if apiErr == nil || apiErr.Code != CodeInternal {
+		t.Fatalf("unreadable: %v", apiErr)
+	}
+	os.Chmod(part, 0o644)
+	e.send(c.UploadID, data, 2048, len(data)) // tried again: works
+	e.complete(c.UploadID)
+
+	// Durable: the .part lost bytes after the restart.
+	c = e.create(romTarget("Lost.gba"), data, "")
+	e.send(c.UploadID, data, 0, 2048)
+	s, release = e.restartHeld()
+	os.Truncate(filepath.Join(e.layout.UploadsDir(), c.UploadID+partExt), 100)
+	release()
+	_, apiErr, _ = s.WriteChunk(c.UploadID, 2048, 952, bytes.NewReader(data[2048:]))
+	if apiErr == nil || apiErr.Code != CodeNotFound {
+		t.Fatalf("lost part: %v", apiErr)
+	}
+	if _, apiErr := s.Status(c.UploadID); apiErr == nil || apiErr.Code != CodeNotFound {
+		t.Fatal("upload kept")
+	}
+
+	// Shutdown while a chunk waits for the hash: 503 shutting_down.
+	c = e.create(romTarget("Closing.gba"), data, "")
+	e.send(c.UploadID, data, 0, 2048)
+	s, _ = e.restartHeld()
+	got := make(chan *Error)
+	go func() {
+		_, apiErr, _ := s.WriteChunk(c.UploadID, 2048, 952, bytes.NewReader(data[2048:]))
+		got <- apiErr
+	}()
+	time.Sleep(50 * time.Millisecond)
+	s.Close()
+	if apiErr := <-got; apiErr == nil || apiErr.Status != http.StatusServiceUnavailable || apiErr.Code != CodeShuttingDown {
+		t.Fatalf("during shutdown: %v", apiErr)
+	}
+	e.svc = e.newService()
+}
