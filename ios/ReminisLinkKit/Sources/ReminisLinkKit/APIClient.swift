@@ -186,6 +186,81 @@ public actor APIClient {
         try await signedJSON(method: "DELETE", segments: ["trash", id], headers: ["X-RL-Confirm": "empty-trash"])
     }
 
+    // MARK: - Library changes
+
+    /// `DELETE /games/{gameId}`: moves the game and its data to the trash
+    /// (with `keepSave`, the save and the states stay in place).
+    public func deleteGame(id: String, keepSave: Bool) async throws -> TrashMoveResult {
+        try await signedJSON(
+            method: "DELETE", segments: ["games", id],
+            query: [(name: "keepSave", value: keepSave ? "true" : "false")]
+        )
+    }
+
+    // MARK: - Uploads
+
+    /// `POST /uploads`.
+    public func createUpload(_ request: CreateUploadRequest) async throws -> UploadCreated {
+        try await signedJSON(method: "POST", segments: ["uploads"], body: ProtocolJSON.encoder().encode(request))
+    }
+
+    /// `GET /uploads/{uploadId}`: the offset received so far.
+    public func uploadStatus(id: String) async throws -> UploadStatus {
+        try await signedJSON(method: "GET", segments: ["uploads", id])
+    }
+
+    /// `PUT /uploads/{uploadId}`: sends `length` bytes read from `file` (a
+    /// file holding exactly this chunk), streamed by `URLSession` from the
+    /// disk. The only request signed with `X-RL-Content-SHA256: UNSIGNED`.
+    /// Returns the new offset.
+    public func sendChunk(uploadId: String, offset: Int64, file: URL, length: Int64) async throws -> Int64 {
+        let headers = [
+            "Upload-Offset": String(offset),
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(length),
+        ]
+        let (data, response) = try await performSigned(
+            method: "PUT", segments: ["uploads", uploadId], headers: headers, bodyFile: file
+        )
+        try check(response, data: data, accept: [200, 204])
+        if let value = response.value(forHTTPHeaderField: "Upload-Offset"), let next = Int64(value.trimmingCharacters(in: .whitespaces)) {
+            return next
+        }
+        return offset + length
+    }
+
+    /// `POST /uploads/{uploadId}/complete`.
+    public func completeUpload(id: String) async throws -> UploadResult {
+        try await signedJSON(method: "POST", segments: ["uploads", id, "complete"])
+    }
+
+    /// `DELETE /uploads/{uploadId}`.
+    public func cancelUpload(id: String) async throws {
+        let (data, response) = try await performSigned(method: "DELETE", segments: ["uploads", id])
+        try check(response, data: data, accept: [200, 204])
+    }
+
+    // MARK: - Downloads and jobs
+
+    /// `POST /downloads`: the device downloads the URL in a job.
+    public func createDownload(_ request: DownloadRequest) async throws -> JobAccepted {
+        try await signedJSON(method: "POST", segments: ["downloads"], body: ProtocolJSON.encoder().encode(request))
+    }
+
+    public func jobs() async throws -> [Job] {
+        let list: JobList = try await signedJSON(method: "GET", segments: ["jobs"])
+        return list.jobs
+    }
+
+    public func job(id: String) async throws -> Job {
+        try await signedJSON(method: "GET", segments: ["jobs", id])
+    }
+
+    /// `DELETE /jobs/{jobId}`: returns the job in its new state.
+    public func cancelJob(id: String) async throws -> Job {
+        try await signedJSON(method: "DELETE", segments: ["jobs", id])
+    }
+
     // MARK: - Plumbing
 
     /// Builds a request. Segments are percent-encoded one by one, and the
@@ -219,21 +294,25 @@ public actor APIClient {
         method: String,
         segments: [String],
         query: [(name: String, value: String)] = [],
-        headers: [String: String] = [:]
+        headers: [String: String] = [:],
+        body: Data? = nil
     ) async throws -> T {
-        let (data, response) = try await performSigned(method: method, segments: segments, query: query, headers: headers)
-        try check(response, data: data, accept: [200, 201])
+        let (data, response) = try await performSigned(method: method, segments: segments, query: query, headers: headers, body: body)
+        try check(response, data: data, accept: [200, 201, 202])
         return try decode(data)
     }
 
     /// Signs and sends a request; after `401 clock_skew`, corrects the clock
-    /// with `/hello` and signs again (new nonce), once.
+    /// with `/hello` and signs again (new nonce), once. With `bodyFile`, the
+    /// body is streamed from that file and signed as `UNSIGNED` (upload
+    /// chunks only).
     private func performSigned(
         method: String,
         segments: [String],
         query: [(name: String, value: String)] = [],
         headers: [String: String] = [:],
-        body: Data? = nil
+        body: Data? = nil,
+        bodyFile: URL? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         guard let credentials else { throw APIError.notPaired }
         let signer = Signer(clientId: credentials.clientId, key: credentials.key)
@@ -246,11 +325,11 @@ public actor APIClient {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
             do {
-                request = try signer.sign(request, time: signingTime())
+                request = try signer.sign(request, time: signingTime(), unsignedBody: bodyFile != nil)
             } catch let error as SignerError {
                 throw APIError.signing(error)
             }
-            let (data, response) = try await transport(request)
+            let (data, response) = try await transport(request, bodyFile: bodyFile)
             if !corrected, response.statusCode == 401, Self.serverError(response, data: data)?.code == .clockSkew {
                 corrected = true
                 try await hello()
@@ -260,9 +339,13 @@ public actor APIClient {
         }
     }
 
-    private func transport(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    private func transport(_ request: URLRequest, bodyFile: URL? = nil) async throws -> (Data, HTTPURLResponse) {
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = if let bodyFile {
+                try await session.upload(for: request, fromFile: bodyFile)
+            } else {
+                try await session.data(for: request)
+            }
             guard let http = response as? HTTPURLResponse else {
                 throw APIError.invalidResponse("not an HTTP response")
             }

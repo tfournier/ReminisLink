@@ -54,7 +54,7 @@ public struct DemoLibrary: Sendable {
         public let folder: String
         public let label: String
         public let tag: String
-        public let games: [Game]
+        public var games: [Game]
 
         public init(folder: String, label: String, tag: String, games: [Game]) {
             self.folder = folder
