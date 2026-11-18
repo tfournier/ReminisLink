@@ -111,6 +111,11 @@ public enum DiscoveryLogic {
         devices.filter { !pairedIds.contains($0.id) }
     }
 
+    /// Delay before restarting a failed browser: 1 s, 2 s, 4 s... at most 30 s.
+    public static func restartDelay(afterFailures failures: Int) -> Duration {
+        .seconds(min(30, 1 << min(failures, 5)))
+    }
+
     public static func status(for state: NWBrowser.State) -> DiscoveryStatus {
         switch state {
         case .setup: .idle
@@ -142,6 +147,8 @@ public final class Discovery {
 
     @ObservationIgnored private var browser: NWBrowser?
     @ObservationIgnored private let fixedDevices: [DiscoveredDevice]?
+    @ObservationIgnored private var failures = 0
+    @ObservationIgnored private var restartTask: Task<Void, Never>?
 
     /// A real Bonjour browser.
     public init() {
@@ -166,8 +173,7 @@ public final class Discovery {
         browser.stateUpdateHandler = { [weak self] state in
             let status = DiscoveryLogic.status(for: state)
             MainActor.assumeIsolated {
-                self?.status = status
-                if case .failed = status { self?.restart() }
+                self?.apply(status)
             }
         }
         browser.browseResultsChangedHandler = { [weak self] results, _ in
@@ -181,7 +187,31 @@ public final class Discovery {
         browser.start(queue: .main)
     }
 
+    /// After a failure, restarts the browser with a growing delay.
+    private func apply(_ newStatus: DiscoveryStatus) {
+        status = newStatus
+        switch newStatus {
+        case .failed:
+            let delay = DiscoveryLogic.restartDelay(afterFailures: failures)
+            failures += 1
+            browser?.cancel()
+            browser = nil
+            restartTask?.cancel()
+            restartTask = Task { [weak self] in
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+                self?.start()
+            }
+        case .searching:
+            failures = 0
+        default:
+            break
+        }
+    }
+
     public func stop() {
+        restartTask?.cancel()
+        restartTask = nil
         browser?.cancel()
         browser = nil
         if fixedDevices == nil { devices = [] }
@@ -210,6 +240,49 @@ public final class Discovery {
               case .bonjour(let record) = result.metadata
         else { return nil }
         return DiscoveryLogic.device(service: BonjourService(name: name, type: type, domain: domain), txt: record.dictionary)
+    }
+}
+
+/// Why a device could not be found.
+public enum DeviceLookupError: Error, Equatable, Sendable {
+    case notFound
+    case localNetworkDenied
+}
+
+/// Finds the endpoint of a device: Bonjour by id first, then, only when one
+/// is allowed, a fallback endpoint (the `h`/`p` of a QR code). A cancelled
+/// lookup throws `CancellationError` and never falls back.
+@MainActor
+public enum DeviceLocator {
+    public static func locate(
+        fallback: Endpoint?,
+        timeout: Duration,
+        fallbackDelay: Duration,
+        find: (Duration) async -> DiscoveredDevice?,
+        resolve: (DiscoveredDevice) async throws -> Endpoint,
+        isLocalNetworkDenied: () -> Bool
+    ) async throws -> Endpoint {
+        let device = await find(fallback == nil ? timeout : fallbackDelay)
+        try Task.checkCancellation()
+        if let device {
+            do {
+                return try await resolve(device)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Resolution failed: try the fallback below.
+            }
+        }
+        try Task.checkCancellation()
+        if let fallback { return fallback }
+        throw isLocalNetworkDenied() ? DeviceLookupError.localNetworkDenied : DeviceLookupError.notFound
+    }
+
+    /// The fallback endpoint a pairing link may use: none for a device that
+    /// is already paired, which must be found with Bonjour under its id (a
+    /// link must not replace a key by talking to another address).
+    public static func pairingFallback(for link: PairingLink, pairedIds: Set<String>) -> Endpoint? {
+        pairedIds.contains(link.deviceId) ? nil : link.fallbackEndpoint
     }
 }
 

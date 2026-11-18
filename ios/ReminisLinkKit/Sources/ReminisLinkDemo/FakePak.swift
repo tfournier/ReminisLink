@@ -44,6 +44,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
 
     private let lock = NSLock()
     private var _clockOffset: TimeInterval = 0
+    private var _responseDelay: TimeInterval = 0
     private var clients: [String: SymmetricKey] = [:]
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
@@ -121,6 +122,12 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         set { lock.withLock { _clockOffset = newValue } }
     }
 
+    /// Every answer waits this long (to test cancellation).
+    public var responseDelay: TimeInterval {
+        get { lock.withLock { _responseDelay } }
+        set { lock.withLock { _responseDelay = newValue } }
+    }
+
     public var log: [LoggedRequest] { lock.withLock { _log } }
 
     public var clientIds: [String] { lock.withLock { clients.keys.sorted() } }
@@ -139,6 +146,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     // MARK: - Handling
 
     public func respond(to request: URLRequest, body: Data) -> FakeResponse {
+        if responseDelay > 0 { Thread.sleep(forTimeInterval: responseDelay) }
         let method = (request.httpMethod ?? "GET").uppercased()
         let url = request.url!
         let path = url.path(percentEncoded: true)
