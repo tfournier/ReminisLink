@@ -79,7 +79,7 @@ func main() {
 		os.Exit(2)
 	}
 	if err := runHeadless(opts); err != nil {
-		slog.Error("fatal", "error", err)
+		// Already in the log file (runHeadless logs it before closing it).
 		fmt.Fprintln(os.Stderr, "reminislink:", err)
 		os.Exit(1)
 	}
@@ -110,12 +110,23 @@ func openLog(dir string, also io.Writer) (*slog.Logger, func(), error) {
 }
 
 func runHeadless(opts options) error {
+	return runHeadlessTo(opts, os.Stderr)
+}
+
+// runHeadlessTo runs the headless mode; the log also goes to logOut. A
+// fatal error is written to the log file before it is closed.
+func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	r := roots(opts)
-	logger, closeLog, err := openLog(r.Logs, os.Stderr)
+	logger, closeLog, err := openLog(r.Logs, logOut)
 	if err != nil {
 		return err
 	}
 	defer closeLog()
+	defer func() {
+		if err != nil {
+			logger.Error("fatal", "error", err)
+		}
+	}()
 	slog.SetDefault(logger)
 
 	adapter := nextui.New(r, os.Getenv)

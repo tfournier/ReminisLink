@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,5 +93,27 @@ func TestPairingDisplay(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("run did not stop")
+	}
+}
+
+func TestFatalErrorReachesTheLogFile(t *testing.T) {
+	t.Setenv("PLATFORM", "")
+	prev := slog.Default()
+	defer slog.SetDefault(prev)
+	sd := t.TempDir()
+	conf := filepath.Join(sd, ".userdata", "shared", "ReminisLink", "config.json")
+	if err := os.MkdirAll(filepath.Dir(conf), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(conf, []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runHeadlessTo(options{headless: true, sd: sd}, io.Discard)
+	if err == nil {
+		t.Fatal("broken config.json accepted")
+	}
+	data, _ := os.ReadFile(filepath.Join(sd, ".userdata", "tg5040", "logs", LogFileName))
+	if !strings.Contains(string(data), "level=ERROR msg=fatal") {
+		t.Fatalf("fatal error not in the log file:\n%s", data)
 	}
 }
