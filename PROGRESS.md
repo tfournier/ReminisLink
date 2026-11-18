@@ -5,16 +5,17 @@
 |---|---|---|---|---|
 | M0 | en attente des relevés de la console | — | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
-| M2 | à faire | — | — | — |
-| M3 | à faire | — | — | — |
+| M2 | en cours | `m2-serveur-lecture` | — | — |
+| M3 | en cours | `m3-ios-base` | — | — |
 | M4 | à faire | — | — | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
-- M1 : code livré (10 commits). Contrôles §4 OK le 2026-11-18 : `make lint test`, `make contract`, `swift test` (21 tests), vecteurs 5 appairage / 10 signature / 15+23 identifiants, aucun `TODO(M0)`, diff dans le périmètre. Revue (agent Claude neuf) : 1 bloquant confirmé (dépassement du contrôle d'horloge, `X-RL-Time` très lointain accepté), corps lu avant le HMAC (épuisement mémoire), `ENOTDIR` non typé dans `ResolveID`, 429 non déclaré au contrat. Corrections faites (5 commits, `d433abf2`..`77d7d44f`), contrôles §4 de nouveau OK (Swift : 23 tests). Revue ciblée : 1 nouveau bloquant (rejeu pendant un envoi en cours → corps lus en mémoire), horloges murale/monotone mélangées, `Retry-After` absent. Aller-retour 2 fait (`a6a94b98`, `bcd73fe9`) ; contrôles §4 OK, `go test -race` OK. Revue ciblée n° 2 : aucun bloquant ; points mineurs corrigés à l'aller-retour 3 (`73cde9e1`, `57259f3c`, `186f40d3`), diff relu par l'agent principal ; contrôles §4 OK (`go test -race -count=2` OK). Spec mise à jour (décisions de la personne), revue croisée Antigravity : prêt à fusionner. Fusionné dans `main` le 2026-11-18.
-- M0 : en attente de `survey-1-before.txt`, `survey-2-after.txt` et de `notes.md` rempli dans `docs/specs/m0/`.
+- M2 : sous-agent Claude dans `../reminislink-m2-serveur-lecture` (branche `m2-serveur-lecture`), lancé le 2026-11-18. Hypothèses `TODO(M0)` et carte SD factice provisoire en attendant M0. Seul à pouvoir modifier `protocol/openapi.yaml` pendant M2/M3.
+- M3 : sous-agent Claude dans `../reminislink-m3-ios-base` (branche `m3-ios-base`), lancé le 2026-11-18. Réponses factices tirées d'`openapi.yaml` tant que le pak headless n'est pas fusionné ; ne modifie que `ios/`.
+- M0 : en attente des relevés de la console.
 
 ## État du dépôt (2026-11-18)
 - Branche `main` sans aucun commit : tous les fichiers sont non suivis (`CLAUDE.md`, `README.md`, `docs/`, `go.mod`, `prompts/`, `scripts/`, `skills/`, `.gitignore`).
@@ -32,7 +33,7 @@
 | `swift --version` | Swift 6.4.2 |
 | `make --version` | GNU Make 3.81 |
 | `agy --version` | 1.5.11 (`~/.local/bin/agy`), installée le 2026-11-18 ; modèles Gemini 3.8 Flash |
-| Simulateurs iOS | runtimes iOS 18.3 et 18.5 installés, **aucun appareil créé** (pas d'« iPhone 16 » comme l'attend `CLAUDE.md`) ; runtimes iOS 26.x indisponibles |
+| Simulateurs iOS | runtimes iOS 18.3 et 18.5 ; simulateur « iPhone 16 » (iOS 18.5) créé le 2026-11-18 ; runtimes iOS 26.x indisponibles |
 
 Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous-agent Claude neuf (revue non croisée, à signaler à chaque jalon).
 
@@ -61,4 +62,3 @@ Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameI
 - M2 : `ReadHeaderTimeout`, délai d'inactivité de lecture, `BaseContext` annulé à l'arrêt ; brancher `Require(RouteSave)` et `Require(RouteChunk)`.
 - Revue M1 (pour M2) : vérifier qu'un `folderId` appartient au `systemId` de la route.
 - Revue M1 : NFC/NFD non normalisés dans les identifiants — à vérifier en mode desktop sur macOS (noms souvent en NFD).
-- Créer un simulateur « iPhone 16 » (`xcrun simctl create`) avant M1/M3, ou adapter la commande de `CLAUDE.md` au runtime disponible.
