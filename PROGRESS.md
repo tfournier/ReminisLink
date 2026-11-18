@@ -7,16 +7,15 @@
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
-| M4 | Go et iOS livrés, en revue | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » ; revue Claude « à corriger », 1 bloquant confirmé (état SHA-256 en avance sur les données après coupure → fichier corrompu installé), allers-retours 1 et 2 faits ; revue ciblée n° 2 : 1 bloquant (purge sur horloge fausse mais plausible) → question 7 à la personne ; aller-retour 3 partie 1 (points hors purge) fait, contrôles OK ; partie 2 (règle de purge) en attente de la question 7. iOS : revue Claude « à corriger », aucun bloquant (issue incertaine perdue entre essais, envois démarrés en arrière-plan, pause non levée, promesse de copie de save non tenue → type Save masqué jusqu'à M5, demande partagée rouverte, doublons) ; allers-retours 1 et 2 faits et revus, contrôles OK (135 tests Kit, 30 tests app, UI démo) : **prêt** | — |
+| M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
-- M2 et M3 fusionnés dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (81), `xcodebuild test` (18 tests app, 3 tests UI dont le parcours réel contre `make headless` : appairage par lien → tableau de bord → bibliothèque → fiche de jeu) tous verts.
-- M4 : intégration Go + iOS testée le 2026-11-18 dans un worktree temporaire `../reminislink-m4-integ` : contre `make headless`, appairage trouvé **par Bonjour depuis le simulateur** (plus de repli IP) et parcours « envoi de 200 Mio (50 morceaux) → bibliothèque → suppression → vidage de la corbeille » réussis. Côté Go : `smoke-transfers.sh` (reprise après SIGINT à 100 Mio, téléchargement local, corbeille) OK. Non testé de bout en bout depuis l'app : coupure du pak pendant l'envoi puis reprise, et ajout par URL (couverts par les tests Go et le faux pak iOS).
-- M4 (historique) : deux sous-agents lancés le 2026-11-18 : Go dans `../reminislink-m4-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m4-ios` (uniquement `ios/`, faux pak étendu ; affiche aussi `connectedClients`).
-- M0 : en attente des relevés de la console.
+- M4 fusionné dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (135), `xcodebuild test` (30 tests app, UI démo) verts ; contre `make headless` : appairage **par Bonjour** depuis le simulateur → fiche de jeu, et envoi de 200 Mio (50 morceaux) → bibliothèque → suppression → vidage de la corbeille, réussis. `scripts/smoke-transfers.sh` : reprise d'un envoi après arrêt du pak, téléchargement local, corbeille OK.
+- **En attente de la personne** : tests sur la vraie console (checklist `docs/specs/checklists/console.md`, scénarios 3, 4, 5, 9, 10), qui supposent les relevés M0 (chemins des saves/states, horloge, certificats).
+- M5 prêt à lancer (saves, states, verrous, cheats).
 
 ## État du dépôt (2026-11-18)
 - Branche `main` sans aucun commit : tous les fichiers sont non suivis (`CLAUDE.md`, `README.md`, `docs/`, `go.mod`, `prompts/`, `scripts/`, `skills/`, `.gitignore`).
@@ -65,6 +64,7 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- Tests UI contre le pak headless : chaque test consomme le lien d'appairage (secret à usage unique) ; lancer plusieurs tests réels d'affilée demande un lien neuf par test — écrire `scripts/run-headless-uitests.sh` (08 §3) qui relance le pak ou relit le lien entre deux tests.
 - M4 iOS : ouverture de l'app depuis l'extension de partage via `openURL` remonté par la chaîne des répondeurs (pas d'API publique) — risque en revue App Store, à valider avant M7.
 - M4 iOS : table extension → tag NextUI pour suggérer le système (`TODO(M0)`).
 - M4 Go : certificats racine HTTPS — magasin système, `$REMINISLINK_CA_BUNDLE`, sinon `/etc/ssl/certs/ca-certificates.crt` (`TODO(M0)`) ; si absent sur la console : autoriser `certifiable` ou embarquer un bundle dans le pak (M7).
