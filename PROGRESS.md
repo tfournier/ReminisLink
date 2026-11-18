@@ -6,7 +6,7 @@
 | M0 | en attente des relevés de la console | — | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | en revue | `m2-serveur-lecture` | GPT-OSS 120B (Antigravity) : prêt à fusionner (3 remarques, faux positifs) ; revue Claude neuve en cours | — |
-| M3 | en revue | `m3-ios-base` | GPT-OSS 120B (Antigravity) : à corriger, 1 point retenu (IP de secours du QR limitée au réseau local), le reste faux positifs ; revue Claude neuve en cours | — |
+| M3 | en revue | `m3-ios-base` | GPT-OSS 120B (Antigravity) : à corriger, 1 point retenu (IP de secours du QR limitée au réseau local), le reste faux positifs ; revue Claude neuve : à corriger, aucun bloquant (annulation de l'appairage, ré-appairage silencieux d'une console déjà appairée, session annulée laissée en erreur, `notPaired` sans action) ; aller-retour 1 en cours | — |
 | M4 | à faire | — | — | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
@@ -51,6 +51,7 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — La personne demande de continuer sans s'arrêter tant que possible : M1 intégré, puis M2 et M3 lancés en parallèle sans attendre un accord de fin de jalon ; arrêts maintenus pour les décisions de spec, de contrat, de sécurité, la console et l'échec répété d'un sous-agent.
 
 ## Questions ouvertes pour la personne
+4. **Ré-appairage d'une console déjà appairée (sécurité, M3)** : 06 §4.2 dit qu'un lien `reminislink://pair` « lance directement l'appairage ». La revue a montré qu'un faux pak sur le même Wi-Fi peut ainsi remplacer la clé d'une console déjà appairée (console réelle éteinte, repli sur l'IP du QR). L'agent principal fait implémenter : confirmation quand la console est déjà appairée, et dans ce cas pas de repli sur l'IP du QR (Bonjour obligatoire) ; l'IP de secours n'est acceptée que si elle est privée ou de lien local. À valider, puis reporter dans 06 §4.2 et 03 §3.1.
 2. **Contrat incomplet (M3)** : 06 §4.3 demande d'afficher les « appareils connectés » au tableau de bord, mais aucune route ne les expose (`/device` n'a pas ce champ). Recommandation : ajouter à `GET /device` un champ `connectedClients: [{ clientName, lastSeenAt }]` tenu **en mémoire** par le pak (requête signée de moins de 30 s, comme l'état « Connecté » de 05 §7.1), sans écriture sur la carte SD. Bloque : l'affichage dans l'app (masqué en attendant).
 3. **Noms commerciaux dans les exemples** : `04-api-v1.md` et `openapi.yaml` utilisent « Pokemon Emerald » / « Pokemon Unbound » dans les exemples. Recommandation : les remplacer par des noms inventés (exemples seulement, aucun changement de comportement). Bloque : rien.
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
