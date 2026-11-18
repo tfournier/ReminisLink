@@ -1,0 +1,20 @@
+# Redocly CLI configuration for "make contract".
+extends:
+  - recommended
+rules:
+  # No license chosen yet (see README).
+  info-license: off
+  info-license-url: off
+  # Examples must match their schemas.
+  no-invalid-media-type-examples:
+    severity: error
+    allowAdditionalProperties: false
+  no-invalid-parameter-examples: error
+  no-invalid-schema-examples: error
+  operation-4xx-response: error
+  operation-operationId: error
+  operation-summary: error
+  no-unused-components: error
+  security-defined: error
+  tag-description: error
+  operation-tag-defined: error
