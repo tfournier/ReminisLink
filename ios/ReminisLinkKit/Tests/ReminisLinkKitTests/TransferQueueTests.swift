@@ -1,0 +1,282 @@
+import Foundation
+import ReminisLinkDemo
+import Testing
+@testable import ReminisLinkKit
+
+/// Records the background activities, and can make them expire.
+@MainActor
+final class FakeBackground: BackgroundActivity {
+    var begun = 0
+    var ended = Set<Int>()
+    var expirations: [Int: @MainActor () -> Void] = [:]
+
+    func begin(name: String, onExpiration: @escaping @MainActor () -> Void) -> Int {
+        begun += 1
+        expirations[begun] = onExpiration
+        return begun
+    }
+
+    func end(_ token: Int) { ended.insert(token) }
+
+    func expireAll() {
+        for (token, handler) in expirations where !ended.contains(token) {
+            handler()
+            ended.insert(token)
+        }
+    }
+}
+
+@MainActor
+@Suite("Transfer queue")
+struct TransferQueueTests {
+    let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-queue-\(UUID().uuidString)")
+
+    func makeQueue(_ client: APIClient, background: BackgroundActivity = NoBackgroundActivity()) -> TransferQueue {
+        TransferQueue(scratchDirectory: scratch, background: background, retry: .immediate) { client }
+    }
+
+    @Test func uploadsRunInOrderAndReportProgress() async throws {
+        let pak = makePak()
+        pak.chunkSize = 32 * 1024
+        let client = try await pairedClient(pak)
+        let background = FakeBackground()
+        let queue = makeQueue(client, background: background)
+        var finished: [String] = []
+        queue.onUploadFinished = { finished.append($0.fileName) }
+        let a = try queue.enqueue(fileURL: try makeFile(size: 100_000, name: "A.gba"),
+                                  target: .rom(systemId: gbaSystemId, fileName: "A.gba"), destination: "GBA", ownsFile: false)
+        let b = try queue.enqueue(fileURL: try makeFile(size: 50_000, name: "B.gba"),
+                                  target: .rom(systemId: gbaSystemId, fileName: "B.gba"), destination: "GBA", ownsFile: false)
+        #expect(a.sizeBytes == 100_000)
+        await queue.waitUntilIdle()
+        #expect(a.phase == .done)
+        #expect(b.phase == .done)
+        #expect(a.sentBytes == 100_000)
+        #expect(a.fractionCompleted == 1)
+        #expect(a.result?.gameId != nil)
+        #expect(finished == ["A.gba", "B.gba"])
+        #expect(background.begun == 2)
+        #expect(background.ended == [1, 2])
+        // A then B, never interleaved.
+        let uploads = pak.chunkLog.map(\.uploadId)
+        #expect(uploads == uploads.sorted { uploads.firstIndex(of: $0)! < uploads.firstIndex(of: $1)! })
+    }
+
+    @Test func ownedCopyIsDeletedOnceDone() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let file = try makeFile(size: 1000, name: "C.gba")
+        try queue.enqueue(fileURL: file, target: .rom(systemId: gbaSystemId, fileName: "C.gba"), destination: "GBA", ownsFile: true)
+        await queue.waitUntilIdle()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(!FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path))
+    }
+
+    @Test func lostConnectionPausesThenResumes() async throws {
+        let pak = makePak()
+        pak.chunkSize = 32 * 1024
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        // More failures in a row than the retry policy allows.
+        pak.injectChunkFaults(Array(repeating: .dropBeforeStoring, count: 5))
+        let item = try queue.enqueue(fileURL: try makeFile(size: 100_000), target: .rom(systemId: gbaSystemId, fileName: "D.gba"),
+                                     destination: "GBA", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .paused)
+        #expect(item.failure as? APIError == .network(.networkConnectionLost))
+        queue.resumePaused()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+        #expect(item.failure == nil)
+    }
+
+    @Test func backgroundExpirationPausesAfterTheChunk() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        pak.responseDelay = 0.02
+        let client = try await pairedClient(pak)
+        let background = FakeBackground()
+        let queue = makeQueue(client, background: background)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 400_000), target: .rom(systemId: gbaSystemId, fileName: "E.gba"),
+                                     destination: "GBA", ownsFile: false)
+        while item.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        background.expireAll()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .paused)
+        #expect(item.sentBytes > 0 && item.sentBytes < 400_000)
+        queue.resume(item)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+    }
+
+    @Test func conflictFailsThenReplaceOrKeepBoth() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 1000), target: .rom(systemId: gbaSystemId, fileName: "Pixel Runner.gba"),
+                                     destination: "GBA", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .failed)
+        #expect((item.failure as? APIError)?.code == .conflict)
+        await queue.retry(item, onConflict: .rename)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+        #expect(item.onConflict == .rename)
+        #expect(item.result?.gameId == DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner (2).gba"))
+    }
+
+    @Test func cancelStopsAndDeletesOnTheDevice() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        pak.responseDelay = 0.02
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 400_000), target: .rom(systemId: gbaSystemId, fileName: "F.gba"),
+                                     destination: "GBA", ownsFile: false)
+        while item.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        queue.cancel(item)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .cancelled)
+        for _ in 0..<50 where !pak.uploadIds.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(pak.uploadIds.isEmpty)
+        #expect(try await !client.games(systemId: gbaSystemId).games.contains { $0.fileName == "F.gba" })
+        queue.clearFinished()
+        #expect(queue.uploads.isEmpty)
+    }
+
+    @Test func jobsArePolledUntilTheyEnd() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        var ended: [String] = []
+        queue.onJobFinished = { ended.append($0.id) }
+        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba",
+                                                                       target: .rom(systemId: gbaSystemId, fileName: nil)))
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
+        #expect(queue.track(jobId: accepted.jobId, title: "again") === item)
+        #expect(queue.isBusy)
+        for _ in 0..<10 where !item.isFinished { await queue.refreshJobs() }
+        #expect(item.job?.state == .succeeded)
+        #expect(ended == [accepted.jobId])
+        #expect(!queue.isBusy)
+    }
+
+    @Test func jobLostWhenThePakRestarts() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba", target: .staging(fileName: nil)))
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
+        pak.restart()
+        // The client re-pairs nothing: restart only forgets jobs and nonces.
+        await queue.refreshJobs()
+        #expect(item.isLost)
+        #expect(item.isFinished)
+    }
+
+    @Test func cancelAJob() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba", target: .staging(fileName: nil)))
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
+        try await queue.cancel(item)
+        #expect(item.job?.state == .cancelled)
+        #expect(item.isFinished)
+    }
+
+    @Test func rate() {
+        var rate = TransferRate(window: 5)
+        #expect(rate.bytesPerSecond == nil)
+        rate.record(bytes: 0, at: 0)
+        rate.record(bytes: 1000, at: 1)
+        rate.record(bytes: 3000, at: 2)
+        #expect(rate.bytesPerSecond == 1500)
+        #expect(rate.secondsRemaining(total: 6000) == 2)
+        // Old samples leave the window.
+        rate.record(bytes: 13000, at: 7)
+        #expect(rate.bytesPerSecond == 2000)
+        // Going back (upload started again) resets.
+        rate.record(bytes: 0, at: 8)
+        #expect(rate.bytesPerSecond == nil)
+    }
+}
+
+@Suite("Add suggestions and share inbox")
+struct AddSuggestionTests {
+    let systems = [
+        GameSystem(id: "a", label: "Game Boy Advance", folder: "Game Boy Advance (GBA)", tag: "GBA", gameCount: 0),
+        GameSystem(id: "b", label: "Game Boy", folder: "01) Game Boy (GB)", tag: "GB", gameCount: 0),
+        GameSystem(id: "c", label: "Super Nintendo", folder: "Super Nintendo (SUPA)", tag: "SUPA", gameCount: 0),
+    ]
+
+    @Test func kindFromTheExtension() {
+        #expect(AddKind.suggested(forFileName: "Hack.BPS") == .patch)
+        #expect(AddKind.suggested(forFileName: "a.ips") == .patch)
+        #expect(AddKind.suggested(forFileName: "a.ups") == .patch)
+        #expect(AddKind.suggested(forFileName: "Game.gba.cht") == .cheats)
+        #expect(AddKind.suggested(forFileName: "Game.sav") == .save)
+        #expect(AddKind.suggested(forFileName: "Game.gba") == .rom)
+        #expect(AddKind.suggested(forFileName: ".ips") == .rom)
+        #expect(AddKind.suggested(forFileName: "README") == .rom)
+    }
+
+    @Test func systemFromTheExtension() {
+        #expect(SystemSuggestion.system(forFileName: "x.GBA", in: systems)?.id == "a")
+        #expect(SystemSuggestion.system(forFileName: "x.gbc", in: systems)?.id == "b", "falls back to GB")
+        #expect(SystemSuggestion.system(forFileName: "x.smc", in: systems)?.id == "c")
+        #expect(SystemSuggestion.system(forFileName: "x.zip", in: systems) == nil)
+        #expect(SystemSuggestion.system(forFileName: "x.nes", in: systems) == nil)
+    }
+
+    @Test func downloadURLs() {
+        #expect(DownloadURL.validated("  https://example.org/a.bps \n")?.absoluteString == "https://example.org/a.bps")
+        #expect(DownloadURL.validated("http://192.168.1.10:8000/x") != nil)
+        for bad in ["ftp://example.org/a", "file:///etc/hosts", "example.org/a", "javascript:alert(1)", "https://", ""] {
+            #expect(DownloadURL.validated(bad) == nil, "\(bad)")
+        }
+        #expect(DownloadURL.displayName(URL(string: "https://example.org/dir/a.bps")!) == "a.bps")
+        #expect(DownloadURL.displayName(URL(string: "https://example.org/")!) == "example.org")
+    }
+
+    @Test func inboxRoundTrip() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "rl-inbox-\(UUID().uuidString)")
+        let inbox = ShareInbox(root: root)
+        let a = try makeFile(size: 1000, name: "Game.gba")
+        let b = try makeFile(size: 10, name: "Game.gba", seed: 3)
+        let request = try inbox.write(
+            files: [a, b], urls: [URL(string: "https://example.org/x.ips")!, URL(string: "ftp://example.org/y")!]
+        )
+        #expect(request.files == ["Game.gba", "Game (2).gba"])
+        #expect(request.urls == ["https://example.org/x.ips"])
+        #expect(inbox.pending() == [request])
+        #expect(try Data(contentsOf: inbox.fileURL("Game (2).gba", in: request)) == Data(contentsOf: b))
+        // The link of the request.
+        let url = ShareInbox.url(for: request)
+        #expect(url.absoluteString.hasPrefix("reminislink://add?request="))
+        #expect(ShareInbox.requestId(from: url) == request.id)
+        #expect(ShareInbox.requestId(from: URL(string: "reminislink://pair?request=\(request.id)")!) == nil)
+        inbox.remove(request.id)
+        #expect(inbox.pending().isEmpty)
+    }
+
+    @Test func inboxIgnoresAndPurgesIncompleteRequests() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "rl-inbox-\(UUID().uuidString)")
+        let inbox = ShareInbox(root: root)
+        let partial = root.appending(path: "partial")
+        try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: true)
+        #expect(inbox.pending().isEmpty)
+        let old = try inbox.write(files: [], urls: [URL(string: "https://example.org/a")!])
+        inbox.purge(olderThan: 60, now: Date().addingTimeInterval(3 * 3600))
+        #expect(inbox.request(id: old.id) == nil)
+        #expect(!FileManager.default.fileExists(atPath: partial.path))
+    }
+
+    @Test func safeNames() {
+        #expect(ShareInbox.safeName("../a/b.gba") == ".._a_b.gba")
+        #expect(ShareInbox.safeName("request.json") == "file")
+        #expect(ShareInbox.safeName("a\u{1}b") == "ab")
+        #expect(ShareInbox.uniqueName("a", taken: ["a", "a (2)"]) == "a (3)")
+    }
+}
