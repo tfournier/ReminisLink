@@ -24,6 +24,8 @@ struct DeleteGameView: View {
     @State private var error: AppError?
     @State private var isWorking = false
     @State private var confirmEmpty = false
+    /// The trash total read just before the confirmation, nil if unknown.
+    @State private var freshTrashTotal: Int64?
     @State private var emptied: Int64?
 
     /// The files `DELETE /games/{id}` moves, with the option applied.
@@ -62,8 +64,12 @@ struct DeleteGameView: View {
                 Button("Empty Trash", role: .destructive) { Task { await emptyTrash() } }
                     .accessibilityIdentifier("delete.emptyConfirm")
             } message: {
-                let total = app.session(for: target.deviceId).trash?.totalBytes ?? result?.movedBytes ?? 0
-                Text("\(total.byteString) will be permanently deleted from the SD card. This cannot be undone.")
+                // Never the size of this game alone: the whole trash goes.
+                if let total = freshTrashTotal {
+                    Text("\(total.byteString) will be permanently deleted from the SD card. This cannot be undone.")
+                } else {
+                    Text("Everything in the trash of the console will be permanently deleted. This cannot be undone.")
+                }
             }
         }
         .interactiveDismissDisabled(isWorking)
@@ -139,7 +145,8 @@ struct DeleteGameView: View {
                     // The trash may hold more than this game: show its
                     // current size in the confirmation.
                     Task {
-                        await app.session(for: target.deviceId).loadTrash()
+                        let session = app.session(for: target.deviceId)
+                        freshTrashTotal = await session.loadTrash() ? session.trash?.totalBytes : nil
                         confirmEmpty = true
                     }
                 }

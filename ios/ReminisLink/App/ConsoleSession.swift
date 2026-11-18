@@ -115,10 +115,13 @@ final class ConsoleSession {
         }
     }
 
-    /// The trash route comes with milestone M4 on the pak: a failure here
-    /// only hides the trash, it does not fail the dashboard.
-    func loadTrash() async {
-        trash = try? await client?.trash()
+    /// Reloads the trash. A failure keeps the last known content (it never
+    /// fails the dashboard). Returns whether the content is fresh.
+    @discardableResult
+    func loadTrash() async -> Bool {
+        guard let client, let fresh = try? await client.trash() else { return false }
+        trash = fresh
+        return true
     }
 
     /// Runs a request, connecting first if needed (or waiting for the

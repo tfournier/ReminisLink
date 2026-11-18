@@ -16,6 +16,12 @@ struct AddFile: Identifiable, Equatable {
     var systemId: String?
 }
 
+/// A shared file the Add screen cannot send yet.
+struct UnsupportedFile: Identifiable {
+    let id = UUID()
+    let name: String
+}
+
 /// Add screen (docs/specs/06-app-ios.md §4.6): files from Files (several at
 /// once, system suggested from the extension) or a link downloaded by the
 /// console. Prefilled by the share extension. The app proposes no source
@@ -38,7 +44,7 @@ struct AddView: View {
     @State private var mode: Mode = .files
     @State private var files: [AddFile] = []
     /// Shared `.sav` files, not sendable before M5.
-    @State private var unsupported: [String] = []
+    @State private var unsupported: [UnsupportedFile] = []
     /// Links of a share request that also held files: offered once the
     /// files are sent.
     @State private var pendingLinks: [String] = []
@@ -142,8 +148,8 @@ struct AddView: View {
         }
         if !unsupported.isEmpty {
             Section {
-                ForEach(unsupported, id: \.self) { name in
-                    Label(name, systemImage: "externaldrive.badge.xmark")
+                ForEach(unsupported) { file in
+                    Label(file.name, systemImage: "externaldrive.badge.xmark")
                 }
             } header: {
                 Text("Not supported yet")
@@ -155,7 +161,7 @@ struct AddView: View {
             Section {
                 ForEach(pendingLinks, id: \.self) { Text($0).font(.footnote) }
             } footer: {
-                Text("The shared link is offered in the Link tab once the files are sent.")
+                Text("The shared links are offered in the Link tab once the files are sent.")
             }
         }
         Section {
@@ -211,13 +217,22 @@ struct AddView: View {
         }
         Section {
             Picker("Type", selection: $linkKind) {
-                ForEach([AddKind.rom, .patch, .cheats], id: \.self) { Text($0.title).tag($0) }
+                ForEach(AddKind.sendable, id: \.self) { Text($0.title).tag($0) }
             }
             if linkKind == .rom {
                 systemPicker(selection: $linkSystemId)
             }
         } footer: {
             Text(linkKind.help)
+        }
+        if !pendingLinks.isEmpty {
+            Section {
+                ForEach(pendingLinks, id: \.self) { Text($0).font(.footnote) }
+            } header: {
+                Text("Next Shared Links")
+            } footer: {
+                Text("Offered one after the other once this one is downloaded.")
+            }
         }
     }
 
@@ -245,7 +260,7 @@ struct AddView: View {
         for name in request.files {
             let kind = AddKind.suggested(forFileName: name)
             if kind == .save {
-                unsupported.append(name)
+                unsupported.append(UnsupportedFile(name: name))
                 continue
             }
             let url = app.shareInbox.fileURL(name, in: request)
@@ -253,20 +268,27 @@ struct AddView: View {
             files.append(AddFile(url: url, name: name, sizeBytes: size, isSecurityScoped: false,
                                  request: request, kind: kind))
         }
-        if files.isEmpty {
-            if let link = request.urls.first { useLink(link) }
-        } else {
-            pendingLinks = request.urls
-        }
+        pendingLinks = request.urls
+        if files.isEmpty { useNextLink() }
         suggestSystems()
     }
 
-    private func useLink(_ link: String) {
+    /// Offers the next shared link in the Link tab, with its type and
+    /// system suggested. False when none is left.
+    @discardableResult
+    private func useNextLink() -> Bool {
+        guard !pendingLinks.isEmpty else { return false }
+        let link = pendingLinks.removeFirst()
         mode = .link
         linkText = link
-        if let url = URL(string: link), AddKind.suggested(forFileName: url.lastPathComponent) == .patch {
-            linkKind = .patch
+        linkKind = .rom
+        linkSystemId = nil
+        if let url = URL(string: link) {
+            let kind = AddKind.suggested(forFileName: url.lastPathComponent)
+            if AddKind.sendable.contains(kind) { linkKind = kind }
         }
+        suggestSystems()
+        return true
     }
 
     private func addPicked(_ urls: [URL]) {
@@ -277,7 +299,7 @@ struct AddView: View {
             let name = url.lastPathComponent
             let kind = AddKind.suggested(forFileName: name)
             if kind == .save {
-                unsupported.append(name)
+                unsupported.append(UnsupportedFile(name: name))
                 continue
             }
             guard let size = try? FileDigest.size(of: url) else {
@@ -330,12 +352,8 @@ struct AddView: View {
                     )
                     files.removeAll { $0.id == file.id }
                 }
-                if let link = pendingLinks.first {
-                    // The share also held a link: offer it now.
-                    pendingLinks = []
-                    useLink(link)
-                    return
-                }
+                // The share also held links: offer them now.
+                if useNextLink() { return }
             case .link:
                 guard let url = DownloadURL.validated(linkText) else { return }
                 let target: TransferTarget = linkKind == .rom && linkSystemId != nil
@@ -344,6 +362,8 @@ struct AddView: View {
                 let request = DownloadRequest(url: url.absoluteString, target: target)
                 let accepted = try await session.perform { try await $0.createDownload(request) }
                 session.transfers.track(jobId: accepted.jobId, title: DownloadURL.displayName(url))
+                // More shared links: offer the next one.
+                if useNextLink() { return }
             }
             if let request = context.request { app.finishShare(request) }
             dismiss()

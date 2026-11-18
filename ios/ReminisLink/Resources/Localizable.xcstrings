@@ -691,6 +691,16 @@
         }
       }
     },
+    "Everything in the trash of the console will be permanently deleted. This cannot be undone." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout le contenu de la corbeille de la console sera supprimé définitivement. C’est irréversible."
+          }
+        }
+      }
+    },
     "Everything stays in the trash of the console for 30 days. The space is only freed when the trash is emptied." : {
       "localizations" : {
         "fr" : {
@@ -1021,6 +1031,16 @@
         }
       }
     },
+    "Next Shared Links" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Liens partagés suivants"
+          }
+        }
+      }
+    },
     "No" : {
       "localizations" : {
         "fr" : {
@@ -1117,6 +1137,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        }
+      }
+    },
+    "Offered one after the other once this one is downloaded." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proposés l’un après l’autre une fois celui-ci téléchargé."
           }
         }
       }
@@ -1821,12 +1851,12 @@
         }
       }
     },
-    "The shared link is offered in the Link tab once the files are sent." : {
+    "The shared links are offered in the Link tab once the files are sent." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le lien partagé est proposé dans l’onglet Lien une fois les fichiers envoyés."
+            "value" : "Les liens partagés sont proposés dans l’onglet Lien une fois les fichiers envoyés."
           }
         }
       }
