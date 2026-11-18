@@ -6,9 +6,9 @@
 | `Config/Config.xcconfig` | Identifier prefix and versions shared by every target |
 | `Config/*-Info.plist`, `Config/*.entitlements` | Info.plist keys and capabilities of docs/specs/06-app-ios.md §3 |
 | `ReminisLink/` | SwiftUI app: `App/` (state, pairing, connections, errors), `Views/`, `Resources/` (String Catalogs EN + FR, assets) |
-| `ReminisLinkShare/` | Share extension (skeleton until M4) |
-| `ReminisLinkUITests/` | XCUITest of the main path |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores) and `ReminisLinkDemo` (fake pak) |
+| `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
+| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox) and `ReminisLinkDemo` (fake pak, M4 routes included) |
 
 ## Build and test
 
@@ -62,4 +62,32 @@ TEST_RUNNER_RL_UITEST_PAIR_URL='reminislink://pair?...' \
 ```
 
 It launches the app with `RL_RESET_STORE=1`, which forgets the consoles
-paired before.
+paired before. The pak is found with Bonjour only (the `h`/`p` of the link
+are ignored), so it must be announced on the Mac's network.
+
+The same link also enables the "add a file" test against the pak
+(`AddFileUITests`): the app generates a file at launch
+(`RL_UITEST_SHARE_FILE=<name>:<bytes>`, Debug only) and receives it as the
+share extension would, then uploads it, checks it in the library, deletes
+it and empties the trash. `TEST_RUNNER_RL_UITEST_SHARE_BYTES` sets its size
+(default 8 MiB):
+
+```sh
+TEST_RUNNER_RL_UITEST_PAIR_URL='reminislink://pair?...' TEST_RUNNER_RL_UITEST_SHARE_BYTES=209715200 \
+  xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -only-testing:ReminisLinkUITests/AddFileUITests
+```
+
+## Transfers
+
+- Uploads (`POST /uploads`, `PUT /uploads/{id}` signed `UNSIGNED`, chunk
+  streamed from a scratch file, `complete`) resume at the offset of
+  `GET /uploads/{id}` or of a `409 conflict`; an upload the pak forgot (pak
+  restarted) is created again. Each request is signed with a new nonce.
+- Files chosen in Files are copied into `Application Support/Transfers`
+  (deleted when the upload ends, and at launch) so they can be resumed.
+- When the app goes to the background, the running upload finishes its
+  chunk under `beginBackgroundTask` and pauses; it resumes when the app is
+  active again.
+- `swift test` measures the memory of a streamed SHA-256 over 100 MiB
+  (`phys_footprint` peak minus baseline, under 50 MiB).

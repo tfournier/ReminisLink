@@ -97,7 +97,7 @@ struct UploadRow: View {
             Text(statusText)
                 .font(.footnote)
                 .foregroundStyle(item.phase == .failed ? .red : .secondary)
-                .accessibilityIdentifier("upload.status")
+                .accessibilityIdentifier(item.phase == .done ? "upload.done" : "upload.status")
             if let failure = item.failure, item.phase == .failed || item.phase == .paused {
                 Text(AppError(failure).message)
                     .font(.footnote)
