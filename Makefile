@@ -5,18 +5,24 @@
 #   make lint       gofmt + go vet
 #   make contract   validate protocol/openapi.yaml (Redocly in Docker) and the test vectors
 #   make vectors    regenerate protocol/test-vectors/ and copy them to the Swift tests
+#   make headless   run the pak (server + Bonjour, no UI) on a temporary copy of testdata/sdcard
 #
 # The pak build targets (build, pak, release, docker-*) come with milestone M7.
 
-GO_SOURCES    := internal protocol
+GO_SOURCES    := cmd internal protocol
 GO_PACKAGES   := ./...
+
+BUILD_DIR     := build
+HOST_BIN      := $(BUILD_DIR)/reminislink-host
+# Extra options of "make headless", e.g. HEADLESS_ARGS="--port 48000 --name Test"
+HEADLESS_ARGS ?=
 
 DOCKER        ?= docker
 # Pinned OpenAPI validator image (no global install).
 REDOCLY_IMAGE ?= redocly/cli:1.34.5
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint contract vectors
+.PHONY: help test lint contract vectors headless
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -37,3 +43,11 @@ contract: ## Validate the OpenAPI contract and check the test vectors (Go and Sw
 vectors: ## Regenerate the test vectors and copy them to the Swift test resources
 	CGO_ENABLED=0 go run ./protocol/test-vectors/gen -out protocol/test-vectors
 	scripts/sync-test-vectors.sh
+
+headless: ## Run the pak headless (server + Bonjour) on a temporary copy of testdata/sdcard
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 go build -o $(HOST_BIN) ./cmd/reminislink
+	@tmp="$${TMPDIR:-/tmp}" && sd="$$(mktemp -d "$${tmp%/}/reminislink-sd.XXXXXX")" && \
+		cp -R testdata/sdcard/. "$$sd/" && \
+		echo "Fake SD card copied to $$sd (logs in $$sd/.userdata/tg5040/logs)" && \
+		exec $(HOST_BIN) --headless --sd "$$sd" $(HEADLESS_ARGS)
