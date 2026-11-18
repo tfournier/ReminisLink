@@ -251,7 +251,7 @@ func TestDevice(t *testing.T) {
 	var d deviceResponse
 	r.JSON(t, &d)
 	if d.DeviceID != testDeviceID || d.Model != "brick" || d.Network.IPv4 != "192.168.1.42" || d.Network.SSID != nil ||
-		d.Battery != nil || d.UptimeSeconds != 90 || len(d.Storage) != 1 || d.Storage[0] != (storageVolume{"sd", "SD", 1000, 400}) {
+		d.Battery != nil || d.UptimeSeconds != 90 || len(d.Storage) != 1 || d.Storage[0] != (storageVolume{"sd", "SD", 1 << 41, 1 << 40}) {
 		t.Errorf("device = %+v", d)
 	}
 	if asked != "wlan0" {

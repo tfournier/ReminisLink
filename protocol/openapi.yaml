@@ -542,9 +542,12 @@ paths:
       summary: Replace the save
       description: |
         Body: the new save, at most 64 MiB (larger files go through
-        `POST /uploads` with `target.kind = "save"`). The previous save is
-        first copied as a backup (`before-replace`, label `Avant remplacement`).
-        The body is signed like any other (`X-RL-Content-SHA256` is its hash).
+        `POST /uploads` with `target.kind = "save"`), not empty. The previous
+        save is first copied as a backup (`before-replace`, label `Avant
+        remplacement`), then the new save is renamed over it (the save is
+        never missing, and the previous one is not also moved to the trash:
+        the backup holds it). The body is signed like any other
+        (`X-RL-Content-SHA256` is its hash).
       parameters:
         - $ref: '#/components/parameters/GameId'
       requestBody:
@@ -565,6 +568,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -579,7 +583,11 @@ paths:
         - $ref: '#/components/parameters/GameId'
       responses:
         '200':
-          description: Backups, newest first.
+          description: |
+            Backups, newest first (by creation order on the device, not by
+            date). At most 10 automatic backups (`before-*`) are kept per game;
+            older ones are moved to the trash (`delete-backup`). Manual backups
+            are not limited.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/BackupList' }
@@ -649,6 +657,7 @@ paths:
       tags: [Saves]
       operationId: deleteSaveBackup
       summary: Delete a save backup
+      description: The backup is moved to the trash (`delete-backup`), never erased directly.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/BackupId'
@@ -686,6 +695,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -700,7 +710,10 @@ paths:
         - $ref: '#/components/parameters/GameId'
       responses:
         '200':
-          description: Occupied slots (and slots with only a locked copy).
+          description: |
+            Occupied slots (and slots with only a locked copy), by slot number.
+            `lockStatus: restored` is reported by one call only: the next call
+            reports `intact`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SlotList' }
@@ -778,7 +791,11 @@ paths:
         - $ref: '#/components/parameters/Slot'
       responses:
         '200':
-          description: The thumbnail, if NextUI saved one with the state.
+          description: |
+            The thumbnail NextUI saved with the state (slots 0 to 7 only; a
+            screen capture, 1024×768 on the Brick, not reduced). NextUI writes
+            it as PNG in a `.bmp` file; the pak serves it only when it starts
+            with the PNG signature, otherwise `404`.
           content:
             image/png:
               schema: { type: string, contentMediaType: image/png }
@@ -811,6 +828,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -819,7 +837,11 @@ paths:
       tags: [States]
       operationId: unlockState
       summary: Unlock a state
-      description: Removes the lock and deletes the locked copy. The state itself does not change.
+      description: |
+        Removes the lock. The state itself does not change. The locked copy is
+        erased when the state holds the same bytes; otherwise (state missing
+        or different) it is moved to the trash. Unlocking a slot that is not
+        locked answers the slot as it is (`404` only when the slot is empty).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/Slot'
@@ -843,7 +865,9 @@ paths:
       tags: [States]
       operationId: restoreLockedState
       summary: Restore the locked copy of a state
-      description: Replaces the state with its locked copy; the current state is moved to the trash first.
+      description: |
+        Replaces the state with its locked copy; the current state is moved to
+        the trash first (reason `restore`). `404` when the slot is not locked.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/Slot'
@@ -858,6 +882,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -868,7 +893,11 @@ paths:
       tags: [States]
       operationId: listResumeHistory
       summary: History of the resume state
-      description: The last 5 distinct versions of the resume state, archived by the pak at each start.
+      description: |
+        The last 5 distinct versions of the resume state, archived by the pak
+        at each start when the state differs from every entry (date and size
+        first, SHA-256 when they changed). Older entries are moved to the
+        trash (`delete-backup`).
       parameters:
         - $ref: '#/components/parameters/GameId'
       responses:
@@ -893,7 +922,10 @@ paths:
       tags: [States]
       operationId: restoreResumeHistoryEntry
       summary: Restore a version of the resume state
-      description: Replaces the resume state with this version; the current version is archived first. Returns the updated history.
+      description: |
+        Replaces the resume state with this version; the current version is
+        archived first. Returns the updated history. `409 state_locked` when
+        the resume slot is locked.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: entryId
@@ -915,7 +947,9 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -953,9 +987,14 @@ paths:
       operationId: replaceCheats
       summary: Replace the cheat list
       description: |
-        The complete list, in order. The previous file is kept as `.cht.bak`.
-        If the file changed since `If-Match`: `412` with code `conflict`. An
-        empty list deletes the `.cht` file (keeping the `.bak`).
+        The complete list, in order (`index` is ignored: cheats are renumbered).
+        The previous file is kept as `.cht.bak` (replacing the previous
+        `.bak`, as Cheat Manager does); the new file is written atomically.
+        If the file changed since `If-Match`: `412` with code `conflict`
+        (`*` matches an existing file); a missing `If-Match` is
+        `400 invalid_request`. The ETag of a game without cheat file is the
+        one of an empty file. An empty list deletes the `.cht` file (its
+        content stays in the `.bak`).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: If-Match
@@ -1001,9 +1040,17 @@ paths:
       description: |
         Sources: `url` (downloaded by the device, 5 MiB max, synchronous),
         `sd` (`sdFileId` from `GET /sd/files`), `inline` (`.cht` text, 1 MiB
-        max), `upload` (`uploadId` of a completed upload with
-        `target.kind = "staging"`). `422 unsupported_format` if no cheat is
-        found.
+        max), `upload` (`uploadId` of an upload with `target.kind = "staging"`
+        completed since the pak started), `staging` (`stagingId` returned by
+        that upload, valid until the staging file is purged after 24 h;
+        prefer it to `upload`). `sd`, `upload` and `staging` files are read up
+        to 5 MiB (`413` beyond). `mode`: `merge` appends the cheats after the
+        current ones, `replace` replaces them (the comment lines of the
+        current file are kept). `422 unsupported_format` if no cheat is
+        found. With a `url` source: `404 not_found` if the server answers
+        404 or 410, `422 unsupported_format` for any other download failure
+        (network, HTTP error); the URL is never logged beyond its scheme and
+        host.
       parameters:
         - $ref: '#/components/parameters/GameId'
       requestBody:
@@ -1037,7 +1084,9 @@ paths:
       summary: List the cheat and patch files on the SD card
       description: |
         `type=cht`: `.cht` files under `Cheats/`. `type=patch`: `.ips`, `.bps`,
-        `.ups` files under `Roms/` and under `ReminisLink/patches/`.
+        `.ups` files under `Roms/` and under `ReminisLink/patches/`. Hidden
+        files and folders are skipped; at most 5000 files, 8 folder levels.
+        Sorted by path. A missing or unknown `type` is `400 invalid_request`.
       parameters:
         - name: type
           in: query
@@ -1073,8 +1122,9 @@ paths:
         `onConflict`: `fail` (`409 conflict`), `rename` (adds ` (2)`,
         ` (3)`...), `overwrite` (the old file goes to the trash). It only
         applies to the `rom` and `staging` targets (a staging file never
-        conflicts); for `save` and `state` the existing file is always
-        replaced, after being moved to the trash. At most 32 uploads are
+        conflicts); for `save` the existing save is always replaced, after
+        being copied as a `before-replace` backup; for `state` the existing
+        state is always replaced, after being moved to the trash. At most 32 uploads are
         open at once (`429 too_many_attempts` with `Retry-After` beyond).
         Uploads idle for 24 h are deleted. Uploads survive a restart of the
         pak: the offset is the size of the partial file on the card, and the
@@ -1106,6 +1156,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1219,6 +1270,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1525,7 +1577,13 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: { code: too_large, message: Body too large, details: {} } }
     Unprocessable:
-      description: '`unsupported_format` or `patch_mismatch`.'
+      description: |
+        `unsupported_format` or `patch_mismatch`. On the save and state routes
+        and the `save`/`state` upload targets, `unsupported_format` means the
+        console uses a save or state format the pak does not write (a
+        non-default `saveFormat`/`stateFormat` in the NextUI settings), or the
+        state folder of the system cannot be found (no emulator pak): the
+        pak refuses to change these files rather than guess.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1825,7 +1883,13 @@ components:
         trashedAt:
           $ref: '#/components/schemas/Timestamp'
           description: Wall clock time of the console when the entry was made (informative; the console clock may be wrong).
-        reason: { type: string, enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore] }
+        reason:
+          type: string
+          enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore, delete-backup]
+          description: |
+            `delete-backup`: a save backup deleted by the app or pushed out by
+            the automatic limits (10 automatic backups per game, 5 resume
+            history entries), never erased directly.
         label: { type: string }
         files:
           type: array
@@ -1905,7 +1969,10 @@ components:
         resumeSlot:
           type: [integer, 'null']
           minimum: 0
-          description: Slot of the automatic resume state, if any.
+          description: |
+            Slot of the automatic resume state (9 on NextUI, written when the
+            console sleeps or is turned off in game), null when the OS has none
+            or uses a non-default state format.
     ResumeHistoryEntry:
       type: object
       required: [id, capturedAt, sizeBytes]
@@ -1932,7 +1999,12 @@ components:
         enabled: { type: boolean }
         extra:
           type: object
-          description: Unknown `.cht` keys of this cheat, kept as is.
+          description: |
+            Unknown `.cht` keys of this cheat, kept as is, named as in the file
+            (`cheat<index>_<key>`, e.g. `cheat0_handler`). On write the index
+            is replaced by the new position; a key without the `cheat<N>_`
+            prefix is accepted. Keys are `[A-Za-z0-9_]+` and never `desc`,
+            `code` or `enable` (`400 invalid_request`).
           additionalProperties: { type: string }
     CheatList:
       type: object
@@ -1975,6 +2047,11 @@ components:
               properties:
                 type: { type: string, const: upload }
                 uploadId: { $ref: '#/components/schemas/OpaqueId' }
+            - type: object
+              required: [type, stagingId]
+              properties:
+                type: { type: string, const: staging }
+                stagingId: { $ref: '#/components/schemas/OpaqueId' }
         mode: { type: string, enum: [merge, replace] }
     CheatImportResult:
       type: object
@@ -1999,7 +2076,7 @@ components:
 
     OnConflict:
       type: string
-      description: Only for the `rom` and `staging` targets; `save` and `state` always replace the existing file after moving it to the trash.
+      description: Only for the `rom` and `staging` targets. `save` always replaces the existing save after copying it as a `before-replace` backup; `state` always replaces the existing state after moving it to the trash (refused when the slot is locked).
       enum: [fail, rename, overwrite]
       default: fail
     UploadTarget:
@@ -2017,6 +2094,9 @@ components:
             fileName: { $ref: '#/components/schemas/FileName' }
         - type: object
           required: [kind, gameId]
+          description: |
+            The save of a game. The previous save is kept as a `before-replace`
+            backup (returned by `complete`), as with `PUT /games/{gameId}/save`.
           properties:
             kind: { type: string, const: save }
             gameId: { $ref: '#/components/schemas/OpaqueId' }

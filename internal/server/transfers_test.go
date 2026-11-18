@@ -208,7 +208,16 @@ func TestSaveUploadOverHTTP(t *testing.T) {
 	c, _ := f.createUpload(map[string]any{"target": map[string]any{"kind": "save", "gameId": game}, "sizeBytes": len(data), "sha256": sha(data)}, http.StatusCreated)
 	f.chunk(c.UploadID, 0, data)
 	r := f.do(http.MethodPost, "/api/v1/uploads/"+c.UploadID+"/complete", "/uploads/{uploadId}/complete", nil, http.StatusOK)
-	if string(bytes.TrimSpace(r.Body)) != `{"backup":null}` {
+	// M5: the previous save is kept as a before-replace backup copy.
+	var res struct {
+		Backup *struct {
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+			Label  string `json:"label"`
+		} `json:"backup"`
+	}
+	r.JSON(t, &res)
+	if res.Backup == nil || res.Backup.Reason != "before-replace" || res.Backup.Label != "Avant remplacement" {
 		t.Fatalf("body %s", r.Body)
 	}
 	data = []byte("state")
@@ -269,9 +278,9 @@ func TestDeleteGameAndTrash(t *testing.T) {
 	f.do(http.MethodDelete, "/api/v1/games/"+game, "/games/{gameId}", nil, http.StatusOK).JSON(t, &res)
 	sort.Strings(res.Moved)
 	want := []string{
-		".userdata/shared/.minui/GBA/Starlight Courier.gba.st0",
-		".userdata/shared/.minui/GBA/Starlight Courier.gba.st1",
-		".userdata/shared/.minui/GBA/Starlight Courier.gba.st9",
+		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st0",
+		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st1",
+		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st9",
 		"Cheats/GBA/Starlight Courier.gba.cht",
 		"Roms/" + gbaFolder + "/.media/Starlight Courier.png",
 		"Roms/" + gbaFolder + "/Starlight Courier.gba",
@@ -311,7 +320,7 @@ func TestDeleteGameAndTrash(t *testing.T) {
 	}
 	pixel := library.EncodeID(gbaFolder + "/Pixel Garden 🌱.gba")
 	f.do(http.MethodDelete, "/api/v1/games/"+pixel+"?keepSave=true", "/games/{gameId}", nil, http.StatusOK).JSON(t, &res)
-	if !f.exists(".userdata/shared/.minui/GBA/Pixel Garden 🌱.gba.st9") || f.exists("Cheats/GBA/Pixel Garden 🌱.gba.cht") {
+	if !f.exists(".userdata/shared/GBA-gpsp/Pixel Garden 🌱.gba.st9") || f.exists("Cheats/GBA/Pixel Garden 🌱.gba.cht") {
 		t.Fatalf("keepSave: %v", res.Moved)
 	}
 	for _, p := range []string{pixelLock, pixelResume} {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/library"
 )
 
 func TestHTTPServerSettings(t *testing.T) {
@@ -142,8 +143,9 @@ func TestBodyIdleTimeout(t *testing.T) {
 // answers 503 shutting_down.
 func TestServeShutdown(t *testing.T) {
 	f := newFixture(t, func(o *Options) {
-		// The smallest budget the routes allow: one signed upload chunk.
-		o.Verifier.BodyBudget = auth.BodyLimitChunk
+		// The smallest budget the routes allow: one signed save (the
+		// largest route limit).
+		o.Verifier.BodyBudget = auth.BodyLimitSave
 	})
 	f.server.timeouts.shutdown = 300 * time.Millisecond
 	f.server.timeouts.grace = 300 * time.Millisecond
@@ -162,11 +164,11 @@ func TestServeShutdown(t *testing.T) {
 	}
 
 	// The holder takes the whole budget and never finishes its body.
-	body := []byte(strings.Repeat(" ", auth.BodyLimitChunk))
-	holder := signedRaw(t, f, "PUT", "/api/v1/uploads/up_000000000000000000000000", body)
+	body := []byte(strings.Repeat(" ", auth.BodyLimitSave))
+	holder := signedRaw(t, f, "PUT", "/api/v1/games/"+library.EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba")+"/save", body)
 	hconn := dial(t, addr)
 	defer hconn.Close()
-	hconn.Write(holder[:len(holder)-10])
+	hconn.Write(holder[:len(holder)-len(body)+1024]) // the budget is held for the announced length
 	time.Sleep(100 * time.Millisecond)
 
 	// The waiter waits for the budget.
