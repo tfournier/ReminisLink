@@ -3,7 +3,7 @@
 ## Jalons
 | Jalon | Statut | Branche | Revue Antigravity | Intégré le |
 |---|---|---|---|---|
-| M0 | en attente des relevés de la console | — | — | — |
+| M0 | analyse du code source + firmware faite ; specs en cours de mise à jour ; relevés console réduits | `m0-specs-source` | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
@@ -14,7 +14,8 @@
 
 ## En cours
 - M4 fusionné dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (135), `xcodebuild test` (30 tests app, UI démo) verts ; contre `make headless` : appairage **par Bonjour** depuis le simulateur → fiche de jeu, et envoi de 200 Mio (50 morceaux) → bibliothèque → suppression → vidage de la corbeille, réussis. `scripts/smoke-transfers.sh` : reprise d'un envoi après arrêt du pak, téléchargement local, corbeille OK.
-- M0 par le code source : la personne a autorisé (2026-11-19) le clone du dépôt NextUI et le firmware d'origine ; un sous-agent analyse le code (lecture seule, clone hors du dépôt) puis télécharge le firmware officiel (autorisé sans autre confirmation par la personne le 2026-11-19) et en extrait le rootfs dans un conteneur Docker jetable (rien du firmware n'est exécuté sur le Mac).
+- M0 par le code source (2026-11-19) : NextUI `b6ec1343` (≈ v6.15.0) et firmware officiel Brick v1.1.1 (`TG3040_Brick_firmware_v1.1.1.zip`, SHA-256 conforme) analysés ; rapport `docs/specs/m0/source-analysis.md` (branche `m0-specs-source`). Faits majeurs : states dans `.userdata/shared/<TAG>-<cœur>/` (spec fausse, vérifié `ma_core.c:74`), reprise = emplacement 9, vignettes `.minui/<TAG>/<rom>.<N>.bmp` (PNG), aucun certificat racine sur la console, avahi-daemon occupe déjà le port 5353, heure non fiable au démarrage (justifie l'âge crédité), glibc 2.33 / Tina Linux (OpenWrt). Image Docker `reminislink/brick-rootfs:1.1.1` (rootfs natif ARM64). Agent M5 Go prévenu (adaptateur + carte factice) ; sous-agent M0 met à jour les specs.
+- (historique) M0 par le code source : la personne a autorisé (2026-11-19) le clone du dépôt NextUI et le firmware d'origine ; un sous-agent analyse le code (lecture seule, clone hors du dépôt) puis télécharge le firmware officiel (autorisé sans autre confirmation par la personne le 2026-11-19) et en extrait le rootfs dans un conteneur Docker jetable (rien du firmware n'est exécuté sur le Mac).
 - **En attente de la personne** : tests sur la vraie console (checklist `docs/specs/checklists/console.md`, scénarios 3, 4, 5, 9, 10), qui supposent les relevés M0 (chemins des saves/states, horloge, certificats).
 - M5 : deux sous-agents lancés le 2026-11-19 : Go dans `../reminislink-m5-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m5-ios` (uniquement `ios/`, faux pak étendu, réactive le type « Save »).
 
