@@ -5,16 +5,16 @@
 |---|---|---|---|---|
 | M0 | en attente des relevés de la console | — | — | — |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
-| M2 | en revue | `m2-serveur-lecture` | GPT-OSS 120B (Antigravity) : prêt à fusionner (3 remarques, faux positifs) ; revue Claude neuve : à corriger, 1 bloquant confirmé (journal de la carte SD remplissable par un client non authentifié), 4 à corriger (coût de `cheatCount`, échappement Bonjour, identifiants insensibles à la casse, erreur fatale non journalisée) ; aller-retour 1 fait (13 points + `connectedClients` + noms inventés), contrôles OK ; revue ciblée en cours | — |
-| M3 | en revue | `m3-ios-base` | GPT-OSS 120B (Antigravity) : à corriger, 1 point retenu (IP de secours du QR limitée au réseau local), le reste faux positifs ; revue Claude neuve : à corriger, aucun bloquant (annulation de l'appairage, ré-appairage silencieux d'une console déjà appairée, session annulée laissée en erreur, `notPaired` sans action) ; aller-retour 1 fait et revu (aucun bloquant, 3 points d'annulation restants) ; aller-retour 2 en cours | — |
+| M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
+| M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
 | M4 | à faire | — | — | — |
 | M5 | à faire | — | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
-- M2 : livré (12 commits). Contrôles §4 OK : `make lint test` (13 paquets), `make contract`, `go test -race`, 12 `TODO(M0)` isolés dans l'adaptateur et `device`. « Fait quand » vérifié par l'agent principal : `make headless`, annonce vue par `dns-sd -B`, `scripts/smoke.sh` OK, arrêt propre. Dépendances : `grandcat/zeroconf`, `skip2/go-qrcode` (autorisées) ; `golang.org/x/net`, `x/sys`, `x/crypto`, `miekg/dns` en indirect (tirées par zeroconf, `x/net` et `x/sys` montées pour compiler avec Go 1.27 ; accepté par l'agent principal). Revue Antigravity en cours.
-- M3 : livré (5 commits). Contrôles §4 OK : `swift test` 73 tests, `xcodebuild test` iPhone 16 / iOS 18.5 réussi (test démo passé, test contre le pak réel ignoré tant que M2 n'est pas fusionné), diff limité à `ios/`. Revue Antigravity en cours. Vérification fonctionnelle (§5.3) faite le 2026-11-18 : test XCUITest contre le pak M2 en `make headless` **réussi** (lien d'appairage → `/pair` → `/device` → `/systems` → jeux → fiche de jeu ; `404` sur `/trash` attendu avant M4). Découverte Bonjour depuis le simulateur à confirmer (le test peut avoir utilisé l'IP du QR).
+- M2 et M3 fusionnés dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (81), `xcodebuild test` (18 tests app, 3 tests UI dont le parcours réel contre `make headless` : appairage par lien → tableau de bord → bibliothèque → fiche de jeu) tous verts.
+- Prochain : M4 (transferts et suppression), deux sous-agents en parallèle (Go, iOS) ; l'affichage de `connectedClients` dans l'app est ajouté au lot iOS de M4.
 - M0 : en attente des relevés de la console.
 
 ## État du dépôt (2026-11-18)
