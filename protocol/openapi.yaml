@@ -1454,7 +1454,7 @@ components:
 
   responses:
     BadRequest:
-      description: '`invalid_request` (bad JSON, missing field, missing confirmation), `invalid_id` or `invalid_name`.'
+      description: '`invalid_request` (bad JSON, missing field, missing confirmation, body unreadable or truncated), `invalid_id` or `invalid_name`.'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
