@@ -19,6 +19,11 @@ final class ConsoleSession {
     private(set) var status: DeviceStatus?
     private(set) var trash: TrashList?
     private(set) var client: APIClient?
+    /// Changes when games were added or deleted: the library screens reload.
+    private(set) var libraryRevision = 0
+
+    /// Uploads and jobs of this console.
+    @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()
 
     @ObservationIgnored private unowned let app: AppModel
     /// The connection in progress, shared by every caller.
@@ -141,14 +146,51 @@ final class ConsoleSession {
         return api.code == .unknownClient
     }
 
+    /// A signed client, connecting first if needed.
+    func connectedClient() async throws -> APIClient {
+        if client == nil { await connect() }
+        try Task.checkCancellation()
+        guard let client else { throw error ?? AppError.unexpected }
+        return client
+    }
+
+    private func makeTransfers() -> TransferQueue {
+        let queue = TransferQueue(
+            scratchDirectory: app.transferDirectory.appending(path: "chunks-\(deviceId)"),
+            background: app.background,
+            client: { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await self.connectedClient()
+            }
+        )
+        queue.onUploadFinished = { [weak self] _ in self?.contentChanged() }
+        queue.onJobFinished = { [weak self] item in
+            if item.job?.state == .succeeded { self?.contentChanged() }
+        }
+        return queue
+    }
+
+    /// Games were added or deleted: reload the library and the dashboard.
+    func contentChanged() {
+        libraryRevision += 1
+        Task { await refresh() }
+    }
+
+    /// `DELETE /games/{gameId}`: everything goes to the trash of the console.
+    func deleteGame(id: String, keepSave: Bool) async throws -> TrashMoveResult {
+        let result = try await perform { try await $0.deleteGame(id: id, keepSave: keepSave) }
+        contentChanged()
+        return result
+    }
+
     func emptyTrash() async throws {
         _ = try await perform { try await $0.emptyTrash() }
-        await loadTrash()
+        await refresh()
     }
 
     func deleteTrashEntry(_ id: String) async throws {
         _ = try await perform { try await $0.deleteTrashEntry(id: id) }
-        await loadTrash()
+        await refresh()
     }
 
     /// `DELETE /clients/me`, then forgets the key. Without a key, or if the

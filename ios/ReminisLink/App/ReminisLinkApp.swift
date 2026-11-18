@@ -27,6 +27,7 @@ struct RootView: View {
                     case .folder(let folder): FolderView(route: folder)
                     case .game(let game): GameDetailView(route: game)
                     case .trash(let id): TrashView(deviceId: id)
+                    case .transfers(let id): TransfersView(deviceId: id)
                     }
                 }
         }
@@ -34,6 +35,7 @@ struct RootView: View {
             switch sheet {
             case .addConsole: AddConsoleView()
             case .pairing(let flow): PairingProgressView(flow: flow)
+            case .add(let context): AddView(context: context)
             }
         }
         .alert(
@@ -57,7 +59,13 @@ struct RootView: View {
         }
         .onOpenURL { app.handle(url: $0) }
         .onChange(of: scenePhase, initial: true) { _, phase in
-            if phase == .active { app.discovery.start() } else if phase == .background { app.discovery.stop() }
+            if phase == .active {
+                app.discovery.start()
+                app.becomeActive()
+            } else if phase == .background {
+                app.discovery.stop()
+                app.enterBackground()
+            }
         }
     }
 }

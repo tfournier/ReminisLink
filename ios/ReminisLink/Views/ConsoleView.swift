@@ -34,6 +34,23 @@ struct ConsoleView: View {
                 }
                 .disabled(session.state != .connected)
                 .accessibilityIdentifier("console.library")
+                Button {
+                    app.showAdd(deviceId: deviceId)
+                } label: {
+                    Label("Add Files or a Link", systemImage: "plus.circle")
+                }
+                .disabled(session.state != .connected)
+                .accessibilityIdentifier("console.add")
+                NavigationLink(value: Route.transfers(deviceId)) {
+                    LabeledContent {
+                        let active = session.transfers.uploads.filter { !$0.phase.isFinished }.count
+                            + session.transfers.jobs.filter { !$0.isFinished }.count
+                        if active > 0 { Text(active, format: .number) }
+                    } label: {
+                        Label("Transfers", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+                .accessibilityIdentifier("console.transfers")
             }
 
             if let status = session.status {

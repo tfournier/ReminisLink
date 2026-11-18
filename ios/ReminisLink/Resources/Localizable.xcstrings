@@ -11,6 +11,46 @@
         }
       }
     },
+    "%@ freed" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ libérés"
+          }
+        }
+      }
+    },
+    "%@ left" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ restantes"
+          }
+        }
+      }
+    },
+    "%@ of %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ sur %2$@"
+          }
+        }
+      }
+    },
+    "%@ stay on the SD card for 30 days, until the trash is emptied." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ restent sur la carte SD pendant 30 jours, jusqu’à ce que la corbeille soit vidée."
+          }
+        }
+      }
+    },
     "%@ used of %@" : {
       "localizations" : {
         "fr" : {
@@ -27,6 +67,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ sera supprimé définitivement de la carte SD. C’est irréversible."
+          }
+        }
+      }
+    },
+    "%@/s" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/s"
           }
         }
       }
@@ -221,12 +271,72 @@
         }
       }
     },
+    "A file with this name already exists on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier de ce nom existe déjà sur la console."
+          }
+        }
+      }
+    },
+    "A file with this name already exists on the console: %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier de ce nom existe déjà sur la console : %@"
+          }
+        }
+      }
+    },
+    "Add" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter"
+          }
+        }
+      }
+    },
+    "Add Files or a Link" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter des fichiers ou un lien"
+          }
+        }
+      }
+    },
+    "Add More Files…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter d’autres fichiers…"
+          }
+        }
+      }
+    },
     "Add a Console" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ajouter une console"
+          }
+        }
+      }
+    },
+    "Added to the library of the chosen system." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouté à la bibliothèque du système choisi."
           }
         }
       }
@@ -271,6 +381,16 @@
         }
       }
     },
+    "Cancelled" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annulé"
+          }
+        }
+      }
+    },
     "Cancelled." : {
       "localizations" : {
         "fr" : {
@@ -287,6 +407,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cheats"
+          }
+        }
+      }
+    },
+    "Choose" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir"
+          }
+        }
+      }
+    },
+    "Choose Files…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir des fichiers…"
+          }
+        }
+      }
+    },
+    "Choose games, saves (.sav), patches (.ips, .bps, .ups) or cheats (.cht) in Files." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisis des jeux, des saves (.sav), des patchs (.ips, .bps, .ups) ou des cheats (.cht) dans Fichiers."
+          }
+        }
+      }
+    },
+    "Clear Finished" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effacer les terminés"
           }
         }
       }
@@ -391,6 +551,16 @@
         }
       }
     },
+    "Delete %@?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer %@ ?"
+          }
+        }
+      }
+    },
     "Delete permanently?" : {
       "localizations" : {
         "fr" : {
@@ -407,6 +577,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Supprimé définitivement le %@"
+          }
+        }
+      }
+    },
+    "Delete…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer…"
           }
         }
       }
@@ -441,6 +621,36 @@
         }
       }
     },
+    "Download" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Télécharger"
+          }
+        }
+      }
+    },
+    "Downloaded" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargé"
+          }
+        }
+      }
+    },
+    "Downloads by the Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargements par la console"
+          }
+        }
+      }
+    },
     "Empty Trash" : {
       "localizations" : {
         "fr" : {
@@ -451,12 +661,42 @@
         }
       }
     },
+    "Empty Trash Now" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vider la corbeille maintenant"
+          }
+        }
+      }
+    },
     "Empty the trash?" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vider la corbeille ?"
+          }
+        }
+      }
+    },
+    "Enter a link starting with http:// or https://." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisis un lien qui commence par http:// ou https://."
+          }
+        }
+      }
+    },
+    "Everything stays in the trash of the console for 30 days. The space is only freed when the trash is emptied." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout reste dans la corbeille de la console pendant 30 jours. L’espace n’est libéré qu’en vidant la corbeille."
           }
         }
       }
@@ -491,12 +731,42 @@
         }
       }
     },
+    "Files you add to the console appear here." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers que tu ajoutes à la console apparaissent ici."
+          }
+        }
+      }
+    },
+    "Finishing on the console…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finalisation sur la console…"
+          }
+        }
+      }
+    },
     "Folders" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dossiers"
+          }
+        }
+      }
+    },
+    "Frees the space now. Everything in the trash of the console is permanently deleted." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Libère l’espace tout de suite. Tout le contenu de la corbeille de la console est supprimé définitivement."
           }
         }
       }
@@ -581,6 +851,46 @@
         }
       }
     },
+    "Keep Both" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder les deux"
+          }
+        }
+      }
+    },
+    "Keep the Save and the States" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder la save et les states"
+          }
+        }
+      }
+    },
+    "Kept in the staging area of the console for 24 hours, to apply it to a game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gardé 24 heures dans la zone temporaire de la console, pour l’appliquer à un jeu."
+          }
+        }
+      }
+    },
+    "Kept in the staging area of the console for 24 hours, to import it into a game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gardé 24 heures dans la zone temporaire de la console, pour l’importer dans un jeu."
+          }
+        }
+      }
+    },
     "Last seen %@" : {
       "localizations" : {
         "fr" : {
@@ -611,6 +921,16 @@
         }
       }
     },
+    "Link" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lien"
+          }
+        }
+      }
+    },
     "Looking for consoles…" : {
       "localizations" : {
         "fr" : {
@@ -637,6 +957,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Modèle"
+          }
+        }
+      }
+    },
+    "Move to Trash" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre à la corbeille"
+          }
+        }
+      }
+    },
+    "Moved to the Trash" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mis à la corbeille"
+          }
+        }
+      }
+    },
+    "Moved to the trash of the console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacé dans la corbeille de la console"
           }
         }
       }
@@ -701,6 +1051,16 @@
         }
       }
     },
+    "No transfers" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun transfert"
+          }
+        }
+      }
+    },
     "Not enough space on the SD card." : {
       "localizations" : {
         "fr" : {
@@ -717,6 +1077,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Espace insuffisant sur la carte SD : il manque %@."
+          }
+        }
+      }
+    },
+    "Not sent" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non envoyé"
           }
         }
       }
@@ -871,12 +1241,42 @@
         }
       }
     },
+    "Patch" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patch"
+          }
+        }
+      }
+    },
     "Paths on the SD card, for information." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Chemins sur la carte SD, à titre indicatif."
+          }
+        }
+      }
+    },
+    "Paused at %@ of %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En pause à %1$@ sur %2$@"
+          }
+        }
+      }
+    },
+    "Paused. The transfer will resume." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En pause. Le transfert reprendra."
           }
         }
       }
@@ -897,6 +1297,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vise le QR code affiché par ReminisLink sur la console."
+          }
+        }
+      }
+    },
+    "Preparing… %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation… %@"
           }
         }
       }
@@ -937,6 +1347,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Version de ReminisLink"
+          }
+        }
+      }
+    },
+    "Remove" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer"
+          }
+        }
+      }
+    },
+    "Replace" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer"
+          }
+        }
+      }
+    },
+    "Replace moves the file on the console to its trash." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer déplace le fichier de la console dans sa corbeille."
+          }
+        }
+      }
+    },
+    "Replaces the save of the game. The current save is kept as a backup copy." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplace la save du jeu. La save actuelle est gardée en copie de sauvegarde."
+          }
+        }
+      }
+    },
+    "Resume" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre"
           }
         }
       }
@@ -991,6 +1451,36 @@
         }
       }
     },
+    "Selected" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionné"
+          }
+        }
+      }
+    },
+    "Send" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer"
+          }
+        }
+      }
+    },
+    "Sent" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyé"
+          }
+        }
+      }
+    },
     "Size" : {
       "localizations" : {
         "fr" : {
@@ -1027,6 +1517,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trier par"
+          }
+        }
+      }
+    },
+    "Source" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Source"
+          }
+        }
+      }
+    },
+    "Staging area of the console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zone temporaire de la console"
           }
         }
       }
@@ -1091,6 +1601,16 @@
         }
       }
     },
+    "The connection was lost while the console was finishing the file. Check the library before sending it again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La connexion a été perdue pendant que la console finalisait le fichier. Vérifie la bibliothèque avant de le renvoyer."
+          }
+        }
+      }
+    },
     "The console could not prove its identity. Pairing was cancelled." : {
       "localizations" : {
         "fr" : {
@@ -1101,12 +1621,62 @@
         }
       }
     },
+    "The console downloads the file itself, on its own Wi-Fi connection." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console télécharge le fichier elle-même, par sa propre connexion Wi-Fi."
+          }
+        }
+      }
+    },
     "The console is not responding." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console ne répond plus."
+          }
+        }
+      }
+    },
+    "The console keeps interrupting the transfer. Try again later." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console interrompt sans cesse le transfert. Réessaie plus tard."
+          }
+        }
+      }
+    },
+    "The console ran into an error. Details are in its log." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a rencontré une erreur. Les détails sont dans son journal."
+          }
+        }
+      }
+    },
+    "The console refused the request." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a refusé la demande."
+          }
+        }
+      }
+    },
+    "The console refused this file name." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a refusé ce nom de fichier."
           }
         }
       }
@@ -1131,12 +1701,52 @@
         }
       }
     },
+    "The console was restarted: this download was stopped." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a été relancée : ce téléchargement a été arrêté."
+          }
+        }
+      }
+    },
     "The console will forget this iPhone. You will need to scan the QR code again to reconnect." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console oubliera cet iPhone. Il faudra scanner à nouveau le QR code pour te reconnecter."
+          }
+        }
+      }
+    },
+    "The file arrived damaged on the console and was discarded. Send it again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le fichier est arrivé abîmé sur la console et a été écarté. Renvoie-le."
+          }
+        }
+      }
+    },
+    "The file changed on this iPhone during the transfer. Add it again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le fichier a changé sur cet iPhone pendant le transfert. Ajoute-le à nouveau."
+          }
+        }
+      }
+    },
+    "The file could not be read on this iPhone." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le fichier n’a pas pu être lu sur cet iPhone."
           }
         }
       }
@@ -1181,6 +1791,16 @@
         }
       }
     },
+    "They stay in place on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elles restent en place sur la carte SD."
+          }
+        }
+      }
+    },
     "This console is already paired. Pair it again?" : {
       "localizations" : {
         "fr" : {
@@ -1217,6 +1837,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce lien n’est pas un lien d’appairage ReminisLink valide."
+          }
+        }
+      }
+    },
+    "This state is locked on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce state est verrouillé sur la console."
           }
         }
       }
@@ -1291,6 +1921,26 @@
         }
       }
     },
+    "Total: %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total : %@"
+          }
+        }
+      }
+    },
+    "Transfers" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transferts"
+          }
+        }
+      }
+    },
     "Trash" : {
       "localizations" : {
         "fr" : {
@@ -1307,6 +1957,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réessayer"
+          }
+        }
+      }
+    },
+    "Type" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type"
           }
         }
       }
@@ -1331,12 +1991,42 @@
         }
       }
     },
+    "Uploads" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envois"
+          }
+        }
+      }
+    },
     "Use the PIN Instead" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Utiliser le PIN à la place"
+          }
+        }
+      }
+    },
+    "Waiting" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En attente"
+          }
+        }
+      }
+    },
+    "Waiting for the console…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En attente de la console…"
           }
         }
       }
