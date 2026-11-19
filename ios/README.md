@@ -11,7 +11,7 @@
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
 | `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync) |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M9 routes included) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M10 routes included) |
 
 ## Build and test
 
@@ -396,3 +396,34 @@ branch. It syncs on connection, syncs again ("Up to date") and restores the
 newest version of Starlight Courier. The synced saves of the simulator stay
 in the app's `Documents` between runs (the first sync of a later run may
 find nothing new).
+
+## Single writer (milestone M10)
+
+- **Lease keeper** (`WriterLease`, ReminisLinkKit): after connecting, the
+  session seeds it with `writer` of `GET /device`. While the app is in the
+  foreground, or one of its uploads or jobs is running, it sends
+  `PUT /writer` without `force` about every 20 s: this renews the lease when
+  this iPhone holds it and takes it when it is free, never from another
+  client (`423 read_only` makes the app read-only). In the background with
+  no transfer running, it sends `DELETE /writer` once and stops. A pak
+  without the route (`404`) is treated as having no lease.
+- **Read-only**: every `423 read_only` answer, from any screen or transfer,
+  reaches the session through the `errorObserver` of `APIClient`. A banner
+  ("Read-only — <device> has write access", or "… took over" when this
+  iPhone held it) sits above the screens of the console with **Take
+  Over** (confirmation, then `PUT /writer {"force": true}`). Write actions
+  are disabled or hidden; reads, downloads to the iPhone and the save sync
+  stay available. Uploads refused with `423` are paused (never lost) and
+  resume when the lease comes back.
+- **Disconnected by the console** (`401 disconnected`): the dashboard shows
+  the message with **Reconnect**. `POST /clients/me/connect` is only sent
+  by the connection that follows that tap, or opening the console from the
+  list (and only if the pak answers `401 disconnected`); automatic
+  reconnections never send it. `401 unknown_client` (forgotten by the
+  console) still offers **Pair Again**.
+
+The fake pak implements the lease (single holder, 60 s expiry with an
+injectable `leaseClock`, renewal by every request of the holder, `force`,
+release, `disconnect(clientId:)`, `forget(clientId:)`). UI tests (Debug
+only): `RL_UITEST_OTHER_WRITER=<name>` makes another paired iPhone hold the
+lease of the demo console (`WriteAccessUITests`).
