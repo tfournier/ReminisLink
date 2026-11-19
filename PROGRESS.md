@@ -10,7 +10,7 @@
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
 | M5 | intégré (tests console à faire) | `m5-saves-go`, `m5-saves-ios` | Go : 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m5-go-claude.md` ; iOS : 1 revue Claude (1 bloquant corrigé) — `docs/reviews/m5-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
 | M6 | intégré (test console à faire) | `m6-patchs-go`, `m6-patchs-ios` | Go : revue Claude, aucun bloquant, formats validés par un décodeur de référence indépendant — `docs/reviews/m6-go-claude.md` ; iOS : revue Claude, 1 bloquant corrigé — `docs/reviews/m6-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
-| M7 | Go et iOS livrés, Go en revue (sans compte Apple, Pak Store ni domaine) | `m7-ui-publication-go`, `m7-publication-ios` | — | — |
+| M7 | iOS prêt ; Go en corrections (sans compte Apple, Pak Store ni domaine) | `m7-ui-publication-go`, `m7-publication-ios` | — | — |
 
 ## En cours
 - M6 fusionné dans `main` le 2026-11-19. Sur `main` : `make lint test`, `make contract`, `go test -race ./...`, `make fuzz` (6 cibles), `swift test` (192), `xcodebuild test` (59 tests app, UI démo) verts. Contre le pak headless, depuis l'app : patch refusé pour une autre ROM, BPS appliqué en nouveau fichier, puis remplacement avec la version précédente en corbeille.
