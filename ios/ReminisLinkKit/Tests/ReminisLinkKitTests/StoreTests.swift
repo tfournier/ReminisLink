@@ -50,12 +50,13 @@ struct StoreTests {
         #expect(!store.noteConsoleName("X", for: "unknown"))
         #expect(store.device(id: deviceId)?.name == "Living Room")
         // A device stored before M11 (no console name): the first name
-        // reported is only recorded (the displayed name may be the user's);
-        // a later change is shown.
+        // reported is shown (the list shows the console's name), and so is
+        // a later change.
         #expect(store.device(id: other)?.consoleName == nil)
-        #expect(!store.noteConsoleName("Bedroom", for: other))
-        #expect(store.device(id: other)?.name == "Brick 3a10")
+        #expect(store.noteConsoleName("Bedroom", for: other))
+        #expect(store.device(id: other)?.name == "Bedroom")
         #expect(store.device(id: other)?.consoleName == "Bedroom")
+        #expect(!store.noteConsoleName("Bedroom", for: other))
         #expect(store.noteConsoleName("Attic", for: other))
         #expect(store.device(id: other)?.name == "Attic")
     }
@@ -75,6 +76,13 @@ struct StoreTests {
         try store.rename(deviceId, to: "My Brick")
         try store.save(deviceId: deviceId, name: "Bureau", model: .brick, clientId: clientId, key: key, consoleName: "Bureau")
         #expect(store.device(id: deviceId)?.name == "My Brick")
+        // Stored before M11 (no console name), paired again: the console's
+        // current name is shown.
+        let migrated = "4b1c9e1f-6a1e-4f0e-9a51-2d8c7b9e0a13"
+        try store.save(deviceId: migrated, name: "Brick deThomas", model: .brick, clientId: clientId, key: key)
+        try store.save(deviceId: migrated, name: "Brick deThomas", model: .brick, clientId: clientId, key: key, consoleName: "Brick de Thomas")
+        #expect(store.device(id: migrated)?.name == "Brick de Thomas")
+        #expect(store.device(id: migrated)?.consoleName == "Brick de Thomas")
     }
 
     @Test func aDeviceStoredBeforeM11Decodes() throws {

@@ -101,6 +101,13 @@ public enum DiscoveryLogic {
             }
     }
 
+    /// The ids seen in `old` and no longer in `new` (a service withdrawn).
+    public static func removedIds(from old: [DiscoveredDevice], to new: [DiscoveredDevice]) -> [String] {
+        let kept = Set(new.map(\.id))
+        var seen = Set<String>()
+        return old.map(\.id).filter { !kept.contains($0) && seen.insert($0).inserted }
+    }
+
     /// The device with this id, if seen.
     public static func find(id: String, in devices: [DiscoveredDevice]) -> DiscoveredDevice? {
         devices.first { $0.id == id }
@@ -150,6 +157,10 @@ public final class Discovery {
 
     public private(set) var devices: [DiscoveredDevice] = []
     public private(set) var status: DiscoveryStatus = .idle
+    /// Called with the ids of the devices whose service was withdrawn
+    /// while the browser runs (M11: the pak sends a goodbye as it quits).
+    /// Never by ``stop()``, which forgets every device.
+    @ObservationIgnored public var onDevicesRemoved: (@MainActor ([String]) -> Void)?
 
     @ObservationIgnored private var browser: NWBrowser?
     @ObservationIgnored private var fixedDevices: [DiscoveredDevice]?
@@ -194,7 +205,7 @@ public final class Discovery {
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             let found = results.compactMap(Self.device(from:))
             MainActor.assumeIsolated {
-                self?.devices = DiscoveryLogic.merge(found)
+                self?.update(found)
             }
         }
         self.browser = browser
@@ -249,7 +260,15 @@ public final class Discovery {
         fixed.removeAll { $0.id == device.id }
         if visible { fixed.append(device) }
         fixedDevices = fixed
-        if status != .idle { devices = DiscoveryLogic.merge(fixed) }
+        if status != .idle { update(fixed) }
+    }
+
+    /// New results of the running browser; reports the services withdrawn.
+    private func update(_ found: [DiscoveredDevice]) {
+        let merged = DiscoveryLogic.merge(found)
+        let removed = DiscoveryLogic.removedIds(from: devices, to: merged)
+        devices = merged
+        if !removed.isEmpty { onDevicesRemoved?(removed) }
     }
 
     /// Restarts the browser (after a failure, or on "Retry").
