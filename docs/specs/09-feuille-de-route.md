@@ -97,6 +97,16 @@ Décision du 19/11/2026 (personne) : quand plusieurs iPhones sont connectés, **
 
 **Fait quand** : deux clients contre `make headless` (le second en lecture seule, prise de main, expiration du bail, déconnexion et oubli depuis l'interface), tests des deux côtés, revue croisée.
 
+## M11 — Ergonomie de l'app (proposé, non lancé)
+
+Suggestions de la personne du 19/11/2026, après essai de M10. À préciser et valider avant de lancer.
+
+- **Image du jeu** : toucher l'image pour la changer (au lieu de la section Image).
+- **Télécharger chaque fichier d'un jeu** vers l'iPhone (ROM, cheats, states…) ; probablement une route de téléchargement par fichier, identifiants opaques résolus par le pak (contrat d'abord).
+- **Bibliothèque à plat** : tous les jeux sans regroupement par console, avec recherche et filtres (console, etc.) ; peut demander une liste de tous les jeux en une requête.
+- **Barre d'onglets** quand une console est ouverte : Console, Bibliothèque, Transferts, Corbeille.
+- **Plus d'envoi depuis la vue Console** (l'ajout reste dans Bibliothèque et Transferts).
+
 ## Après la v1 (idées, non engagées)
 
 - Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli.
