@@ -490,6 +490,37 @@ struct PatchAppTests {
         #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
     }
 
+    /// "Try Again" while the timer polls too: the download job is seen
+    /// finished twice, the second poll must not fail the patch started by
+    /// the first one, nor allow a new start while it runs.
+    @Test func twoPollsOfTheSameJobAdvanceOnce() async throws {
+        let pak = makePak()
+        let app = try await makeApp(pak)
+        let session = app.session(for: pak.deviceId)
+        let flow = PatchFlow(session: session, game: skyGardenGame)
+        flow.source = .link
+        flow.linkText = "https://example.org/files/hack.bps"
+        flow.start()
+        await wait(flow) { $0 == .downloading }
+        let jobId = try #require(flow.job?.id)
+        // Polled on the console until the next poll finishes it.
+        var job = try await session.perform { try await $0.job(id: jobId) }
+        while job.state == .queued || (job.progress.total ?? 0) - job.progress.done > pak.downloadSize / 3 {
+            job = try await session.perform { try await $0.job(id: jobId) }
+        }
+        #expect(job.state == .running)
+        pak.responseDelay = 0.2
+        async let first: Void = flow.tick()
+        async let second: Void = flow.tick()
+        _ = await (first, second)
+        #expect(flow.step == .starting || flow.step == .patching)
+        #expect(!flow.canStart)
+        pak.responseDelay = 0
+        await runToTheEnd(flow)
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(pak.log.filter { $0.path.hasSuffix("/patch") }.count == 1)
+    }
+
     @Test func patchErrorTexts() {
         let mismatch = ServerError(status: 0, code: .patchMismatch, message: "")
         let format = ServerError(status: 422, code: .unsupportedFormat, message: "")
