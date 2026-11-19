@@ -248,10 +248,11 @@ func (s *Spec) validate(node any, v any, at string) error {
 }
 
 // validateIn validates v against node. siblings are the properties
-// declared by the other branches of an enclosing allOf: a property one
-// branch does not declare is not an extra property when another branch
-// declares it (and validates it). Properties declared by none are still
-// refused (strict by default).
+// declared by the other branches of an enclosing allOf: for the implicit
+// strict rule, a property one branch does not declare is not an extra
+// property when another branch declares it (and validates it); an
+// explicit additionalProperties still applies to it. Properties declared
+// by none are still refused (strict by default).
 func (s *Spec) validateIn(node any, v any, at string, siblings map[string]bool) error {
 	sc, err := s.resolveRef(node)
 	if err != nil {
@@ -427,9 +428,6 @@ func (s *Spec) validateObject(sc map[string]any, x map[string]any, at string, si
 			}
 			continue
 		}
-		if siblings[k] {
-			continue // declared and validated by another allOf branch
-		}
 		switch e := extra.(type) {
 		case bool:
 			if !e {
@@ -437,7 +435,13 @@ func (s *Spec) validateObject(sc map[string]any, x map[string]any, at string, si
 			}
 		case nil:
 			// Strict by default: the pak must not send fields the contract
-			// does not describe.
+			// does not describe. A property declared by another allOf
+			// branch is described (and validated there); only this
+			// implicit rule gives way, never an explicit
+			// additionalProperties.
+			if siblings[k] {
+				continue
+			}
 			if props != nil || sc["type"] == "object" {
 				return fmt.Errorf("%s: property %q is not in the contract", at, k)
 			}

@@ -3,6 +3,7 @@ package openapi
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -246,5 +247,63 @@ func TestValidateAllOf(t *testing.T) {
 	h := http.Header{"Content-Type": {"application/json"}}
 	if err := contract(t).ValidateResponse("GET", "/games", 200, h, []byte(allGames(""))); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A property declared by one allOf branch only lifts the implicit "no
+// undeclared property" rule of the others: an explicit
+// additionalProperties of another branch still applies to it.
+func TestValidateAllOfExplicitAdditional(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "spec.yaml")
+	doc := `openapi: 3.1.0
+components:
+  schemas:
+    Strings:
+      allOf:
+        - type: object
+          properties:
+            x: { type: integer }
+        - type: object
+          additionalProperties: { type: string }
+    Closed:
+      allOf:
+        - type: object
+          properties:
+            x: { type: integer }
+        - type: object
+          properties:
+            y: { type: integer }
+          additionalProperties: false
+    Implicit:
+      allOf:
+        - type: object
+          properties:
+            x: { type: integer }
+        - type: object
+          properties:
+            y: { type: integer }
+`
+	if err := os.WriteFile(p, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		schema string
+		value  map[string]any
+		ok     bool
+	}{
+		{"Strings", map[string]any{"x": float64(1)}, false}, // x is not a string
+		{"Closed", map[string]any{"y": float64(1)}, true},   // declared
+		{"Closed", map[string]any{"x": float64(1)}, false},  // x not allowed by the second branch
+		{"Implicit", map[string]any{"x": float64(1), "y": float64(2)}, true},
+		{"Implicit", map[string]any{"z": float64(1)}, false}, // declared by none
+	} {
+		err := s.ValidateSchema(tc.schema, tc.value)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s %v: %v, want ok=%v", tc.schema, tc.value, err, tc.ok)
+		}
 	}
 }
