@@ -60,4 +60,4 @@ Ces points sont repris, ou non, après la v1 (voir [09](09-feuille-de-route.md))
 - Nom affiché : **ReminisLink** (toujours en entier, jamais « Reminis » seul).
 - Identifiants techniques : `reminislink` (dépôt, Bonjour `_reminislink._tcp`, *bundle ID*).
 - Nom du pak sur la console : **ReminisLink**, comme l'app.
-- Domaine prévu (non acheté) : `reminis.link`.
+- Domaine : `reminis.link` (commandé le 19/11/2026).

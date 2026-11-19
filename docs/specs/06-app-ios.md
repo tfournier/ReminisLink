@@ -5,7 +5,7 @@
 - iPhone, iOS 17 minimum. iPad plus tard.
 - SwiftUI, Observation (`@Observable`), Swift Concurrency. Aucune dépendance tierce sans accord.
 - Langues : anglais et français en v1 (String Catalog `Localizable.xcstrings`).
-- Identifiants : app `<préfixe>.reminislink`, extension `<préfixe>.reminislink.share`, groupe d'apps `group.<préfixe>.reminislink`. Le préfixe dépend du compte Apple Developer, il reste à fixer.
+- Identifiants : préfixe **`link.reminis`** (domaine du produit, décision du 19/11/2026, définitif) : app `link.reminis.reminislink`, extension `link.reminis.reminislink.share`, groupe d'apps `group.link.reminis.reminislink`. Le préfixe ne rattache pas l'app à une entreprise ; le nom du vendeur affiché sur l'App Store est celui du compte qui publie. L'équipe de signature reste locale (`ios/Config/Local.xcconfig`, ignoré par Git).
 
 ## 2. Structure
 

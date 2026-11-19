@@ -63,8 +63,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-19 — Icône de l'app (deux maillons et traînée de pixels, `ios/Design/`) validée par la personne.
 
+- 2026-11-19 — Préfixe iOS `link.reminis` (domaine `reminis.link` commandé par la personne) ; l'équipe de signature fournie par la personne va dans `ios/Config/Local.xcconfig` (ignoré par Git), à appliquer après la fusion de M7. Rappel donné : le vendeur affiché sur l'App Store est le compte qui publie.
+
 ## Questions ouvertes pour la personne
-3. **Préfixe des identifiants iOS (définitif)** : la personne ne veut pas que l'app soit rattachée à son entreprise. Le préfixe n'est pas visible des utilisateurs ; c'est le nom du vendeur du compte qui publie qui l'est (publication depuis l'équipe d'entreprise = vendeur « entreprise »). Recommandation : préfixe produit `link.reminis` (transférable vers un autre compte plus tard), et publication depuis un compte non rattaché à l'entreprise. L'ID d'équipe fourni par la personne servira seulement à signer en local, dans `ios/Config/Local.xcconfig` (ignoré par Git), après la fusion de M7.
 
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
