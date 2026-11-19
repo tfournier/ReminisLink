@@ -3731,6 +3731,16 @@
         }
       }
     },
+    "The console closed ReminisLink." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a quitté ReminisLink."
+          }
+        }
+      }
+    },
     "The console could not download the patch. Check the link and the Wi-Fi connection of the console." : {
       "localizations" : {
         "fr" : {
@@ -4377,6 +4387,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce jeu a plusieurs disques : un patch s’applique à un seul fichier ROM, donc les jeux multi-disques ne peuvent pas être patchés ici."
+          }
+        }
+      }
+    },
+    "This game is no longer on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu n’est plus sur la console."
           }
         }
       }

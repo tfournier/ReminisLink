@@ -36,6 +36,7 @@ struct GameDetailView: View {
                 HStack(alignment: .top, spacing: 16) {
                     GameArtButton(
                         deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt,
+                        isGameGone: error == .gameRemoved,
                         notice: $artNotice, error: $artError
                     )
                     VStack(alignment: .leading, spacing: 6) {
@@ -62,7 +63,7 @@ struct GameDetailView: View {
             }
 
             if let error {
-                Section { ErrorView(error: error, retry: load) }
+                Section { ErrorView(error: error, retry: { await load() }) }
             }
 
             if let detail {
@@ -118,10 +119,10 @@ struct GameDetailView: View {
                     if let downloadError {
                         ErrorView(error: downloadError)
                     }
-                    ForEach(detail.files, id: \.fileId) { file in
+                    ForEach(Array(detail.files.enumerated()), id: \.offset) { _, file in
                         GameFileRow(
                             file: file,
-                            download: download?.fileId == file.fileId ? download : nil,
+                            download: file.fileId != nil && download?.fileId == file.fileId ? download : nil,
                             canDownload: download == nil,
                             onDownload: { startDownload(file) },
                             onCancel: cancelDownload
@@ -167,8 +168,9 @@ struct GameDetailView: View {
     /// sheet. A `404` means the file changed on the console: the list is
     /// loaded again.
     private func startDownload(_ file: GameFile) {
+        guard let fileId = file.fileId else { return }
         downloadTask?.cancel()
-        let progress = FileDownload(fileId: file.fileId, expected: file.sizeBytes)
+        let progress = FileDownload(fileId: fileId, expected: file.sizeBytes)
         download = progress
         downloadError = nil
         let session = app.session(for: route.deviceId)
@@ -184,8 +186,13 @@ struct GameDetailView: View {
                 download = nil
                 let error = AppError(error)
                 if error.isCancellation { return }
-                downloadError = error
-                if error == .gameFileChanged { await load() }
+                if error == .gameFileChanged {
+                    // Said once the list is really reloaded; a game that is
+                    // gone says so instead (and its rows go).
+                    if await load() { downloadError = error }
+                } else {
+                    downloadError = error
+                }
             }
         }
     }
@@ -196,14 +203,23 @@ struct GameDetailView: View {
         download = nil
     }
 
-    private func load() async {
-        let gameId = route.gameId
+    /// Whether the game sheet is up to date. A game no longer on the
+    /// console loses its rows and actions.
+    @discardableResult
+    private func load() async -> Bool {
         do {
-            detail = try await app.session(for: route.deviceId).perform { try await $0.game(id: gameId) }
+            detail = try await app.session(for: route.deviceId).gameDetail(id: route.gameId)
             error = nil
+            return true
         } catch {
             let error = AppError(error)
+            if error == .gameRemoved {
+                cancelDownload()
+                detail = nil
+                downloadError = nil
+            }
             if !error.isCancellation { self.error = error }
+            return false
         }
     }
 }
@@ -246,7 +262,8 @@ struct GameFileRow: View {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(Text("Cancel the download of \(file.name)"))
                 .accessibilityIdentifier("file.cancel")
-            } else {
+            } else if file.fileId != nil {
+                // A pak older than M11 cannot serve the file: no button.
                 Button(action: onDownload) {
                     Image(systemName: "arrow.down.circle")
                         .font(.title2)

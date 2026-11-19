@@ -233,6 +233,16 @@ final class AppModel {
         path = [.console(deviceId)]
     }
 
+    /// The end of an Add: the Transfers tab of its console. Not when that
+    /// console closed ReminisLink meanwhile (M11): the app stays on the
+    /// list with its notice, the uploads wait paused.
+    func showTransfersAfterAdd(deviceId: String) {
+        guard !session(for: deviceId).closedByConsole else { return }
+        if path.last != .transfers(deviceId) {
+            path = [.console(deviceId), .transfers(deviceId)]
+        }
+    }
+
     /// Back to the list of consoles.
     func closeConsole() {
         path = []

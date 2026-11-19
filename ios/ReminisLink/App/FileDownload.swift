@@ -68,7 +68,8 @@ extension ConsoleSession {
     /// access. `404` (the file is no longer in the game's list) is
     /// ``AppError/gameFileChanged``.
     func downloadGameFile(gameId: String, file: GameFile, progress: FileDownload) async throws -> ExportedFile {
-        let fileId = file.fileId
+        // A pak older than M11 lists no `fileId`: no download is offered.
+        guard let fileId = file.fileId else { throw AppError.unexpected }
         let report = progress.reporter()
         do {
             return try await export { client, directory in
@@ -76,6 +77,18 @@ extension ConsoleSession {
             }
         } catch {
             throw AppError.gameFile(error)
+        }
+    }
+
+    /// `GET /games/{gameId}`; `404` (the game was deleted or renamed on the
+    /// console) is ``AppError/gameRemoved``.
+    func gameDetail(id: String) async throws -> GameDetail {
+        do {
+            return try await perform { try await $0.game(id: id) }
+        } catch {
+            let error = AppError(error)
+            if case .api(.server(let server)) = error, server.code == .notFound { throw AppError.gameRemoved }
+            throw error
         }
     }
 }

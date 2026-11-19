@@ -46,7 +46,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     }
 
     public let deviceId: String
-    public let deviceName: String
+    /// Changed by ``rename(to:)`` (Settings > Console name, M11).
+    public var deviceName: String { lock.withLock { _deviceName } }
+    private var _deviceName: String
     public let model: DeviceModel
     public let secret: Data
     public let pin: String
@@ -116,8 +118,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     var _freeBytes: Int64 = 40_265_318_400
     private var _downloadSize: Int64 = 8 << 20
     private var _chunkLog: [ChunkRecord] = []
-    /// Milestone M11 (FakePakLibrary.swift): `GET /games` exists (an older
-    /// pak answers `404`), and lists at most this many games.
+    /// Milestone M11 (FakePakLibrary.swift): `GET /games`, `fileId` and the
+    /// file downloads exist (false: a pak older than M11, `404`), and
+    /// `GET /games` lists at most this many games.
     var _allGamesSupported = true
     var _allGamesLimit = 20_000
     /// Whether the pak is open, quitting (`503 shutting_down`), or gone.
@@ -142,7 +145,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         apiVersion: Int = 1
     ) {
         self.deviceId = deviceId
-        self.deviceName = deviceName
+        self._deviceName = deviceName
         self.model = model
         self.secret = secret
         self.pin = pin
@@ -308,6 +311,12 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             writerClientId = nil
             disconnectedClients = []
         }
+    }
+
+    /// The console is renamed (Settings > Console name): `/hello`,
+    /// `/device` and the Bonjour instance name change.
+    public func rename(to name: String) {
+        lock.withLock { _deviceName = name }
     }
 
     public var clientIds: [String] { lock.withLock { clients.keys.sorted() } }
@@ -724,12 +733,14 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             ])
         }
         if !data.cheats.isEmpty {
-            files.append(["role": "cheats", "path": Self.cheatsPath(system, game), "sizeBytes": 2048, "modifiedAt": date])
+            // The size of the `.cht` the fake pak serves (M11).
+            files.append(["role": "cheats", "path": Self.cheatsPath(system, game),
+                          "sizeBytes": Self.chtText(data.cheats).count, "modifiedAt": date])
         }
         if let art = currentArt(gameId: DemoLibrary.id(system.folder + "/" + game.path), game: game) {
             files.append(["role": "art", "path": "Roms/\(system.folder)/.media/\(game.name).png", "sizeBytes": Int64(art.data.count), "modifiedAt": date])
         }
-        return Self.withFileIds(files)
+        return lock.withLock { _allGamesSupported } ? Self.withFileIds(files) : files
     }
 
     private func art(gameId: String, ifNoneMatch: String?) -> FakeResponse {

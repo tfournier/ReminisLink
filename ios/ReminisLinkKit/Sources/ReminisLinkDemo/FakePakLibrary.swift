@@ -18,11 +18,8 @@ extension FakePak {
         case gone
     }
 
-    /// The largest file a download of the fake pak serves: its files are
-    /// made up (zeros after a tag), a larger one is served truncated.
-    public static let maxServedFileBytes = 16 << 20
-
-    /// `GET /games` exists (false: an older pak, `404`).
+    /// The M11 routes exist (false: a pak older than M11: `GET /games` and
+    /// the file downloads answer `404`, and files have no `fileId`).
     public var allGamesSupported: Bool {
         get { lock.withLock { _allGamesSupported } }
         set { lock.withLock { _allGamesSupported = newValue } }
@@ -130,6 +127,7 @@ extension FakePak {
     /// `GET /games/{gameId}/files/{fileId}`: only a file of the current
     /// list of the game.
     func downloadFile(gameId: String, fileId: String) -> FakeResponse {
+        guard allGamesSupported else { return .error(404, code: "not_found", message: "No route") }
         guard let (system, game) = library.game(id: gameId) else {
             return .error(404, code: "not_found", message: "Game not found")
         }
@@ -156,9 +154,11 @@ extension FakePak {
         return response
     }
 
-    /// `size` bytes (at most ``maxServedFileBytes``): the tag, then zeros.
+    /// `size` bytes, the whole file as listed (the contract sends files
+    /// whole): the tag, then zeros. Demo games are small; it is held in
+    /// memory.
     static func madeUpContent(size: Int64, tag: String) -> Data {
-        var data = Data(count: Int(min(size, Int64(maxServedFileBytes))))
+        var data = Data(count: Int(size))
         let prefix = Data(tag.utf8.prefix(data.count))
         data.replaceSubrange(0..<prefix.count, with: prefix)
         return data

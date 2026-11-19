@@ -94,6 +94,24 @@ public enum LibraryFiltering {
         Dictionary(systems.map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
     }
 
+    /// The console shown under each game, by system id: its label, with
+    /// its tag when several systems with games share that label (two
+    /// games of the same name in GBA and MGBA must not look the same):
+    /// "Game Boy Advance (MGBA)". The filter keeps them merged.
+    public static func rowLabels(systems: [GameSystem], games: [LibraryGame]) -> [String: String] {
+        let withGames = Set(games.map(\.systemId))
+        var systemsPerLabel: [String: Int] = [:]
+        for system in systems where withGames.contains(system.id) {
+            systemsPerLabel[system.label, default: 0] += 1
+        }
+        var labels: [String: String] = [:]
+        for system in systems where labels[system.id] == nil {
+            labels[system.id] = systemsPerLabel[system.label, default: 0] > 1
+                ? "\(system.label) (\(system.tag))" : system.label
+        }
+        return labels
+    }
+
     /// The games matching `query`, in its order.
     public static func apply(_ query: LibraryQuery, to games: [LibraryGame], groups: [SystemGroup]) -> [LibraryGame] {
         let text = query.text.trimmingCharacters(in: .whitespacesAndNewlines)

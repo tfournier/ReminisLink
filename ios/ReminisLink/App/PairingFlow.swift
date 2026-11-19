@@ -108,7 +108,10 @@ final class PairingFlow: Identifiable {
                 // not sent yet, so nothing changes.
                 if self?.isStopped ?? true { throw CancellationError() }
                 let key = try await client.pair(attempt)
-                let device = try app.store.save(deviceId: deviceId, name: name, model: hello.model, clientId: clientId, key: key)
+                let device = try app.store.save(
+                    deviceId: deviceId, name: name, model: hello.model, clientId: clientId, key: key,
+                    consoleName: hello.deviceName
+                )
                 app.didReplaceKey(for: deviceId)
                 return device
             }

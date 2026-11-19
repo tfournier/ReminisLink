@@ -193,7 +193,10 @@ struct SaveSyncAppTests {
 
         // The file of the version changed on the iPhone (another vault,
         // edited in Files...): refused before any request.
-        let file = root.appending(path: "Saves/Brick/Game Boy Advance (GBA)/Sky Garden Quest/\(version.id)/Sky Garden Quest.gba.sav")
+        // The console folder is named after the console's name at the
+        // first sync (M11: the name the console reports).
+        let console = try #require(app.store.device(id: pak.deviceId)?.name)
+        let file = root.appending(path: "Saves/\(console)/Game Boy Advance (GBA)/Sky Garden Quest/\(version.id)/Sky Garden Quest.gba.sav")
         let original = try Data(contentsOf: file)
         try Data("tampered".utf8).write(to: file)
         await #expect(throws: SaveVaultError.versionMismatch) {

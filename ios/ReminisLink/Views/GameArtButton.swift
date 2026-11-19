@@ -12,6 +12,9 @@ struct GameArtButton: View {
     let deviceId: String
     let gameId: String
     let hasArt: Bool
+    /// The game is no longer on the console: the image is shown without
+    /// any action.
+    var isGameGone = false
     /// What the last action did, or its error, shown by the game sheet.
     @Binding var notice: String?
     @Binding var error: AppError?
@@ -46,7 +49,7 @@ struct GameArtButton: View {
                         if isWorking {
                             ProgressView()
                                 .padding(6)
-                        } else if !isReadOnly {
+                        } else if !isReadOnly && !isGameGone {
                             Image(systemName: "pencil.circle.fill")
                                 .font(.title2)
                                 .symbolRenderingMode(.palette)
@@ -58,7 +61,7 @@ struct GameArtButton: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(isWorking || isReadOnly)
+        .disabled(!Self.isEnabled(isWorking: isWorking, isReadOnly: isReadOnly, isGameGone: isGameGone))
         .accessibilityLabel(Text(hasArt ? "Image of the game" : "No image"))
         .accessibilityHint(Text("Change or remove the image"))
         .accessibilityValue(Text(verbatim: exposesValue ? (isImageShown ? "image" : "none") : ""))
@@ -88,6 +91,13 @@ struct GameArtButton: View {
         } message: {
             Text("The current image goes to the trash of the console.")
         }
+        // The game went away with a dialog open: no action left.
+        .onChange(of: isGameGone) { _, gone in
+            if gone {
+                choosingSource = false
+                confirmRemove = false
+            }
+        }
         .photosPicker(isPresented: $showPhotos, selection: $photo, matching: .images)
         .onChange(of: photo) { _, item in
             guard let item else { return }
@@ -100,6 +110,12 @@ struct GameArtButton: View {
             case .failure: error = .file
             }
         }
+    }
+
+    /// Whether the image can be changed: not during a change, not while
+    /// another device has write access (M10), not once the game is gone.
+    static func isEnabled(isWorking: Bool, isReadOnly: Bool, isGameGone: Bool) -> Bool {
+        !isWorking && !isReadOnly && !isGameGone
     }
 
     private func setFromPhotos(_ item: PhotosPickerItem) async {

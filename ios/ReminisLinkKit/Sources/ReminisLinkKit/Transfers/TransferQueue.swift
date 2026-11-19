@@ -238,6 +238,9 @@ public final class TransferQueue {
             sizeBytes: size, destination: destination, target: target, onConflict: onConflict, ownsFile: ownsFile
         )
         uploads.append(item)
+        // M11: added after the console closed ReminisLink (an Add sheet
+        // still copying): paused with the others until the next connection.
+        if isHeldForClosedConsole { item.phase = .paused }
         pump()
         return item
     }

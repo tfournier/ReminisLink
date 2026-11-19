@@ -127,7 +127,9 @@ public struct DemoLibrary: Sendable {
             Game(path: "Moonlit Maze 🌙.gb", sizeBytes: 262_144, modifiedAt: base, hasSave: true, stateSlots: [0], hasArt: true),
         ]),
         System(folder: "Sony PlayStation (PS)", label: "Sony PlayStation", tag: "PS", emulatorInstalled: false, games: [
-            Game(path: "Starlight Saga", kind: .folderM3U, sizeBytes: 734_003_200, modifiedAt: base,
+            // Small for a disc game: the fake pak serves every file whole,
+            // from memory.
+            Game(path: "Starlight Saga", kind: .folderM3U, sizeBytes: 7_340_032, modifiedAt: base,
                  hasSave: true, stateSlots: [0, 1], lockedStateCount: 2),
         ]),
     ])

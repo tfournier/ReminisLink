@@ -111,7 +111,7 @@ struct ModelsTests {
         #expect(!detail.hasCheats)
         #expect(detail.files[2].slot == 0)
         #expect(detail.files.last?.role == GameFileRole(rawValue: "thumbnail"))
-        #expect(detail.files.map(\.fileId) == ["f0", "f1", "f2", "f3", "f4"])
+        #expect(detail.files.compactMap(\.fileId) == ["f0", "f1", "f2", "f3", "f4"])
         #expect(detail.files[0].name == "Sky Garden Quest.gba")
     }
 

@@ -111,7 +111,7 @@ struct ErgonomicsAppTests {
         let session = app.session(for: pak.deviceId)
         let detail = try await session.perform { try await $0.game(id: Self.skyGarden) }
         let cheats = try #require(detail.files.first { $0.role == .cheats })
-        let progress = FileDownload(fileId: cheats.fileId, expected: cheats.sizeBytes)
+        let progress = FileDownload(fileId: try #require(cheats.fileId), expected: cheats.sizeBytes)
         let exported = try await session.downloadGameFile(gameId: Self.skyGarden, file: cheats, progress: progress)
         #expect(exported.file.url.lastPathComponent == "Sky Garden Quest.gba.cht")
         #expect(exported.file.directory.deletingLastPathComponent().standardizedFileURL == app.exportDirectory.standardizedFileURL)
@@ -119,6 +119,8 @@ struct ErgonomicsAppTests {
         #expect(progress.fraction == 1)
         let size = try FileDigest.size(of: exported.file.url)
         #expect(progress.received == size)
+        // The whole file, as announced (Codex M11 #4).
+        #expect(size == cheats.sizeBytes)
     }
 
     @Test func aFileThatChangedIsReported() async throws {
@@ -132,14 +134,14 @@ struct ErgonomicsAppTests {
         // Pixel Runner has no save: that file is not in its list.
         await #expect(throws: AppError.gameFileChanged) {
             try await session.downloadGameFile(
-                gameId: Self.pixelRunner, file: save, progress: FileDownload(fileId: save.fileId, expected: nil)
+                gameId: Self.pixelRunner, file: save, progress: FileDownload(fileId: "f", expected: nil)
             )
         }
         #expect(AppError.gameFileChanged.action == nil)
         #expect(!AppError.gameFileChanged.message.isEmpty)
         let rom = try #require(detail.files.first { $0.role == .rom })
         let file = try await session.downloadGameFile(
-            gameId: Self.skyGarden, file: rom, progress: FileDownload(fileId: rom.fileId, expected: nil)
+            gameId: Self.skyGarden, file: rom, progress: FileDownload(fileId: "f", expected: nil)
         )
         let size = try FileDigest.size(of: file.file.url)
         #expect(size == rom.sizeBytes)
@@ -243,6 +245,164 @@ struct ErgonomicsAppTests {
         await #expect(throws: AppError.self) { try await session.perform { try await $0.systems() } }
         #expect(app.openConsoleId == id)
         #expect(app.closedNotice == nil)
+    }
+
+    /// Codex M11 #3: `503 shutting_down` while connecting (`/hello`) goes
+    /// back to the list too, not to an error screen.
+    @Test func shuttingDownWhileOpeningGoesBackToTheList() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let id = pak.deviceId
+        pak.availability = .shuttingDown
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { app.openConsoleId == nil }
+        #expect(app.openConsoleId == nil)
+        #expect(app.closedNotice?.deviceId == id)
+        #expect(session.state == .idle)
+        #expect(session.error == nil)
+        #expect(session.closedByConsole)
+    }
+
+    /// Codex M11 #2: once the console closed ReminisLink, nothing connects
+    /// without the user: not a screen asking for a client, not an upload
+    /// added by an Add sheet still copying, not the end of that sheet.
+    @Test func aClosedConsoleNeverReconnectsByItself() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let id = pak.deviceId
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { session.state == .connected }
+        pak.availability = .shuttingDown
+        _ = try? await session.perform { try await $0.systems() }
+        #expect(app.openConsoleId == nil)
+        // The console is back, but the user has not opened it.
+        pak.availability = .open
+        let hellos = pak.log.filter { $0.path == "/api/v1/hello" }.count
+        await #expect(throws: AppError.consoleClosed) { _ = try await session.connectedClient() }
+        await #expect(throws: AppError.consoleClosed) { try await session.perform { try await $0.systems() } }
+        await session.connect()
+        // The end of an Add sheet: no console reopened.
+        let file = FileManager.default.temporaryDirectory.appending(path: "m11-\(UUID().uuidString).gba")
+        try Data(count: 1000).write(to: file)
+        let item = try session.transfers.enqueue(
+            fileURL: file, target: .rom(systemId: DemoLibrary.id("Game Boy Advance (GBA)"), fileName: "M11.gba"),
+            destination: "GBA", ownsFile: false
+        )
+        #expect(item.phase == .paused)
+        app.showTransfersAfterAdd(deviceId: id)
+        #expect(app.openConsoleId == nil)
+        #expect(app.closedNotice?.deviceId == id)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(pak.log.filter { $0.path == "/api/v1/hello" }.count == hellos)
+        #expect(session.state == .idle)
+
+        // The user opens it: connected, and the upload goes on.
+        app.openConsole(id)
+        await waitUntil { item.phase == .done }
+        #expect(session.state == .connected)
+        #expect(item.phase == .done)
+        // A later Add ends on the Transfers tab, as before.
+        app.showTransfersAfterAdd(deviceId: id)
+        #expect(app.path == [.console(id), .transfers(id)])
+    }
+
+    /// Codex M11 #1: a pak older than M11 (no `GET /games`, files without
+    /// `fileId`): per-system browsing, and the game sheet still loads.
+    @Test func aPakOlderThanM11KeepsTheGameSheet() async throws {
+        let pak = makePak()
+        pak.allGamesSupported = false
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await #expect {
+            _ = try await session.perform { try await $0.allGames() }
+        } throws: { error in
+            guard case .api(let api)? = error as? AppError else { return false }
+            return LibraryMode.meansUnsupported(api)
+        }
+        let detail = try await session.gameDetail(id: Self.skyGarden)
+        #expect(detail.files.allSatisfy { $0.fileId == nil })
+        #expect(detail.hasSave && detail.stateCount > 0 && detail.hasCheats)
+        // The connection is not lost by the 404.
+        #expect(session.state == .connected)
+    }
+
+    /// Codex M11 #5: the game itself is gone: said as such.
+    @Test func aDeletedGameIsSaidGone() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        _ = try await session.gameDetail(id: Self.pixelRunner)
+        _ = try await session.deleteGame(id: Self.pixelRunner, keepSave: false)
+        await #expect(throws: AppError.gameRemoved) { _ = try await session.gameDetail(id: Self.pixelRunner) }
+        #expect(AppError.gameRemoved.action == nil)
+    }
+
+    /// Codex M11 round 2 #2: the announcement disappears while opening
+    /// (after the address was resolved), and `/hello` cannot connect: back
+    /// to the list, not an error screen.
+    @Test func theAnnouncementGoneWhileOpeningGoesBackToTheList() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.closureMinimumBrowsing = .zero
+        let id = pak.deviceId
+        let gate = pak.holdNextArrival(method: "GET", path: "/api/v1/hello")
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { gate.reached }
+        #expect(gate.reached)
+        app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
+        pak.availability = .gone
+        gate.open()
+        await waitUntil { app.openConsoleId == nil }
+        #expect(app.openConsoleId == nil)
+        #expect(app.closedNotice?.deviceId == id)
+        #expect(session.state == .idle)
+        #expect(session.error == nil)
+    }
+
+    /// The same failure with the console still announced is a glitch:
+    /// the error screen stays (with Try Again).
+    @Test func aFailedOpeningWithTheConsoleAnnouncedStaysAnError() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.closureMinimumBrowsing = .zero
+        let id = pak.deviceId
+        pak.availability = .gone
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { session.error != nil }
+        #expect(session.error == .api(.network(.cannotConnectToHost)))
+        #expect(app.openConsoleId == id)
+        #expect(app.closedNotice == nil)
+    }
+
+    /// Codex M11 round 2 #1: the image of a game that is gone has no action.
+    @Test func theImageOfAGameThatIsGoneCannotBeChanged() {
+        #expect(GameArtButton.isEnabled(isWorking: false, isReadOnly: false, isGameGone: false))
+        #expect(!GameArtButton.isEnabled(isWorking: false, isReadOnly: false, isGameGone: true))
+        #expect(!GameArtButton.isEnabled(isWorking: false, isReadOnly: true, isGameGone: false))
+        #expect(!GameArtButton.isEnabled(isWorking: true, isReadOnly: false, isGameGone: false))
+    }
+
+    /// M11: renamed on the console (Settings > Console name): the list
+    /// shows the new name after the next connection, and after a refresh.
+    @Test func aConsoleRenamedOnThePakIsShownByItsNewName() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let id = pak.deviceId
+        let session = app.session(for: id)
+        await session.connect()
+        #expect(app.store.device(id: id)?.name == pak.deviceName)
+        pak.rename(to: "Living Room Brick")
+        await session.refresh()
+        #expect(app.store.device(id: id)?.name == "Living Room Brick")
+        // Again, through a new connection.
+        pak.rename(to: "Bedroom Brick")
+        app.didReplaceKey(for: id)
+        await app.session(for: id).connect()
+        #expect(app.store.device(id: id)?.name == "Bedroom Brick")
     }
 
     @Test func aClosedConsoleThatIsNotOpenStaysOnTheList() async throws {
