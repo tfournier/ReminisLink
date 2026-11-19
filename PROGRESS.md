@@ -59,8 +59,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-19 — Décisions M0 (personne) : D1 certificats via `certifiable` déjà importé par gabagool (aucune nouvelle dépendance, téléchargements depuis `http.DefaultTransport.Clone()`) ; D2 comportement normal de la console (aucune gestion de veille ni d'écran) ; D3 format par défaut seulement ; D4 `osVersion` = chaîne de release NextUI (`NextUI-20261013-039a06de`) ; D5 vignettes telles quelles ; D6 champ `emulatorInstalled` dans `/systems`.
 
+- 2026-11-19 — Bouton d'alimentation pendant le pak : comportement normal de gabagool gardé (appui court = veille, appui long = extinction) ; 05 §2 corrigé. Décidé par la personne.
+
 ## Questions ouvertes pour la personne
-2. **Bouton d'alimentation pendant le pak (M7)** : gabagool (avec `IsNextUI: true`, comme Cheat Manager) gère le bouton sur tg5040 : appui court → `.system/tg5040/bin/suspend` (coupe le Wi-Fi, donc le serveur ; les envois reprennent ensuite) ; appui long (≥ 2 s) → `/sbin/poweroff` (le pak reçoit SIGTERM et s'arrête proprement s'il en a le temps ; sinon les écritures atomiques et la reprise au lancement protègent les données). Options : garder ce comportement (celui des autres paks) ou le désactiver (seulement via le mode dev de gabagool, qui perd des réglages NextUI). Recommandation : le garder et corriger 05 §2. Bloque : la mise à jour de la spec.
 
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
