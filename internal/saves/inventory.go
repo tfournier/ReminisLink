@@ -22,15 +22,23 @@ const (
 	// MaxListedSaves is the most saves GET /saves lists; beyond, the list
 	// is marked truncated.
 	MaxListedSaves = 10000
+	// MaxUncachedSave: saves of at most this size (nearly all of them)
+	// are hashed at every listing. A save rewritten in place can keep its
+	// size and its date (exFAT keeps dates to 2 s and has no change
+	// time), so no metadata proves it unchanged; only larger ones use the
+	// cache.
+	MaxUncachedSave = 1 << 20
 	// RacyMargin: a cached hash is used only for a file modified at least
-	// this long before the hash was computed ("racy git" rule). exFAT
-	// keeps modification times to 2 s, so a file rewritten in place just
-	// after it was hashed can keep the same size and date.
+	// this long before the hash was computed ("racy git" rule).
 	RacyMargin = 3 * time.Second
 	// hashChunk is how much is hashed between two checks of the request
 	// context.
 	hashChunk = 1 << 20
 )
+
+// statusChange is changeTime, replaced by tests (a file system without
+// change time, such as exFAT).
+var statusChange = changeTime
 
 // maxListedSaves is MaxListedSaves, lowered by tests.
 var maxListedSaves = MaxListedSaves
@@ -64,19 +72,20 @@ type Listing struct {
 	GeneratedAt time.Time `json:"generatedAt"`
 }
 
-// hashCache remembers the SHA-256 of the saves, keyed by absolute path. A
-// hash is used again only for the same file (os.SameFile), with the same
-// size and modification time, when that time is at least RacyMargin
-// before the hash was computed. It only holds the files of the last
-// listing.
+// hashCache remembers the SHA-256 of the saves larger than
+// MaxUncachedSave, keyed by absolute path. A hash is used again only for
+// the same file (os.SameFile: device and inode), with the same size,
+// modification time and status change time (where the platform has one),
+// when the modification time is at least RacyMargin before the hash was
+// computed. It only holds the files of the last listing.
 type hashCache struct {
 	// slot lets one listing run at a time.
 	slot chan struct{}
 	now  func() time.Time // wall clock of the file system dates (tests change it)
 	mu   sync.Mutex
 	m    map[string]hashEntry
-	// hashed counts the files read to compute a hash (tests).
-	hashed int
+	// hashed counts, per file, the reads to compute a hash (tests).
+	hashed map[string]int
 }
 
 type hashEntry struct {
@@ -86,15 +95,20 @@ type hashEntry struct {
 }
 
 func newHashCache() *hashCache {
-	return &hashCache{slot: make(chan struct{}, 1), now: time.Now, m: map[string]hashEntry{}}
+	return &hashCache{slot: make(chan struct{}, 1), now: time.Now, m: map[string]hashEntry{}, hashed: map[string]int{}}
 }
 
 func (c *hashCache) get(path string, fi fs.FileInfo) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.m[path]
-	if !ok || !os.SameFile(e.info, fi) || e.info.Size() != fi.Size() || !e.info.ModTime().Equal(fi.ModTime()) ||
-		!fi.ModTime().Before(e.hashedAt.Add(-RacyMargin)) {
+	if !ok || fi.Size() <= MaxUncachedSave || !os.SameFile(e.info, fi) || e.info.Size() != fi.Size() ||
+		!e.info.ModTime().Equal(fi.ModTime()) || !fi.ModTime().Before(e.hashedAt.Add(-RacyMargin)) {
+		return "", false
+	}
+	oldC, okOld := statusChange(e.info)
+	newC, okNew := statusChange(fi)
+	if okOld != okNew || !oldC.Equal(newC) {
 		return "", false
 	}
 	return e.sum, true
@@ -103,8 +117,10 @@ func (c *hashCache) get(path string, fi fs.FileInfo) (string, bool) {
 func (c *hashCache) put(path string, fi fs.FileInfo, sum string, hashedAt time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.m[path] = hashEntry{info: fi, sum: sum, hashedAt: hashedAt}
-	c.hashed++
+	c.hashed[path]++
+	if fi.Size() > MaxUncachedSave {
+		c.m[path] = hashEntry{info: fi, sum: sum, hashedAt: hashedAt}
+	}
 }
 
 // keep forgets the files that are not in seen.

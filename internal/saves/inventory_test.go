@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,7 +68,39 @@ func (e *env) ageSaves() {
 func (e *env) hashed() int {
 	e.svc.hashes.mu.Lock()
 	defer e.svc.hashes.mu.Unlock()
-	return e.svc.hashes.hashed
+	n := 0
+	for _, c := range e.svc.hashes.hashed {
+		n += c
+	}
+	return n
+}
+
+// hashedOf is how many times the file rel of the SD card was hashed.
+func (e *env) hashedOf(rel string) int {
+	e.svc.hashes.mu.Lock()
+	defer e.svc.hashes.mu.Unlock()
+	return e.svc.hashes.hashed[filepath.Join(e.sd, filepath.FromSlash(rel))]
+}
+
+// big returns a save larger than MaxUncachedSave starting with s.
+func big(s string) string { return s + strings.Repeat("\x00", MaxUncachedSave+1024-len(s)) }
+
+// rewriteInPlace overwrites the start of the file rel with content (same
+// file, same size) and puts its modification time back to mtime.
+func (e *env) rewriteInPlace(rel, content string, mtime time.Time) {
+	e.t.Helper()
+	p := filepath.Join(e.sd, filepath.FromSlash(rel))
+	f, err := os.OpenFile(p, os.O_WRONLY, 0)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte(content), 0); err != nil {
+		e.t.Fatal(err)
+	}
+	f.Close()
+	if err := os.Chtimes(p, mtime, mtime); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 const ps = "Sony PlayStation (PS)"
@@ -143,43 +177,39 @@ func TestListAllNoSavesFolder(t *testing.T) {
 	}
 }
 
+// Saves of at most MaxUncachedSave are hashed at every listing; larger
+// ones only when they changed.
 func TestListAllHashCache(t *testing.T) {
 	e := newEnv(t)
+	rel := "Saves/GBA/Starlight Courier.gba.sav"
+	small := "Saves/GBA/Starlight Courier Remix.gba.sav"
+	p := filepath.Join(e.sd, rel)
+	e.write(rel, big("large"))
 	e.ageSaves()
 	first := e.listAll()
-	n := e.hashed()
-	if n != len(first.Saves) {
-		t.Fatalf("hashed %d files for %d saves", n, len(first.Saves))
-	}
-	// Nothing changed: nothing read again.
 	second := e.listAll()
-	if e.hashed() != n {
-		t.Fatalf("unchanged files hashed again: %d -> %d", n, e.hashed())
-	}
 	if fmt.Sprint(first.Saves) != fmt.Sprint(second.Saves) {
 		t.Fatal("listings differ")
 	}
+	if e.hashedOf(rel) != 1 || e.hashedOf(small) != 2 {
+		t.Fatalf("hashed: large %d, small %d", e.hashedOf(rel), e.hashedOf(small))
+	}
 
-	// A save changed (new content, new date): hashed again.
-	rel := "Saves/GBA/Starlight Courier.gba.sav"
-	p := filepath.Join(e.sd, rel)
-	e.write(rel, "played again")
+	// The large save changed (new content, new date): hashed again.
+	e.write(rel, big("played again"))
 	later := time.Now().Add(time.Hour)
 	if err := os.Chtimes(p, later, later); err != nil {
 		t.Fatal(err)
 	}
 	id := library.EncodeID(gba + "/Starlight Courier.gba")
-	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf("played again") {
-		t.Fatalf("changed save %+v", s)
-	}
-	if e.hashed() != n+1 {
-		t.Fatalf("hashed %d, want %d", e.hashed(), n+1)
+	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf(big("played again")) || e.hashedOf(rel) != 2 {
+		t.Fatalf("changed save %+v (hashed %d)", s, e.hashedOf(rel))
 	}
 
 	// Replaced by another file of the same size and date (a rename over
 	// it, as the pak does): hashed again.
 	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, []byte("PLAYED AGAIN"), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(big("PLAYED AGAIN")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(tmp, later, later); err != nil {
@@ -188,7 +218,7 @@ func TestListAllHashCache(t *testing.T) {
 	if err := os.Rename(tmp, p); err != nil {
 		t.Fatal(err)
 	}
-	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf("PLAYED AGAIN") {
+	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf(big("PLAYED AGAIN")) {
 		t.Fatalf("replaced save %+v", s)
 	}
 
@@ -204,6 +234,48 @@ func TestListAllHashCache(t *testing.T) {
 	e.svc.hashes.mu.Unlock()
 	if cached {
 		t.Fatal("removed save still cached")
+	}
+}
+
+// An old save (date far more than RacyMargin in the past) rewritten in
+// place with the same size and the same date gets its new hash: a save of
+// at most MaxUncachedSave is always hashed, a larger one is hashed again
+// when its status change time moved.
+func TestListAllOldSaveRewrittenInPlace(t *testing.T) {
+	e := newEnv(t)
+	smallRel := "Saves/GBA/Starlight Courier.gba.sav"
+	largeRel := "Saves/MGBA/Starlight Courier.gba.sav"
+	e.write(smallRel, "first version")
+	e.write(largeRel, big("first version"))
+	old := time.Now().Add(-time.Hour).Truncate(2 * time.Second)
+	e.rewriteInPlace(smallRel, "first version", old)
+	e.rewriteInPlace(largeRel, "first version", old)
+	t.Cleanup(func() { statusChange = changeTime })
+	smallID := library.EncodeID(gba + "/Starlight Courier.gba")
+	largeID := library.EncodeID("Game Boy Advance (MGBA)/Starlight Courier.gba")
+	got := byGame(e.listAll())
+	if got[smallID].SHA256 != shaOf("first version") || got[largeID].SHA256 != shaOf(big("first version")) {
+		t.Fatalf("first %+v", got)
+	}
+	// The small save, on a file system without change time (exFAT).
+	statusChange = func(fs.FileInfo) (time.Time, bool) { return time.Time{}, false }
+	e.rewriteInPlace(smallRel, "other version", old)
+	got = byGame(e.listAll())
+	statusChange = changeTime
+	if got[smallID].SHA256 != shaOf("other version") {
+		t.Fatalf("stale hash of an old small save: %+v", got[smallID])
+	}
+	time.Sleep(20 * time.Millisecond) // a later status change time
+	fi, err := os.Stat(filepath.Join(e.sd, largeRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := changeTime(fi); !ok {
+		t.Skip("no status change time here")
+	}
+	e.rewriteInPlace(largeRel, "other version", old)
+	if s := byGame(e.listAll())[largeID]; s.SHA256 != shaOf(big("other version")) {
+		t.Fatalf("stale hash of an old large save: %+v", s)
 	}
 }
 
@@ -306,10 +378,8 @@ func TestListAllManyGames(t *testing.T) {
 	if count != n {
 		t.Fatalf("listed %d saves of %d", count, n)
 	}
-	before := e.hashed()
-	l2 := e.listAll()
-	if e.hashed() != before || len(l2.Saves) != len(l.Saves) {
-		t.Fatalf("second listing hashed %d files", e.hashed()-before)
+	if l2 := e.listAll(); len(l2.Saves) != len(l.Saves) {
+		t.Fatalf("second listing: %d saves", len(l2.Saves))
 	}
 	t.Logf("%d saves listed in %v", len(l.Saves), time.Since(start))
 }
@@ -319,40 +389,30 @@ func TestListAllManyGames(t *testing.T) {
 // is reused only for a file older than RacyMargin when it was computed.
 func TestListAllRacyRewrite(t *testing.T) {
 	e := newEnv(t)
+	statusChange = func(fs.FileInfo) (time.Time, bool) { return time.Time{}, false }
+	t.Cleanup(func() { statusChange = changeTime })
 	rel := "Saves/GBA/Starlight Courier.gba.sav"
-	p := filepath.Join(e.sd, rel)
-	e.write(rel, "first version")
+	e.write(rel, big("first version"))
 	mtime := time.Now().Truncate(2 * time.Second)
-	if err := os.Chtimes(p, mtime, mtime); err != nil {
-		t.Fatal(err)
-	}
+	e.rewriteInPlace(rel, "first version", mtime)
 	id := library.EncodeID(gba + "/Starlight Courier.gba")
-	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf("first version") {
+	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf(big("first version")) {
 		t.Fatalf("first %+v", s)
 	}
-	// Rewritten in place (same file), same size, same date.
-	f, err := os.OpenFile(p, os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.WriteAt([]byte("other version"), 0); err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-	if err := os.Chtimes(p, mtime, mtime); err != nil {
-		t.Fatal(err)
-	}
-	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf("other version") {
+	// Rewritten in place (same file), same size, same date, change time
+	// ignored (a file system without one).
+	e.rewriteInPlace(rel, "other version", mtime)
+	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf(big("other version")) {
 		t.Fatalf("stale hash after an in-place rewrite: %+v", s)
 	}
 	// Once the date is older than the hash by RacyMargin, the hash is
 	// reused.
 	e.svc.hashes.now = func() time.Time { return time.Now().Add(time.Hour) }
 	e.listAll() // hashed again, now long after the date
-	n := e.hashed()
+	n := e.hashedOf(rel)
 	e.listAll()
-	if e.hashed() != n {
-		t.Fatal("old file hashed again")
+	if e.hashedOf(rel) != n {
+		t.Fatal("old large file hashed again")
 	}
 }
 

@@ -688,10 +688,13 @@ paths:
         folders share one save file on NextUI: both are listed, with the
         same `path` and `sha256`.
 
-        The hashes are cached by the pak (keyed by the file, its size and
-        its modification time), so a repeated sync only reads the saves
-        that changed; a file modified less than 3 s before its hash was
-        computed is hashed again (exFAT keeps dates to 2 s). Files that
+        Saves of at most 1 MiB (nearly all of them) are hashed at every
+        request: a save rewritten in place can keep its size and its date,
+        and exFAT has no other change indicator. Larger ones (and their
+        clock files) reuse a cached hash while the file (device and inode),
+        its size, its modification time and, where the platform has one,
+        its status change time are unchanged, and only when it was modified
+        at least 3 s before the hash was computed. Files that
         are symbolic links, reached through one (even one that stays in
         the saves folder), or outside the saves folder are skipped. One listing runs at a time
         (a second request waits). Order: stable, not meaningful. At most
