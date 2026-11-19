@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/saves"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
 
@@ -343,24 +344,24 @@ func TestUploadSaveStateStaging(t *testing.T) {
 	e := newEnv(t)
 	game := gameID(gbaSystem + "/Starlight Courier.gba")
 
-	// save: the previous save goes to the trash.
+	// save: the previous save is kept as a before-replace backup copy.
 	oldSave := e.read("Saves/GBA/Starlight Courier.gba.sav")
 	data := []byte("new save")
 	c := e.create(&Target{Kind: KindSave, GameID: game}, data, "")
 	e.send(c.UploadID, data, 0, len(data))
 	res := e.complete(c.UploadID)
-	if _, ok := res["backup"]; !ok {
+	backup, ok := res["backup"].(*saves.Backup)
+	if !ok || backup == nil || backup.Reason != saves.ReasonBeforeReplace || backup.SizeBytes != int64(len(oldSave)) {
 		t.Fatalf("save result %v", res)
 	}
 	if e.read("Saves/GBA/Starlight Courier.gba.sav") != "new save" {
 		t.Fatal("save not replaced")
 	}
-	entries, _, _ := e.trash.List()
-	if len(entries) != 1 || entries[0].Files[0] != "Saves/GBA/Starlight Courier.gba.sav" {
-		t.Fatalf("trash %+v", entries)
-	}
-	if kept, _ := os.ReadFile(filepath.Join(e.trash.Dir(), entries[0].ID, "Saves", "GBA", "Starlight Courier.gba.sav")); string(kept) != oldSave {
+	if kept := e.read(".userdata/shared/ReminisLink/backups/GBA/Starlight Courier.gba/saves/" + backup.ID + ".sav"); kept != oldSave {
 		t.Fatal("old save lost")
+	}
+	if entries, _, _ := e.trash.List(); len(entries) != 0 {
+		t.Fatalf("trash %+v", entries)
 	}
 
 	// state: slot 1 replaced (old one to the trash), slot 5 created.
@@ -373,10 +374,10 @@ func TestUploadSaveStateStaging(t *testing.T) {
 			t.Fatalf("state result %v", res)
 		}
 	}
-	if e.read(".userdata/shared/.minui/GBA/Starlight Courier.gba.st5") != "state" {
+	if e.read(".userdata/shared/GBA-gpsp/Starlight Courier.gba.st5") != "state" {
 		t.Fatal("state not written")
 	}
-	if entries, _, _ := e.trash.List(); len(entries) != 2 {
+	if entries, _, _ := e.trash.List(); len(entries) != 1 {
 		t.Fatalf("trash %+v", entries)
 	}
 

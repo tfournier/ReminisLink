@@ -10,9 +10,12 @@ import (
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/cheats"
 	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
+	"github.com/tfournier/ReminisLink/internal/saves"
+	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
@@ -55,6 +58,11 @@ type Options struct {
 	Trash *store.Trash
 	// Transfers holds the uploads, the downloads and the jobs.
 	Transfers *transfer.Service
+	// Saves, States and Cheats serve the routes of the games' data; they
+	// share their SD card lock with Transfers.
+	Saves  *saves.Service
+	States *states.Service
+	Cheats *cheats.Service
 	// Verifier checks the signed routes. Build it with auth.NewVerifier on
 	// the same clock as Now.
 	Verifier *auth.Verifier
@@ -86,6 +94,9 @@ type Server struct {
 	pair         *rateLimiter
 	handler      http.Handler
 	timeouts     timeouts
+	// fetchSlot allows one cheat import from a URL at a time: its body
+	// (up to 5 MiB) is read in memory outside the signed body budget.
+	fetchSlot chan struct{}
 }
 
 // timeouts are the durations of the server, changed by tests only.
@@ -99,7 +110,7 @@ type timeouts struct {
 func New(opts Options) (*Server, error) {
 	switch {
 	case opts.Adapter == nil, opts.Library == nil, opts.Clients == nil, opts.Pairing == nil, opts.Verifier == nil,
-		opts.Trash == nil, opts.Transfers == nil:
+		opts.Trash == nil, opts.Transfers == nil, opts.Saves == nil, opts.States == nil, opts.Cheats == nil:
 		return nil, errors.New("server: missing dependency")
 	case !auth.ValidID(opts.Identity.DeviceID):
 		return nil, errors.New("server: device id must be a lowercase UUID")
@@ -125,6 +136,7 @@ func New(opts Options) (*Server, error) {
 		hello:     newRateLimiter(HelloRate, HelloBurst, opts.Now),
 		pair:      newRateLimiter(PairRate, PairBurst, opts.Now),
 		presence:  newPresence(),
+		fetchSlot: make(chan struct{}, 1),
 		timeouts: timeouts{
 			bodyIdle: BodyIdleTimeout,
 			shutdown: ShutdownTimeout,
@@ -195,10 +207,35 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleJob)
 	signed("DELETE "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleCancelJob)
 
-	// Routes of the next milestones register here, with their own body
-	// limits:
-	//   signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, ...)    // M5
-	// Every other signed route uses auth.RouteJSON.
+	// Saves. Only PUT /save takes a larger body (64 MiB).
+	signed("GET "+Prefix+"/games/{gameId}/save", auth.RouteJSON, s.handleGetSave)
+	signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, s.handlePutSave)
+	signed("GET "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleListBackups)
+	signed("POST "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleCreateBackup)
+	signed("GET "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleGetBackup)
+	signed("DELETE "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleDeleteBackup)
+	signed("POST "+Prefix+"/games/{gameId}/save/backups/{backupId}/restore", auth.RouteJSON, s.handleRestoreBackup)
+
+	// States, locks and resume history.
+	signed("GET "+Prefix+"/games/{gameId}/states", auth.RouteJSON, s.handleListStates)
+	signed("GET "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.handleGetState)
+	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.handleDeleteState)
+	signed("GET "+Prefix+"/games/{gameId}/states/{slot}/thumbnail", auth.RouteJSON, s.handleStateThumbnail)
+	signed("PUT "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleLockState)
+	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleUnlockState)
+	signed("POST "+Prefix+"/games/{gameId}/states/{slot}/restore", auth.RouteJSON, s.handleRestoreState)
+	signed("GET "+Prefix+"/games/{gameId}/resume-history", auth.RouteJSON, s.handleResumeHistory)
+	signed("POST "+Prefix+"/games/{gameId}/resume-history/{entryId}/restore", auth.RouteJSON, s.handleRestoreResume)
+
+	// Cheats.
+	signed("GET "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.handleGetCheats)
+	signed("PUT "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.handlePutCheats)
+	signed("POST "+Prefix+"/games/{gameId}/cheats/import", auth.RouteJSON, s.handleImportCheats)
+	signed("GET "+Prefix+"/sd/files", auth.RouteJSON, s.handleSDFiles)
+
+	// Routes of the next milestones (patches, M6) register here. Every
+	// signed route besides PUT /save and the upload chunks uses
+	// auth.RouteJSON.
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "No such route", nil)

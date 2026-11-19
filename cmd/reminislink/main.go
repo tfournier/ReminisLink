@@ -16,14 +16,18 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/cheats"
 	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/discovery"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
+	"github.com/tfournier/ReminisLink/internal/saves"
 	"github.com/tfournier/ReminisLink/internal/server"
+	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
@@ -239,8 +243,24 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 		}
 	})
 	defer closeCredit()
+	// One lock for every change of the SD card files (uploads, saves,
+	// states, cheats, deletions).
+	sdLock := &sync.Mutex{}
+	saveSvc, err := saves.New(saves.Options{Adapter: adapter, Layout: layout, Trash: trash, Lock: sdLock, Logger: logger})
+	if err != nil {
+		return err
+	}
+	stateSvc, err := states.New(states.Options{Adapter: adapter, Layout: layout, Trash: trash, Lock: sdLock, Logger: logger})
+	if err != nil {
+		return err
+	}
+	cheatSvc, err := cheats.New(cheats.Options{Adapter: adapter, Trash: trash, Lock: sdLock, Logger: logger})
+	if err != nil {
+		return err
+	}
 	xfer, err := transfer.New(transfer.Options{
 		Library: lib, Adapter: adapter, Layout: layout, Trash: trash,
+		Saves: saveSvc, States: stateSvc, Lock: sdLock,
 		FreeSpace: func(path string) (int64, error) {
 			st, err := device.StorageOf(path)
 			return st.FreeBytes, err
@@ -252,7 +272,7 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 		return err
 	}
 	defer xfer.Close()
-	if err := maintain(trash, xfer); err != nil {
+	if err := maintain(trash, stateSvc, xfer, MaintenanceTimeLimit); err != nil {
 		return err
 	}
 
@@ -269,6 +289,9 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 		Pairing:   pairing,
 		Trash:     trash,
 		Transfers: xfer,
+		Saves:     saveSvc,
+		States:    stateSvc,
+		Cheats:    cheatSvc,
 		Verifier:  auth.NewVerifier(clients, nil, 0, logger),
 		Logger:    logger,
 		OnPaired:  display.paired,
@@ -317,15 +340,33 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 // system has no certificate store (default transfer.DefaultCABundle).
 const CABundleEnv = "REMINISLINK_CA_BUNDLE"
 
+// MaintenanceTimeLimit bounds the checks of the states at start (resume
+// history and locks): what is left is checked at the next start.
+const MaintenanceTimeLimit = 20 * time.Second
+
 // maintain runs the maintenance of docs/specs/05-console-pak.md §2.3
 // before the server opens: interrupted trash operations are finished, the
-// trash entries with a credited age of 30 days are erased, the uploads idle for 24 h
-// and the staging files older than 24 h are deleted, and the other uploads
-// are resumed.
-// TODO(M5): archive the resume states and check the locks first.
-func maintain(trash *store.Trash, xfer *transfer.Service) error {
+// resume states that changed are archived and the locked states that were
+// overwritten or removed are restored (at most limit for both), the trash
+// entries with a credited age of 30 days are erased, the uploads idle for
+// 24 h and the staging files older than 24 h are deleted, and the other
+// uploads are resumed.
+func maintain(trash *store.Trash, st *states.Service, xfer *transfer.Service, limit time.Duration) error {
 	if err := trash.Recover(); err != nil {
 		return fmt.Errorf("maintenance: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	start := time.Now()
+	report := st.Maintain(ctx)
+	cancel()
+	for _, r := range report.Restored {
+		slog.Info("maintenance: locked state restored", "tag", r.Tag, "rom", r.ROMName, "slot", r.Slot, "wasMissing", r.Missing)
+	}
+	slog.Info("maintenance: states checked", "duration", time.Since(start).Round(time.Millisecond),
+		"resumeArchived", report.Archived, "locksChecked", report.LocksChecked, "locksIntact", report.LocksIntact,
+		"locksRestored", len(report.Restored), "failed", report.Failed, "skipped", report.Skipped)
+	if report.Skipped > 0 {
+		slog.Warn("maintenance: time limit reached, the rest is checked at the next start", "limit", limit, "skipped", report.Skipped)
 	}
 	if freed, err := trash.Purge(store.TrashRetention); err != nil {
 		return fmt.Errorf("maintenance: %w", err)

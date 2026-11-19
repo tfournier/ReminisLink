@@ -12,11 +12,13 @@ const (
 	DefaultPlatform = "tg5040"
 	// DataDirName is the ReminisLink folder under the shared userdata.
 	DataDirName = "ReminisLink"
-	// StatesDirName is the folder of the save states under the shared
-	// userdata.
-	// TODO(M0): MinUI convention (.userdata/shared/.minui/<TAG>/), not yet
-	// checked on NextUI.
-	StatesDirName = ".minui"
+	// MinuiDirName is the folder of the OS data under the shared userdata
+	// (state thumbnails, recent games). The states themselves are in
+	// <shared userdata>/<TAG>-<core>/ (NextUI source, minarch ma_core.c).
+	MinuiDirName = ".minui"
+	// SettingsFileName is the NextUI settings file under the shared
+	// userdata (saveFormat, stateFormat).
+	SettingsFileName = "minuisettings.txt"
 )
 
 // Env reads an environment variable ("" when unset). os.Getenv fits.
@@ -24,7 +26,8 @@ type Env func(key string) string
 
 // RootsFromEnv returns the SD card folders from the NextUI environment
 // variables (SDCARD_PATH, ROMS_PATH, SAVES_PATH, CHEATS_PATH, USERDATA_PATH,
-// SHARED_USERDATA_PATH, LOGS_PATH, PLATFORM), with the NextUI defaults.
+// SHARED_USERDATA_PATH, SYSTEM_PATH, LOGS_PATH, PLATFORM), with the NextUI
+// defaults (MinUI.pak/launch.sh of NextUI).
 func RootsFromEnv(env Env) osadapter.Roots {
 	or := func(key, def string) string {
 		if v := env(key); v != "" {
@@ -35,14 +38,15 @@ func RootsFromEnv(env Env) osadapter.Roots {
 	sd := or("SDCARD_PATH", DefaultSDCard)
 	platform := or("PLATFORM", DefaultPlatform)
 	userdata := or("USERDATA_PATH", filepath.Join(sd, ".userdata", platform))
-	// TODO(M0): check that NextUI exports SHARED_USERDATA_PATH and that it
-	// is .userdata/shared.
 	shared := or("SHARED_USERDATA_PATH", filepath.Join(sd, ".userdata", "shared"))
 	return osadapter.Roots{
 		SD:       sd,
 		Roms:     or("ROMS_PATH", filepath.Join(sd, "Roms")),
 		Saves:    or("SAVES_PATH", filepath.Join(sd, "Saves")),
-		States:   filepath.Join(shared, StatesDirName),
+		States:   shared,
+		Minui:    filepath.Join(shared, MinuiDirName),
+		System:   or("SYSTEM_PATH", filepath.Join(sd, ".system", platform)),
+		Emus:     filepath.Join(sd, "Emus", platform),
 		Cheats:   or("CHEATS_PATH", filepath.Join(sd, "Cheats")),
 		Userdata: userdata,
 		Shared:   shared,

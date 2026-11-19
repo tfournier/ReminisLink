@@ -1,9 +1,9 @@
-// Package cheats reads RetroArch .cht files.
+// Package cheats reads and writes RetroArch .cht files and serves the
+// cheat routes (docs/specs/04-api-v1.md, Cheats).
 //
-// The line format is the one of Cheat Manager (internal/cheats/cht.go of
-// github.com/tfournier/nextui-cheat-manager), whose parser and writer will
-// be copied here with the cheat routes (milestone M5). For now the pak only
-// counts the cheats of a file.
+// The parser and writer of Cheat Manager (internal/cheats/cht.go of
+// github.com/tfournier/nextui-cheat-manager) are copied in cht.go. This
+// file counts the cheats of a file quickly, for the game listings.
 package cheats
 
 import (

@@ -208,7 +208,16 @@ func TestSaveUploadOverHTTP(t *testing.T) {
 	c, _ := f.createUpload(map[string]any{"target": map[string]any{"kind": "save", "gameId": game}, "sizeBytes": len(data), "sha256": sha(data)}, http.StatusCreated)
 	f.chunk(c.UploadID, 0, data)
 	r := f.do(http.MethodPost, "/api/v1/uploads/"+c.UploadID+"/complete", "/uploads/{uploadId}/complete", nil, http.StatusOK)
-	if string(bytes.TrimSpace(r.Body)) != `{"backup":null}` {
+	// M5: the previous save is kept as a before-replace backup copy.
+	var res struct {
+		Backup *struct {
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+			Label  string `json:"label"`
+		} `json:"backup"`
+	}
+	r.JSON(t, &res)
+	if res.Backup == nil || res.Backup.Reason != "before-replace" || res.Backup.Label != "Avant remplacement" {
 		t.Fatalf("body %s", r.Body)
 	}
 	data = []byte("state")
@@ -265,19 +274,30 @@ func TestDeleteGameAndTrash(t *testing.T) {
 		TotalBytes int64 `json:"totalBytes"`
 	}
 	f.do(http.MethodGet, "/api/v1/games/"+game, "/games/{gameId}", nil, http.StatusOK).JSON(t, &detail)
+	// Not listed by GET /games: the NextUI thumbnail and disc file of a
+	// state, and the clock file of the save; they go with the game.
+	thumb := ".userdata/shared/.minui/GBA/Starlight Courier.gba.0.bmp"
+	disc := ".userdata/shared/.minui/GBA/Starlight Courier.gba.0.txt"
+	rtc := "Saves/GBA/Starlight Courier.gba.rtc"
+	testutil.WriteFile(t, f.sd, disc, "d")
+	testutil.WriteFile(t, f.sd, rtc, "clock")
+	thumbSize := int64(len(f.read(thumb))) + 1 + 5
 	var res deleteResult
 	f.do(http.MethodDelete, "/api/v1/games/"+game, "/games/{gameId}", nil, http.StatusOK).JSON(t, &res)
 	sort.Strings(res.Moved)
 	want := []string{
-		".userdata/shared/.minui/GBA/Starlight Courier.gba.st0",
-		".userdata/shared/.minui/GBA/Starlight Courier.gba.st1",
-		".userdata/shared/.minui/GBA/Starlight Courier.gba.st9",
+		thumb,
+		disc,
+		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st0",
+		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st1",
+		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st9",
 		"Cheats/GBA/Starlight Courier.gba.cht",
 		"Roms/" + gbaFolder + "/.media/Starlight Courier.png",
 		"Roms/" + gbaFolder + "/Starlight Courier.gba",
+		rtc,
 		"Saves/GBA/Starlight Courier.gba.sav",
 	}
-	if strings.Join(res.Moved, "|") != strings.Join(want, "|") || res.MovedBytes != detail.TotalBytes {
+	if strings.Join(res.Moved, "|") != strings.Join(want, "|") || res.MovedBytes != detail.TotalBytes+thumbSize {
 		t.Fatalf("moved %v (%d bytes, game %d)", res.Moved, res.MovedBytes, detail.TotalBytes)
 	}
 	for _, rel := range want {
@@ -311,7 +331,7 @@ func TestDeleteGameAndTrash(t *testing.T) {
 	}
 	pixel := library.EncodeID(gbaFolder + "/Pixel Garden 🌱.gba")
 	f.do(http.MethodDelete, "/api/v1/games/"+pixel+"?keepSave=true", "/games/{gameId}", nil, http.StatusOK).JSON(t, &res)
-	if !f.exists(".userdata/shared/.minui/GBA/Pixel Garden 🌱.gba.st9") || f.exists("Cheats/GBA/Pixel Garden 🌱.gba.cht") {
+	if !f.exists(".userdata/shared/GBA-gpsp/Pixel Garden 🌱.gba.st9") || f.exists("Cheats/GBA/Pixel Garden 🌱.gba.cht") {
 		t.Fatalf("keepSave: %v", res.Moved)
 	}
 	for _, p := range []string{pixelLock, pixelResume} {

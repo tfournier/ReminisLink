@@ -283,8 +283,8 @@ func TestLibraryListGamesPerformance(t *testing.T) {
 		rom := fmt.Sprintf("Generated Game %03d.gba", i)
 		testutil.WriteFile(t, sd, "Roms/Perf (PERF)/"+rom, "rom")
 		testutil.WriteFile(t, sd, "Saves/PERF/"+rom+".sav", "sav")
-		testutil.WriteFile(t, sd, ".userdata/shared/.minui/PERF/"+rom+".st0", "st")
-		testutil.WriteFile(t, sd, ".userdata/shared/.minui/PERF/"+rom+".st9", "st")
+		testutil.WriteFile(t, sd, ".userdata/shared/PERF-core/"+rom+".st0", "st")
+		testutil.WriteFile(t, sd, ".userdata/shared/PERF-core/"+rom+".st9", "st")
 		testutil.WriteFile(t, sd, "Cheats/PERF/"+rom+".cht", cht.String())
 		testutil.WriteFile(t, sd, "Roms/Perf (PERF)/.media/"+fmt.Sprintf("Generated Game %03d.png", i), "png")
 	}

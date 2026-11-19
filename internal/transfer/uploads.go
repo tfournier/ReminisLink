@@ -555,6 +555,9 @@ func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 	if apiErr != nil || err != nil {
 		return nil, apiErr, err
 	}
+	if id, ok := result["stagingId"].(string); ok {
+		s.rememberStaging(u.meta.ID, id)
+	}
 	s.finishLocked(u)
 	return result, nil, nil
 }

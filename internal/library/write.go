@@ -96,6 +96,10 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 	}
 	if files.Cheats != nil {
 		items = append(items, store.MoveItem{Path: files.Cheats.Path})
+		// The previous version kept by the cheat routes (<file>.cht.bak).
+		if bak := store.FindFold(filepath.Dir(files.Cheats.Path), filepath.Base(files.Cheats.Path)+".bak", false); bak != "" {
+			items = append(items, store.MoveItem{Path: bak})
+		}
 	}
 	if files.Art != nil {
 		items = append(items, store.MoveItem{Path: files.Art.Path})
@@ -103,6 +107,13 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 	if !keepSave {
 		if files.Save != nil {
 			items = append(items, store.MoveItem{Path: files.Save.Path})
+		}
+		if files.RTC != nil {
+			items = append(items, store.MoveItem{Path: files.RTC.Path})
+		}
+		// Thumbnails and discs of the states, last slot used (NextUI).
+		for _, f := range files.StateSide {
+			items = append(items, store.MoveItem{Path: f.Path})
 		}
 		for _, s := range files.States {
 			items = append(items, store.MoveItem{Path: s.Path})

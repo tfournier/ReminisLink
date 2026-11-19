@@ -12,9 +12,12 @@ import (
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/cheats"
 	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
+	"github.com/tfournier/ReminisLink/internal/saves"
+	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 	"github.com/tfournier/ReminisLink/internal/testutil/openapi"
@@ -90,6 +93,9 @@ type fixture struct {
 	layout  store.Layout
 	trash   *store.Trash
 	xfer    *transfer.Service
+	saves   *saves.Service
+	states  *states.Service
+	storage *atomic.Int64 // free bytes reported by Storage
 	free    *atomic.Int64 // free space seen by the transfers
 }
 
@@ -117,8 +123,22 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	trash := store.NewTrash(layout, sd, clk.Now, logger)
 	free := &atomic.Int64{}
 	free.Store(1 << 40)
+	lock := &sync.Mutex{}
+	sv, err := saves.New(saves.Options{Adapter: adapter, Layout: layout, Trash: trash, Lock: lock, Now: clk.Now, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := states.New(states.Options{Adapter: adapter, Layout: layout, Trash: trash, Lock: lock, Now: clk.Now, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, err := cheats.New(cheats.Options{Adapter: adapter, Trash: trash, Lock: lock, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
 	xfer, err := transfer.New(transfer.Options{
 		Library: lib, Adapter: adapter, Layout: layout, Trash: trash,
+		Saves: sv, States: st, Lock: lock,
 		FreeSpace: func(string) (int64, error) { return free.Load(), nil },
 		Now:       clk.Now, Logger: logger, ChunkSize: 64 << 10,
 		Downloads: transfer.DownloadOptions{RetryDelay: time.Millisecond},
@@ -127,6 +147,8 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(xfer.Close)
+	storage := &atomic.Int64{}
+	storage.Store(1 << 40)
 	opts := Options{
 		Identity:  Identity{DeviceID: testDeviceID, DeviceName: "Brick de test", PakVersion: "1.0.0-test"},
 		Adapter:   adapter,
@@ -135,11 +157,16 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 		Pairing:   pairing,
 		Trash:     trash,
 		Transfers: xfer,
+		Saves:     sv,
+		States:    st,
+		Cheats:    ch,
 		Verifier:  auth.NewVerifier(clients, clk.Now, 0, logger),
 		Now:       clk.Now,
 		Logger:    logger,
 		IPv4:      func(string) (string, bool) { return "192.168.1.42", true },
-		Storage:   func(string) (device.Storage, error) { return device.Storage{TotalBytes: 1000, FreeBytes: 400}, nil },
+		Storage: func(string) (device.Storage, error) {
+			return device.Storage{TotalBytes: 1 << 41, FreeBytes: storage.Load()}, nil
+		},
 	}
 	for _, f := range tweak {
 		f(&opts)
@@ -151,7 +178,7 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	hs := httptest.NewServer(s.Handler())
 	t.Cleanup(hs.Close)
 	f := &fixture{t: t, sd: sd, clock: clk, logs: logs, server: s, http: hs, clients: clients, pairing: pairing,
-		layout: layout, trash: trash, xfer: xfer, free: free}
+		layout: layout, trash: trash, xfer: xfer, free: free, saves: sv, states: st, storage: storage}
 	f.client = testutil.PairClient(t, clients, hs.URL)
 	f.client.Now = clk.Now
 	return f
