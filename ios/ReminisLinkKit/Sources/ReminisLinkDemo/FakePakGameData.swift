@@ -120,9 +120,18 @@ extension FakePak {
 
     // MARK: - Seed
 
+    /// The key of a game's data: on NextUI, games of a system with the
+    /// same ROM file name (in different folders) share their save and
+    /// states (files named after the ROM, `Saves/<TAG>/<rom>.sav`), so
+    /// they share the data of the first of them.
+    static func dataKey(system: DemoLibrary.System, game: DemoLibrary.Game) -> String {
+        let first = system.games.first { $0.fileName.lowercased() == game.fileName.lowercased() } ?? game
+        return DemoLibrary.id(system.folder + "/" + first.path)
+    }
+
     /// The data of a game, made from its library counters the first time.
     func currentData(system: DemoLibrary.System, game: DemoLibrary.Game) -> FakeGameData {
-        let id = DemoLibrary.id(system.folder + "/" + game.path)
+        let id = Self.dataKey(system: system, game: game)
         return lock.withLock {
             if let data = gameData[id] { return data }
             let data = Self.seed(game: game)
@@ -348,10 +357,11 @@ extension FakePak {
     private func update(gameId: String, system: DemoLibrary.System, game: DemoLibrary.Game,
                         _ change: (inout FakeGameData) -> FakeResponse) -> FakeResponse {
         _ = currentData(system: system, game: game)
+        let key = Self.dataKey(system: system, game: game)
         return lock.withLock {
-            var data = gameData[gameId] ?? Self.seed(game: game)
+            var data = gameData[key] ?? Self.seed(game: game)
             let response = change(&data)
-            gameData[gameId] = data
+            gameData[key] = data
             return response
         }
     }

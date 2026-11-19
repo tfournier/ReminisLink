@@ -21,9 +21,10 @@ extension FakePak {
     public func play(gameId: String, content: Data) {
         guard let (system, game) = library.game(id: gameId) else { return }
         _ = currentData(system: system, game: game)
+        let key = Self.dataKey(system: system, game: game)
         lock.withLock {
-            gameData[gameId]?.save = .of(content)
-            gameData[gameId]?.saveModifiedAt = Date()
+            gameData[key]?.save = .of(content)
+            gameData[key]?.saveModifiedAt = Date()
         }
     }
 

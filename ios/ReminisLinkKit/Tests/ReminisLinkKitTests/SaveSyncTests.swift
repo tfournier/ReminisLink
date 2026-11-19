@@ -237,6 +237,59 @@ struct SaveSyncTests {
     }
 }
 
+extension SaveSyncTests {
+    /// Two games of a system with the same ROM file name in different
+    /// folders share one save on NextUI: each keeps its own history, and
+    /// restoring one replaces the shared file (after the pak's copy).
+    @Test func twoGamesSharingOneSaveKeepTheirOwnHistories() async throws {
+        let base = Date(timeIntervalSince1970: 1_790_000_000)
+        let library = DemoLibrary(systems: [
+            DemoLibrary.System(folder: "Game Boy Advance (GBA)", label: "Game Boy Advance", tag: "GBA", games: [
+                DemoLibrary.Game(path: "Europe/Twin Quest.gba", sizeBytes: 1024, modifiedAt: base, hasSave: true),
+                DemoLibrary.Game(path: "USA/Twin Quest.gba", sizeBytes: 1024, modifiedAt: base, hasSave: true),
+            ]),
+        ])
+        let pak = FakePak(host: "twin-\(UUID().uuidString.lowercased()).test", library: library)
+        pak.register()
+        let client = try await pairedClient(pak)
+        let europe = DemoLibrary.id("Game Boy Advance (GBA)/Europe/Twin Quest.gba")
+        let usa = DemoLibrary.id("Game Boy Advance (GBA)/USA/Twin Quest.gba")
+        let sandbox = try VaultSandbox()
+        let console = VaultConsoleInfo(deviceId: pak.deviceId, name: "Twin Brick")
+        func sync() async throws -> SaveSyncReport {
+            try await SaveSync(console: console, source: client, vault: sandbox.vault(), scratchDirectory: sandbox.base.appending(path: "Scratch")).run()
+        }
+
+        let listed = try await client.saves().saves
+        #expect(Set(listed.map(\.gameId)) == [europe, usa])
+        #expect(Set(listed.map(\.path)).count == 1 && Set(listed.map(\.sha256)).count == 1)
+        #expect(try await sync().stored.count == 2)
+
+        // Played under either name: both games have a new version.
+        pak.play(gameId: europe, content: Data("level 2".utf8))
+        #expect(Set(try await sync().stored) == [europe, usa])
+        let vault = sandbox.vault()
+        let games = try await vault.games(deviceId: pak.deviceId)
+        #expect(games.map(\.folderPath) == ["Game Boy Advance (GBA)/Twin Quest", "Game Boy Advance (GBA)/Twin Quest (2)"])
+        let usaVersions = try await vault.versions(deviceId: pak.deviceId, gameId: usa)
+        let europeVersions = try await vault.versions(deviceId: pak.deviceId, gameId: europe)
+        #expect(usaVersions.count == 2 && europeVersions.count == 2)
+        #expect(usaVersions.allSatisfy { $0.info.gameId == usa } && europeVersions.allSatisfy { $0.info.gameId == europe })
+
+        // Restoring the first USA version replaces the shared file.
+        let first = try #require(usaVersions.last)
+        let exported = try await vault.exportVerified(deviceId: pak.deviceId, gameId: usa, version: first, to: sandbox.base.appending(path: "Out"))
+        let result = try await client.replaceSave(gameId: usa, file: exported.save, sha256: first.info.save.sha256)
+        #expect(result.backup?.reason == .beforeReplace)
+        let after = try await client.saves().saves
+        #expect(after.allSatisfy { $0.sha256 == first.info.save.sha256 })
+        #expect(try await client.saveBackups(gameId: europe).contains { $0.reason == .beforeReplace })
+        // The next sync gives each game a third version, in its own folder.
+        #expect(Set(try await sync().stored) == [europe, usa])
+        #expect(try await sandbox.vault().versions(deviceId: pak.deviceId, gameId: europe).count == 3)
+    }
+}
+
 @Suite("Save listing timeout (M9)")
 struct SaveListingTimeoutTests {
     /// The pak answers `GET /saves` only once every save is hashed: the
