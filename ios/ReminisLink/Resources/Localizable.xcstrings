@@ -801,6 +801,16 @@
         }
       }
     },
+    "Clock of the save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Horloge de la save"
+          }
+        }
+      }
+    },
     "Close" : {
       "localizations" : {
         "fr" : {
@@ -2451,12 +2461,32 @@
         }
       }
     },
+    "Replace the save on the console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la save de la console ?"
+          }
+        }
+      }
+    },
     "Replace the save?" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer la save ?"
+          }
+        }
+      }
+    },
+    "Replace the state on the console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer le state de la console ?"
           }
         }
       }
@@ -2697,6 +2727,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Renvoyer"
+          }
+        }
+      }
+    },
+    "Sending it again replaces the save on the console, even if it was already received and you played since. The current save is kept as a backup copy first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le renvoyer remplace la save de la console, même si elle était déjà arrivée et que tu as joué depuis. La save actuelle est d’abord gardée en copie de sauvegarde."
+          }
+        }
+      }
+    },
+    "Sending it again replaces this state on the console, even if it was already received. The current state goes to the trash first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le renvoyer remplace ce state sur la console, même s’il était déjà arrivé. Le state actuel part d’abord dans la corbeille."
           }
         }
       }
@@ -3351,12 +3401,12 @@
         }
       }
     },
-    "The locks of its states and its resume history are deleted too." : {
+    "The locks of its states and its resume history go to the trash too." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les verrous de ses states et son historique de reprise sont aussi supprimés."
+            "value" : "Les verrous de ses states et son historique de reprise partent aussi dans la corbeille."
           }
         }
       }
@@ -3401,6 +3451,16 @@
         }
       }
     },
+    "The save, its clock file, the states, their locks and the resume history stay in place on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save, son fichier d’horloge, les states, leurs verrous et l’historique de reprise restent en place sur la carte SD."
+          }
+        }
+      }
+    },
     "The scanner is not available on this device. Scan the QR code with the Camera app, or use the PIN." : {
       "localizations" : {
         "fr" : {
@@ -3431,6 +3491,16 @@
         }
       }
     },
+    "The thumbnails and other files of its states, their locks and its resume history go to the trash too." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les vignettes et autres fichiers de ses states, leurs verrous et son historique de reprise partent aussi dans la corbeille."
+          }
+        }
+      }
+    },
     "The trash is empty" : {
       "localizations" : {
         "fr" : {
@@ -3447,16 +3517,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tout le dossier de ce jeu multi-disques est déplacé."
-          }
-        }
-      }
-    },
-    "They stay in place on the SD card." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elles restent en place sur la carte SD."
           }
         }
       }

@@ -52,6 +52,8 @@ public struct GameFileRole: RawRepresentable, Codable, Hashable, Sendable {
 
     public static let rom = GameFileRole(rawValue: "rom")
     public static let save = GameFileRole(rawValue: "save")
+    /// The clock file NextUI writes next to the save (`.rtc`).
+    public static let rtc = GameFileRole(rawValue: "rtc")
     public static let state = GameFileRole(rawValue: "state")
     public static let cheats = GameFileRole(rawValue: "cheats")
     public static let art = GameFileRole(rawValue: "art")
@@ -329,6 +331,11 @@ public struct GameDetail: Codable, Sendable, Equatable {
 
     public var hasSave: Bool { files.contains { $0.role == .save } }
     public var stateCount: Int { files.filter { $0.role == .state }.count }
+    /// The files `DELETE /games/{id}?keepSave=true` leaves in place: the
+    /// save, its clock file and the states.
+    public static func isKeptWithSave(_ role: GameFileRole) -> Bool {
+        role == .save || role == .rtc || role == .state
+    }
     public var hasCheats: Bool { files.contains { $0.role == .cheats } }
 }
 

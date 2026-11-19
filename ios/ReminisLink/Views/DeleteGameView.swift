@@ -28,13 +28,24 @@ struct DeleteGameView: View {
     @State private var freshTrashTotal: Int64?
     @State private var emptied: Int64?
 
-    /// The files `DELETE /games/{id}` moves, with the option applied.
+    /// The files `DELETE /games/{id}` moves, with the option applied: the
+    /// same selection as the pak (the save, its `.rtc` and the states stay
+    /// with `keepSave`).
     static func filesToMove(_ files: [GameFile], keepSave: Bool) -> [GameFile] {
-        files.filter { !keepSave || ($0.role != .save && $0.role != .state) }
+        files.filter { !keepSave || !GameDetail.isKeptWithSave($0.role) }
+    }
+
+    /// What else the pak moves without being listed by `GET /games/{id}`.
+    static func unlistedNote(_ files: [GameFile], keepSave: Bool) -> LocalizedStringKey? {
+        guard !keepSave else { return nil }
+        if files.contains(where: { $0.role == .state }) {
+            return "The thumbnails and other files of its states, their locks and its resume history go to the trash too."
+        }
+        return "The locks of its states and its resume history go to the trash too."
     }
 
     private var hasSaveData: Bool {
-        detail?.files.contains { $0.role == .save || $0.role == .state } ?? false
+        detail?.files.contains { GameDetail.isKeptWithSave($0.role) } ?? false
     }
 
     var body: some View {
@@ -91,7 +102,9 @@ struct DeleteGameView: View {
                 if detail.kind == .folderM3U {
                     Text("The whole folder of this multi-disc game is moved.")
                 }
-                Text("The locks of its states and its resume history are deleted too.")
+                if let note = Self.unlistedNote(detail.files, keepSave: keepSave) {
+                    Text(note)
+                }
             }
         }
         .accessibilityIdentifier("delete.files")
@@ -100,7 +113,7 @@ struct DeleteGameView: View {
                 Toggle("Keep the Save and the States", isOn: $keepSave)
                     .accessibilityIdentifier("delete.keepSave")
             } footer: {
-                Text("They stay in place on the SD card.")
+                Text("The save, its clock file, the states, their locks and the resume history stay in place on the SD card.")
             }
         }
         Section {

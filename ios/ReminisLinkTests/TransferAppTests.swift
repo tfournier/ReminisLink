@@ -190,12 +190,36 @@ struct TransferAppTests {
         let files = [
             GameFile(role: .rom, path: "Roms/a.gba", sizeBytes: 1, modifiedAt: date),
             GameFile(role: .save, path: "Saves/a.sav", sizeBytes: 1, modifiedAt: date),
+            GameFile(role: .rtc, path: "Saves/a.rtc", sizeBytes: 1, modifiedAt: date),
             GameFile(role: .state, slot: 0, path: "s.st0", sizeBytes: 1, modifiedAt: date),
             GameFile(role: .cheats, path: "Cheats/a.cht", sizeBytes: 1, modifiedAt: date),
             GameFile(role: .art, path: "a.png", sizeBytes: 1, modifiedAt: date),
         ]
-        #expect(DeleteGameView.filesToMove(files, keepSave: false).count == 5)
+        #expect(DeleteGameView.filesToMove(files, keepSave: false).count == 6)
+        // Same selection as the pak: the clock file stays with the save.
         #expect(DeleteGameView.filesToMove(files, keepSave: true).map(\.path) == ["Roms/a.gba", "Cheats/a.cht", "a.png"])
+        // Locks and history are only announced as moved without keepSave,
+        // with the side files of the states when there are states.
+        #expect(DeleteGameView.unlistedNote(files, keepSave: true) == nil)
+        #expect(DeleteGameView.unlistedNote(files, keepSave: false)
+            == "The thumbnails and other files of its states, their locks and its resume history go to the trash too.")
+        #expect(DeleteGameView.unlistedNote(Array(files.prefix(2)), keepSave: false)
+            == "The locks of its states and its resume history go to the trash too.")
+    }
+
+    /// After an unknown outcome, a save or a state sent again replaces the
+    /// one on the console: confirmed first, never announced as "both kept".
+    @Test func sendingAgainASaveOrAStateReplacesIt() {
+        typealias Resend = UploadRow.Resend
+        #expect(Resend(.rom(systemId: "s", fileName: "a.gba")) == .keepBoth)
+        #expect(Resend(.staging(fileName: "a.ips")) == .keepBoth)
+        #expect(Resend(.save(gameId: "g")) == .replaceSave)
+        #expect(Resend(.state(gameId: "g", slot: 1)) == .replaceState)
+        #expect(Resend.keepBoth.onConflict == .rename)
+        #expect(!Resend.keepBoth.needsConfirmation)
+        #expect(Resend.replaceSave.needsConfirmation)
+        #expect(Resend.replaceState.needsConfirmation)
+        #expect(Resend.replaceSave.onConflict == .overwrite)
     }
 
     // MARK: Errors

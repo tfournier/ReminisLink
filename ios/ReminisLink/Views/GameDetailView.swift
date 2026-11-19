@@ -144,6 +144,7 @@ struct FileRow: View {
         switch file.role {
         case .rom: Text("Game")
         case .save: Text("Save")
+        case .rtc: Text("Clock of the save")
         case .state:
             if let slot = file.slot { Text("State \(slot)") } else { Text("State") }
         case .cheats: Text("Cheats")
