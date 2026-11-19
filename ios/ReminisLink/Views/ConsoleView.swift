@@ -1,8 +1,9 @@
 import ReminisLinkKit
 import SwiftUI
 
-/// Dashboard of a console (docs/specs/06-app-ios.md §4.3) and the entry to
-/// its library.
+/// Dashboard of a console (docs/specs/06-app-ios.md §4.3), its Console tab
+/// (M11: the library, transfers and trash have their own tabs, and nothing
+/// is added from here).
 struct ConsoleView: View {
     @Environment(AppModel.self) private var app
     let deviceId: String
@@ -26,32 +27,6 @@ struct ConsoleView: View {
                 Section { ErrorView(error: error, retry: { await session.connect() }, deviceId: deviceId) }
             case .connected:
                 EmptyView()
-            }
-
-            Section {
-                NavigationLink(value: Route.library(deviceId)) {
-                    Label("Library", systemImage: "square.grid.2x2")
-                }
-                .disabled(session.state != .connected)
-                .accessibilityIdentifier("console.library")
-                Button {
-                    app.showAdd(deviceId: deviceId)
-                } label: {
-                    Label("Add Files or a Link", systemImage: "plus.circle")
-                }
-                // Another device has write access (M10).
-                .disabled(session.state != .connected || session.isReadOnly)
-                .accessibilityIdentifier("console.add")
-                NavigationLink(value: Route.transfers(deviceId)) {
-                    LabeledContent {
-                        let active = session.transfers.uploads.filter { !$0.phase.isFinished }.count
-                            + session.transfers.jobs.filter { !$0.isFinished }.count
-                        if active > 0 { Text(active, format: .number) }
-                    } label: {
-                        Label("Transfers", systemImage: "arrow.up.arrow.down")
-                    }
-                }
-                .accessibilityIdentifier("console.transfers")
             }
 
             SaveSyncSection(deviceId: deviceId, isConnected: session.state == .connected)
@@ -83,15 +58,6 @@ struct ConsoleView: View {
             }
 
             Section {
-                if let trash = session.trash {
-                    NavigationLink(value: Route.trash(deviceId)) {
-                        LabeledContent {
-                            Text(trash.totalBytes.byteString)
-                        } label: {
-                            Label("Trash", systemImage: "trash")
-                        }
-                    }
-                }
                 Button("Unpair", role: .destructive) { confirmUnpair = true }
                     .accessibilityIdentifier("console.unpair")
             }

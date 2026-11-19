@@ -1,8 +1,10 @@
 import ReminisLinkKit
 import SwiftUI
 
-/// Game sheet (docs/specs/06-app-ios.md §4.5): header, the save, states
-/// and cheats screens, the patch, the files of the game and its deletion.
+/// Game sheet (docs/specs/06-app-ios.md §4.5): header (tap the image to
+/// change it, M11), the save, states and cheats screens, the patch, the
+/// files of the game (each can be downloaded to the iPhone, M11) and its
+/// deletion.
 struct GameDetailView: View {
     @Environment(AppModel.self) private var app
     let route: GameRoute
@@ -11,6 +13,14 @@ struct GameDetailView: View {
     @State private var toDelete: DeleteTarget?
     @State private var deleted = false
     @State private var patch: PatchContext?
+    @State private var artNotice: String?
+    @State private var artError: AppError?
+    /// The file being downloaded (one at a time), cancelled when the
+    /// screen goes away.
+    @State private var download: FileDownload?
+    @State private var downloadTask: Task<Void, Never>?
+    @State private var downloadError: AppError?
+    @State private var exported: ExportedFile?
 
     /// Another device has write access (M10).
     private var isReadOnly: Bool { app.session(for: route.deviceId).isReadOnly }
@@ -24,7 +34,10 @@ struct GameDetailView: View {
         List {
             Section {
                 HStack(alignment: .top, spacing: 16) {
-                    GameArtView(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt, size: 96, exposedToUITests: true)
+                    GameArtButton(
+                        deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt,
+                        notice: $artNotice, error: $artError
+                    )
                     VStack(alignment: .leading, spacing: 6) {
                         Text(detail?.name ?? route.name)
                             .font(.title3.bold())
@@ -40,6 +53,12 @@ struct GameDetailView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                if let artError {
+                    ErrorView(error: artError)
+                }
+                if let artNotice {
+                    NoticeView(text: artNotice)
+                }
             }
 
             if let error {
@@ -95,17 +114,24 @@ struct GameDetailView: View {
                         Text("IPS, BPS or UPS, applied by the console to a new file or to this game.")
                     }
                 }
-                GameArtSection(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt)
                 Section {
-                    ForEach(Array(detail.files.enumerated()), id: \.offset) { _, file in
-                        FileRow(file: file)
+                    if let downloadError {
+                        ErrorView(error: downloadError)
+                    }
+                    ForEach(detail.files, id: \.fileId) { file in
+                        GameFileRow(
+                            file: file,
+                            download: download?.fileId == file.fileId ? download : nil,
+                            canDownload: download == nil,
+                            onDownload: { startDownload(file) },
+                            onCancel: cancelDownload
+                        )
                     }
                 } header: {
                     Text("Files")
                 } footer: {
-                    Text("Paths on the SD card, for information.")
+                    Text("Download a file to keep a copy on this iPhone: Save to Files, AirDrop… The console keeps its file.")
                 }
-                .accessibilityIdentifier("game.files")
                 Section {
                     Button("Delete…", role: .destructive) {
                         toDelete = DeleteTarget(deviceId: route.deviceId, gameId: route.gameId, name: detail.name)
@@ -120,6 +146,8 @@ struct GameDetailView: View {
         }
         .navigationTitle(route.name)
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear { cancelDownload() }
+        .exportSheet($exported)
         .task { if detail == nil { await load() } }
         .refreshable { await load() }
         // Back from the save, states or cheats screens: counters may have changed.
@@ -135,6 +163,39 @@ struct GameDetailView: View {
         }
     }
 
+    /// Downloads a file to the export directory, then opens the share
+    /// sheet. A `404` means the file changed on the console: the list is
+    /// loaded again.
+    private func startDownload(_ file: GameFile) {
+        downloadTask?.cancel()
+        let progress = FileDownload(fileId: file.fileId, expected: file.sizeBytes)
+        download = progress
+        downloadError = nil
+        let session = app.session(for: route.deviceId)
+        let gameId = route.gameId
+        downloadTask = Task {
+            do {
+                let file = try await session.downloadGameFile(gameId: gameId, file: file, progress: progress)
+                guard !Task.isCancelled, download === progress else { return ExportedFiles.remove(file.file) }
+                download = nil
+                exported = file
+            } catch {
+                guard download === progress else { return }
+                download = nil
+                let error = AppError(error)
+                if error.isCancellation { return }
+                downloadError = error
+                if error == .gameFileChanged { await load() }
+            }
+        }
+    }
+
+    private func cancelDownload() {
+        downloadTask?.cancel()
+        downloadTask = nil
+        download = nil
+    }
+
     private func load() async {
         let gameId = route.gameId
         do {
@@ -147,27 +208,64 @@ struct GameDetailView: View {
     }
 }
 
-struct FileRow: View {
+/// A file of the game sheet (M11): what it is, its name and size, and a
+/// button to download it to the iPhone (progress and cancel while it runs).
+struct GameFileRow: View {
+    let file: GameFile
+    let download: FileDownload?
+    let canDownload: Bool
+    let onDownload: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    GameFileRoleTitle(role: file.role, slot: file.slot).font(.headline)
+                    Spacer()
+                    Text(file.sizeBytes.byteString).foregroundStyle(.secondary)
+                }
+                Text(file.name)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                if let download {
+                    ProgressView(value: download.fraction ?? 0)
+                        .accessibilityLabel(Text("Downloading \(file.name)"))
+                        .accessibilityIdentifier("file.progress")
+                }
+            }
+            .accessibilityElement(children: .combine)
+            if download != nil {
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text("Cancel the download of \(file.name)"))
+                .accessibilityIdentifier("file.cancel")
+            } else {
+                Button(action: onDownload) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title2)
+                }
+                .buttonStyle(.borderless)
+                .disabled(!canDownload)
+                .accessibilityLabel(Text("Download \(file.name)"))
+                .accessibilityIdentifier("file.download")
+            }
+        }
+    }
+}
+
+/// What a file of a game is: Game, Save, State 2…
+struct GameFileRoleTitle: View {
     let role: GameFileRole
     var slot: Int?
-    let path: String
-    let sizeBytes: Int64
 
-    init(file: GameFile) {
-        role = file.role
-        slot = file.slot
-        path = file.path
-        sizeBytes = file.sizeBytes
-    }
-
-    /// A file of a deletion preview (M8).
-    init(item: DeletionItem) {
-        role = item.role
-        path = item.name
-        sizeBytes = item.size
-    }
-
-    private var title: Text {
+    var body: some View {
         switch role {
         case .rom: Text("Game")
         case .save: Text("Save")
@@ -180,11 +278,25 @@ struct FileRow: View {
         default: Text(verbatim: role.rawValue)
         }
     }
+}
+
+struct FileRow: View {
+    let role: GameFileRole
+    var slot: Int?
+    let path: String
+    let sizeBytes: Int64
+
+    /// A file of a deletion preview (M8).
+    init(item: DeletionItem) {
+        role = item.role
+        path = item.name
+        sizeBytes = item.size
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                title.font(.headline)
+                GameFileRoleTitle(role: role, slot: slot).font(.headline)
                 Spacer()
                 Text(sizeBytes.byteString).foregroundStyle(.secondary)
             }

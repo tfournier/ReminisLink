@@ -152,7 +152,10 @@ public final class Discovery {
     public private(set) var status: DiscoveryStatus = .idle
 
     @ObservationIgnored private var browser: NWBrowser?
-    @ObservationIgnored private let fixedDevices: [DiscoveredDevice]?
+    @ObservationIgnored private var fixedDevices: [DiscoveredDevice]?
+    /// When the browser started (nil while stopped): the absence of a
+    /// service means something only after a while (M11, ``PakClosure``).
+    @ObservationIgnored public private(set) var startedAt: ContinuousClock.Instant?
     @ObservationIgnored private var failures = 0
     @ObservationIgnored private var restartTask: Task<Void, Never>?
 
@@ -169,10 +172,12 @@ public final class Discovery {
     public func start() {
         if let fixedDevices {
             devices = DiscoveryLogic.merge(fixedDevices)
+            if startedAt == nil { startedAt = .now }
             status = .searching
             return
         }
         guard browser == nil else { return }
+        startedAt = .now
         let parameters = NWParameters()
         parameters.includePeerToPeer = false
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: nil), using: parameters)
@@ -206,6 +211,7 @@ public final class Discovery {
             failures += 1
             browser?.cancel()
             browser = nil
+            startedAt = nil
             restartTask?.cancel()
             restartTask = Task { [weak self] in
                 try? await Task.sleep(for: delay)
@@ -225,7 +231,25 @@ public final class Discovery {
         browser?.cancel()
         browser = nil
         if fixedDevices == nil { devices = [] }
+        startedAt = nil
         status = .idle
+    }
+
+    /// How long the browser has been running, nil while stopped or when
+    /// the local network access is denied (nothing can be seen).
+    public var browsingDuration: Duration? {
+        guard let startedAt, status != .localNetworkDenied else { return nil }
+        return .now - startedAt
+    }
+
+    /// Demo mode and tests: a "seen" device withdraws its service (the
+    /// pak quits), or announces it again.
+    public func setFixedDevice(_ device: DiscoveredDevice, visible: Bool) {
+        guard var fixed = fixedDevices else { return }
+        fixed.removeAll { $0.id == device.id }
+        if visible { fixed.append(device) }
+        fixedDevices = fixed
+        if status != .idle { devices = DiscoveryLogic.merge(fixed) }
     }
 
     /// Restarts the browser (after a failure, or on "Retry").

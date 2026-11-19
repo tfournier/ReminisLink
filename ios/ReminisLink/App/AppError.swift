@@ -61,6 +61,9 @@ enum AppError: Error, Equatable {
     /// The copy of a synced version read back is not the version chosen:
     /// nothing was sent.
     case versionChanged
+    /// `404` on the download of a file of a game (milestone M11): it is
+    /// no longer in the game's list (renamed, deleted, replaced).
+    case gameFileChanged
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -132,6 +135,8 @@ enum AppError: Error, Equatable {
             String(localized: "The synced saves could not be read or written on this iPhone.")
         case .versionChanged:
             String(localized: "This version changed on this iPhone since it was shown. Nothing was sent to the console; open the list again.")
+        case .gameFileChanged:
+            String(localized: "This file changed on the console. The list of files was refreshed: try again.")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -163,7 +168,7 @@ enum AppError: Error, Equatable {
         case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .storage, .cancelled, .unreadablePicture: nil
-        case .syncChecksumMismatch, .vault, .versionChanged: nil
+        case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged: nil
         case .pairingClosed, .unexpected: .retry
         }
     }
@@ -196,6 +201,14 @@ enum AppError: Error, Equatable {
         default:
             return error
         }
+    }
+
+    /// The error of the download of a file of a game (M11): a `404` means
+    /// the file is no longer in the game's list.
+    static func gameFile(_ error: Error) -> AppError {
+        let error = AppError(error)
+        if case .api(.server(let server)) = error, server.code == .notFound { return .gameFileChanged }
+        return error
     }
 
     /// The error of a save sync, or of one game of it: a checksum mismatch

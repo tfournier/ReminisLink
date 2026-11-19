@@ -17,6 +17,7 @@ final class AddFileUITests: XCTestCase {
     @MainActor
     func testAddFileThenDeleteInDemoMode() throws {
         let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_DEMO"] = "1"
         app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "UITest Homebrew.gba:6291456"
         app.launch()
@@ -41,6 +42,7 @@ final class AddFileUITests: XCTestCase {
         let bytes = environment["RL_UITEST_SHARE_BYTES"].flatMap(Int.init) ?? 8 << 20
         let name = "UITest \(Int(Date().timeIntervalSince1970))"
         let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_RESET_STORE"] = "1"
         app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "\(name).gba:\(bytes)"
         app.launch()
@@ -70,10 +72,15 @@ final class AddFileUITests: XCTestCase {
                       "upload not finished: \(app.staticTexts["upload.status"].label)")
         attachScreenshot(app, "transfers")
 
-        // Library: the game is there; swipe to delete it.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["console.library"].tapWhenEnabled(timeout: 20)
-        app.buttons["system.GBA"].tapAfterWaiting(timeout: 20)
+        // Library (M11: its tab, every game in one list, searched): the
+        // game is there; swipe to delete it.
+        GameDataUITest.openLibraryTab(app, timeout: 20)
+        let systemRow = app.buttons["system.GBA"]
+        if systemRow.waitForExistence(timeout: 3) {
+            systemRow.tap()
+        } else {
+            GameDataUITest.search(app, name)
+        }
         let game = app.buttons["game.\(name)"]
         XCTAssertTrue(game.waitForExistence(timeout: 20), "game not in the library")
         game.swipeLeft()

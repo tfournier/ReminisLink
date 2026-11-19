@@ -32,6 +32,9 @@ final class ConsoleSession {
     @ObservationIgnored private var writeAccessWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     /// Something waits for the write access to come back (shown as paused).
     private(set) var writeAccessWaits = 0
+    /// The console closed ReminisLink (M11): no automatic connection until
+    /// the user opens the console again.
+    private(set) var closedByConsole = false
 
     @ObservationIgnored unowned let app: AppModel
     /// The connection in progress, shared by every caller.
@@ -58,6 +61,7 @@ final class ConsoleSession {
     /// disconnection set from the console. Only that attempt: a later one
     /// (automatic) never may.
     func userOpened() {
+        closedByConsole = false
         switch state {
         case .idle, .connecting:
             _ = currentAttempt(explicit: true)
@@ -76,6 +80,7 @@ final class ConsoleSession {
     }
 
     func connectIfNeeded() async {
+        guard !closedByConsole else { return }
         if state == .idle || attempt != nil { await connect() }
     }
 
@@ -159,7 +164,10 @@ final class ConsoleSession {
             guard self.attempt === attempt else { return }
             self.client = client
             state = .connected
+            closedByConsole = false
             lease.start(device: status, sentAt: deviceSentAt)
+            // Uploads paused when the console closed ReminisLink go on (M11).
+            transfers.resumeAfterReconnection()
             // Milestone M9: copy the saves that changed (setting, default on).
             // A sync of the previous connection still running: this one
             // starts when it ends.
@@ -182,6 +190,9 @@ final class ConsoleSession {
             await loadTrash()
         } catch {
             let error = AppError(error)
+            if case .api(let api) = error, app.meansConsoleClosed(api, deviceId: deviceId) {
+                return consoleClosed(client: client)
+            }
             if !error.isCancellation { state = .failed(error) }
         }
     }
@@ -206,9 +217,27 @@ final class ConsoleSession {
             return try await operation(client)
         } catch {
             let appError = AppError(error)
-            if Self.losesConnection(appError) { connectionLost(appError, client: client) }
+            if case .api(let api) = appError, app.meansConsoleClosed(api, deviceId: deviceId) {
+                consoleClosed(client: client)
+            } else if Self.losesConnection(appError) {
+                connectionLost(appError, client: client)
+            }
             throw appError
         }
+    }
+
+    /// The console closed ReminisLink (M11), as seen by a request sent with
+    /// `client`: the connection ends without an error screen, uploads pause
+    /// (they go on at the next connection), and the app goes back to the
+    /// list of consoles. A request of an older connection changes nothing.
+    func consoleClosed(client failed: APIClient) {
+        guard let client, client === failed else { return }
+        self.client = nil
+        lease.stop()
+        closedByConsole = true
+        state = .idle
+        transfers.pauseForClosedConsole()
+        app.consoleClosed(deviceId: deviceId)
     }
 
     /// The console is gone or no longer knows this iPhone, as seen by a
@@ -238,6 +267,9 @@ final class ConsoleSession {
             lease.noteReadOnly(holder: error.writerName, sentAt: sentAt)
         case .disconnected:
             connectionLost(.api(.server(error)), client: client)
+        case .shuttingDown:
+            // M11: whatever screen or transfer sent the request.
+            consoleClosed(client: client)
         default:
             break
         }
@@ -331,6 +363,12 @@ final class ConsoleSession {
         lease.onFatalError = { [weak self] error in
             guard let self, let client = self.client else { return }
             self.connectionLost(AppError(error), client: client)
+        }
+        // M11: a renewal that cannot reach the console, whose Bonjour
+        // service is gone: it closed ReminisLink.
+        lease.onConnectionFailure = { [weak self] error in
+            guard let self, let client = self.client, self.app.meansConsoleClosed(error, deviceId: self.deviceId) else { return }
+            self.consoleClosed(client: client)
         }
         return lease
     }
