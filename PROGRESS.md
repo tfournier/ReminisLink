@@ -8,7 +8,7 @@
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
-| M5 | en cours | `m5-saves-go`, `m5-saves-ios` | — | — |
+| M5 | Go et iOS livrés ; Go en corrections, iOS en revue | `m5-saves-go`, `m5-saves-ios` | Go : revue Claude « à corriger », 2 bloquants (`.cht.bak` écrasé sans corbeille → version perdue ; course dans un test) + changement de cœur, ordre de recherche du pak inversé, `intact` sans comparaison ; aller-retour 1 en cours. iOS : revue Claude en cours | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
@@ -74,6 +74,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- M5 Go : fichier `.rtc` des saves non sauvegardé/restauré ni emporté par `DELETE /games` ; formats NextUI non par défaut seulement refusés (pas listés) ; jaquette d'un multi-disques au nom avec point (`TODO(M0)`).
+- 2026-11-19 : interruption par limite d'utilisation (~40 min) pendant M5 ; agents repris sans perte.
 - Tests UI contre le pak headless : chaque test consomme le lien d'appairage (secret à usage unique) ; lancer plusieurs tests réels d'affilée demande un lien neuf par test — écrire `scripts/run-headless-uitests.sh` (08 §3) qui relance le pak ou relit le lien entre deux tests.
 - M4 iOS : ouverture de l'app depuis l'extension de partage via `openURL` remonté par la chaîne des répondeurs (pas d'API publique) — risque en revue App Store, à valider avant M7.
 - M4 iOS : table extension → tag NextUI pour suggérer le système (`TODO(M0)`).
