@@ -38,11 +38,11 @@ func TestSDFiles(t *testing.T) {
 	for id, want := range map[string]error{
 		chts[1].ID: ErrInvalidID, // a .cht is not a patch
 		"sd_" + EncodeID("Saves/GBA/Starlight Courier.gba.sav"): ErrInvalidID,
-		"sd_" + EncodeID("Cheats/GBA/.hidden.cht"):               ErrInvalidID,
-		"sd_" + EncodeID("Cheats/../Saves/x.cht"):                ErrInvalidID,
-		"sd_" + EncodeID("Cheats/GBA/missing.cht"):               ErrNotFound,
-		EncodeID("Cheats/GBA/Starlight Courier.gba.cht"):         ErrInvalidID, // no prefix
-		"sd_!!":                                                  ErrInvalidID,
+		"sd_" + EncodeID("Cheats/GBA/.hidden.cht"):              ErrInvalidID,
+		"sd_" + EncodeID("Cheats/../Saves/x.cht"):               ErrInvalidID,
+		"sd_" + EncodeID("Cheats/GBA/missing.cht"):              ErrNotFound,
+		EncodeID("Cheats/GBA/Starlight Courier.gba.cht"):        ErrInvalidID, // no prefix
+		"sd_!!": ErrInvalidID,
 	} {
 		kind := SDKindCheat
 		if id == chts[1].ID {
