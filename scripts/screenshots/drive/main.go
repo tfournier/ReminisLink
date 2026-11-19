@@ -72,7 +72,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		if err := s.Put(auth.Client{ID: id, Name: "iPhone de Thomas", Key: key, PairedAt: time.Now()}); err != nil {
+		if err := s.Put(auth.Client{ID: id, Name: "iPhone", Key: key, PairedAt: time.Now()}); err != nil {
 			panic(err)
 		}
 	case "start":

@@ -11,16 +11,16 @@ It has two parts:
 
 ## Features of the pak
 
-- Pairing with a QR code, or with a 6-digit PIN, valid 10 minutes. Requests are signed: only paired iPhones are accepted.
-- Shows its state (Ready, Connected, Transfer in progress), the connected devices, the transfers with their progress, and a short banner each time the SD card changes ("Save restored: ...").
-- Send ROMs, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches, all from the app.
+- Pairing with a QR code, or with a 6-digit PIN, valid 10 minutes, open only while the code is on screen: on the main screen until a first device is paired, then from Settings > Pair a New Device. Requests are signed: only paired iPhones are accepted.
+- Shows its state (Ready, Connected, Transfer in progress), the battery level, the connected devices, the transfers with their progress, and a short banner each time the SD card changes ("Save restored: ...").
+- Send ROMs and game art, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches, all from the app.
 - Nothing is deleted without a copy: a deleted or replaced file goes to a trash kept 30 days.
-- Settings: name of the console (as seen by the app), paired devices, language, version and log location.
+- Settings: pair a new device, name of the console (as seen by the app), paired devices, language, version and log location.
 - Interface in English and French, chosen on first launch.
 
-| Transfer in progress | Settings | First launch |
-|---|---|---|
-| ![Transfer](docs/screenshots/transfer.png) | ![Settings](docs/screenshots/settings.png) | ![Language](docs/screenshots/language.png) |
+| Transfer in progress | Settings | Pair a New Device | First launch |
+|---|---|---|---|
+| ![Transfer](docs/screenshots/transfer.png) | ![Settings](docs/screenshots/settings.png) | ![Pairing](docs/screenshots/pairing.png) | ![Language](docs/screenshots/language.png) |
 
 The screenshots come from the desktop mode (`make screenshots`); on the console the pak uses the NextUI theme.
 
