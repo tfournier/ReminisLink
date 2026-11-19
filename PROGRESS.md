@@ -9,7 +9,7 @@
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
 | M5 | intégré (tests console à faire) | `m5-saves-go`, `m5-saves-ios` | Go : 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m5-go-claude.md` ; iOS : 1 revue Claude (1 bloquant corrigé) — `docs/reviews/m5-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
-| M6 | Go livré (en revue), iOS en cours | `m6-patchs-go`, `m6-patchs-ios` | Go : revue Claude neuve en cours | — |
+| M6 | Go livré (en revue), iOS en cours | `m6-patchs-go`, `m6-patchs-ios` | Go : revue Claude « à corriger », aucun bloquant (formats exacts vs décodeur de référence indépendant ; extension du nom de sortie, remise en place si le renommage échoue en `replace`) ; aller-retour 1 en cours | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
