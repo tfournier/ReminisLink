@@ -276,8 +276,6 @@ func TestPatchRequestErrors(t *testing.T) {
 		{"missing sd file", courier, PatchRequest{Patch: &PatchSource{Type: ptr("sd"), SDFileID: ptr("sd_" + library.EncodeID("Roms/none.ips"))}}, 404, CodeNotFound},
 		{"bad mode", courier, PatchRequest{Patch: stagingPatch(st), Output: &PatchOutput{Mode: ptr("copy")}}, 400, CodeInvalidRequest},
 		{"bad name", courier, PatchRequest{Patch: stagingPatch(st), Output: &PatchOutput{FileName: ptr("../x.gba")}}, 400, CodeInvalidName},
-		{"not a ROM name", courier, PatchRequest{Patch: stagingPatch(st), Output: &PatchOutput{FileName: ptr("notes.txt")}}, 400, CodeInvalidName},
-		{"m3u name", courier, PatchRequest{Patch: stagingPatch(st), Output: &PatchOutput{FileName: ptr("x.m3u")}}, 400, CodeInvalidName},
 		{"unknown game", gbaSystem + "/None.gba", PatchRequest{Patch: stagingPatch(st)}, 404, CodeNotFound},
 		{"m3u game", "Sony PlayStation (PS)/Quiet Harbor.m3u", PatchRequest{Patch: stagingPatch(st)}, 422, CodeUnsupportedFormat},
 		{"folder-m3u game", "Sony PlayStation (PS)/Mossy Hollow", PatchRequest{Patch: stagingPatch(st)}, 422, CodeUnsupportedFormat},
@@ -412,13 +410,12 @@ func TestPatchOutputExtension(t *testing.T) {
 	e := newEnv(t)
 	src, tgt := e.patchFixture(2048)
 	st := e.stage("hack.bps", testutil.EncodeBPS(src, tgt))
-	for _, name := range []string{"Hack.zip", "Hack.bps", "Hack.nes", "Hack v1.2"} {
-		_, apiErr, _ := e.svc.StartPatch(gameID(courier), PatchRequest{Patch: stagingPatch(st), Output: &PatchOutput{FileName: ptr(name)}})
-		if apiErr == nil || apiErr.Code != CodeInvalidName {
-			t.Errorf("%q: %v", name, apiErr)
-		}
-	}
-	for name, want := range map[string]string{"Hack": "Hack.gba", "Other.GBA": "Other.GBA", "Game (v1.1)": "Game (v1.1).gba"} {
+	// The extension of the ROM is added unless the name already ends with
+	// it (any case); nothing is refused for its extension.
+	for name, want := range map[string]string{
+		"Hack": "Hack.gba", "Other.GBA": "Other.GBA", "Game (v1.1)": "Game (v1.1).gba", "Hack v1.2": "Hack v1.2.gba",
+		"Hack.zip": "Hack.zip.gba", "Hack.bps": "Hack.bps.gba", "notes.txt": "notes.txt.gba", "x.m3u": "x.m3u.gba",
+	} {
 		j := e.patchJob(courier, stagingPatch(st), &PatchOutput{FileName: ptr(name)})
 		if j.State != JobSucceeded || j.Result["gameId"] != gameID(gbaSystem+"/"+want) {
 			t.Errorf("%q: %+v %+v", name, j, j.Error)

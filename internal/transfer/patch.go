@@ -73,10 +73,6 @@ const (
 
 var patchTempRe = regexp.MustCompile(`^pt_[0-9a-f]{24}\.part$`)
 
-// extLikeRe matches what looks like a file extension (".gba", ".bin"),
-// as opposed to the end of a name holding a dot ("Game (v1.1)").
-var extLikeRe = regexp.MustCompile(`^\.[A-Za-z0-9]{1,8}$`)
-
 // PatchRequest is the body of POST /games/{gameId}/patch.
 type PatchRequest struct {
 	Patch  *PatchSource `json:"patch"`
@@ -170,19 +166,18 @@ func (s *Service) StartPatch(gameID string, req PatchRequest) (string, *Error, e
 	return id, nil, nil
 }
 
-// outputName checks the name of a new-file output: cleaned, with the
-// extension of the original ROM (added when the name has none, refused
-// when it has another one: the patched ROM is the same kind of file).
+// outputName checks the name of a new-file output: cleaned, ending with
+// the extension of the original ROM (added when the name does not already
+// end with it, whatever it holds: "Hack v1.2" gives "Hack v1.2.gba",
+// "Hack.zip" gives "Hack.zip.gba"): the patched ROM is the same kind of
+// file. Never refused for its extension.
 func (s *Service) outputName(g osadapter.Game, given string) (string, *Error) {
 	name, err := CleanFileName(given)
 	if err != nil {
 		return "", invalidName("Invalid file name")
 	}
 	ext := filepath.Ext(g.FileName)
-	if got := filepath.Ext(name); !strings.EqualFold(got, ext) {
-		if got != "" && extLikeRe.MatchString(got) {
-			return "", invalidName("The file name must keep the extension of the ROM (" + ext + ")")
-		}
+	if !strings.HasSuffix(strings.ToLower(name), strings.ToLower(ext)) {
 		if name, err = CleanFileName(name + ext); err != nil {
 			return "", invalidName("Invalid file name")
 		}

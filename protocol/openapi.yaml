@@ -1362,9 +1362,11 @@ paths:
         games and `.zip`/`.7z` ROMs answer `422 unsupported_format`.
         `new-file`: default name `<name> (patched).<ext>`; the default or
         given `fileName` (cleaned, and it must be a ROM name, else
-        `400 invalid_name`) keeps the extension of the ROM (added when the
-        name has none; another extension is `400 invalid_name`) and gets
-        ` (2)`, ` (3)`... when taken. `replace`:
+        `400 invalid_name`) always ends with the extension of the ROM: it
+        is added when the name does not already end with it, ignoring case
+        (`Hack v1.2` → `Hack v1.2.gba`, `Hack.zip` → `Hack.zip.gba`,
+        `Hack.GBA` kept); the name then gets ` (2)`, ` (3)`... when taken.
+        `replace`:
         the save is first backed up (`before-patch`), the ROM goes to the
         trash (`replace-rom`); save, states, locks and cheats keep their
         names and stay with the game; `fileName` is ignored. A job whose
