@@ -599,3 +599,77 @@ func TestPairingModes(t *testing.T) {
 		t.Fatal("--pairing-open closed pairing")
 	}
 }
+
+// TestDevicesScreen: the logic behind Settings > Devices (M10), with two
+// signed clients against the running server.
+func TestDevicesScreen(t *testing.T) {
+	a, _ := openTest(t, Options{Mode: "test", Port: freePort(t), Name: "Brick de test", Pairing: PairingAlways})
+	a.announce = (&fakeBonjour{}).announce
+	if err := a.Maintain(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	base := "http://127.0.0.1:" + itoa(a.Port())
+	c1 := testutil.PairClient(t, a.clients, base)
+	c2 := testutil.PairClient(t, a.clients, base)
+	if r := c1.Do(t, "PUT", "/api/v1/writer", nil); r.Status != 200 {
+		t.Fatalf("take: %d %s", r.Status, r.Body)
+	}
+	if r := c2.Do(t, "GET", "/api/v1/systems", nil); r.Status != 200 {
+		t.Fatal(r.Status)
+	}
+	st, _ := a.Status()
+	if st.Writer != "Test iPhone" || len(st.Connected) != 2 {
+		t.Fatalf("status %+v", st)
+	}
+	devs := a.Devices()
+	if len(devs) != 2 {
+		t.Fatalf("devices %+v", devs)
+	}
+	for _, d := range devs {
+		if !d.Connected || d.Disconnected || d.Writer != (d.ID == c1.ClientID) {
+			t.Errorf("device %+v", d)
+		}
+	}
+
+	// Disconnect: lease dropped, 401 disconnected, gone from the status.
+	if err := a.DisconnectClient(c1.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	if r := c1.Do(t, "GET", "/api/v1/systems", nil); r.Status != 401 || r.ErrorCode() != "disconnected" {
+		t.Fatalf("disconnected: %d %s", r.Status, r.Body)
+	}
+	if st, _ := a.Status(); st.Writer != "" || len(st.Connected) != 1 {
+		t.Fatalf("status after disconnect %+v", st)
+	}
+	for _, d := range a.Devices() {
+		if d.ID == c1.ClientID && (!d.Disconnected || d.Connected || d.Writer) {
+			t.Errorf("disconnected device %+v", d)
+		}
+	}
+	if r := c1.Do(t, "POST", "/api/v1/clients/me/connect", nil); r.Status != 204 {
+		t.Fatalf("connect: %d %s", r.Status, r.Body)
+	}
+
+	// Forget: removed, 401 unknown_client, lease dropped.
+	if r := c2.Do(t, "PUT", "/api/v1/writer", nil); r.Status != 200 {
+		t.Fatalf("take: %d %s", r.Status, r.Body)
+	}
+	if err := a.ForgetClient(c2.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	if r := c2.Do(t, "GET", "/api/v1/systems", nil); r.Status != 401 || r.ErrorCode() != "unknown_client" {
+		t.Fatalf("forgotten: %d %s", r.Status, r.Body)
+	}
+	if st, _ := a.Status(); st.Writer != "" {
+		t.Fatalf("lease kept: %+v", st)
+	}
+	if devs := a.Devices(); len(devs) != 1 || devs[0].ID != c1.ClientID {
+		t.Fatalf("devices after forget %+v", devs)
+	}
+	if err := a.DisconnectClient(c2.ClientID); err == nil {
+		t.Fatal("disconnected a forgotten client")
+	}
+}

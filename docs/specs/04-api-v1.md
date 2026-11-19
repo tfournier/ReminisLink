@@ -9,7 +9,9 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | GET | `/hello` | Présentation de la console (**non signée**) |
 | POST | `/pair` | Appairage (**non signée**) |
 | DELETE | `/clients/me` | Se désappairer |
+| POST | `/clients/me/connect` | Se reconnecter après une déconnexion par la console (M10) |
 | GET | `/device` | État de la console |
+| GET / PUT / DELETE | `/writer` | Détenteur du bail d'écriture / le prendre ou le renouveler / le relâcher (M10) |
 | GET | `/systems` | Liste des systèmes |
 | GET | `/systems/{systemId}/games` | Contenu d'un système (dossiers et jeux) |
 | GET | `/games/{gameId}` | Détail d'un jeu et de ses fichiers |
@@ -62,9 +64,12 @@ Sert à vérifier qu'on parle bien à la bonne console, à mesurer l'écart d'ho
   "apiVersion": 1,
   "minClientVersion": "1.0.0",
   "serverTime": "2026-11-18T17:00:00Z",
-  "pairingOpen": true
+  "pairingOpen": true,
+  "writerHeld": false
 }
 ```
+
+`writerHeld` (M10) : `true` quand un client tient le bail d'écriture ; le nom de ce client n'est donné qu'aux clients appairés (`GET /device`, `GET /writer`, `423 read_only`), pour ne pas exposer le nom d'un iPhone à tout le réseau.
 
 Aucune autre information (pas de liste de jeux, pas de clients). Limitée à 10 requêtes par seconde par IP (au-delà : `429 too_many_attempts`).
 
@@ -74,7 +79,11 @@ Voir [03 §3](03-protocole.md#3-appairage). `method` : `qr` ou `pin`. `clientNam
 
 ### `DELETE /clients/me`
 
-Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuite la clé de son Trousseau.
+Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuite la clé de son Trousseau. N'exige pas le bail d'écriture ; libère le bail si l'appelant le tenait.
+
+### `POST /clients/me/connect` (M10)
+
+Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §7.2](05-console-pak.md#72-réglages-y)) pour le client appelant. Réponse `204`, sans effet si le client n'était pas déconnecté ; ne prend pas le bail d'écriture. L'app ne l'appelle que sur une action de l'utilisateur (ouverture de cette console, bouton « Se reconnecter »), jamais lors d'une reconnexion automatique. C'est la seule route signée permise à un client déconnecté. Un appel dont le pak a chargé la clé avant une nouvelle déconnexion par la console ne lève pas celle-ci (`401 disconnected`). Le pak ne peut pas savoir quand l'app a envoyé la requête : un appel dont les en-têtes arrivent après la déconnexion la lève, comme une nouvelle action de l'utilisateur.
 
 ### `GET /device`
 
@@ -95,13 +104,55 @@ Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuit
   "uptimeSeconds": 512,
   "connectedClients": [
     { "clientName": "iPhone de Thomas", "lastSeenAt": "2026-11-18T17:00:00Z" }
-  ]
+  ],
+  "writer": { "clientName": "iPhone de Thomas", "you": true, "expiresAt": "2026-11-18T17:01:00Z" }
 }
 ```
+
+`writer` (M10) : le client qui tient le bail d'écriture (`you` : c'est l'appelant ; `expiresAt` : fin du bail s'il n'est pas renouvelé), ou `null` si le bail est libre. Voir « Un seul appareil en écriture » ci-dessous.
 
 `connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
 
 `ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible. Sources sur NextUI ([05 §6](05-console-pak.md#6-informations-de-la-console)) : `osVersion` = `.system/version.txt` (chaîne de release telle que l'affiche NextUI, ex. `NextUI-20261013-039a06de` : date de build et hash court ; jamais le numéro `v6.x.y` ; décision D4 du 19/11/2026) ; `battery` = `axp2202-battery/capacity` et `axp2202-usb/online` + `time_to_full_now` ; `ssid` = `wpa_supplicant` (`null` si `wpa_state` ≠ `COMPLETED`).
+
+---
+
+## Un seul appareil en écriture (M10)
+
+Décision du 19/11/2026. Un seul client appairé à la fois tient le **bail d'écriture** ; les autres sont en lecture seule. Le bail est tenu **en mémoire** par le pak : libre au lancement, perdu à la fermeture du pak.
+
+- **Routes d'écriture** : toutes celles qui modifient la carte SD, c'est-à-dire chaque opération dont les réponses comprennent `423` dans `protocol/openapi.yaml` (envois et leurs morceaux, fin et annulation d'un envoi, suppressions, remplacements, restaurations, copies de save, verrous de states, cheats, jaquette, corbeille, téléchargements par la console, patch, annulation d'une tâche ; 23 opérations). Une telle requête prend le bail s'il est libre (ou expiré). Si un autre client le tient, le pak répond **`423 read_only`** avec `details.writer` (le `clientName` du détenteur), **avant de lire le corps** et sans rien modifier. La vérification est faite à un seul endroit, juste après la signature et la réservation du nonce. Le bail pris ainsi avant la lecture du corps est **provisoire** : il n'est confirmé (et un bail déjà tenu n'est renouvelé) qu'une fois la requête acceptée, corps vérifié ; si la requête est refusée ensuite (`401 bad_signature`, `413 too_large`…), le bail provisoire est rendu. Toute réponse d'erreur donnée avant la lecture complète du corps (`423`, `401`, `413`…) ferme la connexion (`Connection: close`) au lieu d'attendre le corps.
+- **Toujours permis** : les routes de lecture (`GET`, téléchargements et Sync M9 compris), `PUT` / `DELETE /writer`, `POST /clients/me/connect` et `DELETE /clients/me`.
+- **Renouvellement** : chaque requête signée acceptée du détenteur (lecture comprise) renouvelle le bail confirmé (une lecture ne confirme jamais un bail provisoire), comme `PUT /writer` (l'app en envoie un environ toutes les 20 s tant qu'elle est au premier plan ou qu'un de ses transferts est en cours). Le bail expire **60 s** après le dernier renouvellement.
+- **Changement de main** : une requête déjà acceptée (corps vérifié) quand le bail change de main va jusqu'au bout ; une requête dont le corps était encore en cours de lecture est refusée à son acceptation si son client a été déconnecté ou oublié entre-temps (`401`), même s'il s'est reconnecté ou a été réappairé depuis, ou si un autre client a pris la main (`423`), et les tâches déjà lancées par la console continuent. La requête d'écriture suivante de l'ancien détenteur reçoit `423 read_only` ; un envoi est mis en pause par l'app, jamais perdu (il reprend avec `GET /uploads/{uploadId}` une fois le bail repris).
+
+### `GET /writer`
+
+```json
+{ "writer": { "clientName": "iPhone de Thomas", "you": false, "expiresAt": "2026-11-18T17:01:00Z" } }
+```
+
+`writer` vaut `null` quand le bail est libre.
+
+### `PUT /writer`
+
+Corps facultatif : `{ "force": false }` (un corps vide vaut `{}`). Prend le bail s'il est libre ou déjà tenu par l'appelant (renouvellement : fin repoussée à 60 s). Si un autre client le tient : `423 read_only`, sauf avec `force: true` (« Prendre la main », après confirmation dans l'app) : le bail passe à l'appelant. Réponse `200` avec le même corps que `GET /writer` (`you: true`).
+
+### `DELETE /writer`
+
+Relâche le bail si l'appelant le tient, sans effet sinon. Réponse `204`. L'app l'appelle quand elle passe en arrière-plan sans transfert en cours.
+
+### Déconnecter et oublier depuis la console
+
+- **Déconnecter** (Réglages > Appareils) : le bail du client est retiré, il disparaît de `connectedClients`, et toutes ses requêtes signées reçoivent **`401 disconnected`** (après la vérification de la signature et la réservation du nonce) jusqu'à ce qu'il appelle `POST /clients/me/connect`. État tenu en mémoire seulement : la fermeture du pak le lève. Un nouvel appairage du même client depuis l'écran d'appairage de la console le lève aussi.
+- **Oublier** : l'appairage est supprimé de `clients.json` (écriture atomique) ; ses requêtes reçoivent ensuite `401 unknown_client`, et son bail comme sa déconnexion sont oubliés.
+
+### Erreurs
+
+| Code | HTTP | Sens |
+|---|---|---|
+| `read_only` | 423 | Un autre client tient le bail d'écriture (`details.writer`). Rien n'a été modifié. |
+| `disconnected` | 401 | Le client a été déconnecté depuis la console ; levé par `POST /clients/me/connect`. |
 
 ---
 

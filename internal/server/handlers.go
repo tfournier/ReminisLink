@@ -62,6 +62,7 @@ type helloResponse struct {
 	MinClientVersion string    `json:"minClientVersion"`
 	ServerTime       time.Time `json:"serverTime"`
 	PairingOpen      bool      `json:"pairingOpen"`
+	WriterHeld       bool      `json:"writerHeld"`
 }
 
 func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +76,9 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
+	// Only whether the lease is held: the holder's name is for paired
+	// clients (M10).
+	_, held := s.access.current()
 	writeJSON(w, http.StatusOK, helloResponse{
 		DeviceID:         s.opts.Identity.DeviceID,
 		DeviceName:       s.DeviceName(),
@@ -87,6 +91,7 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		MinClientVersion: MinClientVersion,
 		ServerTime:       timestamp(s.now()),
 		PairingOpen:      snap.Open && snap.BlockedUntil.IsZero(),
+		WriterHeld:       held,
 	})
 }
 
@@ -168,7 +173,9 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := auth.Client{ID: res.ClientID, Name: *req.ClientName, Key: res.Key, PairedAt: s.now()}
-	if err := s.opts.Clients.Put(client); err != nil {
+	// Pairing again with the same id replaces the key: requests admitted
+	// with the old pairing are revoked, and a disconnection is lifted.
+	if err := s.access.pair(client); err != nil {
 		s.internal(w, r, err)
 		return
 	}
@@ -191,11 +198,10 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, errors.New("no client in context"))
 		return
 	}
-	if _, err := s.opts.Clients.Remove(client.ID); err != nil {
+	if _, err := s.access.forget(client.ID); err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	s.presence.forget(client.ID)
 	s.log.Info("client unpaired", "client", client.ID)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -213,6 +219,7 @@ type deviceResponse struct {
 	Storage          []storageVolume   `json:"storage"`
 	UptimeSeconds    int64             `json:"uptimeSeconds"`
 	ConnectedClients []ConnectedClient `json:"connectedClients"`
+	Writer           *writerJSON       `json:"writer"`
 }
 
 type networkInfo struct {
@@ -250,6 +257,9 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 		Storage:          []storageVolume{},
 		UptimeSeconds:    max(int64(s.now().Sub(s.started)/time.Second), 0),
 		ConnectedClients: s.ConnectedClients(),
+	}
+	if c, ok := auth.ClientFromContext(r.Context()); ok {
+		resp.Writer = s.writerFor(c.ID)
 	}
 	if ip, ok := s.opts.IPv4(info.WirelessInterface); ok {
 		resp.Network.IPv4 = ip

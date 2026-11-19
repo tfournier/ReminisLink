@@ -257,3 +257,45 @@ func TestBatteryOnTheMainScreen(t *testing.T) {
 		t.Fatalf("15 %% is not low: %#v", v)
 	}
 }
+
+func TestDeviceText(t *testing.T) {
+	at := time.Date(2026, 11, 18, 12, 0, 0, 0, time.Local)
+	cases := []struct {
+		d      app.Device
+		en, fr string
+	}{
+		{app.Device{Name: "iPhone", PairedAt: at}, "iPhone (paired 2026-11-18)", "iPhone (appairé le 18/11/2026)"},
+		{app.Device{Name: "iPhone", Connected: true}, "iPhone (connected)", "iPhone (connecté)"},
+		{app.Device{Name: "iPhone", Connected: true, Writer: true}, "iPhone (connected, has write access)", "iPhone (connecté, a la main)"},
+		{app.Device{Name: "iPhone", Writer: true}, "iPhone (has write access)", "iPhone (a la main)"},
+		{app.Device{Name: "iPhone", Disconnected: true}, "iPhone (disconnected)", "iPhone (déconnecté)"},
+		{app.Device{Name: "Amélie", Connected: true}, "Amélie (connected)", "Amélie (connecté)"},
+	}
+	for _, lang := range []string{"en", "fr"} {
+		setLang(t, lang)
+		for _, c := range cases {
+			want := c.en
+			if lang == "fr" {
+				want = c.fr
+			}
+			if got := DeviceText(c.d); got != want {
+				t.Errorf("[%s] DeviceText(%+v) = %q, want %q", lang, c.d, got, want)
+			}
+		}
+	}
+}
+
+func TestBuildMainWriter(t *testing.T) {
+	setLang(t, "fr")
+	st := status()
+	st.Paired, st.Connected, st.Writer = true, []string{"iPhone A", "iPhone B"}, "iPhone B"
+	v := BuildMain(st, now, false, false)
+	last := v.Items[len(v.Items)-1]
+	if last != (Item{"Accès en écriture", "iPhone B"}) {
+		t.Fatalf("items %#v", v.Items)
+	}
+	st.Writer = ""
+	if v := BuildMain(st, now, false, false); v.Items[len(v.Items)-1].Label == "Accès en écriture" {
+		t.Fatalf("writer shown while free: %#v", v.Items)
+	}
+}

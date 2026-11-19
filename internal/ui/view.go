@@ -137,6 +137,9 @@ func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainVie
 		connected = shown(strings.Join(st.Connected, ", "))
 	}
 	v.Items = append(v.Items, Item{l10n.T(l10n.LabelConnected), connected})
+	if st.Writer != "" {
+		v.Items = append(v.Items, Item{l10n.T(l10n.LabelWriter), shown(st.Writer)})
+	}
 	for _, a := range st.Activities {
 		v.Transfers = append(v.Transfers, ActivityText(a))
 	}
@@ -259,4 +262,24 @@ func QRPNG(link string) ([]byte, error) {
 // PairedItem is a paired device in the settings list.
 func PairedItem(name string, pairedAt time.Time) string {
 	return l10n.Tf(l10n.PairedItem, "Name", shown(name), "Date", pairedAt.Local().Format(l10n.T(l10n.DateLayout)))
+}
+
+// DeviceText is a device of Settings > Devices (M10): its name and state
+// (connected, write access, disconnected), or its pairing date when it is
+// idle.
+func DeviceText(d app.Device) string {
+	var states []string
+	if d.Disconnected {
+		states = append(states, l10n.T(l10n.DeviceStateDisconnected))
+	}
+	if d.Connected {
+		states = append(states, l10n.T(l10n.DeviceStateConnected))
+	}
+	if d.Writer {
+		states = append(states, l10n.T(l10n.DeviceStateWriter))
+	}
+	if len(states) == 0 {
+		return PairedItem(d.Name, d.PairedAt)
+	}
+	return l10n.Tf(l10n.DeviceItem, "Name", shown(d.Name), "State", strings.Join(states, l10n.T(l10n.DeviceStateSeparator)))
 }

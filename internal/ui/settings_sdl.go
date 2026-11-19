@@ -15,7 +15,7 @@ import (
 const (
 	itemPairNew = iota
 	itemName
-	itemPaired
+	itemPaired // Devices (M10)
 	itemForgetAll
 	itemLanguage
 	itemAbout
@@ -56,7 +56,7 @@ func settings(a *app.App) settingsResult {
 		case itemName:
 			rename(a)
 		case itemPaired:
-			pairedDevices(a)
+			devices(a)
 		case itemForgetAll:
 			if len(a.PairedClients()) > 0 && confirm(l10n.T(l10n.MsgConfirmForgetAll), l10n.T(l10n.BtnForget)) {
 				n, err := a.ForgetAllClients()
@@ -87,23 +87,51 @@ func rename(a *app.App) {
 	}
 }
 
-// pairedDevices lists the paired devices; A forgets the selected one.
-func pairedDevices(a *app.App) {
+// devices is Settings > Devices (05 §7.2, M10): the paired devices with
+// their state; A opens the actions of the selected one.
+func devices(a *app.App) {
 	sel := 0
 	for {
-		clients := a.PairedClients()
-		labels := make([]string, len(clients))
-		for i, c := range clients {
-			labels[i] = PairedItem(c.Name, c.PairedAt)
+		list := a.Devices()
+		labels := make([]string, len(list))
+		for i, d := range list {
+			labels[i] = DeviceText(d)
 		}
-		i, err := showList(l10n.T(l10n.TitlePaired), labels, sel, l10n.T(l10n.MsgNoPaired), l10n.T(l10n.BtnForget))
+		i, err := showList(l10n.T(l10n.TitlePaired), labels, sel, l10n.T(l10n.MsgNoPaired), l10n.T(l10n.BtnSelect))
 		if err != nil {
 			return
 		}
 		sel = i
-		c := clients[i]
-		if confirm(l10n.Tf(l10n.MsgConfirmForget, "Name", c.Name), l10n.T(l10n.BtnForget)) {
-			if err := a.ForgetClient(c.ID); err != nil {
+		deviceActions(a, list[i])
+	}
+}
+
+// Actions of a device, in display order.
+const (
+	actionDisconnect = iota
+	actionForget
+)
+
+// deviceActions offers Disconnect and Forget (with confirmation) for d.
+func deviceActions(a *app.App, d app.Device) {
+	labels := []string{
+		actionDisconnect: l10n.T(l10n.BtnDisconnect),
+		actionForget:     l10n.T(l10n.BtnForget),
+	}
+	i, err := showList(shown(d.Name), labels, 0, "", l10n.T(l10n.BtnSelect))
+	if err != nil {
+		return
+	}
+	switch i {
+	case actionDisconnect:
+		if err := a.DisconnectClient(d.ID); err != nil {
+			message(l10n.Tf(l10n.MsgDeviceError, "Error", err))
+			return
+		}
+		message(l10n.Tf(l10n.MsgDisconnected, "Name", shown(d.Name)))
+	case actionForget:
+		if confirm(l10n.Tf(l10n.MsgConfirmForget, "Name", shown(d.Name)), l10n.T(l10n.BtnForget)) {
+			if err := a.ForgetClient(d.ID); err != nil {
 				message(l10n.Tf(l10n.MsgSaveError, "Error", err))
 			}
 		}

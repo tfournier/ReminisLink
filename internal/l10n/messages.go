@@ -12,16 +12,17 @@ type msg = i18n.Message
 
 // Footer buttons
 var (
-	BtnQuit     = &msg{ID: "button_quit", Other: "Quit"}
-	BtnBack     = &msg{ID: "button_back", Other: "Back"}
-	BtnSelect   = &msg{ID: "button_select", Other: "Select"}
-	BtnCancel   = &msg{ID: "button_cancel", Other: "Cancel"}
-	BtnConfirm  = &msg{ID: "button_confirm", Other: "Confirm"}
-	BtnOK       = &msg{ID: "button_ok", Other: "OK"}
-	BtnForget   = &msg{ID: "button_forget", Other: "Forget"}
-	BtnSettings = &msg{ID: "button_settings", Other: "Settings"}
-	BtnHideQR   = &msg{ID: "button_hide_qr", Other: "Hide QR"}
-	BtnShowQR   = &msg{ID: "button_show_qr", Other: "Show QR"}
+	BtnQuit       = &msg{ID: "button_quit", Other: "Quit"}
+	BtnBack       = &msg{ID: "button_back", Other: "Back"}
+	BtnSelect     = &msg{ID: "button_select", Other: "Select"}
+	BtnCancel     = &msg{ID: "button_cancel", Other: "Cancel"}
+	BtnConfirm    = &msg{ID: "button_confirm", Other: "Confirm"}
+	BtnOK         = &msg{ID: "button_ok", Other: "OK"}
+	BtnForget     = &msg{ID: "button_forget", Other: "Forget"}
+	BtnSettings   = &msg{ID: "button_settings", Other: "Settings"}
+	BtnHideQR     = &msg{ID: "button_hide_qr", Other: "Hide QR"}
+	BtnShowQR     = &msg{ID: "button_show_qr", Other: "Show QR"}
+	BtnDisconnect = &msg{ID: "button_disconnect", Other: "Disconnect"}
 )
 
 // Main screen
@@ -47,6 +48,7 @@ var (
 	LabelState       = &msg{ID: "label_state", Other: "State"}
 	LabelConnected   = &msg{ID: "label_connected", Other: "Connected devices"}
 	NoneConnected    = &msg{ID: "none_connected", Other: "None"}
+	LabelWriter      = &msg{ID: "label_writer", Other: "Write access"}
 	TitleTransfers   = &msg{ID: "title_transfers", Other: "Transfers"}
 	ActUpload        = &msg{ID: "activity_upload", Other: "Receiving: {{.Name}}"}
 	ActUploadFile    = &msg{ID: "activity_upload_file", Other: "Receiving a file"}
@@ -98,12 +100,12 @@ var (
 	TitleSettings       = &msg{ID: "title_settings", Other: "Settings"}
 	ItemPairNew         = &msg{ID: "item_pair_new", Other: "Pair a New Device"}
 	ItemName            = &msg{ID: "item_name", Other: "Console name: {{.Name}}"}
-	ItemPaired          = &msg{ID: "item_paired", One: "Paired devices ({{.Count}})", Other: "Paired devices ({{.Count}})"}
+	ItemPaired          = &msg{ID: "item_paired", One: "Devices ({{.Count}})", Other: "Devices ({{.Count}})"}
 	ItemForgetAll       = &msg{ID: "item_forget_all", Other: "Forget all devices"}
 	ItemLanguage        = &msg{ID: "item_language", Other: "Language: {{.Name}}"}
 	ItemAbout           = &msg{ID: "item_about", Other: "Version and log"}
 	MsgAbout            = &msg{ID: "msg_about", Other: "ReminisLink {{.Version}}\n\nLog:\n{{.Path}}"}
-	TitlePaired         = &msg{ID: "title_paired", Other: "Paired devices"}
+	TitlePaired         = &msg{ID: "title_paired", Other: "Devices"}
 	MsgNoPaired         = &msg{ID: "msg_no_paired", Other: "No paired device"}
 	PairedItem          = &msg{ID: "paired_item", Other: "{{.Name}} (paired {{.Date}})"}
 	DateLayout          = &msg{ID: "date_layout", Other: "2006-01-02"}
@@ -112,6 +114,17 @@ var (
 	MsgForgotAll        = &msg{ID: "msg_forgot_all", One: "{{.Count}} device forgotten.", Other: "{{.Count}} devices forgotten."}
 	MsgNameEmpty        = &msg{ID: "msg_name_empty", Other: "The name cannot be empty."}
 	MsgSaveError        = &msg{ID: "msg_save_error", Other: "Cannot save the settings:\n{{.Error}}"}
+)
+
+// Settings > Devices (M10)
+var (
+	DeviceItem              = &msg{ID: "device_item", Other: "{{.Name}} ({{.State}})"}
+	DeviceStateConnected    = &msg{ID: "device_state_connected", Other: "connected"}
+	DeviceStateWriter       = &msg{ID: "device_state_writer", Other: "has write access"}
+	DeviceStateDisconnected = &msg{ID: "device_state_disconnected", Other: "disconnected"}
+	DeviceStateSeparator    = &msg{ID: "device_state_separator", Other: ", "}
+	MsgDisconnected         = &msg{ID: "msg_disconnected", Other: "{{.Name}} is disconnected.\nIt can reconnect from the app."}
+	MsgDeviceError          = &msg{ID: "msg_device_error", Other: "Cannot change this device:\n{{.Error}}"}
 )
 
 // All lists every message, for the tests.
@@ -128,4 +141,6 @@ var All = []*msg{
 	TitleSettings, ItemName, ItemPaired, ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout,
 	TitlePaired, MsgNoPaired, PairedItem, DateLayout, MsgConfirmForget, MsgConfirmForgetAll,
 	MsgForgotAll, MsgNameEmpty, MsgSaveError, BatteryLevel, BatteryCharging, BatteryLow, BatteryLowBanner, QRUnavailable, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
+	BtnDisconnect, LabelWriter, DeviceItem, DeviceStateConnected, DeviceStateWriter,
+	DeviceStateDisconnected, DeviceStateSeparator, MsgDisconnected, MsgDeviceError,
 }

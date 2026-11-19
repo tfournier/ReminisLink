@@ -12,6 +12,9 @@ struct GameDetailView: View {
     @State private var deleted = false
     @State private var patch: PatchContext?
 
+    /// Another device has write access (M10).
+    private var isReadOnly: Bool { app.session(for: route.deviceId).isReadOnly }
+
     /// Whether the game has an image now (it may have been changed here).
     private var hasArt: Bool {
         detail.map { $0.files.contains { $0.role == .art } } ?? route.hasArt
@@ -81,7 +84,7 @@ struct GameDetailView: View {
                     } label: {
                         Label("Apply a Patch…", systemImage: "bandage")
                     }
-                    .disabled(PatchNaming.refusal(kind: detail.kind, fileName: detail.fileName) != nil)
+                    .disabled(PatchNaming.refusal(kind: detail.kind, fileName: detail.fileName) != nil || isReadOnly)
                     .accessibilityIdentifier("game.patch")
                 } header: {
                     Text("Patch")
@@ -107,6 +110,7 @@ struct GameDetailView: View {
                     Button("Delete…", role: .destructive) {
                         toDelete = DeleteTarget(deviceId: route.deviceId, gameId: route.gameId, name: detail.name)
                     }
+                    .disabled(isReadOnly)
                     .accessibilityIdentifier("game.deleteButton")
                 }
             }

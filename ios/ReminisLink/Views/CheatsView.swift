@@ -107,6 +107,8 @@ struct CheatsView: View {
                         Task { await saveChanges() }
                     }
                 }
+                    // Another device has write access (M10).
+                    .disabled(session.isReadOnly)
                     .accessibilityIdentifier("cheats.save")
             }
         } else {
@@ -128,10 +130,10 @@ struct CheatsView: View {
                     Label("Add", systemImage: "plus")
                 }
                 .accessibilityIdentifier("cheats.add")
-                .disabled(editor == nil)
+                .disabled(editor == nil || session.isReadOnly)
             }
         }
-        if let editor, !editor.cheats.isEmpty {
+        if let editor, !editor.cheats.isEmpty, !session.isReadOnly {
             ToolbarItem(placement: .bottomBar) {
                 EditButton()
             }
@@ -143,6 +145,7 @@ struct CheatsView: View {
                 } label: {
                     Label("Add a Cheat…", systemImage: "plus")
                 }
+                .disabled(session.isReadOnly)
             }
         }
     }
@@ -160,9 +163,12 @@ struct CheatsView: View {
                 )) {
                     editing = cheat
                 }
+                .disabled(session.isReadOnly)
             }
             .onDelete { self.editor?.remove(atOffsets: $0) }
             .onMove { self.editor?.move(fromOffsets: $0, toOffset: $1) }
+            .deleteDisabled(session.isReadOnly)
+            .moveDisabled(session.isReadOnly)
         } header: {
             if !editor.cheats.isEmpty {
                 Text("\(editor.cheats.count) cheats")

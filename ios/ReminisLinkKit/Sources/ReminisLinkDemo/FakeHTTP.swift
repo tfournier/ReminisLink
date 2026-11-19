@@ -12,6 +12,9 @@ public struct FakeResponse: Sendable {
     /// Seconds before the answer is delivered, without blocking the other
     /// requests (the handler has already run).
     public var delay: TimeInterval = 0
+    /// When set, the answer is delivered once the gate opens (the handler
+    /// has already run).
+    public var gate: FakeGate?
 
     public init(status: Int, headers: [String: String] = [:], body: Data = Data(), transportError: URLError.Code? = nil) {
         self.status = status
@@ -37,6 +40,47 @@ public struct FakeResponse: Sendable {
 /// Answers the requests sent to one fake host.
 public protocol FakeHTTPHandler: Sendable {
     func respond(to request: URLRequest, body: Data) -> FakeResponse
+}
+
+/// A point a test holds a request (or its answer) at, then releases: the
+/// test knows for sure the request is pending (``reached``), without
+/// relying on timing.
+public final class FakeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _reached = false
+    private var _isOpen = false
+    private var actions: [() -> Void] = []
+
+    public init() {}
+
+    /// The request got to the gate and waits there.
+    public var reached: Bool { lock.withLock { _reached } }
+
+    /// Lets the request (or its answer) go on.
+    public func open() {
+        let pending = lock.withLock { () -> [() -> Void] in
+            _isOpen = true
+            defer { actions = [] }
+            return actions
+        }
+        for action in pending { DispatchQueue.global().async(execute: action) }
+    }
+
+    func hold(_ action: @escaping () -> Void) {
+        let runNow = lock.withLock { () -> Bool in
+            _reached = true
+            if !_isOpen { actions.append(action) }
+            return _isOpen
+        }
+        if runNow { DispatchQueue.global().async(execute: action) }
+    }
+}
+
+/// A handler that can hold a request before it reaches it (as if it stayed
+/// on the network): requests sent later may be handled first.
+public protocol FakeLateArrivals: FakeHTTPHandler {
+    /// The gate `request` waits at before the handler runs, if any.
+    func arrivalGate(for request: URLRequest) -> FakeGate?
 }
 
 /// A handler made of a closure.
@@ -79,8 +123,21 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
             return
         }
-        let response = handler.respond(to: request, body: Self.body(of: request))
-        if response.delay > 0 {
+        let body = Self.body(of: request)
+        if let late = handler as? FakeLateArrivals, let gate = late.arrivalGate(for: request) {
+            let request = request
+            gate.hold { [self] in
+                schedule(handler.respond(to: request, body: body), for: url)
+            }
+            return
+        }
+        schedule(handler.respond(to: request, body: body), for: url)
+    }
+
+    private func schedule(_ response: FakeResponse, for url: URL) {
+        if let gate = response.gate {
+            gate.hold { [self] in deliver(response, for: url) }
+        } else if response.delay > 0 {
             DispatchQueue.global().asyncAfter(deadline: .now() + response.delay) { [self] in
                 deliver(response, for: url)
             }

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/server"
 )
 
 // The settings screen (docs/specs/05-console-pak.md §7.2).
@@ -112,9 +113,43 @@ func (a *App) PairedClients() []auth.Client {
 	return list
 }
 
-// ForgetClient removes a paired client: its next requests are refused.
+// Device is a paired device on the Devices screen (05 §7.2).
+type Device = server.DeviceStatus
+
+// Devices returns the paired devices with their state (connected, write
+// access, disconnected), the most recently paired first. Before Start
+// every device is idle.
+func (a *App) Devices() []Device {
+	if a.srv != nil {
+		return a.srv.Devices()
+	}
+	list := a.PairedClients()
+	out := make([]Device, len(list))
+	for i, c := range list {
+		out[i] = Device{ID: c.ID, Name: c.Name, PairedAt: c.PairedAt}
+	}
+	return out
+}
+
+// DisconnectClient disconnects a paired device (M10): its write lease is
+// dropped and its requests are refused until it reconnects from the app.
+func (a *App) DisconnectClient(id string) error {
+	if a.srv == nil {
+		return errors.New("the server is not running")
+	}
+	return a.srv.Disconnect(id)
+}
+
+// ForgetClient removes a paired client: its next requests are refused and
+// its write lease is dropped.
 func (a *App) ForgetClient(id string) error {
-	ok, err := a.clients.Remove(id)
+	var ok bool
+	var err error
+	if a.srv != nil {
+		ok, err = a.srv.Forget(id)
+	} else {
+		ok, err = a.clients.Remove(id)
+	}
 	if err == nil && ok {
 		a.log.Info("client forgotten", "client", id)
 	}
@@ -125,7 +160,13 @@ func (a *App) ForgetClient(id string) error {
 // ForgetAllClients removes every paired client and returns how many there
 // were.
 func (a *App) ForgetAllClients() (int, error) {
-	n, err := a.clients.RemoveAll()
+	var n int
+	var err error
+	if a.srv != nil {
+		n, err = a.srv.ForgetAll()
+	} else {
+		n, err = a.clients.RemoveAll()
+	}
 	if err == nil {
 		a.log.Info("all clients forgotten", "count", n)
 	}

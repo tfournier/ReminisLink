@@ -6,6 +6,9 @@ enum RecoveryAction: Equatable {
     case openSettings
     case retry
     case repair
+    /// `401 disconnected` (M10): "Reconnect", which lifts the
+    /// disconnection set from the console.
+    case reconnect
 }
 
 /// Every error the screens show, with its translated message.
@@ -99,6 +102,8 @@ enum AppError: Error, Equatable {
             String(localized: "The file changed on this iPhone during the transfer. Add it again.")
         case .upload(.tooManyRestarts):
             String(localized: "The console keeps interrupting the transfer. Try again later.")
+        case .upload(.cancelNotConfirmed):
+            String(localized: "The cancellation did not reach the console. The transfer is kept: cancel it again, or resume it.")
         case .file:
             String(localized: "The file could not be read on this iPhone.")
         case .restoreRefused:
@@ -143,6 +148,9 @@ enum AppError: Error, Equatable {
         case .api(let error):
             switch error {
             case .server(let server) where server.code == .unknownClient: .repair
+            case .server(let server) where server.code == .disconnected: .reconnect
+            // "Take Over" is offered by the read-only banner.
+            case .server(let server) where server.code == .readOnly: nil
             // The keys of the app and of the pak no longer match.
             case .server(let server) where server.code == .badSignature: .repair
             case .server(let server) where server.code == .pairingFailed: nil
@@ -150,7 +158,7 @@ enum AppError: Error, Equatable {
             case .incompatible, .pairing: nil
             default: .retry
             }
-        case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .file: nil
+        case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .upload(.cancelNotConfirmed), .file: nil
         case .restoreRefused, .unsupportedGameFormat, .patchMismatch, .unsupportedPatch, .jobLost: nil
         case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
@@ -161,6 +169,18 @@ enum AppError: Error, Equatable {
     }
 
     var isCancellation: Bool { self == .cancelled }
+
+    /// `401 disconnected` (M10): the console disconnected this iPhone.
+    var isDisconnected: Bool {
+        if case .api(let error) = self { return error.isDisconnected }
+        return false
+    }
+
+    /// `423 read_only` (M10): another device has write access.
+    var isReadOnly: Bool {
+        if case .api(let error) = self { return error.isReadOnly }
+        return false
+    }
 
     /// The error of an action on a save or a state: a `409 conflict`
     /// without `details.existing` means the copy could not be restored, a
@@ -252,6 +272,13 @@ enum AppError: Error, Equatable {
             switch server.code {
             case .unknownClient:
                 return String(localized: "This console no longer recognizes your iPhone.")
+            case .disconnected:
+                return String(localized: "Disconnected by the console.")
+            case .readOnly:
+                if let writer = server.writerName {
+                    return String(localized: "Read-only — \(writer) has write access. Nothing was changed. Take over to make changes from this iPhone.")
+                }
+                return String(localized: "Read-only — another device has write access. Nothing was changed. Take over to make changes from this iPhone.")
             case .clockSkew:
                 return String(localized: "The clocks of the console and of this iPhone are too far apart.")
             case .pairingFailed:

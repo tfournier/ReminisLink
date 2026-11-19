@@ -23,7 +23,7 @@ struct ConsoleView: View {
                     }
                 }
             case .failed(let error):
-                Section { ErrorView(error: error, retry: { await session.connect() }) }
+                Section { ErrorView(error: error, retry: { await session.connect() }, deviceId: deviceId) }
             case .connected:
                 EmptyView()
             }
@@ -39,7 +39,8 @@ struct ConsoleView: View {
                 } label: {
                     Label("Add Files or a Link", systemImage: "plus.circle")
                 }
-                .disabled(session.state != .connected)
+                // Another device has write access (M10).
+                .disabled(session.state != .connected || session.isReadOnly)
                 .accessibilityIdentifier("console.add")
                 NavigationLink(value: Route.transfers(deviceId)) {
                     LabeledContent {
@@ -154,7 +155,10 @@ struct TrashView: View {
                     }
                     .accessibilityElement(children: .combine)
                     .swipeActions {
-                        Button("Delete", role: .destructive) { entryToDelete = entry }
+                        // Another device has write access (M10).
+                        if !session.isReadOnly {
+                            Button("Delete", role: .destructive) { entryToDelete = entry }
+                        }
                     }
                 }
             } footer: {
@@ -170,7 +174,7 @@ struct TrashView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Empty Trash", role: .destructive) { confirmEmpty = true }
-                    .disabled(entries.isEmpty)
+                    .disabled(entries.isEmpty || session.isReadOnly)
             }
         }
         .task { await session.loadTrash() }

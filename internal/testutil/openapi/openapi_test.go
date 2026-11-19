@@ -188,7 +188,7 @@ func TestValidateResponseFailures(t *testing.T) {
 	}
 }
 
-const helloExample = `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"brick","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","apiVersion":1,"minClientVersion":"1.0.0","serverTime":"2026-11-18T17:00:00Z","pairingOpen":true}`
+const helloExample = `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"brick","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","apiVersion":1,"minClientVersion":"1.0.0","serverTime":"2026-11-18T17:00:00Z","pairingOpen":true,"writerHeld":false}`
 
 func TestValidateNullable(t *testing.T) {
 	s := contract(t)
@@ -196,7 +196,7 @@ func TestValidateNullable(t *testing.T) {
 	if err := s.ValidateResponse("GET", "/hello", 200, h, []byte(helloExample)); err != nil {
 		t.Fatalf("null osVersion: %v", err)
 	}
-	device := `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"desktop","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","network":{"ipv4":"10.0.0.1","ssid":null},"battery":null,"storage":[],"uptimeSeconds":0,"connectedClients":[]}`
+	device := `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"desktop","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","network":{"ipv4":"10.0.0.1","ssid":null},"battery":null,"storage":[],"uptimeSeconds":0,"connectedClients":[],"writer":null}`
 	if err := s.ValidateResponse("GET", "/device", 200, h, []byte(device)); err != nil {
 		t.Fatalf("null battery: %v", err)
 	}
@@ -207,5 +207,24 @@ func TestValidateNullable(t *testing.T) {
 	bad = strings.Replace(device, `"battery":null`, `"battery":{"percent":101,"charging":false}`, 1)
 	if err := s.ValidateResponse("GET", "/device", 200, h, []byte(bad)); err == nil {
 		t.Fatal("battery 101% accepted")
+	}
+}
+
+func TestOperationsWithStatus(t *testing.T) {
+	ops := contract(t).OperationsWithStatus("423")
+	if len(ops) == 0 || !sort.StringsAreSorted(ops) {
+		t.Fatalf("operations with 423: %v", ops)
+	}
+	found := false
+	for _, op := range ops {
+		if op == "PUT /writer" {
+			found = true
+		}
+		if strings.HasPrefix(op, "GET ") {
+			t.Errorf("a read declares 423: %s", op)
+		}
+	}
+	if !found {
+		t.Errorf("PUT /writer missing from %v", ops)
 	}
 }

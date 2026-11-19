@@ -43,6 +43,10 @@ public final class UploadItem: Identifiable {
         /// the offset confirmed by the device.
         case paused
         case failed
+        /// M10: a cancel is waiting for the device's answer. Not final
+        /// (refused, the upload pauses): the item and its local copy stay
+        /// and it cannot be cleared.
+        case cancelling
         case done
         case cancelled
 
@@ -74,8 +78,6 @@ public final class UploadItem: Identifiable {
     public internal(set) var isCompleting = false
     /// `complete` was sent without a definite answer yet.
     public internal(set) var completeSent = false
-    /// A cancellation after a lost `complete` answer is checking the device.
-    var isCancelling = false
 
     let fileURL: URL
     /// The file is a copy made for this upload: deleted once finished.
@@ -182,6 +184,10 @@ public final class TransferQueue {
     @ObservationIgnored public var onUploadFinished: ((UploadItem) -> Void)?
     /// Called on the main actor when a job reaches its end.
     @ObservationIgnored public var onJobFinished: ((JobItem) -> Void)?
+    /// Called on the main actor once an upload is recorded paused by
+    /// `423 read_only` or `401 disconnected` (M10): the write access may
+    /// already be back, then it resumes.
+    @ObservationIgnored public var onPausedForWriteAccess: ((UploadItem) -> Void)?
 
     @ObservationIgnored private let client: () async throws -> APIClient
     @ObservationIgnored private let scratchDirectory: URL
@@ -231,45 +237,53 @@ public final class TransferQueue {
         return item
     }
 
-    /// Cancels an upload, on the device too (best effort). Ignored while
-    /// `complete` is in flight: its real outcome is shown instead. After a
-    /// `complete` whose answer was lost, the upload is only shown cancelled
-    /// if the device still had it; otherwise the outcome is unknown.
+    /// Cancels an upload, on the device too. Ignored while `complete` is in
+    /// flight: its real outcome is shown instead. With something on the
+    /// device, the upload is `cancelling` until the device answers (kept
+    /// in the list, local copy kept), then:
+    /// - confirmed: `cancelled`, local copy deleted;
+    /// - refused (`423`, `401 disconnected`): paused for the write access;
+    /// - no definite answer (lost connection...): failed with
+    ///   ``UploadFailure/cancelNotConfirmed``, kept to resume or cancel again;
+    /// - gone after a `complete` whose answer was lost: the outcome is
+    ///   unknown (the file may be on the device).
     public func cancel(_ item: UploadItem) {
-        guard !item.phase.isFinished, !item.isCompleting else { return }
-        if item.completeSent, let upload = item.upload {
-            item.isCancelling = true
+        guard !item.phase.isFinished, !item.isCompleting, item.phase != .cancelling else { return }
+        guard let upload = item.upload else {
+            // Nothing on the device yet.
+            item.phase = .cancelled
+            item.failure = nil
             item.task?.cancel()
-            let client = client
-            Task {
-                let outcome: ResumableUpload.CancelOutcome
-                if let api = try? await client() {
-                    outcome = await upload.cancel(client: api)
-                } else {
-                    outcome = .outcomeUnknown
-                }
-                item.isCancelling = false
-                if outcome == .cancelled {
-                    item.phase = .cancelled
-                    item.failure = nil
-                    item.completeSent = false
-                    self.cleanUp(item)
-                } else {
-                    item.phase = .failed
-                    item.failure = UploadFailure.outcomeUnknown
-                }
-            }
+            cleanUp(item)
             return
         }
-        item.phase = .cancelled
+        item.phase = .cancelling
         item.failure = nil
         item.task?.cancel()
-        let upload = item.upload
         let client = client
         Task {
-            if let upload, let api = try? await client() { await upload.cancel(client: api) }
+            let outcome: ResumableUpload.CancelOutcome
+            do {
+                outcome = await upload.cancel(client: try await client())
+            } catch {
+                outcome = .notConfirmed(error as? APIError)
+            }
+            guard item.phase == .cancelling else { return }
+            switch outcome {
+            case .cancelled:
+                item.phase = .cancelled
+                item.completeSent = false
+                self.cleanUp(item)
+            case .refused(let error):
+                self.pauseForWriteAccess(item, error)
+            case .notConfirmed:
+                item.phase = .failed
+                item.failure = UploadFailure.cancelNotConfirmed
+            case .outcomeUnknown:
+                item.phase = .failed
+                item.failure = UploadFailure.outcomeUnknown
+            }
         }
-        cleanUp(item)
     }
 
     /// Resumes a paused or failed upload.
@@ -292,6 +306,20 @@ public final class TransferQueue {
             try? await api.cancelUpload(id: previous)
         }
         resume(item)
+    }
+
+    /// Uploads paused because another client has write access (M10).
+    public var pausedForWriteAccess: [UploadItem] {
+        uploads.filter { item in
+            guard item.phase == .paused, let error = item.failure as? APIError else { return false }
+            return error.isReadOnly || error.isDisconnected
+        }
+    }
+
+    /// Resumes the uploads paused by `423 read_only` or `401 disconnected`
+    /// (the write lease is back).
+    public func resumePausedForWriteAccess() {
+        for item in pausedForWriteAccess { resume(item) }
     }
 
     /// Resumes every paused upload.
@@ -402,7 +430,7 @@ public final class TransferQueue {
             }
             item.isCompleting = false
             item.completeSent = false
-            guard item.phase != .cancelled else { return }
+            guard item.phase != .cancelled, item.phase != .cancelling else { return }
             item.result = result
             item.sentBytes = item.sizeBytes
             item.phase = .done
@@ -412,7 +440,7 @@ public final class TransferQueue {
             onUploadFinished?(item)
         } catch {
             // A cancellation in progress decides the phase itself.
-            guard item.phase != .cancelled, !item.isCancelling else { return }
+            guard item.phase != .cancelled, item.phase != .cancelling else { return }
             item.bytesPerSecond = nil
             item.secondsRemaining = nil
             switch error {
@@ -423,11 +451,27 @@ public final class TransferQueue {
             case APIError.network:
                 item.phase = .paused
                 item.failure = error
+            case let error as APIError where error.isReadOnly || error.isDisconnected:
+                // M10: another client has write access, or the console
+                // disconnected this iPhone. Nothing was lost: the upload
+                // resumes at the confirmed offset once writing is possible.
+                pauseForWriteAccess(item, error)
             default:
                 item.phase = .failed
                 item.failure = error
             }
         }
+    }
+
+    /// The single path of an upload refused by `423 read_only` or
+    /// `401 disconnected` (M10), whatever refused it (a chunk, `complete`, a
+    /// cancel): paused, kept, and resumed with the write access
+    /// (``resumePausedForWriteAccess()``, or at once through
+    /// ``onPausedForWriteAccess`` if the access is already back).
+    private func pauseForWriteAccess(_ item: UploadItem, _ error: APIError) {
+        item.phase = .paused
+        item.failure = error
+        onPausedForWriteAccess?(item)
     }
 
     private func cleanUp(_ item: UploadItem) {

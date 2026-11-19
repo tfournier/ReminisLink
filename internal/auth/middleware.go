@@ -54,7 +54,49 @@ type RouteOptions struct {
 	// AllowUnsigned accepts X-RL-Content-SHA256: UNSIGNED; the body is then
 	// left unread for the handler (upload chunks only).
 	AllowUnsigned bool
+	// TakesLease marks a route that changes the SD card: the Verifier's
+	// Gate takes the write lease (M10) before the body is read, or refuses
+	// the request.
+	TakesLease bool
+	// WhileDisconnected lets a client disconnected by the console through
+	// (POST /api/v1/clients/me/connect only, M10).
+	WhileDisconnected bool
 }
+
+// Rejection is the error answer chosen by a Gate.
+type Rejection struct {
+	Status  int
+	Code    string
+	Message string
+	Details map[string]any
+}
+
+// Gate decides whether an authenticated request may go on. The Verifier
+// calls it once the signature is valid and the nonce reserved, before the
+// body is read: a rejected request never makes the pak read its body (the
+// answer carries "Connection: close" when a body was announced, so the
+// server does not wait for it either). A nil Rejection lets the request
+// through with an Admission (may be nil).
+type Gate func(r *http.Request, client Client, opts RouteOptions) (*Admission, *Rejection)
+
+// Admission is what a Gate holds for a request it let through. Exactly one
+// of its functions is called: Commit once the request is accepted (body
+// verified, or right away for an UNSIGNED body, before the handler), and
+// Rollback if the Verifier rejects the request after the Gate. A Rejection
+// from Commit rejects the request (Rollback is then called). Nil functions
+// are skipped.
+type Admission struct {
+	Commit   func() *Rejection
+	Rollback func()
+	// Value, when not nil, is passed to the handler in the request
+	// context (AdmissionValue).
+	Value any
+}
+
+type admissionContextKey struct{}
+
+// AdmissionValue returns the Value of the Admission of the request.
+func AdmissionValue(ctx context.Context) any { return ctx.Value(admissionContextKey{}) }
 
 // Route options of the API v1 routes.
 var (
@@ -80,6 +122,9 @@ type Verifier struct {
 	Now        func() time.Time // nil: time.Now
 	BodyBudget int64            // 0: DefaultBodyBudget
 	Logger     *slog.Logger     // nil: slog.Default()
+	// Gate, when set, is the last check before the body is read (the
+	// disconnection and the write lease of M10). Set it before serving.
+	Gate Gate
 
 	budgetOnce sync.Once
 	budget     *byteBudget
@@ -135,8 +180,10 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 //  6. a query key present more than once, or a raw ";" in the query →
 //     400 invalid_request (the nonce is consumed, docs/specs/03-protocole.md
 //     §4.2; net/url ignores the pairs holding a ";");
-//  7. body larger than the route limit → 413 too_large; body hash mismatch
-//     → 401 bad_signature.
+//  7. the Gate, when set, may refuse the request (its body still unread);
+//  8. body larger than the route limit → 413 too_large; body hash mismatch
+//     → 401 bad_signature;
+//  9. the Gate's Admission is committed, and may still refuse the request.
 //
 // Signature and body hash are checked in the reverse order of the spec
 // (both answer bad_signature): the body of a forged request is never read.
@@ -163,14 +210,19 @@ func (v *Verifier) Require(opts RouteOptions, next http.Handler) http.Handler {
 		panic(fmt.Sprintf("auth: route body limit %d exceeds the body budget %d", opts.BodyLimit, budget))
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		client, reserved, ok := v.verify(w, r, opts)
+		var adm *Admission
+		client, reserved, ok := v.verify(w, r, opts, &adm)
 		if reserved > 0 {
 			defer v.bodyBudget().release(reserved)
 		}
 		if !ok {
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(WithClient(r.Context(), client)))
+		ctx := WithClient(r.Context(), client)
+		if adm != nil && adm.Value != nil {
+			ctx = context.WithValue(ctx, admissionContextKey{}, adm.Value)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -187,7 +239,7 @@ func (v *Verifier) bodyBudget() *byteBudget {
 
 // verify returns the client, the number of budget bytes held for the body
 // (to release once the handler is done) and whether the request is valid.
-func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOptions) (Client, int64, bool) {
+func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOptions, out **Admission) (Client, int64, bool) {
 	log := v.Logger
 	if log == nil {
 		log = slog.Default()
@@ -197,14 +249,34 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		now = v.Now
 	}
 	var reserved int64
-	fail := func(status int, code, message string) (Client, int64, bool) {
+	// admission is the Gate's hold on the request: rolled back on any
+	// rejection after the Gate, before the answer is written.
+	var admission *Admission
+	committed := false
+	bodyRead := false // the whole body was read
+	failWith := func(status int, code, message string, details map[string]any) (Client, int64, bool) {
+		if !bodyRead && r.ContentLength != 0 {
+			// Every rejection written while an announced body is unread
+			// closes the connection: otherwise net/http first drains up
+			// to 256 KiB of it to keep the connection alive.
+			w.Header().Set("Connection", "close")
+		}
+		if admission != nil && !committed {
+			committed = true
+			if admission.Rollback != nil {
+				admission.Rollback()
+			}
+		}
 		// Never log keys, nonces or signatures.
 		// Every value from the network is bounded (see LogString).
 		log.Info("request rejected", "code", code, "method", LogString(r.Method, MaxLoggedMethod),
 			"path", LogString(r.URL.Path, MaxLoggedPath), "client", LogClient(r.Header.Get(HeaderClient)),
 			"remote", r.RemoteAddr)
-		WriteError(w, status, code, message, nil)
+		WriteError(w, status, code, message, details)
 		return Client{}, reserved, false
+	}
+	fail := func(status int, code, message string) (Client, int64, bool) {
+		return failWith(status, code, message, nil)
 	}
 
 	client, ok := v.Clients.Lookup(r.Header.Get(HeaderClient))
@@ -265,8 +337,33 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		// see what was signed.
 		return fail(http.StatusBadRequest, CodeInvalidRequest, "Semicolon in query")
 	}
+	if v.Gate != nil {
+		adm, rej := v.Gate(r, client, opts)
+		if rej != nil {
+			return failWith(rej.Status, rej.Code, rej.Message, rej.Details)
+		}
+		admission = adm
+		*out = adm
+	}
+	// accept commits the admission before the handler runs.
+	accept := func() bool {
+		if admission == nil || admission.Commit == nil {
+			committed = true
+			return true
+		}
+		if rej := admission.Commit(); rej != nil {
+			// failWith rolls the admission back.
+			failWith(rej.Status, rej.Code, rej.Message, rej.Details)
+			return false
+		}
+		committed = true
+		return true
+	}
 
 	if unsigned {
+		if !accept() {
+			return Client{}, 0, false
+		}
 		return client, 0, true
 	}
 	if r.ContentLength > opts.BodyLimit {
@@ -291,8 +388,12 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	if err != nil {
 		return fail(http.StatusBadRequest, CodeInvalidRequest, "Cannot read body")
 	}
+	bodyRead = true
 	if ContentSHA256(body) != parts.ContentSHA256 {
 		return fail(http.StatusUnauthorized, CodeBadSignature, "Body hash mismatch")
+	}
+	if !accept() {
+		return Client{}, reserved, false
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
@@ -312,7 +413,9 @@ func readBody(r *http.Request, limit int64) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
-	defer r.Body.Close()
+	// The body is not closed here: closing an incomplete body (too large,
+	// or a chunked body that stalls) would first try to drain it, delaying
+	// the error answer. The server closes it after the answer.
 	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		return nil, err

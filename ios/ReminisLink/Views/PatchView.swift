@@ -54,6 +54,8 @@ struct PatchView: View {
                     PatchFormSections(flow: flow, choosesGame: context.game == nil, close: close)
                 }
             }
+            // Another device has write access (M10).
+            .readOnlyBanner(deviceId: deviceId ?? context.deviceId)
             .navigationTitle("Apply a Patch")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -96,6 +98,10 @@ struct PatchView: View {
             // (a cancellation in flight goes on without the screen).
             if let flow, flow.step.holdsTheScreen, !flow.isCancelling {
                 Button("Cancel") { Task { await flow.cancel() } }
+                    // Refused by the console while another device has write
+                    // access (M10): Take Over first. Disabled while a
+                    // cancel waits for the console's answer.
+                    .disabled(flow.session.isReadOnly || flow.step == .cancellingUpload)
                     .accessibilityIdentifier("patch.cancel")
             } else {
                 Button(flow.map { $0.step.isBusy || $0.isCancelling } ?? false ? "Close" : "Cancel") { close() }
@@ -161,7 +167,7 @@ private struct PatchApplyButton: View {
         Button("Apply") {
             if flow.mode == .replace { confirmReplace = true } else { flow.start() }
         }
-        .disabled(!flow.canStart)
+        .disabled(!flow.canStart || flow.session.isReadOnly)
         .accessibilityIdentifier("patch.apply")
         .confirmationDialog("Replace the game?", isPresented: $confirmReplace, titleVisibility: .visible) {
             Button("Replace the Game", role: .destructive) { flow.start() }
@@ -436,16 +442,29 @@ private struct PatchFormSections: View {
         case .sending(let fraction):
             Section {
                 progressRow(Text("Sending the patch… \(fraction.formatted(.percent.precision(.fractionLength(0))))"), fraction: fraction)
+                if flow.isWaitingForWriteAccess {
+                    // M10: resumes by itself once this iPhone has write access.
+                    Label("Paused: another device has write access. The transfer resumes when this iPhone takes over.", systemImage: "pause.circle")
+                        .font(.footnote)
+                        .accessibilityIdentifier("patch.waitingForWriteAccess")
+                }
             }
         case .downloading:
             Section { progressRow(Text("The console is downloading the patch…"), fraction: flow.job?.job?.progress.fraction) }
         case .starting:
             Section { progressRow(Text("Starting…"), fraction: nil) }
+        case .cancellingUpload:
+            Section {
+                progressRow(Text("Cancelling… Waiting for the console to confirm."), fraction: nil)
+                    .accessibilityIdentifier("patch.cancellingUpload")
+            }
         case .patching:
             Section {
                 progressRow(patchingText, fraction: flow.job?.job?.progress.fraction)
                 if !cancelInProgress {
                     Button("Cancel the Patch", role: .destructive) { Task { await flow.cancel() } }
+                        // Refused while another device has write access (M10).
+                        .disabled(flow.session.isReadOnly)
                         .accessibilityIdentifier("patch.cancelJob")
                 }
             } footer: {
@@ -486,6 +505,12 @@ private struct PatchFormSections: View {
                 if error == .upload(.paused) {
                     Label(error.message, systemImage: "pause.circle")
                     Button("Resume") { flow.start() }
+                } else if error == .upload(.cancelNotConfirmed) {
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .accessibilityIdentifier("patch.cancelNotConfirmed")
+                    Button("Resume") { flow.start() }
+                    Button("Cancel Again", role: .destructive) { Task { await flow.cancel() } }
+                        .disabled(flow.session.isReadOnly)
                 } else {
                     Label {
                         Text(error.message).fixedSize(horizontal: false, vertical: true)
@@ -517,6 +542,7 @@ private struct PatchFormSections: View {
                 Label(String(localized: "The cancellation could not be sent: \(error.message)"), systemImage: "exclamationmark.triangle.fill")
                     .accessibilityIdentifier("patch.cancelError")
                 Button("Try Again") { Task { await flow.cancel() } }
+                    .disabled(flow.session.isReadOnly)
             }
         }
         if let error = flow.pollError, flow.step.isBusy {

@@ -158,6 +158,7 @@ struct StatesView: View {
                         .accessibilityHint(Text("Restores this version of the resume state"))
                     }
                     .foregroundStyle(.primary)
+                    .disabled(session.isReadOnly)
                     .accessibilityIdentifier("resume.entry")
                 }
             } header: {
@@ -173,6 +174,22 @@ struct StatesView: View {
 
     @ViewBuilder
     private func actions(for slot: StateSlot) -> some View {
+        // Writes are hidden while another device has write access (M10).
+        if !session.isReadOnly {
+            writeActions(for: slot)
+        }
+        if slot.canDownload {
+            Button("Download") { downloadTask = Task { await download(slot) } }
+                .accessibilityIdentifier("state.download")
+        }
+        if slot.canDelete && !session.isReadOnly {
+            Button("Delete…", role: .destructive) { confirmation = .delete(slot) }
+                .accessibilityIdentifier("state.delete")
+        }
+    }
+
+    @ViewBuilder
+    private func writeActions(for slot: StateSlot) -> some View {
         if slot.canRestore {
             Button("Restore the Locked Copy…") { confirmation = .restore(slot) }
                 .accessibilityIdentifier("state.restore")
@@ -183,14 +200,6 @@ struct StatesView: View {
         } else {
             Button("Lock") { Task { await lock(slot) } }
                 .accessibilityIdentifier("state.lock")
-        }
-        if slot.canDownload {
-            Button("Download") { downloadTask = Task { await download(slot) } }
-                .accessibilityIdentifier("state.download")
-        }
-        if slot.canDelete {
-            Button("Delete…", role: .destructive) { confirmation = .delete(slot) }
-                .accessibilityIdentifier("state.delete")
         }
     }
 

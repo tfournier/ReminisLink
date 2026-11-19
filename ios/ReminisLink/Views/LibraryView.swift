@@ -138,10 +138,13 @@ struct FolderView: View {
                     }
                     .accessibilityIdentifier("game.\(game.name)")
                     .swipeActions(edge: .trailing) {
-                        Button("Delete", role: .destructive) {
-                            toDelete = DeleteTarget(deviceId: route.deviceId, gameId: game.id, name: game.name)
+                        // Another device has write access (M10).
+                        if !app.session(for: route.deviceId).isReadOnly {
+                            Button("Delete", role: .destructive) {
+                                toDelete = DeleteTarget(deviceId: route.deviceId, gameId: game.id, name: game.name)
+                            }
+                            .accessibilityIdentifier("game.delete")
                         }
-                        .accessibilityIdentifier("game.delete")
                     }
                 }
             }

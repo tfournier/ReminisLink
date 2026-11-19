@@ -43,12 +43,16 @@ extension ConsoleSession {
             target: .staging(fileName: file.name), onConflict: .rename,
             scratchDirectory: app.transferDirectory.appending(path: "chunks-\(deviceId)")
         )
-        let client = try await connectedClient()
         let result: UploadResult
         do {
-            result = try await upload.run(client: client)
+            // M10: refused while another device has write access, the
+            // upload waits (its local copy kept) and goes on from the
+            // confirmed offset once this iPhone has write access again.
+            result = try await pausingForWriteAccess {
+                try await upload.run(client: try await connectedClient())
+            }
         } catch {
-            await upload.cancel(client: client)
+            if let client { _ = await upload.cancel(client: client) }
             throw AppError(error)
         }
         guard let stagingId = result.stagingId else { throw AppError.api(.invalidResponse("no stagingId")) }

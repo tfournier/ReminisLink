@@ -87,10 +87,18 @@ type Options struct {
 
 // Server serves the API. Create it with New.
 type Server struct {
-	opts         Options
-	log          *slog.Logger
-	rejectLog    *slog.Logger // sampled: lines about rejected requests
-	presence     *presence
+	opts      Options
+	log       *slog.Logger
+	rejectLog *slog.Logger // sampled: lines about rejected requests
+	presence  *presence
+	// access is the M10 state (write lease, disconnections, access
+	// generations) behind one mutex, in memory only.
+	access *access
+	// gateHook, when set (tests), is called after each gate decision.
+	gateHook atomic.Pointer[func()]
+	// routeTable lists the signed routes with their options, as
+	// registered (walked by the tests: every write route takes the lease).
+	routeTable   []signedRoute
 	now          func() time.Time
 	started      time.Time
 	shuttingDown atomic.Bool
@@ -148,11 +156,17 @@ func New(opts Options) (*Server, error) {
 			grace:    shutdownGrace,
 		},
 	}
+	s.access = newAccess(opts.Now, opts.Clients, s.presence)
 	name := opts.Identity.DeviceName
 	s.deviceName.Store(&name)
 	// The rejections of the verifier share the sampled logger. The
 	// verifier is configured here, before it serves any request.
 	opts.Verifier.Logger = s.rejectLog
+	// The disconnection and the write lease (M10) are checked in one
+	// place, before any body is read.
+	opts.Verifier.Gate = s.gate
+	// Clients are read through access, with their access generation.
+	opts.Verifier.Clients = s.access
 	s.handler = s.middlewares(s.routes())
 	return s, nil
 }
@@ -179,14 +193,33 @@ const (
 	pairPattern  = "POST " + Prefix + "/pair"
 )
 
+// signedRoute is a signed route as registered.
+type signedRoute struct {
+	pattern string
+	opts    auth.RouteOptions
+}
+
+// writes marks a route that changes the SD card: it takes the write lease
+// (M10) or answers 423 read_only, before its body is read. Every route
+// whose responses include 423 in protocol/openapi.yaml uses it, except
+// PUT /writer (which takes the lease itself).
+func writes(o auth.RouteOptions) auth.RouteOptions {
+	o.TakesLease = true
+	return o
+}
+
 // routes registers the API. Signed routes are wrapped one by one with the
-// body options of the route, fixed here (never deduced from the path).
+// options of the route, fixed here (never deduced from the path): body
+// limit, lease (writes) and disconnection.
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	v := s.opts.Verifier
+	s.routeTable = nil
 	signed := func(pattern string, opts auth.RouteOptions, h http.HandlerFunc) {
+		s.routeTable = append(s.routeTable, signedRoute{pattern, opts})
 		mux.Handle(pattern, v.Require(opts, s.markSeen(h)))
 	}
+	jsonWrite := writes(auth.RouteJSON)
 
 	// Unsigned routes.
 	mux.Handle(helloPattern, s.limit(s.hello, http.HandlerFunc(s.handleHello)))
@@ -195,6 +228,14 @@ func (s *Server) routes() http.Handler {
 	// Device.
 	signed("DELETE "+Prefix+"/clients/me", auth.RouteJSON, s.handleUnpair)
 	signed("GET "+Prefix+"/device", auth.RouteJSON, s.handleDevice)
+	reconnect := auth.RouteJSON
+	reconnect.WhileDisconnected = true
+	signed("POST "+Prefix+"/clients/me/connect", reconnect, s.handleConnect)
+
+	// Write lease (M10): never guarded by the lease itself.
+	signed("GET "+Prefix+"/writer", auth.RouteJSON, s.handleGetWriter)
+	signed("PUT "+Prefix+"/writer", auth.RouteJSON, s.handleTakeWriter)
+	signed("DELETE "+Prefix+"/writer", auth.RouteJSON, s.handleReleaseWriter)
 
 	// Library.
 	signed("GET "+Prefix+"/systems", auth.RouteJSON, s.handleSystems)
@@ -202,62 +243,62 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleGame)
 	signed("GET "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.handleGameArt)
 	// PUT /art takes a PNG of at most 4 MiB.
-	signed("PUT "+Prefix+"/games/{gameId}/art", auth.RouteArt, s.notify(ChangeArtSet, s.gameName, s.handlePutArt))
-	signed("DELETE "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.notify(ChangeArtDeleted, s.gameName, s.handleDeleteArt))
+	signed("PUT "+Prefix+"/games/{gameId}/art", writes(auth.RouteArt), s.notify(ChangeArtSet, s.gameName, s.handlePutArt))
+	signed("DELETE "+Prefix+"/games/{gameId}/art", jsonWrite, s.notify(ChangeArtDeleted, s.gameName, s.handleDeleteArt))
 
 	signed("GET "+Prefix+"/games/{gameId}/deletion", auth.RouteJSON, s.handleDeletionPreview)
-	signed("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
+	signed("DELETE "+Prefix+"/games/{gameId}", jsonWrite, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
 
 	// Trash.
 	signed("GET "+Prefix+"/trash", auth.RouteJSON, s.handleTrash)
-	signed("DELETE "+Prefix+"/trash", auth.RouteJSON, s.notify(ChangeTrashEmptied, nil, s.handleEmptyTrash))
-	signed("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.notify(ChangeTrashEntryDeleted, nil, s.handleDeleteTrashEntry))
+	signed("DELETE "+Prefix+"/trash", jsonWrite, s.notify(ChangeTrashEmptied, nil, s.handleEmptyTrash))
+	signed("DELETE "+Prefix+"/trash/{entryId}", jsonWrite, s.notify(ChangeTrashEntryDeleted, nil, s.handleDeleteTrashEntry))
 
 	// Transfers. Only the chunk route accepts UNSIGNED bodies (read as a
 	// stream by the handler, bounded by the chunk size).
-	signed("POST "+Prefix+"/uploads", auth.RouteJSON, s.handleCreateUpload)
+	signed("POST "+Prefix+"/uploads", jsonWrite, s.handleCreateUpload)
 	signed("GET "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, s.handleUploadStatus)
-	signed("PUT "+Prefix+"/uploads/{uploadId}", auth.RouteChunk, s.handleUploadChunk)
-	signed("DELETE "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, s.handleCancelUpload)
-	signed("POST "+Prefix+"/uploads/{uploadId}/complete", auth.RouteJSON, s.notifyUpload(s.handleCompleteUpload))
-	signed("POST "+Prefix+"/downloads", auth.RouteJSON, s.handleCreateDownload)
+	signed("PUT "+Prefix+"/uploads/{uploadId}", writes(auth.RouteChunk), s.handleUploadChunk)
+	signed("DELETE "+Prefix+"/uploads/{uploadId}", jsonWrite, s.handleCancelUpload)
+	signed("POST "+Prefix+"/uploads/{uploadId}/complete", jsonWrite, s.notifyUpload(s.handleCompleteUpload))
+	signed("POST "+Prefix+"/downloads", jsonWrite, s.handleCreateDownload)
 	signed("GET "+Prefix+"/jobs", auth.RouteJSON, s.handleJobs)
 	signed("GET "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleJob)
-	signed("DELETE "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleCancelJob)
+	signed("DELETE "+Prefix+"/jobs/{jobId}", jsonWrite, s.handleCancelJob)
 
 	// Saves. Only PUT /save takes a larger body (64 MiB).
 	signed("GET "+Prefix+"/saves", auth.RouteJSON, s.handleListSaves)
 	signed("GET "+Prefix+"/games/{gameId}/save", auth.RouteJSON, s.handleGetSave)
 	signed("GET "+Prefix+"/games/{gameId}/save/rtc", auth.RouteJSON, s.handleGetSaveClock)
-	signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, s.notify(ChangeSaveReplaced, s.gameName, s.handlePutSave))
+	signed("PUT "+Prefix+"/games/{gameId}/save", writes(auth.RouteSave), s.notify(ChangeSaveReplaced, s.gameName, s.handlePutSave))
 	signed("GET "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleListBackups)
-	signed("POST "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleCreateBackup)
+	signed("POST "+Prefix+"/games/{gameId}/save/backups", jsonWrite, s.handleCreateBackup)
 	signed("GET "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleGetBackup)
-	signed("DELETE "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleDeleteBackup)
-	signed("POST "+Prefix+"/games/{gameId}/save/backups/{backupId}/restore", auth.RouteJSON, s.notify(ChangeSaveRestored, s.gameName, s.handleRestoreBackup))
+	signed("DELETE "+Prefix+"/games/{gameId}/save/backups/{backupId}", jsonWrite, s.handleDeleteBackup)
+	signed("POST "+Prefix+"/games/{gameId}/save/backups/{backupId}/restore", jsonWrite, s.notify(ChangeSaveRestored, s.gameName, s.handleRestoreBackup))
 
 	// States, locks and resume history.
 	signed("GET "+Prefix+"/games/{gameId}/states", auth.RouteJSON, s.handleListStates)
 	signed("GET "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.handleGetState)
-	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.notify(ChangeStateDeleted, s.gameName, s.handleDeleteState))
+	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}", jsonWrite, s.notify(ChangeStateDeleted, s.gameName, s.handleDeleteState))
 	signed("GET "+Prefix+"/games/{gameId}/states/{slot}/thumbnail", auth.RouteJSON, s.handleStateThumbnail)
-	signed("PUT "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleLockState)
-	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleUnlockState)
-	signed("POST "+Prefix+"/games/{gameId}/states/{slot}/restore", auth.RouteJSON, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreState))
+	signed("PUT "+Prefix+"/games/{gameId}/states/{slot}/lock", jsonWrite, s.handleLockState)
+	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}/lock", jsonWrite, s.handleUnlockState)
+	signed("POST "+Prefix+"/games/{gameId}/states/{slot}/restore", jsonWrite, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreState))
 	signed("GET "+Prefix+"/games/{gameId}/resume-history", auth.RouteJSON, s.handleResumeHistory)
-	signed("POST "+Prefix+"/games/{gameId}/resume-history/{entryId}/restore", auth.RouteJSON, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreResume))
+	signed("POST "+Prefix+"/games/{gameId}/resume-history/{entryId}/restore", jsonWrite, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreResume))
 
 	// Cheats.
 	signed("GET "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.handleGetCheats)
-	signed("PUT "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.notify(ChangeCheatsUpdated, s.gameName, s.handlePutCheats))
-	signed("POST "+Prefix+"/games/{gameId}/cheats/import", auth.RouteJSON, s.notify(ChangeCheatsUpdated, s.gameName, s.handleImportCheats))
+	signed("PUT "+Prefix+"/games/{gameId}/cheats", jsonWrite, s.notify(ChangeCheatsUpdated, s.gameName, s.handlePutCheats))
+	signed("POST "+Prefix+"/games/{gameId}/cheats/import", jsonWrite, s.notify(ChangeCheatsUpdated, s.gameName, s.handleImportCheats))
 	signed("GET "+Prefix+"/sd/files", auth.RouteJSON, s.handleSDFiles)
 
 	// Patches (a job, like the downloads).
-	signed("POST "+Prefix+"/games/{gameId}/patch", auth.RouteJSON, s.handlePatchGame)
+	signed("POST "+Prefix+"/games/{gameId}/patch", jsonWrite, s.handlePatchGame)
 
 	// Every signed route besides PUT /save, PUT /art and the upload chunks
-	// uses auth.RouteJSON.
+	// uses auth.RouteJSON (jsonWrite when it changes the SD card).
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "No such route", nil)

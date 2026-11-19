@@ -48,6 +48,9 @@ other = "Annuler"
 [button_confirm]
 other = "Valider"
 
+[button_disconnect]
+other = "Déconnecter"
+
 [button_forget]
 other = "Oublier"
 
@@ -78,6 +81,21 @@ other = "02/01/2006"
 [decimal_separator]
 other = ","
 
+[device_item]
+other = "{{.Name}} ({{.State}})"
+
+[device_state_connected]
+other = "connecté"
+
+[device_state_disconnected]
+other = "déconnecté"
+
+[device_state_separator]
+other = ", "
+
+[device_state_writer]
+other = "a la main"
+
 [hint_no_wifi]
 other = "Le Wi-Fi est coupé : active-le dans les réglages de NextUI.\nReminisLink reprend dès son retour."
 
@@ -100,8 +118,8 @@ other = "Nom de la console : {{.Name}}"
 other = "Appairer un nouvel appareil"
 
 [item_paired]
-one = "Appareils appairés ({{.Count}})"
-other = "Appareils appairés ({{.Count}})"
+one = "Appareils ({{.Count}})"
+other = "Appareils ({{.Count}})"
 
 [label_code]
 other = "Code"
@@ -114,6 +132,9 @@ other = "Console"
 
 [label_state]
 other = "État"
+
+[label_writer]
+other = "Accès en écriture"
 
 [language_prompt]
 other = "Choisis la langue de l'interface."
@@ -132,6 +153,12 @@ other = "Oublier tous les appareils appairés ?\nChaque appareil devra être app
 
 [msg_confirm_quit]
 other = "Un transfert est en cours. Quitter quand même ?"
+
+[msg_device_error]
+other = "Impossible de modifier cet appareil :\n{{.Error}}"
+
+[msg_disconnected]
+other = "{{.Name}} est déconnecté.\nIl peut se reconnecter depuis l'app."
 
 [msg_forgot_all]
 one = "{{.Count}} appareil oublié."
@@ -248,7 +275,7 @@ other = "Prêt"
 other = "Transfert en cours"
 
 [title_paired]
-other = "Appareils appairés"
+other = "Appareils"
 
 [title_settings]
 other = "Réglages"

@@ -67,7 +67,7 @@ struct PatchAppTests {
     func runToTheEnd(_ flow: PatchFlow) async {
         for _ in 0..<500 {
             switch flow.step {
-            case .preparing, .sending, .starting:
+            case .preparing, .sending, .starting, .cancellingUpload:
                 try? await Task.sleep(for: .milliseconds(10))
             case .downloading, .patching:
                 await flow.tick()

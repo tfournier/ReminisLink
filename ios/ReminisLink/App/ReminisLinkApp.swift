@@ -21,21 +21,9 @@ struct RootView: View {
         NavigationStack(path: $app.path) {
             ConsolesView()
                 .navigationDestination(for: Route.self) { route in
-                    switch route {
-                    case .console(let id): ConsoleView(deviceId: id)
-                    case .library(let id): LibraryView(deviceId: id)
-                    case .folder(let folder): FolderView(route: folder)
-                    case .game(let game): GameDetailView(route: game)
-                    case .save(let game): SaveView(route: game)
-                    case .states(let game): StatesView(route: game)
-                    case .cheats(let game): CheatsView(route: game)
-                    case .trash(let id): TrashView(deviceId: id)
-                    case .transfers(let id): TransfersView(deviceId: id)
-                    case .settings: AppSettingsView()
-                    case .syncedConsoles: SyncedConsolesView()
-                    case .syncedSaves(let id): SyncedSavesView(deviceId: id)
-                    case .syncedGame(let game): SyncedGameView(route: game)
-                    }
+                    destination(route)
+                        // M10: another device has write access.
+                        .readOnlyBanner(deviceId: route.deviceId)
                 }
         }
         .sheet(item: $app.sheet, onDismiss: { app.sheetDismissed() }) { sheet in
@@ -74,6 +62,25 @@ struct RootView: View {
                 app.discovery.stop()
                 app.enterBackground()
             }
+        }
+    }
+
+    @ViewBuilder
+    private func destination(_ route: Route) -> some View {
+        switch route {
+        case .console(let id): ConsoleView(deviceId: id)
+        case .library(let id): LibraryView(deviceId: id)
+        case .folder(let folder): FolderView(route: folder)
+        case .game(let game): GameDetailView(route: game)
+        case .save(let game): SaveView(route: game)
+        case .states(let game): StatesView(route: game)
+        case .cheats(let game): CheatsView(route: game)
+        case .trash(let id): TrashView(deviceId: id)
+        case .transfers(let id): TransfersView(deviceId: id)
+        case .settings: AppSettingsView()
+        case .syncedConsoles: SyncedConsolesView()
+        case .syncedSaves(let id): SyncedSavesView(deviceId: id)
+        case .syncedGame(let game): SyncedGameView(route: game)
         }
     }
 }
