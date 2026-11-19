@@ -173,13 +173,18 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := auth.Client{ID: res.ClientID, Name: *req.ClientName, Key: res.Key, PairedAt: s.now()}
-	if err := s.opts.Clients.Put(client); err != nil {
+	s.access.Lock()
+	err = s.opts.Clients.Put(client)
+	if err == nil {
+		// Pairing again on the console's pairing screen is a deliberate
+		// action: it lifts a disconnection of the same client id (M10).
+		s.disconnected.remove(client.ID)
+	}
+	s.access.Unlock()
+	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	// Pairing again on the console's pairing screen is a deliberate
-	// action: it lifts a disconnection of the same client id (M10).
-	s.disconnected.remove(client.ID)
 	// Never log the key, the nonces or the proofs.
 	s.log.Info("client paired", "client", client.ID, "name", client.Name, "method", *req.Method)
 	if s.opts.OnPaired != nil {
@@ -199,11 +204,16 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, errors.New("no client in context"))
 		return
 	}
-	if _, err := s.opts.Clients.Remove(client.ID); err != nil {
+	s.access.Lock()
+	_, err := s.opts.Clients.Remove(client.ID)
+	if err == nil {
+		s.dropClient(client.ID)
+	}
+	s.access.Unlock()
+	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	s.dropClient(client.ID)
 	s.log.Info("client unpaired", "client", client.ID)
 	w.WriteHeader(http.StatusNoContent)
 }

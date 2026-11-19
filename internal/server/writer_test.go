@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bufio"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"path/filepath"
 	"slices"
@@ -132,13 +135,17 @@ func wantReadOnly(t *testing.T, r testutil.Response, writer string) {
 	}
 }
 
-// snapshot lists every file of the SD card with its size and mtime.
+// snapshot lists every file of the SD card with its size and mtime,
+// except the client store (changed by Forget).
 func (f *fixture) snapshot() []string {
 	f.t.Helper()
 	var out []string
 	err := filepath.WalkDir(f.sd, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if strings.HasPrefix(d.Name(), "clients.json") || (d.IsDir() && p == filepath.Dir(f.layout.ClientsFile())) {
+			return nil
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -405,8 +412,12 @@ func TestDisconnectByTheConsole(t *testing.T) {
 	// B can write now.
 	f.as(b, "POST", g+"/save/backups", "/games/{gameId}/save/backups", nil, http.StatusCreated)
 
-	// POST /clients/me/connect lifts it without taking the lease.
+	// POST /clients/me/connect lifts it without taking the lease, and the
+	// device is connected again at once.
 	f.as(f.client, "POST", "/api/v1/clients/me/connect", "/clients/me/connect", nil, 204)
+	if got := f.server.ConnectedClients(); len(got) != 2 {
+		t.Fatalf("connected right after connect: %+v", got)
+	}
 	f.as(f.client, "GET", "/api/v1/systems", "/systems", nil, 200)
 	if w := f.writerOf(f.client); w.Writer == nil || w.Writer.You {
 		t.Fatalf("after connect: %+v", w.Writer)
@@ -508,5 +519,211 @@ func TestUploadAfterTakeOver(t *testing.T) {
 	f.do(http.MethodPost, "/api/v1/uploads/"+c.UploadID+"/complete", "/uploads/{uploadId}/complete", nil, http.StatusOK)
 	if got := f.read("Roms/" + gbaFolder + "/Sky Garden Quest DX.gba"); got != string(data) {
 		t.Fatal("uploaded file differs")
+	}
+}
+
+// rawHead returns the request line and the headers of a request signed by
+// c, announcing body (not included).
+func rawHead(t *testing.T, c *testutil.Client, method, target string, body []byte, unsigned bool) []byte {
+	t.Helper()
+	req := c.Request(t, method, target, body)
+	if unsigned {
+		req = c.RequestUnsigned(t, method, target, body)
+		req.Header.Set("Upload-Offset", "0")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n", method, target, len(body))
+	for k, v := range req.Header {
+		fmt.Fprintf(&b, "%s: %s\r\n", k, v[0])
+	}
+	b.WriteString("\r\n")
+	return []byte(b.String())
+}
+
+// heldBody sends the headers of a request and keeps its body back. It
+// returns the connection and a reader for the response.
+func (f *fixture) heldBody(c *testutil.Client, method, target string, body []byte, unsigned bool) (net.Conn, *bufio.Reader) {
+	f.t.Helper()
+	conn := dial(f.t, f.http.Listener.Addr().String())
+	f.t.Cleanup(func() { conn.Close() })
+	if _, err := conn.Write(rawHead(f.t, c, method, target, body, unsigned)); err != nil {
+		f.t.Fatal(err)
+	}
+	return conn, bufio.NewReader(conn)
+}
+
+func readResponse(t *testing.T, conn net.Conn, br *bufio.Reader) (*http.Response, testutil.Response) {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		t.Fatalf("no response while the body is held back: %v", err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp, testutil.Response{Status: resp.StatusCode, Header: resp.Header, Body: data}
+}
+
+// TestRejectedWithoutWaitingForTheBody: a 423 read_only or 401
+// disconnected arrives while the client still holds its body back (a
+// small body would otherwise be drained by net/http first), over a real
+// connection.
+func TestRejectedWithoutWaitingForTheBody(t *testing.T) {
+	f := newFixture(t)
+	f.rename(f.client, "iPhone A")
+	b := f.pairNamed("iPhone B")
+	g := gamePath(scPath)
+	f.as(f.client, "PUT", "/api/v1/writer", "/writer", nil, 200)
+	body := make([]byte, 100<<10) // under the 256 KiB net/http drains
+
+	for _, unsigned := range []bool{false, true} {
+		target, path := g+"/save", "/games/{gameId}/save"
+		if unsigned {
+			target, path = "/api/v1/uploads/00000000-0000-4000-8000-000000000000", "/uploads/{uploadId}"
+		}
+		conn, br := f.heldBody(b, "PUT", target, body, unsigned)
+		resp, r := readResponse(t, conn, br)
+		f.check("PUT", path, r)
+		wantReadOnly(t, r, "iPhone A")
+		if !resp.Close {
+			t.Errorf("unsigned=%v: the connection must close after a pre-body rejection", unsigned)
+		}
+	}
+
+	if err := f.server.Disconnect(b.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	conn, br := f.heldBody(b, "PUT", g+"/save", body, false)
+	resp, r := readResponse(t, conn, br)
+	f.check("PUT", "/games/{gameId}/save", r)
+	if r.Status != 401 || r.ErrorCode() != CodeDisconnected || !resp.Close {
+		t.Fatalf("disconnected: %d %s close=%v", r.Status, r.Body, resp.Close)
+	}
+}
+
+// TestRejectedWriteDoesNotTakeTheLease: the lease taken by a write request
+// before its body is read is given back if the request is then rejected,
+// and a rejected request of the holder does not renew it.
+func TestRejectedWriteDoesNotTakeTheLease(t *testing.T) {
+	f := newFixture(t)
+	f.rename(f.client, "iPhone A")
+	b := f.pairNamed("iPhone B")
+	g := gamePath(scPath)
+	badHash := func(c *testutil.Client) testutil.Response {
+		req := c.Request(t, "PUT", g+"/save", []byte("signed body"))
+		req.Body = io.NopCloser(strings.NewReader("forged body"))
+		r := c.Send(t, req)
+		f.check("PUT", "/games/{gameId}/save", r)
+		return r
+	}
+
+	// Free lease: B's write with a wrong body hash is refused and B does
+	// not keep the lease.
+	before := f.snapshot()
+	wantCode(t, badHash(b), auth.CodeBadSignature)
+	if _, held := f.server.WriterName(); held {
+		t.Fatal("a rejected write took the lease")
+	}
+	if !slices.Equal(before, f.snapshot()) {
+		t.Fatal("the SD card changed")
+	}
+	// Too large: same.
+	big := b.Do(t, "PUT", "/api/v1/games/"+library.EncodeID(scPath)+"/cheats", make([]byte, auth.BodyLimitJSON+1))
+	if big.Status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("too large: %d", big.Status)
+	}
+	if _, held := f.server.WriterName(); held {
+		t.Fatal("a too large write took the lease")
+	}
+
+	// A rejected request of the holder does not renew it.
+	f.as(f.client, "PUT", "/api/v1/writer", "/writer", nil, 200)
+	f.clock.Advance(50 * time.Second)
+	wantCode(t, badHash(f.client), auth.CodeBadSignature)
+	f.clock.Advance(10 * time.Second)
+	if _, held := f.server.WriterName(); held {
+		t.Fatal("the rejected request renewed the lease")
+	}
+	f.as(b, "POST", g+"/save/backups", "/games/{gameId}/save/backups", nil, http.StatusCreated)
+}
+
+// gateReached makes the next gate decision signal the returned channel.
+func (f *fixture) gateReached() <-chan struct{} {
+	ch := make(chan struct{}, 1)
+	fn := func() {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+	f.server.gateHook.Store(&fn)
+	return ch
+}
+
+// TestRevocationWhileTheBodyIsRead: a request admitted by the gate whose
+// body is still coming does not (re)gain the lease if the console
+// disconnects or forgets its client, or if another client takes over, in
+// the meantime. Deterministic: the body is sent only after the revocation.
+func TestRevocationWhileTheBodyIsRead(t *testing.T) {
+	g := gamePath(scPath)
+	cases := []struct {
+		name   string
+		aHolds bool // A holds the lease before B's request
+		method string
+		target string
+		path   string
+		body   string
+		revoke func(f *fixture, b *testutil.Client)
+		code   string
+		wantA  bool // A holds the lease at the end
+	}{
+		{"take over then disconnect", true, "PUT", "/api/v1/writer", "/writer", `{"force":true}`,
+			func(f *fixture, b *testutil.Client) { f.server.Disconnect(b.ClientID) }, CodeDisconnected, true},
+		{"take over then forget", true, "PUT", "/api/v1/writer", "/writer", `{"force":true}`,
+			func(f *fixture, b *testutil.Client) { f.server.Forget(b.ClientID) }, auth.CodeUnknownClient, true},
+		{"first write then disconnect", false, "PUT", g + "/save", "/games/{gameId}/save", "new save",
+			func(f *fixture, b *testutil.Client) { f.server.Disconnect(b.ClientID) }, CodeDisconnected, false},
+		{"first write then forget all", false, "PUT", g + "/save", "/games/{gameId}/save", "new save",
+			func(f *fixture, b *testutil.Client) { f.server.ForgetAll() }, auth.CodeUnknownClient, false},
+		{"first write then take over by A", false, "PUT", g + "/save", "/games/{gameId}/save", "new save",
+			func(f *fixture, b *testutil.Client) {
+				f.as(f.client, "PUT", "/api/v1/writer", "/writer", []byte(`{"force":true}`), 200)
+			}, CodeReadOnly, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.rename(f.client, "iPhone A")
+			b := f.pairNamed("iPhone B")
+			if tc.aHolds {
+				f.as(f.client, "PUT", "/api/v1/writer", "/writer", nil, 200)
+			}
+			before := f.snapshot()
+			reached := f.gateReached()
+			conn, br := f.heldBody(b, tc.method, tc.target, []byte(tc.body), false)
+			select {
+			case <-reached:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the gate was not reached")
+			}
+			f.server.gateHook.Store(nil)
+			tc.revoke(f, b)
+			if _, err := conn.Write([]byte(tc.body)); err != nil {
+				t.Fatal(err)
+			}
+			_, r := readResponse(t, conn, br)
+			f.check(tc.method, tc.path, r)
+			wantCode(t, r, tc.code)
+			if tc.code == CodeReadOnly {
+				wantReadOnly(t, r, "iPhone A")
+			}
+			name, held := f.server.WriterName()
+			if tc.wantA != (held && name == "iPhone A") || (!tc.wantA && held) {
+				t.Fatalf("writer after the revocation: %q %v", name, held)
+			}
+			if !slices.Equal(before, f.snapshot()) {
+				t.Fatal("the SD card changed")
+			}
+		})
 	}
 }

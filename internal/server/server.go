@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -93,6 +94,11 @@ type Server struct {
 	presence     *presence
 	lease        *auth.WriteLease // M10, in memory only
 	disconnected *clientSet       // M10: disconnected by the console
+	// access serializes the lease acquisitions with the revocations of a
+	// client (disconnect, forget, unpair), M10.
+	access sync.Mutex
+	// gateHook, when set (tests), is called after each gate decision.
+	gateHook atomic.Pointer[func()]
 	// routeTable lists the signed routes with their options, as
 	// registered (walked by the tests: every write route takes the lease).
 	routeTable   []signedRoute
