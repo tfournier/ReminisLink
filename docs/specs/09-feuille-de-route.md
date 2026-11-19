@@ -119,7 +119,7 @@ Suggestions de la personne du 19/11/2026, après essai de M10. À préciser et v
 - **Mise à jour du pak ReminisLink depuis l'app** (proposée par la personne le 19/11/2026, après la v1.0.0) : l'app récupère la dernière version publiée sur GitHub et l'installe sur la console. S'appuie sur l'installation de paks de M12 ; comme ReminisLink ne peut pas se remplacer pendant qu'il tourne, la nouvelle version est déposée à part et appliquée au lancement suivant (par `launch.sh`), l'ancienne passant à la corbeille. Vérifier l'archive avant de l'appliquer (somme publiée avec la version, ou signature).
 - **Interface web servie par le pak** (proposée par la personne le 19/11/2026) : les actions de l'app depuis un navigateur (ordinateur, Android) à `http://<console>:47821/`, en réutilisant l'API ; signature dans le navigateur (WebCrypto), appairage par PIN (la caméra exige HTTPS), à réconcilier avec 07 §4 (« aucun fichier statique »).
 
-## M12 — Gestion des apps (paks) (décidé, à lancer après M11)
+## M12 — Gestion des apps (paks) (décidé, après M13)
 
 Demande et décisions de la personne du 19/11/2026.
 
@@ -131,11 +131,15 @@ Demande et décisions de la personne du 19/11/2026.
 - **Navigateur de la carte SD** (demande de la personne du 19/11/2026), ouvert en touchant la section Stockage de l'app et réutilisé comme sélecteur de pak : **consultation seule en M12** (dossiers, noms, tailles, dates, téléchargement d'un fichier vers l'iPhone). Identifiants opaques résolus par le pak, rien hors de la carte, aucun lien suivi ; les données de ReminisLink (clés des appareils, journaux internes) sont cachées. Cible plus tard : gestionnaire complet (suppression vers la corbeille, renommer, déplacer, créer un dossier, envoyer un fichier), avec la main en écriture et des dossiers protégés.
 - **Pas de remplacement du Pak Store** : ni catalogue ni mises à jour automatiques (pour l'instant).
 
-## M13 — Appairage inspiré de HomeKit (décidé, ordre à fixer)
+## M13 — Appairage inspiré de HomeKit (décidé, après M11, avant M12)
 
 Décisions de la personne du 19/11/2026 : s'inspirer du protocole des accessoires HomeKit sans le suivre à la lettre. Demande un nouvel appairage de l'iPhone (changement de contrat et des vecteurs de test partagés).
 
-- **Un seul appareil appairé** : pas de rôles. Pour appairer un autre iPhone, il faut d'abord supprimer l'appairage existant (console : Réglages > Appareil > Oublier ; app : Se désappairer). L'appairage n'est ouvert que si aucun appareil n'est appairé. Le bail d'écriture de M10 reste (deux sessions du même appareil), mais l'écran Appareils de la console devient « Appareil ».
+- **Plusieurs appareils, deux mécanismes** (décision de la personne du 19/11/2026, qui remplace « un seul appareil appairé ») :
+  - **Trousseau iCloud** : la clé privée de l'app est un élément synchronisé du trousseau ; l'iPhone, l'iPad et le Mac d'un même compte Apple partagent la même identité et n'appairent qu'une fois (pas de Secure Enclave, dont les clés ne se synchronisent pas).
+  - **Plusieurs appairages** : chaque autre appareil (autre compte Apple, plus tard Android, interface web) a sa propre clé, appairée par le QR code de la console (Réglages > Appairer un nouvel appareil, comme en M8). La console garde la liste des appareils avec Déconnecter et Oublier (M10). Pas de rôles.
+- **Verrou par action à la place du bail de M10** (décision du 19/11/2026) : le pak exécute les écritures une à une (suppression, remplacement, restauration, patch, cheats, image, étape finale d'un envoi) ; les morceaux d'un envoi vont en zone d'attente sans verrou. Si une écriture est en cours, la suivante attend qu'elle finisse (quelques secondes) au lieu d'être refusée ; « occupé » seulement si l'attente dépasse une limite. Retirés : bail, renouvellement, `PUT/GET/DELETE /writer`, `423 read_only`, bandeau « Lecture seule » et « Prendre la main ». Gardés : Déconnecter, Oublier, `401 disconnected`. Le risque résiduel « aperçu puis suppression » de 07 §3 revient tel qu'accepté le 19/11/2026.
+- La compatibilité iPad et Mac de l'app (écrans, cible Mac) est un jalon à part.
 - **Clés asymétriques Ed25519** à la place de la clé HMAC partagée : chaque requête est signée par la clé privée de l'iPhone (Keychain) ; le pak ne garde sur la carte que la clé publique de l'iPhone, inutilisable pour signer (corrige la copie de `clients.json` depuis une carte SD retirée de la console). Le pak a sa propre paire de clés, dont l'iPhone garde la clé publique.
 - **Pas de PIN en M13** (décision de la personne du 19/11/2026) : appairage par QR code seulement ; le PIN (secours si l'appareil photo est abîmé) reviendra plus tard, protégé par un PAKE ou par un échange X25519 confirmé par le PIN (choix à faire alors). L'écran d'appairage de la console n'affiche plus de PIN.
 - **Chiffrement par TLS épinglé** : le pak génère un certificat (ECDSA P-256) ; son empreinte est transmise de façon authentifiée à l'appairage (dans le QR code) et épinglée par l'app. TLS 1.3 de la bibliothèque standard Go (ChaCha20-Poly1305 choisi automatiquement si le processeur n'a pas d'instructions AES) ; débit à mesurer sur la console.
