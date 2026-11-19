@@ -23,7 +23,7 @@ import ReminisLinkKit
 /// nonce, HMAC, body hash, duplicate query keys), so the app and the tests
 /// exercise the real signing path. Its example values come from the
 /// examples of openapi.yaml, with made-up game names.
-public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
+public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public static let demoHost = "demo.reminislink.invalid"
     public static let demoPort: UInt16 = 47821
     public static let demoDeviceId = "5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
@@ -61,10 +61,21 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var nextPairDelays: [TimeInterval] = []
     private var _pairingOpen = true
     private var closePairingAfterHello = false
-    private var clients: [String: SymmetricKey] = [:]
-    private var clientNames: [String: String] = [:]
+    var clients: [String: SymmetricKey] = [:]
+    var clientNames: [String: String] = [:]
     /// Last accepted signed request per client (`connectedClients`).
-    private var lastSeen: [String: Date] = [:]
+    var lastSeen: [String: Date] = [:]
+    /// The write lease (milestone M10, see FakePakWriter.swift): its holder
+    /// and expiry, the clients disconnected from the console, and the
+    /// clock of the lease (injectable, to test the expiry).
+    var writerClientId: String?
+    var writerExpiry = Date.distantPast
+    var disconnectedClients: Set<String> = []
+    var _leaseClock: @Sendable () -> Date = { Date() }
+    /// Answers handled at once but delivered late, by method and path.
+    private var lateAnswers: [(method: String, path: String, delay: TimeInterval)] = []
+    /// Requests that reach the pak late, by method and path.
+    private var lateArrivals: [(method: String, path: String, delay: TimeInterval)] = []
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
@@ -277,6 +288,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             jobs = [:]
             nonces = []
             lastSeen = [:]
+            // Kept in memory only (M10).
+            writerClientId = nil
+            disconnectedClients = []
         }
     }
 
@@ -287,6 +301,30 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         lock.withLock {
             clients[id] = key
             clientNames[id] = name
+        }
+    }
+
+    /// The next request with this method and path (e.g. `PUT`,
+    /// `/api/v1/writer`) is handled at once (its effect is immediate) but
+    /// its answer is delivered `delay` seconds later, without blocking the
+    /// other requests: an answer that arrives after later ones.
+    public func delayNextAnswer(method: String, path: String, by delay: TimeInterval) {
+        lock.withLock { lateAnswers.append((method, path, delay)) }
+    }
+
+    /// The next request with this method and path reaches the pak `delay`
+    /// seconds late (as if it stayed on the network): requests sent after
+    /// it may be handled first.
+    public func delayNextArrival(method: String, path: String, by delay: TimeInterval) {
+        lock.withLock { lateArrivals.append((method, path, delay)) }
+    }
+
+    public func arrivalDelay(for request: URLRequest) -> TimeInterval {
+        let method = (request.httpMethod ?? "GET").uppercased()
+        guard let path = request.url?.path(percentEncoded: true) else { return 0 }
+        return lock.withLock {
+            guard let index = lateArrivals.firstIndex(where: { $0.method == method && $0.path == path }) else { return 0 }
+            return lateArrivals.remove(at: index).delay
         }
     }
 
@@ -304,8 +342,11 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         let url = request.url!
         let path = url.path(percentEncoded: true)
         let query = url.query(percentEncoded: true) ?? ""
-        let response = route(request, method: method, path: path, query: query, body: body)
+        var response = route(request, method: method, path: path, query: query, body: body)
         lock.withLock {
+            if let index = lateAnswers.firstIndex(where: { $0.method == method && $0.path == path }) {
+                response.delay = max(response.delay, lateAnswers.remove(at: index).delay)
+            }
             _log.append(LoggedRequest(
                 method: method, path: path, query: query,
                 nonce: request.value(forHTTPHeaderField: SignedHeaders.nonce), status: response.status
@@ -329,9 +370,10 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             break
         }
 
-        if let failure = verify(request, method: method, path: path, query: query, body: body) {
+        if let failure = verify(request, method: method, path: path, query: query, body: body, segments: segments) {
             return failure
         }
+        let clientId = request.value(forHTTPHeaderField: SignedHeaders.client) ?? ""
         if let next = lock.withLock({ queued.isEmpty ? nil : queued.removeFirst() }) {
             return next
         }
@@ -339,14 +381,16 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
 
         switch (method, segments) {
         case ("GET", ["device"]):
-            return device()
+            return device(clientId: clientId)
         case ("DELETE", ["clients", "me"]):
-            let clientId = request.value(forHTTPHeaderField: SignedHeaders.client) ?? ""
             lock.withLock {
                 _ = clients.removeValue(forKey: clientId)
                 lastSeen[clientId] = nil
+                if writerClientId == clientId { writerClientId = nil }
             }
             return FakeResponse(status: 204)
+        case (_, ["writer"]), ("POST", ["clients", "me", "connect"]):
+            return routeWriter(clientId: clientId, method: method, segments: segments, body: body)
         case ("GET", ["systems"]):
             return systems()
         case ("GET", ["saves"]):
@@ -424,7 +468,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     }
 
     /// The pak's checks, in the order of the contract.
-    private func verify(_ request: URLRequest, method: String, path: String, query: String, body: Data) -> FakeResponse? {
+    private func verify(
+        _ request: URLRequest, method: String, path: String, query: String, body: Data, segments: [String]
+    ) -> FakeResponse? {
         func header(_ name: String) -> String? { request.value(forHTTPHeaderField: name) }
         guard let clientId = header(SignedHeaders.client), let key = lock.withLock({ clients[clientId] }) else {
             return .error(401, code: "unknown_client", message: "Unknown client")
@@ -448,6 +494,11 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         lock.withLock {
             _ = nonces.insert(clientId + "|" + nonce)
             lastSeen[clientId] = seen
+        }
+        // M10, as the contract orders it: right after a valid signature,
+        // `401 disconnected`, then `423 read_only` before the body is read.
+        if let refusal = checkLease(clientId: clientId, method: method, segments: segments) {
+            return refusal
         }
         let keys = Self.decodeQuery(query).map(\.0)
         guard Set(keys).count == keys.count else {
@@ -484,6 +535,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
             "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": pairingOpen,
+            "writerHeld": writerHeld,
         ])
     }
 
@@ -529,7 +581,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         return response
     }
 
-    private func device() -> FakeResponse {
+    private func device(clientId: String) -> FakeResponse {
         let limit = now().addingTimeInterval(-30)
         let connected = lock.withLock { () -> [[String: Any]] in
             return lastSeen.filter { $0.value >= limit && clients[$0.key] != nil }
@@ -545,6 +597,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             "storage": [["id": "sd", "label": "SD", "totalBytes": 127_865_454_592, "freeBytes": freeBytes]],
             "uptimeSeconds": 512,
             "connectedClients": connected,
+            "writer": writerJSON(for: clientId),
         ])
     }
 

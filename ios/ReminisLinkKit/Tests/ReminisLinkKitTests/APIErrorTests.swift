@@ -9,7 +9,7 @@ struct APIErrorTests {
         let raw = ["invalid_request", "invalid_id", "invalid_name", "unknown_client", "bad_signature", "clock_skew",
                    "replayed_request", "pairing_failed", "not_found", "conflict", "checksum_mismatch", "state_locked",
                    "too_large", "unsupported_format", "patch_mismatch", "too_many_attempts", "internal",
-                   "shutting_down", "insufficient_storage"]
+                   "shutting_down", "insufficient_storage", "read_only", "disconnected"]
         #expect(ErrorCode.allKnown.map(\.rawValue) == raw)
         for code in raw {
             #expect(ErrorCode(rawValue: code).rawValue == code)

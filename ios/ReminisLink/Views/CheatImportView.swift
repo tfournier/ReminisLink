@@ -51,6 +51,13 @@ struct CheatImportView: View {
                 } else if let error {
                     Section { ErrorView(error: error) }
                 }
+                if isImporting && session.writeAccessWaits > 0 {
+                    // M10: the file waits on this iPhone, then goes on.
+                    Section {
+                        Label("Paused: another device has write access. The transfer resumes when this iPhone takes over.", systemImage: "pause.circle")
+                            .accessibilityIdentifier("import.paused")
+                    }
+                }
                 switch source {
                 case .link: linkSection
                 case .files: filesSection
@@ -71,6 +78,8 @@ struct CheatImportView: View {
                     }
                 }
             }
+            // Another device has write access (M10): Take Over from here.
+            .readOnlyBanner(deviceId: route.deviceId)
             .navigationTitle("Import Cheats")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -84,7 +93,7 @@ struct CheatImportView: View {
                         Button("Import") {
                             if mode == .replace { confirmReplace = true } else { Task { await runImport() } }
                         }
-                        .disabled(!canImport)
+                        .disabled(!canImport || session.isReadOnly)
                         .accessibilityIdentifier("import.run")
                     }
                 }

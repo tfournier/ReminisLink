@@ -139,8 +139,12 @@ final class AppModel {
     /// How long to look for a console with Bonjour.
     let lookupTimeout: Duration
 
-    var path: [Route] = []
+    var path: [Route] = [] {
+        didSet { pathChanged(from: oldValue) }
+    }
     var sheet: Sheet?
+    /// The app is active (M10: the write lease is renewed while it is).
+    @ObservationIgnored private(set) var isForeground = false
     var linkError: AppError?
     /// A pairing with a console that is already paired, waiting for the
     /// user to confirm that it should be paired again.
@@ -295,13 +299,31 @@ final class AppModel {
     /// current chunk (with a background task to finish it) and nothing else
     /// starts.
     func enterBackground() {
-        for session in sessions.values { session.transfers.suspend() }
+        isForeground = false
+        for session in sessions.values {
+            session.transfers.suspend()
+            // Released unless a transfer is still running (M10).
+            session.setForeground(false)
+        }
     }
 
     /// The app is active again: uploads go on or resume.
     func becomeActive() {
-        for session in sessions.values { session.transfers.resumeAfterSuspension() }
+        isForeground = true
+        for session in sessions.values {
+            session.transfers.resumeAfterSuspension()
+            session.setForeground(true)
+        }
         checkShareInbox()
+    }
+
+    /// Opening a console from the list is an explicit action of the user:
+    /// the connection it starts may lift a disconnection set from the
+    /// console (M10).
+    private func pathChanged(from old: [Route]) {
+        if old.isEmpty, path.count == 1, case .console(let id)? = path.first {
+            session(for: id).userOpened()
+        }
     }
 
     func confirmRepair() {
@@ -363,10 +385,13 @@ final class AppModel {
 
     // MARK: - Connections
 
-    func makeClient(endpoint: Endpoint, expectedDeviceId: String, credentials: DeviceCredentials? = nil) -> APIClient {
+    func makeClient(
+        endpoint: Endpoint, expectedDeviceId: String, credentials: DeviceCredentials? = nil,
+        errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
+    ) -> APIClient {
         APIClient(
             endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials,
-            appVersion: Self.appVersion, session: makeSession()
+            appVersion: Self.appVersion, session: makeSession(), errorObserver: errorObserver
         )
     }
 
@@ -452,6 +477,10 @@ extension AppModel {
         try? FileManager.default.removeItem(at: artDirectory)
         let demoSaves = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoSaves")
         try? FileManager.default.removeItem(at: demoSaves)
+        // UI tests (M10): another paired iPhone holds the write lease.
+        if let name = ProcessInfo.processInfo.environment["RL_UITEST_OTHER_WRITER"], !name.isEmpty {
+            pak.simulateOtherWriter(name: name)
+        }
         // UI tests (M9): the second listing of the saves finds one changed.
         if let n = ProcessInfo.processInfo.environment["RL_UITEST_SAVE_CHANGES_ON_LISTING"].flatMap(Int.init) {
             pak.changeSaveOnListing = n

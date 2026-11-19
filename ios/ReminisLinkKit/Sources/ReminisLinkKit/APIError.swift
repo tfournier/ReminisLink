@@ -21,6 +21,11 @@ public enum ErrorCode: Hashable, Sendable {
     case `internal`
     case shuttingDown
     case insufficientStorage
+    /// M10: another client holds the write lease (`423`, `details.writer`).
+    case readOnly
+    /// M10: the console disconnected this client (`401`), until
+    /// `POST /clients/me/connect`.
+    case disconnected
     /// A code this version of the app does not know.
     case other(String)
 
@@ -44,6 +49,8 @@ public enum ErrorCode: Hashable, Sendable {
         (.internal, "internal"),
         (.shuttingDown, "shutting_down"),
         (.insufficientStorage, "insufficient_storage"),
+        (.readOnly, "read_only"),
+        (.disconnected, "disconnected"),
     ]
 
     public init(rawValue: String) {
@@ -84,6 +91,13 @@ public struct ServerError: Error, Sendable, Equatable {
         }
         return max(0, required - available)
     }
+
+    /// For `423 read_only` (M10): `details.writer`, the name of the client
+    /// holding the write lease.
+    public var writerName: String? {
+        guard code == .readOnly, case .string(let name)? = details["writer"], !name.isEmpty else { return nil }
+        return name
+    }
 }
 
 /// Everything ``APIClient`` can throw.
@@ -112,4 +126,16 @@ public enum APIError: Error, Sendable, Equatable {
         if case .server(let e) = self { return e.code }
         return nil
     }
+
+    /// `423 read_only` (M10): another client holds the write lease.
+    public var isReadOnly: Bool { code == .readOnly }
+
+    /// The holder named by a `423 read_only`, if any.
+    public var readOnlyWriter: String? {
+        if case .server(let e) = self { return e.writerName }
+        return nil
+    }
+
+    /// `401 disconnected` (M10): the console disconnected this client.
+    public var isDisconnected: Bool { code == .disconnected }
 }

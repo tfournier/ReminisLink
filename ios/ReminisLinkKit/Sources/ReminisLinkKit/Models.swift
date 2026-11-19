@@ -87,11 +87,14 @@ public struct Hello: Codable, Sendable, Equatable {
     public let minClientVersion: String
     public let serverTime: Date
     public let pairingOpen: Bool
+    /// M10: a client holds the write lease (its name is only given to
+    /// paired clients). Read leniently: a pak without M10 does not send it.
+    public let writerHeld: Bool
 
     public init(
         deviceId: String, deviceName: String, model: DeviceModel, platform: String, os: String,
         osVersion: String?, pakVersion: String, apiVersion: Int, minClientVersion: String,
-        serverTime: Date, pairingOpen: Bool
+        serverTime: Date, pairingOpen: Bool, writerHeld: Bool = false
     ) {
         self.deviceId = deviceId
         self.deviceName = deviceName
@@ -104,6 +107,23 @@ public struct Hello: Codable, Sendable, Equatable {
         self.minClientVersion = minClientVersion
         self.serverTime = serverTime
         self.pairingOpen = pairingOpen
+        self.writerHeld = writerHeld
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deviceId = try c.decode(String.self, forKey: .deviceId)
+        deviceName = try c.decode(String.self, forKey: .deviceName)
+        model = try c.decode(DeviceModel.self, forKey: .model)
+        platform = try c.decode(String.self, forKey: .platform)
+        os = try c.decode(String.self, forKey: .os)
+        osVersion = try c.decodeIfPresent(String.self, forKey: .osVersion)
+        pakVersion = try c.decode(String.self, forKey: .pakVersion)
+        apiVersion = try c.decode(Int.self, forKey: .apiVersion)
+        minClientVersion = try c.decode(String.self, forKey: .minClientVersion)
+        serverTime = try c.decode(Date.self, forKey: .serverTime)
+        pairingOpen = try c.decode(Bool.self, forKey: .pairingOpen)
+        writerHeld = try c.decodeIfPresent(Bool.self, forKey: .writerHeld) ?? false
     }
 }
 
@@ -157,11 +177,17 @@ public struct DeviceStatus: Codable, Sendable, Equatable {
     /// caller included (kept in memory by the pak). Required by the
     /// contract, but read leniently: missing means none.
     public let connectedClients: [ConnectedClient]
+    /// M10: the client holding the write lease, or nil when it is free (or
+    /// when the pak does not send the field, see ``hasWriterField``).
+    public let writer: Writer?
+    /// Whether the pak sent `writer` (a pak without M10 does not).
+    public let hasWriterField: Bool
 
     public init(
         deviceId: String, deviceName: String, model: DeviceModel, platform: String, os: String,
         osVersion: String?, pakVersion: String, network: Network, battery: Battery?,
-        storage: [Storage], uptimeSeconds: Int64, connectedClients: [ConnectedClient] = []
+        storage: [Storage], uptimeSeconds: Int64, connectedClients: [ConnectedClient] = [],
+        writer: Writer? = nil, hasWriterField: Bool = true
     ) {
         self.deviceId = deviceId
         self.deviceName = deviceName
@@ -175,6 +201,8 @@ public struct DeviceStatus: Codable, Sendable, Equatable {
         self.storage = storage
         self.uptimeSeconds = uptimeSeconds
         self.connectedClients = connectedClients
+        self.writer = writer
+        self.hasWriterField = hasWriterField
     }
 
     public init(from decoder: Decoder) throws {
@@ -191,7 +219,67 @@ public struct DeviceStatus: Codable, Sendable, Equatable {
         storage = try c.decode([Storage].self, forKey: .storage)
         uptimeSeconds = try c.decode(Int64.self, forKey: .uptimeSeconds)
         connectedClients = try c.decodeIfPresent([ConnectedClient].self, forKey: .connectedClients) ?? []
+        hasWriterField = c.contains(.writer)
+        writer = try c.decodeIfPresent(Writer.self, forKey: .writer)
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case deviceId, deviceName, model, platform, os, osVersion, pakVersion, network, battery, storage
+        case uptimeSeconds, connectedClients, writer
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(deviceId, forKey: .deviceId)
+        try c.encode(deviceName, forKey: .deviceName)
+        try c.encode(model, forKey: .model)
+        try c.encode(platform, forKey: .platform)
+        try c.encode(os, forKey: .os)
+        try c.encode(osVersion, forKey: .osVersion)
+        try c.encode(pakVersion, forKey: .pakVersion)
+        try c.encode(network, forKey: .network)
+        try c.encode(battery, forKey: .battery)
+        try c.encode(storage, forKey: .storage)
+        try c.encode(uptimeSeconds, forKey: .uptimeSeconds)
+        try c.encode(connectedClients, forKey: .connectedClients)
+        if hasWriterField { try c.encode(writer, forKey: .writer) }
+    }
+}
+
+// MARK: - Write lease (M10)
+
+/// The client holding the write lease (`Writer` in the contract).
+public struct Writer: Codable, Sendable, Equatable, Hashable {
+    public let clientName: String
+    /// The caller holds the lease.
+    public let you: Bool
+    public let expiresAt: Date
+
+    public init(clientName: String, you: Bool, expiresAt: Date) {
+        self.clientName = clientName
+        self.you = you
+        self.expiresAt = expiresAt
+    }
+}
+
+/// `GET /writer` and `PUT /writer`: the holder, or nil when free.
+public struct WriterState: Codable, Sendable, Equatable {
+    public let writer: Writer?
+
+    public init(writer: Writer?) { self.writer = writer }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(writer, forKey: .writer)
+    }
+}
+
+/// Body of `PUT /writer`.
+public struct TakeWriterRequest: Codable, Sendable, Equatable {
+    /// Take the lease even if another client holds it ("Take over").
+    public let force: Bool
+
+    public init(force: Bool) { self.force = force }
 }
 
 /// One entry of `connectedClients` in `GET /device`.
