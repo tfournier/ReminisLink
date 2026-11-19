@@ -69,9 +69,13 @@ Identifiers & Profiles*):
    `Config/ReminisLink.entitlements`); use the refresh button next to the
    container if it is shown in red.
 
-The share extension needs nothing. The key of `NSUbiquitousContainers` in
-`Config/ReminisLink-Info.plist` repeats the container name (Xcode does not
-expand build settings in Info.plist keys; a unit test checks they match).
+The share extension needs nothing. Xcode does not expand build settings in
+Info.plist keys: the key of `NSUbiquitousContainers` in
+`Config/ReminisLink-Info.plist` is the macro `RL_ICLOUD_CONTAINER_KEY`,
+replaced by `RL_ICLOUD_CONTAINER` when the Info.plist is preprocessed
+(`INFOPLIST_PREPROCESS`), so a local `RL_APP_BUNDLE_ID` (e.g.
+`link.reminis.app.dev` in `Local.xcconfig`) gets its own container
+everywhere; a unit test checks it.
 The folder shows in iCloud Drive as "ReminisLink" once the app wrote a
 first file there; iOS may take a while to show it after a change of
 `NSUbiquitousContainers` (increase `CURRENT_PROJECT_VERSION`). Without the

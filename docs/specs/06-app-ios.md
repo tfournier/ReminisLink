@@ -28,7 +28,7 @@
 | URL scheme | `reminislink` (lien d'appairage du QR code) |
 | App Groups | `group.link.reminis.app` (app ↔ extension) |
 | Keychain Sharing | Groupe partagé avec l'extension |
-| iCloud (Documents) | Conteneur `iCloud.$(RL_APP_BUNDLE_ID)` (`iCloud.link.reminis.app`) pour la sync des saves (M9, §8) ; `NSUbiquitousContainers` le montre comme dossier « ReminisLink » dans iCloud Drive (clé du dictionnaire écrite en clair : Xcode ne développe pas les variables dans les clés d'Info.plist) |
+| iCloud (Documents) | Conteneur `iCloud.$(RL_APP_BUNDLE_ID)` (`iCloud.link.reminis.app`) pour la sync des saves (M9, §8) ; `NSUbiquitousContainers` le montre comme dossier « ReminisLink » dans iCloud Drive (Xcode ne développe pas les variables dans les clés d'Info.plist : la clé est la macro `RL_ICLOUD_CONTAINER_KEY`, remplacée au prétraitement de l'Info.plist, `INFOPLIST_PREPROCESS`) |
 | `UIFileSharingEnabled`, `LSSupportsOpeningDocumentsInPlace` | `true` : sans iCloud, les saves synchronisées sont dans `Documents/`, visible dans Fichiers > Sur mon iPhone > ReminisLink |
 
 Pas d'entitlement multicast : Bonjour via `NWBrowser` n'en a pas besoin.

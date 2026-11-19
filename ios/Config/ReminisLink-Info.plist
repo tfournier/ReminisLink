@@ -34,7 +34,7 @@
 	<string>ReminisLink connects to your console on your Wi-Fi network.</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
-		<key>iCloud.link.reminis.app</key>
+		<key>RL_ICLOUD_CONTAINER_KEY</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>

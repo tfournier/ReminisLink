@@ -155,10 +155,12 @@ struct SaveSyncAppTests {
     }
 
     /// Build settings are not expanded in Info.plist keys: the folder in
-    /// iCloud Drive is declared for the container the app asks for.
+    /// iCloud Drive must be declared for the container the app asks for,
+    /// whatever RL_APP_BUNDLE_ID (Info.plist preprocessing).
     @Test func theICloudContainerIsDeclaredForFiles() throws {
         let container = try #require(Bundle.main.object(forInfoDictionaryKey: "RLICloudContainer") as? String)
-        #expect(container.hasPrefix("iCloud."))
+        // Derived from the bundle id (link.reminis.app, or a local .dev id).
+        #expect(container == "iCloud." + (Bundle.main.bundleIdentifier ?? ""))
         let containers = try #require(Bundle.main.object(forInfoDictionaryKey: "NSUbiquitousContainers") as? [String: Any])
         let entry = try #require(containers[container] as? [String: Any])
         #expect(entry["NSUbiquitousContainerName"] as? String == "ReminisLink")
