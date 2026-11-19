@@ -324,11 +324,13 @@ Le format `.cht` est celui de RetroArch, géré comme dans Cheat Manager (clés 
 ```json
 {
   "cheats": [
-    { "index": 0, "description": "Infinite money", "code": "82025490+FFFF", "enabled": false, "extra": { "cheat0_handler": "0" } }
+    { "index": 0, "description": "Infinite money", "code": "82025490+FFFF", "enabled": false, "extra": { "handler": "0" } }
   ],
   "etag": "\"sha256-...\""
 }
 ```
+
+Les clés inconnues d'un cheat sont transmises dans `extra` **sans** le préfixe d'index du fichier (`handler` pour `cheat0_handler`) ; le pak ajoute le bon préfixe à l'écriture, selon la position du cheat. *(M5.)*
 
 ### `PUT /games/{gameId}/cheats`
 
