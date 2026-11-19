@@ -256,7 +256,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld %%"
+            "value" : "%lld %%"
           }
         }
       }
@@ -266,7 +266,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%lld %%, en charge"
+            "value" : "%lld %%, en charge"
           }
         }
       }
@@ -316,7 +316,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un fichier de ce nom existe déjà sur la console : %@"
+            "value" : "Un fichier de ce nom existe déjà sur la console : %@"
           }
         }
       }
@@ -326,7 +326,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un verrou garde une copie du state sur la console. Il ne peut pas empêcher un jeu d’écraser le state : le state est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu."
+            "value" : "Un verrou garde une copie du state sur la console. Il ne peut pas empêcher un jeu d’écraser le state : le state est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu."
           }
         }
       }
@@ -476,7 +476,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archive : extrais d’abord la ROM"
+            "value" : "Archive : extrais d’abord la ROM"
           }
         }
       }
@@ -516,7 +516,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les copies automatiques sont limitées à 10 par jeu : les plus anciennes sont supprimées. Les copies que tu fais toi-même sont conservées."
+            "value" : "Les copies automatiques sont limitées à 10 par jeu : les plus anciennes sont supprimées. Les copies que tu fais toi-même sont conservées."
           }
         }
       }
@@ -906,7 +906,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copie faite par un autre émulateur : elle ne peut pas être restaurée."
+            "value" : "Copie faite par un autre émulateur : elle ne peut pas être restaurée."
           }
         }
       }
@@ -986,7 +986,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Supprimer %@ ?"
+            "value" : "Supprimer %@ ?"
           }
         }
       }
@@ -996,7 +996,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Supprimer définitivement ?"
+            "value" : "Supprimer définitivement ?"
           }
         }
       }
@@ -1006,7 +1006,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Supprimer cette copie ?"
+            "value" : "Supprimer cette copie ?"
           }
         }
       }
@@ -1016,7 +1016,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Supprimer « %@ » ?"
+            "value" : "Supprimer « %@ » ?"
           }
         }
       }
@@ -1046,7 +1046,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mode démo : aucune vraie console n’est utilisée."
+            "value" : "Mode démo : aucune vraie console n’est utilisée."
           }
         }
       }
@@ -1076,7 +1076,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Différent de la copie verrouillée : non restauré."
+            "value" : "Différent de la copie verrouillée : non restauré."
           }
         }
       }
@@ -1106,7 +1106,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Abandonner tes modifications ?"
+            "value" : "Abandonner tes modifications ?"
           }
         }
       }
@@ -1196,7 +1196,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vider la corbeille ?"
+            "value" : "Vider la corbeille ?"
           }
         }
       }
@@ -1286,7 +1286,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Extrais d’abord la ROM : la console ne patche pas une archive (.zip, .7z)."
+            "value" : "Extrais d’abord la ROM : la console ne patche pas une archive (.zip, .7z)."
           }
         }
       }
@@ -1416,7 +1416,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "IPS : la ROM source n’a pas pu être vérifiée."
+            "value" : "IPS : la ROM source n’a pas pu être vérifiée."
           }
         }
       }
@@ -1456,7 +1456,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importés : %1$lld. Cheats dans la liste : %2$lld."
+            "value" : "Importés : %1$lld. Cheats dans la liste : %2$lld."
           }
         }
       }
@@ -1626,7 +1626,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "État du verrou inconnu de cette version de l’app : ce state n’est peut-être pas protégé."
+            "value" : "État du verrou inconnu de cette version de l’app : ce state n’est peut-être pas protégé."
           }
         }
       }
@@ -1646,7 +1646,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un state verrouillé ne peut pas être supprimé : déverrouille-le d’abord."
+            "value" : "Un state verrouillé ne peut pas être supprimé : déverrouille-le d’abord."
           }
         }
       }
@@ -1656,7 +1656,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Verrouillé : %@."
+            "value" : "Verrouillé : %@."
           }
         }
       }
@@ -1696,7 +1696,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Absent de la console. La copie verrouillée est conservée : restaure-la pour récupérer le state."
+            "value" : "Absent de la console. La copie verrouillée est conservée : restaure-la pour récupérer le state."
           }
         }
       }
@@ -1746,7 +1746,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Déplacé dans la corbeille de la console"
+            "value" : "Mis dans la corbeille de la console"
           }
         }
       }
@@ -1756,7 +1756,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mis dans la corbeille de la console : %@."
+            "value" : "Mis dans la corbeille de la console : %@."
           }
         }
       }
@@ -1976,7 +1976,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Espace insuffisant sur la carte SD : il manque %@."
+            "value" : "Espace insuffisant sur la carte SD : il manque %@."
           }
         }
       }
@@ -2166,7 +2166,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’appairage a échoué. Le code a peut-être expiré : affiche un nouveau QR code sur la console et réessaie."
+            "value" : "L’appairage a échoué. Le code a peut-être expiré : affiche un nouveau QR code sur la console et réessaie."
           }
         }
       }
@@ -2236,7 +2236,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Patch : %@"
+            "value" : "Patch : %@"
           }
         }
       }
@@ -2436,7 +2436,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Remplacer le jeu ?"
+            "value" : "Remplacer le jeu ?"
           }
         }
       }
@@ -2446,7 +2446,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Remplacer la liste ?"
+            "value" : "Remplacer la liste ?"
           }
         }
       }
@@ -2456,7 +2456,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Remplacer la save ?"
+            "value" : "Remplacer la save ?"
           }
         }
       }
@@ -2486,7 +2486,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restaurer cette copie ?"
+            "value" : "Restaurer cette copie ?"
           }
         }
       }
@@ -2496,7 +2496,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restaurer cette version ?"
+            "value" : "Restaurer cette version ?"
           }
         }
       }
@@ -2506,7 +2506,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restaurer « %@ » ?"
+            "value" : "Restaurer « %@ » ?"
           }
         }
       }
@@ -2526,7 +2526,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restauré depuis sa copie verrouillée : %@."
+            "value" : "Restauré depuis sa copie verrouillée : %@."
           }
         }
       }
@@ -2606,7 +2606,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enregistrer une liste vide ?"
+            "value" : "Enregistrer une liste vide ?"
           }
         }
       }
@@ -2736,7 +2736,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Plusieurs disques : ne peut pas être patché"
+            "value" : "Plusieurs disques : ne peut pas être patché"
           }
         }
       }
@@ -2946,7 +2946,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’annulation n’a pas pu être envoyée : %@"
+            "value" : "L’annulation n’a pas pu être envoyée : %@"
           }
         }
       }
@@ -2956,7 +2956,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le fichier de cheats du jeu est supprimé sur la console ; son contenu précédent y est gardé (.cht.bak)."
+            "value" : "Le fichier de cheats du jeu est supprimé sur la console ; son contenu précédent y est gardé (.cht.bak)."
           }
         }
       }
@@ -3016,7 +3016,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console a téléchargé le patch avant l’arrivée de l’annulation. Rien n’a été appliqué : touche Appliquer pour l’utiliser."
+            "value" : "La console a téléchargé le patch avant l’arrivée de l’annulation. Rien n’a été appliqué : touche Appliquer pour l’utiliser."
           }
         }
       }
@@ -3036,7 +3036,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console télécharge le fichier elle-même, par sa propre connexion Wi-Fi."
+            "value" : "La console télécharge le fichier elle-même, avec sa propre connexion Wi-Fi."
           }
         }
       }
@@ -3066,7 +3066,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console poursuit la tâche ; son état s’affichera de nouveau dès qu’elle répondra."
+            "value" : "La console poursuit la tâche ; son état s’affichera de nouveau dès qu’elle répondra."
           }
         }
       }
@@ -3166,7 +3166,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console a été relancée : ce téléchargement a été arrêté."
+            "value" : "La console a redémarré : ce téléchargement a été arrêté."
           }
         }
       }
@@ -3176,7 +3176,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console a redémarré : ce patch a été arrêté."
+            "value" : "La console a redémarré : ce patch a été arrêté."
           }
         }
       }
@@ -3316,7 +3316,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La liste a changé sur la console. Recharger ?"
+            "value" : "La liste a changé sur la console. Recharger ?"
           }
         }
       }
@@ -3346,7 +3346,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La copie verrouillée est la seule version restante, ou diffère du state : elle part dans la corbeille de la console. Le state lui-même ne change pas."
+            "value" : "La copie verrouillée est la seule version restante, ou diffère du state : elle part dans la corbeille de la console. Le state lui-même ne change pas."
           }
         }
       }
@@ -3396,7 +3396,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La save dépasse 64 Mo : elle est envoyée dans Transferts. La save actuelle est d’abord copiée."
+            "value" : "La save dépasse 64 Mo : elle est envoyée dans Transferts. La save actuelle est d’abord copiée."
           }
         }
       }
@@ -3476,7 +3476,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette console est déjà appairée. Refaire l’appairage ?"
+            "value" : "Cette console est déjà appairée. Refaire l’appairage ?"
           }
         }
       }
@@ -3496,7 +3496,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette copie ne peut pas être restaurée : elle est abîmée ou a été faite par un autre émulateur. Rien n’a été modifié."
+            "value" : "Cette copie ne peut pas être restaurée : elle est abîmée ou a été faite par un autre émulateur. Rien n’a été modifié."
           }
         }
       }
@@ -3526,7 +3526,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce jeu n’a pas encore de save : le fichier devient sa save."
+            "value" : "Ce jeu n’a pas encore de save : le fichier devient sa save."
           }
         }
       }
@@ -3536,7 +3536,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce jeu a plusieurs disques : un patch s’applique à un seul fichier ROM, donc les jeux multi-disques ne peuvent pas être patchés ici."
+            "value" : "Ce jeu a plusieurs disques : un patch s’applique à un seul fichier ROM, donc les jeux multi-disques ne peuvent pas être patchés ici."
           }
         }
       }
@@ -3676,7 +3676,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Taille totale : %@"
+            "value" : "Taille totale : %@"
           }
         }
       }
@@ -3686,7 +3686,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Total : %@"
+            "value" : "Total : %@"
           }
         }
       }
@@ -3756,7 +3756,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Déverrouiller « %@ » ?"
+            "value" : "Déverrouiller « %@ » ?"
           }
         }
       }
@@ -3766,7 +3766,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Déverrouillé : %@."
+            "value" : "Déverrouillé : %@."
           }
         }
       }
@@ -3796,7 +3796,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Se désappairer de cette console ?"
+            "value" : "Se désappairer de cette console ?"
           }
         }
       }
@@ -3856,7 +3856,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sera créé : %@. Si le nom est pris, la console ajoute un numéro. L’extension du jeu est ajoutée quand le nom ne se termine pas par elle."
+            "value" : "Sera créé : %@. Si le nom est pris, la console ajoute un numéro. L’extension du jeu est ajoutée quand le nom ne se termine pas par elle."
           }
         }
       }
@@ -3876,7 +3876,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tu peux fermer cet écran : la console continue. Suis-la dans Transferts."
+            "value" : "Tu peux fermer cet écran : la console continue. Suis-la dans Transferts."
           }
         }
       }
@@ -3913,7 +3913,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "« %1$@ » devient la save de %2$@, qui n’en a pas encore."
+            "value" : "« %1$@ » devient la save de %2$@, qui n’en a pas encore."
           }
         }
       }
@@ -3923,7 +3923,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "« %1$@ » remplace la save de %2$@. La save actuelle est d’abord copiée (copie de sauvegarde)."
+            "value" : "« %1$@ » remplace la save de %2$@. La save actuelle est d’abord copiée (copie de sauvegarde)."
           }
         }
       }
