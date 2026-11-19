@@ -13,7 +13,7 @@ RL_APP_GROUP = group.$(RL_BUNDLE_PREFIX).reminislink
 // AppIdentifierPrefix is empty without a team (simulator builds).
 RL_KEYCHAIN_GROUP = $(AppIdentifierPrefix)$(RL_BUNDLE_PREFIX).reminislink.shared
 
-MARKETING_VERSION = 1.0.0
+MARKETING_VERSION = 1.0
 CURRENT_PROJECT_VERSION = 1
 IPHONEOS_DEPLOYMENT_TARGET = 17.0
 
