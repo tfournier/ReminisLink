@@ -80,6 +80,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-19 — Fonction Sync (M9, après M8), décisions de la personne : saves seulement, bouton + automatique à la connexion (désactivable), iCloud Drive (dossier « ReminisLink » dans Fichiers), 10 versions ; principe « Local uniquement » de 01 adapté ; 09 complété (M8, M9).
 
+- 2026-11-19 — Écran du pak (demande de la personne) : état en haut à gauche, batterie en haut à droite (alerte sous 15 % pendant un transfert) ; lecture de la batterie implémentée en M8 (`GET /device` ne renvoie plus `null`). Ajouté au lot M8 Go.
+
 ## Questions ouvertes pour la personne
 
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
