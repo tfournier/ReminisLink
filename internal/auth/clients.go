@@ -18,6 +18,11 @@ type Client struct {
 	Name     string
 	Key      []byte
 	PairedAt time.Time
+	// Epoch is set by a ClientLookup that versions its clients (the M10
+	// access generation of internal/server), read in the same step as the
+	// key, so that a Gate can tell whether the pairing that verified the
+	// request is still the current one. Always 0 from ClientStore.
+	Epoch uint64
 }
 
 // clientsFileVersion is the format version of clients.json.

@@ -844,3 +844,69 @@ func TestDisconnectedWhileTheBodyIsReadStaysOut(t *testing.T) {
 		}
 	}
 }
+
+// Codex round 3, finding 1: the console forgets the device and it is
+// paired again with the same id (new key) right after the verifier read
+// the old key, before the gate: the request signed with the old key is
+// refused, takes no lease and writes nothing.
+func TestRepairedBetweenKeyLoadAndGate(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	g := gamePath(scPath)
+	before := f.snapshot()
+	var once sync.Once
+	hook := func(id string) {
+		if id != b.ClientID {
+			return
+		}
+		once.Do(func() {
+			stored, _ := f.clients.Lookup(b.ClientID)
+			if _, err := f.server.Forget(b.ClientID); err != nil {
+				t.Error(err)
+			}
+			stored.Key = make([]byte, auth.KeySize) // the new pairing's key
+			if err := f.server.access.pair(stored); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	f.server.access.lookupHook.Store(&hook)
+	r := b.Do(t, "PUT", g+"/save", []byte("new save"))
+	f.server.access.lookupHook.Store(nil)
+	f.check("PUT", "/games/{gameId}/save", r)
+	wantCode(t, r, auth.CodeUnknownClient)
+	if _, held := f.server.WriterName(); held {
+		t.Fatal("the old pairing took the lease")
+	}
+	if !slices.Equal(before, f.snapshot()) {
+		t.Fatal("the old pairing wrote")
+	}
+	// The old key is refused from now on.
+	wantCode(t, b.Do(t, "GET", "/api/v1/systems", nil), auth.CodeBadSignature)
+}
+
+// Codex round 3, finding 2: a chunked body that goes over the limit and
+// then stalls gets its 413 at once (no drain of the rest), over a real
+// connection.
+func TestTooLargeChunkedBodyThatStalls(t *testing.T) {
+	f := newFixture(t)
+	target := gamePath(scPath) + "/cheats"
+	req := f.client.Request(t, "PUT", target, []byte(`{"cheats":[]}`))
+	var head strings.Builder
+	fmt.Fprintf(&head, "PUT %s HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n", target)
+	for k, v := range req.Header {
+		fmt.Fprintf(&head, "%s: %s\r\n", k, v[0])
+	}
+	head.WriteString("\r\n")
+	conn := dial(t, f.http.Listener.Addr().String())
+	defer conn.Close()
+	chunk := make([]byte, auth.BodyLimitJSON+10)
+	if _, err := fmt.Fprintf(conn, "%s%x\r\n%s\r\n", head.String(), len(chunk), chunk); err != nil {
+		t.Fatal(err)
+	}
+	// No final chunk: the client stalls.
+	resp, r := readResponse(t, conn, bufio.NewReader(conn))
+	if r.Status != 413 || r.ErrorCode() != auth.CodeTooLarge || !resp.Close {
+		t.Fatalf("got %d %s close=%v", r.Status, r.Body, resp.Close)
+	}
+}

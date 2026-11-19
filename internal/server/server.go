@@ -165,6 +165,8 @@ func New(opts Options) (*Server, error) {
 	// The disconnection and the write lease (M10) are checked in one
 	// place, before any body is read.
 	opts.Verifier.Gate = s.gate
+	// Clients are read through access, with their access generation.
+	opts.Verifier.Clients = s.access
 	s.handler = s.middlewares(s.routes())
 	return s, nil
 }

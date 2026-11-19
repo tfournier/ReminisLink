@@ -83,7 +83,7 @@ Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuit
 
 ### `POST /clients/me/connect` (M10)
 
-Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §7.2](05-console-pak.md#72-réglages-y)) pour le client appelant. Réponse `204`, sans effet si le client n'était pas déconnecté ; ne prend pas le bail d'écriture. L'app ne l'appelle que sur une action de l'utilisateur (ouverture de cette console, bouton « Se reconnecter »), jamais lors d'une reconnexion automatique. C'est la seule route signée permise à un client déconnecté.
+Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §7.2](05-console-pak.md#72-réglages-y)) pour le client appelant. Réponse `204`, sans effet si le client n'était pas déconnecté ; ne prend pas le bail d'écriture. L'app ne l'appelle que sur une action de l'utilisateur (ouverture de cette console, bouton « Se reconnecter »), jamais lors d'une reconnexion automatique. C'est la seule route signée permise à un client déconnecté. Un appel parti avant une nouvelle déconnexion par la console ne lève pas celle-ci (`401 disconnected`).
 
 ### `GET /device`
 

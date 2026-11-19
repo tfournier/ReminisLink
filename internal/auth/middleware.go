@@ -413,7 +413,9 @@ func readBody(r *http.Request, limit int64) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
-	defer r.Body.Close()
+	// The body is not closed here: closing an incomplete body (too large,
+	// or a chunked body that stalls) would first try to drain it, delaying
+	// the error answer. The server closes it after the answer.
 	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		return nil, err

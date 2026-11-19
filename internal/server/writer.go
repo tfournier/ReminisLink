@@ -26,15 +26,15 @@ const (
 // nothing and its body is never read. The admission is committed once the
 // request is accepted (body verified) and rolled back if it is rejected.
 func (s *Server) gate(r *http.Request, c auth.Client, opts auth.RouteOptions) (*auth.Admission, *auth.Rejection) {
-	adm, rej := s.admit(c.ID, opts)
+	adm, rej := s.admit(c, opts)
 	if hook := s.gateHook.Load(); hook != nil {
 		(*hook)()
 	}
 	return adm, rej
 }
 
-func (s *Server) admit(id string, opts auth.RouteOptions) (*auth.Admission, *auth.Rejection) {
-	ad, other, rej := s.access.admit(id, opts)
+func (s *Server) admit(c auth.Client, opts auth.RouteOptions) (*auth.Admission, *auth.Rejection) {
+	ad, other, rej := s.access.admit(c, opts)
 	if rej != nil {
 		return nil, rej
 	}
@@ -43,9 +43,12 @@ func (s *Server) admit(id string, opts auth.RouteOptions) (*auth.Admission, *aut
 	}
 	return &auth.Admission{
 		Commit: func() *auth.Rejection {
-			other, rej := s.access.accept(ad, opts)
+			other, rej, lifted := s.access.accept(ad, opts)
 			if other != nil {
 				return s.readOnly(other.id)
+			}
+			if lifted {
+				s.log.Info("client reconnected", "client", c.ID, "name", c.Name)
 			}
 			return rej
 		},
@@ -133,12 +136,10 @@ func (s *Server) handleReleaseWriter(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleConnect answers POST /clients/me/connect. The disconnection was
+// lifted, and the client recorded as connected, when the gate accepted the
+// request (access.accept), without taking the lease.
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
-	c, _ := auth.ClientFromContext(r.Context())
-	// Connected again from now on, without taking the lease.
-	if s.access.connect(c.ID) {
-		s.log.Info("client reconnected", "client", c.ID, "name", c.Name)
-	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -194,7 +195,7 @@ type DeviceStatus struct {
 // Devices returns the paired clients with their state, the most recently
 // paired first.
 func (s *Server) Devices() []DeviceStatus {
-	out := s.access.devices(s.presence.seenSince(s.now().Add(-ConnectedWindow)))
+	out := s.access.devices(s.now().Add(-ConnectedWindow))
 	sort.SliceStable(out, func(i, j int) bool {
 		if !out[i].PairedAt.Equal(out[j].PairedAt) {
 			return out[i].PairedAt.After(out[j].PairedAt)

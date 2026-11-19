@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
@@ -46,6 +47,25 @@ type access struct {
 	gen          map[string]uint64 // access generation; absent = 0
 	revokedCode  map[string]string // 401 code of the last revocation
 	gens         uint64            // generation counter
+
+	// lookupHook, when set (tests), is called by Lookup after the client
+	// is read, before the verifier goes on.
+	lookupHook atomic.Pointer[func(id string)]
+}
+
+// Lookup is the auth.ClientLookup of the verifier: the client and its
+// access generation (Epoch) are read in one step, so admit can refuse a
+// request verified with a pairing revoked since (forgotten and paired
+// again with the same id, for instance).
+func (a *access) Lookup(id string) (auth.Client, bool) {
+	a.mu.Lock()
+	c, ok := a.clients.Lookup(id)
+	c.Epoch = a.gen[id]
+	a.mu.Unlock()
+	if hook := a.lookupHook.Load(); hook != nil {
+		(*hook)(id)
+	}
+	return c, ok
 }
 
 func newAccess(now func() time.Time, clients *auth.ClientStore, p *presence) *access {
@@ -132,14 +152,17 @@ func (a *access) holderLocked() leaseHolder { return leaseHolder{a.holder, a.exp
 
 // --- operations ------------------------------------------------------------
 
-// admit is the pre-body check of the gate. A write reserves a free lease.
-func (a *access) admit(id string, opts auth.RouteOptions) (admission, *leaseHolder, *auth.Rejection) {
+// admit is the pre-body check of the gate, for client c as read by Lookup
+// (its Epoch is the generation of the pairing that verified the request).
+// A write reserves a free lease.
+func (a *access) admit(c auth.Client, opts auth.RouteOptions) (admission, *leaseHolder, *auth.Rejection) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if rej := a.checkLocked(id, opts.WhileDisconnected); rej != nil {
+	id := c.ID
+	ad := admission{id: id, gen: c.Epoch}
+	if rej := a.checkGenLocked(ad, opts.WhileDisconnected); rej != nil {
 		return admission{}, nil, rej
 	}
-	ad := admission{id: id, gen: a.gen[id]}
 	if opts.TakesLease {
 		switch {
 		case !a.currentLocked():
@@ -155,11 +178,15 @@ func (a *access) admit(id string, opts auth.RouteOptions) (admission, *leaseHold
 // accept is the commit of an accepted request (body verified): checks the
 // generation; a write acquires or confirms the lease atomically; any other
 // request renews a confirmed lease of its client; presence is recorded.
-func (a *access) accept(ad admission, opts auth.RouteOptions) (*leaseHolder, *auth.Rejection) {
+// For POST /clients/me/connect (WhileDisconnected), the disconnection is
+// lifted here, in the same step that validated the generation (a newer
+// disconnection bumped it, so it is never cleared by an older request);
+// lifted reports whether there was one.
+func (a *access) accept(ad admission, opts auth.RouteOptions) (other *leaseHolder, rej *auth.Rejection, lifted bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if rej := a.checkGenLocked(ad, opts.WhileDisconnected); rej != nil {
-		return nil, rej
+		return nil, rej, false
 	}
 	held := a.currentLocked()
 	switch {
@@ -167,14 +194,18 @@ func (a *access) accept(ad admission, opts auth.RouteOptions) (*leaseHolder, *au
 		a.setLocked(ad.id, true)
 	case opts.TakesLease && a.holder != ad.id:
 		h := a.holderLocked()
-		return &h, nil
+		return &h, nil, false
 	case held && a.holder == ad.id && (opts.TakesLease || a.confirmed):
 		a.expires, a.confirmed = a.now().Add(WriteLeaseTTL), true
 	}
-	if !a.disconnected[ad.id] { // POST /clients/me/connect: handleConnect records it
+	if opts.WhileDisconnected {
+		lifted = a.disconnected[ad.id]
+		delete(a.disconnected, ad.id)
+	}
+	if !a.disconnected[ad.id] {
 		a.presence.touch(ad.id, a.now())
 	}
-	return nil, nil
+	return nil, nil, lifted
 }
 
 // rollback gives back the reservation of a rejected request, if nothing
@@ -230,16 +261,6 @@ func (a *access) current() (leaseHolder, bool) {
 		return leaseHolder{}, false
 	}
 	return a.holderLocked(), true
-}
-
-// connect lifts a disconnection and records the client as connected.
-func (a *access) connect(id string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	lifted := a.disconnected[id]
-	delete(a.disconnected, id)
-	a.presence.touch(id, a.now())
-	return lifted
 }
 
 // disconnect disconnects a paired client.
@@ -299,10 +320,13 @@ func (a *access) pair(c auth.Client) error {
 	return nil
 }
 
-// devices is the state of each paired client, for the console.
-func (a *access) devices(seen map[string]time.Time) []DeviceStatus {
+// devices is the state of each paired client, for the console; presence
+// is read under the same lock as the disconnections, so a row is never
+// both connected and disconnected.
+func (a *access) devices(connectedSince time.Time) []DeviceStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	seen := a.presence.seenSince(connectedSince)
 	held := a.currentLocked()
 	list := a.clients.List()
 	out := make([]DeviceStatus, 0, len(list))
