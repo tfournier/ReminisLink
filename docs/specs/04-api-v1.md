@@ -148,7 +148,7 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 }
 ```
 
-- `kind` : `file` (ROM simple), `m3u` (fichier `.m3u`), `folder-m3u` (dossier contenant un `.m3u` du même nom, jeu multi-disques).
+- `kind` : `file` (ROM simple), `m3u` (fichier `.m3u`), `folder-m3u` (dossier contenant un `.m3u` du même nom, jeu multi-disques), `folder-cue` (M8 : dossier contenant une `.cue` du même nom et pas de tel `.m3u` ; NextUI lance la `.cue`, la save et les states portent son nom ; un client traite un type inconnu comme `folder-m3u`).
 - Les fichiers ignorés sont ceux de Cheat Manager (`.txt`, `.png`, `.sav`, `.cht`, `.bak`...) et les fichiers cachés.
 - Les fichiers cités par un `.m3u` du même dossier (les disques d'un jeu multi-disques) ne sont pas listés comme jeux séparés ; la taille du jeu `m3u` inclut ses disques.
 - Les identifiants désignent un nom **exact** du dossier : un identifiant qui ne diffère que par la casse donne `404 not_found` (un seul identifiant par fichier, 03 §5).
