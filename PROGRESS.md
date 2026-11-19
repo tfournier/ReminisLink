@@ -66,6 +66,10 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-19 — Identifiant iOS `link.reminis.app` (extension `.share`, groupe `group.link.reminis.app` ; domaine `reminis.link` commandé par la personne), appliqué sur `m7-publication-ios` ; l'équipe de signature fournie par la personne va dans `ios/Config/Local.xcconfig` (ignoré par Git), à appliquer après la fusion de M7. Rappel donné : le vendeur affiché sur l'App Store est le compte qui publie.
 
+- 2026-11-19 — Licence MIT (personne). Site `site/` (Accueil, Confidentialité, Assistance, FR/EN, sans traqueur ; GitHub Pages + `reminis.link`) fusionné ; URL pour Apple : `https://reminis.link/privacy/` et `https://reminis.link/support/` ; e-mail de contact à fournir par la personne.
+- 2026-11-19 — Pak de test construit (`dist/ReminisLink.pak.zip`, version `6d09a9f5`) et vérifié dans le rootfs du firmware ; app installée sur l'iPhone de la personne avec l'identifiant de test `link.reminis.app.dev` (dans `ios/Config/Local.xcconfig`, ignoré par Git) pour garder `link.reminis.app` libre pour le compte de publication. Xcode réécrit `project.pbxproj` (équipe) et les catalogues de chaînes lors d'une construction signée : ne jamais commiter ces changements.
+- 2026-11-19 — Gemini CLI 0.69.0 installé ; clé AI Studio dans le Trousseau (`reminislink-gemini-api-key`, créée par la personne). Niveau gratuit : Gemini 3.1 Pro indisponible (quota 0), `gemini-3-flash-preview` fonctionne. La personne a d'abord collé une clé dans la conversation : non utilisée, remplacement conseillé.
+
 ## Questions ouvertes pour la personne
 
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
