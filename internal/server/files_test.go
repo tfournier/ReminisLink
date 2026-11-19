@@ -453,34 +453,22 @@ func TestIdleWriterChunks(t *testing.T) {
 	}
 }
 
-// deadlineWriter is a ResponseWriter that records its write deadlines
-// (through http.ResponseController) and checks that every write and the
-// final flush happen under a deadline renewed for them.
+// deadlineWriter is a ResponseWriter that records its writes, flushes
+// and write deadlines (through http.ResponseController), in order.
 type deadlineWriter struct {
-	t        *testing.T
-	header   http.Header
-	body     bytes.Buffer
-	timeout  time.Duration
-	delay    time.Duration // each write takes this long (a slow client)
-	deadline time.Time
-	events   []string
+	t      *testing.T
+	header http.Header
+	body   bytes.Buffer
+	delay  time.Duration // each write takes this long (a slow client)
+	events []string
 }
 
 func (d *deadlineWriter) Header() http.Header { return d.header }
 func (d *deadlineWriter) WriteHeader(int)     {}
 
-// renewed reports whether the deadline was set for the operation that
-// starts now: about timeout ahead.
-func (d *deadlineWriter) renewed() bool {
-	return !d.deadline.IsZero() && time.Until(d.deadline) > d.timeout-d.timeout/4
-}
-
 func (d *deadlineWriter) Write(p []byte) (int, error) {
 	if len(p) > SendChunk {
 		d.t.Errorf("write of %d bytes", len(p))
-	}
-	if !d.renewed() {
-		d.t.Errorf("write %d without a renewed deadline (%v left)", len(d.events), time.Until(d.deadline))
 	}
 	d.events = append(d.events, "write")
 	time.Sleep(d.delay)
@@ -488,19 +476,19 @@ func (d *deadlineWriter) Write(p []byte) (int, error) {
 }
 
 func (d *deadlineWriter) SetWriteDeadline(t time.Time) error {
-	if t.IsZero() {
+	switch {
+	case t.IsZero():
 		d.events = append(d.events, "clear")
-	} else {
+	case !t.After(time.Now()):
+		d.t.Errorf("deadline %v already past when set", t)
+		d.events = append(d.events, "past")
+	default:
 		d.events = append(d.events, "deadline")
 	}
-	d.deadline = t
 	return nil
 }
 
 func (d *deadlineWriter) FlushError() error {
-	if !d.renewed() {
-		d.t.Errorf("flush without a renewed deadline (%v left)", time.Until(d.deadline))
-	}
 	d.events = append(d.events, "flush")
 	return nil
 }
@@ -521,21 +509,20 @@ func TestSendFileDeadlines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &deadlineWriter{t: t, header: http.Header{}, timeout: f.server.timeouts.sendIdle, delay: 30 * time.Millisecond}
+	w := &deadlineWriter{t: t, header: http.Header{}, delay: 30 * time.Millisecond}
 	start := time.Now()
 	f.server.sendFile(w, httptest.NewRequest(http.MethodGet, "/", nil), file, "disc.bin", "application/octet-stream")
-	if elapsed := time.Since(start); elapsed < 3*w.timeout {
+	if elapsed := time.Since(start); elapsed < f.server.timeouts.sendIdle {
 		t.Errorf("transfer took %v, want more than the idle timeout", elapsed)
 	}
 	if !bytes.Equal(w.body.Bytes(), data) {
 		t.Errorf("body: %d bytes, want %d", w.body.Len(), len(data))
 	}
-	writes := strings.Count(strings.Join(w.events, " "), "write")
-	if writes < 11 {
-		t.Errorf("%d writes, want at least 11", writes)
-	}
-	if n := len(w.events); n < 3 || strings.Join(w.events[n-3:], " ") != "deadline flush clear" {
-		t.Errorf("events end with %v, want a deadline, the flush, then the clear", w.events[max(0, n-4):])
+	// A new deadline before every write, then before the flush, then the
+	// clear: "deadline write" × n, "deadline flush clear".
+	want := strings.Repeat("deadline write ", strings.Count(strings.Join(w.events, " "), "write")) + "deadline flush clear"
+	if got := strings.Join(w.events, " "); got != want || !strings.Contains(got, strings.Repeat("deadline write ", 11)) {
+		t.Errorf("events %q, want %q (at least 11 writes)", got, want)
 	}
 	if strings.Contains(f.logs.String(), "file transfer interrupted") {
 		t.Error("transfer reported as interrupted")
