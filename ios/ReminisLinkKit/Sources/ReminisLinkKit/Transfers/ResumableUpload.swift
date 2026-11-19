@@ -276,18 +276,28 @@ public actor ResumableUpload {
         /// `complete` had been sent and the device no longer knows the
         /// upload: the file may have been written.
         case outcomeUnknown
+        /// M10: the device refused (`423 read_only`, `401 disconnected`).
+        /// Nothing changed there; the upload is kept and can resume.
+        case refused(APIError)
     }
 
     /// Cancels the upload on the device (best effort) and forgets it.
     @discardableResult
     public func cancel(client: APIClient) async -> CancelOutcome {
         guard let id = uploadId else { return completeSent ? .outcomeUnknown : .cancelled }
+        let previousOffset = offset
         uploadId = nil
         offset = 0
         do {
             try await client.cancelUpload(id: id)
             completeSent = false
             return .cancelled
+        } catch let error as APIError where error.isReadOnly || error.isDisconnected {
+            // Not cancelled on the device: keep what resumes it.
+            uploadId = id
+            offset = previousOffset
+            needsSync = true
+            return .refused(error)
         } catch APIError.server(let error) where error.code == .notFound && completeSent {
             return .outcomeUnknown
         } catch {

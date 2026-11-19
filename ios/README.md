@@ -420,7 +420,12 @@ find nothing new).
   by the connection that follows that tap, or opening the console from the
   list (and only if the pak answers `401 disconnected`); automatic
   reconnections never send it. `401 unknown_client` (forgotten by the
-  console) still offers **Pair Again**.
+  console) still offers **Pair Again**. The permission belongs to that one
+  connection attempt, whatever its outcome.
+- The cheat file upload (Import > Files) and the patch upload wait, paused
+  with their local copy, while another device has write access, then go on.
+  A cancel refused by the console (`423`) keeps the upload. A `423`
+  answering a request sent before a take-over is ignored.
 
 The fake pak implements the lease (single holder, 60 s expiry with an
 injectable `leaseClock`, renewal by every request of the holder, `force`,

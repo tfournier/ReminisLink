@@ -318,14 +318,11 @@ final class AppModel {
     }
 
     /// Opening a console from the list is an explicit action of the user:
-    /// its connection may lift a disconnection set from the console (M10).
-    /// Back on the list, no connection may.
+    /// the connection it starts may lift a disconnection set from the
+    /// console (M10).
     private func pathChanged(from old: [Route]) {
         if old.isEmpty, path.count == 1, case .console(let id)? = path.first {
             session(for: id).userOpened()
-        }
-        if path.isEmpty {
-            for session in sessions.values { session.userLeft() }
         }
     }
 
@@ -390,7 +387,7 @@ final class AppModel {
 
     func makeClient(
         endpoint: Endpoint, expectedDeviceId: String, credentials: DeviceCredentials? = nil,
-        errorObserver: (@Sendable (ServerError) -> Void)? = nil
+        errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
     ) -> APIClient {
         APIClient(
             endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials,

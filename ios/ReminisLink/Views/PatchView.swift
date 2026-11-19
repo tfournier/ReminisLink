@@ -438,6 +438,12 @@ private struct PatchFormSections: View {
         case .sending(let fraction):
             Section {
                 progressRow(Text("Sending the patch… \(fraction.formatted(.percent.precision(.fractionLength(0))))"), fraction: fraction)
+                if flow.isWaitingForWriteAccess {
+                    // M10: resumes by itself once this iPhone has write access.
+                    Label("Paused: another device has write access. The transfer resumes when this iPhone takes over.", systemImage: "pause.circle")
+                        .font(.footnote)
+                        .accessibilityIdentifier("patch.waitingForWriteAccess")
+                }
             }
         case .downloading:
             Section { progressRow(Text("The console is downloading the patch…"), fraction: flow.job?.job?.progress.fraction) }
@@ -448,6 +454,8 @@ private struct PatchFormSections: View {
                 progressRow(patchingText, fraction: flow.job?.job?.progress.fraction)
                 if !cancelInProgress {
                     Button("Cancel the Patch", role: .destructive) { Task { await flow.cancel() } }
+                        // Refused while another device has write access (M10).
+                        .disabled(flow.session.isReadOnly)
                         .accessibilityIdentifier("patch.cancelJob")
                 }
             } footer: {

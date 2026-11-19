@@ -28,11 +28,10 @@ final class ConsoleSession {
     @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()
     /// The write lease of this iPhone on the console (milestone M10).
     @ObservationIgnored private(set) lazy var lease: WriterLease = makeLease()
-    /// The user opened this console from the list, or tapped "Reconnect":
-    /// the connection that follows may lift a disconnection set from the
-    /// console (`POST /clients/me/connect`). Never set by an automatic
-    /// reconnection.
-    @ObservationIgnored private(set) var userAskedToConnect = false
+    /// Waits for the write access to come back (cheat import, patch upload).
+    @ObservationIgnored private var writeAccessWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+    /// Something waits for the write access to come back (shown as paused).
+    private(set) var writeAccessWaits = 0
 
     @ObservationIgnored unowned let app: AppModel
     /// The connection in progress, shared by every caller.
@@ -54,25 +53,26 @@ final class ConsoleSession {
     /// The console disconnected this iPhone (`401 disconnected`).
     var isDisconnected: Bool { error?.isDisconnected ?? false }
 
-    /// The user opened this console from the list of consoles: a
-    /// disconnection set from the console may be lifted by the connection
-    /// that follows (or at once if it is shown).
+    /// The user opened this console from the list of consoles: the
+    /// connection that starts now (or is in progress) may lift a
+    /// disconnection set from the console. Only that attempt: a later one
+    /// (automatic) never may.
     func userOpened() {
-        userAskedToConnect = true
-        if isDisconnected { Task { await connect() } }
-    }
-
-    /// Back on the list of consoles: no connection may lift a
-    /// disconnection any more without a new explicit action.
-    func userLeft() {
-        userAskedToConnect = false
+        switch state {
+        case .idle, .connecting:
+            _ = currentAttempt(explicit: true)
+        case .failed(let error) where error.isDisconnected:
+            _ = currentAttempt(explicit: true)
+        default:
+            break
+        }
     }
 
     /// "Reconnect", after a disconnection by the console: connects again,
-    /// lifting the disconnection (`POST /clients/me/connect`).
+    /// lifting the disconnection (`POST /clients/me/connect`). The
+    /// permission belongs to this attempt only, whatever its outcome.
     func reconnect() async {
-        userAskedToConnect = true
-        await connect()
+        await connect(explicit: true)
     }
 
     func connectIfNeeded() async {
@@ -87,16 +87,11 @@ final class ConsoleSession {
     /// only cancelled when its last caller is gone, and then goes back to
     /// `.idle` (never cached as a failure). A cancelled connection is never
     /// joined: a new one starts.
-    func connect() async {
-        let attempt: ConnectionAttempt
-        if let current = self.attempt, !current.isCancelled {
-            attempt = current
-        } else {
-            attempt = ConnectionAttempt()
-            self.attempt = attempt
-            state = .connecting
-            attempt.task = Task { await self.runConnection(attempt) }
-        }
+    ///
+    /// `explicit`: an action of the user (M10, "Reconnect" or opening the
+    /// console from the list): this attempt may lift a disconnection.
+    func connect(explicit: Bool = false) async {
+        let attempt = currentAttempt(explicit: explicit)
         let waiter = UUID()
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -112,6 +107,21 @@ final class ConsoleSession {
         if Task.isCancelled { attempt.leave(waiter) }
     }
 
+    /// The connection in progress, or a new one.
+    private func currentAttempt(explicit: Bool) -> ConnectionAttempt {
+        let attempt: ConnectionAttempt
+        if let current = self.attempt, !current.isCancelled {
+            attempt = current
+        } else {
+            attempt = ConnectionAttempt()
+            self.attempt = attempt
+            state = .connecting
+            attempt.task = Task { await self.runConnection(attempt) }
+        }
+        if explicit { attempt.isExplicit = true }
+        return attempt
+    }
+
     private func runConnection(_ attempt: ConnectionAttempt) async {
         defer {
             if self.attempt === attempt { self.attempt = nil }
@@ -125,10 +135,10 @@ final class ConsoleSession {
             let observed = ObservedClient()
             let client = app.makeClient(
                 endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials,
-                errorObserver: { [weak self] error in
+                errorObserver: { [weak self] error, sentAt in
                     Task { @MainActor in
                         guard let client = observed.client else { return }
-                        self?.observe(error, from: client)
+                        self?.observe(error, sentAt: sentAt, from: client)
                     }
                 }
             )
@@ -137,7 +147,7 @@ final class ConsoleSession {
             let status: DeviceStatus
             do {
                 status = try await client.device()
-            } catch let error as APIError where error.isDisconnected && userAskedToConnect {
+            } catch let error as APIError where error.isDisconnected && attempt.isExplicit {
                 // Only after an explicit action of the user (M10).
                 try await client.connectClient()
                 status = try await client.device()
@@ -146,7 +156,6 @@ final class ConsoleSession {
             try Task.checkCancellation()
             guard self.attempt === attempt else { return }
             self.client = client
-            userAskedToConnect = false
             state = .connected
             lease.start(device: status)
             // Milestone M9: copy the saves that changed (setting, default on).
@@ -219,11 +228,12 @@ final class ConsoleSession {
     /// Every error answer of the pak to this connection (M10): a
     /// `423 read_only` makes the session read-only, a `401 disconnected`
     /// ends the connection, whatever screen or transfer sent the request.
-    func observe(_ error: ServerError, from client: APIClient) {
+    func observe(_ error: ServerError, sentAt: ContinuousClock.Instant, from client: APIClient) {
         switch error.code {
         case .readOnly:
             guard self.client === client else { return }
-            lease.noteReadOnly(holder: error.writerName)
+            // A request sent before the last take-over changes nothing.
+            lease.noteReadOnly(holder: error.writerName, sentAt: sentAt)
         case .disconnected:
             connectionLost(.api(.server(error)), client: client)
         default:
@@ -253,14 +263,69 @@ final class ConsoleSession {
         Task { await lease.setForeground(foreground) }
     }
 
+    /// The lease is held again: paused uploads resume, waiters go on.
+    private func writeAccessRegained() {
+        transfers.resumePausedForWriteAccess()
+        let waiters = writeAccessWaiters.values
+        writeAccessWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    /// Whether this iPhone holds the lease, confirmed by the pak (a
+    /// renewal) when it believes so: a `423` older than the lease change
+    /// must not leave an upload paused, nor resume one for nothing.
+    func writeAccessConfirmed() async -> Bool {
+        guard client != nil, lease.access == .writer else { return false }
+        await lease.renew()
+        return lease.access == .writer
+    }
+
+    /// Waits until this iPhone has the write access again (M10). Throws
+    /// `CancellationError` if the caller is cancelled meanwhile.
+    func waitForWriteAccess() async throws {
+        if await writeAccessConfirmed() { return }
+        let id = UUID()
+        writeAccessWaits += 1
+        defer { writeAccessWaits -= 1 }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    writeAccessWaiters[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.writeAccessWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+            }
+        }
+    }
+
+    /// Runs `operation` (an upload that keeps its progress across calls);
+    /// refused by `423 read_only` or `401 disconnected`, it waits for the
+    /// write access to come back and runs again.
+    func pausingForWriteAccess<T>(_ operation: () async throws -> T) async throws -> T {
+        while true {
+            do {
+                return try await operation()
+            } catch let error as APIError where error.isReadOnly || error.isDisconnected {
+                try await waitForWriteAccess()
+            } catch let error as AppError where error.isReadOnly || error.isDisconnected {
+                try await waitForWriteAccess()
+            }
+        }
+    }
+
     private func makeLease() -> WriterLease {
         let lease = WriterLease(
             isForeground: app.isForeground,
             client: { [weak self] in self?.client },
             transfersRunning: { [weak self] in self?.transfers.isBusy ?? false }
         )
-        // The lease is back: uploads paused by `423` go on.
-        lease.onAcquired = { [weak self] in self?.transfers.resumePausedForWriteAccess() }
+        // The lease is back: uploads paused by `423` go on, and what waits
+        // for it (cheat import, patch upload) resumes.
+        lease.onAcquired = { [weak self] in self?.writeAccessRegained() }
         lease.onFatalError = { [weak self] error in
             guard let self, let client = self.client else { return }
             self.connectionLost(AppError(error), client: client)
@@ -288,6 +353,13 @@ final class ConsoleSession {
         queue.onUploadFinished = { [weak self] _ in self?.contentChanged() }
         queue.onJobFinished = { [weak self] item in
             if item.job?.state == .succeeded { self?.contentChanged() }
+        }
+        // M10: the lease may be back by the time the pause is recorded.
+        queue.onPausedForWriteAccess = { [weak self, weak queue] item in
+            Task { @MainActor in
+                guard let self, await self.writeAccessConfirmed() else { return }
+                queue?.resume(item)
+            }
         }
         return queue
     }
@@ -330,9 +402,10 @@ final class ConsoleSession {
 }
 
 /// The client of a connection, for the error observer set before it exists.
+/// Weak: the client holds the observer, which holds this.
 private final class ObservedClient: @unchecked Sendable {
     private let lock = NSLock()
-    private var _client: APIClient?
+    private weak var _client: APIClient?
     var client: APIClient? {
         get { lock.withLock { _client } }
         set { lock.withLock { _client = newValue } }
@@ -345,6 +418,9 @@ private final class ConnectionAttempt {
     var task: Task<Void, Never>?
     var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     private(set) var isFinished = false
+    /// Started or joined by an explicit action of the user (M10): may lift
+    /// a disconnection set from the console.
+    var isExplicit = false
 
     var isCancelled: Bool { task?.isCancelled ?? false }
 

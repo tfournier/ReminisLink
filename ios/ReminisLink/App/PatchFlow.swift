@@ -71,6 +71,11 @@ final class PatchFlow {
         /// Confirmed: nothing was applied.
         case cancelled
 
+        var isSending: Bool {
+            if case .sending = self { return true }
+            return false
+        }
+
         /// Something runs: the inputs are locked.
         var isBusy: Bool {
             switch self {
@@ -126,6 +131,9 @@ final class PatchFlow {
     private(set) var mismatchDetails: PatchMismatchDetails?
     /// `result.verified` of the patch job: false for IPS.
     private(set) var verified: Bool?
+    /// M10: the upload of the patch is paused until this iPhone has write
+    /// access again (it then goes on by itself).
+    var isWaitingForWriteAccess: Bool { step.isSending && session.writeAccessWaits > 0 }
 
     /// The patch already in the staging area, by source.
     @ObservationIgnored private var staged: (key: String, stagingId: String)?
@@ -259,11 +267,16 @@ final class PatchFlow {
         // Out of background time: stop after the current chunk.
         let token = background.begin(name: "Patch upload") { flag.set() }
         defer { background.end(token) }
-        let client = try await session.connectedClient()
         let size = file.sizeBytes
-        let result = try await upload.run(client: client, shouldPause: { flag.isSet }, progress: { [weak self] offset in
-            await self?.reportSent(offset, of: size)
-        })
+        // M10: refused while another device has write access, the upload
+        // waits (kept, never restarted) and goes on once this iPhone has
+        // write access again.
+        let session = session
+        let result = try await session.pausingForWriteAccess {
+            try await upload.run(client: try await session.connectedClient(), shouldPause: { flag.isSet }, progress: { [weak self] offset in
+                await self?.reportSent(offset, of: size)
+            })
+        }
         guard let stagingId = result.stagingId else { throw AppError.api(.invalidResponse("no stagingId")) }
         staged = (key, stagingId)
         self.upload = nil
@@ -478,12 +491,15 @@ final class PatchFlow {
         }
     }
 
-    /// Cancels the upload on the console (best effort).
+    /// Cancels the upload on the console (best effort). Refused by the
+    /// console (M10: another device has write access), the upload is kept:
+    /// Apply resumes it.
     private func cancelUpload() async {
-        guard let upload = upload?.upload else { return }
+        guard let current = upload else { return }
         self.upload = nil
-        if let client = try? await session.connectedClient() {
-            _ = await upload.cancel(client: client)
+        if let client = try? await session.connectedClient(),
+           case .refused = await current.upload.cancel(client: client) {
+            if self.upload == nil { self.upload = current }
         }
     }
 

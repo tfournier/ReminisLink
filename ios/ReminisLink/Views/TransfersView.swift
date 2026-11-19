@@ -117,6 +117,9 @@ struct UploadRow: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
+                    // Refused by the console while another device has write
+                    // access (M10).
+                    .disabled(isReadOnly)
                     .accessibilityLabel(Text("Cancel"))
                     .accessibilityIdentifier("upload.cancel")
                 }
@@ -145,7 +148,7 @@ struct UploadRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("upload.\(item.fileName)")
         .swipeActions {
-            if !item.phase.isFinished && !item.isCompleting {
+            if !item.phase.isFinished && !item.isCompleting && !isReadOnly {
                 Button("Cancel", role: .destructive) { queue.cancel(item) }
             }
         }

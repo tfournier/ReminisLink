@@ -55,8 +55,8 @@ public final class WriterLease {
 
     public var isReadOnly: Bool { access.isReadOnly }
 
-    /// Called when this iPhone gets the lease back after being read-only
-    /// (paused uploads resume).
+    /// Called whenever this iPhone gets the lease (taken, taken over, or
+    /// back after a reconnection): uploads paused by `423` resume.
     @ObservationIgnored public var onAcquired: (() -> Void)?
     /// Called when a lease request meets an error that ends the session
     /// (`401 disconnected`, `401 unknown_client`...). The loop stops.
@@ -71,6 +71,15 @@ public final class WriterLease {
     /// renewal: an older renewal answer is then dropped.
     @ObservationIgnored private var epoch = 0
     @ObservationIgnored private var stopped = false
+    /// When the last take-over was sent: a `423` answering a request sent
+    /// before it is stale and changes nothing.
+    @ObservationIgnored private var takeOverSentAt: ContinuousClock.Instant?
+    /// `PUT /writer` requests in flight: the pak may have granted the lease
+    /// before their answer arrives.
+    @ObservationIgnored private var acquisitionsInFlight = 0
+
+    /// The lease should be held now (foreground, or a transfer running).
+    private var wantsLease: Bool { !stopped && (isForeground || transfersRunning()) }
 
     /// - Parameters:
     ///   - client: the signed client of the current connection, if any
@@ -132,7 +141,10 @@ public final class WriterLease {
 
     /// A write was refused with `423 read_only`: another client holds the
     /// lease. The renewals go on (they take the lease when it is free).
-    public func noteReadOnly(holder: String?) {
+    /// `sentAt`: when the refused request was sent; a request sent before
+    /// the last take-over is stale and changes nothing.
+    public func noteReadOnly(holder: String?, sentAt: ContinuousClock.Instant? = nil) {
+        if let sentAt, let takeOverSentAt, sentAt < takeOverSentAt { return }
         epoch += 1
         becomeReadOnly(holder: holder)
     }
@@ -144,6 +156,9 @@ public final class WriterLease {
         let current = epoch
         loop?.cancel()
         loop = nil
+        takeOverSentAt = .now
+        acquisitionsInFlight += 1
+        defer { acquisitionsInFlight -= 1 }
         do {
             let state = try await client.takeWriter(force: true)
             if current == epoch { apply(state.writer) }
@@ -160,9 +175,16 @@ public final class WriterLease {
     public func renew() async -> Bool {
         guard let client = client() else { return true }
         let current = epoch
+        acquisitionsInFlight += 1
+        defer { acquisitionsInFlight -= 1 }
         do {
             let state = try await client.takeWriter(force: false)
-            guard current == epoch, !Task.isCancelled else { return true }
+            guard current == epoch, !Task.isCancelled else {
+                // Granted after the app stopped wanting the lease (e.g. it
+                // went to the background meanwhile): give it back.
+                if state.writer?.you == true, !wantsLease { try? await client.releaseWriter() }
+                return true
+            }
             apply(state.writer)
         } catch let error as APIError {
             guard current == epoch, !Task.isCancelled else { return true }
@@ -185,9 +207,11 @@ public final class WriterLease {
         return true
     }
 
-    /// `DELETE /writer` if this iPhone holds the lease (best effort).
+    /// `DELETE /writer` if this iPhone holds the lease, or may hold it (a
+    /// `PUT /writer` in flight). Best effort; no effect on the pak when
+    /// another client holds it.
     public func release() async {
-        guard access == .writer, let client = client() else { return }
+        guard access == .writer || acquisitionsInFlight > 0, let client = client() else { return }
         epoch += 1
         access = .free
         expiresAt = nil
@@ -233,10 +257,10 @@ public final class WriterLease {
             return
         }
         if writer.you {
-            let wasReadOnly = access.isReadOnly
+            let wasWriter = access == .writer
             access = .writer
             expiresAt = writer.expiresAt
-            if wasReadOnly { onAcquired?() }
+            if !wasWriter { onAcquired?() }
         } else {
             becomeReadOnly(holder: writer.clientName)
         }

@@ -182,6 +182,10 @@ public final class TransferQueue {
     @ObservationIgnored public var onUploadFinished: ((UploadItem) -> Void)?
     /// Called on the main actor when a job reaches its end.
     @ObservationIgnored public var onJobFinished: ((JobItem) -> Void)?
+    /// Called on the main actor once an upload is recorded paused by
+    /// `423 read_only` or `401 disconnected` (M10): the write access may
+    /// already be back, then it resumes.
+    @ObservationIgnored public var onPausedForWriteAccess: ((UploadItem) -> Void)?
 
     @ObservationIgnored private let client: () async throws -> APIClient
     @ObservationIgnored private let scratchDirectory: URL
@@ -254,6 +258,10 @@ public final class TransferQueue {
                     item.failure = nil
                     item.completeSent = false
                     self.cleanUp(item)
+                } else if case .refused(let error) = outcome {
+                    // M10: nothing changed on the device; try again later.
+                    item.phase = .failed
+                    item.failure = error
                 } else {
                     item.phase = .failed
                     item.failure = UploadFailure.outcomeUnknown
@@ -264,12 +272,23 @@ public final class TransferQueue {
         item.phase = .cancelled
         item.failure = nil
         item.task?.cancel()
-        let upload = item.upload
+        guard let upload = item.upload else {
+            cleanUp(item)
+            return
+        }
         let client = client
         Task {
-            if let upload, let api = try? await client() { await upload.cancel(client: api) }
+            var outcome = ResumableUpload.CancelOutcome.cancelled
+            if let api = try? await client() { outcome = await upload.cancel(client: api) }
+            if case .refused(let error) = outcome, item.phase == .cancelled {
+                // M10: the device kept the upload (another device has write
+                // access): keep the local copy, the upload stays resumable.
+                item.phase = .paused
+                item.failure = error
+                return
+            }
+            self.cleanUp(item)
         }
-        cleanUp(item)
     }
 
     /// Resumes a paused or failed upload.
@@ -443,6 +462,7 @@ public final class TransferQueue {
                 // resumes at the confirmed offset once writing is possible.
                 item.phase = .paused
                 item.failure = error
+                onPausedForWriteAccess?(item)
             default:
                 item.phase = .failed
                 item.failure = error

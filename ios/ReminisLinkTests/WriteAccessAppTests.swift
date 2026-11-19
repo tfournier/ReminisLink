@@ -197,4 +197,127 @@ struct WriteAccessAppTests {
         #expect(error.message == String(localized: "This console no longer recognizes your iPhone."))
         #expect(count(pak, "POST", "/clients/me/connect") == 0)
     }
+
+    // MARK: - Codex review, round 1
+
+    func picked(_ app: AppModel, name: String, contents: Data) async throws -> PickedFile {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "m10-src-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let source = directory.appending(path: name)
+        try contents.write(to: source)
+        return try await PickedFile.copy(source, into: app.transferDirectory)
+    }
+
+    /// #1: a failed "Reconnect" leaves no permission behind: a later
+    /// automatic attempt never sends `POST /clients/me/connect`.
+    @Test func aFailedReconnectLeavesNoPermission() async throws {
+        let pak = makePak()
+        let (app, clientId) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        pak.disconnect(clientId: clientId)
+        await session.refresh()
+        #expect(session.isDisconnected)
+        // "Reconnect" while the console cannot be reached: fails before /device.
+        FakeURLProtocol.register(ClosureHandler { _, _ in .networkFailure() }, host: pak.host)
+        await session.reconnect()
+        #expect(!session.isDisconnected)
+        pak.register()
+        // An automatic attempt (an upload resuming, a retry...).
+        await session.connect()
+        _ = try? await session.perform { try await $0.systems() }
+        #expect(session.isDisconnected)
+        #expect(count(pak, "POST", "/clients/me/connect") == 0)
+        #expect(pak.isDisconnected(clientId: clientId))
+    }
+
+    /// #2: a write refused before the take-over and answered after it
+    /// does not make the app read-only again.
+    @Test func aLate423DoesNotUndoATakeOver() async throws {
+        let pak = makePak()
+        pak.simulateOtherWriter(name: "Other iPhone")
+        let (app, clientId) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        #expect(session.isReadOnly)
+        pak.delayNextAnswer(method: "DELETE", path: "/api/v1/trash", by: 0.5)
+        let write = Task { try? await session.emptyTrash() }
+        await waitUntil { count(pak, "DELETE", "/trash") == 1 } // refused, answer in flight
+        try await session.takeOver()
+        #expect(session.lease.access == .writer)
+        await write.value // the late 423 arrives
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(session.lease.access == .writer)
+        #expect(!session.isReadOnly)
+        #expect(pak.writerClient == clientId)
+    }
+
+    /// #2: an upload refused before the take-over, whose pause is recorded
+    /// after it, resumes by itself.
+    @Test func anUploadPausedAfterTheTakeOverResumes() async throws {
+        let pak = makePak()
+        pak.simulateOtherWriter(name: "Other iPhone")
+        let (app, clientId) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        #expect(session.isReadOnly)
+        let system = try #require(try await session.perform { try await $0.systems() }.first)
+        pak.delayNextAnswer(method: "POST", path: "/api/v1/uploads", by: 0.5)
+        let file = FileManager.default.temporaryDirectory.appending(path: "m10-\(UUID().uuidString).gba")
+        try Data(repeating: 3, count: 20_000).write(to: file)
+        let item = try session.transfers.enqueue(
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Late.gba"), destination: "GBA", ownsFile: false
+        )
+        await waitUntil { count(pak, "POST", "/uploads") == 1 }
+        try await session.takeOver()
+        #expect(pak.writerClient == clientId)
+        await waitUntil { item.phase == .done }
+        #expect(item.phase == .done, "\(String(describing: item.failure))")
+        session.lease.stop()
+    }
+
+    /// #3: a cheat file refused while read-only waits, keeps its copy, and
+    /// is imported once this iPhone takes over.
+    @Test func aCheatFileWaitsForWriteAccess() async throws {
+        let pak = makePak()
+        pak.simulateOtherWriter(name: "Other iPhone")
+        let (app, _) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let file = try await picked(app, name: "pack.cht", contents: Data("cheat0_desc = \"Wait\"\ncheat0_code = \"3\"\n".utf8))
+        let game = DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner.gba")
+        let task = Task { try await session.importCheats(gameId: game, from: file, mode: .merge) }
+        await waitUntil { session.writeAccessWaits == 1 }
+        #expect(session.writeAccessWaits == 1)
+        #expect(FileManager.default.fileExists(atPath: file.url.path))
+        try await session.takeOver()
+        let result = try await task.value
+        #expect(result.imported == 1)
+    }
+
+    /// #3: the patch upload refused while read-only waits and goes on once
+    /// this iPhone takes over (never restarted).
+    @Test func aPatchUploadWaitsForWriteAccess() async throws {
+        let pak = makePak()
+        let (app, _) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        pak.simulateOtherWriter(name: "Other iPhone")
+        let game = PatchGame(
+            id: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
+            fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Game Boy Advance"
+        )
+        let flow = PatchFlow(session: session, game: game)
+        flow.file = try await picked(app, name: "fix.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 64)))
+        flow.fileName = "Sky Garden Quest (fix).gba"
+        flow.start()
+        await waitUntil { flow.isWaitingForWriteAccess }
+        #expect(flow.isWaitingForWriteAccess)
+        try await session.takeOver()
+        await waitUntil { flow.step == .patching || !flow.step.isBusy }
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (fix).gba"), late: false))
+        // Refused once (423, nothing created), then created once.
+        #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status == 423 }.count == 1)
+        #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
+    }
 }

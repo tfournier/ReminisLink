@@ -72,6 +72,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     var writerExpiry = Date.distantPast
     var disconnectedClients: Set<String> = []
     var _leaseClock: @Sendable () -> Date = { Date() }
+    /// Answers handled at once but delivered late, by method and path.
+    private var lateAnswers: [(method: String, path: String, delay: TimeInterval)] = []
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
@@ -300,6 +302,14 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         }
     }
 
+    /// The next request with this method and path (e.g. `PUT`,
+    /// `/api/v1/writer`) is handled at once (its effect is immediate) but
+    /// its answer is delivered `delay` seconds later, without blocking the
+    /// other requests: an answer that arrives after later ones.
+    public func delayNextAnswer(method: String, path: String, by delay: TimeInterval) {
+        lock.withLock { lateAnswers.append((method, path, delay)) }
+    }
+
     /// The next requests get these responses instead (after the signature
     /// check for signed routes).
     public func enqueue(_ response: FakeResponse) {
@@ -314,8 +324,11 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         let url = request.url!
         let path = url.path(percentEncoded: true)
         let query = url.query(percentEncoded: true) ?? ""
-        let response = route(request, method: method, path: path, query: query, body: body)
+        var response = route(request, method: method, path: path, query: query, body: body)
         lock.withLock {
+            if let index = lateAnswers.firstIndex(where: { $0.method == method && $0.path == path }) {
+                response.delay = max(response.delay, lateAnswers.remove(at: index).delay)
+            }
             _log.append(LoggedRequest(
                 method: method, path: path, query: query,
                 nonce: request.value(forHTTPHeaderField: SignedHeaders.nonce), status: response.status
@@ -339,13 +352,10 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             break
         }
 
-        if let failure = verify(request, method: method, path: path, query: query, body: body) {
+        if let failure = verify(request, method: method, path: path, query: query, body: body, segments: segments) {
             return failure
         }
         let clientId = request.value(forHTTPHeaderField: SignedHeaders.client) ?? ""
-        if let refusal = checkLease(clientId: clientId, method: method, segments: segments) {
-            return refusal
-        }
         if let next = lock.withLock({ queued.isEmpty ? nil : queued.removeFirst() }) {
             return next
         }
@@ -440,7 +450,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     }
 
     /// The pak's checks, in the order of the contract.
-    private func verify(_ request: URLRequest, method: String, path: String, query: String, body: Data) -> FakeResponse? {
+    private func verify(
+        _ request: URLRequest, method: String, path: String, query: String, body: Data, segments: [String]
+    ) -> FakeResponse? {
         func header(_ name: String) -> String? { request.value(forHTTPHeaderField: name) }
         guard let clientId = header(SignedHeaders.client), let key = lock.withLock({ clients[clientId] }) else {
             return .error(401, code: "unknown_client", message: "Unknown client")
@@ -464,6 +476,11 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         lock.withLock {
             _ = nonces.insert(clientId + "|" + nonce)
             lastSeen[clientId] = seen
+        }
+        // M10, as the contract orders it: right after a valid signature,
+        // `401 disconnected`, then `423 read_only` before the body is read.
+        if let refusal = checkLease(clientId: clientId, method: method, segments: segments) {
+            return refusal
         }
         let keys = Self.decodeQuery(query).map(\.0)
         guard Set(keys).count == keys.count else {

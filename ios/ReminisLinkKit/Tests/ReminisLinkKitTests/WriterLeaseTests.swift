@@ -7,7 +7,7 @@ import Testing
 /// A paired client with its own name, and its id (to disconnect or forget
 /// it from the "console").
 func namedClient(
-    _ pak: FakePak, name: String, errorObserver: (@Sendable (ServerError) -> Void)? = nil
+    _ pak: FakePak, name: String, errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
 ) async throws -> (client: APIClient, clientId: String) {
     let session = pak.makeSession()
     let unsigned = APIClient(endpoint: pak.endpoint, expectedDeviceId: pak.deviceId, session: session)
@@ -237,7 +237,11 @@ struct WriterDecodingTests {
         let seen = Locked<[ServerError]>([])
         let (other, _) = try await namedClient(pak, name: "Other")
         _ = try await other.takeWriter()
-        let (client, _) = try await namedClient(pak, name: "Mine") { error in seen.mutate { $0.append(error) } }
+        let before = ContinuousClock.now
+        let (client, _) = try await namedClient(pak, name: "Mine") { error, sentAt in
+            #expect(sentAt >= before)
+            seen.mutate { $0.append(error) }
+        }
         _ = try? await client.emptyTrash()
         #expect(seen.value.map(\.code) == [.readOnly])
         #expect(seen.value.first?.writerName == "Other")
@@ -468,6 +472,42 @@ struct WriterLeaseTests {
         #expect(!s.lease.isRunning)
     }
 
+    /// Review M10 #4: the pak grants the lease, the app goes to the
+    /// background before the answer arrives: the lease is still released.
+    @Test func goingToTheBackgroundDuringAnAcquisitionReleases() async throws {
+        let s = try await setUp()
+        s.pak.delayNextAnswer(method: "PUT", path: "/api/v1/writer", by: 0.4)
+        s.lease.start(device: try await s.client.device())
+        await waitFor { writerRequests(s.pak, "PUT") == 1 }
+        #expect(s.pak.writerClient == s.clientId) // granted, answer in flight
+        await s.lease.setForeground(false)
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(s.pak.writerClient == nil)
+        #expect(s.lease.access != .writer)
+        #expect(writerRequests(s.pak, "DELETE") >= 1)
+    }
+
+    /// Review M10 #2: a renewal refused before a take-over, answered after
+    /// it, changes nothing; nor does a 423 of a request sent before it.
+    @Test func aStale423DoesNotUndoATakeOver() async throws {
+        let s = try await setUp(otherWriter: true)
+        s.pak.delayNextAnswer(method: "PUT", path: "/api/v1/writer", by: 0.4)
+        s.lease.start(device: try await s.client.device())
+        await waitFor { writerRequests(s.pak, "PUT") == 1 }
+        let beforeTakeOver = ContinuousClock.now
+        try await s.lease.takeOver()
+        #expect(s.lease.access == .writer)
+        s.lease.noteReadOnly(holder: "Other iPhone", sentAt: beforeTakeOver)
+        #expect(s.lease.access == .writer)
+        try await Task.sleep(for: .milliseconds(700)) // the late 423 arrives
+        #expect(s.lease.access == .writer)
+        #expect(s.pak.writerClient == s.clientId)
+        // A 423 of a request sent after the take-over still counts.
+        s.lease.noteReadOnly(holder: "Other iPhone", sentAt: .now)
+        #expect(s.lease.isReadOnly)
+        s.lease.stop()
+    }
+
     @Test func aPakWithoutTheLeaseIsUnsupported() async throws {
         let client = stubClient { _, _ in .error(404, code: "not_found", message: "No route") }
         let sleeper = ManualSleeper()
@@ -537,6 +577,42 @@ struct UploadLeaseTests {
         await queue.waitUntilIdle()
         #expect(item.phase == .done)
         // Resumed at the confirmed offset, not from 0.
+        #expect(pak.chunkLog.filter { $0.offset == 0 }.count == 1)
+    }
+
+    /// Review M10 #5: a cancel refused by the console keeps the upload
+    /// (local copy and resume state); it resumes with the lease.
+    @Test func aCancelRefusedWith423KeepsTheUpload() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        let (client, _) = try await namedClient(pak, name: "Mine")
+        let (other, _) = try await namedClient(pak, name: "Other iPhone")
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-lease-\(UUID().uuidString)")
+        let queue = TransferQueue(scratchDirectory: scratch, retry: .immediate) { client }
+        var pausedHook = 0
+        queue.onPausedForWriteAccess = { _ in pausedHook += 1 }
+        pak.responseDelay = 0.05
+        let file = try makeFile(size: 200_000, name: "K.gba")
+        let item = try queue.enqueue(fileURL: file, target: .rom(systemId: gbaSystemId, fileName: "K.gba"),
+                                     destination: "GBA", ownsFile: true)
+        await waitFor { item.sentBytes >= 32 * 1024 || item.phase.isFinished }
+        _ = try await other.takeWriter(force: true)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .paused)
+        #expect(pausedHook == 1)
+        pak.responseDelay = 0
+        queue.cancel(item)
+        await waitFor { item.phase != .cancelled }
+        #expect(item.phase == .paused)
+        #expect((item.failure as? APIError)?.isReadOnly == true)
+        #expect(pak.uploadIds.count == 1)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(FileManager.default.fileExists(atPath: file.path), "the local copy is kept")
+
+        try await other.releaseWriter()
+        queue.resumePausedForWriteAccess()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
         #expect(pak.chunkLog.filter { $0.offset == 0 }.count == 1)
     }
 }

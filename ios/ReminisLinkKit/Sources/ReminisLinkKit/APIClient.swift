@@ -57,10 +57,12 @@ public actor APIClient {
     private let session: URLSession
     private let now: @Sendable () -> Date
     private let appVersion: String
-    /// Sees every error answer of the pak, before it is thrown (M10: the
-    /// session learns of `423 read_only` and `401 disconnected` whatever
-    /// the screen or transfer that sent the request).
-    private let errorObserver: (@Sendable (ServerError) -> Void)?
+    /// Sees every error answer of the pak to a signed request, with the
+    /// moment that request was sent (M10: the session learns of
+    /// `423 read_only` and `401 disconnected` whatever the screen or
+    /// transfer that sent the request, and drops answers to requests sent
+    /// before a take-over).
+    private let errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)?
 
     /// Device time minus local time, measured on the last `/hello`.
     public private(set) var clockOffset: TimeInterval = 0
@@ -72,7 +74,7 @@ public actor APIClient {
         appVersion: String = "1.0.0",
         session: URLSession = APIClient.makeSession(),
         now: @escaping @Sendable () -> Date = { Date() },
-        errorObserver: (@Sendable (ServerError) -> Void)? = nil
+        errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
     ) {
         self.endpoint = endpoint
         self.expectedDeviceId = expectedDeviceId ?? credentials?.deviceId
@@ -599,12 +601,15 @@ public actor APIClient {
             } catch let error as SignerError {
                 throw APIError.signing(error)
             }
+            let sentAt = ContinuousClock.now
             let (result, response, errorBody) = try await send(request)
-            if !corrected, response.statusCode == 401, Self.serverError(response, data: errorBody)?.code == .clockSkew {
+            let serverError = Self.serverError(response, data: errorBody)
+            if !corrected, response.statusCode == 401, serverError?.code == .clockSkew {
                 corrected = true
                 try await hello()
                 continue
             }
+            if let serverError { errorObserver?(serverError, sentAt) }
             return (result, response)
         }
     }
@@ -743,10 +748,7 @@ public actor APIClient {
 
     private func check(_ response: HTTPURLResponse, data: Data, accept: Set<Int>) throws {
         if accept.contains(response.statusCode) { return }
-        if let error = Self.serverError(response, data: data) {
-            errorObserver?(error)
-            throw APIError.server(error)
-        }
+        if let error = Self.serverError(response, data: data) { throw APIError.server(error) }
         throw APIError.unexpectedStatus(response.statusCode)
     }
 
