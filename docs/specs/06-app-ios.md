@@ -54,7 +54,7 @@ Réglages de l'app ─ Saves sur cet iPhone ─ Console ─ …
 
 ### 4.1 Consoles
 
-- Liste des consoles appairées : nom, modèle, état (M11 : quand la console est renommée sur le pak, le `deviceName` de `/hello` ou `/device`, rapproché par `deviceId`, jamais par le nom, remplace le nom affiché ; un nom choisi dans l'app reste jusqu'au prochain changement de nom sur la console ; pas depuis Bonjour, dont le nom d'instance n'est pas authentifié et peut être suffixé en cas de conflit) (`En ligne` si vue par Bonjour, sinon `Hors ligne`).
+- Liste des consoles appairées : nom, modèle, état (M11 : quand la console est renommée sur le pak, le `deviceName` de `/hello` ou `/device`, rapproché par `deviceId`, jamais par le nom, remplace le nom affiché ; un nom choisi dans l'app reste jusqu'au prochain changement de nom sur la console, y compris pour une console appairée avant M11 (le premier nom reçu est seulement mémorisé) ; un nouvel appairage applique la même règle ; pas depuis Bonjour, dont le nom d'instance n'est pas authentifié et peut être suffixé en cas de conflit) (`En ligne` si vue par Bonjour, sinon `Hors ligne`).
 - Bouton **Ajouter une console**.
 - Si aucune console : écran d'accueil qui explique en 3 étapes (installer ReminisLink depuis le Pak Store, l'ouvrir, scanner le QR code).
 

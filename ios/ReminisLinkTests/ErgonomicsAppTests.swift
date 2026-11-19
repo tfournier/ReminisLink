@@ -378,6 +378,19 @@ struct ErgonomicsAppTests {
         #expect(app.closedNotice == nil)
     }
 
+    /// Codex M11 round 3 #3: a picker result arriving once the game is
+    /// gone is ignored.
+    @Test func aLatePickedImageForAGameThatIsGoneIsIgnored() async throws {
+        let button = GameArtButton(
+            deviceId: "d", gameId: "g", hasArt: true, isGameGone: true,
+            notice: .constant(nil), error: .constant(nil)
+        )
+        var ran = false
+        let applied = try await button.apply { _ in ran = true }
+        #expect(!applied)
+        #expect(!ran)
+    }
+
     /// Codex M11 round 2 #1: the image of a game that is gone has no action.
     @Test func theImageOfAGameThatIsGoneCannotBeChanged() {
         #expect(GameArtButton.isEnabled(isWorking: false, isReadOnly: false, isGameGone: false))
@@ -394,7 +407,9 @@ struct ErgonomicsAppTests {
         let id = pak.deviceId
         let session = app.session(for: id)
         await session.connect()
-        #expect(app.store.device(id: id)?.name == pak.deviceName)
+        // Stored before M11 (no console name): the user's name stays.
+        #expect(app.store.device(id: id)?.name == "Brick")
+        #expect(app.store.device(id: id)?.consoleName == pak.deviceName)
         pak.rename(to: "Living Room Brick")
         await session.refresh()
         #expect(app.store.device(id: id)?.name == "Living Room Brick")

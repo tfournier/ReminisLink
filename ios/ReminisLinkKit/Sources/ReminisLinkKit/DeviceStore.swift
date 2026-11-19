@@ -77,7 +77,12 @@ public final class DeviceStore {
         let reported = consoleName.flatMap(Self.clean)
         if let index = devices.firstIndex(where: { $0.id == deviceId }) {
             devices[index].model = model
-            if let reported { devices[index].consoleName = reported }
+            // Paired again: a name changed on the console since is shown,
+            // as by ``noteConsoleName(_:for:)``.
+            if let reported {
+                if let known = devices[index].consoleName, known != reported { devices[index].name = reported }
+                devices[index].consoleName = reported
+            }
             device = devices[index]
         } else {
             device = PairedDevice(id: deviceId, name: cleanName, model: model, pairedAt: now, consoleName: reported)
@@ -113,14 +118,21 @@ public final class DeviceStore {
     /// console, Settings > Console name). A name the console changed
     /// replaces the display name, so the list shows it; a name chosen on
     /// the app stays until the console's name changes. Matched by id only,
-    /// never by name. Returns whether the display name changed.
+    /// never by name. A device stored before M11 (no console name yet)
+    /// only records it: its display name may have been chosen in the app.
+    /// Returns whether the display name changed.
     @discardableResult
     public func noteConsoleName(_ name: String, for deviceId: String) -> Bool {
         guard let reported = Self.clean(name),
               let index = devices.firstIndex(where: { $0.id == deviceId }),
               devices[index].consoleName != reported
         else { return false }
+        let known = devices[index].consoleName
         devices[index].consoleName = reported
+        guard known != nil else {
+            persist()
+            return false
+        }
         let changed = devices[index].name != reported
         devices[index].name = reported
         persist()
