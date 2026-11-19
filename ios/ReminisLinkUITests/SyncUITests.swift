@@ -102,11 +102,12 @@ final class SyncUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["sync.failures"].exists, "some saves failed", file: file, line: line)
     }
 
-    /// From the dashboard to the versions of a synced save.
+    /// From the dashboard to the versions of a synced save (a GBA game:
+    /// the folder of its system is `<label> (<tag>)`).
     @MainActor
     private func openVersions(_ app: XCUIApplication, game: String, timeout: TimeInterval) {
         app.buttons["console.syncedSaves"].tapAfterWaiting(timeout: timeout)
-        let row = app.buttons["synced.game.\(game)"]
+        let row = app.buttons["synced.game.Game Boy Advance (GBA)/\(game)"]
         XCTAssertTrue(GameDataUITest.scrollTo(row, in: app), "\(game) is not listed")
         row.tap()
         XCTAssertTrue(app.buttons["synced.version.0"].waitForExistence(timeout: timeout), "no version listed")

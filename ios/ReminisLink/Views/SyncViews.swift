@@ -190,11 +190,14 @@ struct SyncedSavesView: View {
             ForEach(systems.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }, id: \.self) { system in
                 Section(system) {
                     ForEach(systems[system] ?? []) { game in
+                        // The folder name: unique, even for two games with
+                        // the same name ("Name (2)"), as in Files.
+                        let title = String(game.folderPath.split(separator: "/").last ?? Substring(game.info.name))
                         NavigationLink(value: Route.syncedGame(SyncedGameRoute(
-                            deviceId: deviceId, gameId: game.id, name: game.info.name, systemName: system
+                            deviceId: deviceId, gameId: game.id, name: title, systemName: system
                         ))) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(game.info.name)
+                                Text(title)
                                 if let latest = game.latest {
                                     Text("Versions: \(game.versionCount) · latest \(latest.info.syncedAt.formatted(date: .abbreviated, time: .shortened))")
                                         .font(.footnote)
@@ -203,7 +206,7 @@ struct SyncedSavesView: View {
                             }
                             .accessibilityElement(children: .combine)
                         }
-                        .accessibilityIdentifier("synced.game.\(game.info.name)")
+                        .accessibilityIdentifier("synced.game.\(game.folderPath)")
                     }
                 }
             }
