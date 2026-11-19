@@ -446,7 +446,15 @@ final class PatchFlow {
             cancelRequested = true
             runTask?.cancel()
             step = .cancelled
-            await cancelUpload()
+            if await cancelUpload() {
+                // M10: refused by the console (another device has write
+                // access): nothing was cancelled there. The upload and its
+                // local copy stay, paused until this iPhone has write
+                // access again.
+                cancelRequested = false
+                step = .idle
+                start()
+            }
         case .starting:
             // The request answers first; its job is then cancelled.
             cancelRequested = true
@@ -494,13 +502,17 @@ final class PatchFlow {
     /// Cancels the upload on the console (best effort). Refused by the
     /// console (M10: another device has write access), the upload is kept:
     /// Apply resumes it.
-    private func cancelUpload() async {
-        guard let current = upload else { return }
+    /// Returns true when the console refused (the upload is then kept).
+    @discardableResult
+    private func cancelUpload() async -> Bool {
+        guard let current = upload else { return false }
         self.upload = nil
         if let client = try? await session.connectedClient(),
            case .refused = await current.upload.cancel(client: client) {
             if self.upload == nil { self.upload = current }
+            return true
         }
+        return false
     }
 
     private func fail(_ error: Error) {

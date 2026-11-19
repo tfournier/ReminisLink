@@ -320,4 +320,41 @@ struct WriteAccessAppTests {
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status == 423 }.count == 1)
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
+
+    /// Round 2 #2: cancelling a patch upload refused by the console (it
+    /// lost write access mid-upload) keeps the upload and its local copy,
+    /// paused; it goes on once this iPhone takes over.
+    @Test func aRefusedPatchCancelKeepsTheUploadPaused() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        let (app, _) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let game = PatchGame(
+            id: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
+            fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Game Boy Advance"
+        )
+        let flow = PatchFlow(session: session, game: game)
+        let file = try await picked(app, name: "big.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 300_000)))
+        flow.file = file
+        flow.fileName = "Sky Garden Quest (big).gba"
+        pak.responseDelay = 0.03
+        flow.start()
+        await waitUntil { if case .sending(let f) = flow.step { return f > 0 } else { return false } }
+        pak.simulateOtherWriter(name: "Other iPhone")
+        await waitUntil { flow.isWaitingForWriteAccess }
+        #expect(flow.isWaitingForWriteAccess)
+        pak.responseDelay = 0
+        await flow.cancel()
+        await waitUntil { flow.isWaitingForWriteAccess }
+        #expect(flow.step.isBusy, "still paused, not cancelled: \(flow.step)")
+        #expect(flow.isWaitingForWriteAccess)
+        #expect(FileManager.default.fileExists(atPath: file.url.path), "the local copy is kept")
+        #expect(pak.uploadIds.count == 1)
+
+        try await session.takeOver()
+        await waitUntil { flow.step == .patching || !flow.step.isBusy }
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (big).gba"), late: false))
+        #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
+    }
 }

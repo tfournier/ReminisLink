@@ -98,6 +98,9 @@ struct PatchView: View {
             // (a cancellation in flight goes on without the screen).
             if let flow, flow.step.holdsTheScreen, !flow.isCancelling {
                 Button("Cancel") { Task { await flow.cancel() } }
+                    // Refused by the console while another device has write
+                    // access (M10): Take Over first.
+                    .disabled(flow.session.isReadOnly)
                     .accessibilityIdentifier("patch.cancel")
             } else {
                 Button(flow.map { $0.step.isBusy || $0.isCancelling } ?? false ? "Close" : "Cancel") { close() }
@@ -527,6 +530,7 @@ private struct PatchFormSections: View {
                 Label(String(localized: "The cancellation could not be sent: \(error.message)"), systemImage: "exclamationmark.triangle.fill")
                     .accessibilityIdentifier("patch.cancelError")
                 Button("Try Again") { Task { await flow.cancel() } }
+                    .disabled(flow.session.isReadOnly)
             }
         }
         if let error = flow.pollError, flow.step.isBusy {

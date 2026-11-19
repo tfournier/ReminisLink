@@ -259,9 +259,8 @@ public final class TransferQueue {
                     item.completeSent = false
                     self.cleanUp(item)
                 } else if case .refused(let error) = outcome {
-                    // M10: nothing changed on the device; try again later.
-                    item.phase = .failed
-                    item.failure = error
+                    // M10: nothing changed on the device.
+                    self.pauseForWriteAccess(item, error)
                 } else {
                     item.phase = .failed
                     item.failure = UploadFailure.outcomeUnknown
@@ -283,8 +282,7 @@ public final class TransferQueue {
             if case .refused(let error) = outcome, item.phase == .cancelled {
                 // M10: the device kept the upload (another device has write
                 // access): keep the local copy, the upload stays resumable.
-                item.phase = .paused
-                item.failure = error
+                self.pauseForWriteAccess(item, error)
                 return
             }
             self.cleanUp(item)
@@ -460,14 +458,23 @@ public final class TransferQueue {
                 // M10: another client has write access, or the console
                 // disconnected this iPhone. Nothing was lost: the upload
                 // resumes at the confirmed offset once writing is possible.
-                item.phase = .paused
-                item.failure = error
-                onPausedForWriteAccess?(item)
+                pauseForWriteAccess(item, error)
             default:
                 item.phase = .failed
                 item.failure = error
             }
         }
+    }
+
+    /// The single path of an upload refused by `423 read_only` or
+    /// `401 disconnected` (M10), whatever refused it (a chunk, `complete`, a
+    /// cancel): paused, kept, and resumed with the write access
+    /// (``resumePausedForWriteAccess()``, or at once through
+    /// ``onPausedForWriteAccess`` if the access is already back).
+    private func pauseForWriteAccess(_ item: UploadItem, _ error: APIError) {
+        item.phase = .paused
+        item.failure = error
+        onPausedForWriteAccess?(item)
     }
 
     private func cleanUp(_ item: UploadItem) {

@@ -508,6 +508,46 @@ struct WriterLeaseTests {
         s.lease.stop()
     }
 
+    func index(_ pak: FakePak, _ method: String, after start: Int = 0) -> Int? {
+        pak.log.indices.first { $0 >= start && pak.log[$0].method == method && pak.log[$0].path == "/api/v1/writer" }
+    }
+
+    /// Review M10 round 2 #1: the renewal reaches the pak after the app
+    /// went to the background; the release waits for it, so the pak
+    /// handles the DELETE last and the lease ends free.
+    @Test func aReleaseWaitsForARenewalThatArrivesLate() async throws {
+        let s = try await setUp()
+        s.pak.delayNextArrival(method: "PUT", path: "/api/v1/writer", by: 0.3)
+        s.lease.start(device: try await s.client.device())
+        try await Task.sleep(for: .milliseconds(50)) // the PUT is on its way
+        await s.lease.setForeground(false)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(s.pak.writerClient == nil)
+        let put = try #require(index(s.pak, "PUT"))
+        let delete = try #require(index(s.pak, "DELETE"))
+        #expect(put < delete, "the pak handled the PUT before the DELETE")
+        #expect(s.lease.access != .writer)
+    }
+
+    /// Same for a take-over in flight.
+    @Test func aReleaseWaitsForATakeOverThatArrivesLate() async throws {
+        let s = try await setUp(otherWriter: true)
+        s.lease.start(device: try await s.client.device())
+        await waitFor { s.sleeper.pending == 1 }
+        #expect(s.lease.isReadOnly)
+        let before = s.pak.log.count
+        s.pak.delayNextArrival(method: "PUT", path: "/api/v1/writer", by: 0.3)
+        let takeOver = Task { try await s.lease.takeOver() }
+        try await Task.sleep(for: .milliseconds(50))
+        await s.lease.setForeground(false)
+        try? await takeOver.value
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(s.pak.writerClient == nil, "taken over, then released")
+        let put = try #require(index(s.pak, "PUT", after: before))
+        let delete = try #require(index(s.pak, "DELETE", after: before))
+        #expect(put < delete)
+    }
+
     @Test func aPakWithoutTheLeaseIsUnsupported() async throws {
         let client = stubClient { _, _ in .error(404, code: "not_found", message: "No route") }
         let sleeper = ManualSleeper()
@@ -605,6 +645,8 @@ struct UploadLeaseTests {
         await waitFor { item.phase != .cancelled }
         #expect(item.phase == .paused)
         #expect((item.failure as? APIError)?.isReadOnly == true)
+        // Round 2 #3: the same pause path, so the session can resume it.
+        #expect(pausedHook == 2)
         #expect(pak.uploadIds.count == 1)
         try await Task.sleep(for: .milliseconds(100))
         #expect(FileManager.default.fileExists(atPath: file.path), "the local copy is kept")
@@ -614,5 +656,29 @@ struct UploadLeaseTests {
         await queue.waitUntilIdle()
         #expect(item.phase == .done)
         #expect(pak.chunkLog.filter { $0.offset == 0 }.count == 1)
+    }
+
+    /// Round 2 #3: a cancel refused after `complete` was sent (answer lost)
+    /// also goes through the pause path.
+    @Test func aCancelRefusedAfterCompleteIsPausedThroughTheSamePath() async throws {
+        let pak = makePak()
+        let (client, _) = try await namedClient(pak, name: "Mine")
+        let (other, _) = try await namedClient(pak, name: "Other iPhone")
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-lease-\(UUID().uuidString)")
+        let queue = TransferQueue(scratchDirectory: scratch, retry: RetryPolicy(delays: [], sleep: { _ in })) { client }
+        var pausedHook = 0
+        queue.onPausedForWriteAccess = { _ in pausedHook += 1 }
+        pak.loseCompleteRequests(1)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 10_000), target: .rom(systemId: gbaSystemId, fileName: "C2.gba"),
+                                     destination: "", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.completeSent)
+        _ = try await other.takeWriter(force: true)
+        queue.cancel(item)
+        await waitFor { pausedHook == 1 }
+        #expect(pausedHook == 1)
+        #expect(item.phase == .paused)
+        #expect((item.failure as? APIError)?.isReadOnly == true)
+        #expect(pak.uploadIds.count == 1)
     }
 }

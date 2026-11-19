@@ -145,11 +145,13 @@ final class ConsoleSession {
             observed.client = client
             hello = try await client.hello()
             let status: DeviceStatus
+            var deviceSentAt = ContinuousClock.now
             do {
                 status = try await client.device()
             } catch let error as APIError where error.isDisconnected && attempt.isExplicit {
                 // Only after an explicit action of the user (M10).
                 try await client.connectClient()
+                deviceSentAt = .now
                 status = try await client.device()
             }
             self.status = status
@@ -157,7 +159,7 @@ final class ConsoleSession {
             guard self.attempt === attempt else { return }
             self.client = client
             state = .connected
-            lease.start(device: status)
+            lease.start(device: status, sentAt: deviceSentAt)
             // Milestone M9: copy the saves that changed (setting, default on).
             // A sync of the previous connection still running: this one
             // starts when it ends.

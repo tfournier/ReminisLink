@@ -39,8 +39,17 @@ public enum WriterAccess: Equatable, Sendable {
 /// `DELETE /writer` once and stops. ``takeOver()`` is the only path that
 /// sends `force`.
 ///
-/// `423 read_only` answers seen elsewhere (any write of the app) come in
-/// through ``noteReadOnly(holder:)``.
+/// Two rules keep it simple:
+/// - **One lease request at a time.** `PUT` and `DELETE /writer` go through
+///   a serial queue, and a request is never cancelled once queued: a
+///   release is sent only after every acquisition sent before it has been
+///   answered, so the pak always handles them in that order and a release
+///   can never be overtaken by an acquisition.
+/// - **The newest request wins.** Every change of state carries the moment
+///   its request was sent; an answer to an older request than the one the
+///   state comes from is ignored. `423 read_only` answers seen elsewhere
+///   (any write of the app) come in through ``noteReadOnly(holder:sentAt:)``
+///   under the same rule.
 @MainActor
 @Observable
 public final class WriterLease {
@@ -67,16 +76,14 @@ public final class WriterLease {
     @ObservationIgnored private let client: () -> APIClient?
     @ObservationIgnored private let transfersRunning: () -> Bool
     @ObservationIgnored private var loop: Task<Void, Never>?
-    /// Changes whenever the state is set by something other than a
-    /// renewal: an older renewal answer is then dropped.
-    @ObservationIgnored private var epoch = 0
     @ObservationIgnored private var stopped = false
-    /// When the last take-over was sent: a `423` answering a request sent
-    /// before it is stale and changes nothing.
-    @ObservationIgnored private var takeOverSentAt: ContinuousClock.Instant?
-    /// `PUT /writer` requests in flight: the pak may have granted the lease
-    /// before their answer arrives.
-    @ObservationIgnored private var acquisitionsInFlight = 0
+    /// When the request the current state comes from was sent.
+    @ObservationIgnored private var stateSentAt: ContinuousClock.Instant = .now
+    /// The last lease request queued: the next one runs after it.
+    @ObservationIgnored private var queueTail: Task<Void, Never>?
+    /// `PUT /writer` sent since the last `DELETE /writer`: one of them may
+    /// have granted the lease even if its answer was an error or lost.
+    @ObservationIgnored private var acquisitionsSinceRelease = 0
 
     /// The lease should be held now (foreground, or a transfer running).
     private var wantsLease: Bool { !stopped && (isForeground || transfersRunning()) }
@@ -103,19 +110,20 @@ public final class WriterLease {
     /// After connecting: the holder given by `GET /device`, then renewals
     /// (the first one at once) if the app is in the foreground. A lease
     /// held by another client is never taken.
-    public func start(device: DeviceStatus) {
+    public func start(device: DeviceStatus, sentAt: ContinuousClock.Instant = .now) {
         loop?.cancel()
         loop = nil
         stopped = false
-        epoch += 1
+        stateSentAt = sentAt
         if !device.hasWriterField {
             // A pak without M10 may still have the route: the first
             // renewal tells (`404` marks it unsupported).
             access = .unknown
+            expiresAt = nil
         } else {
             apply(device.writer)
         }
-        if isForeground || transfersRunning() { startLoop(immediate: true) }
+        if wantsLease { startLoop(immediate: true) }
     }
 
     /// The connection is gone: renewals stop (the state is kept for display).
@@ -126,7 +134,8 @@ public final class WriterLease {
     }
 
     /// The app comes to the foreground or goes to the background. In the
-    /// background with no transfer running, the lease is released.
+    /// background with no transfer running, the lease is released (after
+    /// every acquisition already sent).
     public func setForeground(_ foreground: Bool) async {
         isForeground = foreground
         guard !stopped else { return }
@@ -141,84 +150,107 @@ public final class WriterLease {
 
     /// A write was refused with `423 read_only`: another client holds the
     /// lease. The renewals go on (they take the lease when it is free).
-    /// `sentAt`: when the refused request was sent; a request sent before
-    /// the last take-over is stale and changes nothing.
-    public func noteReadOnly(holder: String?, sentAt: ContinuousClock.Instant? = nil) {
-        if let sentAt, let takeOverSentAt, sentAt < takeOverSentAt { return }
-        epoch += 1
+    /// `sentAt`: when the refused request was sent; older than the request
+    /// the current state comes from, it changes nothing.
+    public func noteReadOnly(holder: String?, sentAt: ContinuousClock.Instant = .now) {
+        guard sentAt >= stateSentAt else { return }
+        stateSentAt = sentAt
         becomeReadOnly(holder: holder)
     }
 
     /// "Take over", after the user confirmed: `PUT /writer` with `force`.
     public func takeOver() async throws {
-        guard let client = client() else { throw APIError.notPaired }
-        epoch += 1
-        let current = epoch
+        guard client() != nil else { throw APIError.notPaired }
         loop?.cancel()
         loop = nil
-        takeOverSentAt = .now
-        acquisitionsInFlight += 1
-        defer { acquisitionsInFlight -= 1 }
-        do {
-            let state = try await client.takeWriter(force: true)
-            if current == epoch { apply(state.writer) }
-        } catch {
-            if !stopped, isForeground || transfersRunning() { startLoop(immediate: false) }
-            throw error
-        }
-        if !stopped, isForeground || transfersRunning() { startLoop(immediate: false) }
+        let outcome = await acquire(force: true)
+        if wantsLease { startLoop(immediate: false) }
+        if case .failure(let error) = outcome { throw error }
     }
 
     /// One renewal now (`PUT /writer` without `force`). Returns false when
     /// renewals should stop (fatal error, pak without M10).
     @discardableResult
     public func renew() async -> Bool {
-        guard let client = client() else { return true }
-        let current = epoch
-        acquisitionsInFlight += 1
-        defer { acquisitionsInFlight -= 1 }
-        do {
-            let state = try await client.takeWriter(force: false)
-            guard current == epoch, !Task.isCancelled else {
-                // Granted after the app stopped wanting the lease (e.g. it
-                // went to the background meanwhile): give it back.
-                if state.writer?.you == true, !wantsLease { try? await client.releaseWriter() }
-                return true
-            }
-            apply(state.writer)
-        } catch let error as APIError {
-            guard current == epoch, !Task.isCancelled else { return true }
-            if error.isReadOnly {
-                becomeReadOnly(holder: error.readOnlyWriter)
-                return true
-            }
-            if Self.meansUnsupported(error) {
-                access = .unsupported
-                expiresAt = nil
-                return false
-            }
-            if Self.isFatal(error) {
-                onFatalError?(error)
-                return false
-            }
-            // A lost connection: try again at the next renewal.
-        } catch {
+        guard client() != nil else { return true }
+        switch await acquire(force: false) {
+        case .success:
+            return true
+        case .failure(let error as APIError):
+            if error.isReadOnly { return true }
+            if Self.meansUnsupported(error) || Self.isFatal(error) { return false }
+            return true
+        case .failure:
+            return true
         }
-        return true
     }
 
-    /// `DELETE /writer` if this iPhone holds the lease, or may hold it (a
-    /// `PUT /writer` in flight). Best effort; no effect on the pak when
-    /// another client holds it.
+    /// `DELETE /writer`, once every lease request sent before it has been
+    /// answered, if this iPhone holds the lease or may hold it (an
+    /// acquisition since the last release). Best effort; no effect on the
+    /// pak when another client holds it.
     public func release() async {
-        guard access == .writer || acquisitionsInFlight > 0, let client = client() else { return }
-        epoch += 1
-        access = .free
-        expiresAt = nil
-        try? await client.releaseWriter()
+        await serialized { [weak self] in
+            guard let self, let client = self.client() else { return }
+            guard self.access == .writer || self.acquisitionsSinceRelease > 0 else { return }
+            self.acquisitionsSinceRelease = 0
+            let sentAt = ContinuousClock.now
+            if sentAt >= self.stateSentAt {
+                self.stateSentAt = sentAt
+                if self.access == .writer { self.access = .free }
+                self.expiresAt = nil
+            }
+            try? await client.releaseWriter()
+        }
     }
 
     // MARK: - Private
+
+    /// `PUT /writer` through the serial queue; its answer is applied there
+    /// (unless a newer request already set the state).
+    private func acquire(force: Bool) async -> Result<Void, any Error> {
+        await serialized { [weak self] () -> Result<Void, any Error> in
+            guard let self, let client = self.client() else { return .failure(APIError.notPaired) }
+            self.acquisitionsSinceRelease += 1
+            let sentAt = ContinuousClock.now
+            do {
+                let state = try await client.takeWriter(force: force)
+                if sentAt >= self.stateSentAt {
+                    self.stateSentAt = sentAt
+                    self.apply(state.writer)
+                }
+                return .success(())
+            } catch let error as APIError {
+                guard sentAt >= self.stateSentAt else { return .failure(error) }
+                if error.isReadOnly {
+                    self.stateSentAt = sentAt
+                    self.becomeReadOnly(holder: error.readOnlyWriter)
+                } else if Self.meansUnsupported(error) {
+                    self.stateSentAt = sentAt
+                    self.access = .unsupported
+                    self.expiresAt = nil
+                } else if Self.isFatal(error) {
+                    self.onFatalError?(error)
+                }
+                // A lost connection: try again at the next renewal.
+                return .failure(error)
+            } catch {
+                return .failure(error)
+            }
+        }
+    }
+
+    /// Runs `operation` after every lease request queued before it. It is
+    /// never cancelled: a caller that stops waiting leaves it to finish.
+    private func serialized<T: Sendable>(_ operation: @escaping @MainActor () async -> T) async -> T {
+        let previous = queueTail
+        let task = Task { @MainActor in
+            await previous?.value
+            return await operation()
+        }
+        queueTail = Task { @MainActor in _ = await task.value }
+        return await task.value
+    }
 
     private func startLoop(immediate: Bool) {
         loop?.cancel()
@@ -243,7 +275,7 @@ public final class WriterLease {
 
     /// One turn of the loop: renew while needed, else release and stop.
     private func step() async -> Bool {
-        if isForeground || transfersRunning() {
+        if wantsLease {
             return await renew()
         }
         await release()

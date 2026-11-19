@@ -23,7 +23,7 @@ import ReminisLinkKit
 /// nonce, HMAC, body hash, duplicate query keys), so the app and the tests
 /// exercise the real signing path. Its example values come from the
 /// examples of openapi.yaml, with made-up game names.
-public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
+public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public static let demoHost = "demo.reminislink.invalid"
     public static let demoPort: UInt16 = 47821
     public static let demoDeviceId = "5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
@@ -74,6 +74,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     var _leaseClock: @Sendable () -> Date = { Date() }
     /// Answers handled at once but delivered late, by method and path.
     private var lateAnswers: [(method: String, path: String, delay: TimeInterval)] = []
+    /// Requests that reach the pak late, by method and path.
+    private var lateArrivals: [(method: String, path: String, delay: TimeInterval)] = []
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
@@ -308,6 +310,22 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     /// other requests: an answer that arrives after later ones.
     public func delayNextAnswer(method: String, path: String, by delay: TimeInterval) {
         lock.withLock { lateAnswers.append((method, path, delay)) }
+    }
+
+    /// The next request with this method and path reaches the pak `delay`
+    /// seconds late (as if it stayed on the network): requests sent after
+    /// it may be handled first.
+    public func delayNextArrival(method: String, path: String, by delay: TimeInterval) {
+        lock.withLock { lateArrivals.append((method, path, delay)) }
+    }
+
+    public func arrivalDelay(for request: URLRequest) -> TimeInterval {
+        let method = (request.httpMethod ?? "GET").uppercased()
+        guard let path = request.url?.path(percentEncoded: true) else { return 0 }
+        return lock.withLock {
+            guard let index = lateArrivals.firstIndex(where: { $0.method == method && $0.path == path }) else { return 0 }
+            return lateArrivals.remove(at: index).delay
+        }
     }
 
     /// The next requests get these responses instead (after the signature

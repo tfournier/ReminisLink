@@ -405,7 +405,12 @@ find nothing new).
   `PUT /writer` without `force` about every 20 s: this renews the lease when
   this iPhone holds it and takes it when it is free, never from another
   client (`423 read_only` makes the app read-only). In the background with
-  no transfer running, it sends `DELETE /writer` once and stops. A pak
+  no transfer running, it sends `DELETE /writer` once and stops. Lease
+  requests go through a serial queue and are never cancelled once queued:
+  the release is sent after every acquisition sent before it has been
+  answered, so the pak always handles them in that order. The newest
+  request wins: an answer to a request older than the one the state comes
+  from (including a `423` seen on any write) changes nothing. A pak
   without the route (`404`) is treated as having no lease.
 - **Read-only**: every `423 read_only` answer, from any screen or transfer,
   reaches the session through the `errorObserver` of `APIClient`. A banner

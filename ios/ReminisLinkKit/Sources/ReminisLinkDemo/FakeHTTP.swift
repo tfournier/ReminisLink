@@ -39,6 +39,14 @@ public protocol FakeHTTPHandler: Sendable {
     func respond(to request: URLRequest, body: Data) -> FakeResponse
 }
 
+/// A handler that can make a request reach it late (as if it stayed on the
+/// network): the handler runs after the delay, so later requests may be
+/// handled first.
+public protocol FakeLateArrivals: FakeHTTPHandler {
+    /// Seconds before `request` reaches the handler (0: at once).
+    func arrivalDelay(for request: URLRequest) -> TimeInterval
+}
+
 /// A handler made of a closure.
 public struct ClosureHandler: FakeHTTPHandler {
     let handler: @Sendable (URLRequest, Data) -> FakeResponse
@@ -79,7 +87,18 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, didFailWithError: URLError(.cannotFindHost))
             return
         }
-        let response = handler.respond(to: request, body: Self.body(of: request))
+        let body = Self.body(of: request)
+        if let late = handler as? FakeLateArrivals, case let arrival = late.arrivalDelay(for: request), arrival > 0 {
+            let request = request
+            DispatchQueue.global().asyncAfter(deadline: .now() + arrival) { [self] in
+                let response = handler.respond(to: request, body: body)
+                DispatchQueue.global().asyncAfter(deadline: .now() + response.delay) { [self] in
+                    deliver(response, for: url)
+                }
+            }
+            return
+        }
+        let response = handler.respond(to: request, body: body)
         if response.delay > 0 {
             DispatchQueue.global().asyncAfter(deadline: .now() + response.delay) { [self] in
                 deliver(response, for: url)
