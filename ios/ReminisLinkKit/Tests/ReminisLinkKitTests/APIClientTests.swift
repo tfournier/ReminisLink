@@ -236,6 +236,34 @@ struct APIClientTests {
         #expect(calls.value == 2)
     }
 
+    /// An abnormally large art never fills the memory, whether its size is
+    /// announced or not, and nothing is cached.
+    @Test(arguments: [false, true])
+    func aTooLargeArtIsRefused(announced: Bool) async throws {
+        let size = APIClient.maxArtBytes + 1
+        let client = stubClient { _, _ in
+            var headers = ["Content-Type": "image/png", "ETag": "\"big\""]
+            if announced { headers["Content-Length"] = String(size) }
+            return FakeResponse(status: 200, headers: headers, body: Data(count: size))
+        }
+        let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        await #expect(throws: APIError.self) { try await cache.load(gameId: "g", client: client) }
+        #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g") == nil)
+    }
+
+    @Test func anArtAtTheLimitIsAccepted() async throws {
+        let size = APIClient.maxArtBytes
+        let client = stubClient { _, _ in
+            FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: Data(repeating: 7, count: size))
+        }
+        guard case .image(let data, _) = try await client.art(gameId: "g") else {
+            Issue.record("no image")
+            return
+        }
+        #expect(data.count == size)
+    }
+
     @Test func artIsCachedWithItsETag() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

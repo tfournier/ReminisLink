@@ -156,11 +156,23 @@ public actor APIClient {
         try await signedJSON(method: "GET", segments: ["games", id])
     }
 
+    /// Largest art accepted from the pak (the pak computes ETags up to
+    /// this size, and serves larger files whole): a larger body is never
+    /// held in memory, the art is treated as unreadable.
+    public static let maxArtBytes = 8 << 20
+
     /// `GET /games/{gameId}/art`, with `If-None-Match` when an ETag is known.
+    /// The body is read up to ``maxArtBytes`` (`Content-Length` or not).
     public func art(gameId: String, ifNoneMatch etag: String? = nil) async throws -> ArtResponse {
         var headers: [String: String] = [:]
         if let etag { headers["If-None-Match"] = etag }
-        let (data, response) = try await performSigned(method: "GET", segments: ["games", gameId, "art"], headers: headers)
+        let (data, response) = try await withSignedRequests(
+            method: "GET", segments: ["games", gameId, "art"], query: [], headers: headers,
+            body: nil, bodyFile: nil, bodyFileSHA256: nil
+        ) { request in
+            let (data, response) = try await self.transportLimited(request, maxBytes: Self.maxArtBytes)
+            return (data, response, data)
+        }
         switch response.statusCode {
         case 304: return .notModified
         case 404: return .none
@@ -577,6 +589,44 @@ public actor APIClient {
             guard let http = response as? HTTPURLResponse else {
                 throw APIError.invalidResponse("not an HTTP response")
             }
+            return (data, http)
+        } catch let error as URLError {
+            if error.code == .cancelled { throw CancellationError() }
+            throw APIError.network(error.code)
+        }
+    }
+
+    /// Sends a request and reads at most `maxBytes` of its body; a larger
+    /// body (announced or not) stops the request.
+    private func transportLimited(_ request: URLRequest, maxBytes: Int) async throws -> (Data, HTTPURLResponse) {
+        let tooLarge = APIError.invalidResponse("body larger than \(maxBytes) bytes")
+        do {
+            let (bytes, response) = try await session.bytes(for: request, delegate: PakTaskDelegate())
+            guard let http = response as? HTTPURLResponse else {
+                bytes.task.cancel()
+                throw APIError.invalidResponse("not an HTTP response")
+            }
+            if http.expectedContentLength > Int64(maxBytes) {
+                bytes.task.cancel()
+                throw tooLarge
+            }
+            var data = Data()
+            if http.expectedContentLength > 0 { data.reserveCapacity(Int(http.expectedContentLength)) }
+            var buffer: [UInt8] = []
+            buffer.reserveCapacity(64 << 10)
+            for try await byte in bytes {
+                buffer.append(byte)
+                if buffer.count == 64 << 10 {
+                    guard data.count + buffer.count <= maxBytes else {
+                        bytes.task.cancel()
+                        throw tooLarge
+                    }
+                    data.append(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            guard data.count + buffer.count <= maxBytes else { throw tooLarge }
+            data.append(contentsOf: buffer)
             return (data, http)
         } catch let error as URLError {
             if error.code == .cancelled { throw CancellationError() }
