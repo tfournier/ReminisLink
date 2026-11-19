@@ -1636,7 +1636,9 @@ components:
         `Too many jobs`) on `POST /downloads`; an upload resumed after a
         restart of the pak is still being verified (message `Upload is
         being verified`) on `PUT /uploads/{uploadId}` and
-        `POST /uploads/{uploadId}/complete`.
+        `POST /uploads/{uploadId}/complete`; a cheat import from a URL
+        waiting for another one (one at a time) when the client gives up
+        (message `Another cheat import is running`).
       headers:
         Retry-After:
           description: Seconds before trying again.

@@ -27,6 +27,10 @@ const (
 	CodeInsufficientStorage = "insufficient_storage"
 )
 
+// FetchRetryAfter is the Retry-After (seconds) answered when a cheat import
+// from a URL could not start because another one was running.
+const FetchRetryAfter = 5
+
 // SpaceMargin is the free space kept on the SD card by the copies of the
 // save and state routes, on top of the bytes they write.
 const SpaceMargin = 1 << 20
@@ -605,7 +609,13 @@ func (s *Server) handleImportCheats(w http.ResponseWriter, r *http.Request) {
 		select {
 		case s.fetchSlot <- struct{}{}:
 		case <-r.Context().Done():
-			auth.WriteError(w, http.StatusServiceUnavailable, auth.CodeShuttingDown, "Shutting down", nil)
+			if s.ShuttingDown() {
+				auth.WriteError(w, http.StatusServiceUnavailable, auth.CodeShuttingDown, "Shutting down", nil)
+				return
+			}
+			// The client gave up while another import was running.
+			w.Header().Set("Retry-After", strconv.Itoa(FetchRetryAfter))
+			auth.WriteError(w, http.StatusTooManyRequests, auth.CodeTooManyAttempts, "Another cheat import is running", nil)
 			return
 		}
 		var apiErr *transfer.Error

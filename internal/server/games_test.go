@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -400,5 +402,53 @@ func TestSaveRouteBodyLimit(t *testing.T) {
 	}
 	if fi, err := os.Stat(filepath.Join(f.sd, "Saves", "GBA", "Starlight Courier.gba.sav")); err != nil || fi.Size() != int64(len(big)) {
 		t.Fatalf("saved %v", err)
+	}
+}
+
+// TestCheatImportSlot: one import from a URL at a time; a request whose
+// client gives up while waiting gets 429 with Retry-After.
+func TestCheatImportSlot(t *testing.T) {
+	f := newFixture(t)
+	g := gamePath(scPath)
+	var mu sync.Mutex
+	active, most := 0, 0
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		active++
+		most = max(most, active)
+		mu.Unlock()
+		time.Sleep(150 * time.Millisecond)
+		mu.Lock()
+		active--
+		mu.Unlock()
+		w.Write([]byte("cheat0_desc = \"A\"\ncheat0_code = \"1\"\n"))
+	}))
+	defer src.Close()
+	body := mustJSON(t, map[string]any{"source": map[string]any{"type": "url", "url": src.URL + "/a.cht"}, "mode": "merge"})
+	var wg sync.WaitGroup
+	status := make([]int, 2)
+	for i := range status {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			status[i] = f.client.Do(t, http.MethodPost, g+"/cheats/import", body).Status
+		}(i)
+	}
+	wg.Wait()
+	if status[0] != http.StatusOK || status[1] != http.StatusOK || most != 1 {
+		t.Fatalf("statuses %v, %d imports at once", status, most)
+	}
+
+	// The slot is taken and the client gives up: 429 too_many_attempts.
+	f.server.fetchSlot <- struct{}{}
+	defer func() { <-f.server.fetchSlot }()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest(http.MethodPost, g+"/cheats/import", strings.NewReader(string(body))).WithContext(ctx)
+	req.SetPathValue("gameId", library.EncodeID(scPath))
+	rec := httptest.NewRecorder()
+	f.server.handleImportCheats(rec, req)
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" || !strings.Contains(rec.Body.String(), "too_many_attempts") {
+		t.Fatalf("given up: %d %v %s", rec.Code, rec.Header(), rec.Body)
 	}
 }
