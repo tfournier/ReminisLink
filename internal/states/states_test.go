@@ -3,6 +3,7 @@ package states
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -351,11 +352,15 @@ func TestLockCheckEdgeCases(t *testing.T) {
 		t.Fatal("leftovers kept")
 	}
 
-	// A lock of a game deleted with keepSave (no ROM): still checked.
+	// A lock of a game that no longer exists (deleted with keepSave, then
+	// renamed): never restored, the lock stays (nothing lost).
 	testutil.WriteFile(t, e.sd, locksGBA+"Gone Game.gba/slot2.st", "locked")
 	r = e.svc.Maintain(context.Background())
-	if len(r.Restored) != 1 || e.read(statesGB+"Gone Game.gba.st2") != "locked" {
+	if len(r.Restored) != 0 || r.Held != 1 || e.exists(statesGB+"Gone Game.gba.st2") || !e.exists(locksGBA+"Gone Game.gba/slot2.st") {
 		t.Fatalf("gone game: %+v", r)
+	}
+	if !strings.Contains(e.logs.String(), "its game no longer exists") {
+		t.Error("not logged")
 	}
 
 	// The time limit: nothing checked, everything left for the next start.
@@ -450,8 +455,12 @@ func TestUnsupportedStates(t *testing.T) {
 	if _, err := e.svc.RestoreLock(sc, 0); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
 		t.Fatalf("restore: %v", err)
 	}
-	if r := e.svc.Maintain(context.Background()); r.LocksChecked != 0 || r.Archived != 0 {
+	if r := e.svc.Maintain(context.Background()); r.Held != 1 || len(r.Restored) != 0 || r.Archived != 0 {
 		t.Fatalf("maintenance with another format: %+v", r)
+	}
+	// The state differs from the copy and was not restored: modified.
+	if st := status(e.slots(sc)[0]); st != StatusModified {
+		t.Fatalf("status with another format: %s", st)
 	}
 	if e.read(statesGB+"Starlight Courier.gba.st0") != "changed" {
 		t.Fatal("state touched")
@@ -473,5 +482,134 @@ func TestUnsupportedStates(t *testing.T) {
 	}
 	if list, err := e.svc.List(g); err != nil || len(list.Slots) != 0 {
 		t.Fatalf("list without state folder: %+v %v", list, err)
+	}
+}
+
+// TestCoreChanged: a lock and the resume history remember the state
+// folder (<TAG>-<core>) of their copies; after a change of emulator core
+// nothing is restored into the other folder.
+func TestCoreChanged(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	if _, err := e.svc.Lock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Maintain(context.Background()) // archives the gpsp resume state
+	gpspEntry := e.svc.ResumeHistory(sc)[0]
+
+	// The user installs an extra GBA pak with the mgba core.
+	testutil.WriteFile(t, e.sd, "Emus/tg5040/GBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=mgba\n")
+	if st := status(e.slots(sc)[0]); st != StatusCoreChanged {
+		t.Fatalf("status: %s", st)
+	}
+	r := e.svc.Maintain(context.Background())
+	if len(r.Restored) != 0 || r.Held != 1 || e.exists(".userdata/shared/GBA-mgba/Starlight Courier.gba.st0") {
+		t.Fatalf("maintenance: %+v", r)
+	}
+	if _, err := e.svc.RestoreLock(sc, 0); !errors.Is(err, ErrCoreChanged) {
+		t.Fatalf("restore: %v", err)
+	}
+	// Resume history: the mgba version is archived on its own, never
+	// compared with the gpsp entries, and a gpsp entry is not restored.
+	e.write(".userdata/shared/GBA-mgba/Starlight Courier.gba.st9", e.read(statesGB+"Starlight Courier.gba.st9"), 0)
+	if r := e.svc.Maintain(context.Background()); r.Archived != 1 {
+		t.Fatalf("mgba resume state (same bytes, other core) not archived: %+v", r)
+	}
+	if _, err := e.svc.RestoreResume(sc, gpspEntry.ID); !errors.Is(err, ErrCoreChanged) {
+		t.Fatalf("restore resume: %v", err)
+	}
+	// Back to gpsp: the lock is intact again.
+	os.Remove(e.path("Emus/tg5040/GBA.pak/launch.sh"))
+	if st := status(e.slots(sc)[0]); st != StatusIntact {
+		t.Fatalf("status back: %s", st)
+	}
+}
+
+// TestLegacyLock: a lock written without its state folder takes the
+// current one at its first reading.
+func TestLegacyLock(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	if _, err := e.svc.Lock(sc, 1); err != nil {
+		t.Fatal(err)
+	}
+	meta := e.path(locksGBA + "Starlight Courier.gba/slot1.json")
+	data, _ := os.ReadFile(meta)
+	var m map[string]any
+	_ = json.Unmarshal(data, &m)
+	delete(m, "stateDir")
+	data, _ = json.Marshal(m)
+	os.WriteFile(meta, data, 0o644)
+	if st := status(e.slots(sc)[1]); st != StatusIntact {
+		t.Fatalf("status: %s", st)
+	}
+	if !strings.Contains(e.read(locksGBA+"Starlight Courier.gba/slot1.json"), `"stateDir": "GBA-gpsp"`) {
+		t.Fatal("lock not completed")
+	}
+}
+
+// TestModifiedStatus: "intact" only when the state matches its copy.
+func TestModifiedStatus(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	for _, slot := range []int{0, 1} {
+		if _, err := e.svc.Lock(sc, slot); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Overwritten in game, maintenance skipped (time limit): modified.
+	e.write(statesGB+"Starlight Courier.gba.st0", "overwritten", 0)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e.svc.Maintain(ctx)
+	if st := status(e.slots(sc)[0]); st != StatusModified {
+		t.Fatalf("skipped maintenance: %s", st)
+	}
+	// Damaged copy: not restored, modified.
+	e.write(statesGB+"Starlight Courier.gba.st1", "overwritten", 0)
+	e.write(locksGBA+"Starlight Courier.gba/slot1.st", "damaged", 0)
+	r := e.svc.Maintain(context.Background())
+	if len(r.Restored) != 1 || r.Failed != 1 {
+		t.Fatalf("maintenance: %+v", r)
+	}
+	s := e.slots(sc)
+	if status(s[0]) != StatusRestored || status(s[1]) != StatusModified {
+		t.Fatalf("statuses: %s %s", status(s[0]), status(s[1]))
+	}
+	if _, err := e.svc.RestoreLock(sc, 1); !errors.Is(err, ErrCorruptCopy) {
+		t.Fatalf("restore damaged: %v", err)
+	}
+}
+
+// TestSideFiles: the NextUI thumbnail and disc file of a slot go to the
+// trash with the state they describe.
+func TestSideFiles(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	thumb := ".userdata/shared/.minui/GBA/Starlight Courier.gba.0.bmp"
+	disc := ".userdata/shared/.minui/GBA/Starlight Courier.gba.0.txt"
+	testutil.WriteFile(t, e.sd, disc, "disc 1")
+	tmp := testutil.WriteFile(t, e.sd, ".userdata/shared/ReminisLink/uploads/x.part", "uploaded")
+	if _, err := e.svc.InstallLocked(sc, 0, tmp); err != nil {
+		t.Fatal(err)
+	}
+	if e.exists(thumb) || e.exists(disc) {
+		t.Fatal("stale thumbnail or disc kept after an upload")
+	}
+	entries, _, _ := e.trash.List()
+	if len(entries) != 1 || len(entries[0].Files) != 3 {
+		t.Fatalf("trash: %+v", entries)
+	}
+	// Restore of a locked copy: the thumbnail of the overwritten state goes too.
+	if _, err := e.svc.Lock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, e.sd, statesGB+"Starlight Courier.gba.st0", "played")
+	testutil.WriteFile(t, e.sd, thumb, "\x89PNG\r\n\x1a\nnew")
+	if _, err := e.svc.RestoreLock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	if e.exists(thumb) {
+		t.Fatal("thumbnail of the overwritten state kept")
 	}
 }

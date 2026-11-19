@@ -48,9 +48,11 @@ const MaxResumeEntries = 5
 
 // Lock statuses (Slot.lockStatus in protocol/openapi.yaml).
 const (
-	StatusIntact   = "intact"
-	StatusRestored = "restored"
-	StatusMissing  = "missing"
+	StatusIntact      = "intact"
+	StatusRestored    = "restored"
+	StatusMissing     = "missing"
+	StatusModified    = "modified"     // the state differs from the copy and was not restored
+	StatusCoreChanged = "core-changed" // the copy comes from another core's state folder
 )
 
 const (
@@ -77,6 +79,7 @@ var (
 	ErrEntryNotFound  = errors.New("resume history entry not found")
 	ErrInvalidEntryID = errors.New("invalid resume history entry id")
 	ErrCorruptCopy    = errors.New("copy does not match its checksum")
+	ErrCoreChanged    = errors.New("the copy comes from the state folder of another emulator core")
 )
 
 var (
@@ -145,6 +148,10 @@ type lockMeta struct {
 	// Restored is set when the copy was restored at start; cleared by the
 	// next GET /games/{gameId}/states that reports it.
 	Restored bool `json:"restored"`
+	// StateDir is the state folder (<TAG>-<core>) the copy comes from. A
+	// lock written before this field takes the current folder at its first
+	// reading.
+	StateDir string `json:"stateDir,omitempty"`
 }
 
 // resumeMeta is the content of <entryId>.json.
@@ -159,6 +166,9 @@ type resumeMeta struct {
 	// it was last seen with this content (05 §5.3, date and size first).
 	StateSize    int64 `json:"stateSize"`
 	StateModTime int64 `json:"stateModTime"`
+	// StateDir is the state folder (<TAG>-<core>) of the version; entries
+	// of different cores are never compared nor restored into each other.
+	StateDir string `json:"stateDir,omitempty"`
 }
 
 func (m resumeMeta) public() ResumeEntry {
@@ -260,13 +270,43 @@ func (s *Service) statePath(g osadapter.Game, slot int) (string, bool) {
 // format is the default one and the state folder of the system is known.
 // The error wraps osadapter.ErrUnsupportedFormat.
 func (s *Service) writable(g osadapter.Game) error {
-	if err := s.o.Adapter.CheckStateFormat(); err != nil {
+	if err := s.o.Adapter.CheckStateFormat(g); err != nil {
 		return err
 	}
 	if s.o.Adapter.StatePath(g, 0) == "" {
 		return fmt.Errorf("%w: no state folder for the tag %s (emulator pak not found)", osadapter.ErrUnsupportedFormat, g.System.Tag)
 	}
 	return nil
+}
+
+// stateDirOf returns the name of the current state folder of g
+// (<TAG>-<core>), "" when unknown.
+func (s *Service) stateDirOf(g osadapter.Game) string {
+	p := s.o.Adapter.StatePath(g, 0)
+	if p == "" {
+		return ""
+	}
+	return filepath.Base(filepath.Dir(p))
+}
+
+// completeLock fills the state folder of a lock written before it was
+// recorded: the current folder. Called with the lock held.
+func (s *Service) completeLock(g osadapter.Game, dir string, l *lock) {
+	if l == nil || !l.ok || l.meta.StateDir != "" {
+		return
+	}
+	if cur := s.stateDirOf(g); cur != "" {
+		l.meta.StateDir = cur
+		if err := s.writeLockMeta(dir, l.meta); err != nil {
+			s.o.Logger.Warn("states: cannot complete a lock", "game", g.Path, "slot", l.meta.Slot, "error", err)
+		}
+	}
+}
+
+// coreChanged reports whether the copy of l comes from another state
+// folder than the current one of g.
+func (s *Service) coreChanged(g osadapter.Game, l *lock) bool {
+	return l != nil && l.ok && l.meta.StateDir != "" && l.meta.StateDir != s.stateDirOf(g)
 }
 
 // lock describes the lock of a slot.
@@ -311,11 +351,18 @@ func (s *Service) hasThumbnail(g osadapter.Game, slot int) bool {
 }
 
 // slotOf describes a slot whose state is at path (or only locked). The
-// boolean is false when the slot has neither a state nor a lock.
-func (s *Service) slotOf(g osadapter.Game, slot int, path string, l *lock) (Slot, bool) {
+// boolean is false when the slot has neither a state nor a lock. With a
+// lock dir, the lock status compares the state with the copy (recorded
+// size and date, SHA-256 when they differ). Called with the lock held.
+func (s *Service) slotOf(g osadapter.Game, slot int, path string, dir string, l *lock) (Slot, bool) {
 	out := Slot{Slot: slot, HasThumbnail: s.hasThumbnail(g, slot)}
-	fi, err := os.Stat(path)
-	exists := err == nil && fi.Mode().IsRegular()
+	var fi os.FileInfo
+	exists := false
+	if path != "" {
+		var err error
+		fi, err = os.Stat(path)
+		exists = err == nil && fi.Mode().IsRegular()
+	}
 	if exists {
 		out.SizeBytes, out.ModifiedAt = fi.Size(), modTime(fi)
 	}
@@ -323,18 +370,50 @@ func (s *Service) slotOf(g osadapter.Game, slot int, path string, l *lock) (Slot
 		return out, exists
 	}
 	out.Locked = true
-	status := StatusIntact
+	s.completeLock(g, dir, l)
+	var status string
 	switch {
+	case s.coreChanged(g, l):
+		status = StatusCoreChanged
 	case !exists:
 		status = StatusMissing
+	case !s.matchesCopy(dir, l, path, fi):
+		status = StatusModified
+	case l.meta.Restored:
+		status = StatusRestored
+	default:
+		status = StatusIntact
+	}
+	if !exists {
 		if cfi, err := os.Stat(l.copy); err == nil {
 			out.SizeBytes, out.ModifiedAt = cfi.Size(), modTime(cfi)
 		}
-	case l.meta.Restored:
-		status = StatusRestored
 	}
 	out.LockStatus = &status
 	return out, true
+}
+
+// matchesCopy reports whether the state at path (described by fi) holds
+// the bytes of the locked copy: same size and recorded date, else same
+// SHA-256 (the date is then recorded). Called with the lock held.
+func (s *Service) matchesCopy(dir string, l *lock, path string, fi os.FileInfo) bool {
+	if !l.ok {
+		same, err := store.SameFile(path, l.copy)
+		return err == nil && same
+	}
+	if fi.Size() != l.meta.SizeBytes {
+		return false
+	}
+	if fi.Size() == l.meta.StateSize && fi.ModTime().UnixNano() == l.meta.StateModTime {
+		return true
+	}
+	sum, _, err := store.HashFile(path)
+	if err != nil || sum != l.meta.SHA256 {
+		return false
+	}
+	l.meta.StateSize, l.meta.StateModTime = fi.Size(), fi.ModTime().UnixNano()
+	_ = s.writeLockMeta(dir, l.meta)
+	return true
 }
 
 // List returns the slots of g: the occupied ones and the locked ones whose
@@ -368,12 +447,12 @@ func (s *Service) List(g osadapter.Game) (SlotList, error) {
 	}
 	for slot, p := range paths {
 		l := s.readLock(dir, slot)
-		sl, ok := s.slotOf(g, slot, p, l)
+		sl, ok := s.slotOf(g, slot, p, dir, l)
 		if !ok {
 			continue
 		}
 		out.Slots = append(out.Slots, sl)
-		if l != nil && l.ok && l.meta.Restored {
+		if l != nil && l.ok && l.meta.Restored && sl.LockStatus != nil && *sl.LockStatus == StatusRestored {
 			l.meta.Restored = false
 			if err := s.writeLockMeta(dir, l.meta); err != nil {
 				s.o.Logger.Warn("states: cannot clear the restored flag", "game", g.Path, "slot", slot, "error", err)
@@ -387,7 +466,8 @@ func (s *Service) List(g osadapter.Game) (SlotList, error) {
 // slotNow describes a slot after a change. Called with the lock held.
 func (s *Service) slotNow(g osadapter.Game, slot int) Slot {
 	p, _ := s.statePath(g, slot)
-	sl, _ := s.slotOf(g, slot, p, s.readLock(s.lockDir(g), slot))
+	dir := s.lockDir(g)
+	sl, _ := s.slotOf(g, slot, p, dir, s.readLock(dir, slot))
 	return sl
 }
 
@@ -449,10 +529,7 @@ func (s *Service) Delete(g osadapter.Game, slot int) (store.MoveResult, error) {
 	if !ok {
 		return store.MoveResult{}, ErrNoState
 	}
-	items := []store.MoveItem{{Path: p}}
-	if t, err := s.Thumbnail(g, slot); err == nil {
-		items = append(items, store.MoveItem{Path: t})
-	}
+	items := append([]store.MoveItem{{Path: p}}, s.sideItems(g, slot)...)
 	res, err := s.o.Trash.Move(store.ReasonDeleteState, g.Name, items)
 	if err != nil {
 		return store.MoveResult{}, fmt.Errorf("delete state: %w", err)
@@ -492,7 +569,7 @@ func (s *Service) Lock(g osadapter.Game, slot int) (Slot, error) {
 	}
 	m := lockMeta{
 		Version: metaVersion, Slot: slot, SHA256: sum, SizeBytes: size,
-		LockedAt: s.o.Now().UTC().Truncate(time.Second),
+		LockedAt: s.o.Now().UTC().Truncate(time.Second), StateDir: filepath.Base(filepath.Dir(p)),
 	}
 	if size == fi.Size() {
 		m.StateSize, m.StateModTime = fi.Size(), fi.ModTime().UnixNano()
@@ -531,7 +608,7 @@ func (s *Service) Unlock(g osadapter.Game, slot int) (Slot, error) {
 	var res Slot
 	if !same {
 		// Describe the slot while the copy is still there.
-		res, _ = s.slotOf(g, slot, p, nil)
+		res, _ = s.slotOf(g, slot, p, "", nil)
 		if fi, err := os.Stat(l.copy); err == nil && res.ModifiedAt.IsZero() {
 			res.ModifiedAt = modTime(fi)
 		}
@@ -586,6 +663,10 @@ func (s *Service) RestoreLock(g osadapter.Game, slot int) (Slot, error) {
 			return Slot{}, err
 		}
 	}
+	s.completeLock(g, dir, l)
+	if s.coreChanged(g, l) {
+		return Slot{}, ErrCoreChanged
+	}
 	p, exists := s.statePath(g, slot)
 	if exists {
 		if same, err := store.SameFile(p, l.copy); err != nil {
@@ -626,8 +707,13 @@ func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, p
 			return fmt.Errorf("restore: %w", err)
 		}
 	}
+	var items []store.MoveItem
 	if exists {
-		if _, err := s.o.Trash.Move(reason, g.Name, []store.MoveItem{{Path: path}}); err != nil {
+		items = append(items, store.MoveItem{Path: path})
+	}
+	items = append(items, s.sideItems(g, slot)...)
+	if len(items) > 0 {
+		if _, err := s.o.Trash.Move(reason, g.Name, items); err != nil {
 			if markRestored {
 				_ = s.writeLockMeta(dir, before)
 			}
@@ -657,6 +743,7 @@ func (s *Service) repairLockMeta(dir string, slot int, l *lock) error {
 	if err != nil {
 		return fmt.Errorf("lock: %w", err)
 	}
+	// The folder is unknown: the current one is taken (completeLock).
 	l.meta = lockMeta{Version: metaVersion, Slot: slot, SHA256: sum, SizeBytes: size, LockedAt: s.o.Now().UTC().Truncate(time.Second)}
 	l.ok = true
 	return s.writeLockMeta(dir, l.meta)
@@ -682,7 +769,8 @@ func (s *Service) InstallLocked(g osadapter.Game, slot int, tmp string) (Slot, e
 	}
 	var trashID string
 	if exists {
-		res, err := s.o.Trash.Move(store.ReasonOverwrite, g.Name, []store.MoveItem{{Path: p}})
+		items := append([]store.MoveItem{{Path: p}}, s.sideItems(g, slot)...)
+		res, err := s.o.Trash.Move(store.ReasonOverwrite, g.Name, items)
 		if err != nil {
 			return Slot{}, fmt.Errorf("state: %w", err)
 		}
@@ -698,6 +786,19 @@ func (s *Service) InstallLocked(g osadapter.Game, slot int, tmp string) (Slot, e
 	store.SyncDir(filepath.Dir(tmp))
 	s.o.Logger.Info("state replaced", "game", g.Path, "slot", slot)
 	return s.slotNow(g, slot), nil
+}
+
+// sideItems are the existing OS files tied to a slot (thumbnail, disc of a
+// multi-disc state): they go to the trash with the state they describe,
+// so a stale thumbnail never stays next to another state.
+func (s *Service) sideItems(g osadapter.Game, slot int) []store.MoveItem {
+	var out []store.MoveItem
+	for _, p := range s.o.Adapter.StateSideFiles(g, slot) {
+		if f := store.FindFold(filepath.Dir(p), filepath.Base(p), false); f != "" {
+			out = append(out, store.MoveItem{Path: f})
+		}
+	}
+	return out
 }
 
 // tempFile returns a free temporary path in the uploads folder (same SD
@@ -785,10 +886,21 @@ func (s *Service) archiveLocked(tag, rom, path string) (archiveResult, error) {
 		return 0, err
 	}
 	dir := s.resumeDirOf(tag, rom)
+	stateDir := filepath.Base(filepath.Dir(path))
 	metas := s.readResume(dir)
+	// Entries written before the folder was recorded belong to the
+	// current folder (completed here).
+	for i, m := range metas {
+		if m.StateDir == "" {
+			metas[i].StateDir = stateDir
+			if err := store.WriteJSONAtomic(filepath.Join(dir, m.ID+metaExt), metas[i]); err != nil {
+				s.o.Logger.Warn("resume history: cannot complete an entry", "entry", m.ID, "error", err)
+			}
+		}
+	}
 	mod := fi.ModTime().UnixNano()
 	for _, m := range metas {
-		if m.StateSize == fi.Size() && m.StateModTime == mod {
+		if m.StateDir == stateDir && m.StateSize == fi.Size() && m.StateModTime == mod {
 			return archiveUnchanged, nil
 		}
 	}
@@ -797,7 +909,7 @@ func (s *Service) archiveLocked(tag, rom, path string) (archiveResult, error) {
 		return 0, err
 	}
 	for _, m := range metas {
-		if m.SHA256 == sum && m.SizeBytes == size {
+		if m.StateDir == stateDir && m.SHA256 == sum && m.SizeBytes == size {
 			// Same version: remember its date so it is not hashed again.
 			m.StateSize, m.StateModTime = fi.Size(), mod
 			if err := store.WriteJSONAtomic(filepath.Join(dir, m.ID+metaExt), m); err != nil {
@@ -828,7 +940,7 @@ func (s *Service) archiveLocked(tag, rom, path string) (archiveResult, error) {
 	}
 	m := resumeMeta{
 		Version: metaVersion, ID: id, Seq: seq + 1, CapturedAt: captured, SizeBytes: size, SHA256: sum,
-		StateSize: fi.Size(), StateModTime: mod,
+		StateSize: fi.Size(), StateModTime: mod, StateDir: stateDir,
 	}
 	if err := store.WriteJSONAtomic(filepath.Join(dir, id+metaExt), m); err != nil {
 		os.Remove(filepath.Join(dir, id+stateExt))
@@ -877,6 +989,10 @@ func (s *Service) RestoreResume(g osadapter.Game, entryID string) ([]ResumeEntry
 	if err := s.writable(g); err != nil {
 		return nil, err
 	}
+	if entry.StateDir != "" && entry.StateDir != s.stateDirOf(g) {
+		// A state of another core cannot be loaded by the current one.
+		return nil, ErrCoreChanged
+	}
 	tmp, err := s.tempFile()
 	if err != nil {
 		return nil, err
@@ -923,6 +1039,10 @@ type Report struct {
 	Restored     []RestoredLock // locked copies put back
 	Failed       int            // archives or locks that could not be handled
 	Skipped      int            // left for the next start (time limit)
+	// Held are the locks left as they are although their state differs:
+	// unsupported state format, core changed, game gone. Nothing is lost:
+	// the copy stays locked.
+	Held int
 }
 
 // Maintain runs the checks of docs/specs/05-console-pak.md §2.3 before the
@@ -935,13 +1055,6 @@ func (s *Service) Maintain(ctx context.Context) Report {
 	s.o.Lock.Lock()
 	defer s.o.Lock.Unlock()
 	var r Report
-	if err := s.o.Adapter.CheckStateFormat(); err != nil {
-		// The states are not files the pak names: archiving or restoring
-		// them could damage them. Nothing is done until the format is back
-		// to the default.
-		s.o.Logger.Warn("maintenance: states not checked", "error", err)
-		return r
-	}
 	s.archiveAll(ctx, &r)
 	s.checkLocks(ctx, &r)
 	return r
@@ -964,6 +1077,10 @@ func (s *Service) archiveAll(ctx context.Context, r *Report) {
 		}
 		if ctx.Err() != nil {
 			r.Skipped++
+			continue
+		}
+		if err := s.o.Adapter.CheckStateFormat(gameRef(ref.Tag, ref.ROMName)); err != nil {
+			// Not files the pak names: archiving them could mislead.
 			continue
 		}
 		res, err := s.archiveLocked(ref.Tag, ref.ROMName, ref.File.Path)
@@ -1042,7 +1159,18 @@ func (s *Service) checkLock(g osadapter.Game, dir string, slot int, r *Report) {
 	p, exists := s.statePath(g, slot)
 	if p == "" {
 		log.Warn("maintenance: lock not checked, no state folder for its tag (emulator pak not found)")
-		r.Failed++
+		r.Held++
+		return
+	}
+	if err := s.o.Adapter.CheckStateFormat(g); err != nil {
+		log.Warn("maintenance: lock not checked, state format not supported", "error", err)
+		r.Held++
+		return
+	}
+	s.completeLock(g, dir, l)
+	if s.coreChanged(g, l) {
+		log.Warn("maintenance: lock not restored, its copy comes from another emulator core", "copyFolder", l.meta.StateDir, "currentFolder", s.stateDirOf(g))
+		r.Held++
 		return
 	}
 	if exists {
@@ -1052,22 +1180,17 @@ func (s *Service) checkLock(g osadapter.Game, dir string, slot int, r *Report) {
 			r.Failed++
 			return
 		}
-		if fi.Size() == l.meta.SizeBytes && fi.Size() == l.meta.StateSize && fi.ModTime().UnixNano() == l.meta.StateModTime {
+		if s.matchesCopy(dir, l, p, fi) {
 			r.LocksIntact++
 			return
 		}
-		sum, _, err := store.HashFile(p)
-		if err != nil {
-			log.Warn("maintenance: cannot hash a locked state", "error", err)
-			r.Failed++
-			return
-		}
-		if sum == l.meta.SHA256 {
-			l.meta.StateSize, l.meta.StateModTime = fi.Size(), fi.ModTime().UnixNano()
-			_ = s.writeLockMeta(dir, l.meta)
-			r.LocksIntact++
-			return
-		}
+	}
+	if !s.o.Adapter.GameExists(g.System.Tag, g.ROMName) {
+		// The game was deleted (keepSave) or renamed: never recreate its
+		// state at every start. The lock stays, nothing is lost.
+		log.Warn("maintenance: lock not restored, its game no longer exists")
+		r.Held++
+		return
 	}
 	if err := s.restoreCopy(g, slot, dir, l, p, exists, store.ReasonLockRestore, true); err != nil {
 		log.Error("maintenance: cannot restore a locked state", "error", err)
