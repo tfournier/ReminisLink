@@ -17,7 +17,9 @@ mkdir -p "$LOG_DIR"
 # Only stderr goes to a file. stdout is never redirected: in --headless mode
 # the pak prints the pairing secret and the PIN there, and they must never
 # end up in a log file. The pak writes its own log to $LOGS_PATH/ReminisLink.txt.
-./reminislink "$@" 2>>"$LOG_DIR/ReminisLink.stderr.txt"
-status=$?
-sync
-exit $status
+#
+# exec: the pak takes the PID of this script, so a SIGTERM sent to the
+# launcher (poweroff, a supervisor) reaches it and it shuts down cleanly.
+# The final sync of Cheat Manager's launcher is done by the pak itself
+# (app.Shutdown syncs the SD card before exiting).
+exec ./reminislink "$@" 2>>"$LOG_DIR/ReminisLink.stderr.txt"
