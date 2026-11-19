@@ -45,6 +45,25 @@ struct DiscoveryTests {
         #expect(merged.last?.name == "Brick")
     }
 
+    /// M11: a service withdrawn (goodbye of a pak that quits) is reported
+    /// by id; a stop of the browser is not a removal.
+    @Test @MainActor func reportsTheServicesWithdrawn() {
+        let other = "00000000-0000-4000-8000-000000000001"
+        #expect(DiscoveryLogic.removedIds(from: [device(id, "A"), device(other, "B")], to: [device(other, "B (2)")]) == [id])
+        #expect(DiscoveryLogic.removedIds(from: [], to: [device(id, "A")]).isEmpty)
+
+        let discovery = Discovery(fixedDevices: [device(id, "A"), device(other, "B")])
+        var removed: [[String]] = []
+        discovery.onDevicesRemoved = { removed.append($0) }
+        discovery.start()
+        discovery.setFixedDevice(device(id, "A"), visible: false)
+        #expect(removed == [[id]])
+        discovery.setFixedDevice(device(id, "A"), visible: true)
+        discovery.stop()
+        discovery.start()
+        #expect(removed == [[id]])
+    }
+
     @Test func findsByIdNeverByName() {
         let devices = [device(id, "Brick")]
         #expect(DiscoveryLogic.find(id: id, in: devices)?.name == "Brick")

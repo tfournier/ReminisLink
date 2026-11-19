@@ -497,6 +497,17 @@ lease of the demo console (`WriteAccessUITests`).
   there once the announcement is gone, does the same. The image of a game
   that is gone has no action. A
   Wi-Fi glitch alone (service still announced) keeps today's error screen.
+  The user does not have to do anything: when the browser sees the open
+  console's service withdrawn (the pak's mDNS goodbye as it quits,
+  `Discovery.onDevicesRemoved`), the session probes `GET /hello` once (3 s,
+  no retry, `ConsoleSession.checkStillOpen`): `503 shutting_down` or no
+  connection is the closing above, an answer means a Bonjour glitch and the
+  console stays open. A lease renewal that fails to connect right after the
+  browser started (back from the background) is checked the same way once
+  it has browsed for 3 s, if the console is still not seen.
+- **Console name**: the list shows the name the console reports
+  (`deviceName` of `/hello` or `/device`, matched by `deviceId`); a console
+  paired before M11 takes it at the first report.
 
 The fake pak serves `GET /games` (`allGamesSupported`, `allGamesLimit` to
 test the fallback), a `fileId` per file (base64url of `f_<role>[slot]`) and
