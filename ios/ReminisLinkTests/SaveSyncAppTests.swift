@@ -18,7 +18,7 @@ struct SaveSyncAppTests {
         return pak
     }
 
-    func pairedApp(_ pak: FakePak, settings: UserDefaults? = nil) async throws -> AppModel {
+    func pairedApp(_ pak: FakePak, settings: UserDefaults? = nil, vaultProvider: SaveVaultProvider? = nil) async throws -> AppModel {
         let suite = "ReminisLinkTests.\(UUID().uuidString)"
         let app = AppModel(
             store: DeviceStore(secureStore: secure, defaults: UserDefaults(suiteName: suite)!),
@@ -28,7 +28,7 @@ struct SaveSyncAppTests {
             transferDirectory: root.appending(path: "transfers"),
             exportDirectory: root.appending(path: "exports"),
             settings: settings,
-            vaultProvider: .folder(root.appending(path: "Saves"), location: .local),
+            vaultProvider: vaultProvider ?? .folder(root.appending(path: "Saves"), location: .local),
             lookupTimeout: .milliseconds(300),
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
@@ -130,6 +130,38 @@ struct SaveSyncAppTests {
         #expect(report.stored.count == 4)
     }
 
+    /// Order: a sync runs, it is cancelled, a reconnection asks for its
+    /// own sync, then the cancelled one ends: the reconnection's sync runs.
+    @Test func aReconnectionAfterACancellationStillGetsItsSync() async throws {
+        let pak = makePak()
+        let gate = Gate()
+        let folder = SaveVaultProvider.folder(root.appending(path: "Saves"), location: .local)
+        // The first sync waits here (whatever its cancellation) until released.
+        let provider = SaveVaultProvider {
+            await gate.waitOnce()
+            return await folder.resolve()
+        }
+        let app = try await pairedApp(pak, vaultProvider: provider)
+        app.syncOnConnect = false
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        app.syncOnConnect = true
+        let state = app.saveSync(for: pak.deviceId)
+
+        app.startSaveSync(deviceId: pak.deviceId)
+        await gate.untilWaiting()
+        state.cancel()
+        let old = try #require(session.client)
+        session.connectionLost(.api(.network(.timedOut)), client: old)
+        await session.connect()
+        #expect(state.isRunning)
+        await gate.release()
+
+        for _ in 0..<300 where listings(pak) == 0 || state.isRunning { try await Task.sleep(for: .milliseconds(20)) }
+        guard case .finished(let report) = state.phase else { Issue.record("no sync after the reconnection: \(state.phase)"); return }
+        #expect(report.stored.count == 4)
+    }
+
     @Test func aCancelledSyncKeepsTheLastReport() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
@@ -198,5 +230,36 @@ struct SaveSyncAppTests {
         let entry = try #require(containers[container] as? [String: Any])
         #expect(entry["NSUbiquitousContainerName"] as? String == "ReminisLink")
         #expect(entry["NSUbiquitousContainerIsDocumentScopePublic"] as? Bool == true)
+    }
+}
+
+/// Holds the first caller until released; later callers pass.
+actor Gate {
+    private var used = false
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var watchers: [CheckedContinuation<Void, Never>] = []
+    private var released = false
+
+    func waitOnce() async {
+        guard !used else { return }
+        used = true
+        if released { return }
+        await withCheckedContinuation { continuation in
+            waiting = continuation
+            for watcher in watchers { watcher.resume() }
+            watchers.removeAll()
+        }
+    }
+
+    /// Returns once the first caller is held.
+    func untilWaiting() async {
+        if waiting != nil { return }
+        await withCheckedContinuation { watchers.append($0) }
+    }
+
+    func release() {
+        released = true
+        waiting?.resume()
+        waiting = nil
     }
 }

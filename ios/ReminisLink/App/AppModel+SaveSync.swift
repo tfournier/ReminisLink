@@ -42,9 +42,11 @@ final class SaveSyncState {
     /// The last sync that went to its end (kept while a new one runs).
     private(set) var lastReport: SaveSyncReport?
     @ObservationIgnored fileprivate var task: Task<Void, Never>?
-    /// A sync asked for while one runs (a reconnection): it starts when
-    /// the running one ends.
-    @ObservationIgnored fileprivate var startAgain = false
+    /// A sync asked for while one runs (a new connection): it starts when
+    /// the running one ends, with the connection that asked. Independent
+    /// of the running task: cancelling that task drops only the requests
+    /// made before the cancellation, never one made after it.
+    @ObservationIgnored fileprivate var pendingRequest: UUID?
 
     var isRunning: Bool {
         if case .running = phase { return true }
@@ -56,8 +58,9 @@ final class SaveSyncState {
         return nil
     }
 
+    /// Stops the running sync, and the sync a connection asked for so far.
     func cancel() {
-        startAgain = false
+        pendingRequest = nil
         task?.cancel()
     }
 
@@ -97,7 +100,7 @@ extension AppModel {
     func startSaveSync(deviceId: String, afterCurrent: Bool = false) {
         let state = saveSync(for: deviceId)
         guard state.task == nil else {
-            if afterCurrent { state.startAgain = true }
+            if afterCurrent { state.pendingRequest = UUID() }
             return
         }
         state.start()
@@ -106,9 +109,11 @@ extension AppModel {
             defer {
                 state.task = nil
                 self?.background.end(token)
-                if state.startAgain {
-                    state.startAgain = false
-                    if !Task.isCancelled { self?.startSaveSync(deviceId: deviceId) }
+                // Whether this task was cancelled or not: a request made
+                // after its cancellation belongs to a new connection.
+                if state.pendingRequest != nil {
+                    state.pendingRequest = nil
+                    self?.startSaveSync(deviceId: deviceId)
                 }
             }
             guard let self else { return }
