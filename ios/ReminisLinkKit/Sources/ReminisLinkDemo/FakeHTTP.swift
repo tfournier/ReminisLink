@@ -82,6 +82,15 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let http = HTTPURLResponse(url: url, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: response.headers)!
+        // A redirection is offered to the session, as a real HTTP answer
+        // would be: it either follows it (a new request) or takes this
+        // answer as the final one.
+        if (300..<400).contains(response.status), let location = response.headers["Location"],
+           let target = URL(string: location, relativeTo: url) {
+            var redirected = request
+            redirected.url = target.absoluteURL
+            client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: http)
+        }
         client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: response.body)
         client?.urlProtocolDidFinishLoading(self)

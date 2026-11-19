@@ -547,7 +547,7 @@ public actor APIClient {
 
     private func transportDownload(_ request: URLRequest) async throws -> (URL, HTTPURLResponse) {
         do {
-            let (location, response) = try await session.download(for: request)
+            let (location, response) = try await session.download(for: request, delegate: PakTaskDelegate())
             guard let http = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: location)
                 throw APIError.invalidResponse("not an HTTP response")
@@ -562,12 +562,17 @@ public actor APIClient {
         }
     }
 
-    private func transport(_ request: URLRequest, bodyFile: URL? = nil) async throws -> (Data, HTTPURLResponse) {
+    /// Sends one request. Redirections are never followed (see
+    /// ``PakTaskDelegate``); `onSent` gets the body bytes sent so far.
+    private func transport(
+        _ request: URLRequest, bodyFile: URL? = nil, onSent: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        let delegate = PakTaskDelegate(onSent: onSent)
         do {
             let (data, response) = if let bodyFile {
-                try await session.upload(for: request, fromFile: bodyFile)
+                try await session.upload(for: request, fromFile: bodyFile, delegate: delegate)
             } else {
-                try await session.data(for: request)
+                try await session.data(for: request, delegate: delegate)
             }
             guard let http = response as? HTTPURLResponse else {
                 throw APIError.invalidResponse("not an HTTP response")
@@ -606,6 +611,35 @@ public actor APIClient {
             details: envelope.error.details ?? [:],
             retryAfter: retryAfter
         )
+    }
+}
+
+/// Task delegate of every request to the pak.
+///
+/// - Redirections are refused: the `3xx` answer is returned as it is. A
+///   redirection would send the request again outside the signing loop
+///   (without a new nonce), possibly with its body, and possibly off the
+///   local network.
+/// - `onSent` reports the body bytes sent so far (upload chunks).
+final class PakTaskDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+    private let onSent: (@Sendable (Int64) -> Void)?
+
+    init(onSent: (@Sendable (Int64) -> Void)? = nil) {
+        self.onSent = onSent
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        nil
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64, totalBytesExpectedToSend: Int64
+    ) {
+        onSent?(totalBytesSent)
     }
 }
 
