@@ -64,12 +64,31 @@ But : remplacer toutes les mentions **[À VÉRIFIER M0]** par des faits.
 
 **Fait quand** : installation depuis l'archive publiée sur une Brick neuve, checklist console complète, build TestFlight distribué.
 
+## M8 — Retours de test et revue croisée
+
+- Corrections des revues croisées Codex de M3 à M7 (`docs/reviews/m*-codex.md`).
+- Appairage seulement à la demande (05 §7), image d'un jeu (04 `PUT`/`DELETE /games/{gameId}/art`), noms en NFC (03 §5), pastille d'état, progression d'envoi fluide, captures avec un nom neutre.
+
+**Fait quand** : toutes les suites passent, parcours réels contre `make headless`, revue croisée des corrections, pak et app de test fournis à la personne.
+
+## M9 — Sync des saves vers l'iPhone (iCloud Drive)
+
+Décisions du 19/11/2026 (personne) :
+- **Contenu** : les saves seulement (avec leur `.rtc`), pas les states.
+- **Déclenchement** : bouton « Sync » au tableau de bord, et synchronisation automatique à chaque connexion à la console (désactivable dans les réglages de l'app).
+- **Stockage** : iCloud Drive de l'utilisateur, dossier « ReminisLink » visible dans Fichiers (`<console>/<système>/<jeu>/`), avec jusqu'à 10 versions par save ; repli sur le stockage local de l'app si iCloud est désactivé.
+- **Pak** : nouvelle route `GET /saves` (liste de toutes les saves avec chemin informatif, taille, date et SHA-256, en une requête) pour ne télécharger que ce qui a changé ; téléchargement par la route existante `GET /games/{gameId}/save`.
+- **Restauration** : depuis une version sur l'iPhone vers la console, par `PUT /games/{gameId}/save` (le pak garde sa copie `before-replace`).
+- Politique de confidentialité et 06 mises à jour (données copiées dans l'iCloud de l'utilisateur, jamais chez l'éditeur) ; capacité iCloud (conteneur) sur l'App ID.
+
+**Fait quand** : sync complète puis incrémentale testée contre `make headless`, restauration d'une version, comportement sans iCloud, textes et politique à jour.
+
 ## Après la v1 (idées, non engagées)
 
 - Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli.
 - iPad, Android.
 - TLS en option.
 - Gestionnaire de fichiers générique, lancement d'un jeu, Pak Store, mises à jour.
-- Export / import des données d'un jeu en archive, synchronisation via l'iPhone.
+- Export / import des données d'un jeu en archive ; synchronisation des states (M9 ne couvre que les saves).
 - Restauration depuis la corbeille.
 - **Interface web servie par le pak** (proposée par la personne le 19/11/2026) : les actions de l'app depuis un navigateur (ordinateur, Android) à `http://<console>:47821/`, en réutilisant l'API ; signature dans le navigateur (WebCrypto), appairage par PIN (la caméra exige HTTPS), à réconcilier avec 07 §4 (« aucun fichier statique »).

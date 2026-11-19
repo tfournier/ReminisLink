@@ -10,6 +10,7 @@
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
 | M5 | intégré (tests console à faire) | `m5-saves-go`, `m5-saves-ios` | Go : 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m5-go-claude.md` ; iOS : 1 revue Claude (1 bloquant corrigé) — `docs/reviews/m5-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
 | M6 | intégré (test console à faire) | `m6-patchs-go`, `m6-patchs-ios` | Go : revue Claude, aucun bloquant, formats validés par un décodeur de référence indépendant — `docs/reviews/m6-go-claude.md` ; iOS : revue Claude, 1 bloquant corrigé — `docs/reviews/m6-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
+| M9 | à faire après M8 : Sync des saves vers l'iCloud Drive de l'utilisateur (09) | — | — | — |
 | M8 | en cours (retours de test + corrections Codex) | `m8-retours-go`, `m8-retours-ios` | revues Codex M3–M7 : `docs/reviews/m*-codex.md` | — |
 | M7 | intégré (sans compte Apple ni Pak Store ; CI à valider après push ; checklist console à faire) | `m7-ui-publication-go`, `m7-publication-ios` | Go : revue Claude, aucun bloquant — `docs/reviews/m7-go-claude.md` ; iOS : vérifié par l'agent principal — `docs/reviews/m7-ios-claude.md` | 2026-11-19 |
 
@@ -76,6 +77,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-19 — Essais de la personne sur la vraie console : appairage, Bonjour (avahi actif), tableau de bord, bibliothèque, save, states, cheats, envoi d'une ROM, patch UPS : aucun bug. Remarques retenues pour M8 (décisions de la personne) : QR code masqué une fois appairé, menu « Appairer un nouvel appareil », appairage ouvert seulement pendant l'affichage ; image d'un jeu définissable depuis l'app (`PUT`/`DELETE /games/{gameId}/art`) ; noms en NFC avec `golang.org/x/text` (autorisé, ajouté à `CLAUDE.md`) ; pastille qui chevauche le titre ; progression d'envoi fluide. Idée v1.1 notée en 09 : interface web servie par le pak.
 
 - 2026-11-19 — Revues Codex M3–M7 rendues (qualité élevée : 16 bloquants annoncés, surtout fenêtres de coupure de courant et cas limites de perte de données ; 2 vérifiés par l'agent principal : redirections HTTP suivies par l'app, disques partagés entre playlists `.m3u`). M8 lancé : deux sous-agents (Go, iOS), chaque point Codex vérifié avant correction.
+
+- 2026-11-19 — Fonction Sync (M9, après M8), décisions de la personne : saves seulement, bouton + automatique à la connexion (désactivable), iCloud Drive (dossier « ReminisLink » dans Fichiers), 10 versions ; principe « Local uniquement » de 01 adapté ; 09 complété (M8, M9).
 
 ## Questions ouvertes pour la personne
 

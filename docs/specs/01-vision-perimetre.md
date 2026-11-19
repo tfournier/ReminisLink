@@ -50,7 +50,7 @@ Ces points sont repris, ou non, après la v1 (voir [09](09-feuille-de-route.md))
 ## Principes
 
 1. **Aucune perte de données.** Toute opération destructive est précédée d'une sauvegarde automatique.
-2. **Local uniquement.** Aucun serveur, aucun compte, aucune donnée hors du réseau local.
+2. **Local uniquement.** Aucun serveur, aucun compte, aucune donnée envoyée à un service tiers ou à l'éditeur. Seule exception, à partir de la fonction Sync (M9) : l'app peut copier les saves dans l'iCloud Drive **de l'utilisateur** (son propre stockage Apple), désactivable.
 3. **Aucune source de jeux.** L'app ne propose, ne liste et ne suggère aucune source de ROMs. L'utilisateur apporte ses propres fichiers.
 4. **Simple pour l'utilisateur.** Appairage en un scan de QR code, aucune IP à taper.
 5. **Portable.** Le cœur ne dépend pas de NextUI ; les spécificités de l'OS sont isolées dans un adaptateur.
