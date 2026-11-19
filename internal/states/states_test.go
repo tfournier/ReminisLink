@@ -2,6 +2,8 @@ package states
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"context"
 	"encoding/json"
 	"errors"
@@ -355,6 +357,8 @@ func TestLockCheckEdgeCases(t *testing.T) {
 	// A lock of a game that no longer exists (deleted with keepSave, then
 	// renamed): never restored, the lock stays (nothing lost).
 	testutil.WriteFile(t, e.sd, locksGBA+"Gone Game.gba/slot2.st", "locked")
+	testutil.WriteFile(t, e.sd, locksGBA+"Gone Game.gba/slot2.json",
+		`{"version":1,"slot":2,"sha256":"`+sha256Hex("locked")+`","sizeBytes":6,"stateDir":"GBA-gpsp"}`)
 	r = e.svc.Maintain(context.Background())
 	if len(r.Restored) != 0 || r.Held != 1 || e.exists(statesGB+"Gone Game.gba.st2") || !e.exists(locksGBA+"Gone Game.gba/slot2.st") {
 		t.Fatalf("gone game: %+v", r)
@@ -593,11 +597,13 @@ func TestSideFiles(t *testing.T) {
 	if _, err := e.svc.InstallLocked(sc, 0, tmp); err != nil {
 		t.Fatal(err)
 	}
-	if e.exists(thumb) || e.exists(disc) {
-		t.Fatal("stale thumbnail or disc kept after an upload")
+	// The thumbnail of the old state goes; the disc file stays (the user
+	// knows which disc the uploaded state belongs to).
+	if e.exists(thumb) || e.read(disc) != "disc 1" {
+		t.Fatal("thumbnail kept or disc file moved after an upload")
 	}
 	entries, _, _ := e.trash.List()
-	if len(entries) != 1 || len(entries[0].Files) != 3 {
+	if len(entries) != 1 || len(entries[0].Files) != 2 {
 		t.Fatalf("trash: %+v", entries)
 	}
 	// Restore of a locked copy: the thumbnail of the overwritten state goes too.
@@ -611,5 +617,104 @@ func TestSideFiles(t *testing.T) {
 	}
 	if e.exists(thumb) {
 		t.Fatal("thumbnail of the overwritten state kept")
+	}
+}
+
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// TestLockKeepsDisc: the disc file and the thumbnail of a multi-disc state
+// are kept with its lock and put back with the copy; an old lock without
+// them leaves the current disc file in place.
+func TestLockKeepsDisc(t *testing.T) {
+	e := newEnv(t)
+	ps, err := e.a.Game("Sony PlayStation (PS)/Mossy Hollow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		st    = ".userdata/shared/PS-pcsx_rearmed/Mossy Hollow.m3u.st0"
+		disc  = ".userdata/shared/.minui/PS/Mossy Hollow.m3u.0.txt"
+		thumb = ".userdata/shared/.minui/PS/Mossy Hollow.m3u.0.bmp"
+		locks = ".userdata/shared/ReminisLink/locks/PS/Mossy Hollow.m3u/"
+	)
+	png := "\x89PNG\r\n\x1a\ndisc 2 picture"
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 2).cue")
+	testutil.WriteFile(t, e.sd, thumb, png)
+	locked := e.read(st)
+	if _, err := e.svc.Lock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(locks+"slot0.txt") != "Mossy Hollow (Disc 2).cue" || e.read(locks+"slot0.bmp") != png {
+		t.Fatal("side files not kept with the lock")
+	}
+	// Played on disc 1 and saved in the same slot.
+	e.write(st, "disc 1 state", 0)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	testutil.WriteFile(t, e.sd, thumb, "\x89PNG\r\n\x1a\ndisc 1 picture")
+	if r := e.svc.Maintain(context.Background()); len(r.Restored) != 1 {
+		t.Fatalf("maintenance: %+v", r)
+	}
+	if e.read(st) != locked || e.read(disc) != "Mossy Hollow (Disc 2).cue" || e.read(thumb) != png {
+		t.Fatal("state, disc or thumbnail not restored together")
+	}
+	// An old lock without side copies: the current disc file stays.
+	os.Remove(e.path(locks + "slot0.txt"))
+	os.Remove(e.path(locks + "slot0.bmp"))
+	e.write(st, "disc 1 again", 0)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	if _, err := e.svc.RestoreLock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(disc) != "Mossy Hollow (Disc 1).cue" || e.exists(thumb) {
+		t.Fatal("old lock: disc file must stay, stale thumbnail must go")
+	}
+	// Unlock removes the side copies with the copy.
+	if _, err := e.svc.Lock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Unlock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	if e.exists(locks) {
+		t.Fatal("lock folder left")
+	}
+}
+
+// TestUnknownLockFolder: a lock rebuilt from its copy has no known state
+// folder: never restored automatically, until it is locked again.
+func TestUnknownLockFolder(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	if _, err := e.svc.Lock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(e.path(locksGBA + "Starlight Courier.gba/slot0.json"))
+	e.write(statesGB+"Starlight Courier.gba.st0", "played", 0)
+	r := e.svc.Maintain(context.Background())
+	if len(r.Restored) != 0 || r.Held != 1 || e.read(statesGB+"Starlight Courier.gba.st0") != "played" {
+		t.Fatalf("maintenance: %+v", r)
+	}
+	if st := status(e.slots(sc)[0]); st != StatusModified {
+		t.Fatalf("status: %s", st)
+	}
+	if _, err := e.svc.RestoreLock(sc, 0); !errors.Is(err, ErrUnknownCore) {
+		t.Fatalf("restore: %v", err)
+	}
+	// Locking again confirms: the current state is locked, the old copy kept in the trash.
+	if s, err := e.svc.Lock(sc, 0); err != nil || status(s) != StatusIntact {
+		t.Fatalf("lock again: %+v %v", s, err)
+	}
+	if !strings.Contains(e.read(locksGBA+"Starlight Courier.gba/slot0.json"), `"stateDir": "GBA-gpsp"`) || len(e.trashReasons()) != 1 {
+		t.Fatal("lock not confirmed")
+	}
+	// No state folder (emulator pak gone): modified, not core-changed.
+	os.Remove(e.path(".system/tg5040/paks/Emus/GBA.pak/launch.sh"))
+	os.Rename(e.path(".userdata/shared/GBA-gpsp"), e.path(".userdata/shared/GBA-gpsp-old-x"))
+	l := e.svc.readLock(e.svc.lockDir(sc), 0)
+	if e.svc.coreChanged(sc, l) || !e.svc.unknownCore(sc, l) {
+		t.Fatal("unknown current folder must not be core-changed")
 	}
 }

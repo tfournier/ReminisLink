@@ -820,7 +820,14 @@ paths:
       tags: [States]
       operationId: lockState
       summary: Lock a state
-      description: Copies the state to the lock area and records its SHA-256.
+      description: |
+        Copies the state to the lock area and records its SHA-256 and its
+        state folder (`<TAG>-<core>`); the NextUI thumbnail and disc file of
+        the slot (`.minui/<TAG>/<rom>.<N>.bmp` and `.txt`) are copied with
+        it and put back with it. Locking a locked slot changes nothing,
+        except for a lock whose state folder is unknown (`modified`): locking
+        it again confirms it (the old copy goes to the trash and the current
+        state is locked).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/Slot'
@@ -875,8 +882,11 @@ paths:
       description: |
         Replaces the state with its locked copy; the current state (with its
         NextUI thumbnail and disc file) is moved to the trash first (reason
-        `restore`). `404` when the slot is not locked; `409 conflict` when
-        the copy is damaged or comes from another emulator core.
+        `restore`); the thumbnail and disc file kept with the lock are put
+        back (a lock without a disc file leaves the current one in place).
+        `404` when the slot is not locked; `409 conflict` when the copy is
+        damaged, comes from another emulator core, or its state folder is
+        unknown (lock it again to confirm).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/Slot'
@@ -1982,7 +1992,8 @@ components:
             the state is gone, the copy is still locked. `modified`: the state
             differs from the copy and was not restored (check skipped by the
             time limit, damaged copy, unsupported state format, game no longer
-            found). `core-changed`: the copy comes from the state folder of
+            found, state folder of the copy or of the system unknown: such a
+            lock is never restored until it is locked again). `core-changed`: the copy comes from the state folder of
             another emulator core (`<TAG>-<core>`) than the current one; it is
             never restored there (restore answers `409 conflict`).
     SlotList:
@@ -2131,6 +2142,11 @@ components:
             gameId: { $ref: '#/components/schemas/OpaqueId' }
         - type: object
           required: [kind, gameId, slot]
+          description: |
+            A state slot of a game. The previous state and its NextUI
+            thumbnail go to the trash; the disc file of the slot
+            (`.minui/<TAG>/<rom>.<N>.txt`, multi-disc games) stays in place:
+            the user knows which disc the uploaded state belongs to.
           properties:
             kind: { type: string, const: state }
             gameId: { $ref: '#/components/schemas/OpaqueId' }
