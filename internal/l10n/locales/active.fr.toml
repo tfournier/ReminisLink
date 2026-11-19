@@ -226,6 +226,9 @@ other = "{{.PIN}}  (expire dans {{.Count}} min)"
 [qr_hidden]
 other = "QR code et code masqués : l'appairage est fermé.\nAppuie sur A pour les afficher."
 
+[qr_unavailable]
+other = "Appaire avec le code ci-dessous (pas de QR code dans ce mode)."
+
 [scan_hint]
 other = "Scanne avec l'app ReminisLink"
 

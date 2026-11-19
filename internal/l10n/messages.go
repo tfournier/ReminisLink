@@ -37,6 +37,7 @@ var (
 	BatteryCharging  = &msg{ID: "battery_charging", Other: "{{.Percent}}% (charging)"}
 	BatteryLow       = &msg{ID: "battery_low", Other: "Low: {{.Percent}}%"}
 	BatteryLowBanner = &msg{ID: "battery_low_banner", Other: "Low battery: plug the console in"}
+	QRUnavailable    = &msg{ID: "qr_unavailable", Other: "Pair with the code below (no QR code in this mode)."}
 	HintPairMore     = &msg{ID: "hint_pair_more", Other: "To pair another device: Settings (Y) > Pair a New Device."}
 	LabelCode        = &msg{ID: "label_code", Other: "Code"}
 	PINExpires       = &msg{ID: "pin_expires", One: "{{.PIN}}  (expires in {{.Count}} min)", Other: "{{.PIN}}  (expires in {{.Count}} min)"}
@@ -126,5 +127,5 @@ var All = []*msg{
 	NoticePaired, MsgNoWiFi, MsgPreparing, MsgClosing, MsgStartError, MsgConfirmQuit, LanguagePrompt,
 	TitleSettings, ItemName, ItemPaired, ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout,
 	TitlePaired, MsgNoPaired, PairedItem, DateLayout, MsgConfirmForget, MsgConfirmForgetAll,
-	MsgForgotAll, MsgNameEmpty, MsgSaveError, BatteryLevel, BatteryCharging, BatteryLow, BatteryLowBanner, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
+	MsgForgotAll, MsgNameEmpty, MsgSaveError, BatteryLevel, BatteryCharging, BatteryLow, BatteryLowBanner, QRUnavailable, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
 }

@@ -110,6 +110,11 @@ brew install pkg-config sdl2 sdl2_ttf sdl2_image sdl2_gfx   # once
 make desktop
 ```
 
+On macOS the desktop window shows the pairing PIN without the QR code: the
+QR image holds the pairing secret and is only drawn from memory (Linux
+`memfd`), never from a file that could stay on the disk. Pair with the PIN,
+or use `make headless`, which prints the QR code in the terminal.
+
 `make screenshots` regenerates `docs/screenshots/` with the desktop UI under Xvfb in Docker (no SDL needed on the Mac).
 
 ### Build

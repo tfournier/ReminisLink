@@ -11,11 +11,9 @@ import "errors"
 //     memory file (memfd_create) opened through /proc/self/fd/<n>: it has
 //     no name in any file system and disappears with the process, even
 //     after a SIGKILL;
-//   - elsewhere (the --desktop mode on macOS), there is no such file: the
-//     PNG goes to a private file of the temporary directory only while the
-//     screen loads it (see qrImage.release), and is deleted at once. A
-//     SIGKILL in that instant can leave it behind; this limit only
-//     concerns the development mode on a Mac.
+//   - elsewhere (the --desktop mode on macOS), no such file exists and a
+//     temporary file could outlive a SIGKILL: the QR code is not drawn
+//     and the screen shows the PIN only.
 
 // errNoMemoryFile means no memory-only file can hold the image.
 var errNoMemoryFile = errors.New("no memory file for the QR code image")

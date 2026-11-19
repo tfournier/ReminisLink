@@ -226,6 +226,9 @@ other = "{{.PIN}}  (expires in {{.Count}} min)"
 [qr_hidden]
 other = "QR code and PIN hidden: pairing is closed.\nPress A to show them."
 
+[qr_unavailable]
+other = "Pair with the code below (no QR code in this mode)."
+
 [scan_hint]
 other = "Scan with the ReminisLink app"
 

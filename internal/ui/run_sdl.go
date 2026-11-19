@@ -200,6 +200,8 @@ type mainScreen struct {
 	// opened: a new one ends it.
 	pairedAtStart int
 
+	noQRLogged bool // the missing memory file was logged
+
 	qrMu   sync.Mutex // guards qr (closeQR runs on the signal path)
 	qr     *qrImage
 	qrLink string // link encoded in qr
@@ -283,7 +285,12 @@ func (m *mainScreen) loop() {
 		}
 		qrPath := ""
 		if v.ShowQR {
-			if qrPath, err = m.qrPath(v.QRLink); err != nil {
+			if qrPath, err = m.qrPath(v.QRLink); errors.Is(err, errNoMemoryFile) {
+				if !m.noQRLogged {
+					m.noQRLogged = true
+					m.a.Logger().Info("no memory file for the QR code here: the PIN only is shown")
+				}
+			} else if err != nil {
 				m.a.Logger().Error("cannot draw the QR code", "error", err)
 			}
 		} else {
@@ -449,6 +456,12 @@ func (m *mainScreen) options(v MainView, qrPath string) gaba.DetailScreenOptions
 			title = ""
 		}
 		sections = append(sections, gaba.NewImageSection(title, qrPath, QRSize, QRSize, constants.TextAlignCenter))
+	} else if v.ShowQR {
+		// No QR image (no memory file here): the PIN below pairs.
+		if !v.Pairing {
+			title = ""
+		}
+		sections = append(sections, gaba.NewDescriptionSection(title, l10n.T(l10n.QRUnavailable)))
 	} else {
 		sections = append(sections, gaba.NewDescriptionSection("", v.Hint))
 	}
