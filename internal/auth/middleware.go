@@ -54,7 +54,28 @@ type RouteOptions struct {
 	// AllowUnsigned accepts X-RL-Content-SHA256: UNSIGNED; the body is then
 	// left unread for the handler (upload chunks only).
 	AllowUnsigned bool
+	// TakesLease marks a route that changes the SD card: the Verifier's
+	// Gate takes the write lease (M10) before the body is read, or refuses
+	// the request.
+	TakesLease bool
+	// WhileDisconnected lets a client disconnected by the console through
+	// (POST /api/v1/clients/me/connect only, M10).
+	WhileDisconnected bool
 }
+
+// Rejection is the error answer chosen by a Gate.
+type Rejection struct {
+	Status  int
+	Code    string
+	Message string
+	Details map[string]any
+}
+
+// Gate decides whether an authenticated request may go on. The Verifier
+// calls it once the signature is valid and the nonce reserved, before the
+// body is read: a rejected request never makes the pak read its body. A
+// nil result lets the request through.
+type Gate func(r *http.Request, client Client, opts RouteOptions) *Rejection
 
 // Route options of the API v1 routes.
 var (
@@ -80,6 +101,9 @@ type Verifier struct {
 	Now        func() time.Time // nil: time.Now
 	BodyBudget int64            // 0: DefaultBodyBudget
 	Logger     *slog.Logger     // nil: slog.Default()
+	// Gate, when set, is the last check before the body is read (the
+	// disconnection and the write lease of M10). Set it before serving.
+	Gate Gate
 
 	budgetOnce sync.Once
 	budget     *byteBudget
@@ -135,7 +159,8 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 //  6. a query key present more than once, or a raw ";" in the query →
 //     400 invalid_request (the nonce is consumed, docs/specs/03-protocole.md
 //     §4.2; net/url ignores the pairs holding a ";");
-//  7. body larger than the route limit → 413 too_large; body hash mismatch
+//  7. the Gate, when set, may refuse the request (its body still unread);
+//  8. body larger than the route limit → 413 too_large; body hash mismatch
 //     → 401 bad_signature.
 //
 // Signature and body hash are checked in the reverse order of the spec
@@ -197,14 +222,17 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		now = v.Now
 	}
 	var reserved int64
-	fail := func(status int, code, message string) (Client, int64, bool) {
+	failWith := func(status int, code, message string, details map[string]any) (Client, int64, bool) {
 		// Never log keys, nonces or signatures.
 		// Every value from the network is bounded (see LogString).
 		log.Info("request rejected", "code", code, "method", LogString(r.Method, MaxLoggedMethod),
 			"path", LogString(r.URL.Path, MaxLoggedPath), "client", LogClient(r.Header.Get(HeaderClient)),
 			"remote", r.RemoteAddr)
-		WriteError(w, status, code, message, nil)
+		WriteError(w, status, code, message, details)
 		return Client{}, reserved, false
+	}
+	fail := func(status int, code, message string) (Client, int64, bool) {
+		return failWith(status, code, message, nil)
 	}
 
 	client, ok := v.Clients.Lookup(r.Header.Get(HeaderClient))
@@ -264,6 +292,11 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		// net/url drops the pairs holding a raw ";": the handler would not
 		// see what was signed.
 		return fail(http.StatusBadRequest, CodeInvalidRequest, "Semicolon in query")
+	}
+	if v.Gate != nil {
+		if rej := v.Gate(r, client, opts); rej != nil {
+			return failWith(rej.Status, rej.Code, rej.Message, rej.Details)
+		}
 	}
 
 	if unsigned {
