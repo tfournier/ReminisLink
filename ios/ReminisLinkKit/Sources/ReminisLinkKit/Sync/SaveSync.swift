@@ -33,7 +33,9 @@ public struct SaveSyncProgress: Sendable, Equatable {
 
 /// Why the save of one game was not stored.
 public enum SaveSyncError: Error, Equatable, Sendable {
-    /// The file downloaded is not the one listed (`file`: its name).
+    /// The file downloaded is not the one listed (`file`: its name): it
+    /// changed on the console during the sync, or arrived damaged. No
+    /// version is stored; the next sync tries again.
     case checksumMismatch(file: String)
 }
 
@@ -101,9 +103,12 @@ public struct SaveSync: Sendable {
     public func run(progress: @escaping @Sendable (SaveSyncProgress) -> Void = { _ in }) async throws -> SaveSyncReport {
         let list = try await source.saves()
         try Task.checkCancellation()
-        // Folder names of the systems; without the list (an older or busy
-        // pak), the tag of the saves folder (`Saves/<TAG>/...`).
-        let labels = Dictionary((try? await source.systems())?.map { ($0.id, $0.label) } ?? [], uniquingKeysWith: { a, _ in a })
+        // Folder names of the systems: label and tag, as two systems can
+        // share a label (GBA and MGBA are both "Game Boy Advance"). Without
+        // the list (a busy pak), the tag of the saves folder (`Saves/<TAG>/...`).
+        let labels = Dictionary(
+            (try? await source.systems())?.map { ($0.id, Self.systemName($0)) } ?? [], uniquingKeysWith: { a, _ in a }
+        )
 
         var state = SaveSyncProgress(total: list.saves.count)
         progress(state)
@@ -186,6 +191,11 @@ public struct SaveSync: Sendable {
         if case .network = api { return true }
         if case .notPaired = api { return true }
         return api.code == .unknownClient || api.code == .shuttingDown
+    }
+
+    /// `Game Boy Advance (GBA)`.
+    public static func systemName(_ system: GameSystem) -> String {
+        system.tag.isEmpty ? system.label : "\(system.label) (\(system.tag))"
     }
 
     /// `GBA` for `Saves/GBA/Game.gba.sav`.

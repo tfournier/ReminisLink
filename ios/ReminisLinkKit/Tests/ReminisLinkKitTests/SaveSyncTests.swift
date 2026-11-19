@@ -109,7 +109,7 @@ struct SaveSyncTests {
         #expect(log.reports.last == SaveSyncProgress(total: 2, checked: 2, stored: 2))
         #expect(log.reports.map(\.checked) == log.reports.map(\.checked).sorted())
 
-        let folder = sandbox.root.appending(path: "My Brick/Game Boy Advance/Sky Garden")
+        let folder = sandbox.root.appending(path: "My Brick/Game Boy Advance (GBA)/Sky Garden")
         let versions = try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g1")
         #expect(versions.count == 1)
         #expect(versions[0].info.rtc?.name == "Sky Garden.gba.rtc")
@@ -179,6 +179,13 @@ struct SaveSyncTests {
         #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "My Brick/GBA/Sky Garden").path))
     }
 
+    @Test func systemsWithTheSameLabelGetDistinctFolders() {
+        let gba = GameSystem(id: "a", label: "Game Boy Advance", folder: "Game Boy Advance (GBA)", tag: "GBA", gameCount: 1)
+        let mgba = GameSystem(id: "b", label: "Game Boy Advance", folder: "Game Boy Advance (MGBA)", tag: "MGBA", gameCount: 1)
+        #expect(SaveSync.systemName(gba) != SaveSync.systemName(mgba))
+        #expect(SaveSync.systemName(mgba) == "Game Boy Advance (MGBA)")
+    }
+
     @Test func syncsAgainstTheFakePak() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
@@ -199,7 +206,7 @@ struct SaveSyncTests {
         let versions = try await sandbox.vault().versions(deviceId: pak.deviceId, gameId: skyGarden)
         #expect(versions.first?.info.save.name == "Sky Garden Quest.gba.sav")
         #expect(versions.first?.info.rtc?.name == "Sky Garden Quest.gba.rtc")
-        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Brick/Game Boy Advance/Sky Garden Quest").path))
+        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Brick/Game Boy Advance (GBA)/Sky Garden Quest").path))
 
         pak.play(gameId: skyGarden, content: Data("played".utf8))
         let second = try await sync().run()
