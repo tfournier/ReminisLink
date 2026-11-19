@@ -52,15 +52,13 @@ struct LibraryModelTests {
     }
 
     @Test func requiredFieldsAreRequired() {
-        // `systemId` is required in a LibraryGame, `fileId` in a GameFile.
+        // `systemId` is required in a LibraryGame (`fileId` of a GameFile
+        // is not, for paks older than M11: see aFileWithoutFileIdDecodes).
         #expect(throws: DecodingError.self) {
             try decode(LibraryGame.self, """
             {"id":"a","folderId":null,"folderPath":null,"name":"x","fileName":"x.gba","kind":"file","sizeBytes":1,
              "modifiedAt":"2026-10-02T09:12:00Z","hasSave":false,"stateCount":0,"lockedStateCount":0,"cheatCount":0,"hasArt":false}
             """)
-        }
-        #expect(throws: DecodingError.self) {
-            try decode(GameFile.self, #"{"role":"rom","path":"Roms/x.gba","sizeBytes":1,"modifiedAt":"2026-10-02T09:12:00Z"}"#)
         }
     }
 
@@ -116,32 +114,34 @@ struct LibraryAPITests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let detail = try await client.game(id: skyGarden)
-        #expect(Set(detail.files.map(\.fileId)).count == detail.files.count)
+        #expect(Set(detail.files.compactMap(\.fileId)).count == detail.files.count)
         let root = downloadsDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
 
         let rom = try #require(detail.files.first { $0.role == .rom })
         let progress = Progress()
-        let file = try await client.downloadGameFile(gameId: skyGarden, fileId: rom.fileId, into: root) {
+        let romId = try #require(rom.fileId)
+        let file = try await client.downloadGameFile(gameId: skyGarden, fileId: romId, into: root) {
             progress.add($0, $1)
         }
         #expect(file.url.lastPathComponent == "Sky Garden Quest.gba")
         #expect(try FileDigest.size(of: file.url) == rom.sizeBytes)
         #expect(file.directory.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL)
-        #expect(pak.log.last?.path == "/api/v1/games/\(skyGarden)/files/\(rom.fileId)")
+        #expect(pak.log.last?.path == "/api/v1/games/\(skyGarden)/files/\(romId)")
         let reports = progress.all
         #expect(!reports.isEmpty)
         #expect(reports.map(\.0) == reports.map(\.0).sorted())
         #expect(reports.last?.0 == rom.sizeBytes)
 
         let cheats = try #require(detail.files.first { $0.role == .cheats })
-        let cht = try await client.downloadGameFile(gameId: skyGarden, fileId: cheats.fileId, into: root)
+        let cht = try await client.downloadGameFile(gameId: skyGarden, fileId: try #require(cheats.fileId), into: root)
         #expect(cht.url.lastPathComponent == "Sky Garden Quest.gba.cht")
+        #expect(try FileDigest.size(of: cht.url) == cheats.sizeBytes)
         let text = try String(contentsOf: cht.url, encoding: .utf8)
         #expect(text.hasPrefix("cheats = 12"))
 
         let save = try #require(detail.files.first { $0.role == .save })
-        let saveFile = try await client.downloadGameFile(gameId: skyGarden, fileId: save.fileId, into: root)
+        let saveFile = try await client.downloadGameFile(gameId: skyGarden, fileId: try #require(save.fileId), into: root)
         #expect(try FileDigest.size(of: saveFile.url) == save.sizeBytes)
     }
 
@@ -154,7 +154,7 @@ struct LibraryAPITests {
         let sky = try await client.game(id: skyGarden)
         let save = try #require(sky.files.first { $0.role == .save })
         await #expect(throws: APIError.server(ServerError(status: 404, code: .notFound, message: "File not found"))) {
-            try await client.downloadGameFile(gameId: pixelRunner, fileId: save.fileId, into: root)
+            try await client.downloadGameFile(gameId: pixelRunner, fileId: try #require(save.fileId), into: root)
         }
         let left = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         #expect(left.isEmpty)
@@ -188,20 +188,72 @@ struct LibraryAPITests {
         #expect(reports.last?.1 == Int64(length))
     }
 
-    @Test func aCancelledDownloadThrowsCancellation() async throws {
+    /// The contract sends files whole: every file of every demo game is
+    /// served with the size the game sheet lists.
+    @Test func everyFileIsServedWithItsListedSize() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let root = downloadsDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var checked = 0
+        for game in try await client.allGames().games {
+            for file in try await client.game(id: game.id).files {
+                let downloaded = try await client.downloadGameFile(gameId: game.id, fileId: try #require(file.fileId), into: root)
+                #expect(try FileDigest.size(of: downloaded.url) == file.sizeBytes, "\(file.path)")
+                try FileManager.default.removeItem(at: downloaded.directory)
+                checked += 1
+            }
+        }
+        #expect(checked > 10)
+    }
+
+    /// A pak older than M11: no `GET /games` (`404`, the app browses per
+    /// system), and files without `fileId`, which must still decode (the
+    /// game sheet keeps working, without downloads).
+    @Test func aPakOlderThanM11StillOpensItsGames() async throws {
+        let pak = makePak()
+        pak.allGamesSupported = false
+        let client = try await pairedClient(pak)
+        await #expect {
+            _ = try await client.allGames()
+        } throws: { LibraryMode.meansUnsupported($0) }
+        let listing = try await client.games(systemId: DemoLibrary.id("Game Boy Advance (GBA)"))
+        #expect(listing.games.contains { $0.id == skyGarden })
+        let detail = try await client.game(id: skyGarden)
+        #expect(!detail.files.isEmpty)
+        #expect(detail.files.allSatisfy { $0.fileId == nil })
+        #expect(detail.hasSave && detail.hasCheats)
+    }
+
+    @Test func aFileWithoutFileIdDecodes() throws {
+        let file = try decode(GameFile.self, #"{"role":"rom","path":"Roms/GBA/x.gba","sizeBytes":1,"modifiedAt":"2026-10-02T09:12:00Z"}"#)
+        #expect(file.fileId == nil)
+        #expect(file.name == "x.gba")
+    }
+
+    /// Cancelled while the answer is on its way, through the path the game
+    /// sheet uses (with progress): cancellation, and nothing left behind.
+    @Test func aCancelledDownloadThrowsCancellationAndLeavesNothing() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let detail = try await client.game(id: skyGarden)
-        let rom = try #require(detail.files.first { $0.role == .rom })
-        let path = "/api/v1/games/\(skyGarden)/files/\(rom.fileId)"
+        let romId = try #require(detail.files.first { $0.role == .rom }?.fileId)
+        let path = "/api/v1/games/\(skyGarden)/files/\(romId)"
         let gate = pak.holdNextAnswer(method: "GET", path: path)
         let root = downloadsDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let task = Task { try await client.downloadGameFile(gameId: skyGarden, fileId: rom.fileId, into: root) }
-        while !gate.reached { try await Task.sleep(for: .milliseconds(10)) }
+        let progress = Progress()
+        let task = Task {
+            try await client.downloadGameFile(gameId: skyGarden, fileId: romId, into: root) { progress.add($0, $1) }
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !gate.reached && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(gate.reached)
         task.cancel()
         gate.open()
         await #expect(throws: CancellationError.self) { try await task.value }
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        #expect(left.isEmpty)
     }
 }
 

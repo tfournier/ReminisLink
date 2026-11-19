@@ -95,7 +95,15 @@ final class ConsoleSession {
     ///
     /// `explicit`: an action of the user (M10, "Reconnect" or opening the
     /// console from the list): this attempt may lift a disconnection.
+    ///
+    /// After the console closed ReminisLink (M11), nothing connects but an
+    /// explicit action: every automatic path (screens, transfers, a sheet
+    /// that ends) comes through here and is refused.
     func connect(explicit: Bool = false) async {
+        if closedByConsole {
+            guard explicit else { return }
+            closedByConsole = false
+        }
         let attempt = currentAttempt(explicit: explicit)
         let waiter = UUID()
         await withTaskCancellationHandler {
@@ -177,6 +185,11 @@ final class ConsoleSession {
             // A cancelled connection replaced by a newer one changes nothing.
             guard self.attempt === attempt else { return }
             let error = AppError(error)
+            // M11: the pak is quitting (`/hello` or `/device` got
+            // `503 shutting_down`): back to the list, not an error screen.
+            if case .api(let api) = error, api.code == .shuttingDown {
+                return markClosedByConsole()
+            }
             state = error.isCancellation || Task.isCancelled ? .idle : .failed(error)
         }
     }
@@ -212,7 +225,7 @@ final class ConsoleSession {
     func perform<T: Sendable>(_ operation: @Sendable (APIClient) async throws -> T) async throws -> T {
         if client == nil { await connect() }
         try Task.checkCancellation()
-        guard let client else { throw error ?? AppError.unexpected }
+        guard let client else { throw unavailableError }
         do {
             return try await operation(client)
         } catch {
@@ -234,10 +247,20 @@ final class ConsoleSession {
         guard let client, client === failed else { return }
         self.client = nil
         lease.stop()
+        markClosedByConsole()
+    }
+
+    private func markClosedByConsole() {
         closedByConsole = true
         state = .idle
         transfers.pauseForClosedConsole()
         app.consoleClosed(deviceId: deviceId)
+    }
+
+    /// Why there is no client after a connection attempt.
+    private var unavailableError: AppError {
+        if let error { return error }
+        return closedByConsole ? .consoleClosed : .unexpected
     }
 
     /// The console is gone or no longer knows this iPhone, as seen by a
@@ -377,7 +400,7 @@ final class ConsoleSession {
     func connectedClient() async throws -> APIClient {
         if client == nil { await connect() }
         try Task.checkCancellation()
-        guard let client else { throw error ?? AppError.unexpected }
+        guard let client else { throw unavailableError }
         return client
     }
 

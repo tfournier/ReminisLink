@@ -448,14 +448,17 @@ public struct AllGames: Codable, Sendable, Equatable {
 /// A file of a game. `path` is informative only and never sent back: the
 /// file is downloaded by its opaque `fileId` (M11).
 public struct GameFile: Codable, Sendable, Equatable, Hashable {
-    public let fileId: String
+    /// Required by the M11 contract; nil from an older pak, which cannot
+    /// serve the file (`GET /games/{gameId}/files/{fileId}` does not
+    /// exist there): the game sheet works, without the download.
+    public let fileId: String?
     public let role: GameFileRole
     public let slot: Int?
     public let path: String
     public let sizeBytes: Int64
     public let modifiedAt: Date
 
-    public init(fileId: String, role: GameFileRole, slot: Int? = nil, path: String, sizeBytes: Int64, modifiedAt: Date) {
+    public init(fileId: String?, role: GameFileRole, slot: Int? = nil, path: String, sizeBytes: Int64, modifiedAt: Date) {
         self.fileId = fileId
         self.role = role
         self.slot = slot

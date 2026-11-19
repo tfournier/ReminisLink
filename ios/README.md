@@ -477,21 +477,28 @@ lease of the demo console (`WriteAccessUITests`).
   download button: `GET /games/{gameId}/files/{fileId}` (the opaque
   `fileId`, never a path), streamed to disk by a signed `URLSession`
   download task with progress and cancel, then the share sheet (Save to
-  Files, AirDrop…). A `404` reloads the sheet ("This file changed on the
-  console"). Allowed read-only.
+  Files, AirDrop…). A `404` reloads the sheet, then says "This file changed
+  on the console"; a game that is gone loses its rows ("This game is no
+  longer on the console"). Allowed read-only. A pak older than M11 sends
+  no `fileId` (decoded as nil): the sheet works, without download buttons.
 - **Console closed**: `503 shutting_down` seen by any request of the
   connection (screen, transfer, lease renewal), or a connection failure
   while the console's Bonjour service is gone (the browser has run for at
   least 3 s, `PakClosure`), ends the connection without an error screen:
   back to the list with "The console closed ReminisLink", uploads paused
-  (`TransferQueue.pauseForClosedConsole`), no automatic reconnection until
-  the user opens the console again; the next connection resumes them. A
+  (`TransferQueue.pauseForClosedConsole`; uploads added meanwhile start
+  paused), no automatic reconnection until the user opens the console
+  again (`ConsoleSession.connect` refuses every non-explicit attempt, and
+  the end of an Add does not reopen it); the next connection resumes them.
+  A `503` during the opening (`/hello`, `/device`) does the same. A
   Wi-Fi glitch alone (service still announced) keeps today's error screen.
 
 The fake pak serves `GET /games` (`allGamesSupported`, `allGamesLimit` to
 test the fallback), a `fileId` per file (base64url of `f_<role>[slot]`) and
-`GET /games/{gameId}/files/{fileId}` (made-up content, at most 16 MiB; a
-`.cht` built from its cheats). It can quit (`availability`: `503
+`GET /games/{gameId}/files/{fileId}` (made-up content of exactly the listed
+size, so demo games stay small; a `.cht` built from its cheats, listed with
+its size). `allGamesSupported = false` is a pak older than M11 (no
+`GET /games`, no `fileId`, no file downloads). It can quit (`availability`: `503
 shutting_down`, then gone), and the demo withdraws its Bonjour service
 meanwhile. UI tests (Debug only): `RL_UITEST_PAK_CLOSES_ON="GET /games"`
 makes it quit on that request and open again 5 s later
