@@ -18,7 +18,7 @@
    - purge de la corbeille (entrées de plus de 30 jours d'âge crédité, voir §4), des envois expirés et des fichiers `staging` (> 24 h).
 4. **Serveur** : écoute sur `0.0.0.0:47821` (ou le premier port libre parmi les 9 suivants), puis annonce Bonjour.
 5. **Écran principal** (§7).
-6. **Fermeture** (B, ou signal SIGTERM/SIGINT) : refus des nouvelles requêtes (`503 shutting_down`), attente des écritures en cours (10 s maximum), retrait de l'annonce, `sync`, sortie.
+6. **Fermeture** (B, ou signal SIGTERM/SIGINT) : refus des nouvelles requêtes (`503 shutting_down`), événement `shutdown` aux flux d'événements (M14, 1 s au plus pour les écrire), `sync`, retrait de l'annonce (sans attendre les requêtes ni les flux), attente des écritures en cours (10 s maximum), `sync`, sortie.
 
 Le pak NE DOIT PAS laisser de processus en arrière-plan après sa fermeture.
 
