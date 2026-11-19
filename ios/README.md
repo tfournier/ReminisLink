@@ -103,11 +103,14 @@ are not asked again).
 
 ### 5. Privacy policy
 
-`docs/privacy.md` (English and French) is plain Markdown. With GitHub Pages
-set to *Deploy from a branch*, `main`, folder `/docs`, it is served at
-`https://<user>.github.io/ReminisLink/privacy` (the rest of `docs/`, the
-specifications included, is published too; publish only this file from
-another branch otherwise). Give that URL to App Store Connect.
+The privacy policy (`docs/privacy.md`, English and French) is published on
+the website of the project, built from `site/` by GitHub Pages (setup and
+DNS in `site/README.md`). In App Store Connect:
+
+- Privacy Policy URL: `https://reminis.link/privacy/`
+- Support URL: `https://reminis.link/support/`
+
+Check that both open over HTTPS before submitting.
 
 ### 6. App Review
 

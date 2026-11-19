@@ -24,11 +24,15 @@ Rules (docs/specs/01-vision-perimetre.md):
 
 Other fields to fill in App Store Connect:
 
-- Privacy Policy URL: the published `docs/privacy.md` (see `ios/README.md`).
+- Privacy Policy URL: <https://reminis.link/privacy/> (French page:
+  <https://reminis.link/fr/privacy/>), the published `docs/privacy.md`
+  (see `site/README.md`).
 - App Privacy: "Data Not Collected".
 - Suggested: category Utilities; age rating 4+ (the app shows no content
   from others and has no web browser). To confirm when filling the form.
-- Support URL: the issues page of the repository.
+- Support URL: <https://reminis.link/support/> (French page:
+  <https://reminis.link/fr/support/>).
+- Marketing URL (optional): <https://reminis.link/>.
 
 Check the lengths after an edit:
 
