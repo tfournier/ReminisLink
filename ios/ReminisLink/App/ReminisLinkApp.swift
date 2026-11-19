@@ -31,6 +31,10 @@ struct RootView: View {
                     case .cheats(let game): CheatsView(route: game)
                     case .trash(let id): TrashView(deviceId: id)
                     case .transfers(let id): TransfersView(deviceId: id)
+                    case .settings: AppSettingsView()
+                    case .syncedConsoles: SyncedConsolesView()
+                    case .syncedSaves(let id): SyncedSavesView(deviceId: id)
+                    case .syncedGame(let game): SyncedGameView(route: game)
                     }
                 }
         }

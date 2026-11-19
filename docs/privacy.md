@@ -4,7 +4,8 @@
 
 Published version / Version publiée : <https://reminis.link/privacy/> ·
 <https://reminis.link/fr/privacy/>. Keep this file and `site/privacy/`,
-`site/fr/privacy/` identical / Garder ce fichier et les pages du site identiques.
+`site/fr/privacy/` identical / Garder ce fichier et les pages du site
+identiques.
 
 Last updated / Dernière mise à jour : 19 November 2026 / 19 novembre 2026
 
@@ -16,7 +17,8 @@ Last updated / Dernière mise à jour : 19 November 2026 / 19 novembre 2026
 
 ReminisLink is an iPhone app that manages the games of your retro handheld
 over your local Wi-Fi network. It is built so that your data never leaves
-your network.
+your network, except the copies of your saves that you keep in your own
+iCloud Drive.
 
 ### What we collect
 
@@ -36,7 +38,8 @@ data about you or about how you use the app.
 - **Temporary copies of the files you send** (from Files or the share sheet),
   kept only until the transfer ends.
 
-Deleting the app removes all of it. Unpairing a handheld removes its key.
+Deleting the app removes all of it (but not the copies of your saves in
+iCloud Drive, see below). Unpairing a handheld removes its key.
 
 ### What goes to your handheld
 
@@ -51,6 +54,20 @@ with the pairing key.
 - **Links you type or share**: the app sends the link to your handheld, and
   the handheld downloads the file itself, from its own connection. The site
   you link to sees the handheld, not the app.
+
+### Copies of your saves (iCloud Drive)
+
+ReminisLink can copy the saves of your handhelds (with their clock files) to
+your iPhone: with the Sync button of a handheld, and automatically when it
+connects (you can turn this off in the settings of the app). Up to 10
+versions of each save are kept.
+
+The copies go to **your own iCloud Drive**, in the ReminisLink folder of the
+Files app, where you can see, move or delete them. iCloud is Apple’s service,
+under your Apple account and Apple’s privacy policy: the developer has no
+server and never receives these copies. If iCloud Drive is off, the copies
+stay on your iPhone (Files > On My iPhone > ReminisLink) and are deleted with
+the app.
 
 ### Permissions
 
@@ -86,7 +103,8 @@ Open an issue on the repository of the project:
 
 ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton
 réseau Wi-Fi local. Elle est conçue pour que tes données ne quittent jamais
-ton réseau.
+ton réseau, sauf les copies de tes saves que tu gardes dans ton propre iCloud
+Drive.
 
 ### Ce que nous collectons
 
@@ -106,7 +124,8 @@ sur ton utilisation de l’app.
 - **Des copies temporaires des fichiers que tu envoies** (depuis Fichiers ou
   le menu de partage), gardées seulement jusqu’à la fin du transfert.
 
-Supprimer l’app efface tout. Se désappairer d’une console supprime sa clé.
+Supprimer l’app efface tout (sauf les copies de tes saves dans iCloud Drive,
+voir plus bas). Se désappairer d’une console supprime sa clé.
 
 ### Ce qui va vers ta console
 
@@ -122,6 +141,21 @@ requête est signée avec la clé d’appairage.
 - **Les liens que tu saisis ou partages** : l’app envoie le lien à ta
   console, qui télécharge elle-même le fichier, avec sa propre connexion. Le
   site du lien voit la console, pas l’app.
+
+### Copies de tes saves (iCloud Drive)
+
+ReminisLink peut copier les saves de tes consoles (avec leurs fichiers
+d’horloge) sur ton iPhone : avec le bouton Synchroniser d’une console, et
+automatiquement à chaque connexion (désactivable dans les réglages de l’app).
+Jusqu’à 10 versions de chaque save sont gardées.
+
+Les copies vont dans **ton propre iCloud Drive**, dans le dossier ReminisLink
+de l’app Fichiers, où tu peux les voir, les déplacer ou les supprimer. iCloud
+est le service d’Apple, sous ton compte Apple et la politique de
+confidentialité d’Apple : le développeur n’a aucun serveur et ne reçoit
+jamais ces copies. Si iCloud Drive est désactivé, les copies restent sur ton
+iPhone (Fichiers > Sur mon iPhone > ReminisLink) et sont supprimées avec
+l’app.
 
 ### Autorisations
 

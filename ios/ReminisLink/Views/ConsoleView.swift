@@ -53,6 +53,8 @@ struct ConsoleView: View {
                 .accessibilityIdentifier("console.transfers")
             }
 
+            SaveSyncSection(deviceId: deviceId, isConnected: session.state == .connected)
+
             if let status = session.status {
                 Section("Console") {
                     LabeledContent("Name", value: status.deviceName)

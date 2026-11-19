@@ -15,9 +15,28 @@ struct FakeBlob: Equatable {
     var size: Int64
     /// Identifies the content (compared by the lock check).
     var digest: String
+    /// The content, kept for files of at most 1 MiB sent to the fake pak
+    /// (a save restored from the iPhone is served back as it was sent).
+    var bytes: Data?
+
+    init(size: Int64, digest: String, bytes: Data? = nil) {
+        self.size = size
+        self.digest = digest
+        self.bytes = bytes
+    }
 
     static func of(_ data: Data) -> FakeBlob {
-        FakeBlob(size: Int64(data.count), digest: Signer.contentSHA256(data))
+        FakeBlob(size: Int64(data.count), digest: Signer.contentSHA256(data), bytes: data.count <= 1 << 20 ? data : nil)
+    }
+
+    /// What a download serves: the bytes kept, else `size` bytes starting
+    /// with the digest (so that two contents never look the same).
+    var content: Data {
+        if let bytes { return bytes }
+        var data = Data(count: Int(min(size, 64 << 20)))
+        let tag = Data(digest.utf8.prefix(data.count))
+        data.replaceSubrange(0..<tag.count, with: tag)
+        return data
     }
 }
 
@@ -69,6 +88,8 @@ struct FakeCheat {
 struct FakeGameData {
     var save: FakeBlob?
     var saveModifiedAt: Date
+    /// The clock file of the save (`.rtc`, milestone M9).
+    var rtc: FakeBlob?
     /// Newest first.
     var backups: [FakeBackup] = []
     var slots: [Int: FakeSlot] = [:]
@@ -99,9 +120,21 @@ extension FakePak {
 
     // MARK: - Seed
 
+    /// The key of a game's data: on NextUI, games of a system with the
+    /// same ROM file name (in different folders) share their save, their
+    /// states and their cheats, all named after the ROM file
+    /// (`Saves/<TAG>/<rom>.sav`, `<TAG>-<core>/<rom>.st<N>`,
+    /// `Cheats/<TAG>/<rom>.cht`; docs/specs/m0/source-analysis.md), so
+    /// they share the data of the first of them. Every read and write of
+    /// game data goes through this key.
+    static func dataKey(system: DemoLibrary.System, game: DemoLibrary.Game) -> String {
+        let first = system.games.first { $0.fileName.lowercased() == game.fileName.lowercased() } ?? game
+        return DemoLibrary.id(system.folder + "/" + first.path)
+    }
+
     /// The data of a game, made from its library counters the first time.
     func currentData(system: DemoLibrary.System, game: DemoLibrary.Game) -> FakeGameData {
-        let id = DemoLibrary.id(system.folder + "/" + game.path)
+        let id = Self.dataKey(system: system, game: game)
         return lock.withLock {
             if let data = gameData[id] { return data }
             let data = Self.seed(game: game)
@@ -115,6 +148,7 @@ extension FakePak {
         var data = FakeGameData(saveModifiedAt: base)
         if game.hasSave {
             data.save = FakeBlob(size: 131_072, digest: "seed-save-\(game.path)")
+            if game.hasClock { data.rtc = FakeBlob(size: 16, digest: "rtc-\(game.path)") }
             data.backups = [
                 FakeBackup(id: "bk_20261118T170000Z_a1b2", label: "Before the final boss", createdAt: base.addingTimeInterval(-3_600),
                            blob: FakeBlob(size: 131_072, digest: "seed-bk1-\(game.path)"), reason: "manual"),
@@ -170,7 +204,8 @@ extension FakePak {
             state: FakeBlob(size: 401_408, digest: Self.randomId("game-")), modifiedAt: Date(),
             hasThumbnail: previous?.hasThumbnail ?? true, lockCopy: previous?.lockCopy
         )
-        lock.withLock { gameData[gameId] = data }
+        let key = Self.dataKey(system: system, game: game)
+        lock.withLock { gameData[key] = data }
     }
 
     /// As if the cheat file were changed on the console (another app):
@@ -179,7 +214,8 @@ extension FakePak {
         guard let (system, game) = library.game(id: gameId) else { return }
         var data = currentData(system: system, game: game)
         data.cheats.append(FakeCheat(description: "Added on the console", code: "00000000+0000", enabled: false, extra: [:]))
-        lock.withLock { gameData[gameId] = data }
+        let key = Self.dataKey(system: system, game: game)
+        lock.withLock { gameData[key] = data }
     }
 
     /// The pak is opened again: ``restart()``, then the lock check of
@@ -225,7 +261,8 @@ extension FakePak {
     public func setLockStatus(gameId: String, slot: Int, _ status: String?) {
         guard let (system, game) = library.game(id: gameId) else { return }
         _ = currentData(system: system, game: game)
-        lock.withLock { gameData[gameId]?.slots[slot]?.forcedStatus = status }
+        let key = Self.dataKey(system: system, game: game)
+        lock.withLock { gameData[key]?.slots[slot]?.forcedStatus = status }
     }
 
     /// The etag of the cheat list of a game.
@@ -253,6 +290,11 @@ extension FakePak {
         switch (method, rest) {
         case ("GET", ["save"]):
             return downloadSave(system: system, game: game, gameId: gameId)
+        case ("GET", ["save", "rtc"]):
+            guard let rtc = currentData(system: system, game: game).rtc else {
+                return .error(404, code: "not_found", message: "No clock file")
+            }
+            return fileResponse(name: "\(game.fileName).rtc", content: rtc.content)
         case ("PUT", ["save"]):
             guard body.count <= 64 << 20 else { return .error(413, code: "too_large", message: "Body too large") }
             return .json(200, ["backup": replaceSave(gameId: gameId, with: .of(body)).map { $0 as Any } ?? NSNull()])
@@ -321,19 +363,24 @@ extension FakePak {
     private func update(gameId: String, system: DemoLibrary.System, game: DemoLibrary.Game,
                         _ change: (inout FakeGameData) -> FakeResponse) -> FakeResponse {
         _ = currentData(system: system, game: game)
+        let key = Self.dataKey(system: system, game: game)
         return lock.withLock {
-            var data = gameData[gameId] ?? Self.seed(game: game)
+            var data = gameData[key] ?? Self.seed(game: game)
             let response = change(&data)
-            gameData[gameId] = data
+            gameData[key] = data
             return response
         }
     }
 
     private func fileResponse(name: String, size: Int64) -> FakeResponse {
+        fileResponse(name: name, content: Data(count: Int(min(size, 64 << 20))))
+    }
+
+    func fileResponse(name: String, content: Data) -> FakeResponse {
         FakeResponse(status: 200, headers: [
             "Content-Type": "application/octet-stream",
             "Content-Disposition": "attachment; filename=\"\(name.replacingOccurrences(of: "\"", with: "\\\""))\"",
-        ], body: Data(count: Int(min(size, 64 << 20))))
+        ], body: content)
     }
 
     private func trash(reason: String, label: String, files: [String], bytes: Int64) -> [String: Any] {
@@ -353,7 +400,7 @@ extension FakePak {
         guard let save = currentData(system: system, game: game).save else {
             return .error(404, code: "not_found", message: "No save")
         }
-        return fileResponse(name: "\(game.fileName).sav", size: save.size)
+        return fileResponse(name: "\(game.fileName).sav", content: save.content)
     }
 
     /// Adds a backup copy (automatic ones are limited to 10 per game).

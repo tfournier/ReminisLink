@@ -10,8 +10,8 @@
 | `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
-| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art) |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`) and `ReminisLinkDemo` (fake pak, M4, M5 and M6 routes included) |
+| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M9 routes included) |
 
 ## Build and test
 
@@ -41,8 +41,9 @@ DEVELOPMENT_TEAM = ABCDE12345
 
 The identifiers are the app `link.reminis.app`, the extension
 `link.reminis.app.share`, the app group `group.link.reminis.app` and the
-Keychain group `<Team ID>.link.reminis.app.shared`. Never change them once
-the app is published: a new identifier is a new app for the App Store, and
+Keychain group `<Team ID>.link.reminis.app.shared`, and the iCloud
+container `iCloud.link.reminis.app` (`RL_ICLOUD_CONTAINER`). Never change
+them once the app is published: a new identifier is a new app for the App Store, and
 installed copies lose their pairings. The seller name shown on the App Store
 is the one of the account that publishes the app, not the identifier.
 
@@ -51,6 +52,36 @@ Signing is automatic. Open the project in Xcode once, select the
 and check that Xcode registered the two App IDs and the App Group without
 error (it may ask to sign in with the Apple Developer account in *Settings >
 Accounts*).
+
+**iCloud (milestone M9, save sync).** The app's entitlements ask for iCloud
+Documents with the container `iCloud.link.reminis.app`. Nothing is
+registered by the repository: once, on developer.apple.com (*Certificates,
+Identifiers & Profiles*):
+
+1. *Identifiers > + > iCloud Containers*: create `iCloud.link.reminis.app`
+   (description "ReminisLink").
+2. *Identifiers >* the App ID `link.reminis.app` *> Capabilities*: tick
+   *iCloud* (iCloud Documents, no CloudKit needed), *Edit* and assign the
+   container `iCloud.link.reminis.app`. Save; automatic signing makes the
+   provisioning profiles again.
+3. Or let Xcode do it: *Signing & Capabilities* of `ReminisLink` shows
+   *iCloud* with *iCloud Documents* and the container (from
+   `Config/ReminisLink.entitlements`); use the refresh button next to the
+   container if it is shown in red.
+
+The share extension needs nothing. Xcode does not expand build settings in
+Info.plist keys: the key of `NSUbiquitousContainers` in
+`Config/ReminisLink-Info.plist` is the macro `RL_ICLOUD_CONTAINER_KEY`,
+replaced by `RL_ICLOUD_CONTAINER` when the Info.plist is preprocessed
+(`INFOPLIST_PREPROCESS`), so a local `RL_APP_BUNDLE_ID` (e.g.
+`link.reminis.app.dev` in `Local.xcconfig`) gets its own container
+everywhere; a unit test checks it.
+The folder shows in iCloud Drive as "ReminisLink" once the app wrote a
+first file there; iOS may take a while to show it after a change of
+`NSUbiquitousContainers` (increase `CURRENT_PROJECT_VERSION`). Without the
+capability (simulator builds without a team, no iCloud account, iCloud
+Drive off for the app), the saves go to the app's `Documents` folder
+(Files > On My iPhone > ReminisLink) and the dashboard says so.
 
 ### 2. App Store Connect record
 
@@ -253,6 +284,7 @@ card.
 | `CheatsUITests/testCheatsAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CHEATS` |
 | `PatchUITests/testPatchAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_PATCH` |
 | `ArtUITests/testChangeThenRemoveTheImageAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_ART` |
+| `SyncUITests/testSyncAndRestoreAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_SYNC` (pak of milestone M9: `GET /saves`) |
 
 They work on "Starlight Courier" (GBA) of `testdata/sdcard`. Run one at a
 time with `-only-testing:ReminisLinkUITests/<Class>/<test>`.
@@ -319,3 +351,48 @@ hex>:<target text>`.
 times (the link is used by the first launch only): a BPS for another
 source is refused, a matching BPS makes `UITest Patched <n>.gba` (opened),
 and a BPS made for that new file replaces it.
+
+## Save sync (milestone M9)
+
+- **When**: the *Sync Saves* button of the dashboard, and at each
+  connection to a console (*Settings > Sync Saves When Connecting*, on by
+  default; the gear of the Consoles screen). One sync at a time per
+  console; it can be cancelled (versions already copied stay).
+- **What**: `GET /saves`, then only the saves whose SHA-256 (or the SHA-256
+  of their `.rtc`) differ from their newest version are downloaded
+  (`GET /games/{gameId}/save`, `GET /games/{gameId}/save/rtc`). The bytes
+  received must have the listed SHA-256, or nothing is kept for that game
+  ("changed during the sync"). A failure on one game does not stop the
+  others; losing the console does.
+- **Where** (`SaveVaultLocator`): the `Documents` folder of the iCloud
+  container ("ReminisLink" in iCloud Drive), else the app's `Documents`
+  (Files > On My iPhone > ReminisLink). Layout:
+  `<console>/<label (tag)>/<game>/<yyyy-MM-dd HH.mm.ss>/<save>` and its
+  `.rtc`; hidden `.console.json`, `.game.json` and `.version.json` hold the
+  identifiers and SHA-256. Writes go through `NSFileCoordinator`; a version
+  is assembled outside the vault and moved in with one rename. At most 10
+  versions per save, ordered by their publication `sequence` (never by
+  date: the iPhone clock can go back): the oldest published is deleted
+  once the new one is in place, never the new one, and an unfinished
+  rotation is finished at the next sync. Nothing else is ever deleted.
+- `GET /saves` waits up to 180 s (the session's 15 s for the other
+  routes): the pak answers once every save is hashed.
+- **Restore**: *Saves on This iPhone* (dashboard or settings) > game >
+  version > *Restore to the Console…*: read from the vault the version was
+  shown from, checked against its SHA-256 (nothing is sent otherwise), then
+  `PUT /games/{gameId}/save` (the
+  transfer queue above 64 MiB), after a confirmation. The console keeps a
+  `before-replace` copy. Only the save is restored: there is no route to
+  write a `.rtc`, the console keeps its own clock file. *Share* sends the
+  save and its `.rtc` to the share sheet.
+
+The demo keeps its synced saves in a temporary folder emptied at each
+launch, as without iCloud. UI tests (Debug only):
+`RL_UITEST_SAVE_CHANGES_ON_LISTING=<n>` makes the `n`-th `GET /saves` of
+the fake pak find Sky Garden Quest played on the console (a new save).
+
+`testSyncAndRestoreAgainstHeadlessPak` needs a pak built from the M9 pak
+branch. It syncs on connection, syncs again ("Up to date") and restores the
+newest version of Starlight Courier. The synced saves of the simulator stay
+in the app's `Documents` between runs (the first sync of a later run may
+find nothing new).

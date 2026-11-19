@@ -17,6 +17,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
@@ -30,6 +32,20 @@
 	<string>To scan the QR code shown by your console.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ReminisLink connects to your console on your Wi-Fi network.</string>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>RL_ICLOUD_CONTAINER_KEY</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>ReminisLink</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
@@ -39,6 +55,8 @@
 		<key>UIImageRespectsSafeAreaInsets</key>
 		<true/>
 	</dict>
+	<key>RLICloudContainer</key>
+	<string>$(RL_ICLOUD_CONTAINER)</string>
 	<key>RLAppGroup</key>
 	<string>$(RL_APP_GROUP)</string>
 </dict>

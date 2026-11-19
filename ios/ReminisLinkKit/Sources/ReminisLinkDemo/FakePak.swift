@@ -88,6 +88,10 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     var _romChangesDuringNextPatch = false
     /// The next `PUT /cheats` finds the file changed on the console (412).
     var _conflictOnNextCheatsSave = false
+    /// `GET /saves` calls so far, and the call that finds a save changed
+    /// on the console (milestone M9, UI tests).
+    var _saveListings = 0
+    var _changeSaveOnListing: Int?
     private var uploads: [String: FakeUpload] = [:]
     var jobs: [String: FakeJob] = [:]
     private var chunkFaults: [ChunkFault] = []
@@ -345,6 +349,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             return FakeResponse(status: 204)
         case ("GET", ["systems"]):
             return systems()
+        case ("GET", ["saves"]):
+            return listSaves()
         case ("GET", let s) where s.count == 3 && s[0] == "systems" && s[2] == "games":
             return games(systemId: s[1], folderId: params["folderId"])
         case ("GET", let s) where s.count == 2 && s[0] == "games":
@@ -982,17 +988,33 @@ extension FakePak {
             "id": id, "trashedAt": ProtocolJSON.formatDate(now), "reason": reason, "label": game.name,
             "files": moved, "sizeBytes": bytes, "expiresAt": ProtocolJSON.formatDate(now.addingTimeInterval(30 * 86_400)),
         ]
-        let gameId = DemoLibrary.id(system.folder + "/" + game.path)
+        let key = Self.dataKey(system: system, game: game)
+        // The files as they are now (made from the seed if never read).
+        _ = currentData(system: system, game: game)
         lock.withLock {
+            var data = gameData[key]
+            gameData[key] = nil
+            // As the pak (internal/library/write.go): the cheats always go
+            // to the trash; the save, the states, their locks and history
+            // too, unless keepSave. What goes is gone for a game sharing
+            // these files: an explicit empty state, never the seed again.
+            if keepSave {
+                data?.cheats = []
+            } else {
+                data = FakeGameData(saveModifiedAt: now)
+            }
             if let index = _library.systems.firstIndex(where: { $0.id == system.id }) {
                 _library.systems[index].games.removeAll { $0.path == game.path }
+                // A game sharing these files keeps them, under its own key
+                // now that the first of them may be gone.
+                let remaining = _library.systems[index]
+                if let twin = remaining.games.first(where: { $0.fileName.lowercased() == game.fileName.lowercased() }) {
+                    gameData[Self.dataKey(system: remaining, game: twin)] = data
+                } else if let data {
+                    gameData[key] = data
+                }
             }
             trashEntries.insert(entry, at: 0)
-            if keepSave {
-                gameData[gameId]?.cheats = []
-            } else {
-                gameData[gameId] = nil
-            }
         }
         return ["trashEntryId": id, "moved": moved, "movedBytes": bytes]
     }

@@ -28,6 +28,8 @@
 | URL scheme | `reminislink` (lien d'appairage du QR code) |
 | App Groups | `group.link.reminis.app` (app ↔ extension) |
 | Keychain Sharing | Groupe partagé avec l'extension |
+| iCloud (Documents) | Conteneur `iCloud.$(RL_APP_BUNDLE_ID)` (`iCloud.link.reminis.app`) pour la sync des saves (M9, §8) ; `NSUbiquitousContainers` le montre comme dossier « ReminisLink » dans iCloud Drive (Xcode ne développe pas les variables dans les clés d'Info.plist : la clé est la macro `RL_ICLOUD_CONTAINER_KEY`, remplacée au prétraitement de l'Info.plist, `INFOPLIST_PREPROCESS`) |
+| `UIFileSharingEnabled`, `LSSupportsOpeningDocumentsInPlace` | `true` : sans iCloud, les saves synchronisées sont dans `Documents/`, visible dans Fichiers > Sur mon iPhone > ReminisLink |
 
 Pas d'entitlement multicast : Bonjour via `NWBrowser` n'en a pas besoin.
 
@@ -43,8 +45,9 @@ Consoles ─┬─ Ajouter une console (scan QR / PIN)
                       │                                            └─ Supprimer
                       ├─ Ajouter (fichier / URL)
                       ├─ Transferts
+                      ├─ Saves sur cet iPhone ─ Système ─ Jeu ─ Versions (M9)
                       └─ Réglages de la console
-Réglages de l'app
+Réglages de l'app ─ Saves sur cet iPhone ─ Console ─ …
 ```
 
 ### 4.1 Consoles
@@ -65,7 +68,7 @@ Réglages de l'app
 
 ### 4.3 Tableau de bord
 
-Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés (champ `connectedClients` de `GET /device`). Actions : **Corbeille** (liste des entrées avec taille et date d'expiration, suppression d'une entrée, **Vider la corbeille** avec confirmation), **Se désappairer**.
+Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés (champ `connectedClients` de `GET /device`). Actions : **Corbeille** (liste des entrées avec taille et date d'expiration, suppression d'une entrée, **Vider la corbeille** avec confirmation), **Se désappairer**. Section **Synchronisation des saves** (M9, §8) : bouton **Synchroniser les saves**, progression avec **Annuler**, compte rendu de la dernière sync (nouvelles versions, saves vérifiées, saves en échec avec leur message), lien **Saves sur cet iPhone**, et l'emplacement (iCloud Drive, ou avertissement « iCloud Drive n'est pas disponible » quand les saves restent sur l'iPhone).
 
 ### 4.4 Bibliothèque
 
@@ -99,7 +102,7 @@ Liste des envois et des tâches : progression, vitesse, temps restant, annulatio
 
 ### 4.9 Réglages de l'app
 
-Langue (suivre le système par défaut), consoles appairées (supprimer), à propos (versions, licence, lien du dépôt).
+Langue (suivre le système par défaut), consoles appairées (supprimer), à propos (versions, licence, lien du dépôt). **Synchroniser les saves à la connexion** (activé par défaut, M9) et **Saves sur cet iPhone** (toutes les consoles). Écran ouvert par la roue dentée de la liste des consoles.
 
 ## 5. Erreurs à présenter
 
@@ -117,8 +120,21 @@ Langue (suivre le système par défaut), consoles appairées (supprimer), à pro
 - Trousseau : pour chaque console, `deviceId`, `clientId`, clé (accessibilité `afterFirstUnlockThisDeviceOnly`, pas de synchronisation iCloud).
 - `UserDefaults` du groupe d'apps : nom affiché des consoles, préférences.
 - Cache : jaquettes (par `gameId` + `ETag`), dans `Caches/`.
-- Aucune donnée envoyée hors du réseau local. Pas d'analytics.
+- Aucune donnée envoyée hors du réseau local, sauf les copies des saves dans l'iCloud Drive de l'utilisateur (§8), jamais chez l'éditeur. Pas d'analytics.
 
 ## 7. Transferts en arrière-plan
 
 En v1, les envois se font au premier plan, avec `UIApplication.beginBackgroundTask` pour terminer le morceau en cours si l'app passe en arrière-plan. Les envois reprennent au retour. Les sessions `URLSession` d'arrière-plan sont à étudier plus tard (incompatibles avec la signature par requête sans adaptation).
+
+## 8. Synchronisation des saves vers l'iPhone (M9)
+
+Décisions : [09, M9](09-feuille-de-route.md). Les saves seulement (avec leur `.rtc`), pas les states.
+
+- **Déclenchement** : bouton du tableau de bord, et automatiquement à chaque connexion à une console (réglage de l'app, activé par défaut). Jamais deux syncs en même temps pour une console (même si la connexion est refaite) ; une sync peut être annulée (les versions déjà copiées restent). Une connexion refaite pendant une sync lance la sienne quand celle-ci se termine, et l'échec d'une requête d'une ancienne connexion ne touche pas la nouvelle. Une tâche d'arrière-plan (`beginBackgroundTask`) la laisse finir sa save en cours ; à expiration elle est annulée.
+- **Comparaison** : `GET /saves` (délai d'inactivité de 180 s pour cette seule route : le pak ne répond qu'après avoir haché toutes les saves la première fois), puis pour chaque save, le `sha256` de la save et celui de son `.rtc` sont comparés à la version la plus récente de ce jeu (clé : `gameId`, jamais `modifiedAt`, qui vient de l'horloge de la console). Seules les saves différentes sont téléchargées (`GET /games/{gameId}/save`, et `GET /games/{gameId}/save/rtc` si `rtc` n'est pas `null` ; un `404` sur le `.rtc` donne une version sans horloge). Le SHA-256 des octets reçus DOIT être celui de la liste : sinon rien n'est gardé, le jeu est marqué en échec (« La save a changé sur la console pendant la synchronisation, ou est arrivée abîmée ») et la sync suivante réessaie. Avec `truncated`, l'app ne déduit rien d'une save absente (elle ne supprime jamais rien de toute façon).
+- **Erreurs** : une erreur sur un jeu est notée et la sync continue ; la perte de la console (erreur réseau, `401 unknown_client`, `503`) l'arrête.
+- **Stockage** : dossier `Documents/` du conteneur iCloud de l'app, montré comme « ReminisLink » dans iCloud Drive ; sans compte iCloud, avec iCloud Drive désactivé pour l'app, ou sans l'entitlement (simulateur sans équipe), `Documents/` de l'app (Fichiers > Sur mon iPhone > ReminisLink), avec l'avertissement du tableau de bord. L'emplacement est choisi à chaque sync ; les copies faites sans iCloud restent sur l'iPhone (pas de migration).
+- **Arborescence** : `<console>/<système>/<jeu>/<AAAA-MM-JJ HH.mm.ss>/<save>` (+ `.rtc`), date de la sync à l'heure de l'iPhone. Console : nom à la création du dossier ; système : `<label> (<tag>)` de `GET /systems` (GBA et MGBA ont le même label), à défaut le dossier de `path` ; jeu : `gameName`. Noms rendus sûrs (pas de `/ \ : * ? " < > |`, pas de point initial, 100 caractères au plus), doublons suffixés ` (2)`. Les dossiers sont retrouvés par les identifiants de leurs fichiers cachés `.console.json` (`deviceId`) et `.game.json` (`gameId`), jamais par leur nom : renommer une console ou deux jeux du même nom ne mélangent pas les historiques. Chaque version a son `.version.json` (numéro de publication `sequence`, SHA-256, tailles, dates).
+- **Écritures** : par `NSFileCoordinator` ; une version est assemblée hors du dossier (fichiers synchronisés sur disque), puis déplacée en un seul renommage. Au plus 10 versions par save, rangées par numéro de publication, jamais par date (l'horloge de l'iPhone peut reculer) : la plus ancienne publiée est supprimée seulement une fois la nouvelle en place, jamais la nouvelle ; une rotation interrompue (11 dossiers) est terminée à la sync suivante, même sans changement ; un dossier sans `.version.json` lisible (ajouté par l'utilisateur) n'est jamais compté ni supprimé. Rien d'autre n'est jamais supprimé par l'app.
+- **Écran Saves sur cet iPhone** : jeux par système (nombre de versions, date de la dernière), puis versions d'un jeu (date, nom, taille, « Avec son fichier d'horloge »). Actions : **Restaurer sur la console…** et **Partager** (la save et son `.rtc`).
+- **Restauration** : depuis le coffre qui a affiché la version (même si iCloud a été activé ou désactivé depuis), après vérification du SHA-256 de la copie relue (sinon rien n'est envoyé), et après confirmation, `PUT /games/{gameId}/save` (au-delà de 64 Mio, la file d'envoi avec `target.kind = "save"`) ; la console garde d'abord sa save (`before-replace`). Seule la save est restaurée : le contrat n'a pas de route pour écrire un `.rtc`, le fichier d'horloge de la console est gardé tel quel, et la confirmation le dit. La save restaurée est une nouvelle version à la sync suivante.

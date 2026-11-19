@@ -211,6 +211,46 @@
         }
       }
     },
+    "%lld saves could not be copied" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld save could not be copied"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld saves could not be copied"
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld save n’a pas pu être copiée"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld saves n’ont pas pu être copiées"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld states" : {
       "localizations" : {
         "en" : {
@@ -327,6 +367,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un verrou garde une copie du state sur la console. Il ne peut pas empêcher un jeu d’écraser le state : le state est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu."
+          }
+        }
+      }
+    },
+    "About" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À propos"
           }
         }
       }
@@ -1661,6 +1711,26 @@
         }
       }
     },
+    "Last sync %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dernière synchronisation %@"
+          }
+        }
+      }
+    },
+    "Latest" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dernière"
+          }
+        }
+      }
+    },
     "Less secure than the QR code. Avoid on public Wi-Fi." : {
       "localizations" : {
         "fr" : {
@@ -1891,6 +1961,16 @@
         }
       }
     },
+    "New versions: %lld · saves checked: %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelles versions : %1$lld · saves vérifiées : %2$lld"
+          }
+        }
+      }
+    },
     "Next Shared Links" : {
       "localizations" : {
         "fr" : {
@@ -2017,6 +2097,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun state pour ce jeu sur la console."
+          }
+        }
+      }
+    },
+    "No synced saves" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune save synchronisée"
           }
         }
       }
@@ -2661,6 +2751,16 @@
         }
       }
     },
+    "Restore to the Console…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer sur la console…"
+          }
+        }
+      }
+    },
     "Restore “%@”?" : {
       "localizations" : {
         "fr" : {
@@ -2761,6 +2861,16 @@
         }
       }
     },
+    "Save Sync" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisation des saves"
+          }
+        }
+      }
+    },
     "Save an empty list?" : {
       "localizations" : {
         "fr" : {
@@ -2797,6 +2907,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enregistrer la liste vide"
+          }
+        }
+      }
+    },
+    "Saves are copied to your iCloud Drive, in the ReminisLink folder of the Files app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves sont copiées dans ton iCloud Drive, dans le dossier ReminisLink de l’app Fichiers."
+          }
+        }
+      }
+    },
+    "Saves checked: %lld of %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saves vérifiées : %1$lld sur %2$lld"
+          }
+        }
+      }
+    },
+    "Saves on This iPhone" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saves sur cet iPhone"
           }
         }
       }
@@ -2911,12 +3051,32 @@
         }
       }
     },
+    "Settings" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages"
+          }
+        }
+      }
+    },
     "Several discs: cannot be patched" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Plusieurs disques : ne peut pas être patché"
+          }
+        }
+      }
+    },
+    "Share" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partager"
           }
         }
       }
@@ -3077,6 +3237,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stockage"
+          }
+        }
+      }
+    },
+    "Sync Saves" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchroniser les saves"
+          }
+        }
+      }
+    },
+    "Sync Saves When Connecting" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchroniser les saves à la connexion"
+          }
+        }
+      }
+    },
+    "Sync the saves of a console from its dashboard." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronise les saves d’une console depuis son tableau de bord."
+          }
+        }
+      }
+    },
+    "Sync the saves of this console from its dashboard." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronise les saves de cette console depuis son tableau de bord."
+          }
+        }
+      }
+    },
+    "Syncing saves…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchronisation des saves…"
           }
         }
       }
@@ -3307,6 +3517,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console interrompt sans cesse le transfert. Réessaie plus tard."
+          }
+        }
+      }
+    },
+    "The console listed only its first 10,000 saves." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console n’a listé que ses 10 000 premières saves."
           }
         }
       }
@@ -3611,6 +3831,16 @@
         }
       }
     },
+    "The save changed on the console during the sync, or arrived damaged. It was not kept; the next sync will try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save a changé sur la console pendant la synchronisation, ou est arrivée abîmée. Elle n’a pas été gardée ; la prochaine synchronisation réessaiera."
+          }
+        }
+      }
+    },
     "The save is larger than 64 MB: it is being sent in Transfers. The current save is copied first." : {
       "localizations" : {
         "fr" : {
@@ -3621,12 +3851,52 @@
         }
       }
     },
+    "The save of %@ on the console will be replaced by the version of %@. The console first keeps a copy of its current save (Before replace). The clock file on the console is kept as it is." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save de %1$@ sur la console sera remplacée par la version du %2$@. La console garde d’abord une copie de sa save actuelle (Avant remplacement). Le fichier d’horloge de la console est conservé tel quel."
+          }
+        }
+      }
+    },
     "The save, its clock file, the states, their locks and the resume history stay in place on the SD card." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La save, son fichier d’horloge, les states, leurs verrous et l’historique de reprise restent en place sur la carte SD."
+          }
+        }
+      }
+    },
+    "The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
+          }
+        }
+      }
+    },
+    "The saves of a console (with their clock files) are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
+          }
+        }
+      }
+    },
+    "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
           }
         }
       }
@@ -3661,12 +3931,32 @@
         }
       }
     },
+    "The synced saves could not be read or written on this iPhone." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves synchronisées n’ont pas pu être lues ou écrites sur cet iPhone."
+          }
+        }
+      }
+    },
     "The trash is empty" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La corbeille est vide"
+          }
+        }
+      }
+    },
+    "The version is being sent to the console. Follow it in Transfers." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La version est en cours d’envoi vers la console. Suis-la dans Transferts."
           }
         }
       }
@@ -3827,6 +4117,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce state est verrouillé sur la console. Déverrouille-le d’abord."
+          }
+        }
+      }
+    },
+    "This version changed on this iPhone since it was shown. Nothing was sent to the console; open the list again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette version a changé sur cet iPhone depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
           }
         }
       }
@@ -4021,6 +4321,26 @@
         }
       }
     },
+    "Up to 10 versions are kept; the oldest is removed when a new one is synced." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jusqu’à 10 versions sont gardées ; la plus ancienne est retirée quand une nouvelle est synchronisée."
+          }
+        }
+      }
+    },
+    "Up to date · saves checked: %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À jour · saves vérifiées : %lld"
+          }
+        }
+      }
+    },
     "Uploads" : {
       "localizations" : {
         "fr" : {
@@ -4037,6 +4357,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Utiliser le PIN à la place"
+          }
+        }
+      }
+    },
+    "Version" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version"
+          }
+        }
+      }
+    },
+    "Version restored. The previous save is in the backup copies of the game on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version restaurée. La save précédente est dans les copies de sauvegarde du jeu sur la console."
+          }
+        }
+      }
+    },
+    "Versions: %lld · latest %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Versions : %1$lld · dernière le %2$@"
           }
         }
       }
@@ -4077,6 +4427,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sera créé : %@. Si le nom est pris, la console ajoute un numéro. L’extension du jeu est ajoutée quand le nom ne se termine pas par elle."
+          }
+        }
+      }
+    },
+    "With its clock file" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec son fichier d’horloge"
           }
         }
       }
@@ -4124,6 +4484,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enregistrer"
+          }
+        }
+      }
+    },
+    "iCloud Drive is not available: saves are kept on this iPhone only (Files > On My iPhone > ReminisLink). Turn on iCloud Drive for ReminisLink in Settings to keep them in iCloud." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud Drive n’est pas disponible : les saves sont gardées sur cet iPhone seulement (Fichiers > Sur mon iPhone > ReminisLink). Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
           }
         }
       }

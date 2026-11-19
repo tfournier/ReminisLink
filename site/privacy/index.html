@@ -40,7 +40,7 @@
 
     <div class="wrap">
       <article class="prose">
-        <p>ReminisLink is an iPhone app that manages the games of your retro handheld over your local Wi-Fi network. It is built so that your data never leaves your network.</p>
+        <p>ReminisLink is an iPhone app that manages the games of your retro handheld over your local Wi-Fi network. It is built so that your data never leaves your network, except the copies of your saves that you keep in your own iCloud Drive.</p>
 
         <h2>What we collect</h2>
         <p><strong>Nothing.</strong> ReminisLink has no account, no server, no analytics, no advertising, no tracking and no third-party SDK. The developer receives no data about you or about how you use the app.</p>
@@ -52,7 +52,7 @@
           <li><strong>A cache of box art</strong> shown in the library, which iOS may clear at any time.</li>
           <li><strong>Temporary copies of the files you send</strong> (from Files or the share sheet), kept only until the transfer ends.</li>
         </ul>
-        <p>Deleting the app removes all of it. Unpairing a handheld removes its key.</p>
+        <p>Deleting the app removes all of it (but not the copies of your saves in iCloud Drive, see below). Unpairing a handheld removes its key.</p>
 
         <h2>What goes to your handheld</h2>
         <p>ReminisLink talks only to the handhelds you paired, on your local network (found with Bonjour, then over HTTP on that network). Every request is signed with the pairing key.</p>
@@ -61,6 +61,10 @@
           <li>When pairing, a name for your iPhone (the one iOS gives apps, usually “iPhone”), shown in the list of paired devices of the handheld. You can remove it there at any time.</li>
           <li><strong>Links you type or share</strong>: the app sends the link to your handheld, and the handheld downloads the file itself, from its own connection. The site you link to sees the handheld, not the app.</li>
         </ul>
+
+        <h2>Copies of your saves (iCloud Drive)</h2>
+        <p>ReminisLink can copy the saves of your handhelds (with their clock files) to your iPhone: with the Sync button of a handheld, and automatically when it connects (you can turn this off in the settings of the app). Up to 10 versions of each save are kept.</p>
+        <p>The copies go to <strong>your own iCloud Drive</strong>, in the ReminisLink folder of the Files app, where you can see, move or delete them. iCloud is Apple’s service, under your Apple account and Apple’s privacy policy: the developer has no server and never receives these copies. If iCloud Drive is off, the copies stay on your iPhone (Files &gt; On My iPhone &gt; ReminisLink) and are deleted with the app.</p>
 
         <h2>Permissions</h2>
         <ul>

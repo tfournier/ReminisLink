@@ -13,6 +13,15 @@ RL_SHARE_BUNDLE_ID = $(RL_APP_BUNDLE_ID).share
 RL_APP_GROUP = group.$(RL_APP_BUNDLE_ID)
 // AppIdentifierPrefix is empty without a team (simulator builds).
 RL_KEYCHAIN_GROUP = $(AppIdentifierPrefix)$(RL_APP_BUNDLE_ID).shared
+// iCloud Documents container of the synced saves (milestone M9), shown as
+// "ReminisLink" in iCloud Drive. Must be enabled on the App ID (ios/README.md).
+// Build settings are not expanded in Info.plist keys: the key of
+// NSUbiquitousContainers in Config/ReminisLink-Info.plist is the macro
+// RL_ICLOUD_CONTAINER_KEY, replaced by this value when the Info.plist is
+// preprocessed (checked by ReminisLinkTests, whatever RL_APP_BUNDLE_ID).
+RL_ICLOUD_CONTAINER = iCloud.$(RL_APP_BUNDLE_ID)
+INFOPLIST_PREPROCESS = YES
+INFOPLIST_PREPROCESSOR_DEFINITIONS = RL_ICLOUD_CONTAINER_KEY=$(RL_ICLOUD_CONTAINER)
 
 // Version shown on the App Store, and build number: increase the build
 // number for every upload to App Store Connect.

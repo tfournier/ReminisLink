@@ -321,6 +321,21 @@ public actor APIClient {
         try await downloadSigned(segments: ["games", gameId, "save"], fallbackName: "save.sav", into: directory)
     }
 
+    /// `GET /games/{gameId}/save/rtc` (M9): the clock file of the save,
+    /// written to a new directory under `directory`.
+    public func downloadSaveClock(gameId: String, into directory: URL) async throws -> DownloadedFile {
+        try await downloadSigned(segments: ["games", gameId, "save", "rtc"], fallbackName: "save.rtc", into: directory)
+    }
+
+    /// How long `GET /saves` may stay silent: the pak answers only once
+    /// it has listed (and, the first time, hashed) every save.
+    public static let savesTimeout: TimeInterval = 180
+
+    /// `GET /saves` (M9): every save of the console, with its SHA-256.
+    public func saves() async throws -> SaveList {
+        try await signedJSON(method: "GET", segments: ["saves"], timeout: Self.savesTimeout)
+    }
+
     /// `PUT /games/{gameId}/save`: the body is streamed from `file` and
     /// signed with its SHA-256 (`sha256`, computed while reading the file;
     /// never `UNSIGNED`). Each attempt is signed again with a new nonce.
@@ -470,14 +485,19 @@ public actor APIClient {
         Int64((now().timeIntervalSince1970 + clockOffset).rounded(.down))
     }
 
+    /// `timeout`: the longest silence before the request fails, when the
+    /// route needs more than the session's (`timeoutIntervalForRequest`).
     private func signedJSON<T: Decodable>(
         method: String,
         segments: [String],
         query: [(name: String, value: String)] = [],
         headers: [String: String] = [:],
-        body: Data? = nil
+        body: Data? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> T {
-        let (data, response) = try await performSigned(method: method, segments: segments, query: query, headers: headers, body: body)
+        let (data, response) = try await performSigned(
+            method: method, segments: segments, query: query, headers: headers, body: body, timeout: timeout
+        )
         try check(response, data: data, accept: [200, 201, 202])
         return try decode(data)
     }
@@ -494,10 +514,12 @@ public actor APIClient {
         body: Data? = nil,
         bodyFile: URL? = nil,
         bodyFileSHA256: String? = nil,
+        timeout: TimeInterval? = nil,
         onSent: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         try await withSignedRequests(method: method, segments: segments, query: query, headers: headers,
-                                     body: body, bodyFile: bodyFile, bodyFileSHA256: bodyFileSHA256) { request in
+                                     body: body, bodyFile: bodyFile, bodyFileSHA256: bodyFileSHA256,
+                                     timeout: timeout) { request in
             let (data, response) = try await self.transport(request, bodyFile: bodyFile, onSent: onSent)
             return (data, response, data)
         }
@@ -514,6 +536,7 @@ public actor APIClient {
         body: Data?,
         bodyFile: URL?,
         bodyFileSHA256: String?,
+        timeout: TimeInterval? = nil,
         send: (URLRequest) async throws -> (R, HTTPURLResponse, Data)
     ) async throws -> (R, HTTPURLResponse) {
         guard let credentials else { throw APIError.notPaired }
@@ -521,6 +544,7 @@ public actor APIClient {
         var corrected = false
         while true {
             var request = try makeRequest(method: method, segments: segments, query: query)
+            if let timeout { request.timeoutInterval = timeout }
             for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
             if let body {
                 request.httpBody = body

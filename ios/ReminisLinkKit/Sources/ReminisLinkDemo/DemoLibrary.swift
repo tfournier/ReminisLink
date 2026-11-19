@@ -17,11 +17,13 @@ public struct DemoLibrary: Sendable {
         public let lockedStateCount: Int
         public let cheatCount: Int
         public let hasArt: Bool
+        /// The save has a clock file (`.rtc`, served by `/save/rtc` and `/saves` only).
+        public let hasClock: Bool
 
         public init(
             path: String, kind: GameKind = .file, sizeBytes: Int64, modifiedAt: Date,
             hasSave: Bool = false, stateSlots: [Int] = [], lockedStateCount: Int = 0,
-            cheatCount: Int = 0, hasArt: Bool = false
+            cheatCount: Int = 0, hasArt: Bool = false, hasClock: Bool = false
         ) {
             self.path = path
             self.kind = kind
@@ -32,6 +34,7 @@ public struct DemoLibrary: Sendable {
             self.lockedStateCount = lockedStateCount
             self.cheatCount = cheatCount
             self.hasArt = hasArt
+            self.hasClock = hasClock
         }
 
         public var fileName: String { String(path.split(separator: "/").last ?? "") }
@@ -113,7 +116,7 @@ public struct DemoLibrary: Sendable {
     public static let sample = DemoLibrary(systems: [
         System(folder: "Game Boy Advance (GBA)", label: "Game Boy Advance", tag: "GBA", games: [
             Game(path: "Sky Garden Quest.gba", sizeBytes: 16_777_216, modifiedAt: base,
-                 hasSave: true, stateSlots: [0, 1, 2], lockedStateCount: 1, cheatCount: 12, hasArt: true),
+                 hasSave: true, stateSlots: [0, 1, 2], lockedStateCount: 1, cheatCount: 12, hasArt: true, hasClock: true),
             Game(path: "Pixel Runner.gba", sizeBytes: 4_194_304, modifiedAt: base.addingTimeInterval(86_400 * 3)),
             Game(path: "Homebrew/Tiny Tactics (Demo).gba", sizeBytes: 1_048_576, modifiedAt: base.addingTimeInterval(86_400),
                  hasSave: true, hasArt: true),

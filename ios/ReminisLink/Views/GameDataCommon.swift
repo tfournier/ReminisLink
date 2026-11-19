@@ -8,15 +8,18 @@ import UIKit
 struct ExportedFile: Identifiable {
     let id = UUID()
     let file: DownloadedFile
+    /// Files shared with it, in the same directory (the `.rtc` of a save).
+    var others: [URL] = []
 }
 
-/// `UIActivityViewController` for one file.
+/// `UIActivityViewController` for one file (and its companions).
 struct ShareSheet: UIViewControllerRepresentable {
     let url: URL
+    var others: [URL] = []
     let onFinish: () -> Void
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: [url] + others, applicationActivities: nil)
         controller.completionWithItemsHandler = { _, _, _, _ in onFinish() }
         return controller
     }
@@ -35,7 +38,7 @@ struct ExportSheetModifier: ViewModifier {
             if let shown { ExportedFiles.remove(shown.file) }
             shown = nil
         }) { item in
-            ShareSheet(url: item.file.url) { exported = nil }
+            ShareSheet(url: item.file.url, others: item.others) { exported = nil }
                 .presentationDetents([.medium, .large])
                 .ignoresSafeArea()
                 .onAppear { shown = item }
