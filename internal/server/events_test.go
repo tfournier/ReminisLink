@@ -13,9 +13,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/events"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -28,9 +31,6 @@ func (f *fixture) fastEvents(opts events.Options) {
 	}
 	if opts.JobInterval == 0 {
 		opts.JobInterval = 50 * time.Millisecond
-	}
-	if opts.DeviceInterval == 0 {
-		opts.DeviceInterval = 50 * time.Millisecond
 	}
 	f.server.events = f.server.newEventHub(opts)
 }
@@ -100,6 +100,24 @@ func wantEnd(t *testing.T, s *testutil.SSE) {
 			t.Fatalf("stream did not end: %v", err)
 		case ev.Comment == "":
 			t.Fatalf("event before the end: %+v", ev)
+		}
+	}
+}
+
+// wantCut checks that a stream ended by a revocation is cut off without
+// another event: the pak breaks the connection (unexpected EOF) or, if no
+// write was in progress, ends it.
+func wantCut(t *testing.T, s *testutil.SSE) {
+	t.Helper()
+	for {
+		ev, err := s.Next(5 * time.Second)
+		switch {
+		case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+			return
+		case err != nil:
+			t.Fatalf("stream not cut: %v", err)
+		case ev.Comment == "":
+			t.Fatalf("event after the revocation: %+v", ev)
 		}
 	}
 }
@@ -372,7 +390,7 @@ func TestEventsClosedOnRevocation(t *testing.T) {
 	if err := f.server.Disconnect(f.client.ClientID); err != nil {
 		t.Fatal(err)
 	}
-	wantEnd(t, s)
+	wantCut(t, s)
 	r := f.client.Do(t, "GET", "/api/v1/events", nil)
 	f.check("GET", "/events", r)
 	if r.Status != http.StatusUnauthorized || r.ErrorCode() != CodeDisconnected {
@@ -382,14 +400,14 @@ func TestEventsClosedOnRevocation(t *testing.T) {
 
 	s = f.openEvents(f.client)
 	f.do("DELETE", "/api/v1/clients/me", "/clients/me", nil, http.StatusNoContent)
-	wantEnd(t, s)
+	wantCut(t, s)
 
 	c := f.pairNamed("Mac")
 	s = f.openEvents(c)
 	if _, err := f.server.Forget(c.ClientID); err != nil {
 		t.Fatal(err)
 	}
-	wantEnd(t, s)
+	wantCut(t, s)
 
 	if f.server.EventStreams() != 1 {
 		t.Fatalf("%d streams, want the bystander only", f.server.EventStreams())
@@ -397,7 +415,7 @@ func TestEventsClosedOnRevocation(t *testing.T) {
 	if _, err := f.server.ForgetAll(); err != nil {
 		t.Fatal(err)
 	}
-	wantEnd(t, b)
+	wantCut(t, b)
 	waitFor(t, "no stream", func() bool { return f.server.EventStreams() == 0 })
 }
 
@@ -631,7 +649,7 @@ func TestEventStreamCountsAsPresence(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.wantConnected("[]")
-	wantEnd(t, s)
+	wantCut(t, s)
 	waitFor(t, "no stream", func() bool { return f.server.EventStreams() == 0 })
 	f.wantConnected("[]")
 	for _, d := range f.server.Devices() {
@@ -649,5 +667,183 @@ func TestEventStreamCountsAsPresence(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.wantConnected("[]")
-	wantEnd(t, s)
+	wantCut(t, s)
+}
+
+// takeHook makes the streams stop after taking an event of type typ (once)
+// until release is closed; taken is closed then.
+func (f *fixture) takeHook(typ string) (taken, release chan struct{}) {
+	taken, release = make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	hook := func(ev events.Event) {
+		if ev.Type == typ {
+			once.Do(func() {
+				close(taken)
+				<-release
+			})
+		}
+	}
+	f.server.streamHook.Store(&hook)
+	return taken, release
+}
+
+// A revocation wins over an event the stream already took (and over the
+// events still queued): nothing is written after Disconnect returned.
+func TestEventsRevocationWithAnEventQueued(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{})
+	c := f.pairNamed("iPad")
+	s := f.openEvents(c)
+	taken, release := f.takeHook(events.TypeLibrary)
+	f.server.events.Library(id(gbaFolder))
+	<-taken
+	f.server.events.Job("job_000000000000000000000001", "queued", false, map[string]any{"queued": true})
+	if err := f.server.Disconnect(c.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	wantCut(t, s)
+	waitFor(t, "stream gone", func() bool { return f.server.EventStreams() == 0 })
+}
+
+// slowStream opens a stream on a raw connection that never reads, and
+// fills it until its write blocks (the stream stops taking events);
+// readers is the number of other open streams, which take every event.
+func (f *fixture) slowStream(addr string, n, readers int) net.Conn {
+	f.t.Helper()
+	conn := dial(f.t, addr)
+	f.t.Cleanup(func() { conn.Close() })
+	if tc, ok := conn.(*net.TCPConn); ok {
+		tc.SetReadBuffer(4096)
+	}
+	before := f.server.EventStreams()
+	conn.Write(signedRaw(f.t, f, "GET", "/api/v1/events", nil))
+	waitFor(f.t, "slow stream open", func() bool { return f.server.EventStreams() == before+1 })
+	var taken atomic.Int64
+	hook := func(events.Event) { taken.Add(1) }
+	f.server.streamHook.Store(&hook)
+	big := strings.Repeat("y", 64<<10)
+	for i := 0; i < n; i++ {
+		f.server.events.Job(fmt.Sprint("job_", i), "queued", false, map[string]any{"i": i, "pad": big})
+	}
+	// Blocked: it stopped taking events before the last one.
+	last, still := int64(-1), 0
+	waitFor(f.t, "a blocked write", func() bool {
+		time.Sleep(20 * time.Millisecond)
+		cur := taken.Load()
+		if cur == last && cur < int64(n*(readers+1)) {
+			still++
+		} else {
+			still = 0
+		}
+		last = cur
+		return still >= 10
+	})
+	f.server.streamHook.Store(nil)
+	return conn
+}
+
+// A revocation interrupts a write in progress: the stream ends at once,
+// not after the write deadline (60 s here), and its place in the limits
+// is kept until then.
+func TestEventsRevocationInterruptsABlockedWrite(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{Buffer: 512})
+	f.slowStream(strings.TrimPrefix(f.http.URL, "http://"), 300, 0)
+	start := time.Now()
+	if err := f.server.Disconnect(f.client.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "stream gone", func() bool { return f.server.EventStreams() == 0 })
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("stream cut after %v", d)
+	}
+}
+
+// A device sample that races with a revocation never publishes the
+// revoked client: the battery and the space are read first, the clients
+// and the publication happen under the access lock.
+func TestEventsDeviceSampleDuringARevocation(t *testing.T) {
+	var armed atomic.Pointer[func()]
+	f := newFixture(t, func(o *Options) {
+		inner := o.Storage
+		o.Storage = func(p string) (device.Storage, error) {
+			if hook := armed.Swap(nil); hook != nil {
+				(*hook)()
+			}
+			return inner(p)
+		}
+	})
+	f.fastEvents(events.Options{})
+	f.server.timeouts.deviceSample = 20 * time.Millisecond
+	b := f.pairNamed("iPad")
+	f.as(b, "GET", "/api/v1/systems", "/systems", nil, http.StatusOK)
+	s := f.openEvents(f.client)
+	f.storage.Add(-2 << 20)
+	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"iPad"`) {
+		t.Fatalf("first device event %+v", ev)
+	}
+	// The next sample: B is disconnected while the space is read.
+	hook := func() {
+		if err := f.server.Disconnect(b.ClientID); err != nil {
+			t.Error(err)
+		}
+		f.storage.Add(-2 << 20)
+	}
+	armed.Store(&hook)
+	ev := f.nextEvent(s)
+	if ev.Type != "device" || strings.Contains(ev.Data, `"iPad"`) {
+		t.Fatalf("device event after the revocation %+v", ev)
+	}
+}
+
+// At shutdown, a stream whose write is blocked (the client stopped
+// reading) does not delay the server: the other streams get the shutdown
+// event and Serve returns within about the shutdown write budget.
+func TestEventsShutdownWithASlowClient(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{Buffer: 512})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- f.server.Serve(ctx, ln) }()
+	f.client.BaseURL = "http://" + ln.Addr().String()
+	reader := f.pairNamed("iPad")
+	reader.BaseURL = f.client.BaseURL
+	s := f.openEvents(reader)
+	gotShutdown := make(chan bool, 1)
+	go func() { // the reader keeps up
+		for {
+			ev, err := s.NextEvent(10 * time.Second)
+			if err != nil {
+				gotShutdown <- false
+				return
+			}
+			if ev.Type == "shutdown" {
+				gotShutdown <- true
+				return
+			}
+		}
+	}()
+	f.slowStream(ln.Addr().String(), 300, 1)
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return")
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("shutdown took %v", d)
+	}
+	if !<-gotShutdown {
+		t.Fatal("the reader did not get the shutdown event")
+	}
 }

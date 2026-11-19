@@ -64,15 +64,50 @@ func (s *Server) CloseEvents(reason string) {
 func (s *Server) EventStreams() int { return s.events.Count() }
 
 // sseWriter writes the events of one stream, each under a write deadline
-// and flushed.
+// and flushed. When the hub ends the stream (end, called with the hub
+// lock held, so before Disconnect, Forget or CloseEvents return), the
+// write in progress is interrupted: a revoked or lagging stream gets a
+// deadline in the past and writes nothing more; at shutdown, every write
+// must finish within shutdownWriteTimeout from the start of the shutdown.
 type sseWriter struct {
 	w   http.ResponseWriter
 	ctl *http.ResponseController
 	id  uint64
+
+	mu      sync.Mutex // orders the deadlines set by write and by end
+	stopped bool       // revoked or lagging: nothing more is written
+	limit   time.Time  // shutdown: no deadline beyond it (zero: none)
+}
+
+// errStreamStopped: the stream was revoked or fell behind.
+var errStreamStopped = errors.New("event stream stopped")
+
+// end is the OnEnd hook of the subscription.
+func (sw *sseWriter) end(reason events.CloseReason) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	if reason == events.Shutdown {
+		sw.limit = time.Now().Add(shutdownWriteTimeout)
+		_ = sw.ctl.SetWriteDeadline(sw.limit)
+		return
+	}
+	sw.stopped = true
+	_ = sw.ctl.SetWriteDeadline(time.Unix(1, 0))
 }
 
 func (sw *sseWriter) write(b []byte, timeout time.Duration) error {
-	_ = sw.ctl.SetWriteDeadline(time.Now().Add(timeout))
+	sw.mu.Lock()
+	if sw.stopped {
+		sw.mu.Unlock()
+		return errStreamStopped
+	}
+	deadline := time.Now().Add(timeout)
+	if !sw.limit.IsZero() && deadline.After(sw.limit) {
+		deadline = sw.limit
+	}
+	_ = sw.ctl.SetWriteDeadline(deadline)
+	sw.mu.Unlock()
+	// end may run from here on: it moves the deadline of this write.
 	if _, err := sw.w.Write(b); err != nil {
 		return err
 	}
@@ -119,14 +154,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.access.streamClosed(ad)
+	// The deadline is never cleared: a stream only ends when the pak
+	// stops it or the client is gone, and the connection is not reused.
+	sw := &sseWriter{w: w, ctl: http.NewResponseController(w)}
+	sub.OnEnd(sw.end)
 
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	sw := &sseWriter{w: w, ctl: http.NewResponseController(w)}
-	// The connection may be reused after a stream ended by the pak.
-	defer func() { _ = sw.ctl.SetWriteDeadline(time.Time{}) }()
 	idle := s.timeouts.sendIdle
 	every := s.timeouts.keepAlive
 	hello, _ := json.Marshal(eventHello{ServerTime: timestamp(s.now()), KeepAliveSeconds: int64((every + time.Second - 1) / time.Second)})
@@ -142,6 +178,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-sub.C():
+			if hook := s.streamHook.Load(); hook != nil {
+				(*hook)(ev)
+			}
 			err = sw.event(ev, idle)
 		case <-ticker.C:
 			err = sw.write(keepAlive, idle)
@@ -149,8 +188,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			s.endStream(sw, sub, c.ID)
 			return
 		}
-		if err != nil {
-			// A client that stops reading is cut off after the deadline.
+		switch {
+		case errors.Is(err, errStreamStopped):
+			// Revoked or lagging while an event was taken: nothing more.
+			return
+		case err != nil:
+			// A client that stops reading is cut off after the deadline
+			// (or at once when the hub ends the stream during the write).
 			s.log.Info("event stream cut", "client", c.ID, "error", err)
 			return
 		}
@@ -168,6 +212,7 @@ func (s *Server) endStream(sw *sseWriter, sub *events.Subscription, clientID str
 	default:
 		return
 	}
+	// The deadlines are bounded by the shutdown budget (sseWriter.limit).
 drain:
 	for {
 		select {
@@ -285,10 +330,11 @@ func (s *Server) eventsActive(active bool) {
 
 // sampleDevice publishes a device event when the battery, the connected
 // clients or the free space (by FreeSpaceStep at least) changed since the
-// last one. The first sample is the reference: the app reads GET /device
-// when its stream opens.
+// last one, at most one per interval. The first sample is the reference:
+// the app reads GET /device when its stream opens.
 func (s *Server) sampleDevice(stop <-chan struct{}, every time.Duration) {
-	last := s.deviceState()
+	last, _ := s.publishDevice(nil)
+	var sent time.Time
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
@@ -297,24 +343,37 @@ func (s *Server) sampleDevice(stop <-chan struct{}, every time.Duration) {
 			return
 		case <-ticker.C:
 		}
-		cur := s.deviceState()
-		if !deviceChanged(last, cur) {
-			continue
+		if !sent.IsZero() && time.Since(sent) < every {
+			continue // a late tick: the change goes at the next one
 		}
-		last = cur
-		s.events.Device(cur)
+		if cur, ok := s.publishDevice(&last); ok {
+			last, sent = cur, time.Now()
+		}
 	}
 }
 
-func (s *Server) deviceState() eventDevice {
-	d := eventDevice{ConnectedClients: s.ConnectedClients(), Storage: []storageVolume{}}
+// publishDevice reads the device state and, when it changed since last
+// (nil: just read it), publishes it. The connected clients are read and
+// the event handed to the streams under the access lock, so a revocation
+// (which removes the presence under that lock) is either already in the
+// event or comes after it: an event never brings back a client that
+// Disconnect or Forget already removed.
+func (s *Server) publishDevice(last *eventDevice) (eventDevice, bool) {
+	d := eventDevice{Storage: []storageVolume{}}
 	if info, err := s.opts.Adapter.DeviceInfo(); err == nil && info.Battery != nil {
 		d.Battery = &batteryInfo{Percent: info.Battery.Percent, Charging: info.Battery.Charging}
 	}
 	if st, err := s.opts.Storage(s.opts.Adapter.Roots().SD); err == nil {
 		d.Storage = append(d.Storage, storageVolume{ID: "sd", Label: "SD", TotalBytes: st.TotalBytes, FreeBytes: st.FreeBytes})
 	}
-	return d
+	s.access.mu.Lock()
+	defer s.access.mu.Unlock()
+	d.ConnectedClients = s.ConnectedClients()
+	if last == nil || !deviceChanged(*last, d) {
+		return d, false
+	}
+	s.events.Device(d)
+	return d, true
 }
 
 // deviceChanged compares what a device event is about: the battery, the

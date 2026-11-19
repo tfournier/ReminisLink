@@ -118,6 +118,9 @@ type Server struct {
 	// state while a stream is open.
 	events  *events.Hub
 	sampler deviceSampler
+	// streamHook, when set (tests), is called by a stream after it took
+	// an event, before writing it.
+	streamHook atomic.Pointer[func(events.Event)]
 }
 
 // timeouts are the durations of the server, changed by tests only.

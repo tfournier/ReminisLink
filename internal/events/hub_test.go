@@ -10,7 +10,7 @@ import (
 )
 
 func fast() Options {
-	return Options{LibraryInterval: 100 * time.Millisecond, JobInterval: 100 * time.Millisecond, DeviceInterval: 100 * time.Millisecond}
+	return Options{LibraryInterval: 100 * time.Millisecond, JobInterval: 100 * time.Millisecond}
 }
 
 // next waits for the next event of s.
@@ -97,19 +97,17 @@ func TestNoEventWithoutStreams(t *testing.T) {
 	none(t, s, 150*time.Millisecond)
 }
 
-func TestDeviceLatestWins(t *testing.T) {
+// Device events go at once: the sampler limits their rate.
+func TestDeviceAtOnce(t *testing.T) {
 	h := New(fast())
 	s := subscribe(t, h, "a")
 	h.Device(map[string]int{"v": 1})
-	if ev := next(t, s); ev.Type != TypeDevice || string(ev.Data) != `{"v":1}` {
-		t.Fatalf("%s %s", ev.Type, ev.Data)
-	}
 	h.Device(map[string]int{"v": 2})
-	h.Device(map[string]int{"v": 3})
-	if ev := next(t, s); string(ev.Data) != `{"v":3}` {
-		t.Fatalf("latest: %s", ev.Data)
+	for _, want := range []string{`{"v":1}`, `{"v":2}`} {
+		if ev := next(t, s); ev.Type != TypeDevice || string(ev.Data) != want {
+			t.Fatalf("%s %s, want %s", ev.Type, ev.Data, want)
+		}
 	}
-	none(t, s, 150*time.Millisecond)
 }
 
 type job struct {
@@ -229,8 +227,13 @@ func TestSlowSubscriberDropped(t *testing.T) {
 			t.Fatalf("fast subscriber stopped at %d", i)
 		}
 	}
-	if h.Count() != 1 {
+	// Its place is kept until its owner closes it.
+	if h.Count() != 2 {
 		t.Errorf("%d streams", h.Count())
+	}
+	slow.Close()
+	if h.Count() != 1 {
+		t.Errorf("%d streams after Close", h.Count())
 	}
 }
 
@@ -329,7 +332,7 @@ func TestOnActive(t *testing.T) {
 
 // Producers and subscribers from many goroutines (run with -race).
 func TestConcurrentUse(t *testing.T) {
-	h := New(Options{LibraryInterval: time.Millisecond, JobInterval: time.Millisecond, DeviceInterval: time.Millisecond, Buffer: 4})
+	h := New(Options{LibraryInterval: time.Millisecond, JobInterval: time.Millisecond, Buffer: 4})
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 	for i := 0; i < 4; i++ {
@@ -372,4 +375,40 @@ func TestConcurrentUse(t *testing.T) {
 	h.Shutdown(ReasonStopped)
 	close(stop)
 	wg.Wait()
+}
+
+// A subscription ended by the hub keeps its place in the limits until its
+// owner closes it (its stream may still be cut off); OnEnd tells the
+// owner at once, even when set after the end.
+func TestEndedSubscriptionKeepsItsPlace(t *testing.T) {
+	h := New(Options{MaxPerClient: 1})
+	s, _ := h.Subscribe("a")
+	var got []CloseReason
+	s.OnEnd(func(r CloseReason) { got = append(got, r) })
+	h.CloseClient("a")
+	if fmt.Sprint(got) != fmt.Sprint([]CloseReason{Revoked}) {
+		t.Fatalf("OnEnd %v", got)
+	}
+	if _, err := h.Subscribe("a"); !errors.Is(err, ErrTooManyStreams) {
+		t.Fatalf("subscribe while the old stream runs: %v", err)
+	}
+	if h.Count() != 1 || h.Active() {
+		t.Fatalf("count %d active %v", h.Count(), h.Active())
+	}
+	late := false
+	s.OnEnd(func(r CloseReason) { late = r == Revoked })
+	if !late {
+		t.Error("OnEnd set after the end not called")
+	}
+	s.Close()
+	if h.Count() != 0 {
+		t.Fatalf("count %d after Close", h.Count())
+	}
+	s2 := subscribe(t, h, "a")
+	called := false
+	s2.OnEnd(func(CloseReason) { called = true })
+	s2.Close()
+	if called {
+		t.Error("OnEnd called for Close")
+	}
 }
