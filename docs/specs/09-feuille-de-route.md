@@ -106,6 +106,7 @@ Suggestions de la personne du 19/11/2026, après essai de M10. À préciser et v
 - **Bibliothèque à plat** : tous les jeux sans regroupement par console, avec recherche et filtres (console, etc.) ; peut demander une liste de tous les jeux en une requête.
 - **Barre d'onglets** quand une console est ouverte : Console, Bibliothèque, Transferts, Corbeille.
 - **Plus d'envoi depuis la vue Console** (l'ajout reste dans Bibliothèque et Transferts).
+- **Retour à la liste des consoles quand le pak se ferme** : quand on quitte ReminisLink sur la console (`503 shutting_down`, annonce Bonjour retirée), l'app revient à la liste des consoles avec un message bref (« La console a quitté ReminisLink »), au lieu de rester sur un écran en erreur ; les envois en cours restent en pause.
 
 ## Après la v1 (idées, non engagées)
 

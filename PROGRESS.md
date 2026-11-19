@@ -87,7 +87,7 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-19 — Écran du pak (demande de la personne) : état en haut à gauche, batterie en haut à droite (alerte sous 15 % pendant un transfert) ; lecture de la batterie implémentée en M8 (`GET /device` ne renvoie plus `null`). Ajouté au lot M8 Go.
 
 - 2026-11-19 — M10 : Codex a dépassé 3 tours ; la personne a choisi « corriger + 4e tour » (Go), règle appliquée aussi à iOS ; le dernier correctif iOS (annulation non confirmée) a été relu par l'agent principal sans 5e tour.
-- 2026-11-19 — Suggestions de la personne après essai de M10, proposées en M11 « Ergonomie » : toucher l'image pour la changer ; télécharger chaque fichier d'un jeu ; bibliothèque à plat avec recherche et filtres ; barre d'onglets (Console, Bibliothèque, Transferts, Corbeille) ; plus d'envoi depuis la vue console.
+- 2026-11-19 — Suggestions de la personne après essai de M10, proposées en M11 « Ergonomie » : toucher l'image pour la changer ; télécharger chaque fichier d'un jeu ; bibliothèque à plat avec recherche et filtres ; barre d'onglets (Console, Bibliothèque, Transferts, Corbeille) ; plus d'envoi depuis la vue console ; retour à la liste des consoles quand le pak se ferme.
 
 ## Questions ouvertes pour la personne
 
