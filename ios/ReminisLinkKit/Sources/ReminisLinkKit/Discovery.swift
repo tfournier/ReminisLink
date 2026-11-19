@@ -111,6 +111,12 @@ public enum DiscoveryLogic {
         devices.filter { !pairedIds.contains($0.id) }
     }
 
+    /// The consoles offered for the PIN: the unpaired ones, plus the paired
+    /// console being paired again (`repairing`), if it is seen.
+    public static func pinCandidates(_ devices: [DiscoveredDevice], pairedIds: Set<String>, repairing: String?) -> [DiscoveredDevice] {
+        devices.filter { !pairedIds.contains($0.id) || $0.id == repairing }
+    }
+
     /// Delay before restarting a failed browser: 1 s, 2 s, 4 s... at most 30 s.
     public static func restartDelay(afterFailures failures: Int) -> Duration {
         .seconds(min(30, 1 << min(failures, 5)))

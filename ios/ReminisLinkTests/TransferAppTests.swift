@@ -77,7 +77,7 @@ struct TransferAppTests {
     @Test func shareWaitsForTheCurrentSheet() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        app.sheet = .addConsole
+        app.sheet = .addConsole()
         let request = try sharedFile(app)
         app.handle(url: ShareInbox.url(for: request))
         guard case .addConsole = app.sheet else { Issue.record("sheet replaced"); return }

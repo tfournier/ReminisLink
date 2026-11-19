@@ -8,6 +8,15 @@ import UIKit
 
 /// Navigation destinations.
 enum Route: Hashable {
+    /// The console a screen belongs to.
+    var deviceId: String {
+        switch self {
+        case .console(let id), .library(let id), .trash(let id), .transfers(let id): id
+        case .folder(let folder): folder.deviceId
+        case .game(let game), .save(let game), .states(let game), .cheats(let game): game.deviceId
+        }
+    }
+
     case console(String)
     case library(String)
     case folder(FolderRoute)
@@ -50,7 +59,9 @@ struct AddContext: Identifiable, Equatable {
 
 /// The sheet shown above the navigation.
 enum Sheet: Identifiable {
-    case addConsole
+    /// Scan or PIN. `repairing`: the paired console to pair again (after
+    /// `401 unknown_client`), offered for the PIN like the new ones.
+    case addConsole(repairing: String? = nil)
     case pairing(PairingFlow)
     case add(AddContext)
     /// A shared patch file: the Patch screen (milestone M6).
@@ -58,7 +69,7 @@ enum Sheet: Identifiable {
 
     var id: String {
         switch self {
-        case .addConsole: "add"
+        case .addConsole(let id): "add-\(id ?? "")"
         case .pairing(let flow): "pairing-\(flow.id)"
         case .add(let context): "add-\(context.id)"
         case .patch(let context): "patch-\(context.id)"
@@ -288,6 +299,13 @@ final class AppModel {
         }
         pairExchanges[deviceId] = (id, task)
         return task
+    }
+
+    /// "Pair Again": the Add a Console sheet, with the console of the
+    /// current screen offered for the PIN too (the camera may be
+    /// unavailable). Pairing it asks the replacement confirmation first.
+    func showRepair(deviceId: String? = nil) {
+        sheet = .addConsole(repairing: deviceId ?? path.last?.deviceId)
     }
 
     /// A new key was stored: connections signed with the old one are dropped.

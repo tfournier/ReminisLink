@@ -22,6 +22,9 @@ struct ErrorView: View {
     @Environment(AppModel.self) private var app
     let error: AppError
     var retry: (() async -> Void)?
+    /// The console to pair again on "Pair Again" (default: the console of
+    /// the current screen).
+    var deviceId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -48,7 +51,7 @@ struct ErrorView: View {
                         .accessibilityIdentifier("error.retry")
                 }
             case .repair:
-                Button("Pair Again") { app.sheet = .addConsole }
+                Button("Pair Again") { app.showRepair(deviceId: deviceId) }
                     .buttonStyle(.borderedProminent)
             case nil:
                 EmptyView()

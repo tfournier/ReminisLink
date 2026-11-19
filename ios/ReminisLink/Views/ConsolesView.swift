@@ -29,7 +29,7 @@ struct ConsolesView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
-                    app.sheet = .addConsole
+                    app.sheet = .addConsole()
                 } label: {
                     Label("Add a Console", systemImage: "plus")
                 }
@@ -95,7 +95,7 @@ struct WelcomeView: View {
                     ErrorView(error: .localNetworkDenied)
                 }
                 Button {
-                    app.sheet = .addConsole
+                    app.sheet = .addConsole()
                 } label: {
                     Text("Add a Console").frame(maxWidth: .infinity)
                 }

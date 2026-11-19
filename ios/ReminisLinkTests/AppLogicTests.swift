@@ -258,6 +258,29 @@ struct AppLogicTests {
         #expect(systems.count == 3)
     }
 
+    /// "Pair Again" offers the console of the current screen for the PIN.
+    @Test func pairAgainOffersTheConsoleOfTheScreen() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.path = [.console(pak.deviceId), .library(pak.deviceId)]
+        app.showRepair()
+        guard case .addConsole(let repairing) = app.sheet else { Issue.record("no sheet"); return }
+        #expect(repairing == pak.deviceId)
+        // The PIN of a paired console still asks to confirm the replacement.
+        app.sheet = nil
+        app.requestPairing(.pin(pak.pin, pak.discoveredDevice))
+        #expect(app.pendingRepair?.deviceId == pak.deviceId)
+    }
+
+    @Test func pinSearchSaysNotFoundAfterTheTimeout() {
+        #expect(PINSearch.state(status: .searching, found: false, timedOut: false) == .searching)
+        #expect(PINSearch.state(status: .searching, found: false, timedOut: true) == .notFound)
+        #expect(PINSearch.state(status: .searching, found: true, timedOut: true) == .found)
+        #expect(PINSearch.state(status: .localNetworkDenied, found: false, timedOut: true) == .denied)
+        #expect(AppError.consoleNotFound.action == .retry)
+        #expect(AppError.localNetworkDenied.action == .openSettings)
+    }
+
     @Test func badSignatureOffersRepair() {
         let error = AppError.api(.server(ServerError(status: 401, code: .badSignature, message: "")))
         #expect(error.action == .repair)
@@ -334,7 +357,7 @@ struct AppLogicTests {
     @Test func confirmationWaitsForTheSheetToClose() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        app.sheet = .addConsole
+        app.sheet = .addConsole()
         app.requestPairing(link(pak))
         #expect(app.sheet == nil)
         #expect(app.pendingRepair == nil)
