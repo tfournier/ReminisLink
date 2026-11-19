@@ -771,12 +771,22 @@
         }
       }
     },
-    "Copy deleted." : {
+    "Copy made by another emulator: it cannot be restored." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copie supprimée."
+            "value" : "Copie faite par un autre émulateur : elle ne peut pas être restaurée."
+          }
+        }
+      }
+    },
+    "Copy moved to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie mise dans la corbeille de la console."
           }
         }
       }
@@ -927,6 +937,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ordinateur"
+          }
+        }
+      }
+    },
+    "Different from the locked copy: not restored." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Différent de la copie verrouillée : non restauré."
           }
         }
       }
@@ -1407,6 +1427,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verrouiller"
+          }
+        }
+      }
+    },
+    "Lock status unknown to this version of the app: this state may not be protected." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "État du verrou inconnu de cette version de l’app : ce state n’est peut-être pas protégé."
           }
         }
       }
@@ -2251,6 +2281,16 @@
         }
       }
     },
+    "Save an empty list?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer une liste vide ?"
+          }
+        }
+      }
+    },
     "Save replaced." : {
       "localizations" : {
         "fr" : {
@@ -2267,6 +2307,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Save remplacée. La save précédente a été gardée en copie de sauvegarde."
+          }
+        }
+      }
+    },
+    "Save the Empty List" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer la liste vide"
           }
         }
       }
@@ -2511,6 +2561,16 @@
         }
       }
     },
+    "The cheat file of the game is deleted on the console; its previous content is kept there (.cht.bak)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le fichier de cheats du jeu est supprimé sur la console ; son contenu précédent y est gardé (.cht.bak)."
+          }
+        }
+      }
+    },
     "The clocks of the console and of this iPhone are too far apart." : {
       "localizations" : {
         "fr" : {
@@ -2671,12 +2731,12 @@
         }
       }
     },
-    "The copy is deleted from the console and cannot be recovered. The current save does not change." : {
+    "The copy goes to the trash of the console. The current save does not change." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La copie est supprimée de la console et ne pourra pas être récupérée. La save actuelle ne change pas."
+            "value" : "La copie part dans la corbeille de la console. La save actuelle ne change pas."
           }
         }
       }
@@ -2711,22 +2771,22 @@
         }
       }
     },
-    "The current save is first copied (backup copy)" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La save actuelle est d’abord copiée (copie de sauvegarde)"
-          }
-        }
-      }
-    },
     "The current save is first copied (backup copy), then replaced by the copy of %@." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La save actuelle est d’abord copiée (copie de sauvegarde), puis remplacée par la copie du %@."
+          }
+        }
+      }
+    },
+    "The current save is first copied (backup copy)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save actuelle est d’abord copiée (copie de sauvegarde)."
           }
         }
       }
@@ -2817,6 +2877,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La copie verrouillée est supprimée. Le state lui-même ne change pas, mais il ne sera plus restauré si un jeu l’écrase."
+          }
+        }
+      }
+    },
+    "The locked copy is the only version left, or differs from the state: it goes to the trash of the console. The state itself does not change." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La copie verrouillée est la seule version restante, ou diffère du state : elle part dans la corbeille de la console. Le state lui-même ne change pas."
           }
         }
       }
@@ -2951,12 +3021,42 @@
         }
       }
     },
+    "This copy cannot be restored: it is damaged or was made by another emulator. Nothing was changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette copie ne peut pas être restaurée : elle est abîmée ou a été faite par un autre émulateur. Rien n’a été modifié."
+          }
+        }
+      }
+    },
     "This game has no save on the console." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce jeu n’a pas de save sur la console."
+          }
+        }
+      }
+    },
+    "This game has no save yet: the file becomes its save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu n’a pas encore de save : le fichier devient sa save."
+          }
+        }
+      }
+    },
+    "This game uses a NextUI setting that ReminisLink does not handle yet (save or state format). Nothing was changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu utilise un réglage de NextUI que ReminisLink ne gère pas encore (format de save ou de state). Rien n’a été modifié."
           }
         }
       }
@@ -3247,6 +3347,33 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tes modifications n’ont pas été enregistrées. Recharger affiche la liste de la console et abandonne tes modifications sur cet iPhone."
+          }
+        }
+      }
+    },
+    "action.save" : {
+      "comment" : "Verb: saves the changes of the cheat list",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer"
+          }
+        }
+      }
+    },
+    "“%@” becomes the save of %@, which has none yet." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "« %1$@ » devient la save de %2$@, qui n’en a pas encore."
           }
         }
       }

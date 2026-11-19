@@ -21,6 +21,8 @@ struct SaveView: View {
     @State private var selected: SaveBackup?
     @State private var toRestore: SaveBackup?
     @State private var toDelete: SaveBackup?
+    /// A download in progress, cancelled when the screen goes away.
+    @State private var downloadTask: Task<Void, Never>?
 
     private var session: ConsoleSession { app.session(for: route.deviceId) }
 
@@ -47,6 +49,7 @@ struct SaveView: View {
             }
         }
         .navigationTitle("Save")
+        .onDisappear { downloadTask?.cancel() }
         .navigationBarTitleDisplayMode(.inline)
         .task { if backups == nil { await load() } }
         .refreshable { await load() }
@@ -65,7 +68,7 @@ struct SaveView: View {
         ) { backup in
             Button("Restore…") { toRestore = backup }
                 .accessibilityIdentifier("backup.restore")
-            Button("Download") { Task { await download(backup) } }
+            Button("Download") { downloadTask = Task { await download(backup) } }
                 .accessibilityIdentifier("backup.download")
             Button("Delete…", role: .destructive) { toDelete = backup }
                 .accessibilityIdentifier("backup.delete")
@@ -81,7 +84,11 @@ struct SaveView: View {
                 .accessibilityIdentifier("save.replaceConfirm")
             Button("Cancel", role: .cancel) { file.remove() }
         } message: { file in
-            Text("“\(file.name)” replaces the save of \(route.name). The current save is first copied (backup copy).")
+            if save != nil {
+                Text("“\(file.name)” replaces the save of \(route.name). The current save is first copied (backup copy).")
+            } else {
+                Text("“\(file.name)” becomes the save of \(route.name), which has none yet.")
+            }
         }
         .alert(
             "Restore this copy?",
@@ -103,7 +110,7 @@ struct SaveView: View {
                 .accessibilityIdentifier("backup.deleteConfirm")
             Button("Cancel", role: .cancel) {}
         } message: { _ in
-            Text("The copy is deleted from the console and cannot be recovered. The current save does not change.")
+            Text("The copy goes to the trash of the console. The current save does not change.")
         }
     }
 
@@ -120,7 +127,7 @@ struct SaveView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 Button {
-                    Task { await downloadSave() }
+                    downloadTask = Task { await downloadSave() }
                 } label: {
                     Label("Download", systemImage: "square.and.arrow.up")
                 }
@@ -194,7 +201,7 @@ struct SaveView: View {
     }
 
     private func show(_ error: Error) {
-        let error = AppError(error)
+        let error = AppError.gameData(error)
         if !error.isCancellation { self.error = error }
     }
 
@@ -213,7 +220,7 @@ struct SaveView: View {
     private func downloadSave() async {
         let gameId = route.gameId
         await run {
-            exported = try await session.export { try await $0.downloadSave(gameId: gameId, into: $1) }
+            share(try await session.export { try await $0.downloadSave(gameId: gameId, into: $1) })
         }
     }
 
@@ -221,8 +228,14 @@ struct SaveView: View {
         let gameId = route.gameId
         let backupId = backup.id
         await run {
-            exported = try await session.export { try await $0.downloadSaveBackup(gameId: gameId, backupId: backupId, into: $1) }
+            share(try await session.export { try await $0.downloadSaveBackup(gameId: gameId, backupId: backupId, into: $1) })
         }
+    }
+
+    /// Opens the share sheet, unless the screen went away meanwhile.
+    private func share(_ file: ExportedFile) {
+        guard !Task.isCancelled else { return ExportedFiles.remove(file.file) }
+        exported = file
     }
 
     private func picked(_ result: Result<URL, Error>) async {
@@ -281,7 +294,7 @@ struct SaveView: View {
         let backupId = backup.id
         await run {
             try await session.perform { try await $0.deleteSaveBackup(gameId: gameId, backupId: backupId) }
-            notice = String(localized: "Copy deleted.")
+            notice = String(localized: "Copy moved to the trash of the console.")
             await load()
         }
     }

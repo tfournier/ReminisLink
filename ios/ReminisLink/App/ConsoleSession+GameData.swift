@@ -33,7 +33,7 @@ extension ConsoleSession {
     }
 
     /// Sends a `.cht` chosen in Files to the staging area, then imports it
-    /// (`source.type = "upload"`, with the id of the completed upload).
+    /// (`source.type = "staging"`, with the `stagingId` of the upload).
     func importCheats(gameId: String, from file: PickedFile, mode: CheatImportMode) async throws -> CheatImportResult {
         defer { file.remove() }
         let url = file.url
@@ -44,14 +44,15 @@ extension ConsoleSession {
             scratchDirectory: app.transferDirectory.appending(path: "chunks-\(deviceId)")
         )
         let client = try await connectedClient()
+        let result: UploadResult
         do {
-            _ = try await upload.run(client: client)
+            result = try await upload.run(client: client)
         } catch {
             await upload.cancel(client: client)
             throw AppError(error)
         }
-        guard let uploadId = await upload.completedUploadId else { throw AppError.unexpected }
-        return try await importCheats(gameId: gameId, CheatImportRequest(source: .upload(uploadId: uploadId), mode: mode))
+        guard let stagingId = result.stagingId else { throw AppError.api(.invalidResponse("no stagingId")) }
+        return try await importCheats(gameId: gameId, CheatImportRequest(source: .staging(stagingId: stagingId), mode: mode))
     }
 
     func importCheats(gameId: String, _ request: CheatImportRequest) async throws -> CheatImportResult {

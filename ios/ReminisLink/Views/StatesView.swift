@@ -36,6 +36,8 @@ struct StatesView: View {
     @State private var exported: ExportedFile?
     @State private var selected: StateSlot?
     @State private var confirmation: Confirmation?
+    /// A download in progress, cancelled when the screen goes away.
+    @State private var downloadTask: Task<Void, Never>?
 
     private var session: ConsoleSession { app.session(for: route.deviceId) }
 
@@ -62,6 +64,7 @@ struct StatesView: View {
             }
         }
         .navigationTitle("States")
+        .onDisappear { downloadTask?.cancel() }
         .navigationBarTitleDisplayMode(.inline)
         .task { if slots == nil { await load() } }
         .refreshable { await load() }
@@ -170,9 +173,11 @@ struct StatesView: View {
 
     @ViewBuilder
     private func actions(for slot: StateSlot) -> some View {
-        if slot.locked {
+        if slot.canRestore {
             Button("Restore the Locked Copy…") { confirmation = .restore(slot) }
                 .accessibilityIdentifier("state.restore")
+        }
+        if slot.locked {
             Button("Unlock…") { confirmation = .unlock(slot) }
                 .accessibilityIdentifier("state.unlock")
         } else {
@@ -180,7 +185,7 @@ struct StatesView: View {
                 .accessibilityIdentifier("state.lock")
         }
         if slot.canDownload {
-            Button("Download") { Task { await download(slot) } }
+            Button("Download") { downloadTask = Task { await download(slot) } }
                 .accessibilityIdentifier("state.download")
         }
         if slot.canDelete {
@@ -219,8 +224,12 @@ struct StatesView: View {
 
     private func message(_ confirmation: Confirmation) -> Text {
         switch confirmation {
-        case .unlock:
-            Text("The locked copy is deleted. The state itself does not change, but it is no longer restored if a game overwrites it.")
+        case .unlock(let slot):
+            if slot.matchesLockedCopy {
+                Text("The locked copy is deleted. The state itself does not change, but it is no longer restored if a game overwrites it.")
+            } else {
+                Text("The locked copy is the only version left, or differs from the state: it goes to the trash of the console. The state itself does not change.")
+            }
         case .restore:
             Text("The current state goes to the trash of the console, then the locked copy replaces it.")
         case .delete:
@@ -248,7 +257,7 @@ struct StatesView: View {
     }
 
     private func show(_ error: Error) {
-        let error = AppError(error)
+        let error = AppError.gameData(error)
         if !error.isCancellation { self.error = error }
     }
 
@@ -319,7 +328,10 @@ struct StatesView: View {
         let gameId = route.gameId
         let number = slot.slot
         await run {
-            exported = try await session.export { try await $0.downloadState(gameId: gameId, slot: number, into: $1) }
+            let file = try await session.export { try await $0.downloadState(gameId: gameId, slot: number, into: $1) }
+            // The screen went away meanwhile: nobody will share it.
+            guard !Task.isCancelled else { return ExportedFiles.remove(file.file) }
+            exported = file
         }
     }
 
@@ -370,20 +382,21 @@ struct StateRow: View {
                             .accessibilityIdentifier("state.restored")
                     }
                 }
-                if slot.isMissing {
-                    Text("Missing on the console. The locked copy is kept: restore it to bring the state back.")
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                } else {
+                if !slot.isMissing {
                     Text("\(slot.modifiedAt.dateTimeString) · \(slot.sizeBytes.byteString)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                if let warning {
+                    warning
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                }
             }
             Spacer()
             if slot.locked {
-                Image(systemName: "lock.fill")
-                    .foregroundStyle(.secondary)
+                Image(systemName: isProtected ? "lock.fill" : "lock.trianglebadge.exclamationmark")
+                    .foregroundStyle(isProtected ? Color.secondary : Color.orange)
                     .accessibilityHidden(true)
             }
         }
@@ -391,6 +404,25 @@ struct StateRow: View {
         .accessibilityValue(slot.locked ? Text("Locked") : Text(verbatim: ""))
         .accessibilityHint(Text("Shows the actions for this slot"))
         .task(id: slot) { await loadThumbnail() }
+    }
+
+    /// The lock keeps this state as it is (its copy matches the state).
+    private var isProtected: Bool { slot.matchesLockedCopy }
+
+    /// What a locked slot needs the user to know when it is not plainly
+    /// protected. An unknown status is never shown as protected.
+    private var warning: Text? {
+        guard slot.locked, !slot.matchesLockedCopy else { return nil }
+        switch slot.lockStatus {
+        case .missing?:
+            return Text("Missing on the console. The locked copy is kept: restore it to bring the state back.")
+        case .modified?:
+            return Text("Different from the locked copy: not restored.")
+        case .coreChanged?:
+            return Text("Copy made by another emulator: it cannot be restored.")
+        default:
+            return Text("Lock status unknown to this version of the app: this state may not be protected.")
+        }
     }
 
     /// Best effort: a thumbnail error never touches the session.
@@ -401,9 +433,14 @@ struct StateRow: View {
         }
         let number = slot.slot
         let gameId = gameId
-        guard let data = try? await client.stateThumbnail(gameId: gameId, slot: number) else { return }
+        guard let data = try? await client.stateThumbnail(gameId: gameId, slot: number),
+              data.count <= Self.maxThumbnailBytes
+        else { return }
         thumbnail = await Self.downscaled(data)
     }
+
+    /// A full-screen PNG is far below this; anything larger is not decoded.
+    static let maxThumbnailBytes = 8 << 20
 
     /// NextUI saves a full-screen capture (1024×768 on Brick): reduced to
     /// the size of the row, off the main actor.

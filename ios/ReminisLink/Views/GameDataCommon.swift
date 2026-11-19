@@ -77,7 +77,7 @@ struct PickedFile: Identifiable, Equatable {
             defer { if accessing { source.stopAccessingSecurityScopedResource() } }
             let directory = root.appending(path: UUID().uuidString, directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let name = ContentDisposition.safe(source.lastPathComponent) ?? "file"
+            let name = ContentDisposition.localName(source.lastPathComponent)
             let destination = directory.appending(path: name)
             do {
                 try FileManager.default.copyItem(at: source, to: destination)

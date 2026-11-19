@@ -38,7 +38,7 @@ final class SaveUITests: XCTestCase {
 
         let send = app.buttons["add.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 20), "the Add screen did not open")
-        XCTAssertTrue(app.staticTexts["The current save is first copied (backup copy)"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["The current save is first copied (backup copy)."].waitForExistence(timeout: 10))
         XCTAssertFalse(send.isEnabled, "a save needs its game")
         app.buttons["add.game"].tapAfterWaiting()
         app.buttons["picker.system.GBA"].tapAfterWaiting(timeout: 15)

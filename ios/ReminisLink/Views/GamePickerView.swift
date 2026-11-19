@@ -81,7 +81,7 @@ struct GameFolderPickerView: View {
                 }
                 ForEach(listing.games) { game in
                     Button {
-                        onPick(PickedGame(id: game.id, name: game.name))
+                        onPick(PickedGame(id: game.id, name: game.name, hasSave: game.hasSave))
                     } label: {
                         HStack {
                             Text(game.name).foregroundStyle(.primary)

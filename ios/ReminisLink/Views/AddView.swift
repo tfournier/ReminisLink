@@ -22,6 +22,7 @@ struct AddFile: Identifiable, Equatable {
 struct PickedGame: Equatable {
     let id: String
     let name: String
+    let hasSave: Bool
 }
 
 /// The file whose game is being chosen.
@@ -163,9 +164,15 @@ struct AddView: View {
                     .disabled(deviceId == nil)
                     .accessibilityIdentifier("add.game")
                 }
-                Text(file.kind.help)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                Group {
+                    if file.kind == .save, let game = file.game, !game.hasSave {
+                        Text("This game has no save yet: the file becomes its save.")
+                    } else {
+                        Text(file.kind.help)
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
                 Button("Remove", role: .destructive) { files.removeAll { $0.id == file.id } }
             } header: {
                 Text(file.name)
@@ -446,7 +453,7 @@ extension AddKind {
         case .rom: "Added to the library of the chosen system."
         case .patch: "Kept in the staging area of the console for 24 hours, to apply it to a game."
         case .cheats: "Kept in the staging area of the console for 24 hours, to import it into a game."
-        case .save: "The current save is first copied (backup copy)"
+        case .save: "The current save is first copied (backup copy)."
         }
     }
 }

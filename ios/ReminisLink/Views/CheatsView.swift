@@ -19,6 +19,10 @@ struct CheatsView: View {
     @State private var showImport = false
     @State private var showConflict = false
     @State private var confirmDiscard = false
+    @State private var confirmEmpty = false
+    /// The shown error comes from a save: "Try Again" saves again (local
+    /// changes are never dropped without "Discard Changes").
+    @State private var saveFailed = false
 
     private var session: ConsoleSession { app.session(for: route.deviceId) }
     private var hasChanges: Bool { editor?.hasChanges ?? false }
@@ -26,7 +30,7 @@ struct CheatsView: View {
     var body: some View {
         List {
             if let error {
-                Section { ErrorView(error: error, retry: load) }
+                Section { ErrorView(error: error, retry: retryAfterError) }
             }
             if let notice {
                 Section { NoticeView(text: notice) }
@@ -74,6 +78,12 @@ struct CheatsView: View {
         } message: {
             Text("Your changes were not saved. Reloading shows the list of the console and discards your changes on this iPhone.")
         }
+        .confirmationDialog("Save an empty list?", isPresented: $confirmEmpty, titleVisibility: .visible) {
+            Button("Save the Empty List", role: .destructive) { Task { await saveChanges() } }
+                .accessibilityIdentifier("cheats.saveEmptyConfirm")
+        } message: {
+            Text("The cheat file of the game is deleted on the console; its previous content is kept there (.cht.bak).")
+        }
         .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
             Button("Discard Changes", role: .destructive) { editor?.discardChanges() }
                 .accessibilityIdentifier("cheats.discardConfirm")
@@ -90,7 +100,13 @@ struct CheatsView: View {
                     .accessibilityIdentifier("cheats.discard")
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { Task { await saveChanges() } }
+                Button(String(localized: "action.save", defaultValue: "Save", comment: "Verb: saves the changes of the cheat list")) {
+                    if let editor, editor.cheats.isEmpty, !editor.original.isEmpty {
+                        confirmEmpty = true
+                    } else {
+                        Task { await saveChanges() }
+                    }
+                }
                     .accessibilityIdentifier("cheats.save")
             }
         } else {
@@ -165,6 +181,7 @@ struct CheatsView: View {
 
     private func load() async {
         let gameId = route.gameId
+        saveFailed = false
         do {
             let list = try await session.perform { try await $0.cheats(gameId: gameId) }
             if editor == nil {
@@ -192,6 +209,7 @@ struct CheatsView: View {
         defer { isWorking = false }
         error = nil
         notice = nil
+        saveFailed = false
         do {
             let saved = try await session.perform { try await $0.replaceCheats(gameId: gameId, update, ifMatch: etag) }
             self.editor?.load(saved)
@@ -201,6 +219,17 @@ struct CheatsView: View {
             showConflict = true
         } catch {
             show(error)
+            saveFailed = !AppError(error).isCancellation
+        }
+    }
+
+    /// "Try Again" repeats what failed: the save, or the first load. It
+    /// never reloads over unsaved changes.
+    private func retryAfterError() async {
+        if saveFailed, hasChanges {
+            await saveChanges()
+        } else if !hasChanges {
+            await load()
         }
     }
 }

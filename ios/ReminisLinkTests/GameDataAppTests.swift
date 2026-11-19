@@ -98,6 +98,7 @@ struct GameDataAppTests {
         let result = try await session.importCheats(gameId: pixelRunner, from: file, mode: .merge)
         #expect(result == CheatImportResult(imported: 1, total: 1))
         #expect(pak.log.contains { $0.method == "POST" && $0.path.hasSuffix("/uploads") })
+        #expect(pak.log.contains { $0.path.hasSuffix("/cheats/import") && $0.status == 200 })
         let cheats = try await session.perform { [pixelRunner] in try await $0.cheats(gameId: pixelRunner) }
         #expect(cheats.cheats.map(\.description) == ["From Files"])
         await waitUntilGone(file.directory)
@@ -145,6 +146,24 @@ struct GameDataAppTests {
             == String(localized: "Before replacement"))
         #expect(BackupRow.title(SaveBackup(id: "4", label: nil, createdAt: date, sizeBytes: 1, reason: BackupReason(rawValue: "future")))
             == String(localized: "Automatic copy"))
+    }
+
+    @Test func saveAndStateErrorsDependOnTheAction() {
+        let refused = ServerError(status: 409, code: .conflict, message: "")
+        #expect(AppError.gameData(APIError.server(refused)) == .restoreRefused)
+        let exists = ServerError(status: 409, code: .conflict, message: "", details: ["existing": .string("a")])
+        #expect(AppError.gameData(APIError.server(exists)) == .api(.server(exists)))
+        let format = ServerError(status: 422, code: .unsupportedFormat, message: "")
+        #expect(AppError.gameData(APIError.server(format)) == .unsupportedGameFormat)
+        #expect(AppError.gameData(APIError.network(.timedOut)) == .api(.network(.timedOut)))
+        #expect(AppError.gameData(CancellationError()) == .cancelled)
+        #expect(AppError.unsupportedGameFormat.message.contains("NextUI"))
+        // A save upload refused for its format reads like the save screen.
+        #expect(UploadRow.failureText(APIError.server(format), target: .save(gameId: "g")) == AppError.unsupportedGameFormat.message)
+        #expect(UploadRow.failureText(APIError.server(format), target: .staging(fileName: "a")) == AppError.api(.server(format)).message)
+        // A 412 on the cheats is a conflict to reload.
+        #expect(AppError.api(.server(ServerError(status: 412, code: .conflict, message: ""))).isPreconditionFailed)
+        #expect(!AppError.restoreRefused.isPreconditionFailed)
     }
 
     @Test func errorTextsOfMilestone5() {
