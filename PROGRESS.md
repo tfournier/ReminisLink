@@ -10,7 +10,7 @@
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
 | M5 | intégré (tests console à faire) | `m5-saves-go`, `m5-saves-ios` | Go : 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m5-go-claude.md` ; iOS : 1 revue Claude (1 bloquant corrigé) — `docs/reviews/m5-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
 | M6 | intégré (test console à faire) | `m6-patchs-go`, `m6-patchs-ios` | Go : revue Claude, aucun bloquant, formats validés par un décodeur de référence indépendant — `docs/reviews/m6-go-claude.md` ; iOS : revue Claude, 1 bloquant corrigé — `docs/reviews/m6-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
-| M7 | en cours (sans compte Apple, Pak Store ni domaine) | `m7-ui-publication-go`, `m7-publication-ios` | — | — |
+| M7 | Go et iOS livrés, Go en revue (sans compte Apple, Pak Store ni domaine) | `m7-ui-publication-go`, `m7-publication-ios` | — | — |
 
 ## En cours
 - M6 fusionné dans `main` le 2026-11-19. Sur `main` : `make lint test`, `make contract`, `go test -race ./...`, `make fuzz` (6 cibles), `swift test` (192), `xcodebuild test` (59 tests app, UI démo) verts. Contre le pak headless, depuis l'app : patch refusé pour une autre ROM, BPS appliqué en nouveau fichier, puis remplacement avec la version précédente en corbeille.
@@ -60,12 +60,17 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-19 — Décisions M0 (personne) : D1 certificats via `certifiable` déjà importé par gabagool (aucune nouvelle dépendance, téléchargements depuis `http.DefaultTransport.Clone()`) ; D2 comportement normal de la console (aucune gestion de veille ni d'écran) ; D3 format par défaut seulement ; D4 `osVersion` = chaîne de release NextUI (`NextUI-20261013-039a06de`) ; D5 vignettes telles quelles ; D6 champ `emulatorInstalled` dans `/systems`.
 
 ## Questions ouvertes pour la personne
+2. **Bouton d'alimentation pendant le pak (M7)** : gabagool (avec `IsNextUI: true`, comme Cheat Manager) gère le bouton sur tg5040 : appui court → `.system/tg5040/bin/suspend` (coupe le Wi-Fi, donc le serveur ; les envois reprennent ensuite) ; appui long (≥ 2 s) → `/sbin/poweroff` (le pak reçoit SIGTERM et s'arrête proprement s'il en a le temps ; sinon les écritures atomiques et la reprise au lancement protègent les données). Options : garder ce comportement (celui des autres paks) ou le désactiver (seulement via le mode dev de gabagool, qui perd des réglages NextUI). Recommandation : le garder et corriger 05 §2. Bloque : la mise à jour de la spec.
 
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- M7 Go : `github.com/BurntSushi/toml` en dépendance directe, mais seulement dans `internal/l10n/l10n_test.go` (comme Cheat Manager ; déjà tirée par gabagool) ; `go-sdl2` en direct (dépendance de gabagool) — acceptés par l'agent principal.
+- M7 Go : batterie et SSID toujours `null` (sources confirmées en 05 §6) ; cosmétique gabagool (pastille, « : » sans espace insécable, PIN sous le pli quand des transferts s'affichent).
+- `make desktop` sur le Mac demande `brew install pkg-config sdl2 sdl2_ttf sdl2_image sdl2_gfx` (non installé).
+- Images et volumes Docker laissés par M7 : `reminislink-build`, `reminislink-screenshots`, `reminislink-shots`, `rhysd/actionlint`, volumes `reminislink-*`.
 - M6 Go : les `.ips`/`.bps`/`.ups` posés sous `Roms/` sont listés comme des jeux (`ignoredExt`) — vérifier si NextUI les affiche aussi.
 - CI absente du dépôt : y brancher `make fuzz` en mode court (M7).
 - 2026-11-19 : 4 processus `reminislink-host --headless` laissés par l'agent principal pendant M3/M4 (commande d'arrêt visant un mauvais nom de processus) ; arrêtés. Arrêter désormais par PID.
