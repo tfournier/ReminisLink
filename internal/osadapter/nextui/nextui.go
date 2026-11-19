@@ -995,17 +995,25 @@ func (a *Adapter) SharedFiles(g osadapter.Game) map[string]bool {
 	if g.Kind == osadapter.KindFile {
 		return nil
 	}
-	own := filepath.Join(a.gamePath(g))
-	if g.Kind.IsFolder() {
-		own = filepath.Join(own, g.ROMName)
-	}
-	files, err := a.GameFiles(g)
-	if err != nil {
-		return nil
-	}
+	own := a.gamePath(g)
 	mine := map[string]bool{}
-	for _, f := range files.ROM {
-		mine[f.Path] = true
+	if g.Kind.IsFolder() {
+		// Every file of the folder, at any depth (Game/Discs/CD1.chd):
+		// the whole folder moves unless some of it is shared.
+		_ = filepath.WalkDir(own, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() {
+				mine[p] = true
+			}
+			return nil
+		})
+	} else {
+		files, err := a.GameFiles(g)
+		if err != nil {
+			return nil
+		}
+		for _, f := range files.ROM {
+			mine[f.Path] = true
+		}
 	}
 	root := filepath.Join(a.roots.Roms, g.System.Folder)
 	out := map[string]bool{}
@@ -1025,8 +1033,8 @@ func (a *Adapter) SharedFiles(g osadapter.Game) map[string]bool {
 			}
 			return nil
 		}
-		if !d.Type().IsRegular() || fileKind(d.Name()) != osadapter.KindM3U || p == own {
-			return nil
+		if !d.Type().IsRegular() || fileKind(d.Name()) != osadapter.KindM3U || p == own || mine[p] {
+			return nil // not a playlist, or one of the game itself
 		}
 		for _, f := range a.m3uDiscs(g, p, nil) {
 			if !mine[f.Path] {

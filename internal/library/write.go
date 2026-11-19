@@ -2,6 +2,7 @@ package library
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -94,6 +95,19 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 			return DeleteResult{}, err
 		}
 		items = append(items, store.MoveItem{Path: dir})
+	} else if g.Kind.IsFolder() {
+		// Some files of the folder are shared: every other file of the
+		// folder, at any depth, moves; the folders stay.
+		dir, err := resolveUnder(l.romsRoot(), g.Path)
+		if err != nil {
+			return DeleteResult{}, err
+		}
+		_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() && !shared[p] {
+				items = append(items, store.MoveItem{Path: p})
+			}
+			return nil
+		})
 	} else {
 		for _, f := range files.ROM {
 			if !shared[f.Path] {

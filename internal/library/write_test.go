@@ -147,3 +147,29 @@ func TestFolderCueGame(t *testing.T) {
 		t.Fatalf("file inside a cue folder: %v", err)
 	}
 }
+
+// Codex review of M8: another playlist lists a file nested deeper in a
+// folder game (Game/Discs/CD1.chd); deleting the folder game keeps it.
+func TestDeleteFolderGameKeepsANestedSharedDisc(t *testing.T) {
+	l, sd := newLibrary(t)
+	tr := store.NewTrash(store.Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, nil, nil)
+	ps := filepath.Join(sd, "Roms", "Sony PlayStation (PS)")
+	testutil.WriteFile(t, ps, "Deep Run/Deep Run.m3u", "Discs/CD1.chd\nDiscs/CD2.chd\n")
+	testutil.WriteFile(t, ps, "Deep Run/Discs/CD1.chd", "cd1")
+	testutil.WriteFile(t, ps, "Deep Run/Discs/CD2.chd", "cd2")
+	testutil.WriteFile(t, ps, "Deep Run Remix.m3u", "Deep Run/Discs/CD1.chd\n")
+	if _, err := l.DeleteGame(EncodeID("Sony PlayStation (PS)/Deep Run"), false, tr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ps, "Deep Run", "Discs", "CD1.chd")); err != nil {
+		t.Fatal("nested shared disc moved")
+	}
+	for _, gone := range []string{"Deep Run/Discs/CD2.chd", "Deep Run/Deep Run.m3u"} {
+		if _, err := os.Stat(filepath.Join(ps, filepath.FromSlash(gone))); !os.IsNotExist(err) {
+			t.Fatalf("%s kept", gone)
+		}
+	}
+	if _, err := l.Game(EncodeID("Sony PlayStation (PS)/Deep Run Remix.m3u")); err != nil {
+		t.Fatalf("the other playlist: %v", err)
+	}
+}
