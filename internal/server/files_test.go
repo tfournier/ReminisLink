@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path"
 	"path/filepath"
@@ -423,5 +424,72 @@ func TestGameFileStalledClient(t *testing.T) {
 			t.Fatal("the stalled download was not cut off")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// chunkRecorder records the size of each write.
+type chunkRecorder struct {
+	*httptest.ResponseRecorder
+	sizes []int
+}
+
+func (c *chunkRecorder) Write(p []byte) (int, error) {
+	c.sizes = append(c.sizes, len(p))
+	return c.ResponseRecorder.Write(p)
+}
+
+// idleWriter writes at most SendChunk bytes under each deadline, so a
+// stalled client is one that accepts less than SendChunk bytes in the send
+// idle timeout.
+func TestIdleWriterChunks(t *testing.T) {
+	rec := &chunkRecorder{ResponseRecorder: httptest.NewRecorder()}
+	iw := &idleWriter{w: rec, ctl: http.NewResponseController(rec), timeout: time.Second}
+	data := bytes.Repeat([]byte("x"), 3*SendChunk+5)
+	if n, err := iw.Write(data); err != nil || n != len(data) {
+		t.Fatalf("Write: %d %v", n, err)
+	}
+	if !slices.Equal(rec.sizes, []int{SendChunk, SendChunk, SendChunk, 5}) || rec.Body.Len() != len(data) {
+		t.Errorf("writes %v, %d bytes", rec.sizes, rec.Body.Len())
+	}
+}
+
+// A slow client that keeps reading gets the whole file, however long the
+// transfer takes compared with the send idle timeout.
+func TestGameFileSlowClient(t *testing.T) {
+	f := newFixture(t)
+	f.server.timeouts.sendIdle = 500 * time.Millisecond
+	rel := ps + "/Slow Disc.bin"
+	big := bytes.Repeat([]byte("slow disc data. "), 1<<16) // 1 MiB
+	if err := os.WriteFile(filepath.Join(f.sd, "Roms", ps, "Slow Disc.bin"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := f.detail(rel)
+	conn := dial(t, strings.TrimPrefix(f.http.URL, "http://"))
+	defer conn.Close()
+	if _, err := conn.Write(signedRaw(t, f, http.MethodGet, gamePath(rel)+"/files/"+d.Files[0].FileID, nil)); err != nil {
+		t.Fatal(err)
+	}
+	// 4 KiB every 20 ms: 32 KiB in 160 ms, well within the timeout; the
+	// whole transfer lasts several timeouts.
+	start := time.Now()
+	var got []byte
+	buf := make([]byte, 4<<10)
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, err := conn.Read(buf)
+		got = append(got, buf[:n]...)
+		if err != nil || bytes.HasSuffix(got, big[len(big)-64:]) && len(got) >= len(big) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !bytes.HasSuffix(got, big) {
+		t.Fatalf("got %d bytes, want the %d bytes of the file after the headers", len(got), len(big))
+	}
+	if elapsed := time.Since(start); elapsed < 2*f.server.timeouts.sendIdle {
+		t.Logf("transfer took only %v", elapsed)
+	}
+	if strings.Contains(f.logs.String(), "file transfer interrupted") {
+		t.Error("the slow transfer was cut off")
 	}
 }

@@ -103,9 +103,13 @@ func (s *Server) sendFile(w http.ResponseWriter, r *http.Request, f *os.File, na
 	}
 }
 
-// idleWriter sets a write deadline before each write of a response body,
-// so a client that stops reading is cut off after timeout while a slow
-// but steady download is not.
+// SendChunk is the most bytes written under one write deadline: a client
+// that accepts less than SendChunk bytes in SendIdleTimeout is cut off.
+const SendChunk = 32 << 10
+
+// idleWriter writes a response body in pieces of at most SendChunk bytes,
+// each with a new write deadline, so a client that stops reading is cut
+// off after timeout while a slow but steady download is not.
 type idleWriter struct {
 	w       http.ResponseWriter
 	ctl     *http.ResponseController
@@ -113,8 +117,18 @@ type idleWriter struct {
 }
 
 func (iw *idleWriter) Write(p []byte) (int, error) {
-	_ = iw.ctl.SetWriteDeadline(time.Now().Add(iw.timeout))
-	return iw.w.Write(p)
+	written := 0
+	for len(p) > 0 {
+		chunk := p[:min(len(p), SendChunk)]
+		_ = iw.ctl.SetWriteDeadline(time.Now().Add(iw.timeout))
+		n, err := iw.w.Write(chunk)
+		written += n
+		if err != nil {
+			return written, err
+		}
+		p = p[n:]
+	}
+	return written, nil
 }
 
 // enoughSpace answers 507 insufficient_storage when the SD card has less
