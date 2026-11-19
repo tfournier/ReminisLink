@@ -30,6 +30,15 @@
 	<string>To scan the QR code shown by your console.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>ReminisLink connects to your console on your Wi-Fi network.</string>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchLogo</string>
+		<key>UIImageRespectsSafeAreaInsets</key>
+		<true/>
+	</dict>
 	<key>RLAppGroup</key>
 	<string>$(RL_APP_GROUP)</string>
 </dict>

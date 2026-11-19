@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ReminisLink app icon, tinted appearance (iOS 18, grayscale: the system applies the tint). Run ../make-icons.sh after a change. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="1" stop-color="#000000"/>
+    </linearGradient>
+    <clipPath id="under">
+      <rect x="420" y="512" width="200" height="200"/>
+    </clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- Two links: the left one passes over the right one at the bottom. -->
+  <g fill="none" stroke-width="76" transform="rotate(-45 512 512)">
+    <rect x="222" y="382" width="350" height="260" rx="130" stroke="#FFFFFF"/>
+    <rect x="452" y="382" width="350" height="260" rx="130" stroke="#B8B8B8"/>
+    <rect x="222" y="382" width="350" height="260" rx="130" stroke="#FFFFFF" clip-path="url(#under)"/>
+  </g>
+  <!-- Pixel trail. -->
+  <g fill="#E6E6E6">
+    <rect x="236" y="236" width="64" height="64"/>
+    <rect x="172" y="324" width="40" height="40" fill="#9A9A9A"/>
+    <rect x="324" y="172" width="40" height="40" fill="#9A9A9A"/>
+  </g>
+</svg>
