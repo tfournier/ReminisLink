@@ -364,3 +364,28 @@ func TestBackupLocked(t *testing.T) {
 		}
 	}
 }
+
+// Codex review of M5: restoring a backup with a clock file while the game
+// has a clock file but no save (the .sav was moved off the card) keeps the
+// current clock: it goes to the trash.
+func TestRestoreKeepsALoneClockFile(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock 1")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.sav"))
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock 2")
+	if _, err := e.svc.Restore(g, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.rtc") != "clock 1" {
+		t.Fatal("clock file not restored")
+	}
+	entries, _, _ := e.trash.List()
+	if len(entries) != 1 || e.read(".userdata/shared/ReminisLink/trash/"+entries[0].ID+"/Saves/GBA/Starlight Courier.gba.rtc") != "clock 2" {
+		t.Fatalf("the current clock file was lost: %+v", entries)
+	}
+}

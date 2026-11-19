@@ -615,7 +615,20 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 		if files.RTC != nil {
 			rtcDst = files.RTC.Path
 		}
-		if err := os.Rename(rtcTmp, rtcDst); err != nil {
+		if files.RTC != nil && files.Save == nil {
+			// A clock file without its save (the .sav was moved off the
+			// card): no backup was made above, so the current clock goes
+			// to the trash, as one journaled replacement (Codex review of
+			// M5; rule 1 of CLAUDE.md).
+			fi, err := os.Lstat(rtcTmp)
+			if err != nil {
+				return nil, fmt.Errorf("save: install the clock file: %w", err)
+			}
+			if _, err := s.o.Trash.Replace(store.ReasonRestore, g.Name, []store.MoveItem{{Path: files.RTC.Path}},
+				[]store.Install{{Src: rtcTmp, Dst: rtcDst, Size: fi.Size()}}); err != nil {
+				return nil, fmt.Errorf("save: install the clock file: %w", err)
+			}
+		} else if err := os.Rename(rtcTmp, rtcDst); err != nil {
 			return nil, fmt.Errorf("save: install the clock file: %w", err)
 		}
 	}
