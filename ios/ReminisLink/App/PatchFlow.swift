@@ -167,7 +167,10 @@ final class PatchFlow {
     }
 
     private func run() async {
-        guard let key = sourceKey else { return }
+        guard let key = sourceKey else {
+            step = .idle
+            return
+        }
         job = nil
         do {
             let patch: PatchSource
@@ -176,7 +179,10 @@ final class PatchFlow {
             } else {
                 switch source {
                 case .sdCard:
-                    guard let sdFileId else { return }
+                    guard let sdFileId else {
+                        step = .idle
+                        return
+                    }
                     patch = .sd(sdFileId: sdFileId)
                 case .files:
                     patch = .staging(stagingId: try await stageFile(key: key))

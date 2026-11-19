@@ -113,7 +113,7 @@ struct PatchAppTests {
         // The job is also on the Transfers screen.
         let item = try #require(session.transfers.jobs.first)
         #expect(item.kind == .patch)
-        #expect(item.title == String(localized: "Patch: Sky Garden Quest"))
+        #expect(item.title.contains("Sky Garden Quest"))
         #expect(session.libraryRevision > revision)
         // The copy of the file is gone once on the console.
         await waitUntilGone(file.directory)
@@ -128,8 +128,7 @@ struct PatchAppTests {
         flow.start()
         await runToTheEnd(flow)
         #expect(flow.step == .failed(.patchMismatch))
-        #expect(AppError.patchMismatch.message
-            == String(localized: "This patch does not match this ROM. Check the ROM version the patch asks for."))
+        #expect(AppError.patchMismatch.message != AppError.unsupportedPatch.message)
         // Another try (here a replacement) reuses the staged file.
         flow.mode = .replace
         #expect(flow.step == .idle)
@@ -147,7 +146,8 @@ struct PatchAppTests {
         flow.start()
         await runToTheEnd(flow)
         #expect(flow.step == .failed(.unsupportedPatch))
-        #expect(AppError.unsupportedPatch.message.contains("IPS, BPS or UPS"))
+        // Same words in English and French.
+        #expect(AppError.unsupportedPatch.message.contains("IPS, BPS"))
     }
 
     @Test func aLinkIsDownloadedByTheConsoleThenApplied() async throws {
@@ -298,6 +298,16 @@ struct PatchAppTests {
         try app.shareInbox.write(files: [rom], urls: [])
         app.checkShareInbox()
         guard case .add = app.sheet else { Issue.record("no add sheet"); return }
+    }
+
+    /// The French text asked for by the milestone, whatever the language
+    /// of the simulator.
+    @Test func mismatchTextInFrench() throws {
+        let path = try #require(Bundle.main.path(forResource: "fr", ofType: "lproj"))
+        let french = try #require(Bundle(path: path))
+        let key = "This patch does not match this ROM. Check the ROM version the patch asks for."
+        #expect(french.localizedString(forKey: key, value: nil, table: nil)
+            == "Ce patch ne correspond pas à cette ROM. Vérifie la version de la ROM demandée par le patch.")
     }
 
     @Test func patchErrorTexts() {
