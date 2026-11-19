@@ -44,6 +44,8 @@ struct FakeSlot {
     var lockCopy: FakeBlob?
     /// `restored` is reported by the next `GET /states`, then `intact`.
     var restoredPending = false
+    /// A status set by the demo or a test (`modified`, `core-changed`...).
+    var forcedStatus: String?
 }
 
 struct FakeResumeEntry {
@@ -128,7 +130,10 @@ extension FakePak {
                 lockCopy: locked ? blob : nil,
                 // The first locked slot was overwritten in game and put back
                 // at the last start, so the demo shows "Restored" once.
-                restoredPending: locked && n == 0
+                restoredPending: locked && n == 0,
+                // The second locked slot (multi-disc demo game) shows a
+                // copy the pak could not restore.
+                forcedStatus: locked && n == 1 ? "modified" : nil
             )
         }
         if !game.stateSlots.isEmpty {
@@ -145,7 +150,7 @@ extension FakePak {
         }
         data.cheats = (0..<game.cheatCount).map { i in
             FakeCheat(description: "Demo cheat \(i + 1)", code: String(format: "%08X+%04X", 0x0200_0000 + i * 16, i),
-                      enabled: i == 0, extra: i == 0 ? ["cheat0_handler": "0"] : [:])
+                      enabled: i == 0, extra: i == 0 ? ["handler": "0"] : [:])
         }
         return data
     }
@@ -216,6 +221,13 @@ extension FakePak {
         set { lock.withLock { _conflictOnNextCheatsSave = newValue } }
     }
 
+    /// Forces the lock status reported for a slot (nil: computed again).
+    public func setLockStatus(gameId: String, slot: Int, _ status: String?) {
+        guard let (system, game) = library.game(id: gameId) else { return }
+        _ = currentData(system: system, game: game)
+        lock.withLock { gameData[gameId]?.slots[slot]?.forcedStatus = status }
+    }
+
     /// The etag of the cheat list of a game.
     public func cheatsETag(gameId: String) -> String? {
         guard let (system, game) = library.game(id: gameId) else { return nil }
@@ -258,7 +270,9 @@ extension FakePak {
                 guard let index = data.backups.firstIndex(where: { $0.id == r[2] }) else {
                     return .error(404, code: "not_found", message: "Backup not found")
                 }
-                data.backups.remove(at: index)
+                let backup = data.backups.remove(at: index)
+                // Never erased: to the trash.
+                _ = trash(reason: "delete-backup", label: game.name, files: ["backup \(backup.id)"], bytes: backup.blob.size)
                 return FakeResponse(status: 204)
             }
         case ("POST", let r) where r.count == 4 && r[0] == "save" && r[1] == "backups" && r[3] == "restore":
@@ -351,6 +365,8 @@ extension FakePak {
         )
         data.backups.insert(backup, at: 0)
         if reason != "manual" {
+            // The oldest automatic copies beyond 10 are dropped (the real
+            // pak moves them to the trash, `delete-backup`).
             let automatic = data.backups.enumerated().filter { $0.element.reason != "manual" }.map(\.offset)
             for index in automatic.dropFirst(FakeGameData.maxAutomaticBackups).reversed() {
                 data.backups.remove(at: index)
@@ -412,7 +428,9 @@ extension FakePak {
     private static func slotJSON(_ slot: Int, _ entry: FakeSlot, reportRestored: Bool = true) -> [String: Any] {
         let size = entry.state?.size ?? entry.lockCopy?.size ?? 0
         var status: Any = NSNull()
-        if entry.lockCopy != nil {
+        if entry.lockCopy != nil, let forced = entry.forcedStatus {
+            status = forced
+        } else if entry.lockCopy != nil {
             if entry.state == nil {
                 status = "missing"
             } else if entry.restoredPending && reportRestored {
@@ -472,6 +490,7 @@ extension FakePak {
                 return .error(404, code: "not_found", message: "State not found")
             }
             entry.lockCopy = state
+            entry.forcedStatus = nil
             entry.restoredPending = false
             data.slots[slot] = entry
             return .json(200, Self.slotJSON(slot, entry))
@@ -481,7 +500,13 @@ extension FakePak {
     private func unlockState(system: DemoLibrary.System, game: DemoLibrary.Game, gameId: String, slot: Int) -> FakeResponse {
         update(gameId: gameId, system: system, game: game) { data in
             guard var entry = data.slots[slot] else { return .error(404, code: "not_found", message: "State not found") }
+            // A copy that differs from the state (or is its only version)
+            // goes to the trash; an identical one is erased.
+            if let copy = entry.lockCopy, entry.state != copy || entry.forcedStatus != nil {
+                _ = trash(reason: "overwrite", label: game.name, files: ["lock slot\(slot)"], bytes: copy.size)
+            }
             entry.lockCopy = nil
+            entry.forcedStatus = nil
             entry.restoredPending = false
             // A missing state with no locked copy left: the slot is empty.
             data.slots[slot] = entry.state == nil ? nil : entry
@@ -494,6 +519,10 @@ extension FakePak {
             guard var entry = data.slots[slot], let copy = entry.lockCopy else {
                 return .error(404, code: "not_found", message: "No locked copy")
             }
+            if entry.forcedStatus == "core-changed" {
+                return .error(409, code: "conflict", message: "Locked copy comes from another core")
+            }
+            entry.forcedStatus = nil
             if let current = entry.state, current != copy {
                 _ = trash(reason: "lock-restore", label: game.name, files: [Self.statePath(system, game, slot: slot)], bytes: current.size)
             }
@@ -552,8 +581,13 @@ extension FakePak {
             guard let description = item["description"] as? String, let code = item["code"] as? String,
                   let enabled = item["enabled"] as? Bool
             else { return nil }
-            out.append(FakeCheat(description: description, code: code, enabled: enabled,
-                                 extra: item["extra"] as? [String: String] ?? [:]))
+            // Keys come without their `cheat<N>_` prefix; a prefixed key is
+            // accepted, its prefix dropped.
+            var extra: [String: String] = [:]
+            for (key, value) in item["extra"] as? [String: String] ?? [:] {
+                extra[Self.unprefixed(key)] = value
+            }
+            out.append(FakeCheat(description: description, code: code, enabled: enabled, extra: extra))
         }
         return out
     }
@@ -578,6 +612,12 @@ extension FakePak {
         }
     }
 
+    /// `cheat12_handler` → `handler`.
+    static func unprefixed(_ key: String) -> String {
+        guard let range = key.range(of: "^cheat[0-9]+_", options: .regularExpression) else { return key }
+        return String(key[range.upperBound...])
+    }
+
     /// Reads the cheats of a RetroArch `.cht` text: `cheatN_desc`,
     /// `cheatN_code`, `cheatN_enable`; other `cheatN_*` keys go to `extra`.
     static func parseCHT(_ text: String) -> [FakeCheat] {
@@ -597,7 +637,9 @@ extension FakePak {
             guard var keys = byIndex[index], let code = keys.removeValue(forKey: "cheat\(index)_code") else { return nil }
             let description = keys.removeValue(forKey: "cheat\(index)_desc") ?? ""
             let enabled = keys.removeValue(forKey: "cheat\(index)_enable") == "true"
-            return FakeCheat(description: description, code: code, enabled: enabled, extra: keys)
+            var extra: [String: String] = [:]
+            for (key, value) in keys { extra[unprefixed(key)] = value }
+            return FakeCheat(description: description, code: code, enabled: enabled, extra: extra)
         }
     }
 
@@ -658,9 +700,10 @@ extension FakePak {
         case "inline":
             guard let inline = source["text"] as? String else { return .error(400, code: "invalid_request", message: "Missing text") }
             text = inline
-        case "upload":
-            guard let id = source["uploadId"] as? String, let data = lock.withLock({ stagedUploads[id] }) else {
-                return .error(404, code: "not_found", message: "Upload not found")
+        case "upload", "staging":
+            let key = type == "upload" ? "uploadId" : "stagingId"
+            guard let id = source[key] as? String, let data = lock.withLock({ stagedUploads[id] }) else {
+                return .error(404, code: "not_found", message: "Staging file not found")
             }
             text = String(decoding: data, as: UTF8.self)
         default:

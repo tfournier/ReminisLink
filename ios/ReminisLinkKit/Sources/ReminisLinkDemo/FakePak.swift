@@ -824,7 +824,13 @@ extension FakePak {
         if response.status == 200 {
             let drop = lock.withLock { () -> Bool in
                 _ = uploads.removeValue(forKey: id)
-                if let bytes = upload.bytes { stagedUploads[id] = bytes }
+                if let bytes = upload.bytes {
+                    stagedUploads[id] = bytes
+                    if let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any],
+                       let stagingId = object["stagingId"] as? String {
+                        stagedUploads[stagingId] = bytes
+                    }
+                }
                 _freeBytes -= upload.sizeBytes
                 guard completeFaults > 0 else { return false }
                 completeFaults -= 1

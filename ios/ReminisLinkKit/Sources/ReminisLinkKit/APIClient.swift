@@ -501,19 +501,20 @@ public actor APIClient {
     /// memory), moved into a new directory under `directory`, named after
     /// `Content-Disposition` (or `fallbackName`).
     private func downloadSigned(segments: [String], fallbackName: String, into directory: URL) async throws -> DownloadedFile {
-        let (location, response) = try await withSignedRequests(
+        let ((location, errorBody), response) = try await withSignedRequests(
             method: "GET", segments: segments, query: [], headers: [:], body: nil, bodyFile: nil, bodyFileSHA256: nil
-        ) { request -> (URL, HTTPURLResponse, Data) in
+        ) { request -> ((URL?, Data), HTTPURLResponse, Data) in
             let (location, response) = try await self.transportDownload(request)
-            // An error body is small: read it to decode the error.
-            let errorBody = response.statusCode >= 400 ? ((try? Data(contentsOf: location)) ?? Data()) : Data()
-            if response.statusCode >= 400 { try? FileManager.default.removeItem(at: location) }
-            return (location, response, errorBody)
-        }
-        if response.statusCode != 200 {
-            let data = (try? Data(contentsOf: location)) ?? Data()
+            guard response.statusCode != 200 else { return ((location, Data()), response, Data()) }
+            // Not the file: its body is an error, small. Read it (the error
+            // is decoded from it), then drop the file.
+            let errorBody = Self.readSmall(location)
             try? FileManager.default.removeItem(at: location)
-            try check(response, data: data, accept: [200])
+            return ((nil, errorBody), response, errorBody)
+        }
+        guard response.statusCode == 200, let location else {
+            try check(response, data: errorBody, accept: [200])
+            throw APIError.unexpectedStatus(response.statusCode)
         }
         let name = ContentDisposition.fileName(response.value(forHTTPHeaderField: "Content-Disposition"))
             ?? ContentDisposition.safe(fallbackName) ?? "download.bin"
@@ -528,6 +529,13 @@ public actor APIClient {
             try? FileManager.default.removeItem(at: folder)
             throw error
         }
+    }
+
+    /// At most 64 KiB of a file (an error body).
+    static func readSmall(_ url: URL) -> Data {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return Data() }
+        defer { try? handle.close() }
+        return (try? handle.read(upToCount: 64 << 10)) ?? Data()
     }
 
     private func transportDownload(_ request: URLRequest) async throws -> (URL, HTTPURLResponse) {

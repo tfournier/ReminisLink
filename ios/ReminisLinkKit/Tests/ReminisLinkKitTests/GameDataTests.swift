@@ -71,18 +71,18 @@ struct GameDataModelTests {
 
     @Test func cheatsKeepUnknownKeysAndNeverSendTheLocalId() throws {
         let list = try ProtocolJSON.decoder().decode(CheatList.self, from: Data(#"""
-        {"cheats":[{"index":0,"description":"Infinite money","code":"82025490+FFFF","enabled":false,"extra":{"cheat0_handler":"0","cheat0_memory_search_size":"3"}},
+        {"cheats":[{"index":0,"description":"Infinite money","code":"82025490+FFFF","enabled":false,"extra":{"handler":"0","memory_search_size":"3"}},
                    {"description":"No extra","code":"1","enabled":true}],
          "etag":"\"sha256-9b1f\""}
         """#.utf8))
         #expect(list.etag == "\"sha256-9b1f\"")
-        #expect(list.cheats[0].extra == ["cheat0_handler": "0", "cheat0_memory_search_size": "3"])
+        #expect(list.cheats[0].extra == ["handler": "0", "memory_search_size": "3"])
         #expect(list.cheats[1].extra == [:])
         let data = try ProtocolJSON.encoder().encode(CheatsUpdate(cheats: list.cheats))
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let first = try #require((object["cheats"] as? [[String: Any]])?.first)
         #expect(first["id"] == nil)
-        #expect(first["extra"] as? [String: String] == ["cheat0_handler": "0", "cheat0_memory_search_size": "3"])
+        #expect(first["extra"] as? [String: String] == ["handler": "0", "memory_search_size": "3"])
         #expect(first["index"] as? Int == 0)
         // Equality ignores the local id.
         var copy = list.cheats[0]
@@ -102,6 +102,8 @@ struct GameDataModelTests {
         #expect(try json(.init(source: .inline("x"), mode: .merge)) == #"{"mode":"merge","source":{"text":"x","type":"inline"}}"#)
         #expect(try json(.init(source: .upload(uploadId: "up_1"), mode: .merge))
             == #"{"mode":"merge","source":{"type":"upload","uploadId":"up_1"}}"#)
+        #expect(try json(.init(source: .staging(stagingId: "st_1"), mode: .merge))
+            == #"{"mode":"merge","source":{"stagingId":"st_1","type":"staging"}}"#)
     }
 
     @Test func createBackupRequestOmitsAMissingLabel() throws {
@@ -152,7 +154,7 @@ struct GameDataModelTests {
 struct CheatEditorTests {
     func editor(_ names: [String] = ["A", "B", "C", "D"]) -> CheatEditor {
         CheatEditor(CheatList(cheats: names.enumerated().map { i, name in
-            Cheat(index: i, description: name, code: "\(i)", enabled: false, extra: ["cheat\(i)_handler": "\(i)"])
+            Cheat(index: i, description: name, code: "\(i)", enabled: false, extra: ["handler": "\(i)"])
         }, etag: "\"e1\""))
     }
 
@@ -181,7 +183,7 @@ struct CheatEditorTests {
         #expect(body.map(\.index) == [0, 1, 2, 3])
         #expect(body.map(\.description) == ["C", "D", "A", "New"])
         // Unknown keys travel back untouched, even when the cheat moved.
-        #expect(body[2].extra == ["cheat0_handler": "0"])
+        #expect(body[2].extra == ["handler": "0"])
         #expect(body[3].code == "01+02")
         #expect(body[3].extra == [:])
     }
@@ -199,7 +201,7 @@ struct CheatEditorTests {
         #expect(ok5)
         #expect(e.cheats[0].description == "Line break")
         #expect(e.cheats[0].code == "1 2")
-        #expect(e.cheats[0].extra == ["cheat0_handler": "0"])
+        #expect(e.cheats[0].extra == ["handler": "0"])
         let ok6 = e.update(id: UUID(), description: "a", code: "b", enabled: true)
         #expect(!ok6)
     }
@@ -245,7 +247,10 @@ struct GameDataAPITests {
         #expect(file.url.lastPathComponent == "Sky Garden Quest.gba.sav")
         #expect(try FileDigest.size(of: file.url) == 131_072)
         #expect(file.directory.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL)
-        await #expect(throws: APIError.self) { try await client.downloadSave(gameId: pixelRunner, into: root) }
+        // The error of the pak comes through, exactly.
+        await #expect(throws: APIError.server(ServerError(status: 404, code: .notFound, message: "No save"))) {
+            try await client.downloadSave(gameId: pixelRunner, into: root)
+        }
         // A failed download leaves nothing behind.
         let left = try FileManager.default.contentsOfDirectory(atPath: root.path)
         #expect(left.count == 1)
@@ -393,12 +398,12 @@ struct GameDataAPITests {
         let client = try await pairedClient(pak)
         var editor = CheatEditor(try await client.cheats(gameId: skyGarden))
         #expect(editor.cheats.count == 12)
-        #expect(editor.cheats[0].extra == ["cheat0_handler": "0"])
+        #expect(editor.cheats[0].extra == ["handler": "0"])
         editor.move(fromOffsets: [0], toOffset: 12)
         editor.setEnabled(id: editor.cheats[0].id, true)
         let saved = try await client.replaceCheats(gameId: skyGarden, editor.update(), ifMatch: editor.etag)
         #expect(saved.etag != editor.etag)
-        #expect(saved.cheats.last?.extra == ["cheat0_handler": "0"])
+        #expect(saved.cheats.last?.extra == ["handler": "0"])
         editor.load(saved)
 
         // Changed on the console in the meantime: 412, never overwritten.
@@ -430,7 +435,7 @@ struct GameDataAPITests {
             source: .inline("cheat0_desc = \"Inline\"\ncheat0_code = \"1\"\ncheat0_custom = \"kept\"\n"), mode: .replace
         ))
         #expect(result == CheatImportResult(imported: 1, total: 1))
-        #expect(try await client.cheats(gameId: pixelRunner).cheats.first?.extra == ["cheat0_custom": "kept"])
+        #expect(try await client.cheats(gameId: pixelRunner).cheats.first?.extra == ["custom": "kept"])
 
         // A file sent to the staging area, imported by its upload id.
         let cht = try makeFile(size: 0, name: "pack.cht")
@@ -443,9 +448,13 @@ struct GameDataAPITests {
         )
         let uploaded = try await upload.run(client: client)
         #expect(uploaded.stagingId != nil)
+        let stagingId = try #require(uploaded.stagingId)
+        result = try await client.importCheats(gameId: pixelRunner, .init(source: .staging(stagingId: stagingId), mode: .merge))
+        #expect(result == CheatImportResult(imported: 1, total: 2))
+        // The upload id works too, until the pak restarts.
         let uploadId = try #require(await upload.completedUploadId)
         result = try await client.importCheats(gameId: pixelRunner, .init(source: .upload(uploadId: uploadId), mode: .merge))
-        #expect(result == CheatImportResult(imported: 1, total: 2))
+        #expect(result == CheatImportResult(imported: 1, total: 3))
     }
 
     @Test func importWithoutCheatIsUnsupported() async throws {
@@ -511,5 +520,95 @@ struct FakeCheatConflictTests {
         // Only once.
         let fresh = try await client.cheats(gameId: skyGarden)
         _ = try await client.replaceCheats(gameId: skyGarden, CheatsUpdate(cheats: fresh.cheats), ifMatch: fresh.etag)
+    }
+}
+
+
+@Suite("Contract of the M5 review")
+struct GameDataReviewTests {
+    @Test func downloadErrorsKeepTheirCode() async throws {
+        let pak = makePak()
+        // A client the pak does not know: the error must stay unknown_client
+        // (the app then offers to pair again).
+        let stranger = APIClient(
+            endpoint: pak.endpoint,
+            credentials: DeviceCredentials(deviceId: pak.deviceId, clientId: Pairing.makeClientId(), key: .init(size: .bits256)),
+            session: pak.makeSession()
+        )
+        await #expect(throws: APIError.server(ServerError(status: 401, code: .unknownClient, message: "Unknown client"))) {
+            try await stranger.downloadState(gameId: skyGarden, slot: 1, into: downloadsDirectory())
+        }
+        // Retry-After of a busy pak is kept.
+        let client = try await pairedClient(pak)
+        pak.enqueue(.error(429, code: "too_many_attempts", message: "Busy", headers: ["Retry-After": "7"]))
+        do {
+            _ = try await client.downloadSave(gameId: skyGarden, into: downloadsDirectory())
+            Issue.record("no error")
+        } catch let APIError.server(error) {
+            #expect(error.code == .tooManyAttempts)
+            #expect(error.retryAfter == 7)
+        }
+    }
+
+    @Test func lockStatusesOfTheContract() {
+        let date = Date(timeIntervalSince1970: 0)
+        func slot(_ status: LockStatus?) -> StateSlot {
+            StateSlot(slot: 0, sizeBytes: 1, modifiedAt: date, hasThumbnail: false, locked: status != nil, lockStatus: status)
+        }
+        #expect(slot(.intact).matchesLockedCopy && slot(.restored).matchesLockedCopy)
+        #expect(!slot(.modified).matchesLockedCopy && !slot(.missing).matchesLockedCopy)
+        #expect(!slot(.coreChanged).canRestore && slot(.modified).canRestore)
+        #expect(!slot(.modified).canDelete)
+        let future = LockStatus(rawValue: "future")
+        #expect(!future.isKnown && LockStatus.coreChanged.isKnown)
+        #expect(!slot(future).matchesLockedCopy)
+    }
+
+    @Test func coreChangedCopiesCannotBeRestoredAndUnlockKeepsDifferentCopies() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        pak.setLockStatus(gameId: skyGarden, slot: 0, "core-changed")
+        #expect(try await client.states(gameId: skyGarden).slots[0].lockStatus == .coreChanged)
+        await #expect(throws: APIError.server(ServerError(status: 409, code: .conflict, message: "Locked copy comes from another core"))) {
+            try await client.restoreLockedState(gameId: skyGarden, slot: 0)
+        }
+        let before = try await client.trash().entries.count
+        _ = try await client.unlockState(gameId: skyGarden, slot: 0)
+        #expect(try await client.trash().entries.count == before + 1)
+        // An intact copy is erased, not trashed.
+        _ = try await client.lockState(gameId: skyGarden, slot: 1)
+        _ = try await client.unlockState(gameId: skyGarden, slot: 1)
+        #expect(try await client.trash().entries.count == before + 1)
+    }
+
+    @Test func deletedBackupsGoToTheTrash() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let backup = try #require(try await client.saveBackups(gameId: skyGarden).first)
+        let before = try await client.trash().entries.count
+        try await client.deleteSaveBackup(gameId: skyGarden, backupId: backup.id)
+        let trash = try await client.trash().entries
+        #expect(trash.count == before + 1)
+        #expect(trash.first?.reason == "delete-backup")
+    }
+
+    @Test func prefixedExtraKeysAreAcceptedByTheFakePak() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let list = try await client.cheats(gameId: pixelRunner)
+        let saved = try await client.replaceCheats(gameId: pixelRunner, CheatsUpdate(cheats: [
+            Cheat(description: "A", code: "1", enabled: true, extra: ["cheat3_handler": "1"]),
+        ]), ifMatch: list.etag)
+        #expect(saved.cheats.first?.extra == ["handler": "1"])
+    }
+
+    @Test func fileNamesAreNormalized() {
+        // C1 controls removed, NFC composed.
+        #expect(ContentDisposition.safe("a\u{0085}b.sav") == "ab.sav")
+        let decomposed = "Cafe\u{0301}.sav"
+        #expect(ContentDisposition.safe(decomposed)?.unicodeScalars.count == "Café.sav".unicodeScalars.count)
+        #expect(ContentDisposition.localName(".cht") == "file.cht")
+        #expect(ContentDisposition.localName("Game.sav") == "Game.sav")
+        #expect(ContentDisposition.localName("..") == "file..")
     }
 }

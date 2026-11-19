@@ -104,6 +104,17 @@ public struct LockStatus: RawRepresentable, Codable, Hashable, Sendable {
     public static let restored = LockStatus(rawValue: "restored")
     /// The state is gone; the locked copy is still there.
     public static let missing = LockStatus(rawValue: "missing")
+    /// The state differs from the locked copy and was not restored.
+    public static let modified = LockStatus(rawValue: "modified")
+    /// The locked copy comes from another emulator core: it cannot be
+    /// restored (`409 conflict`).
+    public static let coreChanged = LockStatus(rawValue: "core-changed")
+
+    /// The states this app knows; any other value is shown as unknown,
+    /// never as a protected state.
+    public var isKnown: Bool {
+        [.intact, .restored, .missing, .modified, .coreChanged].contains(self)
+    }
 }
 
 /// A state slot (`Slot`).
@@ -135,6 +146,13 @@ public struct StateSlot: Codable, Sendable, Equatable, Hashable, Identifiable {
     public var canDownload: Bool { !isMissing }
     /// The pak refuses to delete a locked slot (`409 state_locked`).
     public var canDelete: Bool { !locked && !isMissing }
+    /// The locked copy can be put back (not when it comes from another
+    /// emulator core).
+    public var canRestore: Bool { locked && lockStatus != .coreChanged }
+    /// The state holds the bytes of the locked copy: unlocking erases the
+    /// copy. Otherwise (missing, modified, unknown...) unlocking moves the
+    /// copy to the trash.
+    public var matchesLockedCopy: Bool { lockStatus == .intact || lockStatus == .restored }
 
     /// The number NextUI shows: slots 0 to 7 are shown 1 to 8
     /// (docs/specs/04-api-v1.md, States).
@@ -210,8 +228,9 @@ public struct ResumeHistory: Codable, Sendable, Equatable {
 
 /// One cheat of a `.cht` file (`Cheat`).
 ///
-/// `extra` holds the keys of this cheat the pak does not interpret; the
-/// app sends them back untouched. `id` is local (lists and edits) and is
+/// `extra` holds the keys of this cheat the pak does not interpret, without
+/// their `cheat<index>_` prefix (`handler`); the app sends them back
+/// untouched and the pak prefixes them with the cheat's new position. `id` is local (lists and edits) and is
 /// neither encoded nor compared.
 public struct Cheat: Codable, Sendable, Hashable, Identifiable {
     public let id: UUID
@@ -296,11 +315,15 @@ public enum CheatImportSource: Sendable, Equatable, Encodable {
     case sd(sdFileId: String)
     /// The text of a `.cht` (1 MiB at most).
     case inline(String)
-    /// A completed upload to the staging area (`target.kind = "staging"`).
+    /// A completed upload to the staging area (`target.kind = "staging"`),
+    /// by its upload id (only until the pak restarts).
     case upload(uploadId: String)
+    /// A staging file, by the `stagingId` its upload returned (valid 24 h;
+    /// preferred to `upload`).
+    case staging(stagingId: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, url, sdFileId, text, uploadId
+        case type, url, sdFileId, text, uploadId, stagingId
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -318,6 +341,9 @@ public enum CheatImportSource: Sendable, Equatable, Encodable {
         case .upload(let id):
             try c.encode("upload", forKey: .type)
             try c.encode(id, forKey: .uploadId)
+        case .staging(let id):
+            try c.encode("staging", forKey: .type)
+            try c.encode(id, forKey: .stagingId)
         }
     }
 }
@@ -447,13 +473,21 @@ public enum ContentDisposition {
     public static func safe(_ name: String?) -> String? {
         guard let name else { return nil }
         let last = name.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? ""
-        let cleaned = String(String.UnicodeScalarView(last.unicodeScalars.filter {
-            $0.value >= 0x20 && $0.value != 0x7f && !$0.properties.isDefaultIgnorableCodePoint
+        let cleaned = String(String.UnicodeScalarView(last.precomposedStringWithCanonicalMapping.unicodeScalars.filter {
+            // No C0 or C1 control, no invisible formatting character.
+            $0.value >= 0x20 && !(0x7f...0x9f).contains($0.value) && !$0.properties.isDefaultIgnorableCodePoint
         })).trimmingCharacters(in: .whitespaces)
         guard !cleaned.isEmpty, cleaned != ".", cleaned != "..", !cleaned.hasPrefix("."),
               cleaned.utf8.count <= 255
         else { return nil }
         return cleaned
+    }
+
+    /// A local name for a file picked or shared: ``safe(_:)``, and a name
+    /// that starts with "." (refused as hidden) becomes `file.<...>`, so it
+    /// keeps its extension.
+    public static func localName(_ name: String) -> String {
+        safe(name) ?? safe("file" + name) ?? "file"
     }
 
     /// Splits on `;` outside double quotes.
