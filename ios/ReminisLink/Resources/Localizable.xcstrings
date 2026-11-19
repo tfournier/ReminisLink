@@ -331,6 +331,16 @@
         }
       }
     },
+    "A new game is created next to the original. If the name is taken, the console adds a number." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nouveau jeu est créé à côté de l’original. Si le nom est pris, la console ajoute un numéro."
+          }
+        }
+      }
+    },
     "Add" : {
       "localizations" : {
         "fr" : {
@@ -401,12 +411,72 @@
         }
       }
     },
+    "An IPS, BPS or UPS patch. It is sent to the staging area of the console, then applied." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un patch IPS, BPS ou UPS. Il est envoyé dans la zone temporaire de la console, puis appliqué."
+          }
+        }
+      }
+    },
     "Another console answered at this address." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Une autre console a répondu à cette adresse."
+          }
+        }
+      }
+    },
+    "Apply" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appliquer"
+          }
+        }
+      }
+    },
+    "Apply a Patch" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appliquer un patch"
+          }
+        }
+      }
+    },
+    "Apply a Patch…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appliquer un patch…"
+          }
+        }
+      }
+    },
+    "Applying the patch…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Application du patch…"
+          }
+        }
+      }
+    },
+    "Applying the patch… %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Application du patch… %@"
           }
         }
       }
@@ -561,6 +631,16 @@
         }
       }
     },
+    "Cancel the Patch" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler le patch"
+          }
+        }
+      }
+    },
     "Cancelled" : {
       "localizations" : {
         "fr" : {
@@ -577,6 +657,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Annulé."
+          }
+        }
+      }
+    },
+    "Cancelled. Nothing was changed on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annulé. Rien n’a été modifié sur la console."
           }
         }
       }
@@ -671,12 +761,32 @@
         }
       }
     },
+    "Choose the game to apply the patch to." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisis le jeu auquel appliquer le patch."
+          }
+        }
+      }
+    },
     "Clear Finished" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Effacer les terminés"
+          }
+        }
+      }
+    },
+    "Close" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer"
           }
         }
       }
@@ -1011,16 +1121,6 @@
         }
       }
     },
-    "Downloads by the Console" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Téléchargements par la console"
-          }
-        }
-      }
-    },
     "Each time ReminisLink opens on the console, it archives the resume state if it changed. The last 5 versions are kept." : {
       "localizations" : {
         "fr" : {
@@ -1091,6 +1191,16 @@
         }
       }
     },
+    "Enter a file name without / or \\, not starting with a dot." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisis un nom de fichier sans / ni \\, qui ne commence pas par un point."
+          }
+        }
+      }
+    },
     "Enter a link starting with http:// or https://." : {
       "localizations" : {
         "fr" : {
@@ -1137,6 +1247,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Échec"
+          }
+        }
+      }
+    },
+    "File Name" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nom du fichier"
           }
         }
       }
@@ -1227,6 +1347,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Adresse IP"
+          }
+        }
+      }
+    },
+    "IPS, BPS or UPS, applied by the console to a new file or to this game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IPS, BPS ou UPS, appliqué par la console dans un nouveau fichier ou sur ce jeu."
           }
         }
       }
@@ -1347,6 +1477,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Garder la save et les states"
+          }
+        }
+      }
+    },
+    "Keep the extension of the game (%@) so that NextUI opens it with the same emulator." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garde l’extension du jeu (%@) pour que NextUI l’ouvre avec le même émulateur."
           }
         }
       }
@@ -1611,6 +1751,16 @@
         }
       }
     },
+    "New File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau fichier"
+          }
+        }
+      }
+    },
     "Next Shared Links" : {
       "localizations" : {
         "fr" : {
@@ -1717,6 +1867,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun jeu sur la console"
+          }
+        }
+      }
+    },
+    "No patch on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun patch sur la carte SD."
           }
         }
       }
@@ -1851,12 +2011,32 @@
         }
       }
     },
+    "Open the New Game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir le nouveau jeu"
+          }
+        }
+      }
+    },
     "Optional" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Facultatif"
+          }
+        }
+      }
+    },
+    "Output" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Résultat"
           }
         }
       }
@@ -1961,6 +2141,46 @@
         }
       }
     },
+    "Patch applied" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patch appliqué"
+          }
+        }
+      }
+    },
+    "Patch applied. The new game is in the library." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patch appliqué. Le nouveau jeu est dans la bibliothèque."
+          }
+        }
+      }
+    },
+    "Patch applied. The original ROM is in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patch appliqué. La ROM d’origine est dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "Patch: %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patch : %@"
+          }
+        }
+      }
+    },
     "Paths on the SD card, for information." : {
       "localizations" : {
         "fr" : {
@@ -2007,6 +2227,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vise le QR code affiché par ReminisLink sur la console."
+          }
+        }
+      }
+    },
+    "Preparing the patch…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation du patch…"
           }
         }
       }
@@ -2111,12 +2341,32 @@
         }
       }
     },
+    "Replace the Game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer le jeu"
+          }
+        }
+      }
+    },
     "Replace the List" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer la liste"
+          }
+        }
+      }
+    },
+    "Replace the game?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer le jeu ?"
           }
         }
       }
@@ -2381,6 +2631,16 @@
         }
       }
     },
+    "Sending the patch… %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi du patch… %@"
+          }
+        }
+      }
+    },
     "Sent" : {
       "localizations" : {
         "fr" : {
@@ -2397,6 +2657,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Envoyé. La save précédente a été gardée en copie de sauvegarde."
+          }
+        }
+      }
+    },
+    "Several discs: cannot be patched" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plusieurs disques : ne peut pas être patché"
           }
         }
       }
@@ -2501,6 +2771,16 @@
         }
       }
     },
+    "Starting…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Démarrage…"
+          }
+        }
+      }
+    },
     "State" : {
       "localizations" : {
         "fr" : {
@@ -2551,12 +2831,32 @@
         }
       }
     },
+    "Tasks on the Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tâches sur la console"
+          }
+        }
+      }
+    },
     "The .cht files of the Cheats folder of the SD card. Those named after this game come first." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les fichiers .cht du dossier Cheats de la carte SD. Ceux qui portent le nom de ce jeu sont en premier."
+          }
+        }
+      }
+    },
+    "The .ips, .bps and .ups files of the Roms folder and of the ReminisLink/patches folder of the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers .ips, .bps et .ups du dossier Roms et du dossier ReminisLink/patches de la carte SD."
           }
         }
       }
@@ -2601,6 +2901,16 @@
         }
       }
     },
+    "The console could not download the patch. Check the link and the Wi-Fi connection of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console n’a pas pu télécharger le patch. Vérifie le lien et la connexion Wi-Fi de la console."
+          }
+        }
+      }
+    },
     "The console could not prove its identity. Pairing was cancelled." : {
       "localizations" : {
         "fr" : {
@@ -2631,12 +2941,32 @@
         }
       }
     },
+    "The console downloads the patch itself, on its own Wi-Fi connection." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console télécharge le patch elle-même, avec sa propre connexion Wi-Fi."
+          }
+        }
+      }
+    },
     "The console found nothing it can use in this file." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console n’a rien trouvé d’utilisable dans ce fichier."
+          }
+        }
+      }
+    },
+    "The console is downloading the patch…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console télécharge le patch…"
           }
         }
       }
@@ -2711,12 +3041,32 @@
         }
       }
     },
+    "The console was restarted and stopped this task. Check the library before trying again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a redémarré et a arrêté cette tâche. Vérifie la bibliothèque avant de réessayer."
+          }
+        }
+      }
+    },
     "The console was restarted: this download was stopped." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console a été relancée : ce téléchargement a été arrêté."
+          }
+        }
+      }
+    },
+    "The console was restarted: this patch was stopped." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a redémarré : ce patch a été arrêté."
           }
         }
       }
@@ -2901,6 +3251,16 @@
         }
       }
     },
+    "The original ROM goes to the trash of the console. The save, the states and the cheats are kept." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La ROM d’origine part dans la corbeille de la console. La save, les states et les cheats sont conservés."
+          }
+        }
+      }
+    },
     "The pairing information could not be read or saved on this iPhone." : {
       "localizations" : {
         "fr" : {
@@ -3031,6 +3391,16 @@
         }
       }
     },
+    "This file is not a patch the console can apply. Choose an IPS, BPS or UPS patch." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier n’est pas un patch que la console sait appliquer. Choisis un patch IPS, BPS ou UPS."
+          }
+        }
+      }
+    },
     "This game has no save on the console." : {
       "localizations" : {
         "fr" : {
@@ -3047,6 +3417,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce jeu n’a pas encore de save : le fichier devient sa save."
+          }
+        }
+      }
+    },
+    "This game has several discs: a patch applies to a single ROM file, so multi-disc games cannot be patched here." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu a plusieurs disques : un patch s’applique à un seul fichier ROM, donc les jeux multi-disques ne peuvent pas être patchés ici."
           }
         }
       }
@@ -3077,6 +3457,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce lien n’est pas un lien d’appairage ReminisLink valide."
+          }
+        }
+      }
+    },
+    "This patch does not match this ROM. Check the ROM version the patch asks for." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce patch ne correspond pas à cette ROM. Vérifie la version de la ROM demandée par le patch."
           }
         }
       }
@@ -3337,6 +3727,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oui"
+          }
+        }
+      }
+    },
+    "You can close this screen: the console goes on. Follow it in Transfers." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu peux fermer cet écran : la console continue. Suis-la dans Transferts."
           }
         }
       }

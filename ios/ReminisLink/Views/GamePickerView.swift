@@ -2,11 +2,13 @@ import ReminisLinkKit
 import SwiftUI
 
 /// Chooses a game of a console: systems, then folders and games (for the
-/// save sent from the Add screen).
+/// save sent from the Add screen, or a shared patch).
 struct GamePickerView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     let deviceId: String
+    /// For a patch: multi-disc games are shown but cannot be chosen.
+    var patchOnly = false
     let onPick: (PickedGame) -> Void
 
     @State private var systems: [GameSystem]?
@@ -20,7 +22,8 @@ struct GamePickerView: View {
                 }
                 ForEach(systems ?? []) { system in
                     NavigationLink {
-                        GameFolderPickerView(deviceId: deviceId, systemId: system.id, folderId: nil, title: system.label, onPick: onPick)
+                        GameFolderPickerView(deviceId: deviceId, systemId: system.id, systemLabel: system.label, folderId: nil,
+                                             title: system.label, patchOnly: patchOnly, onPick: onPick)
                     } label: {
                         LabeledContent(system.label) {
                             Text(system.gameCount, format: .number)
@@ -59,8 +62,10 @@ struct GameFolderPickerView: View {
     @Environment(AppModel.self) private var app
     let deviceId: String
     let systemId: String
+    let systemLabel: String
     let folderId: String?
     let title: String
+    var patchOnly = false
     let onPick: (PickedGame) -> Void
 
     @State private var listing: GameListing?
@@ -74,25 +79,36 @@ struct GameFolderPickerView: View {
             if let listing {
                 ForEach(listing.folders) { folder in
                     NavigationLink {
-                        GameFolderPickerView(deviceId: deviceId, systemId: systemId, folderId: folder.id, title: folder.name, onPick: onPick)
+                        GameFolderPickerView(deviceId: deviceId, systemId: systemId, systemLabel: systemLabel, folderId: folder.id,
+                                             title: folder.name, patchOnly: patchOnly, onPick: onPick)
                     } label: {
                         Label(folder.name, systemImage: "folder")
                     }
                 }
                 ForEach(listing.games) { game in
+                    let refused = patchOnly && !game.kind.isPatchable
                     Button {
-                        onPick(PickedGame(id: game.id, name: game.name, hasSave: game.hasSave))
+                        onPick(PickedGame(id: game.id, name: game.name, hasSave: game.hasSave, fileName: game.fileName,
+                                          kind: game.kind, systemLabel: systemLabel))
                     } label: {
                         HStack {
-                            Text(game.name).foregroundStyle(.primary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(game.name).foregroundStyle(refused ? .secondary : .primary)
+                                if refused {
+                                    Text("Several discs: cannot be patched")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
-                            if game.hasSave {
+                            if game.hasSave && !patchOnly {
                                 Image(systemName: "externaldrive")
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel(Text("Has a save"))
                             }
                         }
                     }
+                    .disabled(refused)
                     .accessibilityIdentifier("picker.game.\(game.name)")
                 }
                 if listing.folders.isEmpty && listing.games.isEmpty {

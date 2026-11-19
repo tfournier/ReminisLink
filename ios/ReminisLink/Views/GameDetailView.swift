@@ -2,7 +2,7 @@ import ReminisLinkKit
 import SwiftUI
 
 /// Game sheet (docs/specs/06-app-ios.md §4.5): header, the save, states
-/// and cheats screens, the files of the game and its deletion.
+/// and cheats screens, the patch, the files of the game and its deletion.
 struct GameDetailView: View {
     @Environment(AppModel.self) private var app
     let route: GameRoute
@@ -10,6 +10,7 @@ struct GameDetailView: View {
     @State private var error: AppError?
     @State private var toDelete: DeleteTarget?
     @State private var deleted = false
+    @State private var patch: PatchContext?
 
     var body: some View {
         List {
@@ -67,6 +68,26 @@ struct GameDetailView: View {
                     Text("Contents")
                 }
                 Section {
+                    Button {
+                        patch = PatchContext(deviceId: route.deviceId, game: PatchGame(
+                            id: route.gameId, name: detail.name, fileName: detail.fileName,
+                            kind: detail.kind, systemLabel: route.systemLabel
+                        ))
+                    } label: {
+                        Label("Apply a Patch…", systemImage: "bandage")
+                    }
+                    .disabled(!detail.kind.isPatchable)
+                    .accessibilityIdentifier("game.patch")
+                } header: {
+                    Text("Patch")
+                } footer: {
+                    if detail.kind.isPatchable {
+                        Text("IPS, BPS or UPS, applied by the console to a new file or to this game.")
+                    } else {
+                        Text("This game has several discs: a patch applies to a single ROM file, so multi-disc games cannot be patched here.")
+                    }
+                }
+                Section {
                     ForEach(Array(detail.files.enumerated()), id: \.offset) { _, file in
                         FileRow(file: file)
                     }
@@ -93,6 +114,9 @@ struct GameDetailView: View {
         .refreshable { await load() }
         // Back from the save, states or cheats screens: counters may have changed.
         .onChange(of: app.session(for: route.deviceId).libraryRevision) { Task { await load() } }
+        .sheet(item: $patch) { context in
+            PatchView(context: context)
+        }
         .sheet(item: $toDelete, onDismiss: {
             // The game is gone: back to its folder.
             if deleted, app.path.last == .game(route) { app.path.removeLast() }

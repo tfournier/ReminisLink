@@ -39,6 +39,7 @@ struct RootView: View {
             case .addConsole: AddConsoleView()
             case .pairing(let flow): PairingProgressView(flow: flow)
             case .add(let context): AddView(context: context)
+            case .patch(let context): PatchView(context: context)
             }
         }
         .alert(
