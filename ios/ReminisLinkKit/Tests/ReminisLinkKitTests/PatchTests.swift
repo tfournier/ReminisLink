@@ -54,7 +54,7 @@ struct PatchModelTests {
 
     @Test func onlySingleFileGamesArePatchable() {
         #expect(GameKind.file.isPatchable)
-        #expect(!GameKind.m3u.isPatchable && !GameKind.folderM3U.isPatchable)
+        #expect(!GameKind.m3u.isPatchable && !GameKind.folderM3U.isPatchable && !GameKind.folderCUE.isPatchable)
         #expect(!GameKind(rawValue: "something-new").isPatchable)
     }
 

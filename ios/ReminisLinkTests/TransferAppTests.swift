@@ -207,6 +207,21 @@ struct TransferAppTests {
             == "The locks of its states and its resume history go to the trash too.")
     }
 
+    /// M8: the pak keeps the discs another playlist still lists, and the
+    /// API does not say which: the confirmation never claims more than the
+    /// pak moves. `folder-cue` and unknown kinds are folder games.
+    @Test func multiDiscConfirmationNeverClaimsMoreThanThePak() {
+        typealias MultiDisc = DeleteGameView.MultiDisc
+        #expect(MultiDisc(.file) == .none && MultiDisc(.file).note == nil)
+        #expect(MultiDisc(.m3u) == .playlist)
+        #expect(MultiDisc(.m3u).note == "Discs that another playlist of the system still lists stay in place.")
+        for kind in [GameKind.folderM3U, .folderCUE, GameKind(rawValue: "something-new")] {
+            #expect(MultiDisc(kind) == .folder)
+            #expect(MultiDisc(kind).note
+                == "The folder of this multi-disc game is moved, except the discs that another playlist of the system still lists.")
+        }
+    }
+
     /// After an unknown outcome, a save or a state sent again replaces the
     /// one on the console: confirmed first, never announced as "both kept".
     @Test func sendingAgainASaveOrAStateReplacesIt() {

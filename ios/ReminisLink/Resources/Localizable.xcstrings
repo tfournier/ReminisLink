@@ -1141,6 +1141,16 @@
         }
       }
     },
+    "Discs that another playlist of the system still lists stay in place." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les disques qu’une autre playlist du système liste encore restent en place."
+          }
+        }
+      }
+    },
     "Done" : {
       "localizations" : {
         "fr" : {
@@ -3461,6 +3471,16 @@
         }
       }
     },
+    "The folder of this multi-disc game is moved, except the discs that another playlist of the system still lists." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le dossier de ce jeu multi-disques est déplacé, sauf les disques qu’une autre playlist du système liste encore."
+          }
+        }
+      }
+    },
     "The imported cheats are added after the current ones." : {
       "localizations" : {
         "fr" : {
@@ -3637,16 +3657,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La corbeille est vide"
-          }
-        }
-      }
-    },
-    "The whole folder of this multi-disc game is moved." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tout le dossier de ce jeu multi-disques est déplacé."
           }
         }
       }
@@ -3997,6 +4007,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se désappairer de cette console ?"
+          }
+        }
+      }
+    },
+    "Up to %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jusqu’à %@"
           }
         }
       }

@@ -81,6 +81,20 @@ struct ModelsTests {
         #expect(listing.games.first?.lockedStateCount == 1)
     }
 
+    /// M8: `folder-cue`; an unknown kind is treated like `folder-m3u`.
+    @Test func gameKinds() throws {
+        let listing = try decode(GameListing.self, """
+        {"folders":[],
+         "games":[{"id":"YmFy","name":"Tide Runner","fileName":"Tide Runner","kind":"folder-cue",
+                   "sizeBytes":1,"modifiedAt":"2026-10-02T09:12:00Z","hasSave":false,"stateCount":0,
+                   "lockedStateCount":0,"cheatCount":0,"hasArt":false}]}
+        """)
+        #expect(listing.games.first?.kind == .folderCUE)
+        #expect(GameKind.folderCUE.isFolder && GameKind.folderM3U.isFolder && GameKind(rawValue: "zip").isFolder)
+        #expect(!GameKind.file.isFolder && !GameKind.m3u.isFolder)
+        #expect(GameKind.m3u.isMultiDisc && GameKind.folderCUE.isMultiDisc && !GameKind.file.isMultiDisc)
+    }
+
     @Test func gameDetailCounters() throws {
         let detail = try decode(GameDetail.self, """
         {"id":"YmFy","systemId":"Zm9v","name":"Sky Garden Quest","fileName":"Sky Garden Quest.gba","kind":"file",

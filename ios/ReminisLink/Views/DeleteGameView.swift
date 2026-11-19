@@ -35,6 +35,30 @@ struct DeleteGameView: View {
         files.filter { !keepSave || !GameDetail.isKeptWithSave($0.role) }
     }
 
+    /// What the confirmation says of a multi-disc game. The discs another
+    /// playlist of the system still lists stay in place (M8), and the API
+    /// does not say which ones: the total is then a maximum.
+    enum MultiDisc: Equatable {
+        /// A single file (`file`): the total is exact.
+        case none
+        /// An `.m3u` file next to its discs.
+        case playlist
+        /// The folder is the game: `folder-m3u`, `folder-cue`, or unknown.
+        case folder
+
+        init(_ kind: GameKind) {
+            self = kind.isFolder ? .folder : kind.isMultiDisc ? .playlist : .none
+        }
+
+        var note: LocalizedStringKey? {
+            switch self {
+            case .none: nil
+            case .playlist: "Discs that another playlist of the system still lists stay in place."
+            case .folder: "The folder of this multi-disc game is moved, except the discs that another playlist of the system still lists."
+            }
+        }
+    }
+
     /// What else the pak moves without being listed by `GET /games/{id}`.
     static func unlistedNote(_ files: [GameFile], keepSave: Bool) -> LocalizedStringKey? {
         guard !keepSave else { return nil }
@@ -98,9 +122,15 @@ struct DeleteGameView: View {
             Text("Moved to the trash of the console")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Total: \(files.reduce(0) { $0 + $1.sizeBytes }.byteString)")
-                if detail.kind == .folderM3U {
-                    Text("The whole folder of this multi-disc game is moved.")
+                let total = files.reduce(0) { $0 + $1.sizeBytes }.byteString
+                let multiDisc = MultiDisc(detail.kind)
+                if multiDisc == .none {
+                    Text("Total: \(total)")
+                } else {
+                    Text("Up to \(total)")
+                }
+                if let note = multiDisc.note {
+                    Text(note)
                 }
                 if let note = Self.unlistedNote(detail.files, keepSave: keepSave) {
                     Text(note)
