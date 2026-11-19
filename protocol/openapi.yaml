@@ -125,7 +125,7 @@ paths:
                 model: brick
                 platform: tg5040
                 os: nextui
-                osVersion: 6.14.0
+                osVersion: NextUI-20261013-039a06de
                 pakVersion: 1.0.0
                 apiVersion: 1
                 minClientVersion: 1.0.0
@@ -222,7 +222,7 @@ paths:
                 model: brick
                 platform: tg5040
                 os: nextui
-                osVersion: 6.14.0
+                osVersion: NextUI-20261013-039a06de
                 pakVersion: 1.0.0
                 network: { ipv4: 192.168.1.42, ssid: MaBox }
                 battery: { percent: 78, charging: false }
@@ -246,7 +246,11 @@ paths:
       description: |
         Folders of `Roms/` with a `(TAG)` suffix and at least one visible item.
         The leading sort number (`01) `, `02_`...) is removed from `label`.
-        Sorted alphabetically, case-insensitive.
+        Sorted alphabetically, case-insensitive. Every such folder is listed,
+        even when NextUI hides it: `emulatorInstalled` tells whether an
+        emulator pak `<TAG>.pak` exists (NextUI only shows the folder then).
+        NextUI also merges, for display, folders with the same name before
+        `(`; the data stays separate per tag, merging is left to the app.
       responses:
         '200':
           description: Systems.
@@ -260,6 +264,7 @@ paths:
                     folder: Game Boy Advance (GBA)
                     tag: GBA
                     gameCount: 42
+                    emulatorInstalled: true
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -1785,7 +1790,9 @@ components:
         model: { $ref: '#/components/schemas/Model' }
         platform: { type: string, description: 'NextUI platform, e.g. `tg5040`.' }
         os: { type: string, description: 'For example `nextui`.' }
-        osVersion: { type: [string, 'null'] }
+        osVersion:
+          type: [string, 'null']
+          description: 'OS release as NextUI shows it (lines of `.system/version.txt` joined), e.g. `NextUI-20261013-039a06de`; null when unknown.'
         pakVersion: { type: string }
         apiVersion: { type: integer, minimum: 1 }
         minClientVersion: { type: string, description: Oldest app version supported. }
@@ -1817,7 +1824,9 @@ components:
         model: { $ref: '#/components/schemas/Model' }
         platform: { type: string }
         os: { type: string }
-        osVersion: { type: [string, 'null'] }
+        osVersion:
+          type: [string, 'null']
+          description: 'OS release as NextUI shows it (lines of `.system/version.txt` joined), e.g. `NextUI-20261013-039a06de`; null when unknown.'
         pakVersion: { type: string }
         network:
           type: object
@@ -1856,13 +1865,19 @@ components:
 
     System:
       type: object
-      required: [id, label, folder, tag, gameCount]
+      required: [id, label, folder, tag, gameCount, emulatorInstalled]
       properties:
         id: { $ref: '#/components/schemas/OpaqueId' }
         label: { type: string, description: Folder name without the sort prefix nor the tag. }
         folder: { type: string }
         tag: { type: string }
         gameCount: { type: integer, minimum: 0 }
+        emulatorInstalled:
+          type: boolean
+          description: |
+            An emulator pak for the tag exists: `<SD>/Emus/<platform>/<TAG>.pak`
+            or `<SD>/.system/<platform>/paks/Emus/<TAG>.pak`. NextUI shows the
+            system only when it is true.
     SystemList:
       type: object
       required: [systems]
