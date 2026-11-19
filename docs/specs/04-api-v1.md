@@ -217,7 +217,7 @@ L'espace n'est libéré qu'à la purge de la corbeille : automatiquement après 
 }
 ```
 
-Une entrée regroupe tout ce qu'une même opération a mis à la corbeille. `reason` : `delete-game`, `delete-state`, `overwrite`, `replace-rom`, `lock-restore`, `restore`.
+Une entrée regroupe tout ce qu'une même opération a mis à la corbeille. `reason` : `delete-game`, `delete-state`, `overwrite`, `replace-rom`, `lock-restore`, `restore`, `delete-backup` (suppression d'une copie de save, copies automatiques au-delà de 10, entrées d'historique au-delà de 5).
 
 ### `DELETE /trash` et `DELETE /trash/{entryId}`
 
@@ -277,7 +277,7 @@ Télécharger le fichier de la copie ; supprimer la copie (`204`).
 }
 ```
 
-- `lockStatus` : `intact` (identique à la copie verrouillée), `restored` (écrasé en jeu, restauré automatiquement au lancement du pak), `missing` (le state a disparu, la copie verrouillée existe).
+- `lockStatus` : `intact` (identique à la copie verrouillée : taille et date, SHA-256 en cas de doute), `restored` (écrasé en jeu, restauré automatiquement au lancement du pak ; signalé une seule fois), `missing` (le state a disparu, la copie verrouillée existe), `modified` (différent de la copie et non restauré : maintenance sautée, copie corrompue, format non géré), `core-changed` (le pak émulateur utilise un autre cœur que celui de la copie : rien n'est restauré). *(Valeurs `modified` et `core-changed` ajoutées en M5.)*
 - `slot` : numéro d'emplacement de NextUI. Les emplacements 0 à 7 sont ceux de l'utilisateur (affichés 1 à 8 dans NextUI, l'app DEVRAIT afficher `slot + 1`), 8 est un state « par défaut » caché, 9 la reprise automatique (code NextUI `ma_menu.c:117`, `defines.h:28`).
 - `resumeSlot` : numéro de l'emplacement de reprise automatique, `9` sur NextUI (code NextUI `defines.h:28`), ou `null`. Représentation de la reprise quand `stateFormat` ≠ 0 (fichier `.state.auto`) : décision ouverte, voir [m0/questions.md](m0/questions.md).
 
@@ -317,7 +317,7 @@ Remplace le state de reprise par cette version (la version actuelle est d'abord 
 
 ## Cheats
 
-Le format `.cht` est celui de RetroArch, géré comme dans Cheat Manager (clés inconnues conservées, fichier précédent gardé en `.cht.bak`).
+Le format `.cht` est celui de RetroArch, géré comme dans Cheat Manager (clés inconnues conservées, fichier précédent gardé en `.cht.bak` ; l'ancien `.bak` passe par la corbeille avant d'être remplacé).
 
 ### `GET /games/{gameId}/cheats`
 
@@ -340,7 +340,7 @@ Corps : `{ "cheats": [ ... ] }` (liste complète, dans l'ordre) avec l'en-tête 
 { "source": { "type": "url", "url": "https://..." }, "mode": "merge" }
 ```
 
-- `source.type` : `url` (téléchargé par la console, 5 Mio maximum, synchrone), `sd` (`sdFileId` venant de `GET /sd/files`), `inline` (`text` : contenu du `.cht`, 1 Mio maximum), `upload` (`uploadId` d'un envoi terminé avec `target.kind = "staging"`).
+- `source.type` : `url` (téléchargé par la console, 5 Mio maximum, synchrone), `sd` (`sdFileId` venant de `GET /sd/files`), `inline` (`text` : contenu du `.cht`, 1 Mio maximum), `upload` (`uploadId` d'un envoi terminé avec `target.kind = "staging"`, connu seulement pendant la session du pak), `staging` (`stagingId` renvoyé par la fin de l'envoi : à préférer, il survit à un redémarrage du pak).
 - `mode` : `merge` (ajoute à la suite) ou `replace`.
 - Réponse : `{ "imported": 15, "total": 27 }`. `422 unsupported_format` si aucun cheat n'a été trouvé.
 
