@@ -410,11 +410,10 @@ var ErrStagingNotFound = errors.New("staging file not found")
 // applying onConflict, and returns the created resource (UploadResult).
 // The file being replaced, if any, goes to the trash first.
 //
-// Power loss during an overwrite: between the move of the old file to the
-// trash and the rename of the new one, the destination is briefly empty.
-// Nothing is lost: the old file is in a complete trash entry, and the
-// temporary file is still the .part of a resumable upload (complete it
-// again) or, for a download, the job simply failed and can be run again.
+// Power loss during an overwrite: the replacement is journaled in its
+// trash entry (store.Trash.Replace): the next start finishes it when the
+// new file is complete, or puts the old file back, and the old file is
+// never purged before.
 func (s *Service) install(d destination, tmp, onConflict string) (map[string]any, *Error, error) {
 	s.installMu.Lock()
 	defer s.installMu.Unlock()
@@ -483,9 +482,16 @@ func (s *Service) installROM(d destination, tmp, onConflict string) (map[string]
 				// Never replace a folder (a multi-disc game) by a file.
 				return nil, s.conflictError(path), nil
 			}
-			if _, err := s.opts.Trash.Move(store.ReasonOverwrite, existing, []store.MoveItem{{Path: path}}); err != nil {
+			src, err := os.Lstat(tmp)
+			if err != nil {
 				return nil, nil, err
 			}
+			dst := filepath.Join(d.dir, name)
+			if _, err := s.opts.Trash.Replace(store.ReasonOverwrite, existing, []store.MoveItem{{Path: path}},
+				[]store.Install{{Src: tmp, Dst: dst, Size: src.Size()}}); err != nil {
+				return nil, nil, fmt.Errorf("install rom: %w", err)
+			}
+			return s.romAdded(dst)
 		default:
 			return nil, s.conflictError(path), nil
 		}
@@ -496,6 +502,11 @@ func (s *Service) installROM(d destination, tmp, onConflict string) (map[string]
 	}
 	store.SyncDir(d.dir)
 	store.SyncDir(filepath.Dir(tmp))
+	return s.romAdded(dst)
+}
+
+// romAdded is the result of an installed ROM.
+func (s *Service) romAdded(dst string) (map[string]any, *Error, error) {
 	rel, err := s.opts.Library.RelToRoms(dst)
 	if err != nil {
 		return nil, nil, err
@@ -512,6 +523,16 @@ func (s *Service) installROM(d destination, tmp, onConflict string) (map[string]
 // (store.Trash.Recover) and before LoadUploads.
 func (s *Service) Maintain() error {
 	keep := s.recoverPatches()
+	// The temporary files of a replacement the trash could not finish nor
+	// roll back stay for the next start.
+	for p := range s.opts.Trash.PendingSources() {
+		if filepath.Dir(p) == filepath.Clean(s.opts.Layout.UploadsDir()) {
+			if keep == nil {
+				keep = map[string]bool{}
+			}
+			keep[filepath.Base(p)] = true
+		}
+	}
 	if err := s.purgeUploads(keep); err != nil {
 		return err
 	}
@@ -548,4 +569,34 @@ func (s *Service) purgeStaging() error {
 		s.log.Info("staging: deleted an expired file", "entry", d.Name())
 	}
 	return nil
+}
+
+// SetArt writes the PNG data (already checked) to a synced temporary file
+// of the uploads folder, then installs it as the art of a game under the
+// install lock (library.SetArt). An error wrapping syscall.ENOSPC means
+// the card is full.
+func (s *Service) SetArt(gameID string, data []byte) (library.Game, error) {
+	dir := s.opts.Layout.UploadsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return library.Game{}, err
+	}
+	tmp := filepath.Join(dir, "art_"+s.randomHex(12)+partExt)
+	if err := store.WriteFileAtomic(tmp, data, 0o644); err != nil {
+		os.Remove(tmp)
+		return library.Game{}, err
+	}
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	g, err := s.opts.Library.SetArt(gameID, tmp, s.opts.Trash)
+	if !errors.Is(err, store.ErrReplaceFailed) {
+		os.Remove(tmp) // already gone once installed; kept for a pending replacement
+	}
+	return g, err
+}
+
+// DeleteArt moves the art of a game to the trash under the install lock.
+func (s *Service) DeleteArt(gameID string) (library.Game, error) {
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	return s.opts.Library.DeleteArt(gameID, s.opts.Trash)
 }

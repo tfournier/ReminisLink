@@ -86,7 +86,7 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		APIVersion:       APIVersion,
 		MinClientVersion: MinClientVersion,
 		ServerTime:       timestamp(s.now()),
-		PairingOpen:      snap.BlockedUntil.IsZero(),
+		PairingOpen:      snap.Open && snap.BlockedUntil.IsZero(),
 	})
 }
 

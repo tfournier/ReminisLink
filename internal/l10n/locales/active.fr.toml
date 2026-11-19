@@ -27,6 +27,18 @@ other = "Envoi : {{.Name}}"
 [activity_upload_file]
 other = "Envoi d'un fichier"
 
+[battery_charging]
+other = "{{.Percent}} % (en charge)"
+
+[battery_level]
+other = "{{.Percent}} %"
+
+[battery_low]
+other = "Faible : {{.Percent}} %"
+
+[battery_low_banner]
+other = "Batterie faible : branche la console"
+
 [button_back]
 other = "Retour"
 
@@ -69,6 +81,9 @@ other = ","
 [hint_no_wifi]
 other = "Le Wi-Fi est coupé : active-le dans les réglages de NextUI.\nReminisLink reprend dès son retour."
 
+[hint_pair_more]
+other = "Pour appairer un autre appareil : Réglages (Y) > Appairer un nouvel appareil."
+
 [item_about]
 other = "Version et journal"
 
@@ -80,6 +95,9 @@ other = "Langue : {{.Name}}"
 
 [item_name]
 other = "Nom de la console : {{.Name}}"
+
+[item_pair_new]
+other = "Appairer un nouvel appareil"
 
 [item_paired]
 one = "Appareils appairés ({{.Count}})"
@@ -139,6 +157,12 @@ other = "ReminisLink n'a pas pu démarrer :\n{{.Error}}"
 
 [none_connected]
 other = "Aucun"
+
+[notice_art_deleted]
+other = "Jaquette mise à la corbeille"
+
+[notice_art_set]
+other = "Jaquette modifiée"
 
 [notice_cheats_updated]
 other = "Cheats modifiés"
@@ -200,7 +224,10 @@ one = "{{.PIN}}  (expire dans {{.Count}} min)"
 other = "{{.PIN}}  (expire dans {{.Count}} min)"
 
 [qr_hidden]
-other = "QR code masqué : appuie sur A pour l'afficher."
+other = "QR code et code masqués : l'appairage est fermé.\nAppuie sur A pour les afficher."
+
+[qr_unavailable]
+other = "Appaire avec le code ci-dessous (pas de QR code dans ce mode)."
 
 [scan_hint]
 other = "Scanne avec l'app ReminisLink"

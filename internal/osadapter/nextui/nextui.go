@@ -12,6 +12,7 @@ package nextui
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -83,7 +84,16 @@ var ignoredExt = map[string]bool{
 type Adapter struct {
 	roots osadapter.Roots
 	env   Env
+	// powerSupply is the sysfs folder of the power supplies
+	// (DefaultPowerSupplyDir; tests use a fake one).
+	powerSupply string
 }
+
+// DefaultPowerSupplyDir holds the battery and USB power supplies.
+const DefaultPowerSupplyDir = "/sys/class/power_supply"
+
+// SetPowerSupplyDir changes the sysfs folder of the power supplies (tests).
+func (a *Adapter) SetPowerSupplyDir(dir string) { a.powerSupply = dir }
 
 var _ osadapter.Adapter = (*Adapter)(nil)
 
@@ -93,7 +103,14 @@ func New(roots osadapter.Roots, env Env) *Adapter {
 	if env == nil {
 		env = func(string) string { return "" }
 	}
-	return &Adapter{roots: roots, env: env}
+	a := &Adapter{roots: roots, env: env, powerSupply: DefaultPowerSupplyDir}
+	if !knownModels[env("DEVICE")] {
+		// Off the console (desktop and headless modes on a fake SD card),
+		// the battery is read from <SD>/.sys/class/power_supply when the
+		// card has one: the screenshots show a battery that way.
+		a.powerSupply = filepath.Join(roots.SD, ".sys", "class", "power_supply")
+	}
+	return a
 }
 
 // Name returns "nextui".
@@ -229,13 +246,33 @@ func hasVisible(dir string) bool {
 
 // m3uIn returns the name of the .m3u named after folder among its entries.
 func m3uIn(folder string, entries []fs.DirEntry) (string, bool) {
-	want := fold(folder + ".m3u")
+	return namedIn(folder+".m3u", entries)
+}
+
+func namedIn(name string, entries []fs.DirEntry) (string, bool) {
+	want := fold(name)
 	for _, e := range entries {
 		if e.Type().IsRegular() && fold(e.Name()) == want {
 			return e.Name(), true
 		}
 	}
 	return "", false
+}
+
+// folderGame reports whether a folder is a game, as NextUI resolves it
+// (nextui.c openDirectory, readyResumePath and openRom, minarch
+// ma_game.c): a .cue named after the folder is launched first, but when a
+// .m3u named after the folder exists, the save and states are named after
+// the .m3u (folder-m3u); with the .cue only, after the .cue (folder-cue).
+// romName is the file the data is named after.
+func folderGame(folder string, entries []fs.DirEntry) (romName string, kind osadapter.GameKind, ok bool) {
+	if m3u, ok := m3uIn(folder, entries); ok {
+		return m3u, osadapter.KindFolderM3U, true
+	}
+	if cue, ok := namedIn(folder+".cue", entries); ok {
+		return cue, osadapter.KindFolderCue, true
+	}
+	return "", "", false
 }
 
 // IsGameFile reports whether a file named name is listed as a game.
@@ -286,7 +323,7 @@ func countGames(dir string, entries []fs.DirEntry, depth int) int {
 			if err != nil {
 				continue
 			}
-			if _, ok := m3uIn(name, subEntries); ok {
+			if _, _, ok := folderGame(name, subEntries); ok {
 				n++
 				continue
 			}
@@ -416,10 +453,10 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 			if err != nil {
 				continue
 			}
-			if m3u, ok := m3uIn(name, subEntries); ok {
+			if romName, kind, ok := folderGame(name, subEntries); ok {
 				g := osadapter.Game{
 					System: sys, Path: childRel, FileName: name, Name: name,
-					Kind: osadapter.KindFolderM3U, ROMName: m3u,
+					Kind: kind, ROMName: romName,
 				}
 				s := idx.summary(a, g)
 				for _, se := range subEntries {
@@ -428,7 +465,7 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 					}
 					if info, err := se.Info(); err == nil {
 						s.Size += info.Size()
-						if se.Name() == m3u {
+						if se.Name() == romName {
 							s.ModTime = info.ModTime().UTC()
 						}
 					}
@@ -475,7 +512,7 @@ func (idx systemIndex) summary(a *Adapter, g osadapter.Game) osadapter.GameSumma
 	if name, ok := idx.cheats[fold(g.ROMName+".cht")]; ok {
 		s.CheatFile = filepath.Join(a.roots.Cheats, g.System.Tag, name)
 	}
-	s.HasArt = idx.media[fold(g.Name+".png")]
+	s.HasArt = idx.media[fold(artName(g)+".png")]
 	return s
 }
 
@@ -497,7 +534,7 @@ func (a *Adapter) checkPlainFolders(sys osadapter.System, rel string, includeLas
 		if err != nil || !fi.IsDir() || !hasExactEntry(parent, parts[i]) {
 			return osadapter.ErrNotFound
 		}
-		if _, ok := m3uIn(parts[i], readNames(cur)); ok {
+		if _, _, ok := folderGame(parts[i], readNames(cur)); ok {
 			return osadapter.ErrNotFound
 		}
 	}
@@ -530,12 +567,12 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 	}
 	switch {
 	case fi.IsDir():
-		m3u, ok := m3uIn(base, readNames(full))
+		romName, kind, ok := folderGame(base, readNames(full))
 		if !ok {
 			return osadapter.Game{}, osadapter.ErrNotFound
 		}
 		return osadapter.Game{
-			System: sys, Path: rel, FileName: base, Name: base, Kind: osadapter.KindFolderM3U, ROMName: m3u,
+			System: sys, Path: rel, FileName: base, Name: base, Kind: kind, ROMName: romName,
 		}, nil
 	case fi.Mode().IsRegular() && isGameFile(base):
 		if m3uSiblings(filepath.Dir(full), readNames(filepath.Dir(full)))[fold(base)] {
@@ -600,14 +637,20 @@ func (a *Adapter) EmulatorInstalled(tag string) bool {
 // first, then the system paks of .system/<platform>/paks/Emus. minarch
 // names the core after "<EMU_EXE>_libretro.so" cut at its last "_", that
 // is EMU_EXE itself.
-func (a *Adapter) pakCore(tag string) string {
+//
+// found reports that a pak exists; core is "" when its launch.sh cannot be
+// read or names no core.
+func (a *Adapter) pakCore(tag string) (core string, found bool) {
 	for _, dir := range a.emuPakDirs() {
-		f, err := os.Open(filepath.Join(dir, tag+".pak", "launch.sh"))
+		script := filepath.Join(dir, tag+".pak", "launch.sh")
+		f, err := os.Open(script)
 		if err != nil {
+			if _, serr := os.Stat(script); serr == nil {
+				return "", true // there, but unreadable
+			}
 			continue
 		}
 		sc := bufio.NewScanner(io.LimitReader(f, maxPakScriptBytes))
-		core := ""
 		for sc.Scan() {
 			if m := emuExeRe.FindStringSubmatch(strings.TrimRight(sc.Text(), "\r")); m != nil {
 				core = m[1]
@@ -616,22 +659,30 @@ func (a *Adapter) pakCore(tag string) string {
 		}
 		f.Close()
 		if core != "" && !strings.HasPrefix(core, ".") {
-			return core
+			return core, true
 		}
 		// A pak whose core cannot be read: NextUI would still use it, so
 		// do not look at the next folder.
-		return ""
+		return "", true
 	}
-	return ""
+	return "", false
 }
 
 // statesDir returns the state folder of a tag: <shared>/<TAG>-<core>,
-// with the core of its emulator pak. Without a readable pak (a card
-// copied without its .system folder), a single existing <TAG>-* folder
-// is used. "" when it cannot be found.
+// with the core of its emulator pak. Without any pak (a card copied
+// without its .system folder), a single existing <TAG>-* folder is used.
+// "" when it cannot be found, and when a pak exists but its core cannot
+// be read from its launch.sh (a custom pak choosing its core in a shell
+// variable): NextUI then uses that unknown core, so the folder of another
+// core is never guessed (Codex review of M5); the states of the tag are
+// neither written nor restored.
 func (a *Adapter) statesDir(tag string) string {
-	if core := a.pakCore(tag); core != "" {
+	core, pak := a.pakCore(tag)
+	if core != "" {
 		return filepath.Join(a.roots.States, tag+"-"+core)
+	}
+	if pak {
+		return ""
 	}
 	found := ""
 	for _, e := range readNames(a.roots.States) {
@@ -795,7 +846,7 @@ func (a *Adapter) stateTags() []string {
 // tags of the system folders and of the emulator paks), found with the
 // core of the tag's emulator pak: the folders of other cores are ignored,
 // and a core name is never guessed from a folder name.
-func (a *Adapter) StateFiles() ([]osadapter.StateRef, error) {
+func (a *Adapter) StateFiles(ctx context.Context) ([]osadapter.StateRef, error) {
 	var out []osadapter.StateRef
 	seen := map[string]bool{}
 	for _, tag := range a.stateTags() {
@@ -805,6 +856,9 @@ func (a *Adapter) StateFiles() ([]osadapter.StateRef, error) {
 		}
 		seen[dir] = true
 		for _, e := range readNames(dir) {
+			if err := ctx.Err(); err != nil {
+				return out, err
+			}
 			if !e.Type().IsRegular() {
 				continue
 			}
@@ -847,12 +901,16 @@ func (a *Adapter) CheatPath(g osadapter.Game) string {
 	return filepath.Join(a.roots.Cheats, g.System.Tag, g.ROMName+".cht")
 }
 
-// ArtPath is <folder of the game>/.media/<name>.png.
-// TODO(M0): .media next to the ROM for games in subfolders, and the name
-// used for folder-m3u games, are not yet checked on NextUI.
+// ArtPath is <folder that holds the entry>/.media/<entry name without its
+// last extension>.png (nextui.c:2979-2993, 3034): only the last dot is
+// removed, even for the folder of a multi-disc game
+// ("Sky Garden Quest Vol. 3" gives "Sky Garden Quest Vol.png").
 func (a *Adapter) ArtPath(g osadapter.Game) string {
-	return filepath.Join(a.folderOf(g), ".media", g.Name+".png")
+	return filepath.Join(a.folderOf(g), ".media", artName(g)+".png")
 }
+
+// artName is the name of the art of g, without ".png".
+func artName(g osadapter.Game) string { return displayName(path.Base(g.Path)) }
 
 // GameFiles finds the files of a game, with case-insensitive matching.
 func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
@@ -871,7 +929,7 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 			return files, err
 		}
 		files.ROM = append([]osadapter.File{f}, a.m3uDiscs(g, main, nil)...)
-	case osadapter.KindFolderM3U:
+	case osadapter.KindFolderM3U, osadapter.KindFolderCue:
 		m3u, err := a.fileAt(filepath.Join(main, g.ROMName))
 		if err != nil {
 			return files, err
@@ -900,7 +958,7 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 		}
 	}
 	files.Cheats = a.findFold(filepath.Join(a.roots.Cheats, g.System.Tag), g.ROMName+".cht")
-	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), g.Name+".png")
+	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), artName(g)+".png")
 	statesDir := a.statesDir(g.System.Tag)
 	want := fold(g.ROMName)
 	var stateEntries []fs.DirEntry
@@ -930,6 +988,173 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 // so a disc never vanishes from both the listing and the game. listed
 // holds the folder listings already read (may be nil); size and date come
 // from the listing.
+// ROMFiles returns the files g uses: the ROM; or the .m3u (or the .cue
+// of a folder-cue game), the discs it lists at any depth, and the tracks
+// of every .cue among them. The other files of a folder game (a readme)
+// are not part of it.
+func (a *Adapter) ROMFiles(g osadapter.Game) map[string]bool {
+	main := a.gamePath(g)
+	out := map[string]bool{}
+	add := func(p string) {
+		out[p] = true
+		for _, track := range cueTracks(p) {
+			out[track] = true
+		}
+	}
+	switch g.Kind {
+	case osadapter.KindFile:
+		out[main] = true
+	case osadapter.KindM3U:
+		add(main)
+		for _, d := range a.m3uDiscs(g, main, nil) {
+			add(d.Path)
+		}
+	case osadapter.KindFolderM3U:
+		m3u := filepath.Join(main, g.ROMName)
+		add(m3u)
+		for _, d := range a.m3uDiscs(g, m3u, nil) {
+			add(d.Path)
+		}
+	case osadapter.KindFolderCue:
+		add(filepath.Join(main, g.ROMName))
+	}
+	return out
+}
+
+// SharedFiles returns the files of g that another .m3u of its system
+// lists (two playlists can share a disc). Only an m3u or folder game has
+// any; the whole system folder is read, which is fine for a deletion.
+func (a *Adapter) SharedFiles(g osadapter.Game) map[string]bool {
+	if g.Kind == osadapter.KindFile {
+		return nil
+	}
+	own := a.gamePath(g)
+	mine := map[string]bool{}
+	if g.Kind.IsFolder() {
+		// Every file of the folder, at any depth (Game/Discs/CD1.chd):
+		// the whole folder moves unless some of it is shared.
+		_ = filepath.WalkDir(own, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() {
+				mine[p] = true
+			}
+			return nil
+		})
+	} else {
+		files, err := a.GameFiles(g)
+		if err != nil {
+			return nil
+		}
+		for _, f := range files.ROM {
+			mine[f.Path] = true
+		}
+	}
+	root := filepath.Join(a.roots.Roms, g.System.Folder)
+	out := map[string]bool{}
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if p != root && hidden(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			if rel, _ := filepath.Rel(root, p); strings.Count(filepath.ToSlash(rel), "/") >= MaxFolderDepth {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() || fileKind(d.Name()) != osadapter.KindM3U || p == own || mine[p] {
+			return nil // not a playlist, or one of the game itself
+		}
+		for _, f := range a.m3uDiscs(g, p, nil) {
+			if !mine[f.Path] {
+				continue
+			}
+			out[f.Path] = true
+			// The tracks of a shared .cue stay with it.
+			for _, track := range cueTracks(f.Path) {
+				if mine[track] {
+					out[track] = true
+				}
+			}
+		}
+		return nil
+	})
+	return out
+}
+
+// dirFold returns dir, under root, with each folder name spelled as on
+// the card (matched ignoring case, an exact match preferred), or "" when
+// a folder does not exist.
+func (a *Adapter) dirFold(root, dir string) string {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." {
+		return root
+	}
+	if !filepath.IsLocal(rel) {
+		return ""
+	}
+	cur := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		found := ""
+		for _, e := range readNames(cur) {
+			if !e.IsDir() || isSymlink(e) {
+				continue
+			}
+			if e.Name() == part {
+				found = part
+				break
+			}
+			if found == "" && fold(e.Name()) == fold(part) {
+				found = e.Name()
+			}
+		}
+		if found == "" {
+			return ""
+		}
+		cur = filepath.Join(cur, found)
+	}
+	return cur
+}
+
+// cueFileRe matches a FILE line of a .cue sheet: FILE "name" TYPE, or an
+// unquoted name.
+var cueFileRe = regexp.MustCompile(`(?i)^\s*FILE\s+(?:"([^"]+)"|(\S+))`)
+
+// cueTracks returns the files a .cue sheet names that exist next to it
+// (absolute paths, names matched ignoring case); nil for another file.
+func cueTracks(cue string) []string {
+	if fold(filepath.Ext(cue)) != ".cue" {
+		return nil
+	}
+	f, err := os.Open(cue)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	dir := filepath.Dir(cue)
+	entries := readNames(dir)
+	var out []string
+	sc := bufio.NewScanner(io.LimitReader(f, 1<<20))
+	for sc.Scan() {
+		m := cueFileRe.FindStringSubmatch(sc.Text())
+		if m == nil {
+			continue
+		}
+		name := m[1] + m[2]
+		if name == "" || strings.ContainsAny(name, `/\`) {
+			continue
+		}
+		if e := matchFold(entries, name); e != nil {
+			out = append(out, filepath.Join(dir, e.Name()))
+		}
+	}
+	return out
+}
+
 func (a *Adapter) m3uDiscs(g osadapter.Game, m3uPath string, listed map[string][]fs.DirEntry) []osadapter.File {
 	sysDir := filepath.Join(a.roots.Roms, g.System.Folder)
 	base := filepath.Dir(m3uPath)
@@ -943,7 +1168,13 @@ func (a *Adapter) m3uDiscs(g osadapter.Game, m3uPath string, listed map[string][
 		if !strings.HasPrefix(full, sysDir+string(filepath.Separator)) {
 			continue
 		}
-		dir, name := filepath.Dir(full), filepath.Base(full)
+		// The folders take the case they have on the card (exFAT ignores
+		// case: "discs/CD1.chd" opens "Discs/CD1.chd"), so the paths
+		// compare with those of the card (Codex review of M8).
+		dir, name := a.dirFold(sysDir, filepath.Dir(full)), filepath.Base(full)
+		if dir == "" {
+			continue
+		}
 		entries, ok := listed[dir]
 		if !ok {
 			entries = readNames(dir)
@@ -1071,8 +1302,8 @@ func (a *Adapter) relToSD(p string) string {
 }
 
 // DeviceInfo returns the model and platform from the NextUI environment
-// (DEVICE, PLATFORM) and the NextUI release (.system/version.txt). The
-// battery is unknown.
+// (DEVICE, PLATFORM), the NextUI release (.system/version.txt) and the
+// battery (sysfs).
 func (a *Adapter) DeviceInfo() (osadapter.DeviceInfo, error) {
 	model := a.env("DEVICE")
 	if !knownModels[model] {
@@ -1087,13 +1318,33 @@ func (a *Adapter) DeviceInfo() (osadapter.DeviceInfo, error) {
 		Platform:  platform,
 		OS:        OSName,
 		OSVersion: ReadOSVersion(filepath.Join(a.roots.SD, VersionFile)),
-		// TODO(M0): the battery (axp2202-battery/capacity, docs/specs/
-		// 05-console-pak.md §6) is not read yet; null until then.
-		Battery: nil,
+		Battery:   a.Battery(),
 		// TODO(M0): the SSID (wpa_supplicant STATUS, 05 §6) is not read yet.
 		SSID:              nil,
 		WirelessInterface: WirelessInterface,
 	}, nil
+}
+
+// Battery reads the battery as NextUI does (platform.c:183-188, 05 §6):
+// the level in axp2202-battery/capacity; charging when axp2202-usb/online
+// is 1 and axp2202-battery/time_to_full_now is above 0 (NextUI does not use
+// "status"). nil when the level cannot be read (desktop mode).
+func (a *Adapter) Battery() *osadapter.Battery {
+	read := func(supply, name string) (int, bool) {
+		data, err := os.ReadFile(filepath.Join(a.powerSupply, supply, name))
+		if err != nil || len(data) > 32 {
+			return 0, false
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		return n, err == nil
+	}
+	percent, ok := read("axp2202-battery", "capacity")
+	if !ok || percent < 0 {
+		return nil
+	}
+	online, _ := read("axp2202-usb", "online")
+	toFull, _ := read("axp2202-battery", "time_to_full_now")
+	return &osadapter.Battery{Percent: min(percent, 100), Charging: online == 1 && toFull > 0}
 }
 
 // MaxOSVersionBytes bounds the osVersion string (it also goes in the

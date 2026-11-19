@@ -265,12 +265,13 @@ func TestCancelJobDuringInstall(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	e.svc.installMu.Unlock()
 	j := <-done
-	// Too late to cancel: the file is installed and the job says so.
-	if j.State != JobSucceeded || j.Result["stagingId"] == nil {
+	// Cancelled while waiting for the lock (Codex review of M4): the
+	// context is checked again once the lock is held, nothing installed.
+	if j.State != JobCancelled || j.Result["stagingId"] != nil {
 		t.Fatalf("job %+v", j)
 	}
-	if _, err := e.svc.StagingFile(j.Result["stagingId"].(string)); err != nil {
-		t.Fatal(err)
+	if des, _ := os.ReadDir(e.layout.StagingDir()); len(des) != 0 {
+		t.Fatalf("installed after the cancel: %v", des)
 	}
 }
 

@@ -364,3 +364,80 @@ func TestBackupLocked(t *testing.T) {
 		}
 	}
 }
+
+// Codex review of M5: restoring a backup with a clock file while the game
+// has a clock file but no save (the .sav was moved off the card) keeps the
+// current clock: it goes to the trash.
+func TestRestoreKeepsALoneClockFile(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock 1")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.sav"))
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock 2")
+	if _, err := e.svc.Restore(g, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.rtc") != "clock 1" {
+		t.Fatal("clock file not restored")
+	}
+	entries, _, _ := e.trash.List()
+	if len(entries) != 1 || e.read(".userdata/shared/ReminisLink/trash/"+entries[0].ID+"/Saves/GBA/Starlight Courier.gba.rtc") != "clock 2" {
+		t.Fatalf("the current clock file was lost: %+v", entries)
+	}
+}
+
+// Codex review of M8 (counter-review): the temporary save and clock files
+// stay while a pending replacement names them; a damaged clock copy leaves
+// no temporary file.
+func TestRestoreTemps(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	uploads := filepath.Join(e.sd, ".userdata/shared/ReminisLink/uploads")
+	temps := func() []string {
+		des, _ := os.ReadDir(uploads)
+		var out []string
+		for _, d := range des {
+			out = append(out, d.Name())
+		}
+		return out
+	}
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock 1")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backups := filepath.Join(e.sd, backupsDir)
+	good, _ := os.ReadFile(filepath.Join(backups, b.ID+".rtc"))
+	os.WriteFile(filepath.Join(backups, b.ID+".rtc"), []byte("bad"), 0o644)
+	if _, err := e.svc.Restore(g, b.ID); !errors.Is(err, ErrCorruptBackup) {
+		t.Fatalf("damaged clock copy: %v", err)
+	}
+	if left := temps(); len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
+	}
+	os.WriteFile(filepath.Join(backups, b.ID+".rtc"), good, 0o644)
+	// A lone clock file (no save): its replacement cannot be confirmed.
+	os.Remove(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.sav"))
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock 2")
+	savesDir := filepath.Join(e.sd, "Saves", "GBA")
+	armed := false
+	e.trash.SetSyncDir(func(dir string) error {
+		if data, err := os.ReadFile(filepath.Join(savesDir, "Starlight Courier.gba.rtc")); err == nil && string(data) == "clock 1" {
+			armed = true
+		}
+		if dir == savesDir && armed {
+			return errors.New("simulated sync failure")
+		}
+		return nil
+	})
+	if _, err := e.svc.Restore(g, b.ID); !errors.Is(err, store.ErrReplaceFailed) {
+		t.Fatalf("restore: %v", err)
+	}
+	if left := temps(); len(left) != 2 {
+		t.Fatalf("temporary files of the pending replacement: %v", left)
+	}
+}

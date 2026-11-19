@@ -67,6 +67,41 @@ func TestHelloPairingBlocked(t *testing.T) {
 	}
 }
 
+func TestPairingClosed(t *testing.T) {
+	f := newFixture(t)
+	if err := f.pairing.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var h helloResponse
+	r := f.unsigned("GET", "/api/v1/hello", nil)
+	f.check("GET", "/hello", r)
+	r.JSON(t, &h)
+	if r.Status != 200 || h.PairingOpen {
+		t.Fatalf("hello while pairing is closed: %d %s", r.Status, r.Body)
+	}
+	// Even a proof made with the hidden secret fails, and the failures are
+	// not counted: no block after many attempts.
+	hidden, _ := f.pairing.Snapshot()
+	for i := 0; i < 2*auth.MaxPairingFailures; i++ {
+		f.clock.Advance(3 * time.Second) // stay under the /pair rate limit
+		r := f.pair(t, "qr", hidden.Secret, "iPhone")
+		if r.Status != 401 || r.ErrorCode() != CodePairingFailed {
+			t.Fatalf("attempt %d while closed: %d %s", i, r.Status, r.Body)
+		}
+	}
+	if _, ok := f.clients.Lookup("3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"); ok {
+		t.Fatal("paired while pairing is closed")
+	}
+	// Opened again (new secret), pairing works at once: nothing blocked.
+	if err := f.pairing.Open(); err != nil {
+		t.Fatal(err)
+	}
+	snap, _ := f.pairing.Snapshot()
+	if r := f.pair(t, "pin", auth.PINIKM(snap.PIN), "iPhone"); r.Status != 200 {
+		t.Fatalf("pair once opened: %d %s", r.Status, r.Body)
+	}
+}
+
 // pair sends POST /pair with a proof made from ikm and returns the
 // response with the client nonce and id used.
 func (f *fixture) pair(t *testing.T, method string, ikm []byte, name string) testutil.Response {
@@ -263,6 +298,19 @@ func TestDevice(t *testing.T) {
 		if !strings.Contains(string(r.Body), null) {
 			t.Errorf("missing %s in %s", null, r.Body)
 		}
+	}
+}
+
+func TestDeviceBattery(t *testing.T) {
+	f := newFixture(t)
+	testutil.WriteFile(t, f.sd, "no-sysfs/axp2202-battery/capacity", "12\n")
+	testutil.WriteFile(t, f.sd, "no-sysfs/axp2202-battery/time_to_full_now", "1200\n")
+	testutil.WriteFile(t, f.sd, "no-sysfs/axp2202-usb/online", "1\n")
+	r := f.get("/api/v1/device", "/device", 200)
+	var d deviceResponse
+	r.JSON(t, &d)
+	if d.Battery == nil || d.Battery.Percent != 12 || !d.Battery.Charging {
+		t.Fatalf("battery %s", r.Body)
 	}
 }
 

@@ -9,6 +9,7 @@ require (
 	github.com/miekg/dns v1.1.27
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/veandco/go-sdl2 v0.4.40
+	golang.org/x/text v0.44.0
 )
 
 require (
@@ -23,5 +24,4 @@ require (
 	golang.org/x/image v0.34.0 // indirect
 	golang.org/x/net v0.63.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
-	golang.org/x/text v0.44.0 // indirect
 )

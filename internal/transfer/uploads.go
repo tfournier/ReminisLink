@@ -710,8 +710,8 @@ func (s *Service) purgeUploads(keep map[string]bool) error {
 		}
 		id := strings.TrimSuffix(strings.TrimSuffix(name, ".tmp"), filepath.Ext(strings.TrimSuffix(name, ".tmp")))
 		if uploadIDRe.MatchString(id) && metas[id] {
-			if name != id+metaExt {
-				continue // judged with its .json below
+			if name != id+metaExt || keep[id+partExt] {
+				continue // judged with its .json below, or kept for a replacement
 			}
 			activity := time.Time{}
 			for _, ext := range []string{metaExt, partExt} {

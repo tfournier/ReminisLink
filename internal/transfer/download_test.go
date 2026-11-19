@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -119,6 +120,40 @@ func newFileServer(t *testing.T, data []byte, tls bool) *fileServer {
 	mux.HandleFunc("/huge", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", strconv.FormatInt(MaxDownloadBytes+1, 10))
 		w.WriteHeader(http.StatusOK)
+	})
+	// /novalidator/ sends half of the file without ETag nor Last-Modified,
+	// then drops the connection; afterwards the resource has changed and
+	// ranges are served from its new content.
+	var novalCut atomic.Bool
+	mux.HandleFunc("/novalidator/", func(w http.ResponseWriter, r *http.Request) {
+		fs.requests.Add(1)
+		if novalCut.CompareAndSwap(false, true) {
+			w.Header().Set("Content-Length", strconv.Itoa(len(fs.data)))
+			w.WriteHeader(http.StatusOK)
+			w.Write(fs.data[:len(fs.data)/2])
+			w.(http.Flusher).Flush()
+			if conn, _, err := http.NewResponseController(w).Hijack(); err == nil {
+				conn.Close()
+			}
+			return
+		}
+		changed := bytes.ToUpper(fs.data)
+		if rg := r.Header.Get("Range"); rg != "" {
+			fs.ranges.Add(1)
+			start, _ := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(rg, "bytes="), "-"))
+			w.Header().Set("Content-Range", "bytes "+strconv.Itoa(start)+"-"+strconv.Itoa(len(changed)-1)+"/"+strconv.Itoa(len(changed)))
+			w.Header().Set("Content-Length", strconv.Itoa(len(changed)-start))
+			w.WriteHeader(http.StatusPartialContent)
+			w.Write(changed[start:])
+			return
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(changed)))
+		w.WriteHeader(http.StatusOK)
+		w.Write(changed)
+	})
+	mux.HandleFunc("/badredirect", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "http://%zz.example/next?token=s3cret-redirect")
+		w.WriteHeader(http.StatusFound)
 	})
 	mux.HandleFunc("/missing", http.NotFound)
 	mux.HandleFunc("/error", func(w http.ResponseWriter, r *http.Request) {
@@ -422,5 +457,47 @@ func TestDownloadLogsNoQuery(t *testing.T) {
 	}
 	if strings.Contains(e.logs.String(), "s3cret") || strings.Contains(e.logs.String(), "/x?") {
 		t.Fatalf("query in the log:\n%s", e.logs.String())
+	}
+}
+
+func TestDownloadWithoutValidatorRestartsFromZero(t *testing.T) {
+	data := []byte(strings.Repeat("version one of the file. ", 4000))
+	fs := newFileServer(t, data, false)
+	e := newEnv(t, func(o *Options) { o.Downloads.RetryDelay = time.Millisecond })
+	// No ETag, no Last-Modified, no expected SHA-256: the resumed range
+	// could be another version of the file. Never assembled.
+	j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+"/novalidator/v.bin", staging(), nil, ""), JobSucceeded, JobFailed)
+	if j.State != JobSucceeded {
+		t.Fatalf("job %+v", j.Error)
+	}
+	if _, content := e.stagedContent(j); content != string(bytes.ToUpper(data)) {
+		t.Fatalf("file assembled from two versions (%d bytes)", len(content))
+	}
+	if fs.ranges.Load() != 0 {
+		t.Fatalf("resumed with Range without a validator: %d", fs.ranges.Load())
+	}
+}
+
+func TestDownloadErrorTextNeverHoldsTheNetworkError(t *testing.T) {
+	fs := newFileServer(t, []byte("x"), false)
+	e := newEnv(t)
+	j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+"/badredirect", staging(), nil, ""), JobSucceeded, JobFailed)
+	if j.State != JobFailed || strings.Contains(j.Error.Message, "s3cret") || strings.Contains(j.Error.Message, "zz.example") {
+		t.Fatalf("job error %+v", j.Error)
+	}
+	if strings.Contains(e.logs.String(), "s3cret") || strings.Contains(e.logs.String(), "zz.example") {
+		t.Fatalf("redirect target in the log:\n%s", e.logs.String())
+	}
+	// Known reasons only.
+	for err, want := range map[error]string{
+		errTooManyRedirects:                          "too many redirects",
+		context.DeadlineExceeded:                     "timeout",
+		io.ErrUnexpectedEOF:                          "connection lost",
+		retryable{errNoData}:                         "no data received in time",
+		errors.New("parse \"http://x/?token=leak\""): "network error",
+	} {
+		if got := downloadErrorText(err); got != want {
+			t.Errorf("downloadErrorText(%v) = %q, want %q", err, got, want)
+		}
 	}
 }

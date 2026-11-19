@@ -118,6 +118,7 @@ func (a *App) ForgetClient(id string) error {
 	if err == nil && ok {
 		a.log.Info("client forgotten", "client", id)
 	}
+	a.syncPairing()
 	return err
 }
 
@@ -128,5 +129,6 @@ func (a *App) ForgetAllClients() (int, error) {
 	if err == nil {
 		a.log.Info("all clients forgotten", "count", n)
 	}
+	a.syncPairing()
 	return n, err
 }

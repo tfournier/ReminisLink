@@ -1,6 +1,7 @@
 package nextui
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -61,11 +62,15 @@ func TestStateFolders(t *testing.T) {
 	if got := a.StatePath(game("MD"), 0); got != filepath.Join(shared, "MD-picodrive", "x.bin.st0") {
 		t.Errorf("quoted: %q", got)
 	}
-	// The unreadable core of an extra pak: no other pak is looked at, the
-	// single folder is used.
+	// The unreadable core of an extra pak: no other pak is looked at, and
+	// the existing folder (of the former core) is never guessed (Codex
+	// review of M5): the states of the tag are suspended.
 	testutil.WriteFile(t, sd, "Emus/tg5040/MGBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=$CORE\n")
-	if got := a.StatePath(game("MGBA"), 0); got != filepath.Join(shared, "MGBA-mgba", "x.bin.st0") {
-		t.Errorf("unreadable core falls back to the single folder: %q", got)
+	if got := a.StatePath(game("MGBA"), 0); got != "" {
+		t.Errorf("unreadable core guessed the folder of another core: %q", got)
+	}
+	if err := a.CheckStateFormat(game("MGBA")); err != nil {
+		t.Errorf("format: %v", err)
 	}
 	// An extra pak wins over the system pak of the same tag (getEmuPath).
 	testutil.WriteFile(t, sd, "Emus/tg5040/GBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=mgba\n")
@@ -74,7 +79,7 @@ func TestStateFolders(t *testing.T) {
 	}
 	os.Remove(filepath.Join(sd, "Emus", "tg5040", "GBA.pak", "launch.sh"))
 	// StateFiles only lists the folder of the current core of each tag.
-	refs, err := a.StateFiles()
+	refs, err := a.StateFiles(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +87,7 @@ func TestStateFolders(t *testing.T) {
 	for _, r := range refs {
 		seen[r.Tag]++
 	}
-	if seen["GBA"] != 4 || seen["MGBA"] != 1 || seen["PS"] != 1 || seen["SFC"] != 0 {
+	if seen["GBA"] != 4 || seen["MGBA"] != 0 || seen["PS"] != 1 || seen["SFC"] != 0 {
 		t.Errorf("StateFiles: %v", seen)
 	}
 }
@@ -787,4 +792,40 @@ func deref(s *string) string {
 		return "<nil>"
 	}
 	return *s
+}
+
+// The battery as NextUI reads it (05 §6), from a fake sysfs.
+func TestBattery(t *testing.T) {
+	a, _ := newAdapter(t)
+	sys := t.TempDir()
+	a.SetPowerSupplyDir(sys)
+	if b := a.Battery(); b != nil {
+		t.Fatalf("no sysfs: %+v", b)
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/capacity", "78\n")
+	if b := a.Battery(); b == nil || b.Percent != 78 || b.Charging {
+		t.Fatalf("level only: %+v", b)
+	}
+	testutil.WriteFile(t, sys, "axp2202-usb/online", "1\n")
+	testutil.WriteFile(t, sys, "axp2202-battery/time_to_full_now", "0\n")
+	if b := a.Battery(); b.Charging {
+		t.Fatal("plugged in but full: not charging (time_to_full_now = 0)")
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/time_to_full_now", "3600\n")
+	if b := a.Battery(); !b.Charging {
+		t.Fatal("charging not seen")
+	}
+	testutil.WriteFile(t, sys, "axp2202-usb/online", "0\n")
+	if b := a.Battery(); b.Charging {
+		t.Fatal("unplugged seen as charging")
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/capacity", "garbage")
+	if b := a.Battery(); b != nil {
+		t.Fatalf("unreadable level: %+v", b)
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/capacity", "100")
+	info, err := a.DeviceInfo()
+	if err != nil || info.Battery == nil || info.Battery.Percent != 100 {
+		t.Fatalf("DeviceInfo battery %+v %v", info.Battery, err)
+	}
 }

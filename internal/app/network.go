@@ -29,8 +29,12 @@ func (a *App) watchNetwork() {
 // address, the pak is offline (Status.WiFi false: the UI says "No Wi-Fi"
 // without quitting) and the announcement is withdrawn, until an address
 // comes back. With Options.NoWiFiIP (headless mode), that address is used
-// instead of going offline.
+// instead of going offline. While the Wi-Fi is there and the announcement
+// is missing (a failed registration, at wake-up for example), it is tried
+// again at each check. The automatic pairing modes are applied too (a
+// device may have unpaired itself through the API).
 func (a *App) checkNetwork() {
+	a.syncPairing()
 	ip, ok := a.WiFiIPv4()
 	if !ok && a.opts.NoWiFiIP != "" {
 		ip, ok = a.opts.NoWiFiIP, true
@@ -43,18 +47,36 @@ func (a *App) checkNetwork() {
 		a.ip, a.wifi = "", false
 	}
 	a.mu.Unlock()
-	if !changed {
-		return
-	}
 	if !ok {
-		a.log.Warn("Wi-Fi address lost, waiting for it to come back")
-		a.withdraw()
+		if changed {
+			a.log.Warn("Wi-Fi address lost, waiting for it to come back")
+			a.withdraw()
+		}
 		return
 	}
-	a.log.Info("Wi-Fi address changed", "ip", ip)
-	if err := a.reannounce(); err != nil {
-		a.log.Error("cannot announce on the new address", "error", err)
+	if !changed && a.announced() {
+		return
 	}
+	if changed {
+		a.log.Info("Wi-Fi address changed", "ip", ip)
+	}
+	if err := a.reannounce(); err != nil {
+		// Logged once per failing streak: the check runs every few seconds.
+		a.annMu.Lock()
+		first := !a.annFailing
+		a.annFailing = true
+		a.annMu.Unlock()
+		if first || changed {
+			a.log.Error("cannot announce, trying again at the next check", "error", err)
+		}
+	}
+}
+
+// announced reports whether the Bonjour announcement is registered.
+func (a *App) announced() bool {
+	a.annMu.Lock()
+	defer a.annMu.Unlock()
+	return a.ann != nil
 }
 
 // WiFi reports whether the pak has a Wi-Fi address (after Start).

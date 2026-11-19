@@ -718,3 +718,188 @@ func TestUnknownLockFolder(t *testing.T) {
 		t.Fatal("unknown current folder must not be core-changed")
 	}
 }
+
+// Codex review of M5: a resume state with the date and size of an archived
+// entry but other bytes was not archived before a restore overwrote it.
+func TestRestoreResumeArchivesSameDateAndSizeByContent(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	st9 := statesGB + "Starlight Courier.gba.st9"
+	e.write(st9, "version A", time.Hour)
+	e.svc.Maintain(context.Background())
+	e.write(st9, "version B", 2*time.Hour)
+	e.svc.Maintain(context.Background())
+	h := e.svc.ResumeHistory(sc)
+	if len(h) != 2 {
+		t.Fatalf("history %+v", h)
+	}
+	// The emulator writes other bytes with the date and size of "version B".
+	fi, _ := os.Stat(e.path(st9))
+	testutil.WriteFile(t, e.sd, st9, "version C")
+	os.Chtimes(e.path(st9), fi.ModTime(), fi.ModTime())
+	older := h[1] // h[0] is B (newest), h[1] is A
+	if _, err := e.svc.RestoreResume(sc, older.ID); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(st9) != "version A" {
+		t.Fatal("not restored")
+	}
+	// "version C" must survive somewhere: in the history.
+	found := false
+	dir := e.svc.resumeDirOf("GBA", "Starlight Courier.gba")
+	for _, en := range e.svc.ResumeHistory(sc) {
+		if data, _ := os.ReadFile(filepath.Join(dir, en.ID+stateExt)); string(data) == "version C" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the only copy of the overwritten resume state was lost")
+	}
+}
+
+// Codex review of M5: a multi-disc locked state whose disc file differs
+// from its locked copy is not intact (a power cut between the state and
+// its .txt left it half restored): the next start puts the set back.
+func TestLockIntactOnlyWithItsSideFiles(t *testing.T) {
+	e := newEnv(t)
+	ps, err := e.a.Game("Sony PlayStation (PS)/Mossy Hollow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		st   = ".userdata/shared/PS-pcsx_rearmed/Mossy Hollow.m3u.st0"
+		disc = ".userdata/shared/.minui/PS/Mossy Hollow.m3u.0.txt"
+	)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 2).cue")
+	if _, err := e.svc.Lock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	locked := e.read(st)
+	// The state is the locked one, but its disc file is another disc.
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	if got := status(e.slots(ps)[0]); got != StatusModified {
+		t.Fatalf("status %q, want modified", got)
+	}
+	r := e.svc.Maintain(context.Background())
+	if r.LocksIntact != 0 || len(r.Restored) != 1 {
+		t.Fatalf("maintenance %+v", r)
+	}
+	if e.read(st) != locked || e.read(disc) != "Mossy Hollow (Disc 2).cue" {
+		t.Fatal("the locked set was not put back")
+	}
+	if r := e.svc.Maintain(context.Background()); r.LocksIntact != 1 {
+		t.Fatalf("second start %+v", r)
+	}
+	// A manual restore does not stop on the state alone either.
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	if _, err := e.svc.RestoreLock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(disc) != "Mossy Hollow (Disc 2).cue" {
+		t.Fatal("manual restore kept the wrong disc file")
+	}
+}
+
+// Codex review of M5: an emulator pak whose core cannot be read (a custom
+// pak choosing it in a shell variable) suspends the states of its tag:
+// nothing is written nor restored into the folder of the former core.
+func TestUnknownCoreSuspendsTheTag(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	if _, err := e.svc.Lock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	e.write(statesGB+"Starlight Courier.gba.st0", "overwritten in game", 0)
+	testutil.WriteFile(t, e.sd, "Emus/tg5040/GBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=$CORE\n")
+	r := e.svc.Maintain(context.Background())
+	if len(r.Restored) != 0 || r.Held != 1 {
+		t.Fatalf("maintenance %+v", r)
+	}
+	if e.read(statesGB+"Starlight Courier.gba.st0") != "overwritten in game" {
+		t.Fatal("restored into the folder of the former core")
+	}
+	if _, err := e.svc.RestoreLock(sc, 0); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
+		t.Fatalf("manual restore: %v", err)
+	}
+	if _, err := e.svc.Lock(sc, 1); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
+		t.Fatalf("lock: %v", err)
+	}
+}
+
+// Codex review of M5: the time limit of the maintenance also stops a
+// long read already started (a big state being hashed).
+func TestMaintainStopsInsideALongRead(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	if _, err := e.svc.Lock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	// A big resume state to archive (hashed, then copied).
+	big := strings.Repeat("s", 8<<20)
+	e.write(statesGB+"Starlight Courier.gba.st9", big, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := e.svc.Maintain(ctx)
+	if r.Archived != 0 || r.Failed != 0 || r.Skipped == 0 {
+		t.Fatalf("cancelled maintenance %+v", r)
+	}
+	// The hash itself stops with the context.
+	if _, _, err := store.HashFileContext(ctx, e.path(statesGB+"Starlight Courier.gba.st9")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("hash: %v", err)
+	}
+	if r := e.svc.Maintain(context.Background()); r.Archived == 0 {
+		t.Fatalf("next start %+v", r)
+	}
+}
+
+// Codex review of M8: when a lock restore cannot be confirmed (the folder
+// of the disc files cannot be synced after the rename), the temporary
+// files the journal names are kept and the next start finishes it.
+func TestLockRestoreKeepsTheTempsOfAPendingReplacement(t *testing.T) {
+	e := newEnv(t)
+	ps, err := e.a.Game("Sony PlayStation (PS)/Mossy Hollow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		st   = ".userdata/shared/PS-pcsx_rearmed/Mossy Hollow.m3u.st0"
+		disc = ".userdata/shared/.minui/PS/Mossy Hollow.m3u.0.txt"
+	)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 2).cue")
+	if _, err := e.svc.Lock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	locked := e.read(st)
+	e.write(st, "disc 1 state", 0)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	minui := filepath.Dir(e.path(disc))
+	armed := false
+	e.trash.SetSyncDir(func(dir string) error {
+		if data, err := os.ReadFile(e.path(disc)); err == nil && string(data) == "Mossy Hollow (Disc 2).cue" {
+			armed = true // the locked disc file was renamed in place
+		}
+		if dir == minui && armed {
+			return errors.New("simulated sync failure")
+		}
+		return nil
+	})
+	if _, err := e.svc.RestoreLock(ps, 0); !errors.Is(err, store.ErrReplaceFailed) {
+		t.Fatalf("restore: %v", err)
+	}
+	pending := e.trash.PendingSources()
+	if len(pending) != 2 {
+		t.Fatalf("pending sources %v", pending)
+	}
+	for p := range pending {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("temporary file of the pending replacement removed: %v", err)
+		}
+	}
+	e.trash.SetSyncDir(store.SyncDirChecked)
+	if err := e.trash.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(st) != locked || e.read(disc) != "Mossy Hollow (Disc 2).cue" {
+		t.Fatal("the locked set was not finished at the next start")
+	}
+}

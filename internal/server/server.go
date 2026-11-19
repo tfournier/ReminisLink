@@ -201,7 +201,11 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/systems/{systemId}/games", auth.RouteJSON, s.handleSystemGames)
 	signed("GET "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleGame)
 	signed("GET "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.handleGameArt)
+	// PUT /art takes a PNG of at most 4 MiB.
+	signed("PUT "+Prefix+"/games/{gameId}/art", auth.RouteArt, s.notify(ChangeArtSet, s.gameName, s.handlePutArt))
+	signed("DELETE "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.notify(ChangeArtDeleted, s.gameName, s.handleDeleteArt))
 
+	signed("GET "+Prefix+"/games/{gameId}/deletion", auth.RouteJSON, s.handleDeletionPreview)
 	signed("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
 
 	// Trash.
@@ -250,8 +254,8 @@ func (s *Server) routes() http.Handler {
 	// Patches (a job, like the downloads).
 	signed("POST "+Prefix+"/games/{gameId}/patch", auth.RouteJSON, s.handlePatchGame)
 
-	// Every signed route besides PUT /save and the upload chunks uses
-	// auth.RouteJSON.
+	// Every signed route besides PUT /save, PUT /art and the upload chunks
+	// uses auth.RouteJSON.
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "No such route", nil)

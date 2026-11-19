@@ -33,6 +33,9 @@ type options struct {
 	sd       string // SD card root; empty: NextUI environment variables
 	port     int    // preferred port; 0: config.json
 	name     string // device name for this run; empty: config.json
+	// pairingOpen keeps pairing open in headless mode, even with paired
+	// devices (default: open while no device is paired).
+	pairingOpen bool
 }
 
 var errUsage = errors.New("usage")
@@ -46,6 +49,7 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.sd, "sd", "", "SD card root (default: the NextUI environment variables)")
 	fs.IntVar(&o.port, "port", 0, fmt.Sprintf("preferred port (default: config.json, then %d)", server.DefaultPort))
 	fs.StringVar(&o.name, "name", "", "device name for this run (default: config.json)")
+	fs.BoolVar(&o.pairingOpen, "pairing-open", false, "headless: keep pairing open even when a device is already paired (default: open while no device is paired)")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
@@ -59,6 +63,10 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	}
 	if o.headless && o.desktop {
 		fmt.Fprintln(stderr, "--headless and --desktop cannot be used together")
+		return o, errUsage
+	}
+	if o.pairingOpen && !o.headless {
+		fmt.Fprintln(stderr, "--pairing-open needs --headless (the UI opens pairing from its screens)")
 		return o, errUsage
 	}
 	if o.desktop && o.sd == "" {
@@ -117,6 +125,12 @@ func runHeadlessTo(opts options, logOut io.Writer) error {
 	ao := appOptions(opts, "headless")
 	ao.LogOut = logOut
 	ao.OnPaired = display.paired
+	// No screen: pairing opens on its own (05 §7.1 keeps it on demand on
+	// the console).
+	ao.Pairing = app.PairingWhileUnpaired
+	if opts.pairingOpen {
+		ao.Pairing = app.PairingAlways
+	}
 	// Without Wi-Fi the headless mode (tests, development) keeps serving on
 	// the loopback address.
 	ao.NoWiFiIP = "127.0.0.1"

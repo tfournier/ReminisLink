@@ -54,17 +54,39 @@ func (s *Server) transferError(w http.ResponseWriter, r *http.Request, apiErr *t
 
 // --- Delete a game and the trash -------------------------------------------
 
-func (s *Server) handleDeleteGame(w http.ResponseWriter, r *http.Request) {
-	keepSave := false
+// keepSaveParam parses the keepSave query parameter of DELETE
+// /games/{gameId} and of its preview.
+func keepSaveParam(w http.ResponseWriter, r *http.Request) (keepSave, ok bool) {
 	if q := r.URL.Query(); q.Has("keepSave") {
 		switch q.Get("keepSave") {
 		case "true":
-			keepSave = true
+			return true, true
 		case "false":
 		default:
 			auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "keepSave must be true or false", nil)
-			return
+			return false, false
 		}
+	}
+	return false, true
+}
+
+func (s *Server) handleDeletionPreview(w http.ResponseWriter, r *http.Request) {
+	keepSave, ok := keepSaveParam(w, r)
+	if !ok {
+		return
+	}
+	p, err := s.opts.Library.PreviewDeletion(r.PathValue("gameId"), keepSave)
+	if err != nil {
+		s.libraryError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *Server) handleDeleteGame(w http.ResponseWriter, r *http.Request) {
+	keepSave, ok := keepSaveParam(w, r)
+	if !ok {
+		return
 	}
 	res, err := s.opts.Transfers.DeleteGame(r.PathValue("gameId"), keepSave)
 	if err != nil {

@@ -454,7 +454,18 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(tmp) // already gone after a successful rename
+	// The temporary files are removed (already gone after a successful
+	// restore) unless a pending replacement of the trash still names them
+	// (Codex review of M8).
+	temps := []string{tmp}
+	pending := false
+	defer func() {
+		if !pending {
+			for _, p := range temps {
+				os.Remove(p)
+			}
+		}
+	}()
 	sum, _, err := store.CopyFileAtomic(path, tmp)
 	if err != nil {
 		return nil, fmt.Errorf("restore save: %w", err)
@@ -465,13 +476,14 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	rtcTmp := ""
 	if m.RTCSHA256 != "" {
 		rtcTmp = tmp + rtcExt
-		defer os.Remove(rtcTmp)
+		temps = append(temps, rtcTmp) // removed too when its copy is damaged
 		sum, _, err := store.CopyFileAtomic(filepath.Join(filepath.Dir(path), id+rtcExt), rtcTmp)
 		if err != nil || sum != m.RTCSHA256 {
 			return nil, ErrCorruptBackup
 		}
 	}
 	res, err := s.installLocked(g, tmp, rtcTmp, ReasonBeforeRestore, nil)
+	pending = errors.Is(err, store.ErrReplaceFailed)
 	if err != nil {
 		return nil, err
 	}
@@ -615,7 +627,20 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 		if files.RTC != nil {
 			rtcDst = files.RTC.Path
 		}
-		if err := os.Rename(rtcTmp, rtcDst); err != nil {
+		if files.RTC != nil && files.Save == nil {
+			// A clock file without its save (the .sav was moved off the
+			// card): no backup was made above, so the current clock goes
+			// to the trash, as one journaled replacement (Codex review of
+			// M5; rule 1 of CLAUDE.md).
+			fi, err := os.Lstat(rtcTmp)
+			if err != nil {
+				return nil, fmt.Errorf("save: install the clock file: %w", err)
+			}
+			if _, err := s.o.Trash.Replace(store.ReasonRestore, g.Name, []store.MoveItem{{Path: files.RTC.Path}},
+				[]store.Install{{Src: rtcTmp, Dst: rtcDst, Size: fi.Size()}}); err != nil {
+				return nil, fmt.Errorf("save: install the clock file: %w", err)
+			}
+		} else if err := os.Rename(rtcTmp, rtcDst); err != nil {
 			return nil, fmt.Errorf("save: install the clock file: %w", err)
 		}
 	}

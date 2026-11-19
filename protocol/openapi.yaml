@@ -57,8 +57,9 @@ info:
     is wrong is never read). The nonce is reserved as soon as the signature
     is valid, before the body is read: any later failure (body hash, size)
     consumes it, and the app retries with a new nonce. A signed body is
-    limited to 1 MiB (64 MiB for `PUT /games/{gameId}/save`, 16 MiB for an
-    upload chunk sent with its SHA-256), otherwise `413 too_large`; these
+    limited to 1 MiB (64 MiB for `PUT /games/{gameId}/save`, 4 MiB for
+    `PUT /games/{gameId}/art`, 16 MiB for an upload chunk sent with its
+    SHA-256), otherwise `413 too_large`; these
     limits are fixed per route. If the device cannot remember more nonces,
     it answers `429 too_many_attempts` with `Retry-After`.
 
@@ -112,6 +113,12 @@ paths:
         Checks that the app talks to the expected device, measures the clock
         skew and checks compatibility. Rate-limited to 10 requests per second
         per IP. Returns nothing else (no games, no clients).
+
+        `pairingOpen` (M8): pairing is only open while the console shows the
+        pairing QR code and PIN (main screen while no device is paired,
+        otherwise Settings > Pair a new device) and is not blocked after
+        too many failures. It is `false` otherwise: the app then asks the
+        user to open the pairing screen on the console.
       security: []
       responses:
         '200':
@@ -156,6 +163,12 @@ paths:
         regenerated and pairing is blocked for 30 s (`429 too_many_attempts`).
         The secret is single use. Pairing again with the same `clientId`
         replaces its key. Rate-limited per IP.
+
+        Pairing on demand (M8): pairing is only open while the console shows
+        the QR code and PIN (`pairingOpen` of `GET /hello`). While it is
+        closed, every well-formed request gets `401 pairing_failed` and does
+        not count as a failure. The secret and the PIN are drawn again each
+        time the pairing screen opens and are invalidated when it closes.
       security: []
       requestBody:
         required: true
@@ -362,7 +375,9 @@ paths:
         the game (ReminisLink copies) go into the same trash entry. With
         `keepSave=true`, the save, the states, the locks and the resume
         history stay in place. Space is only freed when the trash is purged
-        (automatically after 30 days, or with `DELETE /trash`).
+        (automatically after 30 days, or with `DELETE /trash`). The discs of
+        a multi-disc game that another playlist of the system still lists
+        stay in place (M8), so that game stays playable.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: keepSave
@@ -421,6 +436,139 @@ paths:
           description: The cached art is still valid.
           headers:
             ETag: { $ref: '#/components/headers/ETag' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+    put:
+      tags: [Library]
+      operationId: setGameArt
+      summary: Set the game art (PNG)
+      description: |
+        M8. Body: a PNG image (`Content-Type: image/png`), at most 4 MiB,
+        at most 1024 x 1024 pixels; the app converts and scales the picture
+        down before sending it. The pak checks the PNG signature, decodes
+        the header for the dimensions (`422 unsupported_format` when the
+        body is not a valid PNG or is larger than 1024 x 1024), then writes
+        it atomically where NextUI reads it (`.media/<name>.png`, next to
+        the game entry). An existing art first goes to the trash (reason
+        `overwrite`). The body is signed like any other
+        (`X-RL-Content-SHA256` is its hash).
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: { type: string, contentMediaType: image/png }
+            example: '<PNG image bytes>'
+      responses:
+        '200':
+          description: Art set. The game as listed by `GET /systems/{systemId}/games` (`hasArt` is true).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Game' }
+              example:
+                id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ
+                name: Sky Garden Quest
+                fileName: Sky Garden Quest.gba
+                kind: file
+                sizeBytes: 16777216
+                modifiedAt: '2026-10-02T09:12:00Z'
+                hasSave: true
+                stateCount: 3
+                lockedStateCount: 1
+                cheatCount: 12
+                hasArt: true
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+        '507': { $ref: '#/components/responses/InsufficientStorage' }
+    delete:
+      tags: [Library]
+      operationId: deleteGameArt
+      summary: Remove the game art (to the trash)
+      description: |
+        M8. Moves the art of the game to the trash (reason `overwrite`).
+        `404 not_found` when the game does not exist or has no art.
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Art removed. The game as listed by `GET /systems/{systemId}/games` (`hasArt` is false).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Game' }
+              example:
+                id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ
+                name: Sky Garden Quest
+                fileName: Sky Garden Quest.gba
+                kind: file
+                sizeBytes: 16777216
+                modifiedAt: '2026-10-02T09:12:00Z'
+                hasSave: true
+                stateCount: 3
+                lockedStateCount: 1
+                cheatCount: 12
+                hasArt: false
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /games/{gameId}/deletion:
+    get:
+      tags: [Library]
+      operationId: previewGameDeletion
+      summary: Preview what deleting a game moves and keeps
+      description: |
+        M8. Read only. The exact selection `DELETE /games/{gameId}` would
+        make now with the same `keepSave` (computed by the same code on the
+        pak), so the app can show it before asking for confirmation.
+        Folders are expanded to their files, recursively. `moved` lists the
+        files that would go to the trash, the ReminisLink copies of the
+        game included (locks and resume history, role `other`, names
+        starting with `ReminisLink/`); `kept` lists the files deliberately
+        left in place: the discs (and the tracks of their `.cue`) that
+        another playlist of the system still lists, and, with
+        `keepSave=true`, the save, its clock file, the states and their
+        side files, the locks and the resume history. `movedBytes` is the
+        size of every file of `moved`. `name` is informative, never an
+        absolute path: relative to the system folder for the files under
+        `Roms/`, relative to the SD card for the other files of the game
+        (`Saves/GBA/Game.gba.sav`), and `ReminisLink/...` for the copies of
+        the pak.
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - name: keepSave
+          in: query
+          required: false
+          description: Same meaning as for `DELETE /games/{gameId}`.
+          schema: { type: boolean, default: false }
+          example: false
+      responses:
+        '200':
+          description: The selection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletionPreview' }
+              example:
+                moved:
+                  - { name: Sky Garden Quest.gba, role: rom, size: 16777216 }
+                  - { name: Saves/GBA/Sky Garden Quest.gba.sav, role: save, size: 131072 }
+                kept: []
+                movedBytes: 16908288
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1025,7 +1173,11 @@ paths:
         (`*` matches an existing file); a missing `If-Match` is
         `400 invalid_request`. The ETag of a game without cheat file is the
         one of an empty file. An empty list deletes the `.cht` file (its
-        content stays in the `.bak`).
+        content stays in the `.bak`). M8: a current file that cannot be
+        read to its end (a line too long) is never rewritten
+        (`422 unsupported_format`), and a list whose file would exceed the
+        8 MiB the reads accept is refused before anything changes (`413`);
+        imports check both too.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: If-Match
@@ -1059,6 +1211,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/PreconditionFailed' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1314,7 +1467,8 @@ paths:
       summary: Download a URL on the device (creates a job)
       description: |
         Same `target` as `POST /uploads`; `fileName` may be omitted (taken
-        from `Content-Disposition` or the URL). `http` and `https` only, 5
+        from `Content-Disposition` or the URL, then normalized to NFC and
+        cleaned like any given name). `http` and `https` only, 5
         redirects, 4 GiB max. The result of the job is the created resource.
         At most 100 jobs are queued or running (`429 too_many_attempts`
         with `Retry-After` beyond).
@@ -1363,8 +1517,8 @@ paths:
         `unsupported_format`. `patch_mismatch` has `details.reason`:
         `source-mismatch` (another ROM version) or `already-patched` (the
         ROM is the target of the patch: refused, never patched backwards).
-        Only single-file games can be patched: `m3u` and `folder-m3u`
-        games and `.zip`/`.7z` ROMs answer `422 unsupported_format`.
+        Only single-file games can be patched: `m3u`, `folder-m3u` and
+        `folder-cue` games and `.zip`/`.7z` ROMs answer `422 unsupported_format`.
         `new-file`: default name `<name> (patched).<ext>`; the default or
         given `fileName` (cleaned, and it must be a ROM name, else
         `400 invalid_name`) always ends with the extension of the ROM: it
@@ -1649,8 +1803,10 @@ components:
         non-default `saveFormat`/`stateFormat` in the NextUI settings, or a
         `.zip` game with `useExtractedFileName=1`, whose data is named after
         the file inside the zip), or the state folder of the system cannot
-        be found (no emulator pak): the pak refuses to change these files
-        rather than guess.
+        be found (no emulator pak, or an emulator pak whose core the pak
+        cannot read from its `launch.sh`, M8): the pak refuses to change
+        these files rather than guess. On `PUT /games/{gameId}/art`, the
+        body is not a valid PNG of at most 1024 x 1024 pixels.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1737,7 +1893,7 @@ components:
       contentMediaType: application/octet-stream
     FileName:
       type: string
-      description: File name without directory; cleaned by the device (`invalid_name` if refused). At most 255 bytes.
+      description: File name without directory; normalized to Unicode NFC, then cleaned by the device (`invalid_name` if refused). At most 255 bytes.
       minLength: 1
     Model:
       type: string
@@ -1894,8 +2050,13 @@ components:
         gameCount: { type: integer, minimum: 0 }
     GameKind:
       type: string
-      enum: [file, m3u, folder-m3u]
-      description: '`file` (single ROM), `m3u` (`.m3u` file), `folder-m3u` (folder holding a `.m3u` of the same name).'
+      enum: [file, m3u, folder-m3u, folder-cue]
+      description: |
+        `file` (single ROM), `m3u` (`.m3u` file), `folder-m3u` (folder
+        holding a `.m3u` of the same name), `folder-cue` (M8: folder holding
+        a `.cue` of the same name and no such `.m3u`; NextUI launches the
+        `.cue`, and the save and states are named after it). Clients must
+        treat an unknown kind like `folder-m3u`.
     Game:
       type: object
       required: [id, name, fileName, kind, sizeBytes, modifiedAt, hasSave, stateCount, lockedStateCount, cheatCount, hasArt]
@@ -1947,6 +2108,27 @@ components:
           items: { $ref: '#/components/schemas/GameFile' }
         totalBytes: { $ref: '#/components/schemas/Bytes' }
 
+    DeletionItem:
+      type: object
+      required: [name, role, size]
+      properties:
+        name: { type: string, description: 'Informative path, never absolute (see `GET /games/{gameId}/deletion`).' }
+        role:
+          type: string
+          enum: [rom, save, rtc, state, cheats, art, other]
+          description: 'The roles of `GameFile`; `other` for the rest (side files of the states, `.cht.bak`, files of a folder game not listed by its playlist, ReminisLink copies).'
+        size: { $ref: '#/components/schemas/Bytes' }
+    DeletionPreview:
+      type: object
+      required: [moved, kept, movedBytes]
+      properties:
+        moved:
+          type: array
+          items: { $ref: '#/components/schemas/DeletionItem' }
+        kept:
+          type: array
+          items: { $ref: '#/components/schemas/DeletionItem' }
+        movedBytes: { $ref: '#/components/schemas/Bytes' }
     TrashMoveResult:
       type: object
       required: [trashEntryId, moved, movedBytes]

@@ -22,6 +22,12 @@ func TestParseFlags(t *testing.T) {
 	if err != nil || !o.headless || o.desktop || o.sd != "/tmp/sd" || o.port != 48000 || o.name != "Brick de test" {
 		t.Fatalf("got %+v, %v", o, err)
 	}
+	if o.pairingOpen {
+		t.Fatal("pairing open by default")
+	}
+	if o, err := parseFlags([]string{"--headless", "--pairing-open"}, &stderr); err != nil || !o.pairingOpen {
+		t.Fatalf("--pairing-open: %+v, %v", o, err)
+	}
 	o, err = parseFlags(nil, &stderr)
 	if err != nil || o.headless || o.port != 0 {
 		t.Fatalf("defaults: %+v, %v", o, err)
@@ -31,7 +37,7 @@ func TestParseFlags(t *testing.T) {
 		t.Fatalf("desktop: %+v, %v", o, err)
 	}
 	for _, args := range [][]string{{"--port", "70000"}, {"--port", "-1"}, {"extra"}, {"--nope"},
-		{"--desktop"}, {"--desktop", "--headless", "--sd", "/x"}} {
+		{"--desktop"}, {"--desktop", "--headless", "--sd", "/x"}, {"--pairing-open"}, {"--desktop", "--sd", "/x", "--pairing-open"}} {
 		if _, err := parseFlags(args, &stderr); err == nil {
 			t.Errorf("%q accepted", args)
 		}
@@ -58,11 +64,14 @@ func TestPairingDisplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Open(); err != nil {
+		t.Fatal(err)
+	}
 	name := "Brick test"
 	status := func() (app.Status, error) {
 		snap, err := s.Snapshot()
 		return app.Status{
-			Name: name, IP: "192.168.1.42", Port: 47821,
+			Name: name, IP: "192.168.1.42", Port: 47821, PairingOpen: snap.Open,
 			PairingLink: auth.PairingURL(id, name, snap.Secret, "192.168.1.42", 47821),
 			PIN:         snap.PIN, ExpiresAt: snap.ExpiresAt, Generation: snap.Generation,
 		}, err
@@ -93,8 +102,10 @@ func TestPairingDisplay(t *testing.T) {
 		t.Fatalf("rename not shown: %s", out.String())
 	}
 	out.Reset()
+	s.Close() // the first device is paired: pairing closes
 	d.paired(auth.Client{ID: "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", Name: "iPhone"})
-	if !strings.Contains(out.String(), `Paired with "iPhone"`) {
+	if !strings.Contains(out.String(), `Paired with "iPhone"`) || !strings.Contains(out.String(), "Pairing closed") ||
+		strings.Contains(out.String(), "PIN:") {
 		t.Fatalf("paired: %s", out.String())
 	}
 	// run stops with its context.

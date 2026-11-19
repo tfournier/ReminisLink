@@ -55,7 +55,8 @@ Accounts*).
 ### 2. App Store Connect record
 
 In App Store Connect, *Apps > + > New App*: platform iOS, name ReminisLink,
-primary language, the bundle id `<prefix>.reminislink`, any SKU. Fill the
+primary language, the bundle id of `RL_APP_BUNDLE_ID` (`link.reminis.app`
+with the default prefix of `Config/Config.xcconfig`), any SKU. Fill the
 page with the texts of `AppStore/` (see `AppStore/README.md`), the URL of
 the privacy policy (step 5) and "Data Not Collected" for App Privacy.
 

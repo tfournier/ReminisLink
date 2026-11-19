@@ -36,6 +36,8 @@ const (
 	BodyLimitJSON = 1 << 20
 	// BodyLimitSave is for PUT /api/v1/games/{gameId}/save.
 	BodyLimitSave = 64 << 20
+	// BodyLimitArt is for PUT /api/v1/games/{gameId}/art (a PNG, M8).
+	BodyLimitArt = 4 << 20
 	// BodyLimitChunk is for PUT /api/v1/uploads/{uploadId} when a chunk is
 	// sent with its real SHA-256 instead of UNSIGNED.
 	BodyLimitChunk = 16 << 20
@@ -60,6 +62,8 @@ var (
 	RouteJSON = RouteOptions{BodyLimit: BodyLimitJSON}
 	// RouteSave: PUT /api/v1/games/{gameId}/save.
 	RouteSave = RouteOptions{BodyLimit: BodyLimitSave}
+	// RouteArt: PUT /api/v1/games/{gameId}/art.
+	RouteArt = RouteOptions{BodyLimit: BodyLimitArt}
 	// RouteChunk: PUT /api/v1/uploads/{uploadId}.
 	RouteChunk = RouteOptions{BodyLimit: BodyLimitChunk, AllowUnsigned: true}
 )

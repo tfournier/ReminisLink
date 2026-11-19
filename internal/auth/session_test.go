@@ -19,6 +19,9 @@ func newTestSession(t *testing.T) (*PairingSession, *fakeClock) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := s.Open(); err != nil {
+		t.Fatal(err)
+	}
 	return s, clock
 }
 
@@ -236,5 +239,114 @@ func TestPairingURL(t *testing.T) {
 	}
 	if s, err := DecodeB64U(q.Get("s")); err != nil || len(s) != SecretSize || s[0] != 0xfb {
 		t.Fatalf("secret: %x %v", s, err)
+	}
+}
+
+func TestPairingOnDemand(t *testing.T) {
+	clock := newFakeClock()
+	s, err := NewPairingSession(testDeviceID, clock.Now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A new session is closed: even a proof made with its hidden secret
+	// fails, and it never counts as a failure.
+	hidden, _ := s.Snapshot()
+	if hidden.Open || s.IsOpen() {
+		t.Fatal("a new session is open")
+	}
+	for i := 0; i < 2*MaxPairingFailures; i++ {
+		if _, _, err := s.Attempt(clientRequest(t, MethodQR, hidden.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+			t.Fatalf("closed session: error = %v", err)
+		}
+	}
+	if snap, _ := s.Snapshot(); !snap.BlockedUntil.IsZero() {
+		t.Fatal("attempts on a closed session were counted")
+	}
+	// Malformed requests are still refused as such.
+	bad := clientRequest(t, MethodQR, hidden.Secret, testClientA)
+	bad.Method = "password"
+	if _, _, err := s.Attempt(bad); !errors.Is(err, ErrInvalidPairRequest) {
+		t.Fatalf("malformed on a closed session: %v", err)
+	}
+
+	// Opening draws a new secret and PIN.
+	if err := s.Open(); err != nil {
+		t.Fatal(err)
+	}
+	opened, _ := s.Snapshot()
+	if !opened.Open || bytes.Equal(opened.Secret, hidden.Secret) || opened.Generation == hidden.Generation {
+		t.Fatal("Open did not draw a new secret")
+	}
+	if !opened.ExpiresAt.Equal(clock.Now().Add(PairingTTL)) {
+		t.Fatalf("expires at %v", opened.ExpiresAt)
+	}
+	// Opening again keeps it (the screen is redrawn).
+	if err := s.Open(); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s.Snapshot(); again.Generation != opened.Generation {
+		t.Fatal("a second Open changed the secret")
+	}
+
+	// Closing invalidates what was shown.
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Attempt(clientRequest(t, MethodQR, opened.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+		t.Fatalf("secret shown before Close: %v", err)
+	}
+	if err := s.SetOpen(true); err != nil {
+		t.Fatal(err)
+	}
+	reopened, _ := s.Snapshot()
+	if bytes.Equal(reopened.Secret, opened.Secret) || reopened.PIN == opened.PIN && bytes.Equal(reopened.Secret, opened.Secret) {
+		t.Fatal("reopening reused the old secret")
+	}
+	if _, _, err := s.Attempt(clientRequest(t, MethodQR, opened.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+		t.Fatalf("old secret after reopening: %v", err)
+	}
+	if _, _, err := s.Attempt(clientRequest(t, MethodPIN, PINIKM(reopened.PIN), testClientA)); err != nil {
+		t.Fatalf("PIN of the open session: %v", err)
+	}
+}
+
+func TestPairingClosedDoesNotRegenerateOnExpiry(t *testing.T) {
+	clock := newFakeClock()
+	s, err := NewPairingSession(testDeviceID, clock.Now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := s.Snapshot()
+	clock.Advance(2 * PairingTTL)
+	if after, _ := s.Snapshot(); after.Generation != before.Generation {
+		t.Fatal("a closed session regenerated its hidden secret")
+	}
+}
+
+// Codex review of M8: after five failures, closing the pairing screen
+// must answer pairing_failed (not too_many_attempts); the block applies
+// again when the screen opens before its end.
+func TestPairingClosedAnswersFailedDuringABlock(t *testing.T) {
+	s, clock := newTestSession(t)
+	for i := 0; i < MaxPairingFailures; i++ {
+		s.Attempt(badRequest(t))
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Attempt(badRequest(t)); !errors.Is(err, ErrPairingFailed) {
+		t.Fatalf("closed during the block: %v", err)
+	}
+	if err := s.Open(); err != nil {
+		t.Fatal(err)
+	}
+	snap, _ := s.Snapshot()
+	if _, retry, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); !errors.Is(err, ErrTooManyAttempts) || retry <= 0 {
+		t.Fatalf("reopened during the block: %v %v", retry, err)
+	}
+	clock.Advance(PairingBlock)
+	snap, _ = s.Snapshot()
+	if _, _, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); err != nil {
+		t.Fatalf("after the block: %v", err)
 	}
 }

@@ -132,7 +132,7 @@ pak: build ## Assemble the pak folder in build/pak
 	rm -rf $(PAK_DIR)
 	mkdir -p $(PAK_DIR)/resources/lib
 	cp pak/launch.sh $(BIN) pak.json $(PAK_DIR)/
-	cp README.md $(PAK_DIR)/
+	cp README.md LICENSE $(PAK_DIR)/
 	cp pak/THIRD_PARTY.md $(PAK_DIR)/resources/
 	cp -L $(SDL_GFX_LIB) $(PAK_DIR)/resources/lib/
 	chmod +x $(PAK_DIR)/launch.sh $(PAK_DIR)/$(APP)

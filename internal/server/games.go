@@ -491,6 +491,8 @@ func (s *Server) cheatError(w http.ResponseWriter, r *http.Request, err error) {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, err.Error(), nil)
 	case errors.Is(err, cheats.ErrTooLarge):
 		auth.WriteError(w, http.StatusRequestEntityTooLarge, auth.CodeTooLarge, "Cheat file too large", nil)
+	case errors.Is(err, cheats.ErrUnreadable):
+		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "Cheat file unreadable", nil)
 	case errors.Is(err, cheats.ErrNoCheat):
 		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "No cheat found", nil)
 	default:

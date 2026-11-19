@@ -148,7 +148,7 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 }
 ```
 
-- `kind` : `file` (ROM simple), `m3u` (fichier `.m3u`), `folder-m3u` (dossier contenant un `.m3u` du même nom, jeu multi-disques).
+- `kind` : `file` (ROM simple), `m3u` (fichier `.m3u`), `folder-m3u` (dossier contenant un `.m3u` du même nom, jeu multi-disques), `folder-cue` (M8 : dossier contenant une `.cue` du même nom et pas de tel `.m3u` ; NextUI lance la `.cue`, la save et les states portent son nom ; un client traite un type inconnu comme `folder-m3u`).
 - Les fichiers ignorés sont ceux de Cheat Manager (`.txt`, `.png`, `.sav`, `.cht`, `.bak`...) et les fichiers cachés.
 - Les fichiers cités par un `.m3u` du même dossier (les disques d'un jeu multi-disques) ne sont pas listés comme jeux séparés ; la taille du jeu `m3u` inclut ses disques.
 - Les identifiants désignent un nom **exact** du dossier : un identifiant qui ne diffère que par la casse donne `404 not_found` (un seul identifiant par fichier, 03 §5).
@@ -183,6 +183,10 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 ### `PUT /games/{gameId}/art` et `DELETE /games/{gameId}/art` (M8)
 
 Définir ou retirer la jaquette d'un jeu (décision du 19/11/2026). Corps de `PUT` : un PNG (`Content-Type: image/png`, 4 Mio au plus, signature PNG et dimensions vérifiées, au plus 1024 × 1024) ; l'app convertit et réduit l'image choisie (Photos ou Fichiers) avant l'envoi. Le pak l'enregistre de façon atomique à l'emplacement que NextUI lit (`.media/<nom>.png`, voir 05 §3.1) ; l'ancienne jaquette part d'abord à la corbeille (raison `overwrite`). `DELETE` déplace la jaquette à la corbeille. Réponses : `200` avec le jeu mis à jour (`hasArt`), `404` si le jeu n'existe pas, `413`, `422 unsupported_format` si le corps n'est pas un PNG valide.
+
+### `GET /games/{gameId}/deletion?keepSave=false` (M8)
+
+Aperçu en lecture seule de `DELETE /games/{gameId}` avec le même `keepSave`, calculé par la même sélection que la suppression (source unique) : l'app affiche la **liste exacte** avant de demander confirmation (06). Réponse `200` : `{ "moved": [DeletionItem], "kept": [DeletionItem], "movedBytes": int64 }`, où `DeletionItem` = `{ "name", "role", "size" }`. Les dossiers sont développés en fichiers, récursivement. `name` est informatif, jamais absolu : relatif au dossier du système pour les fichiers de `Roms/`, relatif à la carte SD pour les autres fichiers du jeu (`Saves/GBA/<rom>.sav`), `ReminisLink/...` pour les copies du pak (verrous, historique de reprise). `role` : un rôle de `GET /games/{gameId}` (`rom`, `save`, `rtc`, `state`, `cheats`, `art`) ou `other` (annexes des states, `.cht.bak`, fichiers d'un jeu dossier hors playlist, copies du pak). `moved` : ce qui partirait à la corbeille, copies du pak comprises ; `kept` : ce qui reste volontairement en place (disques encore listés par une autre playlist et pistes de leur `.cue` ; avec `keepSave=true`, save, `.rtc`, states et annexes, verrous et historique). `movedBytes` : taille de tous les fichiers de `moved`. Erreurs : celles de `GET /games/{gameId}`.
 
 ### `DELETE /games/{gameId}?keepSave=false`
 

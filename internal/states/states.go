@@ -202,6 +202,17 @@ type Options struct {
 // Service manages the states, their locks and the resume history.
 type Service struct {
 	o Options
+	// ctx is the context of a running Maintain (nil otherwise), read with
+	// the lock held.
+	ctx context.Context
+}
+
+// context returns the context the long reads stop with.
+func (s *Service) context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
 }
 
 // New returns a Service.
@@ -403,7 +414,7 @@ func (s *Service) slotOf(g osadapter.Game, slot int, path string, dir string, l 
 		status = StatusModified
 	case !exists:
 		status = StatusMissing
-	case !s.matchesCopy(dir, l, path, fi):
+	case !s.matchesCopy(dir, l, path, fi) || !s.sidesMatch(g, slot, dir):
 		status = StatusModified
 	case l.meta.Restored:
 		status = StatusRestored
@@ -433,7 +444,7 @@ func (s *Service) matchesCopy(dir string, l *lock, path string, fi os.FileInfo) 
 	if fi.Size() == l.meta.StateSize && fi.ModTime().UnixNano() == l.meta.StateModTime {
 		return true
 	}
-	sum, _, err := store.HashFile(path)
+	sum, _, err := store.HashFileContext(s.context(), path)
 	if err != nil || sum != l.meta.SHA256 {
 		return false
 	}
@@ -739,7 +750,7 @@ func (s *Service) RestoreLock(g osadapter.Game, slot int) (Slot, error) {
 	if exists {
 		if same, err := store.SameFile(p, l.copy); err != nil {
 			return Slot{}, fmt.Errorf("restore: %w", err)
-		} else if same {
+		} else if same && s.sidesMatch(g, slot, dir) {
 			return s.slotNow(g, slot), nil
 		}
 	}
@@ -750,37 +761,43 @@ func (s *Service) RestoreLock(g osadapter.Game, slot int) (Slot, error) {
 	return s.slotNow(g, slot), nil
 }
 
-// restoreCopy puts the locked copy back at path: the copy is first copied
-// to a temporary file and checked against its SHA-256, then the current
-// state (if any) goes to the trash and the temporary file is renamed in
-// place. markRestored sets the restored flag before the first change, so
-// a power cut never loses it. Called with the lock held.
+// restoreCopy puts the locked copy back at path: the copy (and the copies
+// of its side files) are first copied to temporary files and checked
+// against its SHA-256, then the current state and side files go to the
+// trash and the temporary files are renamed in place, as one replacement
+// journaled in the trash entry (store.Trash.Replace): a power cut between
+// two renames (the state restored, its disc file not yet) is finished or
+// rolled back at the next start, never left half done. markRestored sets
+// the restored flag before the first change, so a power cut never loses
+// it. Called with the lock held.
 func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, path string, exists bool, reason string, markRestored bool) error {
 	tmp, err := s.tempFile()
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp) // already gone after a successful rename
-	sum, _, err := store.CopyFileAtomic(l.copy, tmp)
+	// The temporary files are removed (already gone after a successful
+	// replacement) unless a pending replacement still names them.
+	temps := []string{tmp}
+	pending := false
+	defer func() {
+		if !pending {
+			for _, p := range temps {
+				os.Remove(p)
+			}
+		}
+	}()
+	sum, size, err := store.CopyFileAtomicContext(s.context(), l.copy, tmp)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}
 	if sum != l.meta.SHA256 {
 		return ErrCorruptCopy
 	}
-	before := l.meta
-	if markRestored {
-		l.meta.Restored = true
-		if err := s.writeLockMeta(dir, l.meta); err != nil {
-			return fmt.Errorf("restore: %w", err)
-		}
-	}
 	// The side files: a copy kept with the lock replaces the current file
 	// (which goes to the trash with the state); without a copy, a stale
 	// thumbnail goes to the trash but the disc file stays (an old lock
 	// without it: the current disc is the best guess).
-	type sideCopy struct{ src, tmp, dst string }
-	var sides []sideCopy
+	installs := []store.Install{{Src: tmp, Dst: path, Size: size, SHA256: sum}}
 	var items []store.MoveItem
 	if exists {
 		items = append(items, store.MoveItem{Path: path})
@@ -794,48 +811,57 @@ func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, p
 			if cur != "" {
 				dst = cur
 			}
-			sides = append(sides, sideCopy{src: saved, tmp: tmp + ext, dst: dst})
+			sideTmp := tmp + ext
+			temps = append(temps, sideTmp)
+			sideSum, sideSize, err := store.CopyFileAtomicContext(s.context(), saved, sideTmp)
+			if err != nil {
+				return fmt.Errorf("restore: %w", err)
+			}
+			installs = append(installs, store.Install{Src: sideTmp, Dst: dst, Size: sideSize, SHA256: sideSum})
 		}
 		if cur != "" && (saved != "" || ext != ".txt") {
 			items = append(items, store.MoveItem{Path: cur})
 		}
 	}
-	for _, sc := range sides {
-		defer os.Remove(sc.tmp)
-		if _, _, err := store.CopyFileAtomic(sc.src, sc.tmp); err != nil {
+	before := l.meta
+	if markRestored {
+		l.meta.Restored = true
+		if err := s.writeLockMeta(dir, l.meta); err != nil {
 			return fmt.Errorf("restore: %w", err)
 		}
 	}
-	if len(items) > 0 {
-		if _, err := s.o.Trash.Move(reason, g.Name, items); err != nil {
-			if markRestored {
-				_ = s.writeLockMeta(dir, before)
-			}
-			return fmt.Errorf("restore: %w", err)
+	if _, err := s.o.Trash.Replace(reason, g.Name, items, installs); err != nil {
+		pending = errors.Is(err, store.ErrReplaceFailed)
+		if markRestored && !pending {
+			_ = s.writeLockMeta(dir, before)
 		}
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("restore: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		// The state is in the trash and the copy still locked: the next
-		// start restores it (status missing).
-		return fmt.Errorf("restore: %w", err)
-	}
-	store.SyncDir(filepath.Dir(path))
-	for _, sc := range sides {
-		if err := os.MkdirAll(filepath.Dir(sc.dst), 0o755); err == nil {
-			err = os.Rename(sc.tmp, sc.dst)
-		}
-		if err != nil {
-			s.o.Logger.Warn("restore: side file not put back", "game", g.Path, "slot", slot, "error", err)
-		}
 	}
 	if fi, err := os.Stat(path); err == nil {
 		l.meta.StateSize, l.meta.StateModTime = fi.Size(), fi.ModTime().UnixNano()
 		_ = s.writeLockMeta(dir, l.meta)
 	}
 	return nil
+}
+
+// sidesMatch reports whether the side files of a locked slot (thumbnail,
+// disc of a multi-disc state) hold the bytes of the copies kept with the
+// lock: a lock is only intact when they do too. Called with the lock held.
+func (s *Service) sidesMatch(g osadapter.Game, slot int, dir string) bool {
+	for _, side := range s.o.Adapter.StateSideFiles(g, slot) {
+		saved := store.FindFold(dir, lockSideName(slot, filepath.Ext(side)), false)
+		if saved == "" {
+			continue
+		}
+		cur := store.FindFold(filepath.Dir(side), filepath.Base(side), false)
+		if cur == "" {
+			return false
+		}
+		if same, err := store.SameFile(cur, saved); err != nil || !same {
+			return false
+		}
+	}
+	return true
 }
 
 // repairLockMeta rebuilds the metadata of a lock from its copy (a lock
@@ -872,30 +898,26 @@ func (s *Service) InstallLocked(g osadapter.Game, slot int, tmp string) (Slot, e
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return Slot{}, fmt.Errorf("state: %w", err)
 	}
-	var trashID string
+	var items []store.MoveItem
 	if exists {
 		// The thumbnail of the old state goes with it; the disc file stays:
 		// the user knows which disc the uploaded state belongs to.
-		items := []store.MoveItem{{Path: p}}
+		items = []store.MoveItem{{Path: p}}
 		for _, it := range s.sideItems(g, slot) {
 			if !strings.EqualFold(filepath.Ext(it.Path), ".txt") {
 				items = append(items, it)
 			}
 		}
-		res, err := s.o.Trash.Move(store.ReasonOverwrite, g.Name, items)
-		if err != nil {
-			return Slot{}, fmt.Errorf("state: %w", err)
-		}
-		trashID = res.Entry.ID
 	}
-	if err := os.Rename(tmp, p); err != nil {
-		if trashID != "" {
-			return Slot{}, fmt.Errorf("state: install (previous state in trash entry %s): %w", trashID, err)
-		}
+	fi, err := os.Lstat(tmp)
+	if err != nil {
 		return Slot{}, fmt.Errorf("state: install: %w", err)
 	}
-	store.SyncDir(filepath.Dir(p))
-	store.SyncDir(filepath.Dir(tmp))
+	// One journaled replacement: a power cut after the old state went to
+	// the trash is finished or rolled back at the next start.
+	if _, err := s.o.Trash.Replace(store.ReasonOverwrite, g.Name, items, []store.Install{{Src: tmp, Dst: p, Size: fi.Size()}}); err != nil {
+		return Slot{}, fmt.Errorf("state: install: %w", err)
+	}
 	s.o.Logger.Info("state replaced", "game", g.Path, "slot", slot)
 	return s.slotNow(g, slot), nil
 }
@@ -990,9 +1012,11 @@ const (
 // archiveLocked archives the resume state at path for (tag, rom) when it
 // differs from the entries of the history (05 §5.3: date and size first,
 // SHA-256 only when they changed; the history keeps distinct versions),
-// then moves the entries past MaxResumeEntries to the trash. Called with
-// the lock held.
-func (s *Service) archiveLocked(tag, rom, path string) (archiveResult, error) {
+// then moves the entries past MaxResumeEntries to the trash. With
+// hashAlways (before a restore overwrites the state), the content is
+// always compared by SHA-256: a state with the date and size of an entry
+// but other bytes is archived too. Called with the lock held.
+func (s *Service) archiveLocked(tag, rom, path string, hashAlways bool) (archiveResult, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return 0, err
@@ -1004,11 +1028,11 @@ func (s *Service) archiveLocked(tag, rom, path string) (archiveResult, error) {
 	// unknown core: never compared with the current state, never restored.
 	mod := fi.ModTime().UnixNano()
 	for _, m := range metas {
-		if strings.EqualFold(m.StateDir, stateDir) && m.StateSize == fi.Size() && m.StateModTime == mod {
+		if !hashAlways && strings.EqualFold(m.StateDir, stateDir) && m.StateSize == fi.Size() && m.StateModTime == mod {
 			return archiveUnchanged, nil
 		}
 	}
-	sum, size, err := store.HashFile(path)
+	sum, size, err := store.HashFileContext(s.context(), path)
 	if err != nil {
 		return 0, err
 	}
@@ -1038,7 +1062,7 @@ func (s *Service) archiveLocked(tag, rom, path string) (archiveResult, error) {
 	if err != nil {
 		return 0, err
 	}
-	sum, size, err = store.CopyFileAtomic(path, filepath.Join(dir, id+stateExt))
+	sum, size, err = store.CopyFileAtomicContext(s.context(), path, filepath.Join(dir, id+stateExt))
 	if err != nil {
 		return 0, err
 	}
@@ -1111,7 +1135,7 @@ func (s *Service) RestoreResume(g osadapter.Game, entryID string) ([]ResumeEntry
 	}
 	p, exists := s.statePath(g, slot)
 	if exists {
-		if _, err := s.archiveLocked(g.System.Tag, g.ROMName, p); err != nil {
+		if _, err := s.archiveLocked(g.System.Tag, g.ROMName, p, true); err != nil {
 			return nil, fmt.Errorf("restore resume: archive the current state: %w", err)
 		}
 	}
@@ -1158,6 +1182,10 @@ type Report struct {
 func (s *Service) Maintain(ctx context.Context) Report {
 	s.o.Lock.Lock()
 	defer s.o.Lock.Unlock()
+	// The long reads (hashes, copies) stop with ctx too; the writes
+	// already engaged are journaled (store.Trash.Replace).
+	s.ctx = ctx
+	defer func() { s.ctx = nil }()
 	var r Report
 	s.archiveAll(ctx, &r)
 	s.checkLocks(ctx, &r)
@@ -1169,7 +1197,11 @@ func (s *Service) archiveAll(ctx context.Context, r *Report) {
 	if !ok {
 		return
 	}
-	refs, err := s.o.Adapter.StateFiles()
+	refs, err := s.o.Adapter.StateFiles(ctx)
+	if ctx.Err() != nil {
+		r.Skipped++
+		return
+	}
 	if err != nil {
 		s.o.Logger.Warn("maintenance: cannot list the states", "error", err)
 		r.Failed++
@@ -1187,7 +1219,11 @@ func (s *Service) archiveAll(ctx context.Context, r *Report) {
 			// Not files the pak names: archiving them could mislead.
 			continue
 		}
-		res, err := s.archiveLocked(ref.Tag, ref.ROMName, ref.File.Path)
+		res, err := s.archiveLocked(ref.Tag, ref.ROMName, ref.File.Path, false)
+		if err != nil && ctx.Err() != nil {
+			r.Skipped++ // stopped in the middle: the next start does it
+			continue
+		}
 		if err != nil {
 			s.o.Logger.Warn("maintenance: cannot archive a resume state", "tag", ref.Tag, "rom", ref.ROMName, "error", err)
 			r.Failed++
@@ -1295,7 +1331,7 @@ func (s *Service) checkLock(g osadapter.Game, dir string, slot int, r *Report) {
 			r.Failed++
 			return
 		}
-		if s.matchesCopy(dir, l, p, fi) {
+		if s.matchesCopy(dir, l, p, fi) && s.sidesMatch(g, slot, dir) {
 			r.LocksIntact++
 			return
 		}
