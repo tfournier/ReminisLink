@@ -58,7 +58,12 @@ public final class UploadItem: Identifiable {
     public private(set) var onConflict: OnConflict
     public internal(set) var phase: Phase = .waiting
     public internal(set) var hashedBytes: Int64 = 0
+    /// Bytes confirmed by the device.
     public internal(set) var sentBytes: Int64 = 0
+    /// Bytes of the chunk being sent, not confirmed yet (0 between chunks).
+    public internal(set) var inFlightBytes: Int64 = 0
+    /// The chunk attempt `inFlightBytes` belongs to, and its length.
+    private var inFlight: (attempt: Int, length: Int64)?
     public internal(set) var bytesPerSecond: Double?
     public internal(set) var secondsRemaining: TimeInterval?
     /// Why it is paused or failed.
@@ -92,11 +97,31 @@ public final class UploadItem: Identifiable {
         self.ownsFile = ownsFile
     }
 
+    /// The bytes shown: the confirmed offset, plus the chunk being sent
+    /// while it is sent. Once a chunk ends, only what the device confirmed
+    /// is shown; while it is sent, the value only grows.
+    public var displayedBytes: Int64 {
+        min(sizeBytes, sentBytes + (phase == .uploading ? inFlightBytes : 0))
+    }
+
     /// 0...1 of the current step (hashing, then sending).
     public var fractionCompleted: Double {
         guard sizeBytes > 0 else { return phase == .done ? 1 : 0 }
-        let bytes = phase == .hashing ? hashedBytes : sentBytes
+        let bytes = phase == .hashing ? hashedBytes : displayedBytes
         return min(1, Double(bytes) / Double(sizeBytes))
+    }
+
+    /// A chunk attempt starts at the confirmed offset.
+    func chunkStarted(attempt: Int, length: Int64) {
+        inFlight = (attempt, length)
+        inFlightBytes = 0
+    }
+
+    /// Bytes of a chunk attempt sent so far. Ignored once that attempt
+    /// ended (a late report), never going back, at most the chunk length.
+    func chunkSent(attempt: Int, bytes: Int64) {
+        guard let inFlight, inFlight.attempt == attempt else { return }
+        inFlightBytes = min(inFlight.length, max(inFlightBytes, bytes))
     }
 
     func setConflictRule(_ rule: OnConflict) {
@@ -105,6 +130,8 @@ public final class UploadItem: Identifiable {
 
     func report(offset: Int64, at time: TimeInterval) {
         sentBytes = offset
+        inFlight = nil
+        inFlightBytes = 0
         rate.record(bytes: offset, at: time)
         bytesPerSecond = rate.bytesPerSecond
         secondsRemaining = rate.secondsRemaining(total: sizeBytes)
@@ -359,7 +386,10 @@ public final class TransferQueue {
                     let elapsed = clock.now - start
                     let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
                     await item.report(offset: offset, at: seconds)
-                }, willComplete: {
+                }, chunkProgress: ChunkProgress(
+                    started: { attempt, _, length in await item.chunkStarted(attempt: attempt, length: length) },
+                    sent: { attempt, bytes in Task { @MainActor in item.chunkSent(attempt: attempt, bytes: bytes) } }
+                ), willComplete: {
                     await MainActor.run {
                         item.isCompleting = true
                         item.completeSent = true

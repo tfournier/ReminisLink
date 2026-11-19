@@ -16,6 +16,8 @@ enum AppError: Error, Equatable {
     /// `NWBrowser` reports `kDNSServiceErr_PolicyDenied`.
     case localNetworkDenied
     case invalidPairingLink
+    /// `pairingOpen: false` (or `401 pairing_failed` with pairing closed):
+    /// the pairing screen is not shown on the console (M8, on demand).
     case pairingClosed
     case storage
     /// An upload stopped on the app side.
@@ -45,6 +47,9 @@ enum AppError: Error, Equatable {
     case patchTooLarge
     /// The device no longer knows a job (the pak was restarted).
     case jobLost
+    /// The picture chosen for a game art cannot be read or made small
+    /// enough (milestone M8).
+    case unreadablePicture
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -60,6 +65,7 @@ enum AppError: Error, Equatable {
         case is KeychainError, is DeviceStoreError: self = .storage
         case let error as PairingError: self = .api(.pairing(error))
         case let error as UploadFailure: self = .upload(error)
+        case is ArtImage.Failure: self = .unreadablePicture
         case is CocoaError: self = .file
         default: self = .unexpected
         }
@@ -74,7 +80,7 @@ enum AppError: Error, Equatable {
         case .invalidPairingLink:
             String(localized: "This link is not a valid ReminisLink pairing link.")
         case .pairingClosed:
-            String(localized: "Pairing is not open on the console. Open ReminisLink on the console and show the QR code.")
+            String(localized: "On the console, open Settings > Pair a New Device, then scan the QR code shown.")
         case .storage:
             String(localized: "The pairing information could not be read or saved on this iPhone.")
         case .upload(.outcomeUnknown):
@@ -105,6 +111,8 @@ enum AppError: Error, Equatable {
             String(localized: "The console could not download the patch. Check the link and the Wi-Fi connection of the console.")
         case .jobLost:
             String(localized: "The console was restarted and stopped this task. Check the library before trying again.")
+        case .unreadablePicture:
+            String(localized: "This picture cannot be used as the image of the game. Choose another one.")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -132,7 +140,7 @@ enum AppError: Error, Equatable {
         case .restoreRefused, .unsupportedGameFormat, .patchMismatch, .unsupportedPatch, .jobLost: nil
         case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
-        case .invalidPairingLink, .storage, .cancelled: nil
+        case .invalidPairingLink, .storage, .cancelled, .unreadablePicture: nil
         case .pairingClosed, .unexpected: .retry
         }
     }

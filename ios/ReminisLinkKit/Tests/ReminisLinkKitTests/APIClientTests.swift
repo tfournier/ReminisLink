@@ -194,6 +194,76 @@ struct APIClientTests {
         #expect(try await client.trash().entries.isEmpty)
     }
 
+    /// A redirection would resend the request outside the signing loop
+    /// (same nonce, maybe the body, maybe off the local network): refused.
+    @Test(arguments: [301, 302, 307, 308])
+    func redirectionsAreNeverFollowed(status: Int) async throws {
+        let calls = Counter()
+        let client = stubClient { request, _ in
+            calls.increment()
+            if request.url?.path() == "/api/v1/device" {
+                return FakeResponse(status: status, headers: ["Location": "/api/v1/elsewhere"])
+            }
+            return .json(200, [:])
+        }
+        await #expect(throws: APIError.unexpectedStatus(status)) { try await client.device() }
+        #expect(calls.value == 1)
+        // Unsigned routes too (the body of /pair).
+        let attempt = try PairingAttempt(secret: .qr(Pairing.makeNonce()), deviceId: FakePak.demoDeviceId,
+                                         clientId: Pairing.makeClientId(), clientName: "iPhone")
+        let pairCalls = Counter()
+        let unsigned = stubClient(credentials: false) { _, _ in
+            pairCalls.increment()
+            return FakeResponse(status: status, headers: ["Location": "https://example.org/collect"])
+        }
+        await #expect(throws: APIError.unexpectedStatus(status)) { try await unsigned.pair(attempt) }
+        #expect(pairCalls.value == 1)
+    }
+
+    /// The fake answers above do redirect a session that follows them, so
+    /// the test above checks the client, not the fake.
+    @Test func aPlainSessionFollowsTheFakeRedirection() async throws {
+        let host = "stub-\(UUID().uuidString.lowercased()).test"
+        let calls = Counter()
+        FakeURLProtocol.register(ClosureHandler { request, _ in
+            calls.increment()
+            if request.url?.path() == "/a" { return FakeResponse(status: 307, headers: ["Location": "/b"]) }
+            return .json(200, [:])
+        }, host: host)
+        let session = APIClient.makeSession(protocolClasses: [FakeURLProtocol.self])
+        let (_, response) = try await session.data(from: URL(string: "http://\(host)/a")!)
+        #expect((response as? HTTPURLResponse)?.statusCode == 200)
+        #expect(calls.value == 2)
+    }
+
+    /// An abnormally large art never fills the memory, whether its size is
+    /// announced or not, and nothing is cached.
+    @Test(arguments: [false, true])
+    func aTooLargeArtIsRefused(announced: Bool) async throws {
+        let size = APIClient.maxArtBytes + 1
+        let client = stubClient { _, _ in
+            var headers = ["Content-Type": "image/png", "ETag": "\"big\""]
+            if announced { headers["Content-Length"] = String(size) }
+            return FakeResponse(status: 200, headers: headers, body: Data(count: size))
+        }
+        let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        await #expect(throws: APIError.self) { try await cache.load(gameId: "g", client: client) }
+        #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g") == nil)
+    }
+
+    @Test func anArtAtTheLimitIsAccepted() async throws {
+        let size = APIClient.maxArtBytes
+        let client = stubClient { _, _ in
+            FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: Data(repeating: 7, count: size))
+        }
+        guard case .image(let data, _) = try await client.art(gameId: "g") else {
+            Issue.record("no image")
+            return
+        }
+        #expect(data.count == size)
+    }
+
     @Test func artIsCachedWithItsETag() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

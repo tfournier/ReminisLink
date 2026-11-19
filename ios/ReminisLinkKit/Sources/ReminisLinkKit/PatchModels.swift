@@ -142,7 +142,7 @@ public enum PatchNaming {
 
 /// Why the Patch screen is not offered for a game.
 public enum PatchRefusal: Equatable, Sendable {
-    /// `m3u` or `folder-m3u`: several files.
+    /// `m3u`, `folder-m3u`, `folder-cue` (or unknown): several files.
     case multiDisc
     /// A `.zip` or `.7z` ROM.
     case archive
@@ -192,7 +192,7 @@ extension ServerError {
 
 extension GameKind {
     /// Only a single-file game can be patched: a multi-disc game (`m3u`,
-    /// `folder-m3u`) or an unknown kind is not offered.
+    /// `folder-m3u`, `folder-cue`) or an unknown kind is not offered.
     public var isPatchable: Bool { self == .file }
 }
 

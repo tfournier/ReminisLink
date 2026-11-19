@@ -324,8 +324,12 @@ final class PatchFlow {
     /// paused while a cancellation is in progress.
     func tick() async {
         guard !isCancelling, let job, step == .downloading || step == .patching else { return }
+        let polled = step
         if !job.isFinished {
             await session.transfers.refreshJobs()
+            // Another poll ("Try Again" and the timer) may have moved on
+            // meanwhile: this one is stale then.
+            guard self.job === job, step == polled, !isCancelling else { return }
             pollError = !job.isLost ? job.failure.map(AppError.init) : nil
         }
         // Cancelled elsewhere (the Transfers screen): never go further.
@@ -335,6 +339,10 @@ final class PatchFlow {
 
     private func advance() {
         guard let item = job, item.isFinished else { return }
+        // Only the step that follows this job moves on, once: a second
+        // poll of the same finished job changes nothing (e.g. while the
+        // patch request it started is in flight).
+        guard step == (item.kind == .download ? .downloading : .patching) else { return }
         if item.isLost {
             step = .failed(.jobLost)
             return
@@ -460,6 +468,7 @@ final class PatchFlow {
             try? await Task.sleep(for: cancelPollInterval)
             await session.transfers.refreshJobs()
         }
+        guard job === item else { return }
         if item.isFinished {
             advance()
         } else {

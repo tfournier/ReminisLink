@@ -12,11 +12,16 @@ struct GameDetailView: View {
     @State private var deleted = false
     @State private var patch: PatchContext?
 
+    /// Whether the game has an image now (it may have been changed here).
+    private var hasArt: Bool {
+        detail.map { $0.files.contains { $0.role == .art } } ?? route.hasArt
+    }
+
     var body: some View {
         List {
             Section {
                 HStack(alignment: .top, spacing: 16) {
-                    GameArtView(deviceId: route.deviceId, gameId: route.gameId, hasArt: route.hasArt, size: 96)
+                    GameArtView(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt, size: 96, exposedToUITests: true)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(detail?.name ?? route.name)
                             .font(.title3.bold())
@@ -87,6 +92,7 @@ struct GameDetailView: View {
                         Text("IPS, BPS or UPS, applied by the console to a new file or to this game.")
                     }
                 }
+                GameArtSection(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt)
                 Section {
                     ForEach(Array(detail.files.enumerated()), id: \.offset) { _, file in
                         FileRow(file: file)
@@ -138,17 +144,36 @@ struct GameDetailView: View {
 }
 
 struct FileRow: View {
-    let file: GameFile
+    let role: GameFileRole
+    var slot: Int?
+    let path: String
+    let sizeBytes: Int64
+
+    init(file: GameFile) {
+        role = file.role
+        slot = file.slot
+        path = file.path
+        sizeBytes = file.sizeBytes
+    }
+
+    /// A file of a deletion preview (M8).
+    init(item: DeletionItem) {
+        role = item.role
+        path = item.name
+        sizeBytes = item.size
+    }
 
     private var title: Text {
-        switch file.role {
+        switch role {
         case .rom: Text("Game")
         case .save: Text("Save")
+        case .rtc: Text("Clock of the save")
         case .state:
-            if let slot = file.slot { Text("State \(slot)") } else { Text("State") }
+            if let slot { Text("State \(slot)") } else { Text("State") }
         case .cheats: Text("Cheats")
         case .art: Text("Art")
-        default: Text(file.role.rawValue)
+        case .other: Text("Other File")
+        default: Text(verbatim: role.rawValue)
         }
     }
 
@@ -157,9 +182,9 @@ struct FileRow: View {
             HStack {
                 title.font(.headline)
                 Spacer()
-                Text(file.sizeBytes.byteString).foregroundStyle(.secondary)
+                Text(sizeBytes.byteString).foregroundStyle(.secondary)
             }
-            Text(file.path)
+            Text(path)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

@@ -209,7 +209,8 @@ struct AppLogicTests {
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
         try await Task.sleep(for: .milliseconds(300)) // /pair is now in flight
-        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == pairs) // not answered yet
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == pairs + 1) // received
+        #expect(flow.paired == nil) // not answered yet
         flow.cancel()
         #expect(app.sheet == nil)
         await flow.wait()
@@ -217,6 +218,97 @@ struct AppLogicTests {
         #expect(after != before)
         let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
         #expect(systems.count == 3)
+    }
+
+    /// A first exchange whose answer is slow, then a second pairing of the
+    /// same console: the second /pair waits for the first key to be stored,
+    /// so the iPhone ends with the key the pak kept.
+    @Test func twoPairingsOfTheSameConsoleEndWithTheSameKey() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        pak.delayNextPairs([1])
+        let first = app.startPairing(.link(link(pak)))
+        await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
+        try await Task.sleep(for: .milliseconds(300)) // the first /pair is in flight
+        let second = app.startPairing(.link(link(pak)))
+        await second.wait()
+        await first.wait()
+        #expect(second.step == .done)
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == 2)
+        let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
+        #expect(systems.count == 3)
+    }
+
+    /// Closed while waiting for an earlier exchange: its /pair is never sent.
+    @Test func aPairingClosedWhileWaitingSendsNothing() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        pak.delayNextPairs([1])
+        let first = app.startPairing(.link(link(pak)))
+        await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
+        try await Task.sleep(for: .milliseconds(300))
+        let second = app.startPairing(.link(link(pak)))
+        await waitUntil { pak.log.filter { $0.path == "/api/v1/hello" }.count == 2 }
+        try await Task.sleep(for: .milliseconds(100))
+        second.cancel()
+        await second.wait()
+        await first.wait()
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == 1)
+        let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
+        #expect(systems.count == 3)
+    }
+
+    /// "Pair Again" offers the console of the current screen for the PIN.
+    @Test func pairAgainOffersTheConsoleOfTheScreen() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.path = [.console(pak.deviceId), .library(pak.deviceId)]
+        app.showRepair()
+        guard case .addConsole(let repairing) = app.sheet else { Issue.record("no sheet"); return }
+        #expect(repairing == pak.deviceId)
+        // The PIN of a paired console still asks to confirm the replacement.
+        app.sheet = nil
+        app.requestPairing(.pin(pak.pin, pak.discoveredDevice))
+        #expect(app.pendingRepair?.deviceId == pak.deviceId)
+    }
+
+    @Test func pinSearchSaysNotFoundAfterTheTimeout() {
+        #expect(PINSearch.state(status: .searching, found: false, timedOut: false) == .searching)
+        #expect(PINSearch.state(status: .searching, found: false, timedOut: true) == .notFound)
+        #expect(PINSearch.state(status: .searching, found: true, timedOut: true) == .found)
+        #expect(PINSearch.state(status: .localNetworkDenied, found: false, timedOut: true) == .denied)
+        #expect(AppError.consoleNotFound.action == .retry)
+        #expect(AppError.localNetworkDenied.action == .openSettings)
+    }
+
+    /// M8: pairing only opens on demand on the console.
+    @Test func closedPairingSaysWhereToOpenIt() async throws {
+        let pak = makePak()
+        pak.pairingOpen = false
+        let app = makeApp(pak)
+        let flow = app.startPairing(.link(link(pak)))
+        await flow.wait()
+        #expect(flow.error == .pairingClosed)
+        #expect(!pak.log.contains { $0.path == "/api/v1/pair" })
+        let message = AppError.pairingClosed.message
+        #expect(message.contains("Pair a New Device") || message.contains("Appairer un nouvel appareil"))
+    }
+
+    /// Closed between /hello and /pair: the 401 is explained the same way.
+    @Test func pairingClosedDuringTheExchangeSaysWhereToOpenIt() async throws {
+        let pak = makePak()
+        pak.closePairingAfterNextHello()
+        let app = makeApp(pak)
+        let flow = app.startPairing(.link(link(pak)))
+        await flow.wait()
+        #expect(pak.log.contains { $0.path == "/api/v1/pair" && $0.status == 401 })
+        #expect(flow.error == .pairingClosed)
+        #expect(try app.store.credentials(for: pak.deviceId) == nil)
+        // Opened again: Try Again pairs.
+        pak.pairingOpen = true
+        flow.start()
+        await flow.wait()
+        #expect(flow.step == .done)
     }
 
     @Test func badSignatureOffersRepair() {
@@ -295,7 +387,7 @@ struct AppLogicTests {
     @Test func confirmationWaitsForTheSheetToClose() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        app.sheet = .addConsole
+        app.sheet = .addConsole()
         app.requestPairing(link(pak))
         #expect(app.sheet == nil)
         #expect(app.pendingRepair == nil)

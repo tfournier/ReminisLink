@@ -77,7 +77,7 @@ struct TransferAppTests {
     @Test func shareWaitsForTheCurrentSheet() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        app.sheet = .addConsole
+        app.sheet = .addConsole()
         let request = try sharedFile(app)
         app.handle(url: ShareInbox.url(for: request))
         guard case .addConsole = app.sheet else { Issue.record("sheet replaced"); return }
@@ -185,17 +185,19 @@ struct TransferAppTests {
         #expect(session.trash?.entries.isEmpty == true)
     }
 
-    @Test func keepSaveFiltersTheListedFiles() {
-        let date = Date()
-        let files = [
-            GameFile(role: .rom, path: "Roms/a.gba", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .save, path: "Saves/a.sav", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .state, slot: 0, path: "s.st0", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .cheats, path: "Cheats/a.cht", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .art, path: "a.png", sizeBytes: 1, modifiedAt: date),
-        ]
-        #expect(DeleteGameView.filesToMove(files, keepSave: false).count == 5)
-        #expect(DeleteGameView.filesToMove(files, keepSave: true).map(\.path) == ["Roms/a.gba", "Cheats/a.cht", "a.png"])
+    /// After an unknown outcome, a save or a state sent again replaces the
+    /// one on the console: confirmed first, never announced as "both kept".
+    @Test func sendingAgainASaveOrAStateReplacesIt() {
+        typealias Resend = UploadRow.Resend
+        #expect(Resend(.rom(systemId: "s", fileName: "a.gba")) == .keepBoth)
+        #expect(Resend(.staging(fileName: "a.ips")) == .keepBoth)
+        #expect(Resend(.save(gameId: "g")) == .replaceSave)
+        #expect(Resend(.state(gameId: "g", slot: 1)) == .replaceState)
+        #expect(Resend.keepBoth.onConflict == .rename)
+        #expect(!Resend.keepBoth.needsConfirmation)
+        #expect(Resend.replaceSave.needsConfirmation)
+        #expect(Resend.replaceState.needsConfirmation)
+        #expect(Resend.replaceSave.onConflict == .overwrite)
     }
 
     // MARK: Errors

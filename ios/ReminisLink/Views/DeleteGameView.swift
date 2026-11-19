@@ -27,15 +27,15 @@ struct DeleteGameView: View {
     /// The trash total read just before the confirmation, nil if unknown.
     @State private var freshTrashTotal: Int64?
     @State private var emptied: Int64?
+    /// What the pak would move and keep with the current option, read
+    /// again when the option changes (nil while loading).
+    @State private var preview: DeletionPreview?
+    @State private var previewError: AppError?
 
-    /// The files `DELETE /games/{id}` moves, with the option applied.
-    static func filesToMove(_ files: [GameFile], keepSave: Bool) -> [GameFile] {
-        files.filter { !keepSave || ($0.role != .save && $0.role != .state) }
-    }
-
-    private var hasSaveData: Bool {
-        detail?.files.contains { $0.role == .save || $0.role == .state } ?? false
-    }
+    /// The Keep option is offered when the pak would keep something with
+    /// it (a save, a state, a lock, a resume history...), read from its
+    /// preview; once offered, it stays while the option changes.
+    @State private var hasSaveData = false
 
     var body: some View {
         NavigationStack {
@@ -74,33 +74,64 @@ struct DeleteGameView: View {
         }
         .interactiveDismissDisabled(isWorking)
         .task { if detail == nil { await load() } }
+        .task(id: keepSave) { await loadPreview() }
     }
 
     @ViewBuilder
     private func confirmSections(_ detail: GameDetail) -> some View {
-        let files = Self.filesToMove(detail.files, keepSave: keepSave)
-        Section {
-            ForEach(Array(files.enumerated()), id: \.offset) { _, file in
-                FileRow(file: file)
-            }
-        } header: {
-            Text("Moved to the trash of the console")
-        } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Total: \(files.reduce(0) { $0 + $1.sizeBytes }.byteString)")
-                if detail.kind == .folderM3U {
-                    Text("The whole folder of this multi-disc game is moved.")
+        // The exact selection of the pak (M8): never computed here.
+        if let preview {
+            let copies = preview.moved.filter(DeletionPreview.isPakCopy)
+            Section {
+                ForEach(Array(preview.moved.filter { !DeletionPreview.isPakCopy($0) }.enumerated()), id: \.offset) { _, item in
+                    FileRow(item: item)
                 }
-                Text("The locks of its states and its resume history are deleted too.")
+                if !copies.isEmpty {
+                    // Locks and resume history: one row, not a file each.
+                    HStack {
+                        Text("ReminisLink Copies (\(copies.count))").font(.headline)
+                        Spacer()
+                        Text(copies.reduce(0) { $0 + $1.size }.byteString).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("delete.pakCopies")
+                }
+            } header: {
+                Text("Moved to the trash of the console")
+            } footer: {
+                Text("Total: \(preview.movedBytes.byteString)")
+            }
+            .accessibilityIdentifier("delete.files")
+            if !preview.kept.isEmpty {
+                Section {
+                    ForEach(Array(preview.kept.enumerated()), id: \.offset) { _, item in
+                        FileRow(item: item)
+                    }
+                } header: {
+                    Text("Kept in place")
+                } footer: {
+                    Text("Discs that another playlist of the system still lists stay on the SD card, and so do the save and the states when you keep them.")
+                }
+                .accessibilityIdentifier("delete.kept")
+            }
+        } else if let previewError {
+            Section { ErrorView(error: previewError) }
+        } else {
+            Section {
+                HStack {
+                    Text("Reading what will be moved…").foregroundStyle(.secondary)
+                    Spacer()
+                    ProgressView()
+                }
+                .accessibilityIdentifier("delete.loading")
             }
         }
-        .accessibilityIdentifier("delete.files")
         if hasSaveData {
             Section {
                 Toggle("Keep the Save and the States", isOn: $keepSave)
                     .accessibilityIdentifier("delete.keepSave")
             } footer: {
-                Text("They stay in place on the SD card.")
+                Text("The save, its clock file, the states, their locks and the resume history stay in place on the SD card.")
             }
         }
         Section {
@@ -115,7 +146,7 @@ struct DeleteGameView: View {
                     }
                 }
             }
-            .disabled(isWorking)
+            .disabled(isWorking || preview == nil)
             .accessibilityIdentifier("delete.confirm")
         } footer: {
             Text("Everything stays in the trash of the console for at least 30 days. The space is only freed when the trash is emptied.")
@@ -168,6 +199,26 @@ struct DeleteGameView: View {
         } catch {
             let error = AppError(error)
             if !error.isCancellation { self.error = error }
+        }
+    }
+
+    /// `GET /games/{id}/deletion` with the current option. The Delete
+    /// button stays disabled until it answers.
+    private func loadPreview() async {
+        let gameId = target.gameId
+        let keepSave = keepSave
+        preview = nil
+        previewError = nil
+        do {
+            let preview = try await app.session(for: target.deviceId).perform {
+                try await $0.deletionPreview(gameId: gameId, keepSave: keepSave)
+            }
+            guard keepSave == self.keepSave, !Task.isCancelled else { return }
+            self.preview = preview
+            if preview.hasDataKeptWithSave(keepSave: keepSave) { hasSaveData = true }
+        } catch {
+            let error = AppError(error)
+            if !error.isCancellation && keepSave == self.keepSave { previewError = error }
         }
     }
 

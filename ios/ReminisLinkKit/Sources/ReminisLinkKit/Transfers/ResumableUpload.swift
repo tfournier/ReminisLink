@@ -44,6 +44,27 @@ public struct RetryPolicy: Sendable {
     public static let immediate = RetryPolicy(sleep: { _ in })
 }
 
+/// Progress of the chunk being sent, between two confirmed offsets.
+///
+/// `started` is awaited before each attempt to send a chunk; `sent` then
+/// reports the body bytes of that attempt handed to the network so far
+/// (from the URLSession delegate queue, not awaited: a late report carries
+/// its attempt number, to be ignored once the chunk ended). The offset
+/// confirmed by the device still comes through `progress`, after every
+/// attempt, successful or not.
+public struct ChunkProgress: Sendable {
+    public var started: @Sendable (_ attempt: Int, _ offset: Int64, _ length: Int64) async -> Void
+    public var sent: @Sendable (_ attempt: Int, _ bytes: Int64) -> Void
+
+    public init(
+        started: @escaping @Sendable (_ attempt: Int, _ offset: Int64, _ length: Int64) async -> Void,
+        sent: @escaping @Sendable (_ attempt: Int, _ bytes: Int64) -> Void
+    ) {
+        self.started = started
+        self.sent = sent
+    }
+}
+
 /// One chunked, resumable upload (docs/specs/03-protocole.md §7).
 ///
 /// - Chunks of the size given by the device are copied to a scratch file
@@ -86,6 +107,8 @@ public actor ResumableUpload {
     private let scratchDirectory: URL
     private let retry: RetryPolicy
     private var needsSync = false
+    /// Numbers the attempts to send a chunk (``ChunkProgress``).
+    private var chunkAttempts = 0
 
     public init(source: UploadSource, target: TransferTarget, onConflict: OnConflict = .fail,
                 scratchDirectory: URL, retry: RetryPolicy = RetryPolicy()) {
@@ -116,12 +139,16 @@ public actor ResumableUpload {
     /// - Parameters:
     ///   - shouldPause: checked between chunks; true stops the run with
     ///     ``UploadFailure/paused``.
-    ///   - progress: the offset confirmed by the device, after every change.
+    ///   - progress: the offset confirmed by the device, after every change
+    ///     and after every chunk attempt.
+    ///   - chunkProgress: the bytes of the chunk being sent, before the
+    ///     device confirms them.
     ///   - willComplete: called just before `complete` is sent.
     public func run(
         client: APIClient,
         shouldPause: @escaping @Sendable () -> Bool = { false },
         progress: @escaping @Sendable (Int64) async -> Void = { _ in },
+        chunkProgress: ChunkProgress? = nil,
         willComplete: @escaping @Sendable () async -> Void = {}
     ) async throws -> UploadResult {
         var failures = 0
@@ -166,8 +193,15 @@ public actor ResumableUpload {
                     try Task.checkCancellation()
                     let length = min(chunkSize, source.sizeBytes - offset)
                     try FileDigest.writeChunk(of: source.fileURL, offset: offset, length: length, to: chunkFile)
+                    chunkAttempts += 1
+                    let attempt = chunkAttempts
+                    await chunkProgress?.started(attempt, offset, length)
+                    var onSent: (@Sendable (Int64) -> Void)?
+                    if let observer = chunkProgress?.sent {
+                        onSent = { bytes in observer(attempt, min(bytes, length)) }
+                    }
                     do {
-                        let next = try await client.sendChunk(uploadId: id, offset: offset, file: chunkFile, length: length)
+                        let next = try await client.sendChunk(uploadId: id, offset: offset, file: chunkFile, length: length, onSent: onSent)
                         offset = min(max(next, 0), source.sizeBytes)
                     } catch APIError.server(let error) where error.expectedOffset != nil {
                         // The device has another offset (e.g. a chunk whose
@@ -177,6 +211,11 @@ public actor ResumableUpload {
                               (0...source.sizeBytes).contains(expected)
                         else { throw UploadFailure.tooManyRestarts }
                         offset = expected
+                    } catch {
+                        // The chunk ended without confirmation: only the
+                        // confirmed offset counts again.
+                        await progress(offset)
+                        throw error
                     }
                     failures = 0
                     await progress(offset)

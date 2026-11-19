@@ -456,6 +456,71 @@ struct AddSuggestionTests {
         #expect(throws: CocoaError.self) { try inbox.takeFile("a.gba", from: request, to: root.appending(path: "again.gba")) }
     }
 
+    /// Regression: the app stopped while the Patch screen was open, after
+    /// it took the only file: the request must not open again.
+    @Test func requestWithAllItsFilesTakenIsFinished() throws {
+        let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = ShareInbox(root: root)
+        let request = try inbox.write(files: [try makeFile(size: 10, name: "fix.ips")], urls: [])
+        let links = try inbox.write(files: [], urls: [URL(string: "https://example.org/a.zip")!])
+        try inbox.takeFile("fix.ips", from: request, to: root.appending(path: "moved.ips"))
+        #expect(inbox.isUsedUp(request))
+        #expect(inbox.pending().map(\.id) == [links.id])
+        #expect(inbox.request(id: request.id) == nil)
+        inbox.purge()
+        #expect(!FileManager.default.fileExists(atPath: inbox.directory(for: request.id).path))
+        #expect(FileManager.default.fileExists(atPath: inbox.directory(for: links.id).path))
+    }
+
+    /// A share with a ROM and a link: the ROM is queued, then the app is
+    /// stopped before the link is sent. The request stays with its link
+    /// only, until the link is sent.
+    @Test func requestWithALinkLeftStaysUntilTheLinkIsSent() throws {
+        let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = ShareInbox(root: root)
+        let link = "https://example.org/b.zip"
+        let request = try inbox.write(
+            files: [try makeFile(size: 10, name: "a.gba")], urls: [URL(string: "https://example.org/a.zip")!, URL(string: link)!]
+        )
+        try inbox.takeFile("a.gba", from: request, to: root.appending(path: "moved.gba"))
+        try inbox.consumeLink("https://example.org/a.zip", of: request.id)
+        inbox.purge()
+        let left = try #require(inbox.request(id: request.id))
+        #expect(left.pendingURLs == [link])
+        #expect(!inbox.isUsedUp(left))
+        #expect(throws: CocoaError.self) { try inbox.consumeLink("https://example.org/other", of: request.id) }
+        try inbox.consumeLink(link, of: request.id)
+        #expect(inbox.pending().isEmpty)
+        inbox.purge()
+        #expect(!FileManager.default.fileExists(atPath: inbox.directory(for: request.id).path))
+    }
+
+    /// The user replaced the offered link by another URL: the shared link
+    /// is not sent, so it stays to offer (and is never recorded as sent).
+    @Test func onlyTheSubmittedSharedLinkIsConsumed() {
+        let request = ShareRequest(files: [], urls: ["https://example.org/a.zip", "https://example.org/b.zip"])
+        #expect(request.sharedLink(matching: "https://example.org/b.zip") == "https://example.org/b.zip")
+        #expect(request.sharedLink(matching: "https://example.org/other.zip") == nil)
+        // a.zip offered, other.zip sent: a.zip stays, after b.zip.
+        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: nil)
+            == ["https://example.org/b.zip", "https://example.org/a.zip"])
+        // a.zip offered, b.zip typed and sent: b.zip leaves, a.zip stays.
+        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: "https://example.org/b.zip")
+            == ["https://example.org/a.zip"])
+        // The offered link sent as it is.
+        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: "https://example.org/a.zip")
+            == ["https://example.org/b.zip"])
+    }
+
+    /// A request.json written before M8 (no `consumedURLs`) is still read.
+    @Test func requestWithoutConsumedLinksIsRead() throws {
+        let data = Data(#"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","createdAt":"2026-11-19T10:00:00Z","files":[],"urls":["https://example.org/a"]}"#.utf8)
+        let request = try ProtocolJSON.decoder().decode(ShareRequest.self, from: data)
+        #expect(request.pendingURLs == ["https://example.org/a"])
+    }
+
     @Test func plainNamesFromUniqueNameAreAccepted() {
         #expect(ShareInbox.isPlainName(" (2).gba"))
         #expect(ShareInbox.isPlainName("Game (2).gba"))

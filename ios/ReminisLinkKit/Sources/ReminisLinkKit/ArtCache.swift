@@ -2,8 +2,15 @@ import CryptoKit
 import Foundation
 
 /// Disk cache of game art, by device, `gameId` and `ETag`, in `Caches/`.
+///
+/// The PNG and its `ETag` are one file, written atomically: a later `304`
+/// can only confirm the PNG that came with that `ETag`. A fetch started
+/// before ``invalidate(deviceId:gameId:)`` never stores its answer (it may
+/// be the art before the change). Copies of a cache share these
+/// generations: make one per directory.
 public struct ArtCache: Sendable {
     public let directory: URL
+    private let generations = Generations()
 
     public init(directory: URL) {
         self.directory = directory
@@ -20,49 +27,108 @@ public struct ArtCache: Sendable {
     }
 
     public func entry(deviceId: String, gameId: String) -> Entry? {
-        let base = baseURL(deviceId: deviceId, gameId: gameId)
-        guard let data = try? Data(contentsOf: base.appendingPathExtension("png")) else { return nil }
-        let etag = (try? Data(contentsOf: base.appendingPathExtension("etag"))).flatMap { String(data: $0, encoding: .utf8) }
-        return Entry(data: data, etag: etag)
+        guard let file = try? Data(contentsOf: entryURL(deviceId: deviceId, gameId: gameId)),
+              let newline = file.firstIndex(of: 0x0A),
+              let etag = String(data: file[file.startIndex..<newline], encoding: .utf8)
+        else { return nil }
+        return Entry(data: Data(file[file.index(after: newline)...]), etag: etag.isEmpty ? nil : etag)
     }
 
     public func store(_ data: Data, etag: String?, deviceId: String, gameId: String) {
-        let base = baseURL(deviceId: deviceId, gameId: gameId)
+        // An ETag never holds a line break (an HTTP header value).
+        let tag = etag.flatMap { $0.contains(where: \.isNewline) ? nil : $0 } ?? ""
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? data.write(to: base.appendingPathExtension("png"), options: .atomic)
-        if let etag {
-            try? Data(etag.utf8).write(to: base.appendingPathExtension("etag"), options: .atomic)
-        } else {
-            try? FileManager.default.removeItem(at: base.appendingPathExtension("etag"))
+        try? (Data(tag.utf8) + Data([0x0A]) + data).write(to: entryURL(deviceId: deviceId, gameId: gameId), options: .atomic)
+    }
+
+    /// Forgets the cached art of a game (it was changed or removed): the
+    /// next load asks the pak without `If-None-Match`, and a load already
+    /// running does not store what it gets.
+    public func invalidate(deviceId: String, gameId: String) {
+        generations.bump(key(deviceId: deviceId, gameId: gameId)) {
+            remove(deviceId: deviceId, gameId: gameId)
         }
     }
 
     public func remove(deviceId: String, gameId: String) {
-        let base = baseURL(deviceId: deviceId, gameId: gameId)
-        try? FileManager.default.removeItem(at: base.appendingPathExtension("png"))
-        try? FileManager.default.removeItem(at: base.appendingPathExtension("etag"))
+        try? FileManager.default.removeItem(at: entryURL(deviceId: deviceId, gameId: gameId))
     }
 
     /// The art of a game: the cached copy if the pak says it is still valid
     /// (`304`), otherwise the new one, stored. Nil if the game has none.
     public func load(gameId: String, client: APIClient) async throws -> Data? {
         guard let deviceId = client.expectedDeviceId else { return nil }
-        let cached = entry(deviceId: deviceId, gameId: gameId)
-        switch try await client.art(gameId: gameId, ifNoneMatch: cached?.etag) {
-        case .notModified:
-            return cached?.data
-        case .image(let data, let etag):
-            store(data, etag: etag, deviceId: deviceId, gameId: gameId)
-            return data
-        case .none:
-            remove(deviceId: deviceId, gameId: gameId)
-            return nil
+        let fetch = startFetch(deviceId: deviceId, gameId: gameId)
+        let response = try await client.art(gameId: gameId, ifNoneMatch: fetch.cached?.etag)
+        return complete(fetch, with: response)
+    }
+
+    /// A load in flight: the generation of the game and the cached entry
+    /// when it started.
+    struct Fetch {
+        let deviceId: String
+        let gameId: String
+        let generation: UInt64
+        let cached: Entry?
+    }
+
+    func startFetch(deviceId: String, gameId: String) -> Fetch {
+        generations.read(key(deviceId: deviceId, gameId: gameId)) { generation in
+            Fetch(deviceId: deviceId, gameId: gameId, generation: generation,
+                  cached: entry(deviceId: deviceId, gameId: gameId))
         }
+    }
+
+    /// Stores the answer of `fetch` unless the art was invalidated since it
+    /// started, and returns the art it gives.
+    func complete(_ fetch: Fetch, with response: ArtResponse) -> Data? {
+        let (deviceId, gameId) = (fetch.deviceId, fetch.gameId)
+        return generations.ifCurrent(key(deviceId: deviceId, gameId: gameId), fetch.generation) { current in
+            switch response {
+            case .notModified:
+                return fetch.cached?.data
+            case .image(let data, let etag):
+                if current { store(data, etag: etag, deviceId: deviceId, gameId: gameId) }
+                return data
+            case .none:
+                if current { remove(deviceId: deviceId, gameId: gameId) }
+                return nil
+            }
+        }
+    }
+
+    private func key(deviceId: String, gameId: String) -> String { deviceId + "/" + gameId }
+
+    private func entryURL(deviceId: String, gameId: String) -> URL {
+        baseURL(deviceId: deviceId, gameId: gameId).appendingPathExtension("art")
     }
 
     /// File names never contain an id: SHA-256 of device and game ids.
     private func baseURL(deviceId: String, gameId: String) -> URL {
         let digest = SHA256.hash(data: Data((deviceId + "/" + gameId).utf8)).map { String(format: "%02x", $0) }.joined()
         return directory.appending(path: digest, directoryHint: .notDirectory)
+    }
+}
+
+/// Invalidation counters of the art cache, by game. Each closure runs under
+/// the lock, so a check and the write it guards cannot interleave with an
+/// invalidation.
+private final class Generations: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: UInt64] = [:]
+
+    func read<T>(_ key: String, _ body: (UInt64) -> T) -> T {
+        lock.withLock { body(values[key, default: 0]) }
+    }
+
+    func bump(_ key: String, _ body: () -> Void) {
+        lock.withLock {
+            values[key, default: 0] &+= 1
+            body()
+        }
+    }
+
+    func ifCurrent<T>(_ key: String, _ generation: UInt64, _ body: (Bool) -> T) -> T {
+        lock.withLock { body(values[key, default: 0] == generation) }
     }
 }

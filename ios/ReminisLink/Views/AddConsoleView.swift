@@ -6,6 +6,12 @@ import VisionKit
 struct AddConsoleView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
+    /// The paired console to pair again ("Pair Again"): offered for the PIN.
+    var repairing: String?
+    /// The search for consoles gave nothing within the lookup time.
+    @State private var searchTimedOut = false
+    /// Bumped by "Try Again": restarts the search and its timer.
+    @State private var searchAttempt = 0
 
     var body: some View {
         NavigationStack {
@@ -23,19 +29,29 @@ struct AddConsoleView: View {
                 } header: {
                     Text("Scan the QR Code")
                 } footer: {
-                    Text("Point the camera at the QR code shown by ReminisLink on the console.")
+                    Text("Point the camera at the QR code shown by ReminisLink on the console. If it is not shown, open Settings > Pair a New Device on the console.")
                 }
 
                 Section {
-                    let devices = DiscoveryLogic.unpaired(app.discovery.devices, pairedIds: Set(app.store.devices.map(\.id)))
-                    if app.discovery.status == .localNetworkDenied {
+                    let devices = DiscoveryLogic.pinCandidates(
+                        app.discovery.devices, pairedIds: Set(app.store.devices.map(\.id)), repairing: repairing
+                    )
+                    switch PINSearch.state(status: app.discovery.status, found: !devices.isEmpty, timedOut: searchTimedOut) {
+                    case .denied:
                         ErrorView(error: .localNetworkDenied)
-                    } else if devices.isEmpty {
+                    case .searching:
                         HStack(spacing: 12) {
                             ProgressView()
                             Text("Looking for consoles…")
                                 .foregroundStyle(.secondary)
                         }
+                    case .notFound:
+                        ErrorView(error: .consoleNotFound, retry: {
+                            app.discovery.restart()
+                            searchAttempt += 1
+                        })
+                    case .found:
+                        EmptyView()
                     }
                     ForEach(devices) { device in
                         NavigationLink {
@@ -62,7 +78,13 @@ struct AddConsoleView: View {
                 }
                 #endif
             }
-            .navigationTitle("Add a Console")
+            .task(id: searchAttempt) {
+                // docs/specs/06-app-ios.md §5: "Console not found" after 8 s.
+                searchTimedOut = false
+                try? await Task.sleep(for: app.lookupTimeout)
+                if !Task.isCancelled { searchTimedOut = true }
+            }
+            .navigationTitle(repairing == nil ? "Add a Console" : "Pair Again")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -70,6 +92,21 @@ struct AddConsoleView: View {
                 }
             }
         }
+    }
+}
+
+/// What the PIN section shows while consoles are looked for.
+enum PINSearch: Equatable {
+    case denied
+    case searching
+    /// Nothing seen within the lookup time: "Console not found" and Try Again.
+    case notFound
+    case found
+
+    static func state(status: DiscoveryStatus, found: Bool, timedOut: Bool) -> PINSearch {
+        if status == .localNetworkDenied { return .denied }
+        if found { return .found }
+        return timedOut ? .notFound : .searching
     }
 }
 
@@ -98,8 +135,11 @@ struct PINEntryView: View {
             } header: {
                 Text("PIN shown on \(device.name)")
             } footer: {
-                Label("Less secure than the QR code. Avoid on public Wi-Fi.", systemImage: "exclamationmark.shield")
-                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("The PIN is shown below the QR code, on the console.")
+                    Label("Less secure than the QR code. Avoid on public Wi-Fi.", systemImage: "exclamationmark.shield")
+                        .foregroundStyle(.orange)
+                }
             }
             Section {
                 Button("Pair") { app.requestPairing(.pin(pin, device)) }

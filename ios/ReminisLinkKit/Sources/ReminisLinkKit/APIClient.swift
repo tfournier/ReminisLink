@@ -156,11 +156,23 @@ public actor APIClient {
         try await signedJSON(method: "GET", segments: ["games", id])
     }
 
+    /// Largest art accepted from the pak (the pak computes ETags up to
+    /// this size, and serves larger files whole): a larger body is never
+    /// held in memory, the art is treated as unreadable.
+    public static let maxArtBytes = 8 << 20
+
     /// `GET /games/{gameId}/art`, with `If-None-Match` when an ETag is known.
+    /// The body is read up to ``maxArtBytes`` (`Content-Length` or not).
     public func art(gameId: String, ifNoneMatch etag: String? = nil) async throws -> ArtResponse {
         var headers: [String: String] = [:]
         if let etag { headers["If-None-Match"] = etag }
-        let (data, response) = try await performSigned(method: "GET", segments: ["games", gameId, "art"], headers: headers)
+        let (data, response) = try await withSignedRequests(
+            method: "GET", segments: ["games", gameId, "art"], query: [], headers: headers,
+            body: nil, bodyFile: nil, bodyFileSHA256: nil
+        ) { request in
+            let (data, response) = try await self.transportLimited(request, maxBytes: Self.maxArtBytes)
+            return (data, response, data)
+        }
         switch response.statusCode {
         case 304: return .notModified
         case 404: return .none
@@ -168,6 +180,24 @@ public actor APIClient {
             try check(response, data: data, accept: [200])
             return .image(data, etag: response.value(forHTTPHeaderField: "ETag"))
         }
+    }
+
+    /// `PUT /games/{gameId}/art` (M8): `png` comes from ``ArtImage``. The
+    /// body is signed with its SHA-256. Returns the game as listed
+    /// (`hasArt` true). The previous art goes to the trash of the console.
+    public func setArt(gameId: String, png: Data) async throws -> GameSummary {
+        guard png.count <= ArtImage.maxBytes else {
+            throw APIError.server(ServerError(status: 413, code: .tooLarge, message: "Art larger than 4 MiB"))
+        }
+        return try await signedJSON(
+            method: "PUT", segments: ["games", gameId, "art"], headers: ["Content-Type": "image/png"], body: png
+        )
+    }
+
+    /// `DELETE /games/{gameId}/art` (M8): the art goes to the trash of the
+    /// console. Returns the game as listed (`hasArt` false).
+    public func deleteArt(gameId: String) async throws -> GameSummary {
+        try await signedJSON(method: "DELETE", segments: ["games", gameId, "art"])
     }
 
     // MARK: - Trash
@@ -187,6 +217,15 @@ public actor APIClient {
     }
 
     // MARK: - Library changes
+
+    /// `GET /games/{gameId}/deletion` (M8): what ``deleteGame(id:keepSave:)``
+    /// would move and keep now. Read only.
+    public func deletionPreview(gameId: String, keepSave: Bool) async throws -> DeletionPreview {
+        try await signedJSON(
+            method: "GET", segments: ["games", gameId, "deletion"],
+            query: [(name: "keepSave", value: keepSave ? "true" : "false")]
+        )
+    }
 
     /// `DELETE /games/{gameId}`: moves the game and its data to the trash
     /// (with `keepSave`, the save and the states stay in place).
@@ -212,15 +251,18 @@ public actor APIClient {
     /// `PUT /uploads/{uploadId}`: sends `length` bytes read from `file` (a
     /// file holding exactly this chunk), streamed by `URLSession` from the
     /// disk. The only request signed with `X-RL-Content-SHA256: UNSIGNED`.
-    /// Returns the new offset.
-    public func sendChunk(uploadId: String, offset: Int64, file: URL, length: Int64) async throws -> Int64 {
+    /// Returns the new offset. `onSent` gets the bytes of this chunk sent
+    /// so far (not yet confirmed by the device).
+    public func sendChunk(
+        uploadId: String, offset: Int64, file: URL, length: Int64, onSent: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> Int64 {
         let headers = [
             "Upload-Offset": String(offset),
             "Content-Type": "application/octet-stream",
             "Content-Length": String(length),
         ]
         let (data, response) = try await performSigned(
-            method: "PUT", segments: ["uploads", uploadId], headers: headers, bodyFile: file
+            method: "PUT", segments: ["uploads", uploadId], headers: headers, bodyFile: file, onSent: onSent
         )
         try check(response, data: data, accept: [200, 204])
         if let value = response.value(forHTTPHeaderField: "Upload-Offset"), let next = Int64(value.trimmingCharacters(in: .whitespaces)) {
@@ -451,11 +493,12 @@ public actor APIClient {
         headers: [String: String] = [:],
         body: Data? = nil,
         bodyFile: URL? = nil,
-        bodyFileSHA256: String? = nil
+        bodyFileSHA256: String? = nil,
+        onSent: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         try await withSignedRequests(method: method, segments: segments, query: query, headers: headers,
                                      body: body, bodyFile: bodyFile, bodyFileSHA256: bodyFileSHA256) { request in
-            let (data, response) = try await self.transport(request, bodyFile: bodyFile)
+            let (data, response) = try await self.transport(request, bodyFile: bodyFile, onSent: onSent)
             return (data, response, data)
         }
     }
@@ -547,7 +590,7 @@ public actor APIClient {
 
     private func transportDownload(_ request: URLRequest) async throws -> (URL, HTTPURLResponse) {
         do {
-            let (location, response) = try await session.download(for: request)
+            let (location, response) = try await session.download(for: request, delegate: PakTaskDelegate())
             guard let http = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: location)
                 throw APIError.invalidResponse("not an HTTP response")
@@ -562,16 +605,73 @@ public actor APIClient {
         }
     }
 
-    private func transport(_ request: URLRequest, bodyFile: URL? = nil) async throws -> (Data, HTTPURLResponse) {
+    /// Sends one request. Redirections are never followed (see
+    /// ``PakTaskDelegate``); `onSent` gets the body bytes sent so far.
+    private func transport(
+        _ request: URLRequest, bodyFile: URL? = nil, onSent: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> (Data, HTTPURLResponse) {
+        let delegate = PakTaskDelegate(onSent: onSent)
         do {
             let (data, response) = if let bodyFile {
-                try await session.upload(for: request, fromFile: bodyFile)
+                try await session.upload(for: request, fromFile: bodyFile, delegate: delegate)
             } else {
-                try await session.data(for: request)
+                try await session.data(for: request, delegate: delegate)
             }
             guard let http = response as? HTTPURLResponse else {
+                delegate.finish(totalBytesSent: nil)
                 throw APIError.invalidResponse("not an HTTP response")
             }
+            // The send reports reach the delegate asynchronously: close them
+            // before returning so that a caller sees all of them, in order,
+            // ending with the whole body once the pak accepted it.
+            if let bodyFile, (200..<300).contains(http.statusCode) {
+                let size = (try? bodyFile.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+                delegate.finish(totalBytesSent: size)
+            } else {
+                delegate.finish(totalBytesSent: nil)
+            }
+            return (data, http)
+        } catch let error as URLError {
+            delegate.finish(totalBytesSent: nil)
+            if error.code == .cancelled { throw CancellationError() }
+            throw APIError.network(error.code)
+        } catch {
+            delegate.finish(totalBytesSent: nil)
+            throw error
+        }
+    }
+
+    /// Sends a request and reads at most `maxBytes` of its body; a larger
+    /// body (announced or not) stops the request.
+    private func transportLimited(_ request: URLRequest, maxBytes: Int) async throws -> (Data, HTTPURLResponse) {
+        let tooLarge = APIError.invalidResponse("body larger than \(maxBytes) bytes")
+        do {
+            let (bytes, response) = try await session.bytes(for: request, delegate: PakTaskDelegate())
+            guard let http = response as? HTTPURLResponse else {
+                bytes.task.cancel()
+                throw APIError.invalidResponse("not an HTTP response")
+            }
+            if http.expectedContentLength > Int64(maxBytes) {
+                bytes.task.cancel()
+                throw tooLarge
+            }
+            var data = Data()
+            if http.expectedContentLength > 0 { data.reserveCapacity(Int(http.expectedContentLength)) }
+            var buffer: [UInt8] = []
+            buffer.reserveCapacity(64 << 10)
+            for try await byte in bytes {
+                buffer.append(byte)
+                if buffer.count == 64 << 10 {
+                    guard data.count + buffer.count <= maxBytes else {
+                        bytes.task.cancel()
+                        throw tooLarge
+                    }
+                    data.append(contentsOf: buffer)
+                    buffer.removeAll(keepingCapacity: true)
+                }
+            }
+            guard data.count + buffer.count <= maxBytes else { throw tooLarge }
+            data.append(contentsOf: buffer)
             return (data, http)
         } catch let error as URLError {
             if error.code == .cancelled { throw CancellationError() }
@@ -606,6 +706,58 @@ public actor APIClient {
             details: envelope.error.details ?? [:],
             retryAfter: retryAfter
         )
+    }
+}
+
+/// Task delegate of every request to the pak.
+///
+/// - Redirections are refused: the `3xx` answer is returned as it is. A
+///   redirection would send the request again outside the signing loop
+///   (without a new nonce), possibly with its body, and possibly off the
+///   local network.
+/// - `onSent` reports the body bytes sent so far (upload chunks): growing
+///   only, and never after ``finish(totalBytesSent:)``.
+final class PakTaskDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let onSent: (@Sendable (Int64) -> Void)?
+    private let lock = NSLock()
+    private var reported: Int64 = 0
+    private var finished = false
+
+    init(onSent: (@Sendable (Int64) -> Void)? = nil) {
+        self.onSent = onSent
+    }
+
+    /// Closes the reports of the request: a last one with `totalBytesSent`
+    /// when it is more than what was reported, then none (a late callback
+    /// from the session is dropped).
+    func finish(totalBytesSent: Int64?) {
+        lock.withLock {
+            guard !finished else { return }
+            finished = true
+            if let totalBytesSent, totalBytesSent > reported {
+                reported = totalBytesSent
+                onSent?(totalBytesSent)
+            }
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        nil
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64, totalBytesExpectedToSend: Int64
+    ) {
+        guard let onSent else { return }
+        lock.withLock {
+            guard !finished, totalBytesSent > reported else { return }
+            reported = totalBytesSent
+            onSent(totalBytesSent)
+        }
     }
 }
 

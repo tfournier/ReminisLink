@@ -10,7 +10,7 @@
 | `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
-| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch) |
+| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art) |
 | `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`) and `ReminisLinkDemo` (fake pak, M4, M5 and M6 routes included) |
 
 ## Build and test
@@ -235,8 +235,15 @@ its first locked slot is reported `restored` once.
 ### UI tests against the pak
 
 A pairing link works **once**: every test against the pak needs a new
-one. Show a new QR code on the pak (or restart it) between tests and pass
-each link in its own variable:
+one. Show a new QR code on the pak between tests and pass each link in its
+own variable.
+
+Since M8, pairing is on demand: once a client is paired, restarting the
+pak on the same card shows no link (pairing opens from Settings > Pair a
+new device on the console). Start it with `--pairing-open` to print a new
+link at each start: `make headless HEADLESS_ARGS=--pairing-open`, or
+`build/reminislink-host --headless --sd "$sd" --pairing-open` on the same
+card.
 
 | Test | Variable |
 |---|---|
@@ -245,6 +252,7 @@ each link in its own variable:
 | `StatesUITests/testRestoredBadgeAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_RESTORED` |
 | `CheatsUITests/testCheatsAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CHEATS` |
 | `PatchUITests/testPatchAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_PATCH` |
+| `ArtUITests/testChangeThenRemoveTheImageAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_ART` |
 
 They work on "Starlight Courier" (GBA) of `testdata/sdcard`. Run one at a
 time with `-only-testing:ReminisLinkUITests/<Class>/<test>`.
@@ -259,7 +267,8 @@ next start and shown "Restored"):
    `echo changed > "$sd/.userdata/shared/GBA-gpsp/Starlight Courier.gba.st1"`
    (the states folder of the fake card today; `<TAG>-<core>/` once the pak
    follows docs/specs/05 §3.1), then start
-   the pak again **on the same card**: `build/reminislink-host --headless --sd "$sd"`.
+   the pak again **on the same card**:
+   `build/reminislink-host --headless --sd "$sd" --pairing-open`.
 4. Run `testRestoredBadgeAgainstHeadlessPak` with the new link: slot 2
    shows "Restored".
 

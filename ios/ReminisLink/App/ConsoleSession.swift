@@ -21,6 +21,8 @@ final class ConsoleSession {
     private(set) var client: APIClient?
     /// Changes when games were added or deleted: the library screens reload.
     private(set) var libraryRevision = 0
+    /// Changes when a game art was set or removed: art views load again.
+    var artRevision = 0
 
     /// Uploads and jobs of this console.
     @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()

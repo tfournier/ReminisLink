@@ -8,6 +8,15 @@ import UIKit
 
 /// Navigation destinations.
 enum Route: Hashable {
+    /// The console a screen belongs to.
+    var deviceId: String {
+        switch self {
+        case .console(let id), .library(let id), .trash(let id), .transfers(let id): id
+        case .folder(let folder): folder.deviceId
+        case .game(let game), .save(let game), .states(let game), .cheats(let game): game.deviceId
+        }
+    }
+
     case console(String)
     case library(String)
     case folder(FolderRoute)
@@ -50,7 +59,9 @@ struct AddContext: Identifiable, Equatable {
 
 /// The sheet shown above the navigation.
 enum Sheet: Identifiable {
-    case addConsole
+    /// Scan or PIN. `repairing`: the paired console to pair again (after
+    /// `401 unknown_client`), offered for the PIN like the new ones.
+    case addConsole(repairing: String? = nil)
     case pairing(PairingFlow)
     case add(AddContext)
     /// A shared patch file: the Patch screen (milestone M6).
@@ -58,7 +69,7 @@ enum Sheet: Identifiable {
 
     var id: String {
         switch self {
-        case .addConsole: "add"
+        case .addConsole(let id): "add-\(id ?? "")"
         case .pairing(let flow): "pairing-\(flow.id)"
         case .add(let context): "add-\(context.id)"
         case .patch(let context): "patch-\(context.id)"
@@ -110,6 +121,9 @@ final class AppModel {
     /// The share request shown by the Add or Patch sheet: consumed when the sheet
     /// closes, however it closes (sent, cancelled, swiped down).
     @ObservationIgnored private var presentedShare: ShareRequest?
+
+    /// The last `/pair` exchange of each console, until its key is stored.
+    @ObservationIgnored private var pairExchanges: [String: (id: UUID, task: Task<PairedDevice, Error>)] = [:]
 
     @ObservationIgnored private let makeSession: () -> URLSession
     @ObservationIgnored private var sessions: [String: ConsoleSession] = [:]
@@ -269,6 +283,31 @@ final class AppModel {
         return flow
     }
 
+    /// Runs a `/pair` exchange once the previous exchange with the same
+    /// console has ended (key stored or failed), so that the last key the
+    /// pak registered is the last one stored. The exchange is never
+    /// cancelled with its screen.
+    func pairExchange(
+        deviceId: String, _ body: @escaping @MainActor () async throws -> PairedDevice
+    ) -> Task<PairedDevice, Error> {
+        let previous = pairExchanges[deviceId]?.task
+        let id = UUID()
+        let task = Task { @MainActor in
+            defer { if self.pairExchanges[deviceId]?.id == id { self.pairExchanges[deviceId] = nil } }
+            _ = await previous?.result
+            return try await body()
+        }
+        pairExchanges[deviceId] = (id, task)
+        return task
+    }
+
+    /// "Pair Again": the Add a Console sheet, with the console of the
+    /// current screen offered for the PIN too (the camera may be
+    /// unavailable). Pairing it asks the replacement confirmation first.
+    func showRepair(deviceId: String? = nil) {
+        sheet = .addConsole(repairing: deviceId ?? path.last?.deviceId)
+    }
+
     /// A new key was stored: connections signed with the old one are dropped.
     func didReplaceKey(for deviceId: String) {
         sessions[deviceId] = nil
@@ -347,6 +386,11 @@ extension AppModel {
             makeSession: { APIClient.makeSession() }
         )
         #if DEBUG
+        // UI tests: a share request left by a previous run (the app was
+        // stopped while it was open) must not open in this one.
+        if environment["RL_RESET_STORE"] == "1" {
+            try? FileManager.default.removeItem(at: app.shareInbox.root)
+        }
         app.injectTestShare(environment)
         #endif
         return app

@@ -9,6 +9,9 @@ public struct FakeResponse: Sendable {
     public var body: Data
     /// When set, the request fails at the transport level instead.
     public var transportError: URLError.Code?
+    /// Seconds before the answer is delivered, without blocking the other
+    /// requests (the handler has already run).
+    public var delay: TimeInterval = 0
 
     public init(status: Int, headers: [String: String] = [:], body: Data = Data(), transportError: URLError.Code? = nil) {
         self.status = status
@@ -77,11 +80,30 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let response = handler.respond(to: request, body: Self.body(of: request))
+        if response.delay > 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + response.delay) { [self] in
+                deliver(response, for: url)
+            }
+        } else {
+            deliver(response, for: url)
+        }
+    }
+
+    private func deliver(_ response: FakeResponse, for url: URL) {
         if let code = response.transportError {
             client?.urlProtocol(self, didFailWithError: URLError(code))
             return
         }
         let http = HTTPURLResponse(url: url, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: response.headers)!
+        // A redirection is offered to the session, as a real HTTP answer
+        // would be: it either follows it (a new request) or takes this
+        // answer as the final one.
+        if (300..<400).contains(response.status), let location = response.headers["Location"],
+           let target = URL(string: location, relativeTo: url) {
+            var redirected = request
+            redirected.url = target.absoluteURL
+            client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: http)
+        }
         client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: response.body)
         client?.urlProtocolDidFinishLoading(self)

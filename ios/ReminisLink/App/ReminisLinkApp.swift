@@ -36,7 +36,7 @@ struct RootView: View {
         }
         .sheet(item: $app.sheet, onDismiss: { app.sheetDismissed() }) { sheet in
             switch sheet {
-            case .addConsole: AddConsoleView()
+            case .addConsole(let repairing): AddConsoleView(repairing: repairing)
             case .pairing(let flow): PairingProgressView(flow: flow)
             case .add(let context): AddView(context: context)
             case .patch(let context): PatchView(context: context)

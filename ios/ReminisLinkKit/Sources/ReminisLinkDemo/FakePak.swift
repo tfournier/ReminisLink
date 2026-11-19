@@ -6,7 +6,8 @@ import ReminisLinkKit
 
 /// An in-memory pak that follows protocol/openapi.yaml for the routes the
 /// app uses so far: `/hello`, `/pair`, signed `/device`, `/systems`,
-/// `/systems/{id}/games`, `/games/{id}` (GET and DELETE), `/games/{id}/art`,
+/// `/systems/{id}/games`, `/games/{id}` (GET and DELETE), `/games/{id}/art`
+/// (GET, and PUT and DELETE of milestone M8, see FakePakArt.swift),
 /// `/trash`, `DELETE /clients/me`, and the transfers of milestone M4:
 /// `/uploads` (create, chunks with `Upload-Offset`, status, complete with
 /// the SHA-256 check, cancel), `/downloads` and `/jobs`, and the saves,
@@ -57,6 +58,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var _clockOffset: TimeInterval = 0
     private var _responseDelay: TimeInterval = 0
     private var _pairDelay: TimeInterval = 0
+    private var nextPairDelays: [TimeInterval] = []
+    private var _pairingOpen = true
+    private var closePairingAfterHello = false
     private var clients: [String: SymmetricKey] = [:]
     private var clientNames: [String: String] = [:]
     /// Last accepted signed request per client (`connectedClients`).
@@ -69,6 +73,11 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     /// Saves, states, locks and cheats of the games (milestone M5), made
     /// from the library counters the first time a game is used.
     var gameData: [String: FakeGameData] = [:]
+    /// Arts set with `PUT /games/{id}/art` (M8), by game id.
+    var customArt: [String: Data] = [:]
+    /// Arts removed with `DELETE /games/{id}/art`.
+    var removedArt: Set<String> = []
+    var _trashedArtCount = 0
     /// Content of completed staging uploads (small files only), by upload
     /// id: what `cheats/import` with `source.type = "upload"` reads.
     var stagedUploads: [String: Data] = [:]
@@ -170,6 +179,26 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public var pairDelay: TimeInterval {
         get { lock.withLock { _pairDelay } }
         set { lock.withLock { _pairDelay = newValue } }
+    }
+
+    /// Whether the pairing screen is shown on the console (M8: pairing is
+    /// only open while the QR code or the PIN is shown). Closed, `/hello`
+    /// says `pairingOpen: false` and `/pair` answers `401 pairing_failed`.
+    public var pairingOpen: Bool {
+        get { lock.withLock { _pairingOpen } }
+        set { lock.withLock { _pairingOpen = newValue } }
+    }
+
+    /// The pairing screen closes right after the next `/hello` (which still
+    /// says it is open).
+    public func closePairingAfterNextHello() {
+        lock.withLock { closePairingAfterHello = true }
+    }
+
+    /// The next `POST /pair` requests wait these delays (in their order of
+    /// arrival) after registering the client, instead of ``pairDelay``.
+    public func delayNextPairs(_ delays: [TimeInterval]) {
+        lock.withLock { nextPairDelays.append(contentsOf: delays) }
     }
 
     public var log: [LoggedRequest] { lock.withLock { _log } }
@@ -322,6 +351,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             return game(id: s[1])
         case ("DELETE", let s) where s.count == 2 && s[0] == "games":
             return deleteGame(id: s[1], keepSave: params["keepSave"] == "true")
+        case ("GET", let s) where s.count == 3 && s[0] == "games" && s[2] == "deletion":
+            return deletionPreview(id: s[1], keepSave: params["keepSave"] == "true")
         case ("POST", ["uploads"]):
             return createUpload(body: body)
         case ("GET", let s) where s.count == 2 && s[0] == "uploads":
@@ -346,6 +377,10 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             return .json(200, job)
         case ("GET", let s) where s.count == 3 && s[0] == "games" && s[2] == "art":
             return art(gameId: s[1], ifNoneMatch: request.value(forHTTPHeaderField: "If-None-Match"))
+        case ("PUT", let s) where s.count == 3 && s[0] == "games" && s[2] == "art":
+            return putArt(gameId: s[1], request: request, body: body)
+        case ("DELETE", let s) where s.count == 3 && s[0] == "games" && s[2] == "art":
+            return deleteArt(gameId: s[1])
         case ("GET", ["trash"]):
             return trash()
         case ("DELETE", ["trash"]):
@@ -430,11 +465,19 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private func now() -> Date { Date().addingTimeInterval(clockOffset) }
 
     private func hello() -> FakeResponse {
-        .json(200, [
+        let pairingOpen = lock.withLock { () -> Bool in
+            let open = _pairingOpen
+            if closePairingAfterHello {
+                closePairingAfterHello = false
+                _pairingOpen = false
+            }
+            return open
+        }
+        return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
             "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
-            "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": true,
+            "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": pairingOpen,
         ])
     }
 
@@ -451,6 +494,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
               (1...64).contains(request.clientName.count),
               let clientNonce = Base64URL.decode(request.clientNonce), clientNonce.count == 32
         else { return .error(400, code: "invalid_request", message: "Invalid pairing request") }
+        // Closed: refused without counting a failure (docs/specs/05 §7.1).
+        guard pairingOpen else { return .error(401, code: "pairing_failed", message: "Pairing failed") }
         let ikm: Data
         switch request.method {
         case "qr": ikm = secret
@@ -463,13 +508,19 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         guard let key = try? Pairing.deriveKey(
             ikm: ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: deviceId, clientId: request.clientId
         ) else { return .error(500, code: "internal", message: "Key derivation failed") }
-        addClient(id: request.clientId, key: key, name: request.clientName)
-        if pairDelay > 0 { Thread.sleep(forTimeInterval: pairDelay) }
-        return .json(200, [
+        let delay = lock.withLock { () -> TimeInterval in
+            clients[request.clientId] = key
+            clientNames[request.clientId] = request.clientName
+            return nextPairDelays.isEmpty ? _pairDelay : nextPairDelays.removeFirst()
+        }
+        var response = FakeResponse.json(200, [
             "deviceId": deviceId, "deviceName": deviceName,
             "deviceNonce": Base64URL.encode(deviceNonce),
             "proof": Pairing.deviceProof(key: key, deviceId: deviceId, clientId: request.clientId),
         ])
+        // Delivered later, without blocking the other requests.
+        response.delay = delay
+        return response
     }
 
     private func device() -> FakeResponse {
@@ -526,14 +577,20 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     }
 
     private func summary(system: DemoLibrary.System, game: DemoLibrary.Game) -> [String: Any] {
+        summaryJSON(system: system, game: game)
+    }
+
+    /// A game as `GET /systems/{id}/games` lists it.
+    func summaryJSON(system: DemoLibrary.System, game: DemoLibrary.Game) -> [String: Any] {
         let data = currentData(system: system, game: game)
+        let id = DemoLibrary.id(system.folder + "/" + game.path)
         return [
-            "id": DemoLibrary.id(system.folder + "/" + game.path), "name": game.name, "fileName": game.fileName,
+            "id": id, "name": game.name, "fileName": game.fileName,
             "kind": game.kind.rawValue, "sizeBytes": game.sizeBytes,
             "modifiedAt": ProtocolJSON.formatDate(game.modifiedAt), "hasSave": data.save != nil,
             "stateCount": data.slots.values.filter { $0.state != nil }.count,
             "lockedStateCount": data.slots.values.filter { $0.lockCopy != nil }.count,
-            "cheatCount": data.cheats.count, "hasArt": game.hasArt,
+            "cheatCount": data.cheats.count, "hasArt": hasArt(gameId: id, game: game),
             "futureField": "ignored by the app",
         ]
     }
@@ -571,22 +628,22 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         if !data.cheats.isEmpty {
             files.append(["role": "cheats", "path": Self.cheatsPath(system, game), "sizeBytes": 2048, "modifiedAt": date])
         }
-        if game.hasArt {
-            files.append(["role": "art", "path": "Roms/\(system.folder)/.media/\(game.name).png", "sizeBytes": Int64(Self.artPNG.count), "modifiedAt": date])
+        if let art = currentArt(gameId: DemoLibrary.id(system.folder + "/" + game.path), game: game) {
+            files.append(["role": "art", "path": "Roms/\(system.folder)/.media/\(game.name).png", "sizeBytes": Int64(art.data.count), "modifiedAt": date])
         }
         return files
     }
 
     private func art(gameId: String, ifNoneMatch: String?) -> FakeResponse {
-        guard let (_, game) = library.game(id: gameId), game.hasArt else {
+        guard let (_, game) = library.game(id: gameId), let art = currentArt(gameId: gameId, game: game) else {
             return .error(404, code: "not_found", message: "No art")
         }
-        if ifNoneMatch == Self.artETag {
-            return FakeResponse(status: 304, headers: ["ETag": Self.artETag])
+        if ifNoneMatch == art.etag {
+            return FakeResponse(status: 304, headers: ["ETag": art.etag])
         }
         return FakeResponse(status: 200, headers: [
-            "Content-Type": "image/png", "ETag": Self.artETag, "Cache-Control": "private, max-age=86400",
-        ], body: Self.artPNG)
+            "Content-Type": "image/png", "ETag": art.etag, "Cache-Control": "private, max-age=86400",
+        ], body: art.data)
     }
 
     private func trash() -> FakeResponse {
@@ -915,10 +972,7 @@ extension FakePak {
     /// Moves a game to the trash and drops it from the library.
     @discardableResult
     func removeGame(system: DemoLibrary.System, game: DemoLibrary.Game, keepSave: Bool, reason: String) -> [String: Any] {
-        let files = self.files(system: system, game: game).filter { file in
-            let role = file["role"] as? String
-            return !(keepSave && (role == "save" || role == "state"))
-        }
+        let files = deletionSelection(system: system, game: game, keepSave: keepSave).moved
         let moved = files.compactMap { $0["path"] as? String }
         let bytes = files.reduce(Int64(0)) { $0 + Self.size($1["sizeBytes"]) }
         let now = Date()
@@ -941,6 +995,37 @@ extension FakePak {
             }
         }
         return ["trashEntryId": id, "moved": moved, "movedBytes": bytes]
+    }
+
+    /// The files a deletion moves and keeps (the same selection for the
+    /// preview and for `DELETE /games/{id}`).
+    func deletionSelection(system: DemoLibrary.System, game: DemoLibrary.Game, keepSave: Bool)
+        -> (moved: [[String: Any]], kept: [[String: Any]]) {
+        let files = self.files(system: system, game: game)
+        let isKept = { (file: [String: Any]) -> Bool in
+            let role = file["role"] as? String
+            return keepSave && (role == "save" || role == "rtc" || role == "state")
+        }
+        return (files.filter { !isKept($0) }, files.filter(isKept))
+    }
+
+    /// `GET /games/{id}/deletion` (M8): names relative to the system folder
+    /// under `Roms/`, to the SD card otherwise.
+    func deletionPreview(id: String, keepSave: Bool) -> FakeResponse {
+        guard let (system, game) = library.game(id: id) else {
+            return .error(404, code: "not_found", message: "Game not found")
+        }
+        let selection = deletionSelection(system: system, game: game, keepSave: keepSave)
+        let prefix = "Roms/\(system.folder)/"
+        let item = { (file: [String: Any]) -> [String: Any] in
+            let path = file["path"] as? String ?? ""
+            return ["name": path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path,
+                    "role": file["role"] as? String ?? "other", "size": Self.size(file["sizeBytes"])]
+        }
+        return .json(200, [
+            "moved": selection.moved.map(item), "kept": selection.kept.map(item),
+            "movedBytes": selection.moved.reduce(Int64(0)) { $0 + Self.size($1["sizeBytes"]) },
+        ])
     }
 
     func deleteGame(id: String, keepSave: Bool) -> FakeResponse {

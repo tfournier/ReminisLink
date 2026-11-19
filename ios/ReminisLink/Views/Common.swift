@@ -22,6 +22,9 @@ struct ErrorView: View {
     @Environment(AppModel.self) private var app
     let error: AppError
     var retry: (() async -> Void)?
+    /// The console to pair again on "Pair Again" (default: the console of
+    /// the current screen).
+    var deviceId: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -48,7 +51,7 @@ struct ErrorView: View {
                         .accessibilityIdentifier("error.retry")
                 }
             case .repair:
-                Button("Pair Again") { app.sheet = .addConsole }
+                Button("Pair Again") { app.showRepair(deviceId: deviceId) }
                     .buttonStyle(.borderedProminent)
             case nil:
                 EmptyView()
@@ -85,8 +88,19 @@ struct GameArtView: View {
     let gameId: String
     let hasArt: Bool
     var size: CGFloat = 44
+    /// UI tests (Debug, `RL_UITEST_ART_PICTURE=1`): the view is exposed as
+    /// `game.art`, its value `image` or `none`.
+    var exposedToUITests = false
 
     @State private var image: UIImage?
+
+    private var isExposed: Bool {
+        #if DEBUG
+        exposedToUITests && ProcessInfo.processInfo.environment["RL_UITEST_ART_PICTURE"] == "1"
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         Group {
@@ -104,14 +118,20 @@ struct GameArtView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size / 8))
-        .accessibilityHidden(true)
-        .task(id: gameId) { await load() }
+        .accessibilityHidden(!isExposed)
+        .accessibilityIdentifier(isExposed ? "game.art" : "")
+        .accessibilityValue(Text(verbatim: isExposed ? (image == nil ? "none" : "image") : ""))
+        // Loaded again when the art is set or removed (M8).
+        .task(id: "\(gameId)|\(hasArt)|\(app.session(for: deviceId).artRevision)") { await load() }
     }
 
     /// Best effort: an art error never touches the session. The disk cache
     /// is read off the main actor.
     private func load() async {
-        guard hasArt else { return }
+        guard hasArt else {
+            image = nil
+            return
+        }
         let cache = app.artCache
         let deviceId = deviceId
         let gameId = gameId

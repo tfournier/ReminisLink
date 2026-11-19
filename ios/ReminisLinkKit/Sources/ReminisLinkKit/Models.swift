@@ -35,7 +35,8 @@ public struct DeviceModel: RawRepresentable, Codable, Hashable, Sendable {
     }
 }
 
-/// `file`, `m3u` or `folder-m3u`.
+/// `file`, `m3u`, `folder-m3u` or `folder-cue`. An unknown kind is treated
+/// like `folder-m3u` (the contract).
 public struct GameKind: RawRepresentable, Codable, Hashable, Sendable {
     public let rawValue: String
     public init(rawValue: String) { self.rawValue = rawValue }
@@ -43,6 +44,15 @@ public struct GameKind: RawRepresentable, Codable, Hashable, Sendable {
     public static let file = GameKind(rawValue: "file")
     public static let m3u = GameKind(rawValue: "m3u")
     public static let folderM3U = GameKind(rawValue: "folder-m3u")
+    /// M8: a folder holding a `.cue` of the same name and no such `.m3u`.
+    public static let folderCUE = GameKind(rawValue: "folder-cue")
+
+    /// The whole folder is the game: `folder-m3u`, `folder-cue` and any
+    /// unknown kind.
+    public var isFolder: Bool { self != .file && self != .m3u }
+
+    /// Several files may make the game (every kind but `file`).
+    public var isMultiDisc: Bool { self != .file }
 }
 
 /// Role of a file that belongs to a game.
@@ -52,9 +62,14 @@ public struct GameFileRole: RawRepresentable, Codable, Hashable, Sendable {
 
     public static let rom = GameFileRole(rawValue: "rom")
     public static let save = GameFileRole(rawValue: "save")
+    /// The clock file NextUI writes next to the save (`.rtc`).
+    public static let rtc = GameFileRole(rawValue: "rtc")
     public static let state = GameFileRole(rawValue: "state")
     public static let cheats = GameFileRole(rawValue: "cheats")
     public static let art = GameFileRole(rawValue: "art")
+    /// Only in ``DeletionPreview``: any other file (side files of the
+    /// states, `.cht.bak`, ReminisLink copies...).
+    public static let other = GameFileRole(rawValue: "other")
 }
 
 // MARK: - Device
@@ -329,6 +344,11 @@ public struct GameDetail: Codable, Sendable, Equatable {
 
     public var hasSave: Bool { files.contains { $0.role == .save } }
     public var stateCount: Int { files.filter { $0.role == .state }.count }
+    /// The files `DELETE /games/{id}?keepSave=true` leaves in place: the
+    /// save, its clock file and the states.
+    public static func isKeptWithSave(_ role: GameFileRole) -> Bool {
+        role == .save || role == .rtc || role == .state
+    }
     public var hasCheats: Bool { files.contains { $0.role == .cheats } }
 }
 

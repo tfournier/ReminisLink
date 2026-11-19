@@ -681,6 +681,26 @@
         }
       }
     },
+    "Change Image…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changer l’image…"
+          }
+        }
+      }
+    },
+    "Change the Image" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changer l’image"
+          }
+        }
+      }
+    },
     "Changes are kept on this iPhone until you save them." : {
       "localizations" : {
         "fr" : {
@@ -797,6 +817,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Effacer les terminés"
+          }
+        }
+      }
+    },
+    "Clock of the save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Horloge de la save"
           }
         }
       }
@@ -1107,6 +1137,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abandonner tes modifications ?"
+          }
+        }
+      }
+    },
+    "Discs that another playlist of the system still lists stay on the SD card, and so do the save and the states when you keep them." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les disques qu’une autre playlist du système liste encore restent sur la carte SD, de même que la sauvegarde et les states si vous les gardez."
           }
         }
       }
@@ -1431,6 +1471,36 @@
         }
       }
     },
+    "Image" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image"
+          }
+        }
+      }
+    },
+    "Image changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image changée."
+          }
+        }
+      }
+    },
+    "Image removed. It is in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image retirée. Elle est dans la corbeille de la console."
+          }
+        }
+      }
+    },
     "Import" : {
       "localizations" : {
         "fr" : {
@@ -1537,6 +1607,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Garder la save et les states"
+          }
+        }
+      }
+    },
+    "Kept in place" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laissés en place"
           }
         }
       }
@@ -2021,6 +2101,16 @@
         }
       }
     },
+    "On the console, open Settings > Pair a New Device, then scan the QR code shown." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur la console, ouvre Réglages > Appairer un nouvel appareil, puis scanne le QR code affiché."
+          }
+        }
+      }
+    },
     "Online" : {
       "localizations" : {
         "fr" : {
@@ -2031,12 +2121,12 @@
         }
       }
     },
-    "Open ReminisLink from the Tools menu of the console." : {
+    "Open ReminisLink from the Tools menu of the console. If another device is already paired, open Settings > Pair a New Device." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ouvre ReminisLink depuis le menu Outils de la console."
+            "value" : "Ouvre ReminisLink depuis le menu Outils de la console. Si un autre appareil est déjà appairé, ouvre Réglages > Appairer un nouvel appareil."
           }
         }
       }
@@ -2077,6 +2167,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Facultatif"
+          }
+        }
+      }
+    },
+    "Other File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autre fichier"
           }
         }
       }
@@ -2167,16 +2267,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L’appairage a échoué. Le code a peut-être expiré : affiche un nouveau QR code sur la console et réessaie."
-          }
-        }
-      }
-    },
-    "Pairing is not open on the console. Open ReminisLink on the console and show the QR code." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’appairage n’est pas ouvert sur la console. Ouvre ReminisLink sur la console et affiche le QR code."
           }
         }
       }
@@ -2281,12 +2371,22 @@
         }
       }
     },
-    "Point the camera at the QR code shown by ReminisLink on the console." : {
+    "Photo Library" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vise le QR code affiché par ReminisLink sur la console."
+            "value" : "Photothèque"
+          }
+        }
+      }
+    },
+    "Point the camera at the QR code shown by ReminisLink on the console. If it is not shown, open Settings > Pair a New Device on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vise le QR code affiché par ReminisLink sur la console. S’il n’est pas affiché, ouvre Réglages > Appairer un nouvel appareil sur la console."
           }
         }
       }
@@ -2331,12 +2431,32 @@
         }
       }
     },
+    "Reading what will be moved…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture de ce qui sera déplacé…"
+          }
+        }
+      }
+    },
     "Reload" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Recharger"
+          }
+        }
+      }
+    },
+    "ReminisLink Copies (%lld)" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copies ReminisLink (%lld)"
           }
         }
       }
@@ -2377,6 +2497,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retirer"
+          }
+        }
+      }
+    },
+    "Remove Image" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l’image"
+          }
+        }
+      }
+    },
+    "Remove the image?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l’image ?"
           }
         }
       }
@@ -2451,12 +2591,32 @@
         }
       }
     },
+    "Replace the save on the console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la save de la console ?"
+          }
+        }
+      }
+    },
     "Replace the save?" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer la save ?"
+          }
+        }
+      }
+    },
+    "Replace the state on the console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer le state de la console ?"
           }
         }
       }
@@ -2701,6 +2861,26 @@
         }
       }
     },
+    "Sending it again replaces the save on the console, even if it was already received and you played since. The current save is kept as a backup copy first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le renvoyer remplace la save de la console, même si elle était déjà arrivée et que tu as joué depuis. La save actuelle est d’abord gardée en copie de sauvegarde."
+          }
+        }
+      }
+    },
+    "Sending it again replaces this state on the console, even if it was already received. The current state goes to the trash first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le renvoyer remplace ce state sur la console, même s’il était déjà arrivé. Le state actuel part d’abord dans la corbeille."
+          }
+        }
+      }
+    },
     "Sending the patch… %@" : {
       "localizations" : {
         "fr" : {
@@ -2737,6 +2917,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Plusieurs disques : ne peut pas être patché"
+          }
+        }
+      }
+    },
+    "Shown by NextUI in the game list. The previous image goes to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichée par NextUI dans la liste des jeux. L’image précédente part dans la corbeille de la console."
           }
         }
       }
@@ -2911,6 +3101,16 @@
         }
       }
     },
+    "Test Picture" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image de test"
+          }
+        }
+      }
+    },
     "The .cht files of the Cheats folder of the SD card. Those named after this game come first." : {
       "localizations" : {
         "fr" : {
@@ -2927,6 +3127,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les fichiers .ips, .bps et .ups du dossier Roms et du dossier ReminisLink/patches de la carte SD."
+          }
+        }
+      }
+    },
+    "The PIN is shown below the QR code, on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le PIN est affiché sous le QR code, sur la console."
           }
         }
       }
@@ -3181,12 +3391,12 @@
         }
       }
     },
-    "The console will forget this iPhone. You will need to scan the QR code again to reconnect." : {
+    "The console will forget this iPhone. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console oubliera cet iPhone. Il faudra scanner à nouveau le QR code pour te reconnecter."
+            "value" : "La console oubliera cet iPhone. Pour te reconnecter, appaire-le à nouveau : sur la console, ouvre Réglages > Appairer un nouvel appareil et scanne le QR code."
           }
         }
       }
@@ -3217,6 +3427,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les cheats actuels sont remplacés. Le fichier précédent est gardé sur la console (.cht.bak)."
+          }
+        }
+      }
+    },
+    "The current image goes to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’image actuelle part dans la corbeille de la console."
           }
         }
       }
@@ -3351,16 +3571,6 @@
         }
       }
     },
-    "The locks of its states and its resume history are deleted too." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les verrous de ses states et son historique de reprise sont aussi supprimés."
-          }
-        }
-      }
-    },
     "The original ROM goes to the trash of the console. The save, the states and the cheats are kept." : {
       "localizations" : {
         "fr" : {
@@ -3381,6 +3591,16 @@
         }
       }
     },
+    "The picture is scaled down to at most 1024 pixels and sent as a PNG." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’image est réduite à 1024 pixels au plus et envoyée en PNG."
+          }
+        }
+      }
+    },
     "The request is too large for the console." : {
       "localizations" : {
         "fr" : {
@@ -3397,6 +3617,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La save dépasse 64 Mo : elle est envoyée dans Transferts. La save actuelle est d’abord copiée."
+          }
+        }
+      }
+    },
+    "The save, its clock file, the states, their locks and the resume history stay in place on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La save, son fichier d’horloge, les states, leurs verrous et l’historique de reprise restent en place sur la carte SD."
           }
         }
       }
@@ -3437,26 +3667,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La corbeille est vide"
-          }
-        }
-      }
-    },
-    "The whole folder of this multi-disc game is moved." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tout le dossier de ce jeu multi-disques est déplacé."
-          }
-        }
-      }
-    },
-    "They stay in place on the SD card." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elles restent en place sur la carte SD."
           }
         }
       }
@@ -3597,6 +3807,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce patch ou la ROM patchée est trop gros pour la console."
+          }
+        }
+      }
+    },
+    "This picture cannot be used as the image of the game. Choose another one." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image ne peut pas servir d’image du jeu. Choisis-en une autre."
           }
         }
       }

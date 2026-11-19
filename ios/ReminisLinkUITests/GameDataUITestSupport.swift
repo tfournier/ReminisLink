@@ -36,10 +36,11 @@ enum GameDataUITest {
 
     /// Launches the app against a real pak (Bonjour) and opens a game.
     @MainActor
-    static func openHeadlessGame(link: URL) -> XCUIApplication {
+    static func openHeadlessGame(link: URL, environment: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments += englishArguments
         app.launchEnvironment["RL_RESET_STORE"] = "1"
+        for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
         app.open(link)
         openGame(app, system: "GBA", game: headlessGame, timeout: 30)

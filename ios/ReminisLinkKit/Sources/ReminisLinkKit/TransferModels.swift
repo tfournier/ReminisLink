@@ -248,6 +248,54 @@ public struct JobList: Codable, Sendable, Equatable {
 }
 
 /// `200` of `DELETE /games/{gameId}`.
+/// A file of ``DeletionPreview``.
+public struct DeletionItem: Codable, Sendable, Equatable, Hashable {
+    /// Informative, never absolute: relative to the system folder under
+    /// `Roms/`, to the SD card otherwise, `ReminisLink/...` for the copies
+    /// of the pak.
+    public let name: String
+    /// A ``GameFileRole`` raw value, or `other`.
+    public let role: GameFileRole
+    public let size: Int64
+
+    public init(name: String, role: GameFileRole, size: Int64) {
+        self.name = name
+        self.role = role
+        self.size = size
+    }
+}
+
+/// `GET /games/{gameId}/deletion` (M8): exactly what `DELETE /games/{id}`
+/// would move and keep now, with the same `keepSave`.
+public struct DeletionPreview: Codable, Sendable, Equatable {
+    public let moved: [DeletionItem]
+    /// Left in place on purpose: discs another playlist still lists, and
+    /// with `keepSave` the save, the states and their copies.
+    public let kept: [DeletionItem]
+    public let movedBytes: Int64
+
+    public init(moved: [DeletionItem], kept: [DeletionItem], movedBytes: Int64) {
+        self.moved = moved
+        self.kept = kept
+        self.movedBytes = movedBytes
+    }
+
+    /// The copies the pak keeps of the game (locks, resume history): role
+    /// `other`, names starting with `ReminisLink/`.
+    public static func isPakCopy(_ item: DeletionItem) -> Bool {
+        item.role == .other && item.name.hasPrefix("ReminisLink/")
+    }
+
+    /// Whether `keepSave` would keep something: read from a preview made
+    /// with that option, any save, clock file, state or copy of the pak
+    /// (locks, resume history) moved without it, or kept with it.
+    public func hasDataKeptWithSave(keepSave: Bool) -> Bool {
+        (keepSave ? kept : moved).contains { item in
+            item.role == .save || item.role == .rtc || item.role == .state || Self.isPakCopy(item)
+        }
+    }
+}
+
 public struct TrashMoveResult: Codable, Sendable, Equatable {
     public let trashEntryId: String
     /// Original paths, relative to the SD card root (informative).

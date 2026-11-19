@@ -36,9 +36,10 @@ public struct DemoLibrary: Sendable {
 
         public var fileName: String { String(path.split(separator: "/").last ?? "") }
 
-        /// File name without its extension (the folder name for `folder-m3u`).
+        /// File name without its extension (the folder name for a folder
+        /// game: `folder-m3u`, `folder-cue`).
         public var name: String {
-            if kind == .folderM3U { return fileName }
+            if kind.isFolder { return fileName }
             guard let dot = fileName.lastIndex(of: "."), dot != fileName.startIndex else { return fileName }
             return String(fileName[..<dot])
         }

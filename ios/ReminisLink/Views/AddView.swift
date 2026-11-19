@@ -58,6 +58,8 @@ struct AddView: View {
     /// Links of a share request that also held files: offered once the
     /// files are sent.
     @State private var pendingLinks: [String] = []
+    /// The shared link offered in the Link tab (the user may replace it).
+    @State private var sharedLink: String?
     @State private var showImporter = false
     @State private var systems: [GameSystem]?
     @State private var linkText = ""
@@ -290,7 +292,8 @@ struct AddView: View {
             files.append(AddFile(url: url, name: name, sizeBytes: size, isSecurityScoped: false,
                                  request: request, kind: kind))
         }
-        pendingLinks = request.urls
+        // Links sent before the app was stopped are not offered again.
+        pendingLinks = request.pendingURLs
         if files.isEmpty { useNextLink() }
         suggestSystems()
     }
@@ -301,6 +304,7 @@ struct AddView: View {
     private func useNextLink() -> Bool {
         guard !pendingLinks.isEmpty else { return false }
         let link = pendingLinks.removeFirst()
+        sharedLink = link
         mode = .link
         linkText = link
         linkKind = .rom
@@ -380,6 +384,14 @@ struct AddView: View {
                 let request = DownloadRequest(url: url.absoluteString, target: target)
                 let accepted = try await session.perform { try await $0.createDownload(request) }
                 session.transfers.track(jobId: accepted.jobId, title: DownloadURL.displayName(url))
+                if let request = context.request {
+                    // Only the URL sent is recorded, if it is a shared link;
+                    // a shared link the user replaced stays to offer.
+                    let sent = request.sharedLink(matching: url.absoluteString)
+                    if let sent { _ = try? app.shareInbox.consumeLink(sent, of: request.id) }
+                    pendingLinks = ShareRequest.linksLeft(pendingLinks, offered: sharedLink, sent: sent)
+                    sharedLink = nil
+                }
                 // More shared links: offer the next one.
                 if useNextLink() { return }
             }

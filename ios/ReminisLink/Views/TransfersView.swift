@@ -66,6 +66,36 @@ struct TransfersView: View {
 struct UploadRow: View {
     let item: UploadItem
     let queue: TransferQueue
+    @State private var confirmResend = false
+
+    /// What "Send Again" does after an unknown outcome. ROMs and staging
+    /// files are sent under a new name (both copies kept); a save or a
+    /// state always replaces the one on the console (the pak ignores the
+    /// conflict rule for them), so it is said and confirmed first.
+    enum Resend: Equatable {
+        case keepBoth
+        case replaceSave
+        case replaceState
+
+        init(_ target: TransferTarget) {
+            switch target {
+            case .save: self = .replaceSave
+            case .state: self = .replaceState
+            case .rom, .staging: self = .keepBoth
+            }
+        }
+
+        var onConflict: OnConflict { self == .keepBoth ? .rename : .overwrite }
+        var needsConfirmation: Bool { self != .keepBoth }
+
+        var explanation: LocalizedStringKey {
+            switch self {
+            case .keepBoth: "If the file is already on the console, sending it again keeps both copies."
+            case .replaceSave: "Sending it again replaces the save on the console, even if it was already received and you played since. The current save is kept as a backup copy first."
+            case .replaceState: "Sending it again replaces this state on the console, even if it was already received. The current state goes to the trash first."
+            }
+        }
+    }
 
     private var isConflict: Bool {
         (item.failure as? APIError)?.code == .conflict
@@ -125,9 +155,28 @@ struct UploadRow: View {
             Button("Resume") { queue.resume(item) }
                 .buttonStyle(.bordered)
         case .failed where (item.failure as? UploadFailure) == .outcomeUnknown:
-            Button("Send Again") { Task { await queue.retry(item, onConflict: .rename) } }
-                .buttonStyle(.bordered)
-            Text("If the file is already on the console, sending it again keeps both copies.")
+            let resend = Resend(item.target)
+            Button("Send Again") {
+                if resend.needsConfirmation {
+                    confirmResend = true
+                } else {
+                    Task { await queue.retry(item, onConflict: resend.onConflict) }
+                }
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("upload.sendAgain")
+            .confirmationDialog(
+                resend == .replaceSave ? "Replace the save on the console?" : "Replace the state on the console?",
+                isPresented: $confirmResend, titleVisibility: .visible
+            ) {
+                Button("Replace", role: .destructive) {
+                    Task { await queue.retry(item, onConflict: resend.onConflict) }
+                }
+                .accessibilityIdentifier("upload.sendAgain.replace")
+            } message: {
+                Text(resend.explanation)
+            }
+            Text(resend.explanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failed where isConflict:
@@ -158,7 +207,7 @@ struct UploadRow: View {
             if item.sentBytes >= item.sizeBytes {
                 return String(localized: "Finishing on the console…")
             }
-            var parts = [String(localized: "\(item.sentBytes.byteString) of \(item.sizeBytes.byteString)")]
+            var parts = [String(localized: "\(item.displayedBytes.byteString) of \(item.sizeBytes.byteString)")]
             if let speed = item.bytesPerSecond {
                 parts.append(String(localized: "\(Int64(speed).byteString)/s"))
             }
