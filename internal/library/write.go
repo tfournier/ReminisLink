@@ -108,6 +108,13 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 		if files.Save != nil {
 			items = append(items, store.MoveItem{Path: files.Save.Path})
 		}
+		if files.RTC != nil {
+			items = append(items, store.MoveItem{Path: files.RTC.Path})
+		}
+		// Thumbnails and discs of the states, last slot used (NextUI).
+		for _, f := range files.StateSide {
+			items = append(items, store.MoveItem{Path: f.Path})
+		}
 		for _, s := range files.States {
 			items = append(items, store.MoveItem{Path: s.Path})
 		}

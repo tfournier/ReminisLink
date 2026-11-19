@@ -59,6 +59,7 @@ const (
 	metaVersion = 1
 	savesDir    = "saves"
 	copyExt     = ".sav"
+	rtcExt      = ".rtc"
 	metaExt     = ".json"
 	// tempPrefix names the temporary files written in the uploads folder;
 	// leftovers are deleted at start with the other orphan files there.
@@ -98,6 +99,9 @@ type meta struct {
 	CreatedAt time.Time `json:"createdAt"`
 	SizeBytes int64     `json:"sizeBytes"`
 	SHA256    string    `json:"sha256"`
+	// RTCSHA256 is set when the clock file of the game (.rtc, written by
+	// NextUI with the save) was copied with it, as <backupId>.rtc.
+	RTCSHA256 string `json:"rtcSha256,omitempty"`
 }
 
 func (m meta) public() Backup {
@@ -265,20 +269,32 @@ func (s *Service) Create(g osadapter.Game, label *string) (Backup, error) {
 	}
 	s.o.Lock.Lock()
 	defer s.o.Lock.Unlock()
-	save, err := s.SaveFile(g)
+	files, err := s.o.Adapter.GameFiles(g)
 	if err != nil {
-		return Backup{}, err
+		return Backup{}, fmt.Errorf("save: %w", err)
 	}
-	m, err := s.createLocked(g, save.Path, ReasonManual, label)
+	if files.Save == nil {
+		return Backup{}, ErrNoSave
+	}
+	m, err := s.createLocked(g, files.Save.Path, rtcPath(files), ReasonManual, label)
 	if err != nil {
 		return Backup{}, err
 	}
 	return m.public(), nil
 }
 
-// createLocked copies src as a new backup of g. Automatic backups past
-// MaxAutoBackups go to the trash. Called with the lock held.
-func (s *Service) createLocked(g osadapter.Game, src, reason string, label *string) (meta, error) {
+// rtcPath returns the clock file of the game, "" when it has none.
+func rtcPath(files osadapter.GameFiles) string {
+	if files.RTC == nil {
+		return ""
+	}
+	return files.RTC.Path
+}
+
+// createLocked copies src (and the clock file rtc, if not "") as a new
+// backup of g. Automatic backups past MaxAutoBackups go to the trash.
+// Called with the lock held.
+func (s *Service) createLocked(g osadapter.Game, src, rtc, reason string, label *string) (meta, error) {
 	dir := s.dir(g)
 	metas, err := s.readMetas(dir)
 	if err != nil {
@@ -290,7 +306,7 @@ func (s *Service) createLocked(g osadapter.Game, src, reason string, label *stri
 	}
 	now := s.o.Now()
 	id, err := store.NewStampID("bk", now, s.o.Rand, func(id string) bool {
-		for _, ext := range []string{copyExt, metaExt} {
+		for _, ext := range []string{copyExt, metaExt, rtcExt} {
 			if _, err := os.Lstat(filepath.Join(dir, id+ext)); !errors.Is(err, fs.ErrNotExist) {
 				return true
 			}
@@ -308,8 +324,15 @@ func (s *Service) createLocked(g osadapter.Game, src, reason string, label *stri
 		Version: metaVersion, ID: id, Seq: seq + 1, Label: label, Reason: reason,
 		CreatedAt: now.UTC().Truncate(time.Second), SizeBytes: size, SHA256: sum,
 	}
+	if rtc != "" {
+		if m.RTCSHA256, _, err = store.CopyFileAtomic(rtc, filepath.Join(dir, id+rtcExt)); err != nil {
+			os.Remove(filepath.Join(dir, id+copyExt))
+			return meta{}, fmt.Errorf("save backup: clock file: %w", err)
+		}
+	}
 	if err := store.WriteJSONAtomic(filepath.Join(dir, id+metaExt), m); err != nil {
 		os.Remove(filepath.Join(dir, id+copyExt))
+		os.Remove(filepath.Join(dir, id+rtcExt))
 		return meta{}, fmt.Errorf("save backup: %w", err)
 	}
 	s.o.Logger.Info("save backed up", "game", g.Path, "backup", id, "reason", reason, "bytes", size)
@@ -343,10 +366,14 @@ func (s *Service) pruneLocked(g osadapter.Game, dir string, metas []meta) {
 
 // trashBackup moves a backup (copy and metadata) to the trash.
 func (s *Service) trashBackup(g osadapter.Game, dir, id string) error {
-	_, err := s.o.Trash.Move(store.ReasonDeleteBackup, g.Name, []store.MoveItem{
+	items := []store.MoveItem{
 		{Path: filepath.Join(dir, id+copyExt)},
 		{Path: filepath.Join(dir, id+metaExt), Internal: true},
-	})
+	}
+	if _, err := os.Lstat(filepath.Join(dir, id+rtcExt)); err == nil {
+		items = append(items, store.MoveItem{Path: filepath.Join(dir, id+rtcExt)})
+	}
+	_, err := s.o.Trash.Move(store.ReasonDeleteBackup, g.Name, items)
 	return err
 }
 
@@ -435,7 +462,16 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	if sum != m.SHA256 {
 		return nil, ErrCorruptBackup
 	}
-	res, err := s.installLocked(g, tmp, ReasonBeforeRestore, nil)
+	rtcTmp := ""
+	if m.RTCSHA256 != "" {
+		rtcTmp = tmp + rtcExt
+		defer os.Remove(rtcTmp)
+		sum, _, err := store.CopyFileAtomic(filepath.Join(filepath.Dir(path), id+rtcExt), rtcTmp)
+		if err != nil || sum != m.RTCSHA256 {
+			return nil, ErrCorruptBackup
+		}
+	}
+	res, err := s.installLocked(g, tmp, rtcTmp, ReasonBeforeRestore, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +537,7 @@ func (s *Service) Replace(g osadapter.Game, tmp string) (*Backup, error) {
 // failure.
 func (s *Service) InstallLocked(g osadapter.Game, tmp string) (*Backup, error) {
 	label := LabelBeforeReplace
-	b, err := s.installLocked(g, tmp, ReasonBeforeReplace, &label)
+	b, err := s.installLocked(g, tmp, "", ReasonBeforeReplace, &label)
 	if err != nil {
 		return nil, err
 	}
@@ -517,10 +553,14 @@ func (s *Service) InstallLocked(g osadapter.Game, tmp string) (*Backup, error) {
 // the same bytes, and renaming over the save keeps a save in place at
 // every moment (moving it away first would leave the game without a save
 // if the power is cut before the rename).
-func (s *Service) installLocked(g osadapter.Game, tmp, reason string, label *string) (*Backup, error) {
+//
+// rtcTmp, when not "", is a synced clock file installed next to the save
+// (a restored backup that had one); otherwise the clock file in place is
+// left as it is (it is backed up with the save).
+func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, label *string) (*Backup, error) {
 	// Only the default save format is written (the error wraps
 	// osadapter.ErrUnsupportedFormat).
-	if err := s.o.Adapter.CheckSaveFormat(); err != nil {
+	if err := s.o.Adapter.CheckSaveFormat(g); err != nil {
 		return nil, err
 	}
 	files, err := s.o.Adapter.GameFiles(g)
@@ -531,7 +571,7 @@ func (s *Service) installLocked(g osadapter.Game, tmp, reason string, label *str
 	var backup *Backup
 	if files.Save != nil {
 		dst = files.Save.Path
-		m, err := s.createLocked(g, files.Save.Path, reason, label)
+		m, err := s.createLocked(g, files.Save.Path, rtcPath(files), reason, label)
 		if err != nil {
 			return nil, err
 		}
@@ -543,6 +583,15 @@ func (s *Service) installLocked(g osadapter.Game, tmp, reason string, label *str
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		return nil, fmt.Errorf("save: install: %w", err)
+	}
+	if rtcTmp != "" {
+		rtcDst := strings.TrimSuffix(dst, copyExt) + rtcExt
+		if files.RTC != nil {
+			rtcDst = files.RTC.Path
+		}
+		if err := os.Rename(rtcTmp, rtcDst); err != nil {
+			return nil, fmt.Errorf("save: install the clock file: %w", err)
+		}
 	}
 	store.SyncDir(filepath.Dir(dst))
 	store.SyncDir(filepath.Dir(tmp))
