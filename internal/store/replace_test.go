@@ -486,7 +486,18 @@ func TestRestoringTransitionIsDurableBeforeTheRollback(t *testing.T) {
 	if exists(rom) {
 		t.Fatal("the ROM went back before the roll back was recorded durably")
 	}
-	tr.rename, tr.syncDir = os.Rename, func(string) error { return nil }
+	// Next start: the journal folder still cannot be synced, nothing goes back.
+	tr.rename = os.Rename
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if exists(rom) {
+		t.Fatal("the ROM went back at the next start before the journal was durable")
+	}
+	if st := entryStates(t, tr); len(st) != 1 || st[0] != stateRestoring {
+		t.Fatalf("journal %v", st)
+	}
+	tr.syncDir = func(string) error { return nil }
 	for i := 0; i < 2; i++ {
 		if err := tr.Recover(); err != nil {
 			t.Fatal(err)

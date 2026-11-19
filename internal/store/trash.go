@@ -803,6 +803,13 @@ func (t *Trash) Recover() error {
 			continue
 		}
 		if e.State == stateRestoring {
+			// The "restoring" journal may have been renamed in place
+			// without its folder being synced (the sync failed): make it
+			// durable before the first file goes back (Codex review of M8).
+			if err := t.syncDir(dir); err != nil {
+				t.log.Error("trash: roll back kept for the next start, its journal is not durable", "entry", name, "error", err)
+				continue
+			}
 			if t.rollback(dir, sd, &e) {
 				t.log.Info("trash: interrupted roll back finished", "entry", name)
 			} else {
