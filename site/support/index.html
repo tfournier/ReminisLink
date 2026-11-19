@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support — ReminisLink</title>
+  <meta name="description" content="Help for ReminisLink: the app does not find the handheld, pairing, the trash, NextUI settings, compatible handhelds, and how to report a problem.">
+  <link rel="canonical" href="https://reminis.link/support/">
+  <link rel="alternate" hreflang="en" href="https://reminis.link/support/">
+  <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/support/">
+  <link rel="alternate" hreflang="x-default" href="https://reminis.link/support/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#2e2a7a">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/assets/icon-256.png" alt="" width="36" height="36">ReminisLink</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="/">Home</a></li>
+          <li><a href="/support/" aria-current="page">Support</a></li>
+          <li><a href="/privacy/">Privacy</a></li>
+          <li class="lang"><a href="/fr/support/" hreflang="fr" lang="fr">Français</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="page-title">
+      <div class="wrap">
+        <h1>Support</h1>
+        <p>Answers to common questions, and how to reach us.</p>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="prose">
+        <section class="faq" aria-labelledby="faq-title">
+          <h2 id="faq-title">Frequently asked questions</h2>
+
+          <details id="not-found">
+            <summary>The app does not find my handheld</summary>
+            <ul>
+              <li><strong>Is ReminisLink open on the handheld?</strong> Turn on Wi-Fi in the NextUI settings, then open <strong>Tools &gt; ReminisLink</strong>. The app can only see the handheld while this screen is open and no game is running. If the handheld goes to sleep, wake it up.</li>
+              <li><strong>Same Wi-Fi network.</strong> The iPhone and the handheld must be connected to the same Wi-Fi network. Mobile data does not work.</li>
+              <li><strong>No guest network.</strong> Guest networks, and routers with “client isolation” or “AP isolation” turned on, stop devices from seeing each other. Use your main network, or turn that option off in the router settings.</li>
+              <li><strong>VPN.</strong> Some VPNs and network filters on the iPhone block the local network. Turn them off while you use ReminisLink.</li>
+              <li><strong>Local network access.</strong> If you declined the request the first time, open <strong>Settings &gt; Privacy &amp; Security &gt; Local Network</strong> on the iPhone and turn on <strong>ReminisLink</strong>.</li>
+              <li>Still nothing? Close ReminisLink on the handheld with <strong>B</strong>, open it again, then try again in the app.</li>
+            </ul>
+          </details>
+
+          <details id="pairing">
+            <summary>How do I pair my iPhone?</summary>
+            <ul>
+              <li>Open ReminisLink on the handheld: it shows a QR code. In the iPhone app, tap <strong>Add a Console</strong> and scan that code.</li>
+              <li>If the camera cannot be used, type the 6-digit code shown under the QR code instead. It is valid 10 minutes. It is less secure than the QR code: avoid it on a public Wi-Fi network.</li>
+              <li>If the scanner does not open, allow the camera in <strong>Settings &gt; ReminisLink &gt; Camera</strong>, or use the code.</li>
+              <li>After too many wrong attempts, the handheld shows a new code and waits a few seconds before accepting a new try.</li>
+              <li>To remove an iPhone, open <strong>Settings &gt; Paired devices</strong> on the handheld. If you lend or lose the SD card, use <strong>Settings &gt; Forget all devices</strong>, then pair again.</li>
+            </ul>
+          </details>
+
+          <details id="trash">
+            <summary>Where do deleted files go? (the trash)</summary>
+            <p>ReminisLink never erases your files directly. A deleted game, a game patched in place, a replaced save state or an older cheat file goes to the trash of the handheld, on the SD card, where it stays for at least 30 days. Replacing or restoring a save also makes a backup copy first.</p>
+            <p>The space is freed only when the trash is emptied: automatically after 30 days, or from the app (open your handheld in the app, then <strong>Trash</strong>, then <strong>Empty Trash</strong>). Emptying the trash cannot be undone.</p>
+            <p>The trash is the folder <code>/.userdata/shared/ReminisLink/trash/</code> on the SD card, if you need to get a file back by hand.</p>
+          </details>
+
+          <details id="formats">
+            <summary>“This game uses a NextUI setting that ReminisLink does not handle yet”</summary>
+            <p>NextUI can store saves and save states in several formats, chosen in its settings. ReminisLink 1.0 handles the default formats only. With another format, or when NextUI names saves after the file inside a zip archive, ReminisLink refuses to change the saves and save states of the games concerned and changes nothing. Games, cheats and patches still work.</p>
+            <p>Changing that setting in NextUI changes where your saves are looked for: keep it if you rely on it. Support for the other formats is planned.</p>
+          </details>
+
+          <details id="devices">
+            <summary>Which handhelds are supported?</summary>
+            <p>Version 1.0 works with the <strong>TrimUI Brick running NextUI</strong>. Other handhelds and systems are planned. The pak needs Wi-Fi, and the iPhone app needs iOS 17 or later.</p>
+          </details>
+
+          <details id="games">
+            <summary>Where do I get games?</summary>
+            <p>ReminisLink does not provide, list or suggest any game. Bring your own files: games, saves, patches and cheat files you already own, from the Files app, the share sheet of another app, or a link.</p>
+          </details>
+
+          <details id="install">
+            <summary>How do I install or update the pak?</summary>
+            <p>On the handheld, open <strong>Pak Store</strong> and install or update <strong>ReminisLink</strong>. Or download <code>ReminisLink.pak.zip</code> from the <a href="https://github.com/tfournier/ReminisLink/releases/latest">latest release</a> and unzip it into <code>/Tools/tg5040/</code> on the SD card.</p>
+          </details>
+        </section>
+
+        <section aria-labelledby="report-title">
+          <h2 id="report-title">Report a problem or ask a question</h2>
+          <p>Open an issue on GitHub: <a href="https://github.com/tfournier/ReminisLink/issues">github.com/tfournier/ReminisLink/issues</a>. A free GitHub account is needed.</p>
+          <p>To help us, please give:</p>
+          <ul>
+            <li>the version of the iPhone app, and the version of the pak (shown on the handheld in <strong>Settings &gt; Version and log</strong>);</li>
+            <li>your handheld and your NextUI version;</li>
+            <li>what you did, what you expected and what happened;</li>
+            <li>if possible, the log file of the pak: <code>/.userdata/tg5040/logs/ReminisLink.txt</code> on the SD card. Read it before you share it: it may contain the name of your handheld and of your files.</li>
+          </ul>
+          <p>Never share the file <code>clients.json</code>: it holds the keys of your paired devices.</p>
+          <!--
+            CONTACT EMAIL (to be provided): replace contact@example.invalid below with the
+            real address, then remove these comment markers so the paragraph is shown.
+            Do the same in /fr/support/index.html.
+          <p>You can also write to <a href="mailto:contact@example.invalid">contact@example.invalid</a>.</p>
+          -->
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <ul>
+        <li><a href="/support/">Support</a></li>
+        <li><a href="/privacy/">Privacy policy</a></li>
+        <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>
+        <li><a href="/fr/support/" hreflang="fr" lang="fr">Français</a></li>
+      </ul>
+      <p>ReminisLink is an independent, open-source project (MIT license). TrimUI and NextUI are the names of their respective owners, who are not affiliated with ReminisLink.</p>
+      <p>This site uses no cookies, no trackers and no external resources.</p>
+    </div>
+  </footer>
+</body>
+</html>

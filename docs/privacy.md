@@ -2,6 +2,10 @@
 
 [English](#en) · [Français](#fr)
 
+Published version / Version publiée : <https://reminis.link/privacy/> ·
+<https://reminis.link/fr/privacy/>. Keep this file and `site/privacy/`,
+`site/fr/privacy/` identical / Garder ce fichier et les pages du site identiques.
+
 Last updated / Dernière mise à jour : 19 November 2026 / 19 novembre 2026
 
 ---
@@ -57,6 +61,13 @@ with the pairing key.
 ### Children
 
 ReminisLink collects no data from anyone, children included.
+
+### This website
+
+reminis.link uses no cookies, no analytics, no trackers and loads nothing
+from other sites. It is hosted on GitHub Pages, which may keep technical
+logs of visits (such as IP addresses) for security, under GitHub’s own
+privacy statement.
 
 ### Changes
 
@@ -121,6 +132,13 @@ requête est signée avec la clé d’appairage.
 ### Enfants
 
 ReminisLink ne collecte aucune donnée, sur personne, enfants compris.
+
+### Ce site
+
+reminis.link n’utilise ni cookie, ni mesure d’audience, ni traqueur, et ne
+charge rien depuis d’autres sites. Il est hébergé par GitHub Pages, qui peut
+garder des journaux techniques des visites (comme les adresses IP) pour sa
+sécurité, selon la déclaration de confidentialité de GitHub.
 
 ### Modifications
 
