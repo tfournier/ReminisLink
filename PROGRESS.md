@@ -70,6 +70,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-19 — Pak de test construit (`dist/ReminisLink.pak.zip`, version `6d09a9f5`) et vérifié dans le rootfs du firmware ; app installée sur l'iPhone de la personne avec l'identifiant de test `link.reminis.app.dev` (dans `ios/Config/Local.xcconfig`, ignoré par Git) pour garder `link.reminis.app` libre pour le compte de publication. Xcode réécrit `project.pbxproj` (équipe) et les catalogues de chaînes lors d'une construction signée : ne jamais commiter ces changements.
 - 2026-11-19 — Gemini CLI 0.69.0 installé ; clé AI Studio dans le Trousseau (`reminislink-gemini-api-key`, créée par la personne). Niveau gratuit : Gemini 3.1 Pro indisponible (quota 0), `gemini-3-flash-preview` fonctionne. La personne a d'abord collé une clé dans la conversation : non utilisée, remplacement conseillé.
 
+- 2026-11-19 — Revues croisées par Codex CLI 0.170.0 (compte ChatGPT Plus de la personne, connexion faite par elle), en lecture seule (`-s read-only`) dans `../reminislink-review-codex` : M4, M3, M5, M6, M7 lancées en séquence.
+
 ## Questions ouvertes pour la personne
 
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
