@@ -127,12 +127,12 @@ var errFull = errors.New("listing full")
 
 // lister is one run of ListAll.
 type lister struct {
-	s        *Service
-	ctx      context.Context
-	root     string // saves folder, as the adapter gives it
-	realRoot string // root, symbolic links resolved
-	seen     map[string]bool
-	listing  Listing
+	s       *Service
+	ctx     context.Context
+	dir     string   // saves folder, as the adapter gives it
+	root    *os.Root // dir, every file is opened through it
+	seen    map[string]bool
+	listing Listing
 }
 
 // ListAll lists the save of every game that has one, on every system
@@ -152,15 +152,16 @@ func (s *Service) ListAll(ctx context.Context) (Listing, error) {
 
 	l := &lister{s: s, ctx: ctx, seen: map[string]bool{},
 		listing: Listing{Saves: []Summary{}, GeneratedAt: s.o.Now().UTC().Truncate(time.Second)}}
-	l.root = s.o.Adapter.Roots().Saves
-	realRoot, err := filepath.EvalSymlinks(l.root)
+	l.dir = s.o.Adapter.Roots().Saves
+	root, err := os.OpenRoot(l.dir)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return l.listing, nil // no saves folder: no save
 	case err != nil:
 		return Listing{}, fmt.Errorf("list saves: %w", err)
 	}
-	l.realRoot = realRoot
+	defer root.Close()
+	l.root = root
 	systems, err := s.o.Adapter.Systems()
 	if err != nil {
 		return Listing{}, fmt.Errorf("list saves: %w", err)
@@ -229,7 +230,12 @@ func (l *lister) game(g osadapter.Game, saves osadapter.SaveDir) error {
 // confined to the saves folder without any symbolic link (errSkip
 // otherwise, or when it is gone).
 func (l *lister) hash(p string) (fs.FileInfo, string, error) {
-	f, fi, err := openConfined(l.root, l.realRoot, p)
+	rel, err := relToRoot(l.dir, p)
+	var f *os.File
+	var fi fs.FileInfo
+	if err == nil {
+		f, fi, err = openConfined(l.root, rel)
+	}
 	if errors.Is(err, errOutside) {
 		return nil, "", l.skip(p, "outside the saves folder or reached through a link")
 	}
