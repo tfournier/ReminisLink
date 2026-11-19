@@ -49,6 +49,9 @@ func (f *fakeAnn) Shutdown() {
 func (b *fakeBonjour) announce(name string, port int, info discovery.Info) (withdrawer, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.fail != nil {
+		return nil, b.fail
+	}
 	b.active = append(b.active, name)
 	b.all = append(b.all, name)
 	b.infos = append(b.infos, info)
@@ -491,6 +494,42 @@ func TestCheckNetworkFallback(t *testing.T) {
 	a.checkNetwork()
 	if st, _ := a.Status(); !st.WiFi || st.IP != "127.0.0.1" || st.State == StateNoWiFi {
 		t.Fatalf("headless fallback %+v", st)
+	}
+}
+
+func TestCheckNetworkRetriesTheAnnouncement(t *testing.T) {
+	a, _ := openTest(t, Options{Port: freePort(t)})
+	bj := &fakeBonjour{}
+	a.announce = bj.announce
+	a.info.Model = "brick"
+	ip := "192.168.1.42"
+	a.ifaceIPv4 = func(string) (string, bool) { return ip, true }
+	if err := a.Start(ip); err != nil {
+		t.Fatal(err)
+	}
+	// At wake-up the address changed but the registration fails.
+	bj.mu.Lock()
+	bj.fail = errors.New("mdns: network is down")
+	bj.mu.Unlock()
+	ip = "192.168.1.77"
+	a.checkNetwork()
+	if active, _ := bj.state(); len(active) != 0 || a.announced() {
+		t.Fatalf("announced despite the failure: %v", active)
+	}
+	// Same address, still failing: tried again, not announced.
+	a.checkNetwork()
+	// The network works again: the next check announces, with the address unchanged.
+	bj.mu.Lock()
+	bj.fail = nil
+	bj.mu.Unlock()
+	a.checkNetwork()
+	if active, _ := bj.state(); len(active) != 1 || !a.announced() {
+		t.Fatalf("announcement not retried: %v", active)
+	}
+	// Announced and unchanged: nothing more.
+	a.checkNetwork()
+	if _, all := bj.state(); len(all) != 2 {
+		t.Fatalf("announced again without reason: %v", all)
 	}
 }
 

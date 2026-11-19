@@ -130,6 +130,7 @@ type App struct {
 	port       int
 	annMu      sync.Mutex
 	ann        withdrawer
+	annFailing bool // the last registration failed (logged once)
 	cancel     context.CancelFunc
 	served     chan struct{} // closed when the server stopped
 	serveErr   error         // set before served is closed
@@ -440,7 +441,7 @@ func (a *App) reannounce() error {
 	if err != nil {
 		return err
 	}
-	a.ann = ann
+	a.ann, a.annFailing = ann, false
 	a.log.Info("announced", "service", discovery.ServiceType, "instance", discovery.InstanceName(name))
 	return nil
 }
