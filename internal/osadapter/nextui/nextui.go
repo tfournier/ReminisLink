@@ -570,12 +570,13 @@ func (a *Adapter) StatePath(g osadapter.Game, slot int) string {
 }
 
 // pakCore returns the libretro core of the emulator pak of a tag: the
-// EMU_EXE value of <TAG>.pak/launch.sh, looked up like NextUI does
-// (hasEmu in nextui.c): the system paks first, then the extra paks. minarch
+// EMU_EXE value of <TAG>.pak/launch.sh, looked up like NextUI launches a
+// game (getEmuPath in utils.c): the extra paks of <SD>/Emus/<platform>
+// first, then the system paks of .system/<platform>/paks/Emus. minarch
 // names the core after "<EMU_EXE>_libretro.so" cut at its last "_", that
 // is EMU_EXE itself.
 func (a *Adapter) pakCore(tag string) string {
-	for _, dir := range []string{filepath.Join(a.roots.System, "paks", "Emus"), a.roots.Emus} {
+	for _, dir := range []string{a.roots.Emus, filepath.Join(a.roots.System, "paks", "Emus")} {
 		f, err := os.Open(filepath.Join(dir, tag+".pak", "launch.sh"))
 		if err != nil {
 			continue

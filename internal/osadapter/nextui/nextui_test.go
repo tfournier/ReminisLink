@@ -28,7 +28,7 @@ func newAdapter(t *testing.T) (*Adapter, string) {
 }
 
 // TestStateFolders checks how the state folder of a tag is found: the core
-// of the system pak, then of the extra pak, then a single <TAG>-* folder.
+// of the extra pak, then of the system pak, then a single <TAG>-* folder.
 func TestStateFolders(t *testing.T) {
 	a, sd := newAdapter(t)
 	shared := filepath.Join(sd, ".userdata", "shared")
@@ -61,10 +61,18 @@ func TestStateFolders(t *testing.T) {
 	if got := a.StatePath(game("MD"), 0); got != filepath.Join(shared, "MD-picodrive", "x.bin.st0") {
 		t.Errorf("quoted: %q", got)
 	}
-	testutil.WriteFile(t, sd, ".system/tg5040/paks/Emus/MGBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=$CORE\n")
+	// The unreadable core of an extra pak: no other pak is looked at, the
+	// single folder is used.
+	testutil.WriteFile(t, sd, "Emus/tg5040/MGBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=$CORE\n")
 	if got := a.StatePath(game("MGBA"), 0); got != filepath.Join(shared, "MGBA-mgba", "x.bin.st0") {
 		t.Errorf("unreadable core falls back to the single folder: %q", got)
 	}
+	// An extra pak wins over the system pak of the same tag (getEmuPath).
+	testutil.WriteFile(t, sd, "Emus/tg5040/GBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=mgba\n")
+	if got := a.StatePath(game("GBA"), 0); got != filepath.Join(shared, "GBA-mgba", "x.bin.st0") {
+		t.Errorf("extra pak first: %q", got)
+	}
+	os.Remove(filepath.Join(sd, "Emus", "tg5040", "GBA.pak", "launch.sh"))
 	// StateFiles only lists the folder of the current core of each tag.
 	refs, err := a.StateFiles()
 	if err != nil {
