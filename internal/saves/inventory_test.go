@@ -497,3 +497,32 @@ func TestListAllLargeCard(t *testing.T) {
 	warm := time.Since(start)
 	t.Logf("%d saves (%d MiB): cold %v, warm %v", len(l.Saves), len(l.Saves)*saveSize>>20, cold, warm)
 }
+
+// Two games sharing one save get the same hash in one listing, even when
+// the file is rewritten between them; the next listing sees the new one.
+func TestListAllSharedSaveSameHash(t *testing.T) {
+	e := newEnv(t)
+	shared := "Saves/GBA/Starlight Courier.gba.sav"
+	e.write("Roms/"+gba+"/Hacks/Starlight Courier.gba", "rom") // same ROM name: same save
+	e.write(shared, "before")
+	p := filepath.Join(e.sd, shared)
+	rewritten := false
+	afterHash = func(path string) {
+		if path == p && !rewritten {
+			rewritten = true
+			e.write(shared, "after the first game")
+		}
+	}
+	t.Cleanup(func() { afterHash = nil })
+	got := byGame(e.listAll())
+	a, b := got[library.EncodeID(gba+"/Starlight Courier.gba")], got[library.EncodeID(gba+"/Hacks/Starlight Courier.gba")]
+	if a.SHA256 == "" || a.SHA256 != b.SHA256 || a.SizeBytes != b.SizeBytes || a.Path != b.Path {
+		t.Fatalf("shared save: %+v / %+v", a, b)
+	}
+	if !rewritten {
+		t.Fatal("hook not called")
+	}
+	if s := byGame(e.listAll())[library.EncodeID(gba+"/Starlight Courier.gba")]; s.SHA256 != shaOf("after the first game") {
+		t.Fatalf("next listing kept the old hash: %+v", s)
+	}
+}

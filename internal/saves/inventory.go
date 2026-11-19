@@ -143,11 +143,15 @@ var errFull = errors.New("listing full")
 
 // lister is one run of ListAll.
 type lister struct {
-	s       *Service
-	ctx     context.Context
-	dir     string   // saves folder, as the adapter gives it
-	root    *os.Root // dir, every file is opened through it
-	seen    map[string]bool
+	s    *Service
+	ctx  context.Context
+	dir  string   // saves folder, as the adapter gives it
+	root *os.Root // dir, every file is opened through it
+	seen map[string]bool
+	// done memoizes the result of each file for this listing only, so two
+	// games sharing one save get the same hash (never kept across
+	// listings: that is the role of hashCache).
+	done    map[string]hashResult
 	listing Listing
 }
 
@@ -166,7 +170,7 @@ func (s *Service) ListAll(ctx context.Context) (Listing, error) {
 	}
 	defer func() { <-s.hashes.slot }()
 
-	l := &lister{s: s, ctx: ctx, seen: map[string]bool{},
+	l := &lister{s: s, ctx: ctx, seen: map[string]bool{}, done: map[string]hashResult{},
 		listing: Listing{Saves: []Summary{}, GeneratedAt: s.o.Now().UTC().Truncate(time.Second)}}
 	l.dir = s.o.Adapter.Roots().Saves
 	root, err := os.OpenRoot(l.dir)
@@ -242,10 +246,36 @@ func (l *lister) game(g osadapter.Game, saves osadapter.SaveDir) error {
 	return nil
 }
 
+// hashResult is the outcome of hash for one file (err nil or errSkip).
+type hashResult struct {
+	fi  fs.FileInfo
+	sum string
+	err error
+}
+
+// afterHash, when set (tests), is called after a file was hashed.
+var afterHash func(path string)
+
 // hash returns the description and the SHA-256 of the regular file p,
+// computed once per listing (hashFile).
+func (l *lister) hash(p string) (fs.FileInfo, string, error) {
+	if r, ok := l.done[p]; ok {
+		return r.fi, r.sum, r.err
+	}
+	fi, sum, err := l.hashFile(p)
+	if err == nil || errors.Is(err, errSkip) {
+		l.done[p] = hashResult{fi, sum, err}
+	}
+	if afterHash != nil {
+		afterHash(p)
+	}
+	return fi, sum, err
+}
+
+// hashFile returns the description and the SHA-256 of the regular file p,
 // confined to the saves folder without any symbolic link (errSkip
 // otherwise, or when it is gone).
-func (l *lister) hash(p string) (fs.FileInfo, string, error) {
+func (l *lister) hashFile(p string) (fs.FileInfo, string, error) {
 	rel, err := relToRoot(l.dir, p)
 	var f *os.File
 	var fi fs.FileInfo
