@@ -36,6 +36,7 @@ struct GameDetailView: View {
                 HStack(alignment: .top, spacing: 16) {
                     GameArtButton(
                         deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt,
+                        isGameGone: error == .gameRemoved,
                         notice: $artNotice, error: $artError
                     )
                     VStack(alignment: .leading, spacing: 6) {

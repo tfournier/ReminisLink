@@ -306,6 +306,19 @@ struct LibraryFilterTests {
         #expect(LibraryFiltering.labels(Self.systems)["mgba"] == "Game Boy Advance")
     }
 
+    /// The same game in GBA and MGBA: rows say which system; the filter
+    /// keeps one console.
+    @Test func rowsOfSystemsSharingALabelShowTheirTag() {
+        let labels = LibraryFiltering.rowLabels(systems: Self.systems, games: Self.games)
+        #expect(labels["gba"] == "Game Boy Advance (GBA)")
+        #expect(labels["mgba"] == "Game Boy Advance (MGBA)")
+        #expect(labels["gb"] == "Game Boy")
+        // A label shared with a system without games: no tag needed.
+        let onlyGBA = Self.games.filter { $0.systemId != "mgba" }
+        #expect(LibraryFiltering.rowLabels(systems: Self.systems, games: onlyGBA)["gba"] == "Game Boy Advance")
+        #expect(groups.filter { $0.label == "Game Boy Advance" }.count == 1)
+    }
+
     @Test func sortsByNameDateOrSize() {
         #expect(names(LibraryQuery()) == ["Cartographe Égaré", "Moonlit Maze", "pixel runner", "Sky Garden Quest"])
         #expect(names(LibraryQuery(sort: .date)) == ["pixel runner", "Cartographe Égaré", "Moonlit Maze", "Sky Garden Quest"])

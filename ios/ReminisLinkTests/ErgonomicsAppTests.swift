@@ -339,6 +339,72 @@ struct ErgonomicsAppTests {
         #expect(AppError.gameRemoved.action == nil)
     }
 
+    /// Codex M11 round 2 #2: the announcement disappears while opening
+    /// (after the address was resolved), and `/hello` cannot connect: back
+    /// to the list, not an error screen.
+    @Test func theAnnouncementGoneWhileOpeningGoesBackToTheList() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.closureMinimumBrowsing = .zero
+        let id = pak.deviceId
+        let gate = pak.holdNextArrival(method: "GET", path: "/api/v1/hello")
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { gate.reached }
+        #expect(gate.reached)
+        app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
+        pak.availability = .gone
+        gate.open()
+        await waitUntil { app.openConsoleId == nil }
+        #expect(app.openConsoleId == nil)
+        #expect(app.closedNotice?.deviceId == id)
+        #expect(session.state == .idle)
+        #expect(session.error == nil)
+    }
+
+    /// The same failure with the console still announced is a glitch:
+    /// the error screen stays (with Try Again).
+    @Test func aFailedOpeningWithTheConsoleAnnouncedStaysAnError() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.closureMinimumBrowsing = .zero
+        let id = pak.deviceId
+        pak.availability = .gone
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { session.error != nil }
+        #expect(session.error == .api(.network(.cannotConnectToHost)))
+        #expect(app.openConsoleId == id)
+        #expect(app.closedNotice == nil)
+    }
+
+    /// Codex M11 round 2 #1: the image of a game that is gone has no action.
+    @Test func theImageOfAGameThatIsGoneCannotBeChanged() {
+        #expect(GameArtButton.isEnabled(isWorking: false, isReadOnly: false, isGameGone: false))
+        #expect(!GameArtButton.isEnabled(isWorking: false, isReadOnly: false, isGameGone: true))
+        #expect(!GameArtButton.isEnabled(isWorking: false, isReadOnly: true, isGameGone: false))
+        #expect(!GameArtButton.isEnabled(isWorking: true, isReadOnly: false, isGameGone: false))
+    }
+
+    /// M11: renamed on the console (Settings > Console name): the list
+    /// shows the new name after the next connection, and after a refresh.
+    @Test func aConsoleRenamedOnThePakIsShownByItsNewName() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let id = pak.deviceId
+        let session = app.session(for: id)
+        await session.connect()
+        #expect(app.store.device(id: id)?.name == pak.deviceName)
+        pak.rename(to: "Living Room Brick")
+        await session.refresh()
+        #expect(app.store.device(id: id)?.name == "Living Room Brick")
+        // Again, through a new connection.
+        pak.rename(to: "Bedroom Brick")
+        app.didReplaceKey(for: id)
+        await app.session(for: id).connect()
+        #expect(app.store.device(id: id)?.name == "Bedroom Brick")
+    }
+
     @Test func aClosedConsoleThatIsNotOpenStaysOnTheList() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)

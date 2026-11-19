@@ -105,6 +105,7 @@ struct FlatLibraryList: View {
     var body: some View {
         let groups = LibraryFiltering.groups(systems: systems, games: all.games)
         let labels = LibraryFiltering.labels(systems)
+        let rowLabels = LibraryFiltering.rowLabels(systems: systems, games: all.games)
         let games = LibraryFiltering.apply(query, to: all.games, groups: groups)
         List {
             if let error {
@@ -130,7 +131,7 @@ struct FlatLibraryList: View {
                         deviceId: deviceId, gameId: game.id, systemLabel: systemLabel,
                         name: game.summary.name, hasArt: game.summary.hasArt, fileName: game.summary.fileName
                     ))) {
-                        GameRow(deviceId: deviceId, game: game.summary, subtitle: subtitle(game, systemLabel: systemLabel))
+                        GameRow(deviceId: deviceId, game: game.summary, subtitle: subtitle(game, systemLabel: rowLabels[game.systemId] ?? systemLabel))
                     }
                     .accessibilityIdentifier("game.\(game.summary.name)")
                     .swipeActions(edge: .trailing) {

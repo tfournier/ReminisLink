@@ -170,6 +170,8 @@ final class ConsoleSession {
             self.status = status
             try Task.checkCancellation()
             guard self.attempt === attempt else { return }
+            // M11: renamed on the console; `/hello` already checked the id.
+            app.store.noteConsoleName(status.deviceName, for: deviceId)
             self.client = client
             state = .connected
             closedByConsole = false
@@ -186,8 +188,10 @@ final class ConsoleSession {
             guard self.attempt === attempt else { return }
             let error = AppError(error)
             // M11: the pak is quitting (`/hello` or `/device` got
-            // `503 shutting_down`): back to the list, not an error screen.
-            if case .api(let api) = error, api.code == .shuttingDown {
+            // `503 shutting_down`, or failed to connect once its Bonjour
+            // announcement was withdrawn): back to the list, not an error
+            // screen.
+            if case .api(let api) = error, app.meansConsoleClosed(api, deviceId: deviceId) {
                 return markClosedByConsole()
             }
             state = error.isCancellation || Task.isCancelled ? .idle : .failed(error)
@@ -198,8 +202,12 @@ final class ConsoleSession {
     func refresh() async {
         guard let client else { return await connect() }
         do {
-            status = try await client.device()
+            let status = try await client.device()
+            // M11: renamed on the console since the last answer.
+            let renamed = self.status.map { $0.deviceName != status.deviceName } ?? false
+            self.status = status
             state = .connected
+            if renamed { app.store.noteConsoleName(status.deviceName, for: deviceId) }
             await loadTrash()
         } catch {
             let error = AppError(error)

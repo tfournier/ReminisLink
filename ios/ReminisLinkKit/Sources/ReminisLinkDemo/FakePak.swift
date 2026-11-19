@@ -46,7 +46,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     }
 
     public let deviceId: String
-    public let deviceName: String
+    /// Changed by ``rename(to:)`` (Settings > Console name, M11).
+    public var deviceName: String { lock.withLock { _deviceName } }
+    private var _deviceName: String
     public let model: DeviceModel
     public let secret: Data
     public let pin: String
@@ -143,7 +145,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         apiVersion: Int = 1
     ) {
         self.deviceId = deviceId
-        self.deviceName = deviceName
+        self._deviceName = deviceName
         self.model = model
         self.secret = secret
         self.pin = pin
@@ -309,6 +311,12 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             writerClientId = nil
             disconnectedClients = []
         }
+    }
+
+    /// The console is renamed (Settings > Console name): `/hello`,
+    /// `/device` and the Bonjour instance name change.
+    public func rename(to name: String) {
+        lock.withLock { _deviceName = name }
     }
 
     public var clientIds: [String] { lock.withLock { clients.keys.sorted() } }

@@ -25,6 +25,45 @@ struct StoreTests {
         #expect(try DeviceStore(secureStore: secure, defaults: makeDefaults()).installationClientId() == id)
     }
 
+    /// M11: the console renamed on the pak replaces the display name, by
+    /// device id; a name chosen on the app stays until the console's
+    /// name changes.
+    @Test func aNameChangedOnTheConsoleIsShown() throws {
+        let secure = InMemorySecureStore()
+        let defaults = makeDefaults()
+        let store = DeviceStore(secureStore: secure, defaults: defaults)
+        let other = "1f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a11"
+        let key = SymmetricKey(size: .bits256)
+        let clientId = try store.installationClientId()
+        // Renamed on the app at pairing.
+        try store.save(deviceId: deviceId, name: "My Brick", model: .brick, clientId: clientId, key: key, consoleName: "Brick 3a10")
+        try store.save(deviceId: other, name: "Brick 3a10", model: .brick, clientId: clientId, key: key)
+        #expect(!store.noteConsoleName("Brick 3a10", for: deviceId))
+        #expect(store.device(id: deviceId)?.name == "My Brick")
+        // Renamed on the console: shown, and kept across launches.
+        #expect(store.noteConsoleName("  Living Room ", for: deviceId))
+        #expect(store.device(id: deviceId)?.name == "Living Room")
+        #expect(store.device(id: other)?.name == "Brick 3a10")
+        #expect(DeviceStore(secureStore: secure, defaults: defaults).device(id: deviceId)?.name == "Living Room")
+        // Never by name, never an invalid name, never an unknown id.
+        #expect(!store.noteConsoleName("", for: deviceId))
+        #expect(!store.noteConsoleName("X", for: "unknown"))
+        #expect(store.device(id: deviceId)?.name == "Living Room")
+        // A device stored before M11 (no console name) takes the console's.
+        #expect(store.device(id: other)?.consoleName == nil)
+        #expect(store.noteConsoleName("Bedroom", for: other))
+        #expect(store.device(id: other)?.name == "Bedroom")
+    }
+
+    @Test func aDeviceStoredBeforeM11Decodes() throws {
+        let defaults = makeDefaults()
+        let json = #"[{"id":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","name":"Brick","model":"brick","pairedAt":0}]"#
+        defaults.set(Data(json.utf8), forKey: DeviceStore.defaultsKey)
+        let store = DeviceStore(secureStore: InMemorySecureStore(), defaults: defaults)
+        #expect(store.device(id: deviceId)?.name == "Brick")
+        #expect(store.device(id: deviceId)?.consoleName == nil)
+    }
+
     @Test func saveLoadRenameRemove() throws {
         let secure = InMemorySecureStore()
         let defaults = makeDefaults()

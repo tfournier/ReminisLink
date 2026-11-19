@@ -469,7 +469,8 @@ lease of the demo console (`WriteAccessUITests`).
   `GET /systems` (the labels). Search (name, file name) and filters
   (console, save, states, cheats) and sort run on the iPhone
   (`LibraryFiltering`, ReminisLinkKit); systems with the same label are one
-  console in the filter, as NextUI shows them. `truncated`, or a pak
+  console in the filter, as NextUI shows them; their rows add the tag
+  ("Game Boy Advance (MGBA)") so two games of the same name differ. `truncated`, or a pak
   without the route (`404`/`405`), falls back to browsing per system, also
   reachable from the menu (**Browse by Console**).
 - **Game sheet**: tapping the image changes it (Photos, Files, Remove
@@ -490,7 +491,9 @@ lease of the demo console (`WriteAccessUITests`).
   paused), no automatic reconnection until the user opens the console
   again (`ConsoleSession.connect` refuses every non-explicit attempt, and
   the end of an Add does not reopen it); the next connection resumes them.
-  A `503` during the opening (`/hello`, `/device`) does the same. A
+  A `503` during the opening (`/hello`, `/device`), or a connection failure
+  there once the announcement is gone, does the same. The image of a game
+  that is gone has no action. A
   Wi-Fi glitch alone (service still announced) keeps today's error screen.
 
 The fake pak serves `GET /games` (`allGamesSupported`, `allGamesLimit` to
