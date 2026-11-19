@@ -1,0 +1,124 @@
+# Lint, test and build the pak, check the contract and test the iOS app on
+# every push and pull request. On a vX.Y.Z tag, also publish the GitHub
+# release read by the NextUI Pak Store (ReminisLink.pak.zip).
+# Adapted from .github/workflows/ci.yml of github.com/tfournier/nextui-cheat-manager.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Lint and unit tests
+        run: make lint test
+      - name: Tests with the race detector
+        run: CGO_ENABLED=1 go test -race ./...
+      - name: Short fuzzing of the patch parsers
+        run: make fuzz FUZZTIME=10s
+
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Redocly runs in Docker; the test vectors are checked on both sides.
+      - run: make contract
+
+  build:
+    needs: [go, contract]
+    runs-on: ubuntu-latest
+    # Debian 11: old glibc / SDL2, compatible with the TrimUI firmware.
+    container: debian:bullseye
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the ARM64 toolchain
+        run: |
+          sh scripts/setup-toolchain.sh > /tmp/setup.log 2>&1 || { tail -n 50 /tmp/setup.log; exit 1; }
+          echo "GOPATH=$GITHUB_WORKSPACE/.go" >> "$GITHUB_ENV"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            .go/pkg/mod
+            ~/.cache/go-build
+          key: go-arm64-${{ hashFiles('go.sum') }}
+          restore-keys: go-arm64-
+
+      - name: Build the release zip
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            make release VERSION="$GITHUB_REF_NAME" TAG="$GITHUB_REF_NAME"
+          else
+            make release VERSION="$(echo "$GITHUB_SHA" | cut -c1-7)"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reminislink-pak
+          path: dist/ReminisLink.pak.zip
+          if-no-files-found: error
+
+  ios:
+    # Swift tools 6.2 and the iOS 17+ simulator: Xcode 26.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - name: ReminisLinkKit tests
+        working-directory: ios/ReminisLinkKit
+        run: swift test
+      - name: App tests
+        working-directory: ios
+        run: |
+          xcodebuild test -scheme ReminisLink \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            CODE_SIGNING_ALLOWED=NO
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: reminislink-pak
+          path: dist
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Release notes: the pak.json changelog entry of this version
+          jq -r --arg v "$TAG" '.changelog[$v] // empty' pak.json > release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Re-run: replace the assets of the existing release.
+            gh release upload "$TAG" dist/ReminisLink.pak.zip --clobber
+          else
+            gh release create "$TAG" dist/ReminisLink.pak.zip --verify-tag --title "$TAG" --notes-file release-notes.md
+          fi
