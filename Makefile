@@ -3,6 +3,7 @@
 # Main targets:
 #   make test       run Go unit tests (no toolchain, CGO_ENABLED=0)
 #   make lint       gofmt + go vet
+#   make fuzz       run each fuzz target of the patch parsers briefly (FUZZTIME, default 10s)
 #   make contract   validate protocol/openapi.yaml (Redocly in Docker) and the test vectors
 #   make vectors    regenerate protocol/test-vectors/ and copy them to the Swift tests
 #   make headless   run the pak (server + Bonjour, no UI) on a temporary copy of testdata/sdcard
@@ -21,8 +22,12 @@ DOCKER        ?= docker
 # Pinned OpenAPI validator image (no global install).
 REDOCLY_IMAGE ?= redocly/cli:1.34.5
 
+# Duration of each fuzz target in "make fuzz".
+FUZZTIME      ?= 10s
+PATCH_FUZZERS := FuzzIPS FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
+
 .DEFAULT_GOAL := help
-.PHONY: help test lint contract vectors headless
+.PHONY: help test lint fuzz contract vectors headless
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -33,6 +38,9 @@ test: ## Run unit tests (pure Go, no SDL needed)
 lint: ## Check formatting and run go vet
 	@test -z "$$(gofmt -l $(GO_SOURCES))" || { echo "Files need gofmt:"; gofmt -l $(GO_SOURCES); exit 1; }
 	CGO_ENABLED=0 go vet $(GO_PACKAGES)
+
+fuzz: ## Run each fuzz target of the patch parsers for FUZZTIME (short runs)
+	$(foreach f,$(PATCH_FUZZERS),CGO_ENABLED=0 go test ./internal/patch -run '^$$' -fuzz '^$(f)$$' -fuzztime $(FUZZTIME) &&) true
 
 contract: ## Validate the OpenAPI contract and check the test vectors (Go and Swift copies)
 	$(DOCKER) run --rm -v "$(CURDIR)/protocol":/spec:ro -w /spec $(REDOCLY_IMAGE) \
