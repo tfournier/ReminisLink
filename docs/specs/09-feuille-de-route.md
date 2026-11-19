@@ -116,6 +116,7 @@ Suggestions de la personne du 19/11/2026, après essai de M10. À préciser et v
 - Gestionnaire de fichiers générique, lancement d'un jeu, Pak Store, mises à jour.
 - Export / import des données d'un jeu en archive ; synchronisation des states (M9 ne couvre que les saves).
 - Restauration depuis la corbeille.
+- **Mise à jour du pak ReminisLink depuis l'app** (proposée par la personne le 19/11/2026, après la v1.0.0) : l'app récupère la dernière version publiée sur GitHub et l'installe sur la console. S'appuie sur l'installation de paks de M12 ; comme ReminisLink ne peut pas se remplacer pendant qu'il tourne, la nouvelle version est déposée à part et appliquée au lancement suivant (par `launch.sh`), l'ancienne passant à la corbeille. Vérifier l'archive avant de l'appliquer (somme publiée avec la version, ou signature).
 - **Interface web servie par le pak** (proposée par la personne le 19/11/2026) : les actions de l'app depuis un navigateur (ordinateur, Android) à `http://<console>:47821/`, en réutilisant l'API ; signature dans le navigateur (WebCrypto), appairage par PIN (la caméra exige HTTPS), à réconcilier avec 07 §4 (« aucun fichier statique »).
 
 ## M12 — Gestion des apps (paks) (décidé, à lancer après M11)
