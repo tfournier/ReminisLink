@@ -1,24 +1,67 @@
 # ReminisLink - pak and protocol
 #
-# Main targets:
-#   make test       run Go unit tests (no toolchain, CGO_ENABLED=0)
-#   make lint       gofmt + go vet
-#   make fuzz       run each fuzz target of the patch parsers briefly (FUZZTIME, default 10s)
-#   make contract   validate protocol/openapi.yaml (Redocly in Docker) and the test vectors
-#   make vectors    regenerate protocol/test-vectors/ and copy them to the Swift tests
-#   make headless   run the pak (server + Bonjour, no UI) on a temporary copy of testdata/sdcard
+# The pak targets come from github.com/tfournier/nextui-cheat-manager. The
+# ARM64 build needs the cross toolchain of scripts/setup-toolchain.sh; on any
+# machine with Docker, prefix a target with "docker-" to run it inside the
+# build image, e.g.:  make docker-release
 #
-# The pak build targets (build, pak, release, docker-*) come with milestone M7.
+# Main targets:
+#   make test            run Go unit tests (no toolchain, CGO_ENABLED=0)
+#   make lint            gofmt + go vet
+#   make fuzz            run each fuzz target of the patch parsers briefly (FUZZTIME, default 10s)
+#   make contract        validate protocol/openapi.yaml (Redocly in Docker) and the test vectors
+#   make vectors         regenerate protocol/test-vectors/ and copy them to the Swift tests
+#   make headless        run the pak (server + Bonjour, no UI) on a temporary copy of testdata/sdcard
+#   make desktop         run the pak with its UI in a window on a temporary copy of testdata/sdcard (SDL2 needed)
+#   make screenshots     regenerate docs/screenshots/ with the desktop UI under Xvfb (Docker)
+#   make build           cross-compile the binary for tg5040 (ARM64)
+#   make pak             assemble the pak folder in build/pak
+#   make release         build the release zip in dist/
+#   make docker-<target> run <target> inside the build image
+#   make vX.Y.Z          release a version: bump pak.json, commit, tag and push
 
-GO_SOURCES    := cmd internal protocol
+APP           := reminislink
+PAK_NAME      := ReminisLink
+PLATFORM      := tg5040
+
+PAK_VERSION   := $(shell sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
+RELEASE_FILE  := $(shell sed -n 's/.*"release_filename": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
+TAG           ?=
+VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo $(PAK_VERSION))
+
+GO_SOURCES    := cmd internal protocol scripts
+GO_VERSION    := $(shell sed -n 's/^go \([0-9.]*\)$$/\1/p' go.mod)
 GO_PACKAGES   := ./...
 
 BUILD_DIR     := build
+DIST_DIR      := dist
+PAK_DIR       := $(BUILD_DIR)/pak
+BIN           := $(BUILD_DIR)/$(APP)
 HOST_BIN      := $(BUILD_DIR)/reminislink-host
-# Extra options of "make headless", e.g. HEADLESS_ARGS="--port 48000 --name Test"
+DESKTOP_BIN   := $(BUILD_DIR)/reminislink-desktop
+RELEASE_ZIP   := $(DIST_DIR)/$(RELEASE_FILE)
+
+# Cross-compilation settings (Debian 11 multiarch toolchain)
+CROSS_ENV     := CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc \
+                 PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+SDL_GFX_LIB   := /usr/lib/aarch64-linux-gnu/libSDL2_gfx-1.0.so.0
+# "sdl" builds the gabagool UI (internal/ui); without it the binary is
+# headless only.
+GO_TAGS       := nodefaultfont sdl
+# The desktop window has no NextUI theme: keep gabagool's default font.
+DESKTOP_TAGS  := sdl
+# pakVersion (API, Bonjour TXT cv) is semver without the "v" of the tag.
+PAK_SEMVER    = $(patsubst v%,%,$(VERSION))
+LDFLAGS       = -s -w -X main.version=$(PAK_SEMVER)
+
+# Extra options of "make headless" and "make desktop", e.g. HEADLESS_ARGS="--port 48000 --name Test"
 HEADLESS_ARGS ?=
+DESKTOP_ARGS  ?=
+
+RELEASE_BRANCH ?= main
 
 DOCKER        ?= docker
+DOCKER_IMAGE  ?= reminislink-build
 # Pinned OpenAPI validator image (no global install).
 REDOCLY_IMAGE ?= redocly/cli:1.34.5
 
@@ -27,7 +70,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version clean docker-image FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -59,3 +102,82 @@ headless: ## Run the pak headless (server + Bonjour) on a temporary copy of test
 		cp -R testdata/sdcard/. "$$sd/" && \
 		echo "Fake SD card copied to $$sd (logs in $$sd/.userdata/tg5040/logs)" && \
 		exec $(HOST_BIN) --headless --sd "$$sd" $(HEADLESS_ARGS)
+
+desktop: ## Run the pak with its UI in a window on a temporary copy of testdata/sdcard (needs SDL2, SDL2_ttf, SDL2_image, SDL2_gfx)
+	@pkg-config --exists sdl2 SDL2_ttf SDL2_image SDL2_gfx || { \
+		echo "SDL2 development libraries not found (pkg-config sdl2 SDL2_ttf SDL2_image SDL2_gfx)."; \
+		echo "On macOS: brew install pkg-config sdl2 sdl2_ttf sdl2_image sdl2_gfx"; exit 1; }
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=1 go build -tags "$(DESKTOP_TAGS)" -o $(DESKTOP_BIN) ./cmd/reminislink
+	@tmp="$${TMPDIR:-/tmp}" && sd="$$(mktemp -d "$${tmp%/}/reminislink-sd.XXXXXX")" && \
+		cp -R testdata/sdcard/. "$$sd/" && \
+		echo "Fake SD card copied to $$sd (logs in $$sd/.userdata/tg5040/logs)" && \
+		exec $(DESKTOP_BIN) --desktop --sd "$$sd" $(DESKTOP_ARGS)
+
+screenshots: ## Regenerate docs/screenshots/ (desktop UI under Xvfb, in Docker)
+	$(DOCKER) build -t reminislink-screenshots --build-arg GO_VERSION="$(GO_VERSION)" scripts/screenshots
+	$(DOCKER) run --rm -v "$(CURDIR)":/repo:ro -v "$(CURDIR)/docs/screenshots":/out \
+		-v reminislink-gomod:/root/go/pkg/mod reminislink-screenshots sh /repo/scripts/screenshots/run.sh
+
+build: $(BIN) ## Cross-compile the ARM64 binary (gabagool UI included)
+
+$(BIN): FORCE
+	@mkdir -p $(BUILD_DIR)
+	$(CROSS_ENV) go vet -tags "$(GO_TAGS)" ./cmd/... ./internal/ui/...
+	$(CROSS_ENV) go build -tags "$(GO_TAGS)" -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/reminislink
+	@# The root certificates of the downloads come from gabagool (decision D1).
+	@go version -m $@ | grep -q 'github.com/BrandonKowalski/certifiable' || { echo "certifiable is not linked in $@"; exit 1; }
+
+pak: build ## Assemble the pak folder in build/pak
+	rm -rf $(PAK_DIR)
+	mkdir -p $(PAK_DIR)/resources/lib
+	cp pak/launch.sh $(BIN) pak.json $(PAK_DIR)/
+	cp README.md $(PAK_DIR)/
+	cp pak/THIRD_PARTY.md $(PAK_DIR)/resources/
+	cp -L $(SDL_GFX_LIB) $(PAK_DIR)/resources/lib/
+	chmod +x $(PAK_DIR)/launch.sh $(PAK_DIR)/$(APP)
+
+release: check-version pak ## Build the release zip (Pak Store format) in dist/
+	rm -rf $(DIST_DIR)
+	mkdir -p $(DIST_DIR)
+	# The zip contains a "ReminisLink.pak/" folder so it extracts with the correct name
+	cd $(BUILD_DIR) && rm -rf "$(PAK_NAME).pak" && mv pak "$(PAK_NAME).pak" && zip -qr "$(CURDIR)/$(RELEASE_ZIP)" "$(PAK_NAME).pak"
+	@ls -l $(DIST_DIR)
+
+check-version: ## Check that TAG (when set, e.g. by the CI) matches pak.json and has a changelog entry
+	@if [ -n "$(TAG)" ]; then \
+		[ "$(TAG)" = "$(PAK_VERSION)" ] || { echo "Tag $(TAG) does not match pak.json version $(PAK_VERSION)"; exit 1; }; \
+		grep -q '^    "$(TAG)":' pak.json || { echo "pak.json has no changelog entry for $(TAG)"; exit 1; }; \
+	fi
+
+v%: FORCE ## Release a version, e.g. make v1.2.3 (pak.json must have its changelog entry)
+	@set -e; V="$@"; \
+	echo "$$V" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$$' || { echo "Invalid version $$V (expected vX.Y.Z)"; exit 1; }; \
+	[ "$$(git rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
+	[ -z "$$(git status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
+	if git rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
+	grep -q "\"Unreleased\":" pak.json || grep -q "^    \"$$V\":" pak.json || { echo "Add a changelog entry (Unreleased or $$V) in pak.json first"; exit 1; }
+	$(MAKE) lint test
+	@set -e; V="$@"; \
+	sed "s/\"Unreleased\":/\"$$V\":/" pak.json > pak.json.tmp && mv pak.json.tmp pak.json; \
+	sed "s/^\(  \"version\": *\"\)[^\"]*\"/\1$$V\"/" pak.json > pak.json.tmp && mv pak.json.tmp pak.json; \
+	if ! git diff --quiet -- pak.json; then git commit -q -m "Release $$V" -- pak.json; fi; \
+	git tag -a "$$V" -m "Release $$V"; \
+	git push --atomic origin HEAD "refs/tags/$$V"; \
+	echo "Released $$V: the CI will publish the GitHub release."
+
+clean: ## Remove build outputs
+	rm -rf $(BUILD_DIR) $(DIST_DIR)
+
+docker-image: ## Build the Docker build image
+	$(DOCKER) build --platform linux/amd64 -t $(DOCKER_IMAGE) .
+
+docker-%: docker-image ## Run a target inside the build image (e.g. make docker-release)
+	$(DOCKER) run --rm --platform linux/amd64 \
+		-v "$(CURDIR)":/src -w /src \
+		-v reminislink-gomod:/root/go/pkg/mod \
+		-v reminislink-gocache:/root/.cache/go-build \
+		-e VERSION="$(VERSION)" \
+		$(DOCKER_IMAGE) make $*
+
+FORCE:

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -350,5 +352,26 @@ func TestUnknownRoute(t *testing.T) {
 		if r.Status != 404 || r.ErrorCode() != CodeNotFound {
 			t.Errorf("%s %s: %d %s", tc.method, tc.target, r.Status, r.Body)
 		}
+	}
+}
+
+// TestHelloOSVersion checks decision D4: osVersion is the NextUI release of
+// .system/version.txt, as NextUI shows it.
+func TestHelloOSVersion(t *testing.T) {
+	f := newFixture(t)
+	if err := os.WriteFile(filepath.Join(f.sd, ".system", "version.txt"), []byte("NextUI-20261013-0\n39a06de\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := f.unsigned("GET", "/api/v1/hello", nil)
+	f.check("GET", "/hello", r)
+	var h helloResponse
+	r.JSON(t, &h)
+	if h.OSVersion == nil || *h.OSVersion != "NextUI-20261013-039a06de" {
+		t.Fatalf("osVersion = %s", r.Body)
+	}
+	r = f.client.Do(t, "GET", "/api/v1/device", nil)
+	f.check("GET", "/device", r)
+	if !strings.Contains(string(r.Body), `"osVersion":"NextUI-20261013-039a06de"`) {
+		t.Fatalf("device = %s", r.Body)
 	}
 }

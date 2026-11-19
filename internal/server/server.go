@@ -75,6 +75,10 @@ type Options struct {
 	Storage func(path string) (device.Storage, error)
 	// OnPaired is called after a client is paired (may be nil).
 	OnPaired func(auth.Client)
+	// OnChange is called after a request changed the files of the SD card
+	// (the banner of the pak screen, docs/specs/05-console-pak.md §7.1);
+	// may be nil. It must not block.
+	OnChange func(Change)
 	// LogFull reports that the log file reached its cap: the sampled lines
 	// (unsigned and rejected requests) are then no longer written (nil:
 	// never full).
@@ -90,6 +94,7 @@ type Server struct {
 	now          func() time.Time
 	started      time.Time
 	shuttingDown atomic.Bool
+	deviceName   atomic.Pointer[string]
 	hello        *rateLimiter
 	pair         *rateLimiter
 	handler      http.Handler
@@ -143,12 +148,21 @@ func New(opts Options) (*Server, error) {
 			grace:    shutdownGrace,
 		},
 	}
+	name := opts.Identity.DeviceName
+	s.deviceName.Store(&name)
 	// The rejections of the verifier share the sampled logger. The
 	// verifier is configured here, before it serves any request.
 	opts.Verifier.Logger = s.rejectLog
 	s.handler = s.middlewares(s.routes())
 	return s, nil
 }
+
+// DeviceName returns the name of the console.
+func (s *Server) DeviceName() string { return *s.deviceName.Load() }
+
+// SetDeviceName changes the name returned by /hello, /pair and /device
+// (renamed in the pak settings).
+func (s *Server) SetDeviceName(name string) { s.deviceName.Store(&name) }
 
 // Handler returns the HTTP handler of the API.
 func (s *Server) Handler() http.Handler { return s.handler }
@@ -188,12 +202,12 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleGame)
 	signed("GET "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.handleGameArt)
 
-	signed("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleDeleteGame)
+	signed("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
 
 	// Trash.
 	signed("GET "+Prefix+"/trash", auth.RouteJSON, s.handleTrash)
-	signed("DELETE "+Prefix+"/trash", auth.RouteJSON, s.handleEmptyTrash)
-	signed("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.handleDeleteTrashEntry)
+	signed("DELETE "+Prefix+"/trash", auth.RouteJSON, s.notify(ChangeTrashEmptied, nil, s.handleEmptyTrash))
+	signed("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.notify(ChangeTrashEntryDeleted, nil, s.handleDeleteTrashEntry))
 
 	// Transfers. Only the chunk route accepts UNSIGNED bodies (read as a
 	// stream by the handler, bounded by the chunk size).
@@ -201,7 +215,7 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, s.handleUploadStatus)
 	signed("PUT "+Prefix+"/uploads/{uploadId}", auth.RouteChunk, s.handleUploadChunk)
 	signed("DELETE "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, s.handleCancelUpload)
-	signed("POST "+Prefix+"/uploads/{uploadId}/complete", auth.RouteJSON, s.handleCompleteUpload)
+	signed("POST "+Prefix+"/uploads/{uploadId}/complete", auth.RouteJSON, s.notifyUpload(s.handleCompleteUpload))
 	signed("POST "+Prefix+"/downloads", auth.RouteJSON, s.handleCreateDownload)
 	signed("GET "+Prefix+"/jobs", auth.RouteJSON, s.handleJobs)
 	signed("GET "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleJob)
@@ -209,28 +223,28 @@ func (s *Server) routes() http.Handler {
 
 	// Saves. Only PUT /save takes a larger body (64 MiB).
 	signed("GET "+Prefix+"/games/{gameId}/save", auth.RouteJSON, s.handleGetSave)
-	signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, s.handlePutSave)
+	signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, s.notify(ChangeSaveReplaced, s.gameName, s.handlePutSave))
 	signed("GET "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleListBackups)
 	signed("POST "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleCreateBackup)
 	signed("GET "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleGetBackup)
 	signed("DELETE "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleDeleteBackup)
-	signed("POST "+Prefix+"/games/{gameId}/save/backups/{backupId}/restore", auth.RouteJSON, s.handleRestoreBackup)
+	signed("POST "+Prefix+"/games/{gameId}/save/backups/{backupId}/restore", auth.RouteJSON, s.notify(ChangeSaveRestored, s.gameName, s.handleRestoreBackup))
 
 	// States, locks and resume history.
 	signed("GET "+Prefix+"/games/{gameId}/states", auth.RouteJSON, s.handleListStates)
 	signed("GET "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.handleGetState)
-	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.handleDeleteState)
+	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.notify(ChangeStateDeleted, s.gameName, s.handleDeleteState))
 	signed("GET "+Prefix+"/games/{gameId}/states/{slot}/thumbnail", auth.RouteJSON, s.handleStateThumbnail)
 	signed("PUT "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleLockState)
 	signed("DELETE "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleUnlockState)
-	signed("POST "+Prefix+"/games/{gameId}/states/{slot}/restore", auth.RouteJSON, s.handleRestoreState)
+	signed("POST "+Prefix+"/games/{gameId}/states/{slot}/restore", auth.RouteJSON, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreState))
 	signed("GET "+Prefix+"/games/{gameId}/resume-history", auth.RouteJSON, s.handleResumeHistory)
-	signed("POST "+Prefix+"/games/{gameId}/resume-history/{entryId}/restore", auth.RouteJSON, s.handleRestoreResume)
+	signed("POST "+Prefix+"/games/{gameId}/resume-history/{entryId}/restore", auth.RouteJSON, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreResume))
 
 	// Cheats.
 	signed("GET "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.handleGetCheats)
-	signed("PUT "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.handlePutCheats)
-	signed("POST "+Prefix+"/games/{gameId}/cheats/import", auth.RouteJSON, s.handleImportCheats)
+	signed("PUT "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.notify(ChangeCheatsUpdated, s.gameName, s.handlePutCheats))
+	signed("POST "+Prefix+"/games/{gameId}/cheats/import", auth.RouteJSON, s.notify(ChangeCheatsUpdated, s.gameName, s.handleImportCheats))
 	signed("GET "+Prefix+"/sd/files", auth.RouteJSON, s.handleSDFiles)
 
 	// Patches (a job, like the downloads).

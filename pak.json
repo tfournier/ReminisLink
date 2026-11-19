@@ -1,0 +1,21 @@
+{
+  "name": "ReminisLink",
+  "version": "v1.0.0",
+  "type": "TOOL",
+  "description": "Manage the ROMs, saves, save states, cheats and patches of your handheld from your iPhone, over your local Wi-Fi. Bring your own files.",
+  "author": "Thomas Fournier",
+  "repo_url": "https://github.com/tfournier/ReminisLink",
+  "release_filename": "ReminisLink.pak.zip",
+  "platforms": [
+    "tg5040"
+  ],
+  "screenshots": [
+    "docs/screenshots/main.png",
+    "docs/screenshots/transfer.png",
+    "docs/screenshots/settings.png",
+    "docs/screenshots/language.png"
+  ],
+  "changelog": {
+    "Unreleased": "First release:\n- Pair your iPhone with a QR code or a PIN.\n- Send ROMs, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches from the ReminisLink app.\n- Nothing is deleted without a copy: deleted and replaced files go to a trash kept 30 days.\n- Interface in English and French."
+  }
+}

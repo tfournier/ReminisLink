@@ -1,0 +1,230 @@
+# fr translations for ReminisLink. IDs are declared in internal/l10n/messages.go.
+
+[activity_bytes]
+other = "{{.Text}}  {{.Size}}"
+
+[activity_download]
+other = "Téléchargement : {{.Name}}"
+
+[activity_download_file]
+other = "Téléchargement d'un fichier"
+
+[activity_patch]
+other = "Patch : {{.Name}}"
+
+[activity_patch_file]
+other = "Application d'un patch"
+
+[activity_progress]
+other = "{{.Text}}  {{.Percent}} %"
+
+[activity_queued]
+other = "{{.Text}} (en attente)"
+
+[activity_upload]
+other = "Envoi : {{.Name}}"
+
+[activity_upload_file]
+other = "Envoi d'un fichier"
+
+[button_back]
+other = "Retour"
+
+[button_cancel]
+other = "Annuler"
+
+[button_confirm]
+other = "Valider"
+
+[button_forget]
+other = "Oublier"
+
+[button_hide_qr]
+other = "Masquer le QR"
+
+[button_ok]
+other = "OK"
+
+[button_quit]
+other = "Quitter"
+
+[button_select]
+other = "Choisir"
+
+[button_settings]
+other = "Réglages"
+
+[button_show_qr]
+other = "Afficher le QR"
+
+[console_value]
+other = "{{.Name}} · {{.IP}}"
+
+[date_layout]
+other = "02/01/2006"
+
+[decimal_separator]
+other = ","
+
+[hint_no_wifi]
+other = "Le Wi-Fi est coupé : active-le dans les réglages de NextUI.\nReminisLink reprend dès son retour."
+
+[item_about]
+other = "Version et journal"
+
+[item_forget_all]
+other = "Oublier tous les appareils"
+
+[item_language]
+other = "Langue : {{.Name}}"
+
+[item_name]
+other = "Nom de la console : {{.Name}}"
+
+[item_paired]
+one = "Appareils appairés ({{.Count}})"
+other = "Appareils appairés ({{.Count}})"
+
+[label_code]
+other = "Code"
+
+[label_connected]
+other = "Appareils connectés"
+
+[label_console]
+other = "Console"
+
+[label_state]
+other = "État"
+
+[language_prompt]
+other = "Choisis la langue de l'interface."
+
+[msg_about]
+other = "ReminisLink {{.Version}}\n\nJournal :\n{{.Path}}"
+
+[msg_closing]
+other = "Fermeture…"
+
+[msg_confirm_forget]
+other = "Oublier {{.Name}} ?\nCet appareil devra être appairé de nouveau."
+
+[msg_confirm_forget_all]
+other = "Oublier tous les appareils appairés ?\nChaque appareil devra être appairé de nouveau."
+
+[msg_confirm_quit]
+other = "Un transfert est en cours. Quitter quand même ?"
+
+[msg_forgot_all]
+one = "{{.Count}} appareil oublié."
+other = "{{.Count}} appareils oubliés."
+
+[msg_name_empty]
+other = "Le nom ne peut pas être vide."
+
+[msg_no_paired]
+other = "Aucun appareil appairé"
+
+[msg_no_wifi]
+other = "Pas de Wi-Fi.\nActive le Wi-Fi dans les réglages de NextUI."
+
+[msg_preparing]
+other = "Préparation…"
+
+[msg_save_error]
+other = "Impossible d'enregistrer les réglages :\n{{.Error}}"
+
+[msg_start_error]
+other = "ReminisLink n'a pas pu démarrer :\n{{.Error}}"
+
+[none_connected]
+other = "Aucun"
+
+[notice_cheats_updated]
+other = "Cheats modifiés"
+
+[notice_download_failed]
+other = "Échec du téléchargement"
+
+[notice_downloaded]
+other = "Téléchargement terminé"
+
+[notice_game_deleted]
+other = "Jeu mis à la corbeille"
+
+[notice_paired]
+other = "Appairé avec {{.Name}}"
+
+[notice_patch_failed]
+other = "Échec du patch"
+
+[notice_patched]
+other = "Patch appliqué"
+
+[notice_rom_added]
+other = "Jeu ajouté"
+
+[notice_save_replaced]
+other = "Save remplacée"
+
+[notice_save_restored]
+other = "Save restaurée"
+
+[notice_state_deleted]
+other = "State mis à la corbeille"
+
+[notice_state_replaced]
+other = "State remplacé"
+
+[notice_state_restored]
+other = "State restauré"
+
+[notice_trash_emptied]
+other = "Corbeille vidée"
+
+[notice_trash_entry_deleted]
+other = "Entrée de la corbeille supprimée"
+
+[notice_with_name]
+other = "{{.Text}} : {{.Name}}"
+
+[paired_item]
+other = "{{.Name}} (appairé le {{.Date}})"
+
+[pin_blocked]
+one = "Trop d'essais ratés : appairage bloqué pendant {{.Count}} min"
+other = "Trop d'essais ratés : appairage bloqué pendant {{.Count}} min"
+
+[pin_expires]
+one = "{{.PIN}}  (expire dans {{.Count}} min)"
+other = "{{.PIN}}  (expire dans {{.Count}} min)"
+
+[qr_hidden]
+other = "QR code masqué : appuie sur A pour l'afficher."
+
+[scan_hint]
+other = "Scanne avec l'app ReminisLink"
+
+[size_mb]
+other = "{{.Value}} Mo"
+
+[state_connected]
+other = "Connecté"
+
+[state_no_wifi]
+other = "Pas de Wi-Fi"
+
+[state_ready]
+other = "Prêt"
+
+[state_transfer]
+other = "Transfert en cours"
+
+[title_paired]
+other = "Appareils appairés"
+
+[title_settings]
+other = "Réglages"
+
+[title_transfers]
+other = "Transferts"

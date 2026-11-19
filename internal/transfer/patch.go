@@ -150,7 +150,7 @@ func (s *Service) StartPatch(gameID string, req PatchRequest) (string, *Error, e
 	if apiErr := detectPatch(j.patchPath); apiErr != nil {
 		return "", apiErr, nil
 	}
-	id, err := s.jobs.Submit(JobPatch, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	id, err := s.jobs.SubmitLabeled(JobPatch, g.Name, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runPatch(ctx, j, report)
 	})
 	if errors.Is(err, ErrTooManyJobs) {

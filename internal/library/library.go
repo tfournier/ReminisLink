@@ -38,6 +38,9 @@ type System struct {
 	Folder    string `json:"folder"`
 	Tag       string `json:"tag"`
 	GameCount int    `json:"gameCount"`
+	// EmulatorInstalled: the OS has an emulator for the tag (decision D6,
+	// docs/specs/m0/questions.md).
+	EmulatorInstalled bool `json:"emulatorInstalled"`
 }
 
 // Folder is a subfolder in GET /systems/{systemId}/games.
@@ -125,7 +128,8 @@ func (l *Library) Systems() ([]System, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, System{ID: EncodeID(s.Folder), Label: s.Label, Folder: s.Folder, Tag: s.Tag, GameCount: n})
+		out = append(out, System{ID: EncodeID(s.Folder), Label: s.Label, Folder: s.Folder, Tag: s.Tag, GameCount: n,
+			EmulatorInstalled: l.adapter.EmulatorInstalled(s.Tag)})
 	}
 	return out, nil
 }

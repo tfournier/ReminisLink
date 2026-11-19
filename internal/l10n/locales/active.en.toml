@@ -1,0 +1,230 @@
+# en translations for ReminisLink. IDs are declared in internal/l10n/messages.go.
+
+[activity_bytes]
+other = "{{.Text}}  {{.Size}}"
+
+[activity_download]
+other = "Downloading: {{.Name}}"
+
+[activity_download_file]
+other = "Downloading a file"
+
+[activity_patch]
+other = "Patching: {{.Name}}"
+
+[activity_patch_file]
+other = "Applying a patch"
+
+[activity_progress]
+other = "{{.Text}}  {{.Percent}}%"
+
+[activity_queued]
+other = "{{.Text}} (waiting)"
+
+[activity_upload]
+other = "Receiving: {{.Name}}"
+
+[activity_upload_file]
+other = "Receiving a file"
+
+[button_back]
+other = "Back"
+
+[button_cancel]
+other = "Cancel"
+
+[button_confirm]
+other = "Confirm"
+
+[button_forget]
+other = "Forget"
+
+[button_hide_qr]
+other = "Hide QR"
+
+[button_ok]
+other = "OK"
+
+[button_quit]
+other = "Quit"
+
+[button_select]
+other = "Select"
+
+[button_settings]
+other = "Settings"
+
+[button_show_qr]
+other = "Show QR"
+
+[console_value]
+other = "{{.Name}} · {{.IP}}"
+
+[date_layout]
+other = "2006-01-02"
+
+[decimal_separator]
+other = "."
+
+[hint_no_wifi]
+other = "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."
+
+[item_about]
+other = "Version and log"
+
+[item_forget_all]
+other = "Forget all devices"
+
+[item_language]
+other = "Language: {{.Name}}"
+
+[item_name]
+other = "Console name: {{.Name}}"
+
+[item_paired]
+one = "Paired devices ({{.Count}})"
+other = "Paired devices ({{.Count}})"
+
+[label_code]
+other = "Code"
+
+[label_connected]
+other = "Connected devices"
+
+[label_console]
+other = "Console"
+
+[label_state]
+other = "State"
+
+[language_prompt]
+other = "Choose the interface language."
+
+[msg_about]
+other = "ReminisLink {{.Version}}\n\nLog:\n{{.Path}}"
+
+[msg_closing]
+other = "Closing…"
+
+[msg_confirm_forget]
+other = "Forget {{.Name}}?\nThis device will have to pair again."
+
+[msg_confirm_forget_all]
+other = "Forget all paired devices?\nEach device will have to pair again."
+
+[msg_confirm_quit]
+other = "A transfer is in progress. Quit anyway?"
+
+[msg_forgot_all]
+one = "{{.Count}} device forgotten."
+other = "{{.Count}} devices forgotten."
+
+[msg_name_empty]
+other = "The name cannot be empty."
+
+[msg_no_paired]
+other = "No paired device"
+
+[msg_no_wifi]
+other = "No Wi-Fi.\nTurn on Wi-Fi in the NextUI settings."
+
+[msg_preparing]
+other = "Preparing…"
+
+[msg_save_error]
+other = "Cannot save the settings:\n{{.Error}}"
+
+[msg_start_error]
+other = "ReminisLink could not start:\n{{.Error}}"
+
+[none_connected]
+other = "None"
+
+[notice_cheats_updated]
+other = "Cheats updated"
+
+[notice_download_failed]
+other = "Download failed"
+
+[notice_downloaded]
+other = "Download finished"
+
+[notice_game_deleted]
+other = "Game moved to the trash"
+
+[notice_paired]
+other = "Paired with {{.Name}}"
+
+[notice_patch_failed]
+other = "Patch failed"
+
+[notice_patched]
+other = "Patch applied"
+
+[notice_rom_added]
+other = "Game added"
+
+[notice_save_replaced]
+other = "Save replaced"
+
+[notice_save_restored]
+other = "Save restored"
+
+[notice_state_deleted]
+other = "State moved to the trash"
+
+[notice_state_replaced]
+other = "State replaced"
+
+[notice_state_restored]
+other = "State restored"
+
+[notice_trash_emptied]
+other = "Trash emptied"
+
+[notice_trash_entry_deleted]
+other = "Trash entry deleted"
+
+[notice_with_name]
+other = "{{.Text}}: {{.Name}}"
+
+[paired_item]
+other = "{{.Name}} (paired {{.Date}})"
+
+[pin_blocked]
+one = "Too many failed attempts: pairing blocked for {{.Count}} min"
+other = "Too many failed attempts: pairing blocked for {{.Count}} min"
+
+[pin_expires]
+one = "{{.PIN}}  (expires in {{.Count}} min)"
+other = "{{.PIN}}  (expires in {{.Count}} min)"
+
+[qr_hidden]
+other = "QR code hidden: press A to show it."
+
+[scan_hint]
+other = "Scan with the ReminisLink app"
+
+[size_mb]
+other = "{{.Value}} MB"
+
+[state_connected]
+other = "Connected"
+
+[state_no_wifi]
+other = "No Wi-Fi"
+
+[state_ready]
+other = "Ready"
+
+[state_transfer]
+other = "Transfer in progress"
+
+[title_paired]
+other = "Paired devices"
+
+[title_settings]
+other = "Settings"
+
+[title_transfers]
+other = "Transfers"

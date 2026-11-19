@@ -46,3 +46,23 @@ func TestIPv4DoesNotPanic(t *testing.T) {
 		t.Fatalf("not an IPv4: %q", ip)
 	}
 }
+
+func TestPickIPv4On(t *testing.T) {
+	ip := net.ParseIP
+	ifaces := []Iface{
+		{Name: "lo", Up: true, Loopback: true, Addrs: []net.IP{ip("127.0.0.1")}},
+		{Name: "usb0", Up: true, Addrs: []net.IP{ip("10.0.0.5")}},
+		{Name: "wlan0", Up: true, Addrs: []net.IP{ip("fe80::2"), ip("192.168.1.42")}},
+	}
+	if got, ok := PickIPv4On(ifaces, "wlan0"); !ok || got != "192.168.1.42" {
+		t.Errorf("wlan0: %q %v", got, ok)
+	}
+	// No fallback to another interface: no Wi-Fi.
+	if got, ok := PickIPv4On(ifaces[:2], "wlan0"); ok {
+		t.Errorf("without wlan0: %q", got)
+	}
+	down := []Iface{{Name: "wlan0", Up: false, Addrs: []net.IP{ip("192.168.1.42")}}}
+	if got, ok := PickIPv4On(down, "wlan0"); ok {
+		t.Errorf("wlan0 down: %q", got)
+	}
+}

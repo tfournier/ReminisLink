@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -37,37 +36,24 @@ const (
 	spaceCheckEvery = 4 << 20
 )
 
-// DefaultCABundle is the certificate bundle used when Go finds no system
-// certificate store.
-// TODO(M0): check that /etc/ssl/certs/ca-certificates.crt exists on the
-// console. Cheat Manager trusts the bundle embedded by
-// github.com/BrandonKowalski/certifiable (imported by gabagool, which
-// replaces http.DefaultTransport's roots); that module is not an allowed
-// direct dependency, so the pak loads the system store instead.
-const DefaultCABundle = "/etc/ssl/certs/ca-certificates.crt"
+// Root certificates (decision D1, docs/specs/m0/questions.md): the console
+// has no certificate store. The pak binary links gabagool, which imports
+// github.com/BrandonKowalski/certifiable: its init installs an embedded
+// bundle of root certificates in http.DefaultTransport (this is how the Pak
+// Store downloads over HTTPS). Every outgoing HTTP client of the pak is
+// therefore built from a clone of http.DefaultTransport (see baseTransport),
+// never from a new http.Transport. A build without gabagool (CGO_ENABLED=0,
+// development on a Mac) uses the system store, as Go does by default; on
+// Linux, SSL_CERT_FILE still overrides the store for a test.
 
-// LoadRootCAs returns the system certificate store, or the PEM bundle at
-// bundle when the system store is missing or empty.
-func LoadRootCAs(bundle string) (*x509.CertPool, error) {
-	return loadRootCAs(x509.SystemCertPool, bundle)
-}
-
-func loadRootCAs(system func() (*x509.CertPool, error), bundle string) (*x509.CertPool, error) {
-	if pool, err := system(); err == nil && pool != nil && !pool.Equal(x509.NewCertPool()) {
-		return pool, nil
+// baseTransport returns a clone of http.DefaultTransport (and so of its
+// TLS configuration and root certificates), or a default transport when
+// it was replaced by something else.
+func baseTransport() *http.Transport {
+	if t, ok := http.DefaultTransport.(*http.Transport); ok {
+		return t.Clone()
 	}
-	if bundle == "" {
-		bundle = DefaultCABundle
-	}
-	data, err := os.ReadFile(bundle)
-	if err != nil {
-		return nil, fmt.Errorf("no certificate store: %w", err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) {
-		return nil, errors.New("no certificate in the bundle")
-	}
-	return pool, nil
+	return &http.Transport{}
 }
 
 // DownloadRequest is the body of POST /downloads.
@@ -126,7 +112,7 @@ func (s *Service) StartDownload(req DownloadRequest) (string, *Error, error) {
 			return "", apiErr, err
 		}
 	}
-	id, err := s.jobs.Submit(JobDownload, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	id, err := s.jobs.SubmitLabeled(JobDownload, downloadLabel(u, target), func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runDownload(ctx, u, target, want, onConflict, report)
 	})
 	if errors.Is(err, ErrTooManyJobs) {
@@ -148,23 +134,26 @@ func (s *Service) httpClient() (*http.Client, error) {
 		o := s.opts.Downloads
 		rt := o.Transport
 		if rt == nil {
-			roots := o.RootCAs
-			if roots == nil {
-				var err error
-				if roots, err = LoadRootCAs(o.CABundle); err != nil {
-					s.clientErr = err
-					return
-				}
+			t := baseTransport()
+			t.DialContext = (&net.Dialer{Timeout: DownloadDialTimeout, KeepAlive: 30 * time.Second}).DialContext
+			if t.TLSClientConfig == nil {
+				t.TLSClientConfig = &tls.Config{}
 			}
-			rt = &http.Transport{
-				DialContext:           (&net.Dialer{Timeout: DownloadDialTimeout, KeepAlive: 30 * time.Second}).DialContext,
-				TLSClientConfig:       &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
-				TLSHandshakeTimeout:   DownloadDialTimeout,
-				ResponseHeaderTimeout: s.idleTimeout(),
-				IdleConnTimeout:       90 * time.Second,
-				MaxIdleConns:          2,
-				// No proxy: the console downloads directly.
+			if o.RootCAs != nil {
+				t.TLSClientConfig.RootCAs = o.RootCAs
 			}
+			t.TLSClientConfig.MinVersion = tls.VersionTLS12
+			t.TLSHandshakeTimeout = DownloadDialTimeout
+			t.ResponseHeaderTimeout = s.idleTimeout()
+			t.IdleConnTimeout = 90 * time.Second
+			t.MaxIdleConns = 2
+			// No proxy: the console downloads directly.
+			t.Proxy = nil
+			// ForceAttemptHTTP2 comes with the clone (true): kept, since
+			// setting DialContext or TLSClientConfig would otherwise turn
+			// HTTP/2 off. HTTP/2 serves Range requests the same way, and the
+			// timeouts above apply to it too.
+			rt = t
 		}
 		s.client = &http.Client{
 			Transport: rt,
@@ -179,7 +168,7 @@ func (s *Service) httpClient() (*http.Client, error) {
 			},
 		}
 	})
-	return s.client, s.clientErr
+	return s.client, nil
 }
 
 func (s *Service) idleTimeout() time.Duration {

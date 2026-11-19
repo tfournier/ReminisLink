@@ -10,26 +10,30 @@ import (
 
 	"github.com/skip2/go-qrcode"
 
+	"github.com/tfournier/ReminisLink/internal/app"
 	"github.com/tfournier/ReminisLink/internal/auth"
 )
 
 // pairingDisplay prints the pairing link, the PIN and an ASCII QR code in
 // the terminal (headless mode), and prints them again each time the
-// secret changes (after a pairing, an expiry or too many failures). This
-// goes to the terminal only, never to the log.
+// secret changes (after a pairing, an expiry or too many failures) or the
+// console is renamed. This goes to the terminal only, never to the log.
 type pairingDisplay struct {
-	mu       sync.Mutex
-	out      io.Writer
-	session  *auth.PairingSession
-	deviceID string
-	name     string
-	host     string
-	port     int
-	shown    uint64 // generation on screen
+	mu     sync.Mutex
+	out    io.Writer
+	status func() (app.Status, error)
+	shown  string // generation and name on screen
 }
 
-func newPairingDisplay(out io.Writer, s *auth.PairingSession, deviceID, name, host string, port int) *pairingDisplay {
-	return &pairingDisplay{out: out, session: s, deviceID: deviceID, name: name, host: host, port: port}
+func newPairingDisplay(out io.Writer, status func() (app.Status, error)) *pairingDisplay {
+	return &pairingDisplay{out: out, status: status}
+}
+
+// setStatus sets the source of the display (once the server is started).
+func (d *pairingDisplay) setStatus(status func() (app.Status, error)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.status = status
 }
 
 // run refreshes the display every second until ctx is done.
@@ -49,34 +53,37 @@ func (d *pairingDisplay) run(ctx context.Context) {
 
 // refresh prints the pairing information if the secret changed.
 func (d *pairingDisplay) refresh() {
-	snap, err := d.session.Snapshot()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.status == nil {
+		return
+	}
+	st, err := d.status()
 	if err != nil {
 		slog.Error("pairing secret", "error", err)
 		return
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if snap.Generation == d.shown {
+	key := fmt.Sprintf("%d/%s/%s", st.Generation, st.Name, st.IP)
+	if key == d.shown {
 		return
 	}
-	d.shown = snap.Generation
-	d.print(snap)
+	d.shown = key
+	d.print(st)
 }
 
-func (d *pairingDisplay) print(snap auth.PairingSnapshot) {
-	link := auth.PairingURL(d.deviceID, d.name, snap.Secret, d.host, d.port)
-	fmt.Fprintf(d.out, "\nReminisLink %q on %s:%d\n", d.name, d.host, d.port)
-	if q, err := qrcode.New(link, qrcode.Medium); err == nil {
+func (d *pairingDisplay) print(st app.Status) {
+	fmt.Fprintf(d.out, "\nReminisLink %q on %s:%d\n", st.Name, st.IP, st.Port)
+	if q, err := qrcode.New(st.PairingLink, qrcode.Medium); err == nil {
 		fmt.Fprint(d.out, q.ToSmallString(false))
 	}
-	fmt.Fprintf(d.out, "Pairing link: %s\n", link)
-	fmt.Fprintf(d.out, "PIN: %s %s (expires at %s)\n", snap.PIN[:3], snap.PIN[3:], snap.ExpiresAt.Local().Format("15:04:05"))
-	if !snap.BlockedUntil.IsZero() {
-		fmt.Fprintf(d.out, "Pairing blocked until %s (too many failed attempts)\n", snap.BlockedUntil.Local().Format("15:04:05"))
+	fmt.Fprintf(d.out, "Pairing link: %s\n", st.PairingLink)
+	fmt.Fprintf(d.out, "PIN: %s %s (expires at %s)\n", st.PIN[:3], st.PIN[3:], st.ExpiresAt.Local().Format("15:04:05"))
+	if st.BlockedUntil.After(time.Now()) {
+		fmt.Fprintf(d.out, "Pairing blocked until %s (too many failed attempts)\n", st.BlockedUntil.Local().Format("15:04:05"))
 	}
 }
 
-// paired is the server's OnPaired callback.
+// paired is the OnPaired callback of the pak.
 func (d *pairingDisplay) paired(c auth.Client) {
 	d.mu.Lock()
 	fmt.Fprintf(d.out, "\nPaired with %q (%s)\n", c.Name, c.ID)

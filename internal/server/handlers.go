@@ -77,7 +77,7 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, helloResponse{
 		DeviceID:         s.opts.Identity.DeviceID,
-		DeviceName:       s.opts.Identity.DeviceName,
+		DeviceName:       s.DeviceName(),
 		Model:            info.Model,
 		Platform:         info.Platform,
 		OS:               info.OS,
@@ -179,7 +179,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, pairResponse{
 		DeviceID:    s.opts.Identity.DeviceID,
-		DeviceName:  s.opts.Identity.DeviceName,
+		DeviceName:  s.DeviceName(),
 		DeviceNonce: res.DeviceNonce,
 		Proof:       res.Proof,
 	})
@@ -240,7 +240,7 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := deviceResponse{
 		DeviceID:         s.opts.Identity.DeviceID,
-		DeviceName:       s.opts.Identity.DeviceName,
+		DeviceName:       s.DeviceName(),
 		Model:            info.Model,
 		Platform:         info.Platform,
 		OS:               info.OS,

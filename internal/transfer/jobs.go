@@ -64,6 +64,9 @@ type Job struct {
 	// that has not stopped yet. The state stays "running" until the real
 	// end: "cancelled" (nothing installed) or "succeeded" (too late).
 	CancelRequested bool `json:"cancelRequested"`
+	// Label is what the pak screen shows of the job (a file or game
+	// name, "" when unknown). Not part of the API.
+	Label string `json:"-"`
 }
 
 // RunFunc does the work of a job. It reports its progress with report,
@@ -90,6 +93,16 @@ type Jobs struct {
 	closed  bool
 	ended   uint64 // finished jobs so far
 	wg      sync.WaitGroup
+	// onFinish is called, outside the lock, when a job that ran ends.
+	onFinish func(Job)
+}
+
+// OnFinish sets the function called when a job that ran ends (succeeded,
+// failed or cancelled). Call it before submitting jobs.
+func (q *Jobs) OnFinish(fn func(Job)) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.onFinish = fn
 }
 
 // NewJobs returns an empty queue (now nil: time.Now).
@@ -104,6 +117,11 @@ func (q *Jobs) stamp() time.Time { return q.now().UTC().Truncate(time.Second) }
 
 // Submit queues a job and returns its id.
 func (q *Jobs) Submit(kind string, run RunFunc) (string, error) {
+	return q.SubmitLabeled(kind, "", run)
+}
+
+// SubmitLabeled queues a job with the label shown on the pak screen.
+func (q *Jobs) SubmitLabeled(kind, label string, run RunFunc) (string, error) {
 	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
@@ -123,7 +141,7 @@ func (q *Jobs) Submit(kind string, run RunFunc) (string, error) {
 	q.pruneLocked()
 	now := q.stamp()
 	j := &job{
-		Job: Job{ID: "job_" + hex.EncodeToString(b[:]), Kind: kind, State: JobQueued, CreatedAt: now, UpdatedAt: now},
+		Job: Job{ID: "job_" + hex.EncodeToString(b[:]), Kind: kind, State: JobQueued, CreatedAt: now, UpdatedAt: now, Label: label},
 		run: run, done: make(chan struct{}),
 	}
 	q.jobs[j.ID] = j
@@ -158,7 +176,6 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 	}
 	result, apiErr := runSafely(ctx, j.run, report)
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	cancelled := ctx.Err() != nil
 	j.cancel()
 	switch {
@@ -179,6 +196,11 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 	close(j.done)
 	q.running = nil
 	q.startNextLocked()
+	finished, onFinish := j.Job, q.onFinish
+	q.mu.Unlock()
+	if onFinish != nil {
+		onFinish(finished)
+	}
 }
 
 // runSafely runs a job and turns a panic into an internal error.
@@ -253,6 +275,20 @@ func (q *Jobs) Get(id string) (Job, *Error) {
 		return Job{}, notFound("Job not found")
 	}
 	return j.Job, nil
+}
+
+// Active returns the running job then the queued ones, in queue order.
+func (q *Jobs) Active() []Job {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	out := make([]Job, 0, len(q.queue)+1)
+	if q.running != nil {
+		out = append(out, q.running.Job)
+	}
+	for _, j := range q.queue {
+		out = append(out, j.Job)
+	}
+	return out
 }
 
 // Running reports whether a job is queued or running.

@@ -154,7 +154,7 @@ func TestContractExamplesAreValid(t *testing.T) {
 func TestValidateResponseFailures(t *testing.T) {
 	s := contract(t)
 	jsonHeader := http.Header{"Content-Type": {"application/json; charset=utf-8"}}
-	system := `{"id":"R2FtZQ","label":"G","folder":"G (G)","tag":"G","gameCount":1}`
+	system := `{"id":"R2FtZQ","label":"G","folder":"G (G)","tag":"G","gameCount":1,"emulatorInstalled":true}`
 	ok := `{"systems":[` + system + `]}`
 	if err := s.ValidateResponse("GET", "/systems", 200, jsonHeader, []byte(ok)); err != nil {
 		t.Fatalf("valid response refused: %v", err)
@@ -173,9 +173,9 @@ func TestValidateResponseFailures(t *testing.T) {
 		"missing property":  {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"R2FtZQ","label":"G","folder":"G","tag":"G"}]}`, `missing required property "gameCount"`},
 		"extra property":    {"GET", "/systems", 200, jsonHeader, `{"systems":[],"extra":1}`, `"extra" is not in the contract`},
 		"wrong type":        {"GET", "/systems", 200, jsonHeader, `{"systems":{}}`, "type object, want array"},
-		"bad pattern":       {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a/b","label":"G","folder":"G","tag":"G","gameCount":1}]}`, "does not match"},
-		"negative count":    {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":-1}]}`, "minimum"},
-		"non integer":       {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":1.5}]}`, "want integer"},
+		"bad pattern":       {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a/b","label":"G","folder":"G","tag":"G","gameCount":1,"emulatorInstalled":true}]}`, "does not match"},
+		"negative count":    {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":-1,"emulatorInstalled":true}]}`, "minimum"},
+		"non integer":       {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":1.5,"emulatorInstalled":true}]}`, "want integer"},
 		"bad enum":          {"GET", "/systems", 401, jsonHeader, `{"error":{"code":"nope","message":"m","details":{}}}`, "not in enum"},
 		"body on 204":       {"DELETE", "/clients/me", 204, http.Header{}, `{}`, "body not allowed"},
 		"bad date":          {"GET", "/hello", 200, jsonHeader, strings.Replace(helloExample, `"2026-11-18T17:00:00Z"`, `"yesterday"`, 1), "date-time"},

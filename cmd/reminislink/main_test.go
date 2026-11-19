@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/app"
 	"github.com/tfournier/ReminisLink/internal/auth"
 )
 
@@ -25,7 +26,12 @@ func TestParseFlags(t *testing.T) {
 	if err != nil || o.headless || o.port != 0 {
 		t.Fatalf("defaults: %+v, %v", o, err)
 	}
-	for _, args := range [][]string{{"--port", "70000"}, {"--port", "-1"}, {"extra"}, {"--nope"}} {
+	o, err = parseFlags([]string{"--desktop", "--sd", "/tmp/sd"}, &stderr)
+	if err != nil || !o.desktop || o.headless {
+		t.Fatalf("desktop: %+v, %v", o, err)
+	}
+	for _, args := range [][]string{{"--port", "70000"}, {"--port", "-1"}, {"extra"}, {"--nope"},
+		{"--desktop"}, {"--desktop", "--headless", "--sd", "/x"}} {
 		if _, err := parseFlags(args, &stderr); err == nil {
 			t.Errorf("%q accepted", args)
 		}
@@ -44,46 +50,49 @@ func TestRoots(t *testing.T) {
 	}
 }
 
-func TestOpenLog(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "logs")
-	var also bytes.Buffer
-	logger, lf, err := openLog(dir, &also)
-	if err != nil {
-		t.Fatal(err)
-	}
-	logger.Info("hello", "k", "v")
-	if lf.size.Load() == 0 || lf.full() {
-		t.Errorf("size %d", lf.size.Load())
-	}
-	lf.f.Close()
-	data, err := os.ReadFile(filepath.Join(dir, LogFileName))
-	if err != nil || !strings.Contains(string(data), "hello") || !strings.Contains(also.String(), "hello") {
-		t.Fatalf("log file %q, also %q, %v", data, also.String(), err)
-	}
-}
-
 func TestPairingDisplay(t *testing.T) {
 	now := time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
-	s, err := auth.NewPairingSession("7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", clock, nil)
+	const id = "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10"
+	s, err := auth.NewPairingSession(id, clock, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	name := "Brick test"
+	status := func() (app.Status, error) {
+		snap, err := s.Snapshot()
+		return app.Status{
+			Name: name, IP: "192.168.1.42", Port: 47821,
+			PairingLink: auth.PairingURL(id, name, snap.Secret, "192.168.1.42", 47821),
+			PIN:         snap.PIN, ExpiresAt: snap.ExpiresAt, Generation: snap.Generation,
+		}, err
+	}
 	var out bytes.Buffer
-	d := newPairingDisplay(&out, s, "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick test", "192.168.1.42", 47821)
+	d := newPairingDisplay(&out, nil)
+	d.refresh() // no status yet: nothing
+	if out.Len() != 0 {
+		t.Fatalf("printed without status: %s", out.String())
+	}
+	d.setStatus(status)
 	d.refresh()
 	snap, _ := s.Snapshot()
 	text := out.String()
-	link := auth.PairingURL("7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick test", snap.Secret, "192.168.1.42", 47821)
+	link := auth.PairingURL(id, "Brick test", snap.Secret, "192.168.1.42", 47821)
 	if !strings.Contains(text, link) || !strings.Contains(text, snap.PIN[:3]+" "+snap.PIN[3:]) || !strings.Contains(text, "█") {
 		t.Fatalf("display:\n%s", text)
 	}
-	// Nothing new until the secret changes.
+	// Nothing new until the secret or the name changes.
 	out.Reset()
 	d.refresh()
 	if out.Len() != 0 {
 		t.Fatalf("printed again: %s", out.String())
 	}
+	name = "Renamed"
+	d.refresh()
+	if !strings.Contains(out.String(), `"Renamed"`) {
+		t.Fatalf("rename not shown: %s", out.String())
+	}
+	out.Reset()
 	d.paired(auth.Client{ID: "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", Name: "iPhone"})
 	if !strings.Contains(out.String(), `Paired with "iPhone"`) {
 		t.Fatalf("paired: %s", out.String())
@@ -113,52 +122,12 @@ func TestFatalErrorReachesTheLogFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := runHeadlessTo(options{headless: true, sd: sd}, io.Discard)
-	var logged loggedError
+	var logged app.LoggedError
 	if err == nil || !errors.As(err, &logged) {
 		t.Fatalf("broken config.json: %v (must be a loggedError, so main does not print it twice)", err)
 	}
-	data, _ := os.ReadFile(filepath.Join(sd, ".userdata", "tg5040", "logs", LogFileName))
+	data, _ := os.ReadFile(filepath.Join(sd, ".userdata", "tg5040", "logs", app.LogFileName))
 	if !strings.Contains(string(data), "level=ERROR msg=fatal") {
 		t.Fatalf("fatal error not in the log file:\n%s", data)
-	}
-}
-
-func TestOpenLogRotatesLargeFiles(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, LogFileName)
-	old := filepath.Join(dir, LogOldFileName)
-	if err := os.WriteFile(old, []byte("older"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), LogRotateBytes+1), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, lf, err := openLog(dir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lf.f.Close()
-	if fi, err := os.Stat(old); err != nil || fi.Size() != LogRotateBytes+1 {
-		t.Fatalf("old log: %v %v", fi, err)
-	}
-	if lf.size.Load() != 0 {
-		t.Fatalf("new log size %d", lf.size.Load())
-	}
-	// A small file is kept and its size counted.
-	lf.f.Close()
-	if err := os.WriteFile(path, []byte("small"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, lf2, err := openLog(dir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lf2.f.Close()
-	if lf2.size.Load() != 5 {
-		t.Fatalf("small log size %d", lf2.size.Load())
-	}
-	lf2.size.Store(LogCapBytes)
-	if !lf2.full() {
-		t.Fatal("cap not reported")
 	}
 }

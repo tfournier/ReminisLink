@@ -90,6 +90,27 @@ func PickIPv4(ifaces []Iface, preferred string) (ip string, ok bool) {
 	return "", false
 }
 
+// IPv4On returns the IPv4 address of the named interface only (the Wi-Fi
+// interface on the console, docs/specs/05-console-pak.md §2).
+func IPv4On(name string) (string, bool) {
+	ifaces, err := Interfaces()
+	if err != nil {
+		return "", false
+	}
+	return PickIPv4On(ifaces, name)
+}
+
+// PickIPv4On is PickIPv4 restricted to the interface called name.
+func PickIPv4On(ifaces []Iface, name string) (string, bool) {
+	var only []Iface
+	for _, i := range ifaces {
+		if i.Name == name {
+			only = append(only, i)
+		}
+	}
+	return PickIPv4(only, name)
+}
+
 // IPv4 returns the IPv4 address of the console, the one of the preferred
 // interface first (the Wi-Fi interface given by the OS adapter).
 func IPv4(preferred string) (string, bool) {

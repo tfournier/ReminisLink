@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -97,6 +98,13 @@ type upload struct {
 	hash     hash.Hash // nil until computed again after a restart
 	activity time.Time
 	gone     bool // completed, cancelled or expired
+
+	// For the pak screen (activity.go), read without the lock: bytes
+	// received so far (chunk in progress included), last activity
+	// (UnixNano, 0: none in this run) and a chunk being written.
+	live     atomic.Int64
+	lastSeen atomic.Int64
+	writing  atomic.Bool
 
 	// verified is closed when the hash of a resumed upload was computed
 	// again in the background (nil: nothing to compute); verifyErr is
@@ -208,6 +216,7 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 		hash:     sha256.New(),
 		activity: now,
 	}
+	u.touch(now)
 	part, err := os.OpenFile(s.uploadPath(u.meta.ID, partExt), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return UploadCreated{}, nil, err
@@ -455,6 +464,13 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 		return 0, apiErr, nil
 	}
 	defer u.mu.Unlock()
+	u.live.Store(u.offset)
+	u.writing.Store(true)
+	defer func() {
+		u.writing.Store(false)
+		u.live.Store(u.offset)
+		u.touch(s.now())
+	}()
 	if offset != u.offset {
 		return 0, offsetConflict("Unexpected upload offset", u.offset), nil
 	}
@@ -484,7 +500,7 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 		f.Close()
 		return 0, nil, err
 	}
-	n, err := io.CopyN(io.MultiWriter(f, u.hash), body, length)
+	n, err := io.CopyN(io.MultiWriter(f, u.hash), &progressReader{r: body, live: &u.live}, length)
 	if err != nil {
 		rollback()
 		f.Close()

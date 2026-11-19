@@ -94,12 +94,9 @@ type Options struct {
 
 // DownloadOptions configure the downloads.
 type DownloadOptions struct {
-	// RootCAs are the trusted certificate authorities (nil: LoadRootCAs
-	// with CABundle).
+	// RootCAs replaces the trusted certificate authorities (nil: those of
+	// http.DefaultTransport, see baseTransport).
 	RootCAs *x509.CertPool
-	// CABundle is the PEM bundle used when the system has no certificate
-	// store (empty: DefaultCABundle).
-	CABundle string
 	// Transport replaces the HTTP transport (tests).
 	Transport http.RoundTripper
 	// RetryDelay is the wait before the first retry, doubled each time
@@ -144,7 +141,6 @@ type Service struct {
 
 	clientOnce sync.Once
 	client     *http.Client
-	clientErr  error
 }
 
 // New returns a Service. Call LoadUploads at start (after the maintenance)

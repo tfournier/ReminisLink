@@ -2,15 +2,14 @@ package transfer
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
 	"crypto/x509"
-	"encoding/pem"
-	"errors"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -356,33 +355,44 @@ func TestDownloadHTTPS(t *testing.T) {
 	}
 }
 
-func TestLoadRootCAs(t *testing.T) {
-	fs := newFileServer(t, nil, true)
-	pemData := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: fs.srv.Certificate().Raw})
-	dir := t.TempDir()
-	good, bad := filepath.Join(dir, "ca.pem"), filepath.Join(dir, "bad.pem")
-	os.WriteFile(good, pemData, 0o644)
-	os.WriteFile(bad, []byte("nope"), 0o644)
-	empty := func() (*x509.CertPool, error) { return x509.NewCertPool(), nil }
-	failing := func() (*x509.CertPool, error) { return nil, errors.New("no store") }
-	system := func() (*x509.CertPool, error) {
-		p := x509.NewCertPool()
-		p.AppendCertsFromPEM(pemData)
-		return p, nil
+// TestDownloadUsesDefaultTransportRoots checks decision D1: without
+// RootCAs, the downloads (and FetchSmall) trust the root certificates of
+// http.DefaultTransport, where gabagool's certifiable installs its bundle.
+func TestDownloadUsesDefaultTransportRoots(t *testing.T) {
+	data := []byte("trusted by the default transport")
+	fs := newFileServer(t, data, true)
+	pool := x509.NewCertPool()
+	pool.AddCert(fs.srv.Certificate())
+	dt := http.DefaultTransport.(*http.Transport)
+	saved := dt.TLSClientConfig
+	dt.TLSClientConfig = &tls.Config{RootCAs: pool}
+	t.Cleanup(func() { dt.TLSClientConfig = saved })
+
+	e := newEnv(t)
+	j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+"/files/tls.bin", staging(), nil, ""), JobSucceeded, JobFailed)
+	if j.State != JobSucceeded {
+		t.Fatalf("download with the default transport roots: %+v", j.Error)
 	}
-	if p, err := loadRootCAs(system, bad); err != nil || p == nil {
-		t.Fatalf("system store: %v", err)
+	got, apiErr := e.svc.FetchSmall(context.Background(), fs.srv.URL+"/files/tls.bin", 1<<20)
+	if apiErr != nil || string(got) != string(data) {
+		t.Fatalf("FetchSmall with the default transport roots: %q %+v", got, apiErr)
 	}
-	for _, sys := range []func() (*x509.CertPool, error){empty, failing} {
-		if p, err := loadRootCAs(sys, good); err != nil || p.Equal(x509.NewCertPool()) {
-			t.Fatalf("bundle fallback: %v", err)
-		}
-		if _, err := loadRootCAs(sys, bad); err == nil {
-			t.Fatal("bad bundle accepted")
-		}
-		if _, err := loadRootCAs(sys, filepath.Join(dir, "missing.pem")); err == nil {
-			t.Fatal("missing bundle accepted")
-		}
+	// The clone keeps its own TLS settings: the default transport is not
+	// changed by the download client.
+	if dt.TLSClientConfig.MinVersion != 0 {
+		t.Fatal("http.DefaultTransport was modified")
+	}
+}
+
+func TestBaseTransportClonesDefault(t *testing.T) {
+	pool := x509.NewCertPool()
+	dt := http.DefaultTransport.(*http.Transport)
+	saved := dt.TLSClientConfig
+	dt.TLSClientConfig = &tls.Config{RootCAs: pool}
+	t.Cleanup(func() { dt.TLSClientConfig = saved })
+	c := baseTransport()
+	if c == dt || c.TLSClientConfig == dt.TLSClientConfig || c.TLSClientConfig.RootCAs != pool {
+		t.Fatal("baseTransport must clone http.DefaultTransport and keep its root pool")
 	}
 }
 
