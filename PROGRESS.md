@@ -61,6 +61,8 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-19 — Bouton d'alimentation pendant le pak : comportement normal de gabagool gardé (appui court = veille, appui long = extinction) ; 05 §2 corrigé. Décidé par la personne.
 
+- 2026-11-19 — Icône de l'app (deux maillons et traînée de pixels, `ios/Design/`) validée par la personne.
+
 ## Questions ouvertes pour la personne
 
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
