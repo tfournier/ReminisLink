@@ -117,3 +117,15 @@ Suggestions de la personne du 19/11/2026, après essai de M10. À préciser et v
 - Export / import des données d'un jeu en archive ; synchronisation des states (M9 ne couvre que les saves).
 - Restauration depuis la corbeille.
 - **Interface web servie par le pak** (proposée par la personne le 19/11/2026) : les actions de l'app depuis un navigateur (ordinateur, Android) à `http://<console>:47821/`, en réutilisant l'API ; signature dans le navigateur (WebCrypto), appairage par PIN (la caméra exige HTTPS), à réconcilier avec 07 §4 (« aucun fichier statique »).
+
+## M12 — Gestion des apps (paks) (décidé, à lancer après M11)
+
+Demande et décisions de la personne du 19/11/2026.
+
+- **Périmètre** : paks d'outils (`Tools/<plateforme>/*.pak`) et d'émulateurs (`Emus/<plateforme>/*.pak`), chacun à sa place (détectée à l'installation, modifiable dans l'app).
+- **Qui** : tout appareil appairé qui a la main en écriture (M10). Nouvelle menace acceptée dans 07 §3 : un appareil appairé peut installer du code exécuté sur la console (tous les appareils appairés sont de confiance).
+- **Sources** : URL (téléchargement par le pak, comme M4), fichier de l'iPhone (envoi reprenable, Fichiers ou extension de partage), fichier déjà sur la carte SD, n'importe où, choisi dans un sélecteur de fichiers de l'app (liste fournie par le pak). Formats : zip, ou dossier `.pak`.
+- **Contenu non vérifié** : comme pour une ROM corrompue, ReminisLink ne juge pas la qualité d'un pak (le Pak Store ne le fait pas non plus). Seules restent les protections de la carte : aucun chemin qui sort du dossier d'installation (zip-slip), aucun lien, une taille maximale, un seul dossier `<Nom>.pak` reconnu par archive.
+- **Remplacement et suppression** : l'ancien pak passe à la corbeille (récupérable 30 jours) avant un remplacement ; suppression vers la corbeille avec confirmation. ReminisLink ne peut ni se supprimer ni se remplacer pendant qu'il tourne.
+- **Pas de remplacement du Pak Store** : ni catalogue ni mises à jour automatiques (pour l'instant).
+
