@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
@@ -20,50 +19,12 @@ const (
 	CodeDisconnected = "disconnected"
 )
 
-// clientSet is a set of client ids, safe for concurrent use.
-type clientSet struct {
-	mu  sync.Mutex
-	ids map[string]bool
-}
-
-func newClientSet() *clientSet { return &clientSet{ids: map[string]bool{}} }
-
-func (c *clientSet) add(id string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.ids[id] = true
-}
-
-func (c *clientSet) remove(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ok := c.ids[id]
-	delete(c.ids, id)
-	return ok
-}
-
-func (c *clientSet) has(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.ids[id]
-}
-
-func (c *clientSet) clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	clear(c.ids)
-}
-
 // gate is the auth.Gate of every signed route, the one place where the
-// disconnection and the write lease are enforced. The verifier calls it
-// after the signature check and the nonce reservation, before reading the
-// body, so a refused request changes nothing and its body is never read.
-//
-// A write route takes a free lease provisionally (first writer wins); the
-// admission confirms it once the request is accepted (body verified) or
-// rolls it back if the verifier rejects the request. The checks run under
-// s.access, like the revocations (Disconnect, Forget, ForgetAll,
-// DELETE /clients/me), so a revoked client never gets the lease back.
+// disconnection, the access generation and the write lease are enforced
+// (see access). The verifier calls it after the signature check and the
+// nonce reservation, before reading the body, so a refused request changes
+// nothing and its body is never read. The admission is committed once the
+// request is accepted (body verified) and rolled back if it is rejected.
 func (s *Server) gate(r *http.Request, c auth.Client, opts auth.RouteOptions) (*auth.Admission, *auth.Rejection) {
 	adm, rej := s.admit(c.ID, opts)
 	if hook := s.gateHook.Load(); hook != nil {
@@ -73,61 +34,30 @@ func (s *Server) gate(r *http.Request, c auth.Client, opts auth.RouteOptions) (*
 }
 
 func (s *Server) admit(id string, opts auth.RouteOptions) (*auth.Admission, *auth.Rejection) {
-	s.access.Lock()
-	defer s.access.Unlock()
-	if rej := s.revokedLocked(id, opts); rej != nil {
+	ad, other, rej := s.access.admit(id, opts)
+	if rej != nil {
 		return nil, rej
 	}
-	var ticket auth.LeaseTicket
-	if opts.TakesLease {
-		h, t, ok := s.lease.TryAcquire(id)
-		if !ok {
-			return nil, s.readOnly(h)
-		}
-		ticket = t
+	if other != nil {
+		return nil, s.readOnly(other.id)
 	}
 	return &auth.Admission{
-		Commit:   func() *auth.Rejection { return s.commit(id, opts) },
-		Rollback: func() { s.lease.Rollback(id, ticket) },
+		Commit: func() *auth.Rejection {
+			other, rej := s.access.accept(ad, opts)
+			if other != nil {
+				return s.readOnly(other.id)
+			}
+			return rej
+		},
+		Rollback: func() { s.access.rollback(ad) },
+		Value:    ad,
 	}, nil
 }
 
-// commit accepts a verified request: the client must still be paired and
-// connected, a write route must still hold the lease (taken again if it
-// expired while the body was read), and any accepted request of the holder
-// renews (confirms) the lease.
-func (s *Server) commit(id string, opts auth.RouteOptions) *auth.Rejection {
-	s.access.Lock()
-	defer s.access.Unlock()
-	if rej := s.revokedLocked(id, opts); rej != nil {
-		return rej
-	}
-	if opts.TakesLease {
-		if h, _, ok := s.lease.TryAcquire(id); !ok {
-			return s.readOnly(h)
-		}
-	}
-	s.lease.Renew(id)
-	return nil
-}
-
-// revokedLocked refuses a client disconnected by the console or no longer
-// paired. Call it with s.access held.
-func (s *Server) revokedLocked(id string, opts auth.RouteOptions) *auth.Rejection {
-	if !opts.WhileDisconnected && s.disconnected.has(id) {
-		return &auth.Rejection{Status: http.StatusUnauthorized, Code: CodeDisconnected,
-			Message: "Disconnected by the console"}
-	}
-	if _, ok := s.opts.Clients.Lookup(id); !ok {
-		return &auth.Rejection{Status: http.StatusUnauthorized, Code: auth.CodeUnknownClient, Message: "Unknown client"}
-	}
-	return nil
-}
-
-// readOnly is the 423 answer when h holds the lease.
-func (s *Server) readOnly(h auth.LeaseHolder) *auth.Rejection {
+// readOnly is the 423 answer when holderID holds the lease.
+func (s *Server) readOnly(holderID string) *auth.Rejection {
 	return &auth.Rejection{Status: http.StatusLocked, Code: CodeReadOnly,
-		Message: "Another device has write access", Details: map[string]any{"writer": s.clientName(h.ClientID)}}
+		Message: "Another device has write access", Details: map[string]any{"writer": s.clientName(holderID)}}
 }
 
 // clientName is the name of a paired client ("" when it is gone).
@@ -151,11 +81,11 @@ type writerState struct {
 // writerFor is the holder of the lease as seen by the caller, nil when
 // the lease is free.
 func (s *Server) writerFor(callerID string) *writerJSON {
-	h, ok := s.lease.Holder()
+	h, ok := s.access.current()
 	if !ok {
 		return nil
 	}
-	return &writerJSON{ClientName: s.clientName(h.ClientID), You: h.ClientID == callerID, ExpiresAt: timestamp(h.ExpiresAt)}
+	return &writerJSON{ClientName: s.clientName(h.id), You: h.id == callerID, ExpiresAt: timestamp(h.expires)}
 }
 
 func (s *Server) handleGetWriter(w http.ResponseWriter, r *http.Request) {
@@ -169,37 +99,35 @@ type takeWriterRequest struct {
 
 func (s *Server) handleTakeWriter(w http.ResponseWriter, r *http.Request) {
 	c, _ := auth.ClientFromContext(r.Context())
+	ad, ok := auth.AdmissionValue(r.Context()).(admission)
+	if !ok {
+		s.internal(w, r, errors.New("no admission in context"))
+		return
+	}
 	var req takeWriterRequest
 	if r.ContentLength != 0 && !decodeJSON(w, r, &req) {
 		return
 	}
-	// Taken under s.access: a client disconnected or forgotten while
-	// its body was read does not get the lease back.
-	s.access.Lock()
-	if rej := s.revokedLocked(c.ID, auth.RouteOptions{}); rej != nil {
-		s.access.Unlock()
+	// One atomic step that also checks the access generation captured by
+	// the gate: a client revoked since never gets the lease.
+	h, previous, ok, rej := s.access.take(ad, req.Force)
+	switch {
+	case rej != nil:
 		auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
 		return
-	}
-	before, held := s.lease.Holder()
-	h, ok := s.lease.Acquire(c.ID, req.Force)
-	s.access.Unlock()
-	if !ok {
-		rej := s.readOnly(h)
+	case !ok:
+		rej := s.readOnly(h.id)
 		auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
 		return
+	case previous != "":
+		s.log.Info("write access taken over", "client", c.ID, "name", c.Name, "from", s.clientName(previous))
 	}
-	if held && before.ClientID != c.ID {
-		s.log.Info("write access taken over", "client", c.ID, "name", c.Name, "from", s.clientName(before.ClientID))
-	} else if !held {
-		s.log.Info("write access taken", "client", c.ID, "name", c.Name)
-	}
-	writeJSON(w, http.StatusOK, writerState{&writerJSON{ClientName: c.Name, You: true, ExpiresAt: timestamp(h.ExpiresAt)}})
+	writeJSON(w, http.StatusOK, writerState{&writerJSON{ClientName: c.Name, You: true, ExpiresAt: timestamp(h.expires)}})
 }
 
 func (s *Server) handleReleaseWriter(w http.ResponseWriter, r *http.Request) {
 	c, _ := auth.ClientFromContext(r.Context())
-	if s.lease.Release(c.ID) {
+	if s.access.release(c.ID) {
 		s.log.Info("write access released", "client", c.ID, "name", c.Name)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -207,34 +135,21 @@ func (s *Server) handleReleaseWriter(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	c, _ := auth.ClientFromContext(r.Context())
-	s.access.Lock()
-	lifted := s.disconnected.remove(c.ID)
-	// Connected again from now on (without taking the lease): markSeen
-	// skipped it while it was disconnected.
-	s.presence.touch(c.ID, s.now())
-	s.access.Unlock()
-	if lifted {
+	// Connected again from now on, without taking the lease.
+	if s.access.connect(c.ID) {
 		s.log.Info("client reconnected", "client", c.ID, "name", c.Name)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// dropClient forgets the in-memory state of a client: its lease, its
-// disconnection and its presence.
-func (s *Server) dropClient(id string) {
-	s.lease.Release(id)
-	s.disconnected.remove(id)
-	s.presence.forget(id)
-}
-
 // WriterName returns the name of the client holding the write lease, and
 // whether one holds it.
 func (s *Server) WriterName() (string, bool) {
-	h, ok := s.lease.Holder()
+	h, ok := s.access.current()
 	if !ok {
 		return "", false
 	}
-	return s.clientName(h.ClientID), true
+	return s.clientName(h.id), true
 }
 
 // ErrUnknownClient is returned for a client that is not paired.
@@ -243,17 +158,13 @@ var ErrUnknownClient = errors.New("unknown client")
 // Disconnect disconnects a paired client from the console (Settings >
 // Devices): its lease is dropped, it leaves the connected clients, and its
 // signed requests get 401 disconnected until it calls
-// POST /clients/me/connect. In memory only.
+// POST /clients/me/connect; its requests in flight are refused. In memory
+// only.
 func (s *Server) Disconnect(id string) error {
-	s.access.Lock()
-	defer s.access.Unlock()
-	c, ok := s.opts.Clients.Lookup(id)
+	c, ok := s.access.disconnect(id)
 	if !ok {
 		return ErrUnknownClient
 	}
-	s.disconnected.add(id)
-	s.lease.Release(id)
-	s.presence.forget(id)
 	s.log.Info("client disconnected by the console", "client", id, "name", c.Name)
 	return nil
 }
@@ -262,32 +173,10 @@ func (s *Server) Disconnect(id string) error {
 // pairing is removed from the client store, so its next requests get
 // 401 unknown_client, and its lease and disconnection are dropped. It
 // reports whether the client existed.
-func (s *Server) Forget(id string) (bool, error) {
-	s.access.Lock()
-	defer s.access.Unlock()
-	ok, err := s.opts.Clients.Remove(id)
-	if err != nil {
-		return false, err
-	}
-	s.dropClient(id)
-	return ok, nil
-}
+func (s *Server) Forget(id string) (bool, error) { return s.access.forget(id) }
 
 // ForgetAll removes every paired client and returns how many there were.
-func (s *Server) ForgetAll() (int, error) {
-	s.access.Lock()
-	defer s.access.Unlock()
-	n, err := s.opts.Clients.RemoveAll()
-	if err != nil {
-		return 0, err
-	}
-	if h, ok := s.lease.Holder(); ok {
-		s.lease.Release(h.ClientID)
-	}
-	s.disconnected.clear()
-	s.presence.clear()
-	return n, nil
-}
+func (s *Server) ForgetAll() (int, error) { return s.access.forgetAll() }
 
 // DeviceStatus is a paired client as the Devices screen shows it.
 type DeviceStatus struct {
@@ -305,19 +194,7 @@ type DeviceStatus struct {
 // Devices returns the paired clients with their state, the most recently
 // paired first.
 func (s *Server) Devices() []DeviceStatus {
-	seen := s.presence.seenSince(s.now().Add(-ConnectedWindow))
-	h, held := s.lease.Holder()
-	list := s.opts.Clients.List()
-	out := make([]DeviceStatus, 0, len(list))
-	for _, c := range list {
-		_, connected := seen[c.ID]
-		out = append(out, DeviceStatus{
-			ID: c.ID, Name: c.Name, PairedAt: c.PairedAt,
-			Connected:    connected,
-			Writer:       held && h.ClientID == c.ID,
-			Disconnected: s.disconnected.has(c.ID),
-		})
-	}
+	out := s.access.devices(s.presence.seenSince(s.now().Add(-ConnectedWindow)))
 	sort.SliceStable(out, func(i, j int) bool {
 		if !out[i].PairedAt.Equal(out[j].PairedAt) {
 			return out[i].PairedAt.After(out[j].PairedAt)

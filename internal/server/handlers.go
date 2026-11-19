@@ -78,7 +78,7 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 	}
 	// Only whether the lease is held: the holder's name is for paired
 	// clients (M10).
-	_, held := s.lease.Holder()
+	_, held := s.access.current()
 	writeJSON(w, http.StatusOK, helloResponse{
 		DeviceID:         s.opts.Identity.DeviceID,
 		DeviceName:       s.DeviceName(),
@@ -173,15 +173,9 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := auth.Client{ID: res.ClientID, Name: *req.ClientName, Key: res.Key, PairedAt: s.now()}
-	s.access.Lock()
-	err = s.opts.Clients.Put(client)
-	if err == nil {
-		// Pairing again on the console's pairing screen is a deliberate
-		// action: it lifts a disconnection of the same client id (M10).
-		s.disconnected.remove(client.ID)
-	}
-	s.access.Unlock()
-	if err != nil {
+	// Pairing again with the same id replaces the key: requests admitted
+	// with the old pairing are revoked, and a disconnection is lifted.
+	if err := s.access.pair(client); err != nil {
 		s.internal(w, r, err)
 		return
 	}
@@ -204,13 +198,7 @@ func (s *Server) handleUnpair(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, errors.New("no client in context"))
 		return
 	}
-	s.access.Lock()
-	_, err := s.opts.Clients.Remove(client.ID)
-	if err == nil {
-		s.dropClient(client.ID)
-	}
-	s.access.Unlock()
-	if err != nil {
+	if _, err := s.access.forget(client.ID); err != nil {
 		s.internal(w, r, err)
 		return
 	}

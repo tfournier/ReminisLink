@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -88,15 +87,13 @@ type Options struct {
 
 // Server serves the API. Create it with New.
 type Server struct {
-	opts         Options
-	log          *slog.Logger
-	rejectLog    *slog.Logger // sampled: lines about rejected requests
-	presence     *presence
-	lease        *auth.WriteLease // M10, in memory only
-	disconnected *clientSet       // M10: disconnected by the console
-	// access serializes the lease acquisitions with the revocations of a
-	// client (disconnect, forget, unpair), M10.
-	access sync.Mutex
+	opts      Options
+	log       *slog.Logger
+	rejectLog *slog.Logger // sampled: lines about rejected requests
+	presence  *presence
+	// access is the M10 state (write lease, disconnections, access
+	// generations) behind one mutex, in memory only.
+	access *access
 	// gateHook, when set (tests), is called after each gate decision.
 	gateHook atomic.Pointer[func()]
 	// routeTable lists the signed routes with their options, as
@@ -144,23 +141,22 @@ func New(opts Options) (*Server, error) {
 		opts.Storage = device.StorageOf
 	}
 	s := &Server{
-		opts:         opts,
-		log:          opts.Logger,
-		rejectLog:    slog.New(newSampledHandler(opts.Logger.Handler(), RejectLogRate, RejectLogBurst, opts.Now, opts.LogFull)),
-		now:          opts.Now,
-		started:      opts.Now(),
-		hello:        newRateLimiter(HelloRate, HelloBurst, opts.Now),
-		pair:         newRateLimiter(PairRate, PairBurst, opts.Now),
-		presence:     newPresence(),
-		lease:        auth.NewWriteLease(opts.Now),
-		disconnected: newClientSet(),
-		fetchSlot:    make(chan struct{}, 1),
+		opts:      opts,
+		log:       opts.Logger,
+		rejectLog: slog.New(newSampledHandler(opts.Logger.Handler(), RejectLogRate, RejectLogBurst, opts.Now, opts.LogFull)),
+		now:       opts.Now,
+		started:   opts.Now(),
+		hello:     newRateLimiter(HelloRate, HelloBurst, opts.Now),
+		pair:      newRateLimiter(PairRate, PairBurst, opts.Now),
+		presence:  newPresence(),
+		fetchSlot: make(chan struct{}, 1),
 		timeouts: timeouts{
 			bodyIdle: BodyIdleTimeout,
 			shutdown: ShutdownTimeout,
 			grace:    shutdownGrace,
 		},
 	}
+	s.access = newAccess(opts.Now, opts.Clients, s.presence)
 	name := opts.Identity.DeviceName
 	s.deviceName.Store(&name)
 	// The rejections of the verifier share the sampled logger. The

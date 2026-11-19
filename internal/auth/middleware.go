@@ -88,7 +88,15 @@ type Gate func(r *http.Request, client Client, opts RouteOptions) (*Admission, *
 type Admission struct {
 	Commit   func() *Rejection
 	Rollback func()
+	// Value, when not nil, is passed to the handler in the request
+	// context (AdmissionValue).
+	Value any
 }
+
+type admissionContextKey struct{}
+
+// AdmissionValue returns the Value of the Admission of the request.
+func AdmissionValue(ctx context.Context) any { return ctx.Value(admissionContextKey{}) }
 
 // Route options of the API v1 routes.
 var (
@@ -202,14 +210,19 @@ func (v *Verifier) Require(opts RouteOptions, next http.Handler) http.Handler {
 		panic(fmt.Sprintf("auth: route body limit %d exceeds the body budget %d", opts.BodyLimit, budget))
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		client, reserved, ok := v.verify(w, r, opts)
+		var adm *Admission
+		client, reserved, ok := v.verify(w, r, opts, &adm)
 		if reserved > 0 {
 			defer v.bodyBudget().release(reserved)
 		}
 		if !ok {
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(WithClient(r.Context(), client)))
+		ctx := WithClient(r.Context(), client)
+		if adm != nil && adm.Value != nil {
+			ctx = context.WithValue(ctx, admissionContextKey{}, adm.Value)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -226,7 +239,7 @@ func (v *Verifier) bodyBudget() *byteBudget {
 
 // verify returns the client, the number of budget bytes held for the body
 // (to release once the handler is done) and whether the request is valid.
-func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOptions) (Client, int64, bool) {
+func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOptions, out **Admission) (Client, int64, bool) {
 	log := v.Logger
 	if log == nil {
 		log = slog.Default()
@@ -240,7 +253,14 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	// rejection after the Gate, before the answer is written.
 	var admission *Admission
 	committed := false
+	bodyRead := false // the whole body was read
 	failWith := func(status int, code, message string, details map[string]any) (Client, int64, bool) {
+		if !bodyRead && r.ContentLength != 0 {
+			// Every rejection written while an announced body is unread
+			// closes the connection: otherwise net/http first drains up
+			// to 256 KiB of it to keep the connection alive.
+			w.Header().Set("Connection", "close")
+		}
 		if admission != nil && !committed {
 			committed = true
 			if admission.Rollback != nil {
@@ -320,26 +340,19 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	if v.Gate != nil {
 		adm, rej := v.Gate(r, client, opts)
 		if rej != nil {
-			if r.ContentLength != 0 {
-				// Answer at once: without this net/http first drains up
-				// to 256 KiB of the unread body to keep the connection.
-				w.Header().Set("Connection", "close")
-			}
 			return failWith(rej.Status, rej.Code, rej.Message, rej.Details)
 		}
 		admission = adm
+		*out = adm
 	}
 	// accept commits the admission before the handler runs.
-	accept := func(unread bool) bool {
+	accept := func() bool {
 		if admission == nil || admission.Commit == nil {
 			committed = true
 			return true
 		}
 		if rej := admission.Commit(); rej != nil {
 			// failWith rolls the admission back.
-			if unread && r.ContentLength != 0 {
-				w.Header().Set("Connection", "close")
-			}
 			failWith(rej.Status, rej.Code, rej.Message, rej.Details)
 			return false
 		}
@@ -348,7 +361,7 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	}
 
 	if unsigned {
-		if !accept(true) {
+		if !accept() {
 			return Client{}, 0, false
 		}
 		return client, 0, true
@@ -375,10 +388,11 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	if err != nil {
 		return fail(http.StatusBadRequest, CodeInvalidRequest, "Cannot read body")
 	}
+	bodyRead = true
 	if ContentSHA256(body) != parts.ContentSHA256 {
 		return fail(http.StatusUnauthorized, CodeBadSignature, "Body hash mismatch")
 	}
-	if !accept(false) {
+	if !accept() {
 		return Client{}, reserved, false
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))

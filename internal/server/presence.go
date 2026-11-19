@@ -63,17 +63,16 @@ func (p *presence) seenSince(since time.Time) map[string]time.Time {
 	return out
 }
 
-// markSeen records the authenticated client of a signed route before the
-// handler runs, so the caller of GET /device is in its own list.
+// markSeen marks a signed request as accepted for the access log. Its
+// client was recorded as seen by access.accept before the handler runs,
+// so the caller of GET /device is in its own list.
 func (s *Server) markSeen(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if c, ok := auth.ClientFromContext(r.Context()); ok {
+		if _, ok := auth.ClientFromContext(r.Context()); ok {
 			// A client disconnected while its request was being verified
 			// (or calling POST /clients/me/connect) is not marked seen.
-			// (The write lease is renewed by the gate's commit.)
-			if !s.disconnected.has(c.ID) {
-				s.presence.touch(c.ID, s.now())
-			}
+			// Presence and the lease renewal are recorded by the gate's
+			// commit (access.accept), under the M10 lock.
 			markAccepted(r)
 		}
 		next.ServeHTTP(w, r)

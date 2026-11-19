@@ -179,7 +179,7 @@ func TestReadOnlyClient(t *testing.T) {
 	// The first write of A takes the lease.
 	f.as(f.client, "POST", g+"/save/backups", "/games/{gameId}/save/backups", nil, http.StatusCreated)
 	if w := f.writerOf(f.client); w.Writer == nil || !w.Writer.You || w.Writer.ClientName != "iPhone A" ||
-		!w.Writer.ExpiresAt.Equal(f.clock.Now().Add(auth.WriteLeaseTTL)) {
+		!w.Writer.ExpiresAt.Equal(f.clock.Now().Add(WriteLeaseTTL)) {
 		t.Fatalf("writer for A: %+v", w.Writer)
 	}
 	if w := f.writerOf(b); w.Writer == nil || w.Writer.You || w.Writer.ClientName != "iPhone A" {
@@ -725,5 +725,122 @@ func TestRevocationWhileTheBodyIsRead(t *testing.T) {
 				t.Fatal("the SD card changed")
 			}
 		})
+	}
+}
+
+// waitGate sends the headers of a request of c with its body held back
+// and returns once the gate admitted it.
+func (f *fixture) waitGate(c *testutil.Client, method, target string, body []byte) (net.Conn, *bufio.Reader) {
+	f.t.Helper()
+	reached := f.gateReached()
+	conn, br := f.heldBody(c, method, target, body, false)
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		f.t.Fatal("the gate was not reached")
+	}
+	f.server.gateHook.Store(nil)
+	return conn, br
+}
+
+// Codex round 2, finding 2: a read of the same client while a write waits
+// for its body does not make the write's reservation permanent.
+func TestReadDuringHeldWriteDoesNotKeepTheLease(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	g := gamePath(scPath)
+	signed := []byte("signed body")
+	conn, br := f.waitGate(b, "PUT", g+"/save", signed)
+	f.as(b, "GET", "/api/v1/device", "/device", nil, 200)
+	conn.Write([]byte("forged body")) // same length, wrong hash
+	_, r := readResponse(t, conn, br)
+	wantCode(t, r, auth.CodeBadSignature)
+	if name, held := f.server.WriterName(); held {
+		t.Fatalf("the rejected write left the lease to %q", name)
+	}
+}
+
+// Codex round 2, finding 3: a write admitted before a disconnection is
+// refused even if the client reconnected before its body arrived; one
+// admitted before a forget is refused even after pairing again with the
+// same client id.
+func TestRevokedThenRestoredWhileTheBodyIsRead(t *testing.T) {
+	g := gamePath(scPath)
+	for _, tc := range []struct {
+		name    string
+		restore func(f *fixture, b *testutil.Client)
+		code    string
+	}{
+		{"disconnect then reconnect", func(f *fixture, b *testutil.Client) {
+			f.server.Disconnect(b.ClientID)
+			f.as(b, "POST", "/api/v1/clients/me/connect", "/clients/me/connect", nil, 204)
+		}, CodeDisconnected},
+		{"forget then pair again", func(f *fixture, b *testutil.Client) {
+			stored, _ := f.clients.Lookup(b.ClientID)
+			f.server.Forget(b.ClientID)
+			if err := f.server.access.pair(stored); err != nil {
+				t.Fatal(err)
+			}
+		}, auth.CodeUnknownClient},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			b := f.pairNamed("iPhone B")
+			before := f.snapshot()
+			body := []byte("new save")
+			conn, br := f.waitGate(b, "PUT", g+"/save", body)
+			tc.restore(f, b)
+			conn.Write(body)
+			_, r := readResponse(t, conn, br)
+			f.check("PUT", "/games/{gameId}/save", r)
+			wantCode(t, r, tc.code)
+			if _, held := f.server.WriterName(); held {
+				t.Fatal("the revoked request holds the lease")
+			}
+			if !slices.Equal(before, f.snapshot()) {
+				t.Fatal("the revoked request wrote")
+			}
+			// Its next request is accepted.
+			f.as(b, "PUT", g+"/save", "/games/{gameId}/save", body, 200)
+		})
+	}
+}
+
+// Codex round 2, finding 4: the other pre-body rejections answer while the
+// body is held back too (bad signature, announced size over the limit).
+func TestPreBodyRejectionsDoNotWait(t *testing.T) {
+	f := newFixture(t)
+	g := gamePath(scPath)
+	forger := &testutil.Client{BaseURL: f.http.URL, ClientID: f.client.ClientID, Key: make([]byte, auth.KeySize), Now: f.clock.Now}
+	conn, br := f.heldBody(forger, "PUT", g+"/save", make([]byte, 100<<10), false)
+	resp, r := readResponse(t, conn, br)
+	if r.Status != 401 || r.ErrorCode() != auth.CodeBadSignature || !resp.Close {
+		t.Fatalf("bad signature: %d %s close=%v", r.Status, r.Body, resp.Close)
+	}
+	conn, br = f.heldBody(f.client, "PUT", g+"/cheats", make([]byte, auth.BodyLimitJSON+1), false)
+	resp, r = readResponse(t, conn, br)
+	if r.Status != 413 || !resp.Close {
+		t.Fatalf("too large: %d %s close=%v", r.Status, r.Body, resp.Close)
+	}
+	if _, held := f.server.WriterName(); held {
+		t.Fatal("a rejected write holds the lease")
+	}
+}
+
+// Codex round 2, finding 5: a request admitted before a disconnection does
+// not put the device back among the connected clients.
+func TestDisconnectedWhileTheBodyIsReadStaysOut(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	body := []byte(`{"force":false}`)
+	conn, br := f.waitGate(b, "PUT", "/api/v1/writer", body)
+	f.server.Disconnect(b.ClientID)
+	conn.Write(body)
+	_, r := readResponse(t, conn, br)
+	wantCode(t, r, CodeDisconnected)
+	for _, c := range f.server.ConnectedClients() {
+		if c.ClientName == "iPhone B" {
+			t.Fatal("the disconnected device is listed as connected")
+		}
 	}
 }
