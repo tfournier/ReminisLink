@@ -118,15 +118,18 @@ public final class JobItem: Identifiable {
     public let id: String
     /// What it is, for display (the URL, the file name...).
     public let title: String
+    /// `download` or `patch`, known before the first answer.
+    public let kind: JobKind
     public internal(set) var job: Job?
     /// The last polling error (the job itself goes on).
     public internal(set) var failure: (any Error)?
     /// The device no longer knows the job (the pak was restarted).
     public internal(set) var isLost = false
 
-    init(id: String, title: String) {
+    init(id: String, title: String, kind: JobKind) {
         self.id = id
         self.title = title
+        self.kind = kind
     }
 
     public var isFinished: Bool { isLost || (job?.state.isFinished ?? false) }
@@ -410,9 +413,9 @@ public final class TransferQueue {
 
     /// Follows a job started on the device.
     @discardableResult
-    public func track(jobId: String, title: String) -> JobItem {
+    public func track(jobId: String, title: String, kind: JobKind = .download) -> JobItem {
         if let existing = jobs.first(where: { $0.id == jobId }) { return existing }
-        let item = JobItem(id: jobId, title: title)
+        let item = JobItem(id: jobId, title: title, kind: kind)
         jobs.append(item)
         return item
     }

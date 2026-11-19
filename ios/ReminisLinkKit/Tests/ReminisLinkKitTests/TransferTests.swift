@@ -427,7 +427,8 @@ struct TransferTests {
         #expect(job.state == .succeeded)
         #expect(job.kind == .download)
         #expect(job.progress.fraction == 1)
-        #expect(job.resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/download.bin"))
+        // Named after the URL, as the pak does without Content-Disposition.
+        #expect(job.resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/homebrew.gba"))
         #expect(try await client.jobs().map(\.id) == [accepted.jobId])
     }
 

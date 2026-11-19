@@ -672,7 +672,7 @@ extension FakePak {
         case "cht":
             return .json(200, ["files": sdFileList().map { ["id": $0.id, "path": $0.path, "sizeBytes": Int64($0.text.utf8.count)] }])
         case "patch":
-            return .json(200, ["files": [[String: Any]]()])
+            return .json(200, ["files": sdPatchFiles().map { ["id": $0.id, "path": $0.path, "sizeBytes": Int64($0.bytes.count)] }])
         default:
             return .error(400, code: "invalid_request", message: "Invalid type")
         }

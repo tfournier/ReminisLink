@@ -11,7 +11,8 @@ import ReminisLinkKit
 /// `/uploads` (create, chunks with `Upload-Offset`, status, complete with
 /// the SHA-256 check, cancel), `/downloads` and `/jobs`, and the saves,
 /// states, locks, resume history, cheats and `/sd/files` of milestone M5
-/// (see FakePakGameData.swift).
+/// (see FakePakGameData.swift), and `POST /games/{id}/patch` with
+/// `/sd/files?type=patch` of milestone M6 (see FakePakPatch.swift).
 ///
 /// Uploads keep only a running SHA-256, never the bytes, so large files
 /// cost no memory. Faults can be injected (lost connection before or after
@@ -71,10 +72,13 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     /// Content of completed staging uploads (small files only), by upload
     /// id: what `cheats/import` with `source.type = "upload"` reads.
     var stagedUploads: [String: Data] = [:]
+    /// Staging files by `stagingId` (milestone M6): their name, and their
+    /// bytes when small enough to be kept.
+    var stagedFiles: [String: FakeStagedFile] = [:]
     /// The next `PUT /cheats` finds the file changed on the console (412).
     var _conflictOnNextCheatsSave = false
     private var uploads: [String: FakeUpload] = [:]
-    private var jobs: [String: FakeJob] = [:]
+    var jobs: [String: FakeJob] = [:]
     private var chunkFaults: [ChunkFault] = []
     private var completeFaults = 0
     private var lostCompleteRequests = 0
@@ -366,6 +370,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             guard let freed else { return .error(404, code: "not_found", message: "Trash entry not found") }
             return .json(200, ["freedBytes": freed])
         default:
+            if method == "POST", segments.count == 3, segments[0] == "games", segments[2] == "patch" {
+                return createPatchJob(gameId: segments[1], body: body)
+            }
             if let response = routeGameData(request, method: method, segments: segments, params: params, body: body) {
                 return response
             }
@@ -618,7 +625,7 @@ private struct FakeUpload {
     var bytes: Data?
 }
 
-private struct FakeJob {
+struct FakeJob {
     let id: String
     let kind: String
     var state: String
@@ -630,6 +637,10 @@ private struct FakeJob {
     var error: [String: Any]?
     let target: FakePak.Target
     let fails: Bool
+    /// The downloaded URL (download jobs).
+    var url: String? = nil
+    /// What a patch job does (milestone M6).
+    var patch: FakePatchPlan? = nil
 
     var json: [String: Any] {
         [
@@ -643,7 +654,7 @@ private struct FakeJob {
 
 extension FakePak {
     /// A parsed `target`.
-    fileprivate enum Target {
+    enum Target {
         case rom(system: DemoLibrary.System, folder: String, fileName: String?)
         case save(gameId: String)
         case state(gameId: String, slot: Int)
@@ -717,7 +728,7 @@ extension FakePak {
         }
     }
 
-    fileprivate func gamePath(_ system: DemoLibrary.System, folder: String, name: String) -> String {
+    func gamePath(_ system: DemoLibrary.System, folder: String, name: String) -> String {
         folder.isEmpty ? name : folder + "/" + name
     }
 
@@ -831,6 +842,11 @@ extension FakePak {
                         stagedUploads[stagingId] = bytes
                     }
                 }
+                if case .staging(let name) = upload.target,
+                   let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any],
+                   let stagingId = object["stagingId"] as? String {
+                    stagedFiles[stagingId] = FakeStagedFile(name: name ?? "upload.bin", bytes: upload.bytes)
+                }
                 _freeBytes -= upload.sizeBytes
                 guard completeFaults > 0 else { return false }
                 completeFaults -= 1
@@ -842,7 +858,7 @@ extension FakePak {
     }
 
     /// Writes a received file to its destination (upload or download).
-    fileprivate func store(target: Target, sizeBytes: Int64, onConflict: String, fallbackName: String = "download.bin") -> FakeResponse {
+    func store(target: Target, sizeBytes: Int64, onConflict: String, fallbackName: String = "download.bin") -> FakeResponse {
         switch target {
         case .rom(let system, let folder, let fileName):
             let base = fileName ?? fallbackName
@@ -891,7 +907,7 @@ extension FakePak {
 
     /// Moves a game to the trash and drops it from the library.
     @discardableResult
-    fileprivate func removeGame(system: DemoLibrary.System, game: DemoLibrary.Game, keepSave: Bool, reason: String) -> [String: Any] {
+    func removeGame(system: DemoLibrary.System, game: DemoLibrary.Game, keepSave: Bool, reason: String) -> [String: Any] {
         let files = self.files(system: system, game: game).filter { file in
             let role = file["role"] as? String
             return !(keepSave && (role == "save" || role == "state"))
@@ -942,7 +958,7 @@ extension FakePak {
             id: Self.randomId("job_"), kind: "download", state: "queued", done: 0, total: nil,
             createdAt: now, updatedAt: now, result: nil, error: nil, target: target,
             // A URL whose last path component is "missing" fails (demo and tests).
-            fails: url.lastPathComponent == "missing"
+            fails: url.lastPathComponent == "missing", url: string
         )
         lock.withLock { jobs[job.id] = job }
         _ = string
@@ -955,6 +971,12 @@ extension FakePak {
         let total = downloadSize
         guard var job = lock.withLock({ jobs[id] }) else { return nil }
         let now = Date()
+        if job.patch != nil {
+            advancePatch(&job)
+            job.updatedAt = now
+            lock.withLock { jobs[id] = job }
+            return job.json
+        }
         switch job.state {
         case "queued":
             job.state = "running"
@@ -968,11 +990,19 @@ extension FakePak {
                 var name: String?
                 if case .rom(_, _, let n) = job.target { name = n }
                 if case .staging(let n) = job.target { name = n }
-                let response = store(target: job.target, sizeBytes: total, onConflict: "rename", fallbackName: name ?? "download.bin")
+                let fromURL = job.url.flatMap(URL.init(string:)).map(\.lastPathComponent).flatMap(Self.cleanFileName)
+                let fileName = name ?? fromURL ?? "download.bin"
+                let response = store(target: job.target, sizeBytes: total, onConflict: "rename", fallbackName: fileName)
                 if let result = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any], response.status == 200 {
                     job.state = "succeeded"
                     job.result = result
-                    lock.withLock { _freeBytes -= total }
+                    lock.withLock {
+                        _freeBytes -= total
+                        if let stagingId = result["stagingId"] as? String {
+                            // A download keeps no bytes: only its name.
+                            stagedFiles[stagingId] = FakeStagedFile(name: fileName, bytes: nil)
+                        }
+                    }
                 } else {
                     job.state = "failed"
                     job.error = ["code": "internal", "message": "Store failed", "details": [String: Any]()]
