@@ -226,6 +226,21 @@ func (s *Server) handleCreateDownload(w http.ResponseWriter, r *http.Request) {
 	}{id})
 }
 
+func (s *Server) handlePatchGame(w http.ResponseWriter, r *http.Request) {
+	var req transfer.PatchRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	id, apiErr, err := s.opts.Transfers.StartPatch(r.PathValue("gameId"), req)
+	if apiErr != nil || err != nil {
+		s.transferError(w, r, apiErr, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, struct {
+		JobID string `json:"jobId"`
+	}{id})
+}
+
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, struct {
 		Jobs []transfer.Job `json:"jobs"`

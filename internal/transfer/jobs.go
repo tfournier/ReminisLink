@@ -60,6 +60,10 @@ type Job struct {
 	UpdatedAt time.Time      `json:"updatedAt"`
 	Result    map[string]any `json:"result"`
 	Error     *ErrorBody     `json:"error"`
+	// CancelRequested: DELETE /jobs/{jobId} was received for a running job
+	// that has not stopped yet. The state stays "running" until the real
+	// end: "cancelled" (nothing installed) or "succeeded" (too late).
+	CancelRequested bool `json:"cancelRequested"`
 }
 
 // RunFunc does the work of a job. It reports its progress with report,
@@ -162,7 +166,7 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 		// Even when cancelled too late: the file is installed, say so.
 		j.State = JobSucceeded
 		j.Result = result
-	case j.State == JobCancelled || cancelled:
+	case cancelled:
 		j.State = JobCancelled
 	default:
 		j.State = JobFailed
@@ -258,9 +262,12 @@ func (q *Jobs) Running() bool {
 	return q.running != nil || len(q.queue) > 0
 }
 
-// Cancel cancels a queued or running job and returns it. A running job is
-// waited for (at most CancelWait) so its partial file is gone when Cancel
-// returns. A finished job is returned unchanged.
+// Cancel cancels a queued or running job and returns it in its real state.
+// A queued job is cancelled at once. A running job is asked to stop
+// (CancelRequested) and waited for, at most CancelWait: it stays "running"
+// until it really ends, "cancelled" (partial file deleted, nothing
+// installed) or "succeeded" when the cancel came too late (its file was
+// being installed). A finished job is returned unchanged.
 func (q *Jobs) Cancel(id string) (Job, *Error) {
 	if !jobIDRe.MatchString(id) {
 		return Job{}, newError(http.StatusBadRequest, CodeInvalidID, "Invalid identifier")
@@ -288,7 +295,8 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 		q.mu.Unlock()
 		return out, nil
 	case JobRunning:
-		j.State = JobCancelled
+		// Only requested: the job may still finish (installed).
+		j.CancelRequested = true
 		j.UpdatedAt = q.stamp()
 		j.cancel()
 		q.mu.Unlock()

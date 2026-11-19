@@ -233,8 +233,10 @@ func (s *Server) routes() http.Handler {
 	signed("POST "+Prefix+"/games/{gameId}/cheats/import", auth.RouteJSON, s.handleImportCheats)
 	signed("GET "+Prefix+"/sd/files", auth.RouteJSON, s.handleSDFiles)
 
-	// Routes of the next milestones (patches, M6) register here. Every
-	// signed route besides PUT /save and the upload chunks uses
+	// Patches (a job, like the downloads).
+	signed("POST "+Prefix+"/games/{gameId}/patch", auth.RouteJSON, s.handlePatchGame)
+
+	// Every signed route besides PUT /save and the upload chunks uses
 	// auth.RouteJSON.
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

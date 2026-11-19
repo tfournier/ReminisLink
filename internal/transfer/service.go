@@ -139,6 +139,9 @@ type Service struct {
 	verifyWG     sync.WaitGroup
 	verifySem    chan struct{}
 
+	// rename is os.Rename; tests replace it to simulate failures.
+	rename func(oldpath, newpath string) error
+
 	clientOnce sync.Once
 	client     *http.Client
 	clientErr  error
@@ -169,7 +172,7 @@ func New(opts Options) (*Service, error) {
 	if opts.ChunkSize > MaxChunkSize {
 		opts.ChunkSize = MaxChunkSize
 	}
-	s := &Service{opts: opts, log: opts.Logger, now: opts.Now, rand: rand.Reader, installMu: opts.Lock}
+	s := &Service{opts: opts, log: opts.Logger, now: opts.Now, rand: rand.Reader, installMu: opts.Lock, rename: os.Rename}
 	s.uploads.m = map[string]*upload{}
 	s.jobs = NewJobs(opts.Now)
 	s.verifyCtx, s.verifyCancel = context.WithCancel(context.Background())
@@ -508,9 +511,12 @@ func (s *Service) installROM(d destination, tmp, onConflict string) (map[string]
 // Maintain deletes the expired temporary files at start
 // (docs/specs/05-console-pak.md §2.3): uploads idle for more than
 // UploadIdleExpiry, staging files older than StagingExpiry, partial
-// downloads of a previous run. Call it before LoadUploads.
+// downloads of a previous run. The patch installations a power cut
+// interrupted are finished first. Call it after the trash recovery
+// (store.Trash.Recover) and before LoadUploads.
 func (s *Service) Maintain() error {
-	if err := s.purgeUploads(); err != nil {
+	keep := s.recoverPatches()
+	if err := s.purgeUploads(keep); err != nil {
 		return err
 	}
 	return s.purgeStaging()

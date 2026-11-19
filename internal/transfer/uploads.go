@@ -669,7 +669,9 @@ func (s *Service) loadUpload(id string) (*upload, error) {
 
 // purgeUploads deletes the uploads idle for more than UploadIdleExpiry and
 // the leftovers of a previous run (partial downloads, orphan files).
-func (s *Service) purgeUploads() error {
+// keep are files of uploads/ never deleted (referenced by a patch
+// installation marker).
+func (s *Service) purgeUploads(keep map[string]bool) error {
 	dir := s.opts.Layout.UploadsDir()
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -687,6 +689,9 @@ func (s *Service) purgeUploads() error {
 	}
 	for _, d := range des {
 		name := d.Name()
+		if keep[name] {
+			continue
+		}
 		id := strings.TrimSuffix(strings.TrimSuffix(name, ".tmp"), filepath.Ext(strings.TrimSuffix(name, ".tmp")))
 		if uploadIDRe.MatchString(id) && metas[id] {
 			if name != id+metaExt {

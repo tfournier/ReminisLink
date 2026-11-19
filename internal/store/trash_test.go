@@ -265,3 +265,42 @@ func TestTrashFailedMoveRecountsWhatIsLeft(t *testing.T) {
 		t.Fatalf("entry %+v total %d %v", entries, total, err)
 	}
 }
+
+func TestTrashUndo(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	rom := write(t, sd, "Roms/GBA (GBA)/Game.gba", "rom")
+	sav := write(t, sd, "Saves/GBA/Game.gba.sav", "save")
+	res, err := tr.Move(ReasonReplaceROM, "Game", []MoveItem{{Path: rom}, {Path: sav}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Undo(res.Entry.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(rom) || !exists(sav) {
+		t.Fatal("not put back")
+	}
+	if entries, _, _ := tr.List(); len(entries) != 0 {
+		t.Fatalf("entry kept: %+v", entries)
+	}
+	if err := tr.Undo(res.Entry.ID); !errors.Is(err, ErrTrashNotFound) {
+		t.Fatalf("again: %v", err)
+	}
+	if err := tr.Undo("../x"); !errors.Is(err, ErrInvalidTrashID) {
+		t.Fatalf("bad id: %v", err)
+	}
+
+	// A place taken: that file stays in the entry, the other goes back.
+	res, err = tr.Move(ReasonReplaceROM, "Game", []MoveItem{{Path: rom}, {Path: sav}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, sd, "Roms/GBA (GBA)/Game.gba", "new rom")
+	if err := tr.Undo(res.Entry.ID); !errors.Is(err, ErrNotPutBack) {
+		t.Fatalf("taken: %v", err)
+	}
+	entries, _, _ := tr.List()
+	if !exists(sav) || len(entries) != 1 || len(entries[0].Files) != 1 || entries[0].Files[0] != "Roms/GBA (GBA)/Game.gba" {
+		t.Fatalf("left: %+v", entries)
+	}
+}

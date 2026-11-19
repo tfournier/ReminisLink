@@ -342,3 +342,25 @@ func TestClockFile(t *testing.T) {
 		t.Fatalf("trash: %+v", entries)
 	}
 }
+
+func TestBackupLocked(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	old := e.read("Saves/GBA/Starlight Courier.gba.sav")
+	b, err := e.svc.BackupLocked(g, ReasonBeforePatch)
+	if err != nil || b == nil || b.Reason != ReasonBeforePatch || b.Label != nil {
+		t.Fatalf("backup: %+v %v", b, err)
+	}
+	if e.read(backupsDir+b.ID+".sav") != old {
+		t.Fatal("copy content")
+	}
+	// No save: nothing to back up.
+	if b, err := e.svc.BackupLocked(e.game("Lantern Keeper [b1].gba"), ReasonBeforePatch); err != nil || b != nil {
+		t.Fatalf("no save: %+v %v", b, err)
+	}
+	for _, reason := range []string{ReasonManual, "other"} {
+		if _, err := e.svc.BackupLocked(g, reason); err == nil {
+			t.Errorf("reason %q accepted", reason)
+		}
+	}
+}
