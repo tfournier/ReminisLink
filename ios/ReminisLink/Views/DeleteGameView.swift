@@ -32,9 +32,10 @@ struct DeleteGameView: View {
     @State private var preview: DeletionPreview?
     @State private var previewError: AppError?
 
-    private var hasSaveData: Bool {
-        detail?.files.contains { GameDetail.isKeptWithSave($0.role) } ?? false
-    }
+    /// The Keep option is offered when the pak would keep something with
+    /// it (a save, a state, a lock, a resume history...), read from its
+    /// preview; once offered, it stays while the option changes.
+    @State private var hasSaveData = false
 
     var body: some View {
         NavigationStack {
@@ -214,6 +215,7 @@ struct DeleteGameView: View {
             }
             guard keepSave == self.keepSave, !Task.isCancelled else { return }
             self.preview = preview
+            if preview.hasDataKeptWithSave(keepSave: keepSave) { hasSaveData = true }
         } catch {
             let error = AppError(error)
             if !error.isCancellation && keepSave == self.keepSave { previewError = error }

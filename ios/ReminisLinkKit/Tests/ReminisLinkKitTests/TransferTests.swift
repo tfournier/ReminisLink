@@ -431,6 +431,21 @@ struct TransferTests {
         await #expect(throws: APIError.self) { try await client.deletionPreview(gameId: gameId, keepSave: false) }
     }
 
+    /// The Keep option is offered when only a lock or a resume history is
+    /// left (no save, no state): the pak keeps them with `keepSave`.
+    @Test func keepSaveIsOfferedForTheCopiesOfThePakToo() {
+        let rom = DeletionItem(name: "a.gba", role: .rom, size: 1)
+        let lock = DeletionItem(name: "ReminisLink/locks/GBA/a.gba.st1", role: .other, size: 1)
+        let bak = DeletionItem(name: "Cheats/GBA/a.gba.cht.bak", role: .other, size: 1)
+        #expect(DeletionPreview(moved: [rom, lock], kept: [], movedBytes: 2).hasDataKeptWithSave(keepSave: false))
+        #expect(!DeletionPreview(moved: [rom, bak], kept: [], movedBytes: 2).hasDataKeptWithSave(keepSave: false))
+        #expect(DeletionPreview(moved: [rom], kept: [lock], movedBytes: 1).hasDataKeptWithSave(keepSave: true))
+        for role in [GameFileRole.save, .rtc, .state] {
+            #expect(DeletionPreview(moved: [rom, DeletionItem(name: "x", role: role, size: 1)], kept: [], movedBytes: 2)
+                .hasDataKeptWithSave(keepSave: false))
+        }
+    }
+
     @Test func deletionPreviewDecodesTheContractExample() throws {
         let data = Data(#"{"moved":[{"name":"Sky Garden Quest.gba","role":"rom","size":16777216},{"name":"ReminisLink/locks/x","role":"other","size":10}],"kept":[{"name":"Discs/CD1.chd","role":"rom","size":5}],"movedBytes":16777226}"#.utf8)
         let preview = try ProtocolJSON.decoder().decode(DeletionPreview.self, from: data)

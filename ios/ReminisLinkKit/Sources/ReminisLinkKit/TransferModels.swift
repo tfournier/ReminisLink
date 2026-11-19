@@ -285,6 +285,15 @@ public struct DeletionPreview: Codable, Sendable, Equatable {
     public static func isPakCopy(_ item: DeletionItem) -> Bool {
         item.role == .other && item.name.hasPrefix("ReminisLink/")
     }
+
+    /// Whether `keepSave` would keep something: read from a preview made
+    /// with that option, any save, clock file, state or copy of the pak
+    /// (locks, resume history) moved without it, or kept with it.
+    public func hasDataKeptWithSave(keepSave: Bool) -> Bool {
+        (keepSave ? kept : moved).contains { item in
+            item.role == .save || item.role == .rtc || item.role == .state || Self.isPakCopy(item)
+        }
+    }
 }
 
 public struct TrashMoveResult: Codable, Sendable, Equatable {
