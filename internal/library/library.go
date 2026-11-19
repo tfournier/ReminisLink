@@ -1,6 +1,7 @@
 package library
 
 import (
+	"container/heap"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -420,7 +421,8 @@ type AllGames struct {
 // without emulator), subfolders included, with the rules of ListGames,
 // sorted by system folder then by path (case-insensitive). At most limit
 // games are returned; Truncated tells there were more. Each system is
-// walked once (WalkSummaries); it stops with ctx.Err() when ctx is done.
+// walked once (WalkSummaries), keeping only the games that can still be
+// returned; it stops with ctx.Err() when ctx is done.
 func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 	out := AllGames{Games: []LibraryGame{}}
 	systems, err := l.adapter.Systems()
@@ -432,28 +434,36 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 		if err := ctx.Err(); err != nil {
 			return AllGames{}, err
 		}
-		type found struct {
-			folder string
-			g      osadapter.GameSummary
-		}
-		var games []found
-		if err := l.adapter.WalkSummaries(ctx, sys, func(folder string, g osadapter.GameSummary) error {
-			games = append(games, found{folder, g})
+		room := limit - len(out.Games)
+		// The room+1 first games of the system in the final order: one
+		// more than room tells the list is truncated.
+		kept := &gameHeap{}
+		err := l.adapter.WalkSummaries(ctx, sys, func(folder string, g osadapter.GameSummary) error {
+			kept.offer(foundGame{folder, g}, room+1)
+			if room <= 0 {
+				return errEnough // only whether one more game exists
+			}
 			return nil
-		}); err != nil {
+		})
+		if err != nil && !errors.Is(err, errEnough) {
 			return AllGames{}, err
 		}
+		if err := ctx.Err(); err != nil {
+			return AllGames{}, err
+		}
+		games := kept.sorted()
+		if len(games) > room {
+			games, out.Truncated = games[:room], true
+		}
 		if len(games) == 0 {
+			if out.Truncated {
+				return out, nil
+			}
 			continue
 		}
-		sort.Slice(games, func(i, j int) bool { return lessFold(games[i].g.Path, games[j].g.Path) })
 		locks := l.lockedSlots(sys)
 		systemID := EncodeID(sys.Folder)
 		for _, f := range games {
-			if len(out.Games) >= limit {
-				out.Truncated = true
-				return out, nil
-			}
 			lg := LibraryGame{Game: apiGame(f.g, locks), SystemID: systemID}
 			if sub, ok := strings.CutPrefix(f.folder, sys.Folder+"/"); ok {
 				id := EncodeID(f.folder)
@@ -461,8 +471,57 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 			}
 			out.Games = append(out.Games, lg)
 		}
+		if out.Truncated {
+			return out, nil
+		}
 	}
 	return out, nil
+}
+
+// errEnough stops a walk that found all it needs.
+var errEnough = errors.New("enough games")
+
+// foundGame is a game met by AllGames, with the folder that holds it.
+type foundGame struct {
+	folder string
+	g      osadapter.GameSummary
+}
+
+// gameHeap keeps the first games by path (lessFold): a max-heap whose
+// root is the last game kept, so memory stays bounded by what can be
+// returned however large the system is.
+type gameHeap []foundGame
+
+func (h gameHeap) Len() int           { return len(h) }
+func (h gameHeap) Less(i, j int) bool { return lessFold(h[j].g.Path, h[i].g.Path) }
+func (h gameHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *gameHeap) Push(x any)        { *h = append(*h, x.(foundGame)) }
+func (h *gameHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
+}
+
+// offer keeps g if it is among the n first games met so far.
+func (h *gameHeap) offer(g foundGame, n int) {
+	switch {
+	case n <= 0:
+	case h.Len() < n:
+		heap.Push(h, g)
+	case lessFold(g.g.Path, (*h)[0].g.Path):
+		(*h)[0] = g
+		heap.Fix(h, 0)
+	}
+}
+
+// sorted returns the games kept in order (and empties the heap).
+func (h *gameHeap) sorted() []foundGame {
+	out := make([]foundGame, h.Len())
+	for i := len(out) - 1; i >= 0; i-- {
+		out[i] = heap.Pop(h).(foundGame)
+	}
+	return out
 }
 
 // lessFold orders case-insensitively, then by the exact bytes.
