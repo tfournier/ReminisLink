@@ -65,7 +65,7 @@ var (
 	// emuExeRe is the core line of an emulator pak launch.sh.
 	emuExeRe = regexp.MustCompile(`^\s*EMU_EXE=["']?([A-Za-z0-9_.+-]+)["']?\s*$`)
 	// formatRe reads saveFormat=N and stateFormat=N of minuisettings.txt.
-	formatRe = regexp.MustCompile(`^\s*(saveFormat|stateFormat)\s*=\s*(-?\d+)\s*$`)
+	formatRe = regexp.MustCompile(`^\s*(saveFormat|stateFormat|useExtractedFileName)\s*=\s*(-?\d+)\s*$`)
 )
 
 // ignoredExt are the files of a ROM folder that are not games (Cheat
@@ -622,68 +622,163 @@ func (a *Adapter) statesDir(tag string) string {
 	return found
 }
 
-// formats reads saveFormat and stateFormat in minuisettings.txt (0, the
-// NextUI default, when absent).
-func (a *Adapter) formats() (save, state int) {
+// settings are the format settings of minuisettings.txt.
+type settings struct {
+	save, state int
+	extracted   bool // useExtractedFileName=1
+}
+
+// formats reads saveFormat, stateFormat and useExtractedFileName in
+// minuisettings.txt (0, the NextUI defaults, when absent).
+func (a *Adapter) formats() settings {
+	var out settings
 	f, err := os.Open(filepath.Join(a.roots.States, SettingsFileName))
 	if err != nil {
-		return 0, 0
+		return out
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(io.LimitReader(f, maxPakScriptBytes))
 	for sc.Scan() {
 		if m := formatRe.FindStringSubmatch(strings.TrimRight(sc.Text(), "\r")); m != nil {
 			n, _ := strconv.Atoi(m[2])
-			if m[1] == "saveFormat" {
-				save = n
-			} else {
-				state = n
+			switch m[1] {
+			case "saveFormat":
+				out.save = n
+			case "stateFormat":
+				out.state = n
+			default:
+				out.extracted = n == 1
 			}
 		}
 	}
-	return save, state
+	return out
+}
+
+// checkExtracted refuses a zipped game when useExtractedFileName=1: minarch
+// then names its save and states after the file inside the zip (when the
+// core does not read zips), which the adapter cannot know.
+func checkExtracted(st settings, g osadapter.Game) error {
+	if st.extracted && fold(filepath.Ext(g.ROMName)) == ".zip" {
+		return fmt.Errorf("%w: useExtractedFileName=1 in %s names the data of a .zip game after its extracted file",
+			osadapter.ErrUnsupportedFormat, SettingsFileName)
+	}
+	return nil
 }
 
 // CheckSaveFormat accepts the default saveFormat (0: <ROM file>.sav).
-// The other formats (.srm, compressed or not, and <name>.sav) are refused.
-func (a *Adapter) CheckSaveFormat() error {
-	if save, _ := a.formats(); save != 0 {
-		return fmt.Errorf("%w: saveFormat=%d in %s", osadapter.ErrUnsupportedFormat, save, SettingsFileName)
+// The other formats (.srm, compressed or not, and <name>.sav) are refused,
+// and so is a zipped game with useExtractedFileName=1.
+func (a *Adapter) CheckSaveFormat(g osadapter.Game) error {
+	st := a.formats()
+	if st.save != 0 {
+		return fmt.Errorf("%w: saveFormat=%d in %s", osadapter.ErrUnsupportedFormat, st.save, SettingsFileName)
 	}
-	return nil
+	return checkExtracted(st, g)
 }
 
 // CheckStateFormat accepts the default stateFormat (0: <ROM file>.st<N>).
-// The other formats (.state.<N>, .state<N>, .state.auto) are refused.
-func (a *Adapter) CheckStateFormat() error {
-	if _, state := a.formats(); state != 0 {
-		return fmt.Errorf("%w: stateFormat=%d in %s", osadapter.ErrUnsupportedFormat, state, SettingsFileName)
+// The other formats (.state.<N>, .state<N>, .state.auto) are refused, and
+// so is a zipped game with useExtractedFileName=1.
+func (a *Adapter) CheckStateFormat(g osadapter.Game) error {
+	st := a.formats()
+	if st.state != 0 {
+		return fmt.Errorf("%w: stateFormat=%d in %s", osadapter.ErrUnsupportedFormat, st.state, SettingsFileName)
 	}
-	return nil
+	return checkExtracted(st, g)
 }
 
-// StateFiles lists the states of the state folder of every tag (the
-// <TAG>-<core> folders of the shared userdata used by the current core of
-// their tag; the folders of other cores are ignored).
+// StateSideFiles are <shared>/.minui/<TAG>/<ROM file name>.<slot>.bmp
+// (thumbnail) and .<slot>.txt (disc of a multi-disc state).
+func (a *Adapter) StateSideFiles(g osadapter.Game, slot int) []string {
+	base := filepath.Join(a.roots.Minui, g.System.Tag, g.ROMName+"."+strconv.Itoa(slot))
+	return []string{base + ".bmp", base + ".txt"}
+}
+
+// stateSideRe matches the side files of the states of a ROM in .minui/<TAG>:
+// "<rom>.<N>.bmp", "<rom>.<N>.txt" and "<rom>.txt" (last slot used).
+var stateSideRe = regexp.MustCompile(`^(.+?)(\.\d{1,2}\.(bmp|txt)|\.txt)$`)
+
+// GameExists looks for a regular file named romName (ignoring case) in the
+// system folders of the tag, subfolders included (a .m3u inside a
+// multi-disc folder too). Hidden entries and links are skipped.
+func (a *Adapter) GameExists(tag, romName string) bool {
+	want := fold(romName)
+	for _, e := range readNames(a.roots.Roms) {
+		sys, ok := parseSystem(e.Name())
+		if !ok || !e.IsDir() || sys.Tag != tag {
+			continue
+		}
+		root := filepath.Join(a.roots.Roms, e.Name())
+		found := false
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || found {
+				return filepath.SkipDir
+			}
+			if p != root && hidden(d.Name()) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if d.IsDir() {
+				if rel, _ := filepath.Rel(root, p); strings.Count(filepath.ToSlash(rel), "/") >= MaxFolderDepth {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if d.Type().IsRegular() && fold(d.Name()) == want {
+				found = true
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if found {
+			return true
+		}
+	}
+	return false
+}
+
+// stateTags returns the tags whose states may exist: the tags of the
+// system folders and of the emulator paks.
+func (a *Adapter) stateTags() []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(tag string) {
+		if validTag(tag) && !seen[tag] {
+			seen[tag] = true
+			out = append(out, tag)
+		}
+	}
+	for _, e := range readNames(a.roots.Roms) {
+		if sys, ok := parseSystem(e.Name()); ok && e.IsDir() {
+			add(sys.Tag)
+		}
+	}
+	for _, dir := range []string{a.roots.Emus, filepath.Join(a.roots.System, "paks", "Emus")} {
+		for _, e := range readNames(dir) {
+			if tag, ok := strings.CutSuffix(e.Name(), ".pak"); ok && e.IsDir() {
+				add(tag)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// StateFiles lists the states of the state folder of every known tag (the
+// tags of the system folders and of the emulator paks), found with the
+// core of the tag's emulator pak: the folders of other cores are ignored,
+// and a core name is never guessed from a folder name.
 func (a *Adapter) StateFiles() ([]osadapter.StateRef, error) {
-	des, err := os.ReadDir(a.roots.States)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("list states: %w", withoutPath(err))
-	}
 	var out []osadapter.StateRef
-	for _, d := range des {
-		i := strings.LastIndex(d.Name(), "-")
-		if !d.IsDir() || hidden(d.Name()) || i <= 0 {
+	seen := map[string]bool{}
+	for _, tag := range a.stateTags() {
+		dir := a.statesDir(tag)
+		if dir == "" || seen[dir] {
 			continue
 		}
-		tag := d.Name()[:i]
-		dir := filepath.Join(a.roots.States, d.Name())
-		if !validTag(tag) || a.statesDir(tag) != dir {
-			continue
-		}
+		seen[dir] = true
 		for _, e := range readNames(dir) {
 			if !e.Type().IsRegular() {
 				continue
@@ -716,7 +811,7 @@ func (a *Adapter) StateThumbnailPath(g osadapter.Game, slot int) string {
 // off in game. With a non-default stateFormat the resume state is a
 // ".state.auto" file the adapter does not handle: no resume slot.
 func (a *Adapter) ResumeSlot() (int, bool) {
-	if a.CheckStateFormat() != nil {
+	if a.formats().state != 0 {
 		return 0, false
 	}
 	return ResumeSlot, true
@@ -769,6 +864,16 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 		return files, fmt.Errorf("game files: unknown kind %q", g.Kind)
 	}
 	files.Save = a.findFold(filepath.Join(a.roots.Saves, g.System.Tag), g.ROMName+".sav")
+	files.RTC = a.findFold(filepath.Join(a.roots.Saves, g.System.Tag), g.ROMName+".rtc")
+	for _, e := range readNames(filepath.Join(a.roots.Minui, g.System.Tag)) {
+		m := stateSideRe.FindStringSubmatch(e.Name())
+		if m == nil || !e.Type().IsRegular() || fold(m[1]) != fold(g.ROMName) {
+			continue
+		}
+		if f, err := a.fileAt(filepath.Join(a.roots.Minui, g.System.Tag, e.Name())); err == nil {
+			files.StateSide = append(files.StateSide, f)
+		}
+	}
 	files.Cheats = a.findFold(filepath.Join(a.roots.Cheats, g.System.Tag), g.ROMName+".cht")
 	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), g.Name+".png")
 	statesDir := a.statesDir(g.System.Tag)

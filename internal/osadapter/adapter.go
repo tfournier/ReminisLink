@@ -113,11 +113,16 @@ type StateRef struct {
 
 // GameFiles are all the files of a game. Missing ones are nil or empty.
 type GameFiles struct {
-	ROM    []File // the ROM, or the .m3u and its discs
-	Save   *File
+	ROM  []File // the ROM, or the .m3u and its discs
+	Save *File
+	// RTC is the clock file written with the save (NextUI: .rtc).
+	RTC    *File
 	States []StateFile // sorted by slot
 	Cheats *File
 	Art    *File
+	// StateSide are the OS files tied to the states (thumbnails, discs of
+	// multi-disc states, last slot used). Not listed by the API.
+	StateSide []File
 }
 
 // Battery is the battery state.
@@ -182,10 +187,18 @@ type Adapter interface {
 	// when there is none, or the state format is not supported).
 	ResumeSlot() (slot int, ok bool)
 	// CheckSaveFormat and CheckStateFormat return an error wrapping
-	// ErrUnsupportedFormat when the OS settings use save or state files
-	// the adapter does not name.
-	CheckSaveFormat() error
-	CheckStateFormat() error
+	// ErrUnsupportedFormat when the OS settings make the save or the states
+	// of g files the adapter does not name (a non-default format, or a
+	// zipped game named after its extracted file). g may hold only its tag
+	// and ROM file name.
+	CheckSaveFormat(g Game) error
+	CheckStateFormat(g Game) error
+	// StateSideFiles are the OS files tied to a state slot (thumbnail,
+	// disc of a multi-disc state), existing or not.
+	StateSideFiles(g Game, slot int) []string
+	// GameExists reports whether a game with this ROM file name exists in
+	// a system folder of this tag (names compared ignoring case).
+	GameExists(tag, romName string) bool
 	CheatPath(g Game) string
 	ArtPath(g Game) string
 

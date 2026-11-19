@@ -91,22 +91,72 @@ func TestStateFolders(t *testing.T) {
 // handled.
 func TestFormats(t *testing.T) {
 	a, sd := newAdapter(t)
-	if a.CheckSaveFormat() != nil || a.CheckStateFormat() != nil {
+	g := osadapter.Game{System: osadapter.System{Tag: "GBA"}, ROMName: "Game.gba"}
+	zip := osadapter.Game{System: osadapter.System{Tag: "GBA"}, ROMName: "Game.ZIP"}
+	if a.CheckSaveFormat(g) != nil || a.CheckStateFormat(g) != nil || a.CheckSaveFormat(zip) != nil {
 		t.Fatal("default formats refused")
 	}
 	testutil.WriteFile(t, sd, ".userdata/shared/minuisettings.txt", "saveFormat=1\r\nstateFormat=3\r\n")
-	if err := a.CheckSaveFormat(); !errors.Is(err, osadapter.ErrUnsupportedFormat) || !strings.Contains(err.Error(), "saveFormat=1") {
+	if err := a.CheckSaveFormat(g); !errors.Is(err, osadapter.ErrUnsupportedFormat) || !strings.Contains(err.Error(), "saveFormat=1") {
 		t.Errorf("save format: %v", err)
 	}
-	if err := a.CheckStateFormat(); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
+	if err := a.CheckStateFormat(g); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
 		t.Errorf("state format: %v", err)
 	}
 	if _, ok := a.ResumeSlot(); ok {
 		t.Error("resume slot with a .state.auto format")
 	}
+	// useExtractedFileName=1: only the zipped games are refused.
+	testutil.WriteFile(t, sd, ".userdata/shared/minuisettings.txt", "useExtractedFileName=1\n")
+	if a.CheckSaveFormat(g) != nil || a.CheckStateFormat(g) != nil {
+		t.Error("useExtractedFileName refuses a plain ROM")
+	}
+	for _, check := range []func(osadapter.Game) error{a.CheckSaveFormat, a.CheckStateFormat} {
+		if err := check(zip); !errors.Is(err, osadapter.ErrUnsupportedFormat) || !strings.Contains(err.Error(), "useExtractedFileName=1") {
+			t.Errorf("zip with useExtractedFileName: %v", err)
+		}
+	}
 	os.Remove(filepath.Join(sd, ".userdata", "shared", "minuisettings.txt"))
-	if a.CheckSaveFormat() != nil || a.CheckStateFormat() != nil {
+	if a.CheckSaveFormat(g) != nil || a.CheckStateFormat(zip) != nil {
 		t.Error("no settings file: defaults")
+	}
+}
+
+func TestSideFilesAndGameExists(t *testing.T) {
+	a, sd := newAdapter(t)
+	testutil.WriteFile(t, sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock")
+	testutil.WriteFile(t, sd, ".userdata/shared/.minui/GBA/Starlight Courier.gba.0.txt", "disc")
+	testutil.WriteFile(t, sd, ".userdata/shared/.minui/GBA/Starlight Courier.gba.txt", "0")
+	testutil.WriteFile(t, sd, ".userdata/shared/.minui/GBA/Starlight Courier Remix.gba.1.bmp", "other game")
+	g, _ := a.Game(gba + "/Starlight Courier.gba")
+	files, err := a.GameFiles(g)
+	if err != nil || files.RTC == nil || files.RTC.Rel != "Saves/GBA/Starlight Courier.gba.rtc" {
+		t.Fatalf("rtc: %+v %v", files.RTC, err)
+	}
+	var side []string
+	for _, f := range files.StateSide {
+		side = append(side, filepath.Base(f.Path))
+	}
+	if want := []string{"Starlight Courier.gba.0.bmp", "Starlight Courier.gba.0.txt", "Starlight Courier.gba.txt"}; !reflect.DeepEqual(side, want) {
+		t.Errorf("side files %q", side)
+	}
+	if got := a.StateSideFiles(g, 3); len(got) != 2 || filepath.Base(got[0]) != "Starlight Courier.gba.3.bmp" || filepath.Base(got[1]) != "Starlight Courier.gba.3.txt" {
+		t.Errorf("StateSideFiles %q", got)
+	}
+	for _, c := range []struct {
+		tag, rom string
+		want     bool
+	}{
+		{"GBA", "starlight courier.gba", true},
+		{"GBA", "Tiny Trial.gba", true},   // two levels down
+		{"PS", "Mossy Hollow.m3u", true},  // inside its multi-disc folder
+		{"MGBA", "Tiny Trial.gba", false}, // another tag
+		{"GBA", "Gone Game.gba", false},
+		{"GBA", ".hidden.gba", false},
+	} {
+		if got := a.GameExists(c.tag, c.rom); got != c.want {
+			t.Errorf("GameExists(%s, %s) = %v", c.tag, c.rom, got)
+		}
 	}
 }
 
