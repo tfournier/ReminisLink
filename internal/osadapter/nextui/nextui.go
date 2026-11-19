@@ -1053,6 +1053,40 @@ func (a *Adapter) SharedFiles(g osadapter.Game) map[string]bool {
 	return out
 }
 
+// dirFold returns dir, under root, with each folder name spelled as on
+// the card (matched ignoring case, an exact match preferred), or "" when
+// a folder does not exist.
+func (a *Adapter) dirFold(root, dir string) string {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." {
+		return root
+	}
+	if !filepath.IsLocal(rel) {
+		return ""
+	}
+	cur := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		found := ""
+		for _, e := range readNames(cur) {
+			if !e.IsDir() || isSymlink(e) {
+				continue
+			}
+			if e.Name() == part {
+				found = part
+				break
+			}
+			if found == "" && fold(e.Name()) == fold(part) {
+				found = e.Name()
+			}
+		}
+		if found == "" {
+			return ""
+		}
+		cur = filepath.Join(cur, found)
+	}
+	return cur
+}
+
 // cueFileRe matches a FILE line of a .cue sheet: FILE "name" TYPE, or an
 // unquoted name.
 var cueFileRe = regexp.MustCompile(`(?i)^\s*FILE\s+(?:"([^"]+)"|(\S+))`)
@@ -1101,7 +1135,13 @@ func (a *Adapter) m3uDiscs(g osadapter.Game, m3uPath string, listed map[string][
 		if !strings.HasPrefix(full, sysDir+string(filepath.Separator)) {
 			continue
 		}
-		dir, name := filepath.Dir(full), filepath.Base(full)
+		// The folders take the case they have on the card (exFAT ignores
+		// case: "discs/CD1.chd" opens "Discs/CD1.chd"), so the paths
+		// compare with those of the card (Codex review of M8).
+		dir, name := a.dirFold(sysDir, filepath.Dir(full)), filepath.Base(full)
+		if dir == "" {
+			continue
+		}
 		entries, ok := listed[dir]
 		if !ok {
 			entries = readNames(dir)

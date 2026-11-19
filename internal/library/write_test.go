@@ -248,3 +248,28 @@ func TestPreviewDeletionIsWhatDeleteMoves(t *testing.T) {
 		}
 	}
 }
+
+// Codex review of M8: the other playlist spells a folder with another case
+// (exFAT opens it anyway); the nested shared disc is still kept.
+func TestDeleteFolderGameKeepsASharedDiscSpelledInAnotherCase(t *testing.T) {
+	l, sd := newLibrary(t)
+	tr := store.NewTrash(store.Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, nil, nil)
+	ps := filepath.Join(sd, "Roms", "Sony PlayStation (PS)")
+	testutil.WriteFile(t, ps, "Deep Run/Deep Run.m3u", "Discs/CD1.chd\nDiscs/CD2.chd\n")
+	testutil.WriteFile(t, ps, "Deep Run/Discs/CD1.chd", "cd1")
+	testutil.WriteFile(t, ps, "Deep Run/Discs/CD2.chd", "cd2")
+	testutil.WriteFile(t, ps, "Deep Run Remix.m3u", "deep run/discs/CD1.chd\n")
+	p, err := l.PreviewDeletion(EncodeID("Sony PlayStation (PS)/Deep Run"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Kept) != 1 || p.Kept[0].Name != "Deep Run/Discs/CD1.chd" {
+		t.Fatalf("kept %+v", p.Kept)
+	}
+	if _, err := l.DeleteGame(EncodeID("Sony PlayStation (PS)/Deep Run"), false, tr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ps, "Deep Run", "Discs", "CD1.chd")); err != nil {
+		t.Fatal("shared disc spelled in another case moved")
+	}
+}
