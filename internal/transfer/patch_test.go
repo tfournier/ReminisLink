@@ -2,6 +2,9 @@ package transfer
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"hash/crc32"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -11,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/library"
+	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
 
@@ -90,7 +94,8 @@ func TestPatchNewFile(t *testing.T) {
 	if j.State != JobSucceeded || j.Kind != JobPatch || j.Result["gameId"] != gameID(want) {
 		t.Fatalf("job: %+v %+v", j, j.Error)
 	}
-	if j.Progress.Total == nil || *j.Progress.Total != int64(len(tgt)) || j.Progress.Done != int64(len(tgt)) {
+	// The progress counts the checksums read before writing (BPS): patch, ROM, target.
+	if work := int64(len(testutil.EncodeBPS(src, tgt)) - 4 + len(src) + len(tgt)); j.Progress.Total == nil || *j.Progress.Total != work || j.Progress.Done != work || j.Result["verified"] != true {
 		t.Fatalf("progress: %+v", j.Progress)
 	}
 	if e.read("Roms/"+want) != string(tgt) || e.read("Roms/"+courier) != string(src) {
@@ -177,7 +182,8 @@ func TestPatchWrongSource(t *testing.T) {
 	other[100] ^= 1
 	for _, mode := range []string{OutputNewFile, OutputReplace} {
 		j := e.patchJob(courier, stagingPatch(e.stage("hack.bps", testutil.EncodeBPS(other, tgt))), &PatchOutput{Mode: ptr(mode)})
-		if j.State != JobFailed || j.Error.Code != CodePatchMismatch || j.Error.Details["reason"] != "source-mismatch" {
+		if j.State != JobFailed || j.Error.Code != CodePatchMismatch || j.Error.Details["reason"] != "source-mismatch" ||
+			j.Error.Details["expectedCrc32"] != fmt.Sprintf("%08x", crc32.ChecksumIEEE(other)) || j.Error.Details["actualCrc32"] != fmt.Sprintf("%08x", crc32.ChecksumIEEE(src)) {
 			t.Fatalf("%s: %+v %+v", mode, j, j.Error)
 		}
 	}
@@ -399,5 +405,163 @@ func TestPatchPowerCut(t *testing.T) {
 	}
 	if e.read("Roms/"+courier) != string(src) {
 		t.Fatal("ROM")
+	}
+}
+
+func TestPatchOutputExtension(t *testing.T) {
+	e := newEnv(t)
+	src, tgt := e.patchFixture(2048)
+	st := e.stage("hack.bps", testutil.EncodeBPS(src, tgt))
+	for _, name := range []string{"Hack.zip", "Hack.bps", "Hack.nes", "Hack v1.2"} {
+		_, apiErr, _ := e.svc.StartPatch(gameID(courier), PatchRequest{Patch: stagingPatch(st), Output: &PatchOutput{FileName: ptr(name)}})
+		if apiErr == nil || apiErr.Code != CodeInvalidName {
+			t.Errorf("%q: %v", name, apiErr)
+		}
+	}
+	for name, want := range map[string]string{"Hack": "Hack.gba", "Other.GBA": "Other.GBA", "Game (v1.1)": "Game (v1.1).gba"} {
+		j := e.patchJob(courier, stagingPatch(st), &PatchOutput{FileName: ptr(name)})
+		if j.State != JobSucceeded || j.Result["gameId"] != gameID(gbaSystem+"/"+want) {
+			t.Errorf("%q: %+v %+v", name, j, j.Error)
+		}
+	}
+}
+
+func TestPatchRenameFailurePutsTheROMBack(t *testing.T) {
+	e := newEnv(t)
+	src, tgt := e.patchFixture(8192)
+	st := e.stage("hack.bps", testutil.EncodeBPS(src, tgt))
+	e.svc.rename = func(string, string) error { return errors.New("simulated rename failure") }
+	j := e.patchJob(courier, stagingPatch(st), &PatchOutput{Mode: ptr(OutputReplace)})
+	if j.State != JobFailed || j.Error.Code != CodeInternal {
+		t.Fatalf("%+v %+v", j, j.Error)
+	}
+	if e.read("Roms/"+courier) != string(src) {
+		t.Fatal("ROM not put back")
+	}
+	if entries, _, _ := e.trash.List(); len(entries) != 0 {
+		t.Fatalf("trash entry kept: %+v", entries)
+	}
+	if des, _ := os.ReadDir(e.layout.UploadsDir()); len(des) != 0 {
+		for _, d := range des {
+			if strings.HasPrefix(d.Name(), "pt_") {
+				t.Errorf("left: %s", d.Name())
+			}
+		}
+	}
+}
+
+// interruptedReplace leaves the card as a power cut during a replace
+// would: the marker written, the ROM moved to the trash (when moved), the
+// patched file present (when written).
+func (e *env) interruptedReplace(patched []byte, moved, withTemp bool) (tmp, marker string) {
+	e.t.Helper()
+	dir := e.layout.UploadsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	tmp = filepath.Join(dir, "pt_00112233445566778899aabb.part")
+	if withTemp {
+		if err := os.WriteFile(tmp, patched, 0o644); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	p := patchPending{Version: 1, Temp: filepath.Base(tmp), Dest: "Roms/" + courier, Size: int64(len(patched)), CRC32: crc32.ChecksumIEEE(patched)}
+	if moved {
+		res, err := e.trash.Move("replace-rom", "Starlight Courier", []store.MoveItem{{Path: e.path("Roms/" + courier)}})
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		p.TrashEntryID = res.Entry.ID
+	}
+	marker = pendingPath(tmp)
+	if err := store.WriteJSONAtomic(marker, p); err != nil {
+		e.t.Fatal(err)
+	}
+	return tmp, marker
+}
+
+func (e *env) restart() {
+	e.t.Helper()
+	e.svc.Close()
+	e.svc = e.newService()
+}
+
+func TestPatchPowerCutDuringReplace(t *testing.T) {
+	t.Run("patched file present: installation finished", func(t *testing.T) {
+		e := newEnv(t)
+		src, tgt := e.patchFixture(4096)
+		tmp, marker := e.interruptedReplace(tgt, true, true)
+		e.restart()
+		if e.read("Roms/"+courier) != string(tgt) {
+			t.Fatal("not finished")
+		}
+		if _, err := os.Stat(tmp); !os.IsNotExist(err) || fileExists(marker) {
+			t.Fatal("temporary file or marker left")
+		}
+		entries, _, _ := e.trash.List()
+		if len(entries) != 1 || e.read(".userdata/shared/ReminisLink/trash/"+entries[0].ID+"/Roms/"+courier) != string(src) {
+			t.Fatalf("original not in the trash: %+v", entries)
+		}
+	})
+	t.Run("patched file missing or damaged: original put back", func(t *testing.T) {
+		for _, damaged := range []bool{false, true} {
+			e := newEnv(t)
+			src, tgt := e.patchFixture(4096)
+			tmp, marker := e.interruptedReplace(tgt, true, damaged)
+			if damaged {
+				os.WriteFile(tmp, tgt[:100], 0o644) // cut short
+			}
+			e.restart()
+			if e.read("Roms/"+courier) != string(src) || fileExists(marker) || fileExists(tmp) {
+				t.Fatalf("damaged=%v: original not put back", damaged)
+			}
+			if entries, _, _ := e.trash.List(); len(entries) != 0 {
+				t.Fatalf("entry kept: %+v", entries)
+			}
+		}
+	})
+	t.Run("ROM never moved", func(t *testing.T) {
+		e := newEnv(t)
+		src, tgt := e.patchFixture(4096)
+		tmp, marker := e.interruptedReplace(tgt, false, true)
+		e.restart()
+		if e.read("Roms/"+courier) != string(src) || fileExists(marker) || fileExists(tmp) {
+			t.Fatal("ROM changed or files left")
+		}
+	})
+	t.Run("marker outside Roms ignored", func(t *testing.T) {
+		e := newEnv(t)
+		_, tgt := e.patchFixture(4096)
+		tmp, marker := e.interruptedReplace(tgt, false, true)
+		os.Remove(e.path("Roms/" + courier))
+		p := patchPending{Version: 1, Temp: filepath.Base(tmp), Dest: "../outside.gba", Size: int64(len(tgt)), CRC32: crc32.ChecksumIEEE(tgt)}
+		if err := store.WriteJSONAtomic(marker, p); err != nil {
+			t.Fatal(err)
+		}
+		e.restart()
+		if fileExists(marker) || fileExists(tmp) || fileExists(filepath.Join(e.sd, "..", "outside.gba")) {
+			t.Fatal("hostile marker followed")
+		}
+	})
+}
+
+func fileExists(p string) bool { _, err := os.Lstat(p); return err == nil }
+
+func TestPatchFreeSpace(t *testing.T) {
+	e := newEnv(t)
+	src, tgt := e.patchFixture(8192)
+	st := e.stage("hack.bps", testutil.EncodeBPS(src, tgt))
+	// The bytes an open upload still expects are not free.
+	*e.free = 20000
+	e.create(&Target{Kind: KindStaging, FileName: ptr("big.bin")}, make([]byte, 15000), "")
+	j := e.patchJob(courier, stagingPatch(st), nil)
+	if j.State != JobFailed || j.Error.Code != CodeInsufficientStorage {
+		t.Fatalf("reserved: %+v %+v", j, j.Error)
+	}
+	// An error reading the free space fails the job.
+	e.svc.opts.FreeSpace = func(string) (int64, error) { return 0, errors.New("statfs failed") }
+	j = e.patchJob(courier, stagingPatch(st), nil)
+	if j.State != JobFailed || j.Error.Code != CodeInternal {
+		t.Fatalf("error: %+v %+v", j, j.Error)
 	}
 }

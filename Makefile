@@ -24,7 +24,7 @@ REDOCLY_IMAGE ?= redocly/cli:1.34.5
 
 # Duration of each fuzz target in "make fuzz".
 FUZZTIME      ?= 10s
-PATCH_FUZZERS := FuzzIPS FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
+PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
 .PHONY: help test lint fuzz contract vectors headless

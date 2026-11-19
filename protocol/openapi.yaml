@@ -1362,11 +1362,21 @@ paths:
         games and `.zip`/`.7z` ROMs answer `422 unsupported_format`.
         `new-file`: default name `<name> (patched).<ext>`; the default or
         given `fileName` (cleaned, and it must be a ROM name, else
-        `400 invalid_name`) gets ` (2)`, ` (3)`... when taken. `replace`:
+        `400 invalid_name`) keeps the extension of the ROM (added when the
+        name has none; another extension is `400 invalid_name`) and gets
+        ` (2)`, ` (3)`... when taken. `replace`:
         the save is first backed up (`before-patch`), the ROM goes to the
         trash (`replace-rom`); save, states, locks and cheats keep their
         names and stay with the game; `fileName` is ignored. A job whose
         ROM changed while it ran fails with `409 conflict`.
+
+        Job result: `{ "gameId": "...", "verified": true }`; `verified` is
+        `false` for IPS, which carries no checksum (the ROM and the result
+        cannot be checked). `source-mismatch` details also hold
+        `expectedSize`, `actualSize`, `expectedCrc32` and, when the sizes
+        match, `actualCrc32` (8 lowercase hex digits). The progress `total`
+        counts the bytes read for the checksums before writing (patch and
+        ROM, BPS and UPS) plus the patched file, so it moves from the start.
       parameters:
         - $ref: '#/components/parameters/GameId'
       requestBody:
@@ -1459,9 +1469,14 @@ paths:
       summary: Cancel a job
       description: |
         Cancels a queued or running job (its partial file is deleted).
-        Returns the job in its new state. A job cancelled while it is
-        already installing its file can still end `succeeded` (the file is
-        in place and `result` says where).
+        Returns the job in its real state when the answer is sent: a queued
+        job is `cancelled` at once; a running job gets
+        `cancelRequested: true` and the pak waits (about 10 s at most) for
+        it to stop. It stays `running` until its real end and is only
+        `cancelled` if it stopped without installing anything; a job
+        cancelled while it is already installing its file ends `succeeded`
+        (the file is in place and `result` says where). The state never
+        goes from `cancelled` to anything else.
       parameters:
         - $ref: '#/components/parameters/JobId'
       responses:
@@ -2306,13 +2321,20 @@ components:
         updatedAt: { $ref: '#/components/schemas/Timestamp' }
         result:
           type: [object, 'null']
-          description: "The created resource when `succeeded`, e.g. `{ \"gameId\": \"...\" }`."
+          description: "The created resource when `succeeded`, e.g. `{ \"gameId\": \"...\" }`; a patch job adds `verified` (boolean, `false` for IPS)."
           additionalProperties: true
         error:
           description: Same object as in error responses, when `failed`.
           oneOf:
             - $ref: '#/components/schemas/ErrorBody'
             - type: 'null'
+        cancelRequested:
+          type: boolean
+          description: |
+            `true` once `DELETE /jobs/{jobId}` was received while the job was
+            running (added in M6). The job stays `running` until it really
+            ends: `cancelled` (nothing installed) or `succeeded` (cancelled
+            too late, while installing). Kept in the final state.
     JobList:
       type: object
       required: [jobs]
