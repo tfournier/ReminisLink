@@ -269,6 +269,13 @@ func TestCheatRoutes(t *testing.T) {
 	if put.Cheats[0]["description"] != "Moon jump" || r.Header.Get("ETag") != put.ETag || put.ETag == list.ETag {
 		t.Fatalf("put: %s", r.Body)
 	}
+	// The unknown key (sent without index) follows its cheat, renumbered.
+	if extra, _ := put.Cheats[0]["extra"].(map[string]any); extra["handler"] != "1" {
+		t.Fatalf("extra: %s", r.Body)
+	}
+	if cht := f.read("Cheats/GBA/Starlight Courier.gba.cht"); !strings.Contains(cht, "cheat0_desc = \"Moon jump\"") || !strings.Contains(cht, "cheat0_handler = \"1\"") || strings.Contains(cht, "cheat1_handler") {
+		t.Fatalf("written file:\n%s", cht)
+	}
 	// Someone else changed the file: 412 conflict.
 	wantCode(t, f.send(http.MethodPut, g+"/cheats", "/games/{gameId}/cheats", body, map[string]string{"If-Match": list.ETag}, http.StatusPreconditionFailed), "conflict")
 	if f.read("Cheats/GBA/Starlight Courier.gba.cht.bak") == "" {

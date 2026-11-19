@@ -254,7 +254,7 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	cheatSvc, err := cheats.New(cheats.Options{Adapter: adapter, Lock: sdLock, Logger: logger})
+	cheatSvc, err := cheats.New(cheats.Options{Adapter: adapter, Trash: trash, Lock: sdLock, Logger: logger})
 	if err != nil {
 		return err
 	}

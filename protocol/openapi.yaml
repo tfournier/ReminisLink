@@ -973,7 +973,7 @@ paths:
               schema: { $ref: '#/components/schemas/CheatList' }
               example:
                 cheats:
-                  - { index: 0, description: Infinite money, code: 82025490+FFFF, enabled: false, extra: { cheat0_handler: '0' } }
+                  - { index: 0, description: Infinite money, code: 82025490+FFFF, enabled: false, extra: { handler: '0' } }
                 etag: '"sha256-9b1f"'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -988,8 +988,9 @@ paths:
       summary: Replace the cheat list
       description: |
         The complete list, in order (`index` is ignored: cheats are renumbered).
-        The previous file is kept as `.cht.bak` (replacing the previous
-        `.bak`, as Cheat Manager does); the new file is written atomically.
+        The previous file is kept as `.cht.bak`; the previous `.bak`, if any,
+        is first moved to the trash (reason `overwrite`), so no version is
+        lost. The new file is written atomically. Imports do the same.
         If the file changed since `If-Match`: `412` with code `conflict`
         (`*` matches an existing file); a missing `If-Match` is
         `400 invalid_request`. The ETag of a game without cheat file is the
@@ -1010,7 +1011,7 @@ paths:
             schema: { $ref: '#/components/schemas/CheatsUpdate' }
             example:
               cheats:
-                - { index: 0, description: Infinite money, code: 82025490+FFFF, enabled: true, extra: { cheat0_handler: '0' } }
+                - { index: 0, description: Infinite money, code: 82025490+FFFF, enabled: true, extra: { handler: '0' } }
       responses:
         '200':
           description: The new list and ETag.
@@ -1021,7 +1022,7 @@ paths:
               schema: { $ref: '#/components/schemas/CheatList' }
               example:
                 cheats:
-                  - { index: 0, description: Infinite money, code: 82025490+FFFF, enabled: true, extra: { cheat0_handler: '0' } }
+                  - { index: 0, description: Infinite money, code: 82025490+FFFF, enabled: true, extra: { handler: '0' } }
                 etag: '"sha256-77ac"'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -2000,11 +2001,13 @@ components:
         extra:
           type: object
           description: |
-            Unknown `.cht` keys of this cheat, kept as is, named as in the file
-            (`cheat<index>_<key>`, e.g. `cheat0_handler`). On write the index
-            is replaced by the new position; a key without the `cheat<N>_`
-            prefix is accepted. Keys are `[A-Za-z0-9_]+` and never `desc`,
-            `code` or `enable` (`400 invalid_request`).
+            Unknown `.cht` keys of this cheat, kept as is, **without** their
+            `cheat<index>_` prefix (`handler` for `cheat0_handler` in the
+            file). The pak adds the prefix of the cheat's position on write,
+            so a key always follows its cheat when the list is reordered. A
+            key sent with a `cheat<N>_` prefix is accepted (the prefix is
+            dropped). Keys are `[A-Za-z0-9_]+` and never `desc`, `code` or
+            `enable` (`400 invalid_request`).
           additionalProperties: { type: string }
     CheatList:
       type: object

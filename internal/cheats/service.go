@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -51,9 +50,10 @@ var (
 )
 
 // APICheat is a cheat of the API (Cheat in protocol/openapi.yaml). Extra
-// holds the unknown keys of the cheat as written in the file, with their
-// index ("cheat0_handler"); on write the index is replaced by the new
-// position, and a key without the "cheat<N>_" prefix is accepted.
+// holds the unknown keys of the cheat without their "cheat<index>_" prefix
+// ("handler" for "cheat0_handler"): the pak adds the prefix of the new
+// position on write, so a key always follows its cheat. A key sent with a
+// "cheat<N>_" prefix (older clients) is accepted, the prefix dropped.
 type APICheat struct {
 	Index       int               `json:"index"`
 	Description string            `json:"description"`
@@ -77,6 +77,8 @@ type ImportResult struct {
 // Options are the dependencies of a Service.
 type Options struct {
 	Adapter osadapter.Adapter
+	// Trash receives the previous .cht.bak before it is replaced.
+	Trash *store.Trash
 	// Lock serializes every change of the SD card files (shared with the
 	// uploads, the saves and the states). nil: a lock of its own.
 	Lock   *sync.Mutex
@@ -90,7 +92,7 @@ type Service struct {
 
 // New returns a Service.
 func New(o Options) (*Service, error) {
-	if o.Adapter == nil {
+	if o.Adapter == nil || o.Trash == nil {
 		return nil, errors.New("cheats: missing dependency")
 	}
 	if o.Lock == nil {
@@ -153,7 +155,7 @@ func toAPI(cf *File) []APICheat {
 	for i, c := range cf.Cheats {
 		extra := map[string]string{}
 		for _, e := range c.Extras {
-			extra["cheat"+strconv.Itoa(i)+"_"+e.Key] = e.Value
+			extra[e.Key] = e.Value
 		}
 		out = append(out, APICheat{Index: i, Description: c.Desc, Code: c.Code, Enabled: c.Enable, Extra: extra})
 	}
@@ -279,11 +281,17 @@ func (s *Service) Import(g osadapter.Game, data []byte, mode string) (ImportResu
 // Called with the lock held.
 func (s *Service) writeLocked(g osadapter.Game, p string, exists bool, cf *File) (List, error) {
 	if exists {
+		// The previous .bak holds an older version: it goes to the trash
+		// before being replaced, so no version is ever lost (CLAUDE.md
+		// rule 1). A power cut between the two steps leaves the .cht
+		// unchanged and the old .bak in a complete trash entry.
 		bak := store.FindFold(filepath.Dir(p), filepath.Base(p)+BakSuffix, false)
-		if bak == "" {
-			bak = p + BakSuffix
+		if bak != "" {
+			if _, err := s.o.Trash.Move(store.ReasonOverwrite, g.Name, []store.MoveItem{{Path: bak}}); err != nil {
+				return List{}, fmt.Errorf("cheats: backup: %w", err)
+			}
 		}
-		if _, _, err := store.CopyFileAtomic(p, bak); err != nil {
+		if _, _, err := store.CopyFileAtomic(p, p+BakSuffix); err != nil {
 			return List{}, fmt.Errorf("cheats: backup: %w", err)
 		}
 	}

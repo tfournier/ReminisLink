@@ -9,6 +9,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
+	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
 
@@ -60,21 +61,24 @@ func TestRoundTripAndEdit(t *testing.T) {
 }
 
 type env struct {
-	t   *testing.T
-	sd  string
-	a   *nextui.Adapter
-	svc *Service
+	t     *testing.T
+	sd    string
+	a     *nextui.Adapter
+	trash *store.Trash
+	svc   *Service
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	sd := testutil.CopySDCard(t)
-	a := nextui.New(nextui.RootsForSD(sd, "tg5040"), nil)
-	svc, err := New(Options{Adapter: a})
+	roots := nextui.RootsForSD(sd, "tg5040")
+	a := nextui.New(roots, nil)
+	trash := store.NewTrash(store.Layout{Root: roots.Data}, sd, nil, nil)
+	svc, err := New(Options{Adapter: a, Trash: trash})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &env{t: t, sd: sd, a: a, svc: svc}
+	return &env{t: t, sd: sd, a: a, trash: trash, svc: svc}
 }
 
 func (e *env) game(rel string) osadapter.Game {
@@ -106,7 +110,7 @@ func TestGetPut(t *testing.T) {
 		t.Fatalf("get: %+v %v", list, err)
 	}
 	moon := list.Cheats[1]
-	if moon.Index != 1 || moon.Description != "Moon jump" || !moon.Enabled || moon.Extra["cheat1_handler"] != "1" {
+	if moon.Index != 1 || moon.Description != "Moon jump" || !moon.Enabled || moon.Extra["handler"] != "1" {
 		t.Fatalf("cheat: %+v", moon)
 	}
 	if len(list.Cheats[0].Extra) != 0 || list.Cheats[0].Extra == nil {
@@ -116,7 +120,7 @@ func TestGetPut(t *testing.T) {
 	// Reorder and toggle: the unknown key follows its cheat, renumbered.
 	edited := []APICheat{moon, list.Cheats[0]}
 	edited[0].Enabled = false
-	edited[1].Extra = map[string]string{"address": "0x10"} // bare key accepted
+	edited[1].Extra = map[string]string{"cheat0_address": "0x10"} // an indexed key is accepted
 	put, err := e.svc.Put(g, list.ETag, edited)
 	if err != nil || len(put.Cheats) != 2 || put.ETag == list.ETag {
 		t.Fatalf("put: %+v %v", put, err)
@@ -127,7 +131,7 @@ func TestGetPut(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, written)
 		}
 	}
-	if put.Cheats[0].Extra["cheat0_handler"] != "1" || put.ETag != ETagOf([]byte(written)) {
+	if put.Cheats[0].Extra["handler"] != "1" || put.Cheats[1].Extra["address"] != "0x10" || put.ETag != ETagOf([]byte(written)) {
 		t.Fatalf("answer: %+v", put)
 	}
 	// The previous file is the .bak; the listing count follows the file.
@@ -191,7 +195,7 @@ func TestImport(t *testing.T) {
 		t.Fatalf("merge: %+v %v", res, err)
 	}
 	list, _ := e.svc.Get(g)
-	if list.Cheats[2].Description != "Infinite health" || list.Cheats[2].Extra["cheat2_handler"] != "1" {
+	if list.Cheats[2].Description != "Infinite health" || list.Cheats[2].Extra["handler"] != "1" {
 		t.Fatalf("merged: %+v", list.Cheats)
 	}
 	res, err = e.svc.Import(g, []byte("cheat0_desc = \"Only\"\ncheat0_code = \"1\"\n"), ModeReplace)
@@ -227,5 +231,30 @@ func TestTooLarge(t *testing.T) {
 	}
 	if _, err := e.svc.Put(g, "*", nil); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("put: %v", err)
+	}
+}
+
+// TestNoVersionLost: two writes in a row (a bad import, then an edit)
+// never lose the original file: the previous .bak goes to the trash.
+func TestNoVersionLost(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	original := e.read(pgCht)
+	if _, err := e.svc.Import(g, []byte("cheat0_desc = \"Wrong\"\ncheat0_code = \"0\"\n"), ModeReplace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Put(g, "*", []APICheat{{Description: "Edited", Code: "1"}}); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, _ := e.trash.List()
+	if len(entries) != 1 || entries[0].Reason != store.ReasonOverwrite || entries[0].Files[0] != pgCht+BakSuffix {
+		t.Fatalf("trash: %+v", entries)
+	}
+	kept, err := os.ReadFile(filepath.Join(e.trash.Dir(), entries[0].ID, filepath.FromSlash(pgCht+BakSuffix)))
+	if err != nil || string(kept) != original {
+		t.Fatalf("original lost: %q %v", kept, err)
+	}
+	if !strings.Contains(e.read(pgCht+BakSuffix), "Wrong") || !strings.Contains(e.read(pgCht), "Edited") {
+		t.Fatal(".bak or .cht")
 	}
 }

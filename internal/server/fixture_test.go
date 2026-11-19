@@ -132,7 +132,7 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := cheats.New(cheats.Options{Adapter: adapter, Lock: lock, Logger: logger})
+	ch, err := cheats.New(cheats.Options{Adapter: adapter, Trash: trash, Lock: lock, Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
