@@ -527,6 +527,56 @@ paths:
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
+  /games/{gameId}/deletion:
+    get:
+      tags: [Library]
+      operationId: previewGameDeletion
+      summary: Preview what deleting a game moves and keeps
+      description: |
+        M8. Read only. The exact selection `DELETE /games/{gameId}` would
+        make now with the same `keepSave` (computed by the same code on the
+        pak), so the app can show it before asking for confirmation.
+        Folders are expanded to their files, recursively. `moved` lists the
+        files that would go to the trash, the ReminisLink copies of the
+        game included (locks and resume history, role `other`, names
+        starting with `ReminisLink/`); `kept` lists the files deliberately
+        left in place: the discs (and the tracks of their `.cue`) that
+        another playlist of the system still lists, and, with
+        `keepSave=true`, the save, its clock file, the states and their
+        side files, the locks and the resume history. `movedBytes` is the
+        size of every file of `moved`. `name` is informative, never an
+        absolute path: relative to the system folder for the files under
+        `Roms/`, relative to the SD card for the other files of the game
+        (`Saves/GBA/Game.gba.sav`), and `ReminisLink/...` for the copies of
+        the pak.
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - name: keepSave
+          in: query
+          required: false
+          description: Same meaning as for `DELETE /games/{gameId}`.
+          schema: { type: boolean, default: false }
+          example: false
+      responses:
+        '200':
+          description: The selection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletionPreview' }
+              example:
+                moved:
+                  - { name: Sky Garden Quest.gba, role: rom, size: 16777216 }
+                  - { name: Saves/GBA/Sky Garden Quest.gba.sav, role: save, size: 131072 }
+                kept: []
+                movedBytes: 16908288
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
   /trash:
     get:
       tags: [Trash]
@@ -2058,6 +2108,27 @@ components:
           items: { $ref: '#/components/schemas/GameFile' }
         totalBytes: { $ref: '#/components/schemas/Bytes' }
 
+    DeletionItem:
+      type: object
+      required: [name, role, size]
+      properties:
+        name: { type: string, description: 'Informative path, never absolute (see `GET /games/{gameId}/deletion`).' }
+        role:
+          type: string
+          enum: [rom, save, rtc, state, cheats, art, other]
+          description: 'The roles of `GameFile`; `other` for the rest (side files of the states, `.cht.bak`, files of a folder game not listed by its playlist, ReminisLink copies).'
+        size: { $ref: '#/components/schemas/Bytes' }
+    DeletionPreview:
+      type: object
+      required: [moved, kept, movedBytes]
+      properties:
+        moved:
+          type: array
+          items: { $ref: '#/components/schemas/DeletionItem' }
+        kept:
+          type: array
+          items: { $ref: '#/components/schemas/DeletionItem' }
+        movedBytes: { $ref: '#/components/schemas/Bytes' }
     TrashMoveResult:
       type: object
       required: [trashEntryId, moved, movedBytes]
