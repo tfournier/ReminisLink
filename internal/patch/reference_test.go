@@ -204,6 +204,9 @@ func refIPS(p, src []byte, maxTarget int) ([]byte, bool) {
 			d = p[i : i+n]
 			i += n
 		}
+		if off+len(d) > IPSMaxAddress {
+			return nil, false // a record never writes past 16 MiB (M8)
+		}
 		recs = append(recs, rec{off, d})
 		end = max(end, off+len(d))
 	}
