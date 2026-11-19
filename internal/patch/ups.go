@@ -89,7 +89,15 @@ func applyUPS(ctx context.Context, p io.ReaderAt, pSize int64, src io.ReaderAt, 
 			}
 		}
 		pos += min(skip, max(limit-pos, 0))
-		for {
+		for k := 1; ; k++ {
+			// A long block past the target size reads without writing, so
+			// the writer never checks the context: check it here too
+			// (Codex review of M6).
+			if k%(checkEvery*1024) == 0 {
+				if err := ctx.Err(); err != nil {
+					return info, err
+				}
+			}
 			x, err := r.ReadByte()
 			if err != nil {
 				return info, err

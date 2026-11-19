@@ -111,6 +111,11 @@ func scanIPS(ctx context.Context, p io.ReaderAt, pSize, srcSize int64, opts Opti
 				return h, err
 			}
 		}
+		if rec.off+rec.size > IPSMaxAddress {
+			// The format addresses 16 MiB: a record (normal or RLE) never
+			// writes past it (the bytes of a larger ROM are only copied).
+			return h, corrupt("record at 0x%06x writes past the 16 MiB IPS limit", rec.off)
+		}
 		end = max(end, rec.off+rec.size)
 	}
 	if end > opts.maxTarget() {

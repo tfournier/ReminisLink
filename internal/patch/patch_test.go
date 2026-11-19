@@ -269,12 +269,20 @@ func TestIPSLargeROM(t *testing.T) {
 	if err != nil || !bytes.Equal(got, tgt) || info.TargetSize != int64(len(src)) {
 		t.Fatalf("%v %+v", err, info)
 	}
-	// A record at the highest offset extends past 16 MiB.
+	// A record never writes past 16 MiB (Codex review of M6): one byte at
+	// the last address is fine, two bytes (normal or RLE) are refused.
 	small := randomBytes(9, 10)
-	p = []byte("PATCH\xff\xff\xff\x00\x02\x01\x02EOF")
-	got, _, err = apply(t, p, small)
-	if err != nil || len(got) != IPSMaxAddress+1 || got[IPSMaxAddress] != 2 {
-		t.Fatalf("%d %v", len(got), err)
+	got, _, err = apply(t, []byte("PATCH\xff\xff\xff\x00\x01\x07EOF"), small)
+	if err != nil || len(got) != IPSMaxAddress || got[IPSMaxAddress-1] != 7 {
+		t.Fatalf("last address: %d %v", len(got), err)
+	}
+	for _, p := range [][]byte{
+		[]byte("PATCH\xff\xff\xff\x00\x02\x01\x02EOF"),     // normal record
+		[]byte("PATCH\xff\xff\xfe\x00\x00\x00\x03\x09EOF"), // RLE record
+	} {
+		if _, _, err := apply(t, p, small); !errors.Is(err, ErrCorrupt) {
+			t.Fatalf("record past 16 MiB: %v", err)
+		}
 	}
 	// The record at offset 0x454f46 ("EOF") is avoided by the encoder.
 	tgt = bytes.Clone(src)
@@ -460,5 +468,56 @@ func TestMismatchDetails(t *testing.T) {
 	_, _, err = apply(t, p, src[:10])
 	if !errors.As(err, &m) || m.CRCKnown || m.ActualSize != 10 || m.ExpectedSize != 2000 {
 		t.Fatalf("size: %v %+v", err, m)
+	}
+}
+
+// cancelOnReread cancels a context when the patch is read past at for
+// the second time (the first pass checks its CRC32, the second applies it).
+type cancelOnReread struct {
+	r      *bytes.Reader
+	at     int64
+	passes int
+	cancel context.CancelFunc
+	last   int64
+	after  int64 // bytes read once cancelled
+}
+
+func (c *cancelOnReread) ReadAt(p []byte, off int64) (int, error) {
+	end := off + int64(len(p))
+	if c.passes >= 2 {
+		c.after += int64(len(p))
+	}
+	if off <= c.at && end > c.at {
+		c.passes++ // a sequential pass over at
+		if c.passes >= 2 {
+			c.cancel()
+		}
+	}
+	c.last = end
+	return c.r.ReadAt(p, off)
+}
+
+// Codex review of M6: a long UPS block past the target size reads without
+// writing; the cancellation is checked in that loop too.
+func TestUPSCancelInALongBlockPastTheTarget(t *testing.T) {
+	if testing.Short() {
+		t.Skip("24 MiB")
+	}
+	src := randomBytes(40, 24<<20)
+	for i := range src {
+		src[i] |= 1 // no zero byte: past the target, one single block
+	}
+	tgt := bytes.Clone(src[:16])
+	p := encodeUPS(src, tgt)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := &cancelOnReread{r: bytes.NewReader(p), at: 2 << 20, cancel: cancel}
+	_, err := Apply(ctx, r, int64(len(p)), bytes.NewReader(src), int64(len(src)), &memTarget{}, Options{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error %v, want context.Canceled", err)
+	}
+	// Stopped soon, not at the end of the 24 MiB block.
+	if r.after > 8<<20 {
+		t.Fatalf("%d bytes read after the cancellation", r.after)
 	}
 }
