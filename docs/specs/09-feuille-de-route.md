@@ -97,9 +97,9 @@ Décision du 19/11/2026 (personne) : quand plusieurs iPhones sont connectés, **
 
 **Fait quand** : deux clients contre `make headless` (le second en lecture seule, prise de main, expiration du bail, déconnexion et oubli depuis l'interface), tests des deux côtés, revue croisée.
 
-## M11 — Ergonomie de l'app (proposé, non lancé)
+## M11 — Ergonomie de l'app
 
-Suggestions de la personne du 19/11/2026, après essai de M10. À préciser et valider avant de lancer.
+Suggestions de la personne du 19/11/2026, après essai de M10 ; lancé le 19/11/2026. Contrat : `GET /games` (tous les jeux à plat, 20 000 au plus, `truncated`), `fileId` dans chaque fichier de `GET /games/{gameId}` et `GET /games/{gameId}/files/{fileId}` (fichier entier, sans `Range`, seulement un fichier de la liste courante du jeu).
 
 - **Image du jeu** : toucher l'image pour la changer (au lieu de la section Image).
 - **Télécharger chaque fichier d'un jeu** vers l'iPhone (ROM, cheats, states…) ; probablement une route de téléchargement par fichier, identifiants opaques résolus par le pak (contrat d'abord).
@@ -107,6 +107,8 @@ Suggestions de la personne du 19/11/2026, après essai de M10. À préciser et v
 - **Barre d'onglets** quand une console est ouverte : Console, Bibliothèque, Transferts, Corbeille.
 - **Plus d'envoi depuis la vue Console** (l'ajout reste dans Bibliothèque et Transferts).
 - **Retour à la liste des consoles quand le pak se ferme** : quand on quitte ReminisLink sur la console (`503 shutting_down`, annonce Bonjour retirée), l'app revient à la liste des consoles avec un message bref (« La console a quitté ReminisLink »), au lieu de rester sur un écran en erreur ; les envois en cours restent en pause.
+
+**Fait quand** : chaque point visible dans l'app (démo et pak headless), téléchargement d'une ROM et d'un fichier de cheats vers Fichiers, recherche et filtres dans la bibliothèque à plat, tests des deux côtés, revue croisée.
 
 ## Après la v1 (idées, non engagées)
 
