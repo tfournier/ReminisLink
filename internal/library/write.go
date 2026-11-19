@@ -211,6 +211,9 @@ func (l *Library) SetArt(gameID, tmp string, trash *store.Trash) (Game, error) {
 		items = append(items, store.MoveItem{Path: files.Art.Path})
 		dst = files.Art.Path // the existing spelling (exFAT ignores case)
 	}
+	if err := l.confined(dst); err != nil {
+		return Game{}, err
+	}
 	if _, err := trash.Replace(store.ReasonOverwrite, g.Name, items, []store.Install{{Src: tmp, Dst: dst, Size: fi.Size()}}); err != nil {
 		return Game{}, fmt.Errorf("set art: %w", err)
 	}
@@ -232,8 +235,24 @@ func (l *Library) DeleteArt(gameID string, trash *store.Trash) (Game, error) {
 	if files.Art == nil {
 		return Game{}, fmt.Errorf("%w: art", ErrNotFound)
 	}
+	if err := l.confined(files.Art.Path); err != nil {
+		return Game{}, err
+	}
 	if _, err := trash.Move(store.ReasonOverwrite, g.Name, []store.MoveItem{{Path: files.Art.Path}}); err != nil {
 		return Game{}, fmt.Errorf("delete art: %w", err)
 	}
 	return l.GameSummary(gameID)
+}
+
+// confined checks that an absolute path the pak writes in Roms/ (the art
+// of a game) stays inside it once symbolic links are resolved, as the
+// ROMs do: a .media folder linked elsewhere (desktop mode, a card that is
+// not exFAT) is refused with ErrInvalidID (Codex review of M8).
+func (l *Library) confined(p string) error {
+	rel, err := l.RelToRoms(p)
+	if err != nil {
+		return err
+	}
+	_, err = resolveUnder(l.romsRoot(), rel)
+	return err
 }

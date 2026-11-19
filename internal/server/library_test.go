@@ -295,3 +295,32 @@ func TestSetArtLocations(t *testing.T) {
 		}
 	}
 }
+
+// Codex review of M8: a .media folder linked outside Roms/ (desktop mode,
+// a file system with links) is never written nor emptied through.
+func TestArtRefusesALinkedMediaFolder(t *testing.T) {
+	f := newFixture(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "Pixel Garden 🌱.png"), []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media := filepath.Join(f.sd, "Roms", gba, "Hacks", ".media")
+	os.RemoveAll(media)
+	if err := os.Symlink(outside, media); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	target := "/api/v1/games/" + id(gba+"/Hacks/Starlight Courier Remix.gba") + "/art"
+	r := f.send(http.MethodPut, target, "/games/{gameId}/art", pngOf(t, 4, 4), nil, 400)
+	wantCode(t, r, CodeInvalidID)
+	if des, _ := os.ReadDir(outside); len(des) != 1 {
+		t.Fatalf("written outside Roms/: %v", des)
+	}
+	// An art reached through the link is not moved away either.
+	if err := os.WriteFile(filepath.Join(outside, "Starlight Courier Remix.png"), pngOf(t, 4, 4), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.send(http.MethodDelete, target, "/games/{gameId}/art", nil, nil, 400)
+	if _, err := os.Stat(filepath.Join(outside, "Starlight Courier Remix.png")); err != nil {
+		t.Fatal("the file outside Roms/ was moved")
+	}
+}
