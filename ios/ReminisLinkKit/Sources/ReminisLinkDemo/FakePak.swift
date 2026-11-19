@@ -71,6 +71,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     /// Content of completed staging uploads (small files only), by upload
     /// id: what `cheats/import` with `source.type = "upload"` reads.
     var stagedUploads: [String: Data] = [:]
+    /// The next `PUT /cheats` finds the file changed on the console (412).
+    var _conflictOnNextCheatsSave = false
     private var uploads: [String: FakeUpload] = [:]
     private var jobs: [String: FakeJob] = [:]
     private var chunkFaults: [ChunkFault] = []

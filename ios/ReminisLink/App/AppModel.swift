@@ -339,6 +339,9 @@ extension AppModel {
     static func makeDemo() -> AppModel {
         let pak = FakePak()
         pak.register()
+        // UI tests: the first save of a cheat list meets a change made on
+        // the console (412).
+        pak.conflictOnNextCheatsSave = ProcessInfo.processInfo.environment["RL_UITEST_CHEATS_CONFLICT"] == "1"
         let suite = "ReminisLink.demo"
         UserDefaults.standard.removePersistentDomain(forName: suite)
         let artDirectory = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoArt")

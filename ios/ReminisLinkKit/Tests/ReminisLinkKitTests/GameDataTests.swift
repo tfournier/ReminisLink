@@ -479,3 +479,22 @@ struct FileSizeTests {
         #expect(throws: (any Error).self) { try FileDigest.size(of: file.deletingLastPathComponent()) }
     }
 }
+
+@Suite("Fake pak cheat conflict")
+struct FakeCheatConflictTests {
+    @Test func theNextSaveMeetsAChangeOnTheConsole() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        pak.conflictOnNextCheatsSave = true
+        let list = try await client.cheats(gameId: skyGarden)
+        do {
+            _ = try await client.replaceCheats(gameId: skyGarden, CheatsUpdate(cheats: list.cheats), ifMatch: list.etag)
+            Issue.record("no conflict")
+        } catch {
+            #expect(CheatEditor.isConflict(error))
+        }
+        // Only once.
+        let fresh = try await client.cheats(gameId: skyGarden)
+        _ = try await client.replaceCheats(gameId: skyGarden, CheatsUpdate(cheats: fresh.cheats), ifMatch: fresh.etag)
+    }
+}

@@ -205,6 +205,13 @@ extension FakePak {
         return restored.sorted()
     }
 
+    /// The next `PUT /cheats` finds the file changed on the console just
+    /// before (`412`): for the demo and the UI tests.
+    public var conflictOnNextCheatsSave: Bool {
+        get { lock.withLock { _conflictOnNextCheatsSave } }
+        set { lock.withLock { _conflictOnNextCheatsSave = newValue } }
+    }
+
     /// The etag of the cheat list of a game.
     public func cheatsETag(gameId: String) -> String? {
         guard let (system, game) = library.game(id: gameId) else { return nil }
@@ -552,6 +559,11 @@ extension FakePak {
         guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let cheats = Self.parseCheats(object["cheats"])
         else { return .error(400, code: "invalid_request", message: "Invalid cheats") }
+        let conflict = lock.withLock { () -> Bool in
+            defer { _conflictOnNextCheatsSave = false }
+            return _conflictOnNextCheatsSave
+        }
+        if conflict { changeCheatsOnConsole(gameId: gameId) }
         return update(gameId: gameId, system: system, game: game) { data in
             guard Self.etag(data.cheats) == ifMatch else {
                 return .error(412, code: "conflict", message: "Cheat file changed")
