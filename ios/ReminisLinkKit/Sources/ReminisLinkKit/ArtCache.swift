@@ -37,6 +37,12 @@ public struct ArtCache: Sendable {
         }
     }
 
+    /// Forgets the cached art of a game (it was changed or removed): the
+    /// next load asks the pak without `If-None-Match`.
+    public func invalidate(deviceId: String, gameId: String) {
+        remove(deviceId: deviceId, gameId: gameId)
+    }
+
     public func remove(deviceId: String, gameId: String) {
         let base = baseURL(deviceId: deviceId, gameId: gameId)
         try? FileManager.default.removeItem(at: base.appendingPathExtension("png"))

@@ -182,6 +182,24 @@ public actor APIClient {
         }
     }
 
+    /// `PUT /games/{gameId}/art` (M8): `png` comes from ``ArtImage``. The
+    /// body is signed with its SHA-256. Returns the game as listed
+    /// (`hasArt` true). The previous art goes to the trash of the console.
+    public func setArt(gameId: String, png: Data) async throws -> GameSummary {
+        guard png.count <= ArtImage.maxBytes else {
+            throw APIError.server(ServerError(status: 413, code: .tooLarge, message: "Art larger than 4 MiB"))
+        }
+        return try await signedJSON(
+            method: "PUT", segments: ["games", gameId, "art"], headers: ["Content-Type": "image/png"], body: png
+        )
+    }
+
+    /// `DELETE /games/{gameId}/art` (M8): the art goes to the trash of the
+    /// console. Returns the game as listed (`hasArt` false).
+    public func deleteArt(gameId: String) async throws -> GameSummary {
+        try await signedJSON(method: "DELETE", segments: ["games", gameId, "art"])
+    }
+
     // MARK: - Trash
 
     public func trash() async throws -> TrashList {
