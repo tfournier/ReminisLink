@@ -69,6 +69,7 @@ const (
 // Errors of the package.
 var (
 	ErrNoSave          = errors.New("the game has no save")
+	ErrNoClock         = errors.New("the game has no clock file")
 	ErrBackupNotFound  = errors.New("save backup not found")
 	ErrInvalidBackupID = errors.New("invalid save backup id")
 	ErrInvalidLabel    = errors.New("invalid label")
@@ -127,7 +128,8 @@ type Options struct {
 
 // Service manages the saves and their backups.
 type Service struct {
-	o Options
+	o      Options
+	hashes *hashCache // SHA-256 of the saves listed by ListAll
 }
 
 // New returns a Service.
@@ -147,7 +149,7 @@ func New(o Options) (*Service, error) {
 	if o.Rand == nil {
 		o.Rand = rand.Reader
 	}
-	return &Service{o: o}, nil
+	return &Service{o: o, hashes: newHashCache()}, nil
 }
 
 // CheckLabel validates an optional label: at most MaxLabelRunes characters
@@ -420,6 +422,26 @@ func (s *Service) OpenSave(g osadapter.Game) (*os.File, string, error) {
 		return nil, "", fmt.Errorf("save: %w", err)
 	}
 	return f, filepath.Base(save.Path), nil
+}
+
+// OpenClock opens the clock file of g (.rtc, written by NextUI with the
+// save) for reading and returns its file name. ErrNoClock when there is
+// none. The caller closes the file.
+func (s *Service) OpenClock(g osadapter.Game) (*os.File, string, error) {
+	s.o.Lock.Lock()
+	defer s.o.Lock.Unlock()
+	files, err := s.o.Adapter.GameFiles(g)
+	if err != nil {
+		return nil, "", fmt.Errorf("clock file: %w", err)
+	}
+	if files.RTC == nil {
+		return nil, "", ErrNoClock
+	}
+	f, err := os.Open(files.RTC.Path)
+	if err != nil {
+		return nil, "", fmt.Errorf("clock file: %w", err)
+	}
+	return f, filepath.Base(files.RTC.Path), nil
 }
 
 // Delete moves a backup to the trash.
