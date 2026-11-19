@@ -666,6 +666,67 @@ paths:
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
+  /saves:
+    get:
+      tags: [Saves]
+      operationId: listSaves
+      summary: List every save of every game (sync)
+      description: |
+        M9. Read only. Every game of every system that has a save, in one
+        request, with the size, the date and the SHA-256 of the save, so the
+        app downloads (`GET /games/{gameId}/save`, `GET /games/{gameId}/save/rtc`)
+        only the saves whose `sha256` changed since its last sync.
+
+        Same games and same save resolution as `GET /systems/{systemId}/games`
+        and `GET /games/{gameId}` (`file`, `m3u`, `folder-m3u` and
+        `folder-cue` games, subfolders included; the save is named after the
+        ROM, the `.m3u` or the `.cue`, matched ignoring case). A game is
+        listed only when it has a save file (`.sav`); a clock file (`.rtc`)
+        belongs to its save (M5) and is given in `rtc`, never listed alone (a
+        game with only a `.rtc` is not listed, and has no save to download).
+        Two games of a system with the same ROM file name in different
+        folders share one save file on NextUI: both are listed, with the
+        same `path` and `sha256`.
+
+        The hashes are cached by the pak (keyed by the file, its size and
+        its modification time), so a repeated sync only reads the saves
+        that changed. Files reached through a symbolic link, or resolving
+        outside the saves folder, are skipped. One listing runs at a time
+        (a second request waits). Order: stable, not meaningful. At most
+        10000 saves: beyond, `truncated` is true and the app must not infer
+        anything from a save missing from the list. `path` is informative
+        and never sent back; `modifiedAt` comes from the device clock
+        (informative): compare `sha256`.
+      responses:
+        '200':
+          description: The saves.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SaveList' }
+              example:
+                saves:
+                  - gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ
+                    systemId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ
+                    gameName: Sky Garden Quest
+                    fileName: Sky Garden Quest.gba
+                    path: Saves/GBA/Sky Garden Quest.gba.sav
+                    sizeBytes: 131072
+                    modifiedAt: '2026-11-18T16:55:00Z'
+                    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                    rtc:
+                      path: Saves/GBA/Sky Garden Quest.gba.rtc
+                      sizeBytes: 16
+                      modifiedAt: '2026-11-18T16:55:00Z'
+                      sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752
+                truncated: false
+                generatedAt: '2026-11-19T10:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
   /games/{gameId}/save:
     get:
       tags: [Saves]
@@ -726,6 +787,35 @@ paths:
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
         '507': { $ref: '#/components/responses/InsufficientStorage' }
+
+  /games/{gameId}/save/rtc:
+    get:
+      tags: [Saves]
+      operationId: downloadSaveClock
+      summary: Download the clock file of the save
+      description: |
+        M9. The clock file (`.rtc`) NextUI writes next to the save, which
+        belongs to it (M5: backed up and restored with it), so the app can
+        keep it with its copy of the save. `404 not_found` when the game has
+        no clock file.
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: The clock file.
+          headers:
+            Content-Disposition: { $ref: '#/components/headers/ContentDisposition' }
+          content:
+            application/octet-stream:
+              schema: { $ref: '#/components/schemas/Binary' }
+              example: '<binary file content>'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
 
   /games/{gameId}/save/backups:
     get:
@@ -2209,6 +2299,40 @@ components:
       type: object
       properties:
         label: { type: string, maxLength: 80 }
+    SaveClockFile:
+      type: object
+      required: [path, sizeBytes, modifiedAt, sha256]
+      properties:
+        path: { type: string, description: 'Informative, relative to the SD card root. Never sent back.' }
+        sizeBytes: { $ref: '#/components/schemas/Bytes' }
+        modifiedAt: { $ref: '#/components/schemas/Timestamp' }
+        sha256: { $ref: '#/components/schemas/Sha256Hex' }
+    SaveSummary:
+      type: object
+      required: [gameId, systemId, gameName, fileName, path, sizeBytes, modifiedAt, sha256, rtc]
+      properties:
+        gameId: { $ref: '#/components/schemas/OpaqueId' }
+        systemId: { $ref: '#/components/schemas/OpaqueId' }
+        gameName: { type: string, description: 'Display name of the game (`name` of `Game`).' }
+        fileName: { type: string, description: '`fileName` of the game (ROM file, `.m3u` or folder name).' }
+        path: { type: string, description: 'Informative, relative to the SD card root. Never sent back.' }
+        sizeBytes: { $ref: '#/components/schemas/Bytes' }
+        modifiedAt: { $ref: '#/components/schemas/Timestamp' }
+        sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        rtc:
+          description: The clock file of the save, null when there is none.
+          oneOf:
+            - $ref: '#/components/schemas/SaveClockFile'
+            - type: 'null'
+    SaveList:
+      type: object
+      required: [saves, truncated, generatedAt]
+      properties:
+        saves:
+          type: array
+          items: { $ref: '#/components/schemas/SaveSummary' }
+        truncated: { type: boolean, description: 'More than 10000 saves: the list is incomplete.' }
+        generatedAt: { $ref: '#/components/schemas/Timestamp' }
 
     Slot:
       type: object
