@@ -279,6 +279,12 @@ public struct DeletionPreview: Codable, Sendable, Equatable {
         self.kept = kept
         self.movedBytes = movedBytes
     }
+
+    /// The copies the pak keeps of the game (locks, resume history): role
+    /// `other`, names starting with `ReminisLink/`.
+    public static func isPakCopy(_ item: DeletionItem) -> Bool {
+        item.role == .other && item.name.hasPrefix("ReminisLink/")
+    }
 }
 
 public struct TrashMoveResult: Codable, Sendable, Equatable {

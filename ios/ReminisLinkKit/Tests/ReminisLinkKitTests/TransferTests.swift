@@ -435,6 +435,8 @@ struct TransferTests {
         let data = Data(#"{"moved":[{"name":"Sky Garden Quest.gba","role":"rom","size":16777216},{"name":"ReminisLink/locks/x","role":"other","size":10}],"kept":[{"name":"Discs/CD1.chd","role":"rom","size":5}],"movedBytes":16777226}"#.utf8)
         let preview = try ProtocolJSON.decoder().decode(DeletionPreview.self, from: data)
         #expect(preview.moved.last?.role == .other)
+        #expect(preview.moved.map(DeletionPreview.isPakCopy) == [false, true])
+        #expect(!DeletionPreview.isPakCopy(DeletionItem(name: "ReminisLink/x", role: .rom, size: 1)))
         #expect(preview.kept == [DeletionItem(name: "Discs/CD1.chd", role: .rom, size: 5)])
         #expect(preview.movedBytes == 16_777_226)
     }

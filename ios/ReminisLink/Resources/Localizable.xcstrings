@@ -2451,6 +2451,16 @@
         }
       }
     },
+    "ReminisLink Copies (%lld)" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copies ReminisLink (%lld)"
+          }
+        }
+      }
+    },
     "ReminisLink does not have access to the local network." : {
       "localizations" : {
         "fr" : {

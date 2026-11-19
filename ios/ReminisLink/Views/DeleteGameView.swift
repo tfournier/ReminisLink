@@ -80,9 +80,20 @@ struct DeleteGameView: View {
     private func confirmSections(_ detail: GameDetail) -> some View {
         // The exact selection of the pak (M8): never computed here.
         if let preview {
+            let copies = preview.moved.filter(DeletionPreview.isPakCopy)
             Section {
-                ForEach(Array(preview.moved.enumerated()), id: \.offset) { _, item in
+                ForEach(Array(preview.moved.filter { !DeletionPreview.isPakCopy($0) }.enumerated()), id: \.offset) { _, item in
                     FileRow(item: item)
+                }
+                if !copies.isEmpty {
+                    // Locks and resume history: one row, not a file each.
+                    HStack {
+                        Text("ReminisLink Copies (\(copies.count))").font(.headline)
+                        Spacer()
+                        Text(copies.reduce(0) { $0 + $1.size }.byteString).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("delete.pakCopies")
                 }
             } header: {
                 Text("Moved to the trash of the console")
