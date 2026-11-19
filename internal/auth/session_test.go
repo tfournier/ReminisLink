@@ -322,3 +322,31 @@ func TestPairingClosedDoesNotRegenerateOnExpiry(t *testing.T) {
 		t.Fatal("a closed session regenerated its hidden secret")
 	}
 }
+
+// Codex review of M8: after five failures, closing the pairing screen
+// must answer pairing_failed (not too_many_attempts); the block applies
+// again when the screen opens before its end.
+func TestPairingClosedAnswersFailedDuringABlock(t *testing.T) {
+	s, clock := newTestSession(t)
+	for i := 0; i < MaxPairingFailures; i++ {
+		s.Attempt(badRequest(t))
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Attempt(badRequest(t)); !errors.Is(err, ErrPairingFailed) {
+		t.Fatalf("closed during the block: %v", err)
+	}
+	if err := s.Open(); err != nil {
+		t.Fatal(err)
+	}
+	snap, _ := s.Snapshot()
+	if _, retry, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); !errors.Is(err, ErrTooManyAttempts) || retry <= 0 {
+		t.Fatalf("reopened during the block: %v %v", retry, err)
+	}
+	clock.Advance(PairingBlock)
+	snap, _ = s.Snapshot()
+	if _, _, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); err != nil {
+		t.Fatalf("after the block: %v", err)
+	}
+}

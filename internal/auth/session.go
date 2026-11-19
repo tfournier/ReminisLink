@@ -177,9 +177,6 @@ func (s *PairingSession) Attempt(req PairRequest) (res PairResult, retryAfter ti
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	if now.Before(s.blockedUntil) {
-		return PairResult{}, s.blockedUntil.Sub(now), ErrTooManyAttempts
-	}
 	if !ValidID(req.ClientID) {
 		return PairResult{}, 0, fmt.Errorf("%w: clientId must be a lowercase UUID", ErrInvalidPairRequest)
 	}
@@ -197,8 +194,13 @@ func (s *PairingSession) Attempt(req PairRequest) (res PairResult, retryAfter ti
 		return PairResult{}, 0, fmt.Errorf("%w: method must be qr or pin", ErrInvalidPairRequest)
 	}
 	if !s.open {
-		// Pairing on demand: closed, no secret to test, not a failure.
+		// Pairing on demand: closed, no secret to test, not a failure. This
+		// comes before the block: closed pairing always answers
+		// pairing_failed (the block still applies when it opens again).
 		return PairResult{}, 0, ErrPairingFailed
+	}
+	if now.Before(s.blockedUntil) {
+		return PairResult{}, s.blockedUntil.Sub(now), ErrTooManyAttempts
 	}
 	if !now.Before(s.expiresAt) {
 		// Expired secret: the proof cannot match the new one. This counts as
