@@ -2031,6 +2031,16 @@
         }
       }
     },
+    "On the console, open Settings > Pair a New Device, then scan the QR code shown." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur la console, ouvre Réglages > Appairer un nouvel appareil, puis scanne le QR code affiché."
+          }
+        }
+      }
+    },
     "Online" : {
       "localizations" : {
         "fr" : {
@@ -2041,12 +2051,12 @@
         }
       }
     },
-    "Open ReminisLink from the Tools menu of the console." : {
+    "Open ReminisLink from the Tools menu of the console. If another device is already paired, open Settings > Pair a New Device." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ouvre ReminisLink depuis le menu Outils de la console."
+            "value" : "Ouvre ReminisLink depuis le menu Outils de la console. Si un autre appareil est déjà appairé, ouvre Réglages > Appairer un nouvel appareil."
           }
         }
       }
@@ -2181,16 +2191,6 @@
         }
       }
     },
-    "Pairing is not open on the console. Open ReminisLink on the console and show the QR code." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’appairage n’est pas ouvert sur la console. Ouvre ReminisLink sur la console et affiche le QR code."
-          }
-        }
-      }
-    },
     "Patch" : {
       "localizations" : {
         "fr" : {
@@ -2291,12 +2291,12 @@
         }
       }
     },
-    "Point the camera at the QR code shown by ReminisLink on the console." : {
+    "Point the camera at the QR code shown by ReminisLink on the console. If it is not shown, open Settings > Pair a New Device on the console." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vise le QR code affiché par ReminisLink sur la console."
+            "value" : "Vise le QR code affiché par ReminisLink sur la console. S’il n’est pas affiché, ouvre Réglages > Appairer un nouvel appareil sur la console."
           }
         }
       }
@@ -2981,6 +2981,16 @@
         }
       }
     },
+    "The PIN is shown below the QR code, on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le PIN est affiché sous le QR code, sur la console."
+          }
+        }
+      }
+    },
     "The ROM changed while the patch was applied. Nothing was changed, try again." : {
       "localizations" : {
         "fr" : {
@@ -3231,12 +3241,12 @@
         }
       }
     },
-    "The console will forget this iPhone. You will need to scan the QR code again to reconnect." : {
+    "The console will forget this iPhone. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console oubliera cet iPhone. Il faudra scanner à nouveau le QR code pour te reconnecter."
+            "value" : "La console oubliera cet iPhone. Pour te reconnecter, appaire-le à nouveau : sur la console, ouvre Réglages > Appairer un nouvel appareil et scanne le QR code."
           }
         }
       }

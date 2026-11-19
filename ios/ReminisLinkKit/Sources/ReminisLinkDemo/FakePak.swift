@@ -58,6 +58,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var _responseDelay: TimeInterval = 0
     private var _pairDelay: TimeInterval = 0
     private var nextPairDelays: [TimeInterval] = []
+    private var _pairingOpen = true
+    private var closePairingAfterHello = false
     private var clients: [String: SymmetricKey] = [:]
     private var clientNames: [String: String] = [:]
     /// Last accepted signed request per client (`connectedClients`).
@@ -171,6 +173,20 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public var pairDelay: TimeInterval {
         get { lock.withLock { _pairDelay } }
         set { lock.withLock { _pairDelay = newValue } }
+    }
+
+    /// Whether the pairing screen is shown on the console (M8: pairing is
+    /// only open while the QR code or the PIN is shown). Closed, `/hello`
+    /// says `pairingOpen: false` and `/pair` answers `401 pairing_failed`.
+    public var pairingOpen: Bool {
+        get { lock.withLock { _pairingOpen } }
+        set { lock.withLock { _pairingOpen = newValue } }
+    }
+
+    /// The pairing screen closes right after the next `/hello` (which still
+    /// says it is open).
+    public func closePairingAfterNextHello() {
+        lock.withLock { closePairingAfterHello = true }
     }
 
     /// The next `POST /pair` requests wait these delays (in their order of
@@ -437,11 +453,19 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private func now() -> Date { Date().addingTimeInterval(clockOffset) }
 
     private func hello() -> FakeResponse {
-        .json(200, [
+        let pairingOpen = lock.withLock { () -> Bool in
+            let open = _pairingOpen
+            if closePairingAfterHello {
+                closePairingAfterHello = false
+                _pairingOpen = false
+            }
+            return open
+        }
+        return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
             "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
-            "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": true,
+            "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": pairingOpen,
         ])
     }
 
@@ -458,6 +482,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
               (1...64).contains(request.clientName.count),
               let clientNonce = Base64URL.decode(request.clientNonce), clientNonce.count == 32
         else { return .error(400, code: "invalid_request", message: "Invalid pairing request") }
+        // Closed: refused without counting a failure (docs/specs/05 §7.1).
+        guard pairingOpen else { return .error(401, code: "pairing_failed", message: "Pairing failed") }
         let ikm: Data
         switch request.method {
         case "qr": ikm = secret

@@ -281,6 +281,36 @@ struct AppLogicTests {
         #expect(AppError.localNetworkDenied.action == .openSettings)
     }
 
+    /// M8: pairing only opens on demand on the console.
+    @Test func closedPairingSaysWhereToOpenIt() async throws {
+        let pak = makePak()
+        pak.pairingOpen = false
+        let app = makeApp(pak)
+        let flow = app.startPairing(.link(link(pak)))
+        await flow.wait()
+        #expect(flow.error == .pairingClosed)
+        #expect(!pak.log.contains { $0.path == "/api/v1/pair" })
+        let message = AppError.pairingClosed.message
+        #expect(message.contains("Pair a New Device") || message.contains("Appairer un nouvel appareil"))
+    }
+
+    /// Closed between /hello and /pair: the 401 is explained the same way.
+    @Test func pairingClosedDuringTheExchangeSaysWhereToOpenIt() async throws {
+        let pak = makePak()
+        pak.closePairingAfterNextHello()
+        let app = makeApp(pak)
+        let flow = app.startPairing(.link(link(pak)))
+        await flow.wait()
+        #expect(pak.log.contains { $0.path == "/api/v1/pair" && $0.status == 401 })
+        #expect(flow.error == .pairingClosed)
+        #expect(try app.store.credentials(for: pak.deviceId) == nil)
+        // Opened again: Try Again pairs.
+        pak.pairingOpen = true
+        flow.start()
+        await flow.wait()
+        #expect(flow.step == .done)
+    }
+
     @Test func badSignatureOffersRepair() {
         let error = AppError.api(.server(ServerError(status: 401, code: .badSignature, message: "")))
         #expect(error.action == .repair)

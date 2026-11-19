@@ -112,7 +112,15 @@ final class PairingFlow: Identifiable {
                 app.didReplaceKey(for: deviceId)
                 return device
             }
-            let device = try await exchange.value
+            let device: PairedDevice
+            do {
+                device = try await exchange.value
+            } catch APIError.server(let server) where server.code == .pairingFailed {
+                // Refused because the pairing screen was closed on the
+                // console in the meantime (it only opens on demand)?
+                if let again = try? await client.hello(), !again.pairingOpen { throw AppError.pairingClosed }
+                throw APIError.server(server)
+            }
             paired = device
             self.name = device.name
             step = .done

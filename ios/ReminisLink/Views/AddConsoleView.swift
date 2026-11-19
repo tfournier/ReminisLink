@@ -29,7 +29,7 @@ struct AddConsoleView: View {
                 } header: {
                     Text("Scan the QR Code")
                 } footer: {
-                    Text("Point the camera at the QR code shown by ReminisLink on the console.")
+                    Text("Point the camera at the QR code shown by ReminisLink on the console. If it is not shown, open Settings > Pair a New Device on the console.")
                 }
 
                 Section {
@@ -135,8 +135,11 @@ struct PINEntryView: View {
             } header: {
                 Text("PIN shown on \(device.name)")
             } footer: {
-                Label("Less secure than the QR code. Avoid on public Wi-Fi.", systemImage: "exclamationmark.shield")
-                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("The PIN is shown below the QR code, on the console.")
+                    Label("Less secure than the QR code. Avoid on public Wi-Fi.", systemImage: "exclamationmark.shield")
+                        .foregroundStyle(.orange)
+                }
             }
             Section {
                 Button("Pair") { app.requestPairing(.pin(pin, device)) }

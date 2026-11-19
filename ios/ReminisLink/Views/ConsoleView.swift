@@ -121,7 +121,7 @@ struct ConsoleView: View {
                 }
             }
         } message: {
-            Text("The console will forget this iPhone. You will need to scan the QR code again to reconnect.")
+            Text("The console will forget this iPhone. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code.")
         }
     }
 }

@@ -16,6 +16,8 @@ enum AppError: Error, Equatable {
     /// `NWBrowser` reports `kDNSServiceErr_PolicyDenied`.
     case localNetworkDenied
     case invalidPairingLink
+    /// `pairingOpen: false` (or `401 pairing_failed` with pairing closed):
+    /// the pairing screen is not shown on the console (M8, on demand).
     case pairingClosed
     case storage
     /// An upload stopped on the app side.
@@ -74,7 +76,7 @@ enum AppError: Error, Equatable {
         case .invalidPairingLink:
             String(localized: "This link is not a valid ReminisLink pairing link.")
         case .pairingClosed:
-            String(localized: "Pairing is not open on the console. Open ReminisLink on the console and show the QR code.")
+            String(localized: "On the console, open Settings > Pair a New Device, then scan the QR code shown.")
         case .storage:
             String(localized: "The pairing information could not be read or saved on this iPhone.")
         case .upload(.outcomeUnknown):
