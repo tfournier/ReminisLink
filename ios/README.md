@@ -7,8 +7,8 @@
 | `Config/*-Info.plist`, `Config/*.entitlements` | Info.plist keys and capabilities of docs/specs/06-app-ios.md §3 |
 | `ReminisLink/` | SwiftUI app: `App/` (state, pairing, connections, errors), `Views/`, `Resources/` (String Catalogs EN + FR, assets) |
 | `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
-| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats) |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`) and `ReminisLinkDemo` (fake pak, M4 and M5 routes included) |
+| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`) and `ReminisLinkDemo` (fake pak, M4, M5 and M6 routes included) |
 
 ## Build and test
 
@@ -134,6 +134,7 @@ each link in its own variable:
 | `StatesUITests/testLocksAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_STATES` |
 | `StatesUITests/testRestoredBadgeAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_RESTORED` |
 | `CheatsUITests/testCheatsAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CHEATS` |
+| `PatchUITests/testPatchAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_PATCH` |
 
 They work on "Starlight Courier" (GBA) of `testdata/sdcard`. Run one at a
 time with `-only-testing:ReminisLinkUITests/<Class>/<test>`.
@@ -151,3 +152,37 @@ next start and shown "Restored"):
    the pak again **on the same card**: `build/reminislink-host --headless --sd "$sd"`.
 4. Run `testRestoredBadgeAgainstHeadlessPak` with the new link: slot 2
    shows "Restored".
+
+## Patches (milestone M6)
+
+- The **Patch** section of the game sheet opens the Patch screen. The patch
+  comes from Files (sent to the staging area with a resumable upload, then
+  applied by its `stagingId`), from a link (downloaded by the console to the
+  staging area, `POST /downloads`, then applied by the `stagingId` of the
+  job's result) or from the SD card (`GET /sd/files?type=patch`). A staged
+  patch is not sent again when the user tries another output.
+- Output: a new file, named `<name> (patched).<ext>` by default (editable;
+  the console adds ` (2)` if the name is taken), or **replace** the game
+  after a confirmation: the original ROM goes to the trash of the console,
+  the save, states and cheats stay.
+- `POST /games/{gameId}/patch` starts a job, followed every second while
+  the screen is visible and the app is active; it also shows on the
+  Transfers screen, so the screen can be closed. A new game can then be
+  opened. `patch_mismatch` and `unsupported_format` have their own texts.
+- Multi-disc games (`m3u`, `folder-m3u`) are not offered: a patch applies
+  to a single ROM file.
+- A shared `.ips`, `.bps` or `.ups` (alone) opens the Patch screen directly:
+  the console is chosen if there are several, then the game.
+
+The fake pak judges a patch by its header and, for BPS and UPS, by the
+source size it declares, compared with the size of the game. Its SD card
+has a matching BPS for Sky Garden Quest, a UPS for another ROM, an IPS and
+a file that is not a patch. UI tests make a BPS at launch and share it
+(Debug only): `RL_UITEST_SHARE_PATCH=<name>:<source size>:<source CRC32,
+hex>:<target text>`.
+
+`testPatchAgainstHeadlessPak` works on Starlight Courier of
+`testdata/sdcard` (10 bytes, CRC32 `4afa16bd`). It launches the app three
+times (the link is used by the first launch only): a BPS for another
+source is refused, a matching BPS makes `UITest Patched <n>.gba` (opened),
+and a BPS made for that new file replaces it.

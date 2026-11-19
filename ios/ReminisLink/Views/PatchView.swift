@@ -66,6 +66,8 @@ struct PatchView: View {
             }
             await takeSharedFile()
             makeFlow()
+            // The flow may exist already (made when the console was set).
+            if let sharedFile, let flow, flow.file == nil { flow.file = sharedFile }
         }
         .onChange(of: deviceId) { makeFlow() }
         // Every second while the screen is visible and the app active.
