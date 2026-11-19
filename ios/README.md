@@ -145,7 +145,7 @@ next start and shown "Restored"):
 2. Run `testLocksAgainstHeadlessPak` with a link: it locks slot 1
    (shown "Slot 2") of Starlight Courier and leaves it locked.
 3. Stop the pak, change the state by hand:
-   `echo changed > "$sd/.userdata/shared/.minui/GBA/Starlight Courier.gba.st1"`
+   `echo changed > "$sd/.userdata/shared/GBA-gpsp/Starlight Courier.gba.st1"`
    (the states folder of the fake card today; `<TAG>-<core>/` once the pak
    follows docs/specs/05 §3.1), then start
    the pak again **on the same card**: `build/reminislink-host --headless --sd "$sd"`.
