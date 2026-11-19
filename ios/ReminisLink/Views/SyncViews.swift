@@ -403,7 +403,15 @@ struct AppSettingsView: View {
                 Text("Save Sync")
             } footer: {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("The saves of a console (with their clock files) are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save.")
+                    // Where they go now (the vault is chosen at each use).
+                    switch app.vaultLocation {
+                    case .iCloud:
+                        Text("The saves of a console (with their clock files) are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save.")
+                    case .local:
+                        Text("The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save.")
+                    case nil:
+                        Text("The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save.")
+                    }
                     if let location = app.vaultLocation { VaultLocationNotice(location: location) }
                 }
             }

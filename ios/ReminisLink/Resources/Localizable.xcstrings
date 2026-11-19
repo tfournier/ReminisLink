@@ -3871,12 +3871,32 @@
         }
       }
     },
+    "The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
+          }
+        }
+      }
+    },
     "The saves of a console (with their clock files) are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
+          }
+        }
+      }
+    },
+    "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
           }
         }
       }

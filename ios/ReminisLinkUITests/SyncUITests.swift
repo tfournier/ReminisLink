@@ -58,6 +58,21 @@ final class SyncUITests: XCTestCase {
         XCTAssertTrue(app.buttons["synced.version.2"].waitForExistence(timeout: 10), "three versions expected")
     }
 
+    /// Without iCloud (the demo), the settings say the saves stay on this
+    /// iPhone, not that they go to iCloud Drive.
+    @MainActor
+    func testSettingsNameTheActualDestinationInDemoMode() throws {
+        let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launchEnvironment["RL_DEMO"] = "1"
+        app.launch()
+        app.buttons["consoles.settings"].tapAfterWaiting(timeout: 15)
+        let local = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'copied to this iPhone only'")).firstMatch
+        XCTAssertTrue(local.waitForExistence(timeout: 10), "the settings do not say the saves stay on this iPhone")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'copied to your own iCloud Drive'")).firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["sync.location.local"].firstMatch.exists)
+    }
+
     /// Against a real pak (`make headless`, built from the M9 branch):
     /// sync on connection, then an incremental sync that finds nothing new,
     /// then the restoration of the newest version of Starlight Courier.
