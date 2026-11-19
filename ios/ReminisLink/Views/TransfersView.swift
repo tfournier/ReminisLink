@@ -109,7 +109,7 @@ struct UploadRow: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(item.fileName).font(.headline)
                 Spacer()
-                if !item.phase.isFinished && !item.isCompleting {
+                if !item.phase.isFinished && !item.isCompleting && item.phase != .cancelling {
                     Button {
                         queue.cancel(item)
                     } label: {
@@ -148,7 +148,7 @@ struct UploadRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("upload.\(item.fileName)")
         .swipeActions {
-            if !item.phase.isFinished && !item.isCompleting && !isReadOnly {
+            if !item.phase.isFinished && !item.isCompleting && item.phase != .cancelling && !isReadOnly {
                 Button("Cancel", role: .destructive) { queue.cancel(item) }
             }
         }
@@ -236,6 +236,8 @@ struct UploadRow: View {
                 return String(localized: "Sent. The previous save was kept as a backup copy.")
             }
             return String(localized: "Sent")
+        case .cancelling:
+            return String(localized: "Cancelling… Waiting for the console to confirm.")
         case .cancelled:
             return String(localized: "Cancelled")
         }

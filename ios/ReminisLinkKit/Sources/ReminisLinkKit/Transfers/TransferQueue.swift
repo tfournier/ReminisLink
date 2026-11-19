@@ -43,6 +43,10 @@ public final class UploadItem: Identifiable {
         /// the offset confirmed by the device.
         case paused
         case failed
+        /// M10: a cancel is waiting for the device's answer. Not final
+        /// (refused, the upload pauses): the item and its local copy stay
+        /// and it cannot be cleared.
+        case cancelling
         case done
         case cancelled
 
@@ -240,7 +244,7 @@ public final class TransferQueue {
     /// `complete` whose answer was lost, the upload is only shown cancelled
     /// if the device still had it; otherwise the outcome is unknown.
     public func cancel(_ item: UploadItem) {
-        guard !item.phase.isFinished, !item.isCompleting else { return }
+        guard !item.phase.isFinished, !item.isCompleting, item.phase != .cancelling, !item.isCancelling else { return }
         if item.completeSent, let upload = item.upload {
             item.isCancelling = true
             item.task?.cancel()
@@ -268,23 +272,31 @@ public final class TransferQueue {
             }
             return
         }
-        item.phase = .cancelled
-        item.failure = nil
-        item.task?.cancel()
         guard let upload = item.upload else {
+            // Nothing on the device yet.
+            item.phase = .cancelled
+            item.failure = nil
+            item.task?.cancel()
             cleanUp(item)
             return
         }
+        // Final only once the device confirms: the item and its local copy
+        // stay until then.
+        item.phase = .cancelling
+        item.failure = nil
+        item.task?.cancel()
         let client = client
         Task {
             var outcome = ResumableUpload.CancelOutcome.cancelled
             if let api = try? await client() { outcome = await upload.cancel(client: api) }
-            if case .refused(let error) = outcome, item.phase == .cancelled {
+            guard item.phase == .cancelling else { return }
+            if case .refused(let error) = outcome {
                 // M10: the device kept the upload (another device has write
-                // access): keep the local copy, the upload stays resumable.
+                // access): the upload stays resumable.
                 self.pauseForWriteAccess(item, error)
                 return
             }
+            item.phase = .cancelled
             self.cleanUp(item)
         }
     }
@@ -433,7 +445,7 @@ public final class TransferQueue {
             }
             item.isCompleting = false
             item.completeSent = false
-            guard item.phase != .cancelled else { return }
+            guard item.phase != .cancelled, item.phase != .cancelling else { return }
             item.result = result
             item.sentBytes = item.sizeBytes
             item.phase = .done
@@ -443,7 +455,7 @@ public final class TransferQueue {
             onUploadFinished?(item)
         } catch {
             // A cancellation in progress decides the phase itself.
-            guard item.phase != .cancelled, !item.isCancelling else { return }
+            guard item.phase != .cancelled, item.phase != .cancelling, !item.isCancelling else { return }
             item.bytesPerSecond = nil
             item.secondsRemaining = nil
             switch error {

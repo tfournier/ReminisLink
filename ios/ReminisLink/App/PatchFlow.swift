@@ -70,6 +70,10 @@ final class PatchFlow {
         case failed(AppError)
         /// Confirmed: nothing was applied.
         case cancelled
+        /// M10: the cancel of the upload is waiting for the console's
+        /// answer. Nothing is final yet (refused, the upload pauses): the
+        /// screen and the local copy stay.
+        case cancellingUpload
 
         var isSending: Bool {
             if case .sending = self { return true }
@@ -79,7 +83,7 @@ final class PatchFlow {
         /// Something runs: the inputs are locked.
         var isBusy: Bool {
             switch self {
-            case .preparing, .sending, .downloading, .starting, .patching: true
+            case .preparing, .sending, .downloading, .starting, .patching, .cancellingUpload: true
             case .idle, .downloaded, .succeeded, .failed, .cancelled: false
             }
         }
@@ -87,7 +91,7 @@ final class PatchFlow {
         /// The app side runs: closing the screen would stop it.
         var holdsTheScreen: Bool {
             switch self {
-            case .preparing, .sending, .downloading, .starting: true
+            case .preparing, .sending, .downloading, .starting, .cancellingUpload: true
             default: false
             }
         }
@@ -445,7 +449,9 @@ final class PatchFlow {
         case .preparing, .sending:
             cancelRequested = true
             runTask?.cancel()
-            step = .cancelled
+            // Not final until the console answers: the screen and the
+            // local copy stay meanwhile.
+            step = .cancellingUpload
             if await cancelUpload() {
                 // M10: refused by the console (another device has write
                 // access): nothing was cancelled there. The upload and its
@@ -454,6 +460,8 @@ final class PatchFlow {
                 cancelRequested = false
                 step = .idle
                 start()
+            } else {
+                step = .cancelled
             }
         case .starting:
             // The request answers first; its job is then cancelled.
@@ -517,6 +525,8 @@ final class PatchFlow {
 
     private func fail(_ error: Error) {
         let error = AppError.patch(error)
+        // The cancel of the upload decides the step itself.
+        if step == .cancellingUpload { return }
         // Stopped by a cancellation asked before any job existed.
         if cancelRequested && error.isCancellation && step != .cancelled {
             return finishCancelledRequest()

@@ -74,8 +74,10 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     var _leaseClock: @Sendable () -> Date = { Date() }
     /// Answers handled at once but delivered late, by method and path.
     private var lateAnswers: [(method: String, path: String, delay: TimeInterval)] = []
-    /// Requests that reach the pak late, by method and path.
-    private var lateArrivals: [(method: String, path: String, delay: TimeInterval)] = []
+    /// Requests held before they reach the pak, and answers held after it
+    /// handled them, by method and path.
+    private var heldArrivals: [(method: String, path: String, gate: FakeGate)] = []
+    private var heldAnswers: [(method: String, path: String, gate: FakeGate)] = []
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
@@ -312,19 +314,32 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         lock.withLock { lateAnswers.append((method, path, delay)) }
     }
 
-    /// The next request with this method and path reaches the pak `delay`
-    /// seconds late (as if it stayed on the network): requests sent after
-    /// it may be handled first.
-    public func delayNextArrival(method: String, path: String, by delay: TimeInterval) {
-        lock.withLock { lateArrivals.append((method, path, delay)) }
+    /// The next request with this method and path waits before it reaches
+    /// the pak until the returned gate opens: requests sent after it may be
+    /// handled first. `gate.reached` says it is pending.
+    @discardableResult
+    public func holdNextArrival(method: String, path: String) -> FakeGate {
+        let gate = FakeGate()
+        lock.withLock { heldArrivals.append((method, path, gate)) }
+        return gate
     }
 
-    public func arrivalDelay(for request: URLRequest) -> TimeInterval {
+    /// The next request with this method and path is handled at once (its
+    /// effect is immediate), but its answer waits until the returned gate
+    /// opens. `gate.reached` says it was handled.
+    @discardableResult
+    public func holdNextAnswer(method: String, path: String) -> FakeGate {
+        let gate = FakeGate()
+        lock.withLock { heldAnswers.append((method, path, gate)) }
+        return gate
+    }
+
+    public func arrivalGate(for request: URLRequest) -> FakeGate? {
         let method = (request.httpMethod ?? "GET").uppercased()
-        guard let path = request.url?.path(percentEncoded: true) else { return 0 }
+        guard let path = request.url?.path(percentEncoded: true) else { return nil }
         return lock.withLock {
-            guard let index = lateArrivals.firstIndex(where: { $0.method == method && $0.path == path }) else { return 0 }
-            return lateArrivals.remove(at: index).delay
+            guard let index = heldArrivals.firstIndex(where: { $0.method == method && $0.path == path }) else { return nil }
+            return heldArrivals.remove(at: index).gate
         }
     }
 
@@ -346,6 +361,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         lock.withLock {
             if let index = lateAnswers.firstIndex(where: { $0.method == method && $0.path == path }) {
                 response.delay = max(response.delay, lateAnswers.remove(at: index).delay)
+            }
+            if let index = heldAnswers.firstIndex(where: { $0.method == method && $0.path == path }) {
+                response.gate = heldAnswers.remove(at: index).gate
             }
             _log.append(LoggedRequest(
                 method: method, path: path, query: query,

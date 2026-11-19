@@ -512,16 +512,22 @@ struct WriterLeaseTests {
         pak.log.indices.first { $0 >= start && pak.log[$0].method == method && pak.log[$0].path == "/api/v1/writer" }
     }
 
-    /// Review M10 round 2 #1: the renewal reaches the pak after the app
-    /// went to the background; the release waits for it, so the pak
-    /// handles the DELETE last and the lease ends free.
+    /// Review M10 round 2 #1: the renewal is still on its way to the pak
+    /// (held at a gate) when the app goes to the background; the release
+    /// waits for it, so the pak handles the DELETE last and the lease ends
+    /// free.
     @Test func aReleaseWaitsForARenewalThatArrivesLate() async throws {
         let s = try await setUp()
-        s.pak.delayNextArrival(method: "PUT", path: "/api/v1/writer", by: 0.3)
+        let gate = s.pak.holdNextArrival(method: "PUT", path: "/api/v1/writer")
         s.lease.start(device: try await s.client.device())
-        try await Task.sleep(for: .milliseconds(50)) // the PUT is on its way
-        await s.lease.setForeground(false)
-        try await Task.sleep(for: .milliseconds(500))
+        await waitFor { gate.reached }
+        #expect(gate.reached, "the PUT is pending")
+        let background = Task { await s.lease.setForeground(false) }
+        // A release that does not wait would reach the pak now.
+        await waitFor(timeout: .milliseconds(300)) { index(s.pak, "DELETE") != nil }
+        gate.open()
+        await background.value
+        await waitFor { index(s.pak, "DELETE") != nil }
         #expect(s.pak.writerClient == nil)
         let put = try #require(index(s.pak, "PUT"))
         let delete = try #require(index(s.pak, "DELETE"))
@@ -536,12 +542,16 @@ struct WriterLeaseTests {
         await waitFor { s.sleeper.pending == 1 }
         #expect(s.lease.isReadOnly)
         let before = s.pak.log.count
-        s.pak.delayNextArrival(method: "PUT", path: "/api/v1/writer", by: 0.3)
+        let gate = s.pak.holdNextArrival(method: "PUT", path: "/api/v1/writer")
         let takeOver = Task { try await s.lease.takeOver() }
-        try await Task.sleep(for: .milliseconds(50))
-        await s.lease.setForeground(false)
+        await waitFor { gate.reached }
+        #expect(gate.reached, "the take-over is pending")
+        let background = Task { await s.lease.setForeground(false) }
+        await waitFor(timeout: .milliseconds(300)) { index(s.pak, "DELETE", after: before) != nil }
+        gate.open()
         try? await takeOver.value
-        try await Task.sleep(for: .milliseconds(500))
+        await background.value
+        await waitFor { index(s.pak, "DELETE", after: before) != nil }
         #expect(s.pak.writerClient == nil, "taken over, then released")
         let put = try #require(index(s.pak, "PUT", after: before))
         let delete = try #require(index(s.pak, "DELETE", after: before))
@@ -642,7 +652,7 @@ struct UploadLeaseTests {
         #expect(pausedHook == 1)
         pak.responseDelay = 0
         queue.cancel(item)
-        await waitFor { item.phase != .cancelled }
+        await waitFor { item.phase != .cancelling }
         #expect(item.phase == .paused)
         #expect((item.failure as? APIError)?.isReadOnly == true)
         // Round 2 #3: the same pause path, so the session can resume it.
@@ -680,5 +690,48 @@ struct UploadLeaseTests {
         #expect(item.phase == .paused)
         #expect((item.failure as? APIError)?.isReadOnly == true)
         #expect(pak.uploadIds.count == 1)
+    }
+
+    /// Round 3 #2: while the cancel waits for the console, the upload is
+    /// not finished: "Clear Finished" keeps it, and the refusal pauses it
+    /// in the queue, where it resumes with the lease.
+    @Test func anUploadBeingCancelledCannotBeCleared() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        let (client, _) = try await namedClient(pak, name: "Mine")
+        let (other, _) = try await namedClient(pak, name: "Other iPhone")
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-lease-\(UUID().uuidString)")
+        let queue = TransferQueue(scratchDirectory: scratch, retry: .immediate) { client }
+        var pausedHook = 0
+        queue.onPausedForWriteAccess = { _ in pausedHook += 1 }
+        // The upload is created on the device, then the other iPhone takes
+        // over before this one sends its first chunk.
+        let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
+        let file = try makeFile(size: 100_000, name: "Z.gba")
+        let item = try queue.enqueue(fileURL: file, target: .rom(systemId: gbaSystemId, fileName: "Z.gba"),
+                                     destination: "GBA", ownsFile: true)
+        await waitFor { created.reached }
+        _ = try await other.takeWriter(force: true)
+        created.open()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .paused)
+        let delete = pak.holdNextAnswer(method: "DELETE", path: "/api/v1/uploads/\(pak.uploadIds[0])")
+        queue.cancel(item)
+        #expect(item.phase == .cancelling)
+        await waitFor { delete.reached }
+        #expect(delete.reached, "the DELETE was handled, its answer waits")
+        queue.clearFinished()
+        #expect(queue.uploads.contains { $0 === item }, "not finished: kept")
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        delete.open()
+        await waitFor { item.phase == .paused }
+        #expect(item.phase == .paused)
+        #expect(pausedHook >= 1)
+        #expect(queue.uploads.contains { $0 === item })
+
+        try await other.releaseWriter()
+        queue.resumePausedForWriteAccess()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
     }
 }

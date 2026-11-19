@@ -321,9 +321,11 @@ struct WriteAccessAppTests {
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
 
-    /// Round 2 #2: cancelling a patch upload refused by the console (it
-    /// lost write access mid-upload) keeps the upload and its local copy,
-    /// paused; it goes on once this iPhone takes over.
+    /// Round 2 #2 / round 3 #1: another iPhone takes over during the patch
+    /// upload, and this iPhone cancels before it learns it. While the
+    /// DELETE waits for the console, the screen cannot be closed and the
+    /// local copy stays (closing does nothing); refused, the upload stays,
+    /// paused, and goes on once this iPhone takes over.
     @Test func aRefusedPatchCancelKeepsTheUploadPaused() async throws {
         let pak = makePak()
         pak.chunkSize = 16 * 1024
@@ -338,17 +340,31 @@ struct WriteAccessAppTests {
         let file = try await picked(app, name: "big.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 300_000)))
         flow.file = file
         flow.fileName = "Sky Garden Quest (big).gba"
-        pak.responseDelay = 0.03
+        // The upload is created, then its first chunk waits at the door
+        // while the other iPhone takes over.
+        let chunkGate = Locked<FakeGate?>(nil)
+        let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
         flow.start()
-        await waitUntil { if case .sending(let f) = flow.step { return f > 0 } else { return false } }
+        await waitUntil { created.reached }
+        let uploadId = try #require(pak.uploadIds.first)
+        chunkGate.set(pak.holdNextArrival(method: "PUT", path: "/api/v1/uploads/\(uploadId)"))
+        created.open()
+        await waitUntil { chunkGate.value?.reached == true }
         pak.simulateOtherWriter(name: "Other iPhone")
+        #expect(!session.isReadOnly, "this iPhone does not know yet")
+
+        let delete = pak.holdNextAnswer(method: "DELETE", path: "/api/v1/uploads/\(uploadId)")
+        let cancel = Task { await flow.cancel() }
+        await waitUntil { delete.reached }
+        #expect(flow.step == .cancellingUpload)
+        #expect(flow.step.holdsTheScreen, "the sheet cannot be dismissed")
+        flow.discardFile() // closing the sheet now
+        #expect(FileManager.default.fileExists(atPath: file.url.path), "the local copy stays during the DELETE")
+        delete.open()
+        await cancel.value
+        chunkGate.value?.open()
         await waitUntil { flow.isWaitingForWriteAccess }
-        #expect(flow.isWaitingForWriteAccess)
-        pak.responseDelay = 0
-        await flow.cancel()
-        await waitUntil { flow.isWaitingForWriteAccess }
-        #expect(flow.step.isBusy, "still paused, not cancelled: \(flow.step)")
-        #expect(flow.isWaitingForWriteAccess)
+        #expect(flow.isWaitingForWriteAccess, "paused, not cancelled: \(flow.step)")
         #expect(FileManager.default.fileExists(atPath: file.url.path), "the local copy is kept")
         #expect(pak.uploadIds.count == 1)
 
@@ -357,4 +373,13 @@ struct WriteAccessAppTests {
         #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (big).gba"), late: false))
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
+}
+
+/// A value shared with `@Sendable` closures.
+final class Locked<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Value
+    init(_ value: Value) { _value = value }
+    var value: Value { lock.withLock { _value } }
+    func set(_ value: Value) { lock.withLock { _value = value } }
 }
