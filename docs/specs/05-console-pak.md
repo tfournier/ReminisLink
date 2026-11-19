@@ -205,7 +205,8 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 ```
 
 - **Appairage seulement à la demande** (M8, décision du 19/11/2026) : tant qu'aucun appareil n'est appairé, l'écran principal affiche le QR code et le PIN (comme ci-dessus). Dès qu'au moins un appareil est appairé, l'écran principal ne montre plus ni QR code ni PIN (nom, IP, état, appareils connectés, transferts) ; un nouvel appareil s'appaire depuis **Réglages > Appairer un nouvel appareil**, qui affiche le QR code et le PIN. L'appairage n'est **ouvert que pendant que le QR code ou le PIN est affiché** : sinon `POST /pair` répond `401 pairing_failed` sans compter d'échec, et `GET /hello` renvoie `pairingOpen: false`. Le secret et le PIN sont régénérés à chaque ouverture de l'écran d'appairage et invalidés à sa fermeture.
-- L'état en haut à droite : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s), `Transfert en cours` ; la pastille ne chevauche jamais le titre.
+- L'état **en haut à gauche** : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s), `Transfert en cours` ; la pastille ne chevauche jamais le titre.
+- **En haut à droite, le niveau de batterie** (pourcentage et indicateur de charge, source 05 §6), rafraîchi régulièrement ; sous 15 % et sans charge, affichage d'alerte et, pendant un transfert, bandeau « Batterie faible : branche la console » (M8, demande de la personne).
 - La liste des transferts et tâches en cours avec leur progression.
 - Un bandeau de notification bref quand une action modifie la carte SD (« Save restaurée : Sky Garden Quest »).
 
