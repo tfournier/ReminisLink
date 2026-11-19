@@ -380,23 +380,27 @@ func (m *mainScreen) options(v MainView) gaba.DetailScreenOptions {
 	opts.AllowAction = true
 	opts.MaxImageHeight = QRSize
 	opts.MaxImageWidth = QRSize
-	opts.StatusBar = gaba.StatusBarOptions{Enabled: true, Icons: []gaba.StatusBarIcon{{Text: "● " + v.State}}}
+	opts.StatusBar = gaba.StatusBarOptions{Enabled: true, Icons: []gaba.StatusBarIcon{{Text: v.State}}}
 	var sections []gaba.Section
 	if v.Banner != "" {
 		sections = append(sections, gaba.NewDescriptionSection("", v.Banner))
 	}
-	if v.ShowQR && m.qrPath != "" {
-		sections = append(sections, gaba.NewImageSection("", m.qrPath, QRSize, QRSize, constants.TextAlignCenter))
+	// The transfers come before the QR code: whoever sends files is
+	// already paired, and the screen is too short for everything.
+	if len(v.Transfers) > 0 {
+		sections = append(sections, gaba.NewDescriptionSection(l10n.T(l10n.TitleTransfers), joinLines(v.Transfers)))
 	}
-	sections = append(sections, gaba.NewDescriptionSection("", v.Hint))
+	if v.ShowQR && m.qrPath != "" {
+		// The hint is the title of the QR code section.
+		sections = append(sections, gaba.NewImageSection(v.Hint, m.qrPath, QRSize, QRSize, constants.TextAlignCenter))
+	} else {
+		sections = append(sections, gaba.NewDescriptionSection("", v.Hint))
+	}
 	meta := make([]gaba.MetadataItem, len(v.Items))
 	for i, it := range v.Items {
 		meta[i] = gaba.MetadataItem{Label: it.Label, Value: it.Value}
 	}
 	sections = append(sections, gaba.NewInfoSection("", meta))
-	if len(v.Transfers) > 0 {
-		sections = append(sections, gaba.NewDescriptionSection(l10n.T(l10n.TitleTransfers), joinLines(v.Transfers)))
-	}
 	opts.Sections = sections
 	return opts
 }

@@ -29,7 +29,7 @@ const AppName = "ReminisLink"
 // QRSize is the side of the QR code image, in pixels (the Brick screen is
 // 1024x768; the main screen also shows the PIN, the name and the
 // transfers below it).
-const QRSize = 320
+const QRSize = 260
 
 // Item is a label and a value of the main screen.
 type Item struct {

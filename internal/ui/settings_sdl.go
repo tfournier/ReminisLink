@@ -35,7 +35,7 @@ func settings(a *app.App) {
 			itemLanguage:  l10n.Tf(l10n.ItemLanguage, "Name", lang),
 			itemAbout:     l10n.T(l10n.ItemAbout),
 		}
-		i, err := showList(l10n.T(l10n.TitleSettings), labels, sel, "")
+		i, err := showList(l10n.T(l10n.TitleSettings), labels, sel, "", l10n.T(l10n.BtnSelect))
 		if err != nil {
 			return
 		}
@@ -84,7 +84,7 @@ func pairedDevices(a *app.App) {
 		for i, c := range clients {
 			labels[i] = PairedItem(c.Name, c.PairedAt)
 		}
-		i, err := showList(l10n.T(l10n.TitlePaired), labels, sel, l10n.T(l10n.MsgNoPaired))
+		i, err := showList(l10n.T(l10n.TitlePaired), labels, sel, l10n.T(l10n.MsgNoPaired), l10n.T(l10n.BtnForget))
 		if err != nil {
 			return
 		}
@@ -100,7 +100,7 @@ func pairedDevices(a *app.App) {
 
 // showList displays a list and returns the selected index, or
 // gaba.ErrCancelled when the user goes back.
-func showList(title string, labels []string, selected int, empty string) (int, error) {
+func showList(title string, labels []string, selected int, empty, selectLabel string) (int, error) {
 	items := make([]gaba.MenuItem, len(labels))
 	for i, l := range labels {
 		items[i] = gaba.MenuItem{Text: l}
@@ -110,7 +110,7 @@ func showList(title string, labels []string, selected int, empty string) (int, e
 		opts.SelectedIndex = selected
 	}
 	opts.EmptyMessage = empty
-	opts.FooterHelpItems = footer("B", l10n.T(l10n.BtnBack), "A", l10n.T(l10n.BtnSelect))
+	opts.FooterHelpItems = footer("B", l10n.T(l10n.BtnBack), "A", selectLabel)
 	r, err := gaba.List(opts)
 	if err != nil {
 		return -1, err
