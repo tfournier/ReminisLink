@@ -351,6 +351,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             return game(id: s[1])
         case ("DELETE", let s) where s.count == 2 && s[0] == "games":
             return deleteGame(id: s[1], keepSave: params["keepSave"] == "true")
+        case ("GET", let s) where s.count == 3 && s[0] == "games" && s[2] == "deletion":
+            return deletionPreview(id: s[1], keepSave: params["keepSave"] == "true")
         case ("POST", ["uploads"]):
             return createUpload(body: body)
         case ("GET", let s) where s.count == 2 && s[0] == "uploads":
@@ -970,10 +972,7 @@ extension FakePak {
     /// Moves a game to the trash and drops it from the library.
     @discardableResult
     func removeGame(system: DemoLibrary.System, game: DemoLibrary.Game, keepSave: Bool, reason: String) -> [String: Any] {
-        let files = self.files(system: system, game: game).filter { file in
-            let role = file["role"] as? String
-            return !(keepSave && (role == "save" || role == "state"))
-        }
+        let files = deletionSelection(system: system, game: game, keepSave: keepSave).moved
         let moved = files.compactMap { $0["path"] as? String }
         let bytes = files.reduce(Int64(0)) { $0 + Self.size($1["sizeBytes"]) }
         let now = Date()
@@ -996,6 +995,37 @@ extension FakePak {
             }
         }
         return ["trashEntryId": id, "moved": moved, "movedBytes": bytes]
+    }
+
+    /// The files a deletion moves and keeps (the same selection for the
+    /// preview and for `DELETE /games/{id}`).
+    func deletionSelection(system: DemoLibrary.System, game: DemoLibrary.Game, keepSave: Bool)
+        -> (moved: [[String: Any]], kept: [[String: Any]]) {
+        let files = self.files(system: system, game: game)
+        let isKept = { (file: [String: Any]) -> Bool in
+            let role = file["role"] as? String
+            return keepSave && (role == "save" || role == "rtc" || role == "state")
+        }
+        return (files.filter { !isKept($0) }, files.filter(isKept))
+    }
+
+    /// `GET /games/{id}/deletion` (M8): names relative to the system folder
+    /// under `Roms/`, to the SD card otherwise.
+    func deletionPreview(id: String, keepSave: Bool) -> FakeResponse {
+        guard let (system, game) = library.game(id: id) else {
+            return .error(404, code: "not_found", message: "Game not found")
+        }
+        let selection = deletionSelection(system: system, game: game, keepSave: keepSave)
+        let prefix = "Roms/\(system.folder)/"
+        let item = { (file: [String: Any]) -> [String: Any] in
+            let path = file["path"] as? String ?? ""
+            return ["name": path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path,
+                    "role": file["role"] as? String ?? "other", "size": Self.size(file["sizeBytes"])]
+        }
+        return .json(200, [
+            "moved": selection.moved.map(item), "kept": selection.kept.map(item),
+            "movedBytes": selection.moved.reduce(Int64(0)) { $0 + Self.size($1["sizeBytes"]) },
+        ])
     }
 
     func deleteGame(id: String, keepSave: Bool) -> FakeResponse {

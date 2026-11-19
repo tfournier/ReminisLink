@@ -78,10 +78,12 @@ final class AddFileUITests: XCTestCase {
         XCTAssertTrue(game.waitForExistence(timeout: 20), "game not in the library")
         game.swipeLeft()
         app.buttons["game.delete"].tapAfterWaiting()
-        app.buttons["delete.confirm"].tapAfterWaiting(timeout: 20)
+        // The pak's preview (M8) is read before Delete is enabled.
+        app.buttons["delete.confirm"].tapWhenEnabled(timeout: 20)
         XCTAssertTrue(app.descendants(matching: .any)["delete.result"].firstMatch.waitForExistence(timeout: 20)
             || app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch.exists)
         attachScreenshot(app, "deleted")
+        XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
         app.buttons["delete.emptyNow"].tapAfterWaiting(timeout: 20)
         app.buttons["delete.emptyConfirm"].tapAfterWaiting(timeout: 10)
         XCTAssertTrue(app.descendants(matching: .any)["delete.emptied"].firstMatch.waitForExistence(timeout: 20))

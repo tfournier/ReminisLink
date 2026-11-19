@@ -218,6 +218,15 @@ public actor APIClient {
 
     // MARK: - Library changes
 
+    /// `GET /games/{gameId}/deletion` (M8): what ``deleteGame(id:keepSave:)``
+    /// would move and keep now. Read only.
+    public func deletionPreview(gameId: String, keepSave: Bool) async throws -> DeletionPreview {
+        try await signedJSON(
+            method: "GET", segments: ["games", gameId, "deletion"],
+            query: [(name: "keepSave", value: keepSave ? "true" : "false")]
+        )
+    }
+
     /// `DELETE /games/{gameId}`: moves the game and its data to the trash
     /// (with `keepSave`, the save and the states stay in place).
     public func deleteGame(id: String, keepSave: Bool) async throws -> TrashMoveResult {

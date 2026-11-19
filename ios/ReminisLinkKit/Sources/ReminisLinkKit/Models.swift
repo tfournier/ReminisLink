@@ -67,6 +67,9 @@ public struct GameFileRole: RawRepresentable, Codable, Hashable, Sendable {
     public static let state = GameFileRole(rawValue: "state")
     public static let cheats = GameFileRole(rawValue: "cheats")
     public static let art = GameFileRole(rawValue: "art")
+    /// Only in ``DeletionPreview``: any other file (side files of the
+    /// states, `.cht.bak`, ReminisLink copies...).
+    public static let other = GameFileRole(rawValue: "other")
 }
 
 // MARK: - Device

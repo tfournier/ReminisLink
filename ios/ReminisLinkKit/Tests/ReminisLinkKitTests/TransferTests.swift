@@ -412,6 +412,33 @@ struct TransferTests {
         #expect(result.moved.contains { $0.hasPrefix("Roms/") })
     }
 
+    /// M8: the preview is the selection the deletion then makes.
+    @Test func deletionPreviewIsWhatTheDeletionMoves() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let gameId = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+        let kept = try await client.deletionPreview(gameId: gameId, keepSave: true)
+        #expect(pak.log.last?.query == "keepSave=true")
+        #expect(kept.kept.contains { $0.role == .save } && kept.kept.contains { $0.role == .state })
+        #expect(!kept.moved.contains { $0.role == .save || $0.role == .state })
+        #expect(kept.moved.contains { $0.name == "Sky Garden Quest.gba" && $0.role == .rom })
+        let preview = try await client.deletionPreview(gameId: gameId, keepSave: false)
+        #expect(preview.kept.isEmpty)
+        #expect(preview.movedBytes == preview.moved.reduce(0) { $0 + $1.size })
+        let result = try await client.deleteGame(id: gameId, keepSave: false)
+        #expect(result.movedBytes == preview.movedBytes)
+        #expect(result.moved.count == preview.moved.count)
+        await #expect(throws: APIError.self) { try await client.deletionPreview(gameId: gameId, keepSave: false) }
+    }
+
+    @Test func deletionPreviewDecodesTheContractExample() throws {
+        let data = Data(#"{"moved":[{"name":"Sky Garden Quest.gba","role":"rom","size":16777216},{"name":"ReminisLink/locks/x","role":"other","size":10}],"kept":[{"name":"Discs/CD1.chd","role":"rom","size":5}],"movedBytes":16777226}"#.utf8)
+        let preview = try ProtocolJSON.decoder().decode(DeletionPreview.self, from: data)
+        #expect(preview.moved.last?.role == .other)
+        #expect(preview.kept == [DeletionItem(name: "Discs/CD1.chd", role: .rom, size: 5)])
+        #expect(preview.movedBytes == 16_777_226)
+    }
+
     @Test func downloadJobRunsToItsEnd() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

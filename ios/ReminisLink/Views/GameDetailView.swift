@@ -144,18 +144,36 @@ struct GameDetailView: View {
 }
 
 struct FileRow: View {
-    let file: GameFile
+    let role: GameFileRole
+    var slot: Int?
+    let path: String
+    let sizeBytes: Int64
+
+    init(file: GameFile) {
+        role = file.role
+        slot = file.slot
+        path = file.path
+        sizeBytes = file.sizeBytes
+    }
+
+    /// A file of a deletion preview (M8).
+    init(item: DeletionItem) {
+        role = item.role
+        path = item.name
+        sizeBytes = item.size
+    }
 
     private var title: Text {
-        switch file.role {
+        switch role {
         case .rom: Text("Game")
         case .save: Text("Save")
         case .rtc: Text("Clock of the save")
         case .state:
-            if let slot = file.slot { Text("State \(slot)") } else { Text("State") }
+            if let slot { Text("State \(slot)") } else { Text("State") }
         case .cheats: Text("Cheats")
         case .art: Text("Art")
-        default: Text(file.role.rawValue)
+        case .other: Text("Other File")
+        default: Text(verbatim: role.rawValue)
         }
     }
 
@@ -164,9 +182,9 @@ struct FileRow: View {
             HStack {
                 title.font(.headline)
                 Spacer()
-                Text(file.sizeBytes.byteString).foregroundStyle(.secondary)
+                Text(sizeBytes.byteString).foregroundStyle(.secondary)
             }
-            Text(file.path)
+            Text(path)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

@@ -185,43 +185,6 @@ struct TransferAppTests {
         #expect(session.trash?.entries.isEmpty == true)
     }
 
-    @Test func keepSaveFiltersTheListedFiles() {
-        let date = Date()
-        let files = [
-            GameFile(role: .rom, path: "Roms/a.gba", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .save, path: "Saves/a.sav", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .rtc, path: "Saves/a.rtc", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .state, slot: 0, path: "s.st0", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .cheats, path: "Cheats/a.cht", sizeBytes: 1, modifiedAt: date),
-            GameFile(role: .art, path: "a.png", sizeBytes: 1, modifiedAt: date),
-        ]
-        #expect(DeleteGameView.filesToMove(files, keepSave: false).count == 6)
-        // Same selection as the pak: the clock file stays with the save.
-        #expect(DeleteGameView.filesToMove(files, keepSave: true).map(\.path) == ["Roms/a.gba", "Cheats/a.cht", "a.png"])
-        // Locks and history are only announced as moved without keepSave,
-        // with the side files of the states when there are states.
-        #expect(DeleteGameView.unlistedNote(files, keepSave: true) == nil)
-        #expect(DeleteGameView.unlistedNote(files, keepSave: false)
-            == "The thumbnails and other files of its states, their locks and its resume history go to the trash too.")
-        #expect(DeleteGameView.unlistedNote(Array(files.prefix(2)), keepSave: false)
-            == "The locks of its states and its resume history go to the trash too.")
-    }
-
-    /// M8: the pak keeps the discs another playlist still lists, and the
-    /// API does not say which: the confirmation never claims more than the
-    /// pak moves. `folder-cue` and unknown kinds are folder games.
-    @Test func multiDiscConfirmationNeverClaimsMoreThanThePak() {
-        typealias MultiDisc = DeleteGameView.MultiDisc
-        #expect(MultiDisc(.file) == .none && MultiDisc(.file).note == nil)
-        #expect(MultiDisc(.m3u) == .playlist)
-        #expect(MultiDisc(.m3u).note == "Discs that another playlist of the system still lists stay in place.")
-        for kind in [GameKind.folderM3U, .folderCUE, GameKind(rawValue: "something-new")] {
-            #expect(MultiDisc(kind) == .folder)
-            #expect(MultiDisc(kind).note
-                == "The folder of this multi-disc game is moved, except the discs that another playlist of the system still lists.")
-        }
-    }
-
     /// After an unknown outcome, a save or a state sent again replaces the
     /// one on the console: confirmed first, never announced as "both kept".
     @Test func sendingAgainASaveOrAStateReplacesIt() {

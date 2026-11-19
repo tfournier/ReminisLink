@@ -27,46 +27,10 @@ struct DeleteGameView: View {
     /// The trash total read just before the confirmation, nil if unknown.
     @State private var freshTrashTotal: Int64?
     @State private var emptied: Int64?
-
-    /// The files `DELETE /games/{id}` moves, with the option applied: the
-    /// same selection as the pak (the save, its `.rtc` and the states stay
-    /// with `keepSave`).
-    static func filesToMove(_ files: [GameFile], keepSave: Bool) -> [GameFile] {
-        files.filter { !keepSave || !GameDetail.isKeptWithSave($0.role) }
-    }
-
-    /// What the confirmation says of a multi-disc game. The discs another
-    /// playlist of the system still lists stay in place (M8), and the API
-    /// does not say which ones: the total is then a maximum.
-    enum MultiDisc: Equatable {
-        /// A single file (`file`): the total is exact.
-        case none
-        /// An `.m3u` file next to its discs.
-        case playlist
-        /// The folder is the game: `folder-m3u`, `folder-cue`, or unknown.
-        case folder
-
-        init(_ kind: GameKind) {
-            self = kind.isFolder ? .folder : kind.isMultiDisc ? .playlist : .none
-        }
-
-        var note: LocalizedStringKey? {
-            switch self {
-            case .none: nil
-            case .playlist: "Discs that another playlist of the system still lists stay in place."
-            case .folder: "The folder of this multi-disc game is moved, except the discs that another playlist of the system still lists."
-            }
-        }
-    }
-
-    /// What else the pak moves without being listed by `GET /games/{id}`.
-    static func unlistedNote(_ files: [GameFile], keepSave: Bool) -> LocalizedStringKey? {
-        guard !keepSave else { return nil }
-        if files.contains(where: { $0.role == .state }) {
-            return "The thumbnails and other files of its states, their locks and its resume history go to the trash too."
-        }
-        return "The locks of its states and its resume history go to the trash too."
-    }
+    /// What the pak would move and keep with the current option, read
+    /// again when the option changes (nil while loading).
+    @State private var preview: DeletionPreview?
+    @State private var previewError: AppError?
 
     private var hasSaveData: Bool {
         detail?.files.contains { GameDetail.isKeptWithSave($0.role) } ?? false
@@ -109,35 +73,47 @@ struct DeleteGameView: View {
         }
         .interactiveDismissDisabled(isWorking)
         .task { if detail == nil { await load() } }
+        .task(id: keepSave) { await loadPreview() }
     }
 
     @ViewBuilder
     private func confirmSections(_ detail: GameDetail) -> some View {
-        let files = Self.filesToMove(detail.files, keepSave: keepSave)
-        Section {
-            ForEach(Array(files.enumerated()), id: \.offset) { _, file in
-                FileRow(file: file)
+        // The exact selection of the pak (M8): never computed here.
+        if let preview {
+            Section {
+                ForEach(Array(preview.moved.enumerated()), id: \.offset) { _, item in
+                    FileRow(item: item)
+                }
+            } header: {
+                Text("Moved to the trash of the console")
+            } footer: {
+                Text("Total: \(preview.movedBytes.byteString)")
             }
-        } header: {
-            Text("Moved to the trash of the console")
-        } footer: {
-            VStack(alignment: .leading, spacing: 4) {
-                let total = files.reduce(0) { $0 + $1.sizeBytes }.byteString
-                let multiDisc = MultiDisc(detail.kind)
-                if multiDisc == .none {
-                    Text("Total: \(total)")
-                } else {
-                    Text("Up to \(total)")
+            .accessibilityIdentifier("delete.files")
+            if !preview.kept.isEmpty {
+                Section {
+                    ForEach(Array(preview.kept.enumerated()), id: \.offset) { _, item in
+                        FileRow(item: item)
+                    }
+                } header: {
+                    Text("Kept in place")
+                } footer: {
+                    Text("Discs that another playlist of the system still lists stay on the SD card, and so do the save and the states when you keep them.")
                 }
-                if let note = multiDisc.note {
-                    Text(note)
+                .accessibilityIdentifier("delete.kept")
+            }
+        } else if let previewError {
+            Section { ErrorView(error: previewError) }
+        } else {
+            Section {
+                HStack {
+                    Text("Reading what will be moved…").foregroundStyle(.secondary)
+                    Spacer()
+                    ProgressView()
                 }
-                if let note = Self.unlistedNote(detail.files, keepSave: keepSave) {
-                    Text(note)
-                }
+                .accessibilityIdentifier("delete.loading")
             }
         }
-        .accessibilityIdentifier("delete.files")
         if hasSaveData {
             Section {
                 Toggle("Keep the Save and the States", isOn: $keepSave)
@@ -158,7 +134,7 @@ struct DeleteGameView: View {
                     }
                 }
             }
-            .disabled(isWorking)
+            .disabled(isWorking || preview == nil)
             .accessibilityIdentifier("delete.confirm")
         } footer: {
             Text("Everything stays in the trash of the console for at least 30 days. The space is only freed when the trash is emptied.")
@@ -211,6 +187,25 @@ struct DeleteGameView: View {
         } catch {
             let error = AppError(error)
             if !error.isCancellation { self.error = error }
+        }
+    }
+
+    /// `GET /games/{id}/deletion` with the current option. The Delete
+    /// button stays disabled until it answers.
+    private func loadPreview() async {
+        let gameId = target.gameId
+        let keepSave = keepSave
+        preview = nil
+        previewError = nil
+        do {
+            let preview = try await app.session(for: target.deviceId).perform {
+                try await $0.deletionPreview(gameId: gameId, keepSave: keepSave)
+            }
+            guard keepSave == self.keepSave, !Task.isCancelled else { return }
+            self.preview = preview
+        } catch {
+            let error = AppError(error)
+            if !error.isCancellation && keepSave == self.keepSave { previewError = error }
         }
     }
 

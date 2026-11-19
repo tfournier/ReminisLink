@@ -1141,12 +1141,12 @@
         }
       }
     },
-    "Discs that another playlist of the system still lists stay in place." : {
+    "Discs that another playlist of the system still lists stay on the SD card, and so do the save and the states when you keep them." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les disques qu’une autre playlist du système liste encore restent en place."
+            "value" : "Les disques qu’une autre playlist du système liste encore restent sur la carte SD, de même que la sauvegarde et les states si vous les gardez."
           }
         }
       }
@@ -1607,6 +1607,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Garder la save et les states"
+          }
+        }
+      }
+    },
+    "Kept in place" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laissés en place"
           }
         }
       }
@@ -2161,6 +2171,16 @@
         }
       }
     },
+    "Other File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Autre fichier"
+          }
+        }
+      }
+    },
     "Output" : {
       "localizations" : {
         "fr" : {
@@ -2407,6 +2427,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ROM sur la console"
+          }
+        }
+      }
+    },
+    "Reading what will be moved…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture de ce qui sera déplacé…"
           }
         }
       }
@@ -3471,16 +3501,6 @@
         }
       }
     },
-    "The folder of this multi-disc game is moved, except the discs that another playlist of the system still lists." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le dossier de ce jeu multi-disques est déplacé, sauf les disques qu’une autre playlist du système liste encore."
-          }
-        }
-      }
-    },
     "The imported cheats are added after the current ones." : {
       "localizations" : {
         "fr" : {
@@ -3537,16 +3557,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La copie verrouillée est la seule version restante, ou diffère du state : elle part dans la corbeille de la console. Le state lui-même ne change pas."
-          }
-        }
-      }
-    },
-    "The locks of its states and its resume history go to the trash too." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les verrous de ses states et son historique de reprise partent aussi dans la corbeille."
           }
         }
       }
@@ -3637,16 +3647,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le state va dans la corbeille de la console, où il reste au moins 30 jours."
-          }
-        }
-      }
-    },
-    "The thumbnails and other files of its states, their locks and its resume history go to the trash too." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les vignettes et autres fichiers de ses states, leurs verrous et son historique de reprise partent aussi dans la corbeille."
           }
         }
       }
@@ -4007,16 +4007,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se désappairer de cette console ?"
-          }
-        }
-      }
-    },
-    "Up to %@" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jusqu’à %@"
           }
         }
       }
