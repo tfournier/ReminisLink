@@ -286,6 +286,8 @@ card.
 | `ArtUITests/testChangeThenRemoveTheImageAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_ART` |
 | `SyncUITests/testSyncAndRestoreAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_SYNC` (pak of milestone M9: `GET /saves`) |
 | `WriteAccessUITests/testReadOnlyThenTakeOverAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_WRITER` (milestone M10; see below) |
+| `ErgonomicsUITests/testLibraryAndDownloadAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_LIBRARY` (milestone M11; see below) |
+| `ErgonomicsUITests/testTheConsoleClosingAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CLOSING` (milestone M11; quit the pak during the test, see below) |
 
 `testReadOnlyThenTakeOverAgainstHeadlessPak` needs another client holding
 the write lease: run `scripts/smoke-writer.sh` in hold mode first
@@ -496,3 +498,14 @@ shutting_down`, then gone), and the demo withdraws its Bonjour service
 meanwhile. UI tests (Debug only): `RL_UITEST_PAK_CLOSES_ON="GET /games"`
 makes it quit on that request and open again 5 s later
 (`ErgonomicsUITests`).
+
+Against the real pak (a fresh copy of `testdata/sdcard`, `--pairing-open`):
+`testLibraryAndDownloadAgainstHeadlessPak` checks the flat list of its 10
+games (no per-system browsing), finds Tiny Trial (GBA `Hacks/Deeper`) with
+the search, downloads its ROM up to the share sheet, then the `.cht` of
+Pixel Garden 🌱. `testTheConsoleClosingAgainstHeadlessPak` pairs, stays on
+the dashboard and waits (90 s at most) for the list of consoles with "The
+console closed ReminisLink": end the pak meanwhile with `kill -TERM <pid>`
+(SIGTERM or Ctrl-C), a few seconds after the pairing. On the API side,
+`scripts/smoke-library.sh` checks `GET /games`, the `fileId`s and the
+downloads with curl (SHA-256 against the SD card).

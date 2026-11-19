@@ -69,7 +69,10 @@ enum GameDataUITest {
     @MainActor
     static func openLibraryGame(_ app: XCUIApplication, system: String, game: String, timeout: TimeInterval) {
         openLibraryTab(app, timeout: timeout)
-        let row = app.buttons["game.\(game)"]
+        // The first row of that name: two systems with the same label (GBA
+        // and MGBA of testdata/sdcard) can each hold a game of that name;
+        // the flat list keeps the pak's order (system folder) between them.
+        let row = app.buttons.matching(identifier: "game.\(game)").firstMatch
         let systemRow = app.buttons["system.\(system)"]
         let deadline = Date().addingTimeInterval(timeout)
         while !row.exists && !systemRow.exists && Date() < deadline {

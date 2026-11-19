@@ -128,4 +128,96 @@ final class ErgonomicsUITests: XCTestCase {
         app.tabBars.buttons["Library"].tap()
         XCTAssertTrue(app.buttons["game.Sky Garden Quest"].waitForExistence(timeout: 10))
     }
+    /// Against a real pak (`make headless` on a copy of testdata/sdcard):
+    /// the Library tab shows the flat list of `GET /games` (every system,
+    /// subfolders included), the search finds a game of a subfolder
+    /// (Tiny Trial, GBA `Hacks/Deeper`), and its ROM is downloaded up to the
+    /// share sheet; then the cheats file of Pixel Garden 🌱 (GBA).
+    ///
+    ///     TEST_RUNNER_RL_UITEST_PAIR_URL_LIBRARY='reminislink://pair?...' xcodebuild test ...
+    @MainActor
+    func testLibraryAndDownloadAgainstHeadlessPak() throws {
+        let link = try GameDataUITest.headlessLink("LIBRARY")
+        let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launchEnvironment["RL_RESET_STORE"] = "1"
+        app.launch()
+        app.open(link)
+        app.buttons["pairing.done"].tapAfterWaiting(timeout: 30)
+        GameDataUITest.openLibraryTab(app, timeout: 30)
+
+        // The flat list: the 10 games of testdata/sdcard, of several
+        // systems, without browsing per system.
+        // (The section header is shown in capitals.)
+        let count = app.staticTexts.matching(NSPredicate(format: "label ==[c] '10 games'")).firstMatch
+        XCTAssertTrue(count.waitForExistence(timeout: 30), "not the flat list of the 10 games")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'system.'")).firstMatch.exists,
+                       "browsing per system instead of the flat list")
+        for name in ["Puddle Jumper", "Café Rêverie (France)", "Starlight Courier Remix"] {
+            XCTAssertTrue(GameDataUITest.scrollTo(app.buttons["game.\(name)"], in: app), "\(name) not listed")
+        }
+        XCTAssertTrue(app.buttons["game.Puddle Jumper"].label.contains("Game Boy"), app.buttons["game.Puddle Jumper"].label)
+        attachScreenshot(of: app, named: "library-headless")
+
+        // Search: a game of a subfolder.
+        GameDataUITest.search(app, "tiny")
+        let tiny = app.buttons["game.Tiny Trial"]
+        XCTAssertTrue(tiny.waitForExistence(timeout: 10), "Tiny Trial not found")
+        XCTAssertTrue(app.buttons["game.Puddle Jumper"].waitForNonExistence(timeout: 5), "search not applied")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH[c] '1 game'")).firstMatch.exists, "not one result")
+        attachScreenshot(of: app, named: "library-headless-search")
+        tiny.tap()
+        XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 30))
+        download(app, "Tiny Trial.gba")
+        attachScreenshot(of: app, named: "library-headless-rom")
+
+        // The cheats file of another game.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let field = app.searchFields.firstMatch
+        field.tapAfterWaiting(timeout: 10)
+        let clear = field.buttons["Clear text"].firstMatch
+        if clear.waitForExistence(timeout: 2) { clear.tap() }
+        field.typeText("pixel")
+        app.buttons["game.Pixel Garden 🌱"].tapAfterWaiting(timeout: 10)
+        XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 30))
+        download(app, "Pixel Garden 🌱.gba.cht")
+    }
+
+    /// Against a real pak whose process is ended (SIGTERM) by the person
+    /// running the test while the dashboard is shown: the app goes back to
+    /// the list of consoles with the notice, without an error screen.
+    /// Quit the pak (`kill -TERM <pid>`) within 90 s of the pairing.
+    ///
+    ///     TEST_RUNNER_RL_UITEST_PAIR_URL_CLOSING='reminislink://pair?...' xcodebuild test ...
+    @MainActor
+    func testTheConsoleClosingAgainstHeadlessPak() throws {
+        let link = try GameDataUITest.headlessLink("CLOSING")
+        let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launchEnvironment["RL_RESET_STORE"] = "1"
+        app.launch()
+        app.open(link)
+        app.buttons["pairing.done"].tapAfterWaiting(timeout: 30)
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.tabBars.buttons["Console"].isSelected)
+        attachScreenshot(of: app, named: "closing-dashboard")
+
+        let notice = app.descendants(matching: .any)["consoles.closedNotice"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 90), "not back to the list")
+        XCTAssertTrue(notice.label.contains("The console closed ReminisLink"), notice.label)
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
+        attachScreenshot(of: app, named: "closing-headless")
+    }
+
+    /// Taps the download button of `name`, then closes the share sheet.
+    @MainActor
+    private func download(_ app: XCUIApplication, _ name: String) {
+        let button = app.buttons.matching(identifier: "file.download")
+            .matching(NSPredicate(format: "label == %@", "Download \(name)")).firstMatch
+        XCTAssertTrue(GameDataUITest.scrollTo(button, in: app), "no download button for \(name)")
+        button.tap()
+        GameDataUITest.expectShareSheetThenClose(app)
+        XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
+    }
 }

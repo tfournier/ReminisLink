@@ -100,6 +100,8 @@ final class PairingUITests: XCTestCase {
             throw XCTSkip("Set TEST_RUNNER_RL_UITEST_PAIR_URL to the pairing link of a running pak (make headless).")
         }
         let app = XCUIApplication()
+        // The Library tab is found by its English name.
+        app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_RESET_STORE"] = "1"
         app.launch()
 
