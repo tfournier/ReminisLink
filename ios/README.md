@@ -21,33 +21,30 @@ cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulat
 ```
 
 No Apple Developer account is needed for the simulator. To run on a device,
-set `RL_BUNDLE_PREFIX` (your reverse-DNS prefix) and `DEVELOPMENT_TEAM` (see
-"Release" below): the bundle ids, the app group and the shared Keychain group
-all derive from the prefix.
+set `DEVELOPMENT_TEAM` in `Config/Local.xcconfig` (see "Release" below).
 
 ## Release (TestFlight and App Store)
 
-The repository keeps neutral values: prefix `com.example`, no team. Nothing
-is ever uploaded by a script of the repository.
+The identifiers are fixed in `Config/Config.xcconfig` (app `link.reminis.app`,
+from the product domain reminis.link); the signing team is not in the
+repository. Nothing is ever uploaded by a script of the repository.
 
 ### 1. Identifiers and team
 
-Pick a reverse-DNS prefix you control (a domain you own, or for example
-`io.github.<your GitHub name>`) and find your Team ID (developer.apple.com >
-Account > Membership details). Either edit `Config/Config.xcconfig`, or keep
-them out of Git in `Config/Local.xcconfig` (ignored, included last by
+Find your Team ID (developer.apple.com > Account > Membership details) and
+put it in `Config/Local.xcconfig` (ignored by Git, included last by
 `Config.xcconfig`):
 
 ```
-RL_BUNDLE_PREFIX = io.github.example
 DEVELOPMENT_TEAM = ABCDE12345
 ```
 
-This gives the app `<prefix>.reminislink`, the extension
-`<prefix>.reminislink.share`, the app group `group.<prefix>.reminislink` and
-the Keychain group `<Team ID>.<prefix>.reminislink.shared`. Changing the
-prefix later makes a new app for the App Store and loses the pairings of
-installed copies: choose it once.
+The identifiers are the app `link.reminis.app`, the extension
+`link.reminis.app.share`, the app group `group.link.reminis.app` and the
+Keychain group `<Team ID>.link.reminis.app.shared`. Never change them once
+the app is published: a new identifier is a new app for the App Store, and
+installed copies lose their pairings. The seller name shown on the App Store
+is the one of the account that publishes the app, not the identifier.
 
 Signing is automatic. Open the project in Xcode once, select the
 `ReminisLink` and `ReminisLinkShare` targets in *Signing & Capabilities*

@@ -1,17 +1,18 @@
 // Shared build settings of the ReminisLink Xcode project.
 //
-// RL_BUNDLE_PREFIX is the only value to change once the Apple Developer
-// account is known (docs/specs/06-app-ios.md §1): every identifier, the app
-// group and the shared Keychain group derive from it. com.example is a
-// neutral placeholder that builds for the simulator without any account.
+// Identifiers (docs/specs/06-app-ios.md §1): the app is link.reminis.app,
+// from the product domain reminis.link. The extension, the app group and
+// the shared Keychain group derive from RL_APP_BUNDLE_ID. Never change it
+// once the app is published: a new identifier is a new app, and the pairing
+// keys kept in the Keychain would be lost.
 
-RL_BUNDLE_PREFIX = com.example
+RL_BUNDLE_PREFIX = link.reminis
 
-RL_APP_BUNDLE_ID = $(RL_BUNDLE_PREFIX).reminislink
-RL_SHARE_BUNDLE_ID = $(RL_BUNDLE_PREFIX).reminislink.share
-RL_APP_GROUP = group.$(RL_BUNDLE_PREFIX).reminislink
+RL_APP_BUNDLE_ID = $(RL_BUNDLE_PREFIX).app
+RL_SHARE_BUNDLE_ID = $(RL_APP_BUNDLE_ID).share
+RL_APP_GROUP = group.$(RL_APP_BUNDLE_ID)
 // AppIdentifierPrefix is empty without a team (simulator builds).
-RL_KEYCHAIN_GROUP = $(AppIdentifierPrefix)$(RL_BUNDLE_PREFIX).reminislink.shared
+RL_KEYCHAIN_GROUP = $(AppIdentifierPrefix)$(RL_APP_BUNDLE_ID).shared
 
 // Version shown on the App Store, and build number: increase the build
 // number for every upload to App Store Connect.
@@ -25,6 +26,5 @@ IPHONEOS_DEPLOYMENT_TARGET = 17.0
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic
 
-// Optional personal overrides (RL_BUNDLE_PREFIX, DEVELOPMENT_TEAM), never
-// committed. Must stay last.
+// Optional personal overrides (DEVELOPMENT_TEAM), never committed. Must stay last.
 #include? "Local.xcconfig"
