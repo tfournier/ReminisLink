@@ -295,7 +295,7 @@ Copie le state dans la zone des verrous et enregistre son SHA-256. Réponse `200
 
 ### `DELETE /games/{gameId}/states/{slot}/lock`
 
-Retire le verrou et supprime la copie verrouillée. Le state lui-même ne change pas. Réponse `200` avec l'emplacement mis à jour.
+Retire le verrou. La copie verrouillée est effacée si elle est identique au state ; sinon (state absent ou différent) elle part dans la corbeille. Le state lui-même ne change pas. Réponse `200` avec l'emplacement mis à jour.
 
 ### `POST /games/{gameId}/states/{slot}/restore`
 
@@ -324,11 +324,13 @@ Le format `.cht` est celui de RetroArch, géré comme dans Cheat Manager (clés 
 ```json
 {
   "cheats": [
-    { "index": 0, "description": "Infinite money", "code": "82025490+FFFF", "enabled": false, "extra": { "cheat0_handler": "0" } }
+    { "index": 0, "description": "Infinite money", "code": "82025490+FFFF", "enabled": false, "extra": { "handler": "0" } }
   ],
   "etag": "\"sha256-...\""
 }
 ```
+
+Les clés inconnues d'un cheat sont transmises dans `extra` **sans** le préfixe d'index du fichier (`handler` pour `cheat0_handler`) ; le pak ajoute le bon préfixe à l'écriture, selon la position du cheat. *(M5.)*
 
 ### `PUT /games/{gameId}/cheats`
 
