@@ -191,6 +191,14 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 		rename: os.Rename, syncDir: SyncDirChecked, saveEntry: writeEntry}
 }
 
+// SetRename replaces os.Rename for the moves and installs of the trash:
+// the tests of other packages simulate failures with it.
+func (t *Trash) SetRename(rename func(oldpath, newpath string) error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.rename = rename
+}
+
 // UseCreditClock ages the entries with c (docs/specs/05-console-pak.md
 // §4). Call it before the trash is used; without it nothing is purged.
 func (t *Trash) UseCreditClock(c *CreditClock) { t.credit = c }
@@ -449,6 +457,30 @@ func (t *Trash) syncChain(top, dir string) error {
 		}
 		dir = filepath.Dir(dir)
 	}
+}
+
+// FindMove returns the most recent done entry of reason that moved the
+// item rel (relative to the SD card, "/" separator).
+func (t *Trash) FindMove(reason, rel string) (string, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	names, err := t.entryDirs()
+	if err != nil {
+		return "", false
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(names))) // ids start with their time
+	for _, name := range names {
+		e, err := readEntry(filepath.Join(t.dir, name))
+		if err != nil || e.State != stateDone || e.Reason != reason || e.ID != name {
+			continue
+		}
+		for _, m := range e.Moves {
+			if m == rel {
+				return name, true
+			}
+		}
+	}
+	return "", false
 }
 
 // ErrNotPutBack means some files of an entry could not go back (their

@@ -718,3 +718,84 @@ func TestUnknownLockFolder(t *testing.T) {
 		t.Fatal("unknown current folder must not be core-changed")
 	}
 }
+
+// Codex review of M5: a resume state with the date and size of an archived
+// entry but other bytes was not archived before a restore overwrote it.
+func TestRestoreResumeArchivesSameDateAndSizeByContent(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	st9 := statesGB + "Starlight Courier.gba.st9"
+	e.write(st9, "version A", time.Hour)
+	e.svc.Maintain(context.Background())
+	e.write(st9, "version B", 2*time.Hour)
+	e.svc.Maintain(context.Background())
+	h := e.svc.ResumeHistory(sc)
+	if len(h) != 2 {
+		t.Fatalf("history %+v", h)
+	}
+	// The emulator writes other bytes with the date and size of "version B".
+	fi, _ := os.Stat(e.path(st9))
+	testutil.WriteFile(t, e.sd, st9, "version C")
+	os.Chtimes(e.path(st9), fi.ModTime(), fi.ModTime())
+	older := h[1] // h[0] is B (newest), h[1] is A
+	if _, err := e.svc.RestoreResume(sc, older.ID); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(st9) != "version A" {
+		t.Fatal("not restored")
+	}
+	// "version C" must survive somewhere: in the history.
+	found := false
+	dir := e.svc.resumeDirOf("GBA", "Starlight Courier.gba")
+	for _, en := range e.svc.ResumeHistory(sc) {
+		if data, _ := os.ReadFile(filepath.Join(dir, en.ID+stateExt)); string(data) == "version C" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the only copy of the overwritten resume state was lost")
+	}
+}
+
+// Codex review of M5: a multi-disc locked state whose disc file differs
+// from its locked copy is not intact (a power cut between the state and
+// its .txt left it half restored): the next start puts the set back.
+func TestLockIntactOnlyWithItsSideFiles(t *testing.T) {
+	e := newEnv(t)
+	ps, err := e.a.Game("Sony PlayStation (PS)/Mossy Hollow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		st   = ".userdata/shared/PS-pcsx_rearmed/Mossy Hollow.m3u.st0"
+		disc = ".userdata/shared/.minui/PS/Mossy Hollow.m3u.0.txt"
+	)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 2).cue")
+	if _, err := e.svc.Lock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	locked := e.read(st)
+	// The state is the locked one, but its disc file is another disc.
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	if got := status(e.slots(ps)[0]); got != StatusModified {
+		t.Fatalf("status %q, want modified", got)
+	}
+	r := e.svc.Maintain(context.Background())
+	if r.LocksIntact != 0 || len(r.Restored) != 1 {
+		t.Fatalf("maintenance %+v", r)
+	}
+	if e.read(st) != locked || e.read(disc) != "Mossy Hollow (Disc 2).cue" {
+		t.Fatal("the locked set was not put back")
+	}
+	if r := e.svc.Maintain(context.Background()); r.LocksIntact != 1 {
+		t.Fatalf("second start %+v", r)
+	}
+	// A manual restore does not stop on the state alone either.
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	if _, err := e.svc.RestoreLock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(disc) != "Mossy Hollow (Disc 2).cue" {
+		t.Fatal("manual restore kept the wrong disc file")
+	}
+}
