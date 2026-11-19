@@ -150,11 +150,19 @@ public actor FileSaveVault: SaveVault {
         return try versions(in: folder)
     }
 
+    /// A game whose rotation fails (a version that cannot be deleted)
+    /// does not stop the others; the first error is thrown at the end.
     public func finishRotations(deviceId: String) throws {
         gameIndex[deviceId] = nil
-        for (_, folder) in try loadGameIndex(deviceId: deviceId) {
-            try rotate(folder, keeping: nil)
+        var firstError: (any Error)?
+        for (_, folder) in try loadGameIndex(deviceId: deviceId).sorted(by: { $0.key < $1.key }) {
+            do {
+                try rotate(folder, keeping: nil)
+            } catch {
+                if firstError == nil { firstError = error }
+            }
         }
+        if let firstError { throw firstError }
     }
 
     /// Deletes the versions beyond the limit, oldest published first,

@@ -160,6 +160,29 @@ struct SaveSyncTests {
         #expect(left.map(\.info.sequence) == Array((2...11).reversed()))
     }
 
+    @Test func aRotationThatFailsDoesNotStopTheOtherGames() async throws {
+        let sandbox = try VaultSandbox()
+        let eleven = sandbox.vault(maxVersions: 11)
+        let games = ["g-a", "g-b", "g-c"].map {
+            VaultGameInfo(gameId: $0, systemId: "sys-gba", systemName: "Game Boy Advance (GBA)", name: $0)
+        }
+        for game in games {
+            for i in 1...11 {
+                _ = try await eleven.addVersion(console: brick, game: game, save: try sandbox.input("x.sav", "\(game.gameId)-\(i)"), rtc: nil, modifiedAt: nil)
+            }
+        }
+        // The versions of the first game cannot be deleted.
+        let locked = sandbox.root.appending(path: "My Brick/Game Boy Advance (GBA)/g-a")
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+
+        let vault = sandbox.vault()
+        await #expect(throws: (any Error).self) { try await vault.finishRotations(deviceId: "dev-1") }
+        // The first game (in order) failed; the next ones were rotated.
+        #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-b").count == 10)
+        #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-c").count == 10)
+    }
+
     @Test func aChecksumMismatchIsRejectedAndTheOtherGamesGoOn() async throws {
         let sandbox = try VaultSandbox()
         var bad = StubSaveSource.Entry.entry("g1", name: "Sky Garden", save: "sky-1")
