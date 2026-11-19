@@ -153,6 +153,22 @@ func (s *ClientStore) Remove(id string) (bool, error) {
 	return true, nil
 }
 
+// RemoveAll deletes every client and returns how many there were.
+func (s *ClientStore) RemoveAll() (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := len(s.clients)
+	if n == 0 {
+		return 0, nil
+	}
+	next := map[string]Client{}
+	if err := s.saveLocked(next); err != nil {
+		return 0, err
+	}
+	s.clients = next
+	return n, nil
+}
+
 func (s *ClientStore) saveLocked(clients map[string]Client) error {
 	f := clientsFile{Version: clientsFileVersion, Clients: make([]clientRecord, 0, len(clients))}
 	for _, c := range clients {

@@ -112,7 +112,7 @@ func (s *Service) StartDownload(req DownloadRequest) (string, *Error, error) {
 			return "", apiErr, err
 		}
 	}
-	id, err := s.jobs.Submit(JobDownload, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	id, err := s.jobs.SubmitLabeled(JobDownload, downloadLabel(u, target), func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runDownload(ctx, u, target, want, onConflict, report)
 	})
 	if errors.Is(err, ErrTooManyJobs) {

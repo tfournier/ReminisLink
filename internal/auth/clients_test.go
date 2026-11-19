@@ -162,3 +162,30 @@ func TestClientStoreFailedWriteKeepsState(t *testing.T) {
 		t.Fatal("client removed from memory although the write failed")
 	}
 }
+
+func TestClientStoreRemoveAll(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clients.json")
+	s, err := OpenClientStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := s.RemoveAll(); n != 0 || err != nil {
+		t.Fatalf("empty store: %d %v", n, err)
+	}
+	now := time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)
+	for _, id := range []string{testClientA, testClientB} {
+		if err := s.Put(Client{ID: id, Name: "Phone", Key: bytes.Repeat([]byte{2}, KeySize), PairedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := s.RemoveAll(); n != 2 || err != nil {
+		t.Fatalf("RemoveAll = %d %v", n, err)
+	}
+	if len(s.List()) != 0 {
+		t.Fatal("clients left in memory")
+	}
+	again, err := OpenClientStore(path)
+	if err != nil || len(again.List()) != 0 {
+		t.Fatalf("clients left on disk: %v", err)
+	}
+}
