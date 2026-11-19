@@ -127,6 +127,8 @@ func (s *Server) saveError(w http.ResponseWriter, r *http.Request, err error) {
 		auth.WriteError(w, http.StatusBadRequest, CodeInvalidID, "Invalid identifier", nil)
 	case errors.Is(err, osadapter.ErrUnsupportedFormat):
 		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, err.Error(), nil)
+	case errors.Is(err, saves.ErrCorruptBackup):
+		auth.WriteError(w, http.StatusConflict, CodeConflict, "The backup does not match its checksum (damaged copy), nothing was changed", nil)
 	case errors.Is(err, saves.ErrInvalidLabel):
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "label must be at most 80 characters, without control characters", nil)
 	default:
@@ -300,8 +302,14 @@ func (s *Server) stateError(w http.ResponseWriter, r *http.Request, err error) {
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "State slot is not locked", nil)
 	case errors.Is(err, states.ErrNoThumbnail):
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "Thumbnail not found", nil)
-	case errors.Is(err, states.ErrEntryNotFound), errors.Is(err, states.ErrNoResumeSlot):
+	case errors.Is(err, states.ErrEntryNotFound):
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "Resume history entry not found", nil)
+	case errors.Is(err, states.ErrNoResumeSlot):
+		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "No resume slot on this console (or state format not supported)", nil)
+	case errors.Is(err, states.ErrCorruptCopy):
+		auth.WriteError(w, http.StatusConflict, CodeConflict, "The copy does not match its checksum (damaged copy), nothing was changed", nil)
+	case errors.Is(err, states.ErrCoreChanged):
+		auth.WriteError(w, http.StatusConflict, CodeConflict, "The copy comes from another emulator core, nothing was changed", nil)
 	case errors.Is(err, states.ErrLocked):
 		auth.WriteError(w, http.StatusConflict, CodeStateLocked, "State slot is locked", nil)
 	case errors.Is(err, osadapter.ErrUnsupportedFormat):

@@ -274,19 +274,30 @@ func TestDeleteGameAndTrash(t *testing.T) {
 		TotalBytes int64 `json:"totalBytes"`
 	}
 	f.do(http.MethodGet, "/api/v1/games/"+game, "/games/{gameId}", nil, http.StatusOK).JSON(t, &detail)
+	// Not listed by GET /games: the NextUI thumbnail and disc file of a
+	// state, and the clock file of the save; they go with the game.
+	thumb := ".userdata/shared/.minui/GBA/Starlight Courier.gba.0.bmp"
+	disc := ".userdata/shared/.minui/GBA/Starlight Courier.gba.0.txt"
+	rtc := "Saves/GBA/Starlight Courier.gba.rtc"
+	testutil.WriteFile(t, f.sd, disc, "d")
+	testutil.WriteFile(t, f.sd, rtc, "clock")
+	thumbSize := int64(len(f.read(thumb))) + 1 + 5
 	var res deleteResult
 	f.do(http.MethodDelete, "/api/v1/games/"+game, "/games/{gameId}", nil, http.StatusOK).JSON(t, &res)
 	sort.Strings(res.Moved)
 	want := []string{
+		thumb,
+		disc,
 		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st0",
 		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st1",
 		".userdata/shared/GBA-gpsp/Starlight Courier.gba.st9",
 		"Cheats/GBA/Starlight Courier.gba.cht",
 		"Roms/" + gbaFolder + "/.media/Starlight Courier.png",
 		"Roms/" + gbaFolder + "/Starlight Courier.gba",
+		rtc,
 		"Saves/GBA/Starlight Courier.gba.sav",
 	}
-	if strings.Join(res.Moved, "|") != strings.Join(want, "|") || res.MovedBytes != detail.TotalBytes {
+	if strings.Join(res.Moved, "|") != strings.Join(want, "|") || res.MovedBytes != detail.TotalBytes+thumbSize {
 		t.Fatalf("moved %v (%d bytes, game %d)", res.Moved, res.MovedBytes, detail.TotalBytes)
 	}
 	for _, rel := range want {

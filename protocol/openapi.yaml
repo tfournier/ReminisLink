@@ -679,7 +679,10 @@ paths:
       description: |
         Copies the current save first (`before-restore`), then replaces the
         save with the chosen backup. The response carries that safety copy
-        (null if there was no current save).
+        (null if there was no current save). The clock file of the game
+        (`.rtc`) is backed up and restored with the save when there is one.
+        `409 conflict` when the backup does not match its checksum (nothing
+        is changed).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/BackupId'
@@ -694,6 +697,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -758,7 +762,10 @@ paths:
       tags: [States]
       operationId: deleteState
       summary: Delete a state (to the trash)
-      description: The state is moved to the trash. A locked slot gives `409 state_locked`.
+      description: |
+        The state is moved to the trash, with its NextUI thumbnail and disc
+        file (`.minui/<TAG>/<rom>.<N>.bmp` and `.txt`). A locked slot gives
+        `409 state_locked`.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/Slot'
@@ -866,8 +873,10 @@ paths:
       operationId: restoreLockedState
       summary: Restore the locked copy of a state
       description: |
-        Replaces the state with its locked copy; the current state is moved to
-        the trash first (reason `restore`). `404` when the slot is not locked.
+        Replaces the state with its locked copy; the current state (with its
+        NextUI thumbnail and disc file) is moved to the trash first (reason
+        `restore`). `404` when the slot is not locked; `409 conflict` when
+        the copy is damaged or comes from another emulator core.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - $ref: '#/components/parameters/Slot'
@@ -881,6 +890,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -925,7 +935,10 @@ paths:
       description: |
         Replaces the resume state with this version; the current version is
         archived first. Returns the updated history. `409 state_locked` when
-        the resume slot is locked.
+        the resume slot is locked; `409 conflict` when the entry is damaged or
+        was archived from another emulator core (versions of different cores
+        are never compared nor restored into each other); `422
+        unsupported_format` when the console has no resume slot.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: entryId
@@ -1582,9 +1595,11 @@ components:
         `unsupported_format` or `patch_mismatch`. On the save and state routes
         and the `save`/`state` upload targets, `unsupported_format` means the
         console uses a save or state format the pak does not write (a
-        non-default `saveFormat`/`stateFormat` in the NextUI settings), or the
-        state folder of the system cannot be found (no emulator pak): the
-        pak refuses to change these files rather than guess.
+        non-default `saveFormat`/`stateFormat` in the NextUI settings, or a
+        `.zip` game with `useExtractedFileName=1`, whose data is named after
+        the file inside the zip), or the state folder of the system cannot
+        be found (no emulator pak): the pak refuses to change these files
+        rather than guess.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1958,8 +1973,18 @@ components:
         locked: { type: boolean }
         lockStatus:
           type: [string, 'null']
-          enum: [intact, restored, missing, null]
-          description: '`intact` (same as the locked copy), `restored` (overwritten in game, restored at pak start), `missing` (state gone, locked copy present); null when not locked.'
+          enum: [intact, restored, missing, modified, core-changed, null]
+          description: |
+            null when not locked. `intact`: the state holds the bytes of the
+            locked copy (recorded size and date, SHA-256 when they differ).
+            `restored`: it was overwritten or removed in game and the copy was
+            put back at pak start (reported once, then `intact`). `missing`:
+            the state is gone, the copy is still locked. `modified`: the state
+            differs from the copy and was not restored (check skipped by the
+            time limit, damaged copy, unsupported state format, game no longer
+            found). `core-changed`: the copy comes from the state folder of
+            another emulator core (`<TAG>-<core>`) than the current one; it is
+            never restored there (restore answers `409 conflict`).
     SlotList:
       type: object
       required: [slots, resumeSlot]

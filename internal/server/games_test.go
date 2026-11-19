@@ -125,6 +125,12 @@ func TestSaveRoutes(t *testing.T) {
 		t.Fatalf("restore: %s", r.Body)
 	}
 
+	// A damaged backup is never restored: 409 conflict.
+	if err := os.WriteFile(filepath.Join(f.sd, ".userdata/shared/ReminisLink/backups/GBA/Starlight Courier.gba/saves/"+res.Backup.ID+".sav"), []byte("bit rot"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, f.do(http.MethodPost, bk+"/restore", "/games/{gameId}/save/backups/{backupId}/restore", nil, http.StatusConflict), "conflict")
+
 	// Delete (to the trash), then 404.
 	f.do(http.MethodDelete, bk, "/games/{gameId}/save/backups/{backupId}", nil, http.StatusNoContent)
 	wantCode(t, f.do(http.MethodGet, bk, "/games/{gameId}/save/backups/{backupId}", nil, http.StatusNotFound), "not_found")
@@ -148,6 +154,15 @@ func TestSaveRoutes(t *testing.T) {
 	}
 	_, r = f.createUpload(map[string]any{"target": map[string]any{"kind": "save", "gameId": library.EncodeID(scPath)}, "sizeBytes": 1, "sha256": sha([]byte{1})}, http.StatusUnprocessableEntity)
 	wantCode(t, r, "unsupported_format")
+
+	// useExtractedFileName=1: a .zip game cannot be written, a plain ROM can.
+	testutil.WriteFile(t, f.sd, ".userdata/shared/minuisettings.txt", "useExtractedFileName=1\n")
+	testutil.WriteFile(t, f.sd, "Roms/"+gbaFolder+"/Zipped.zip", "zip")
+	r = f.do(http.MethodPut, gamePath(gbaFolder+"/Zipped.zip")+"/save", "/games/{gameId}/save", []byte("x"), http.StatusUnprocessableEntity)
+	if !strings.Contains(string(r.Body), "useExtractedFileName=1") {
+		t.Fatalf("zip: %s", r.Body)
+	}
+	f.do(http.MethodPut, g+"/save", "/games/{gameId}/save", []byte("plain"), http.StatusOK)
 }
 
 type slotJSON struct {

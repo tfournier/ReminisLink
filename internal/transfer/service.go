@@ -288,7 +288,7 @@ func (s *Service) resolve(t Target, needName bool) (destination, *Error, error) 
 				return d, unsupportedFormat("No state folder for this system (emulator pak not found)"), nil
 			}
 		}
-		if err := check(); err != nil {
+		if err := check(g); err != nil {
 			return d, unsupportedFormat(err.Error()), nil
 		}
 	default:
