@@ -457,9 +457,11 @@ func TestIdleWriterChunks(t *testing.T) {
 // transfer takes compared with the send idle timeout.
 func TestGameFileSlowClient(t *testing.T) {
 	f := newFixture(t)
-	f.server.timeouts.sendIdle = 500 * time.Millisecond
+	// Well above the stalls of TCP itself: on macOS loopback one write of
+	// 32 KiB can wait about 1.4 s for a reader that keeps going.
+	f.server.timeouts.sendIdle = 3 * time.Second
 	rel := ps + "/Slow Disc.bin"
-	big := bytes.Repeat([]byte("slow disc data. "), 1<<16) // 1 MiB
+	big := bytes.Repeat([]byte("slow disc data. "), 3<<15) // 1.5 MiB
 	if err := os.WriteFile(filepath.Join(f.sd, "Roms", ps, "Slow Disc.bin"), big, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -470,24 +472,26 @@ func TestGameFileSlowClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 4 KiB every 20 ms: 32 KiB in 160 ms, well within the timeout; the
-	// whole transfer lasts several timeouts.
+	// whole transfer outlasts it.
 	start := time.Now()
 	var got []byte
+	var readErr error
 	buf := make([]byte, 4<<10)
-	for {
+	for len(got) < len(big) || !bytes.HasSuffix(got, big) {
 		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 		n, err := conn.Read(buf)
 		got = append(got, buf[:n]...)
-		if err != nil || bytes.HasSuffix(got, big[len(big)-64:]) && len(got) >= len(big) {
+		if err != nil {
+			readErr = err
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	if !bytes.HasSuffix(got, big) {
-		t.Fatalf("got %d bytes, want the %d bytes of the file after the headers", len(got), len(big))
+		t.Fatalf("got %d bytes (%v), want the %d bytes of the file after the headers; logs:\n%s", len(got), readErr, len(big), f.logs.String())
 	}
-	if elapsed := time.Since(start); elapsed < 2*f.server.timeouts.sendIdle {
-		t.Logf("transfer took only %v", elapsed)
+	if elapsed := time.Since(start); elapsed < f.server.timeouts.sendIdle {
+		t.Errorf("transfer took only %v: the test does not outlast the timeout", elapsed)
 	}
 	if strings.Contains(f.logs.String(), "file transfer interrupted") {
 		t.Error("the slow transfer was cut off")
