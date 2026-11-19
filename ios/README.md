@@ -371,10 +371,16 @@ and a BPS made for that new file replaces it.
   `.rtc`; hidden `.console.json`, `.game.json` and `.version.json` hold the
   identifiers and SHA-256. Writes go through `NSFileCoordinator`; a version
   is assembled outside the vault and moved in with one rename. At most 10
-  versions per save: the oldest is deleted once the new one is in place,
-  and nothing else is ever deleted.
+  versions per save, ordered by their publication `sequence` (never by
+  date: the iPhone clock can go back): the oldest published is deleted
+  once the new one is in place, never the new one, and an unfinished
+  rotation is finished at the next sync. Nothing else is ever deleted.
+- `GET /saves` waits up to 180 s (the session's 15 s for the other
+  routes): the pak answers once every save is hashed.
 - **Restore**: *Saves on This iPhone* (dashboard or settings) > game >
-  version > *Restore to the Console…*: `PUT /games/{gameId}/save` (the
+  version > *Restore to the Console…*: read from the vault the version was
+  shown from, checked against its SHA-256 (nothing is sent otherwise), then
+  `PUT /games/{gameId}/save` (the
   transfer queue above 64 MiB), after a confirmation. The console keeps a
   `before-replace` copy. Only the save is restored: there is no route to
   write a `.rtc`, the console keeps its own clock file. *Share* sends the
