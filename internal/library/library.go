@@ -196,7 +196,7 @@ func (l *Library) ListGames(systemID, folderID string) (Listing, error) {
 func apiGame(g osadapter.GameSummary, locks map[string]int) Game {
 	cheatCount := 0
 	if g.CheatFile != "" {
-		cheatCount = cheats.CountFile(g.CheatFile)
+		cheatCount = countCheats(g.CheatFile)
 	}
 	return Game{
 		ID:               EncodeID(g.Path),
@@ -425,7 +425,9 @@ type AllGames struct {
 // returned; it stops with ctx.Err() when ctx is done.
 func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 	out := AllGames{Games: []LibraryGame{}}
-	systems, err := l.adapter.Systems()
+	// The systems without a visible item have no game: SystemFolders does
+	// not open each folder to leave them out, the walk reads it once.
+	systems, err := l.adapter.SystemFolders()
 	if err != nil {
 		return AllGames{}, err
 	}
@@ -464,6 +466,10 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 		locks := l.lockedSlots(sys)
 		systemID := EncodeID(sys.Folder)
 		for _, f := range games {
+			// apiGame reads the cheat file of the game.
+			if err := ctx.Err(); err != nil {
+				return AllGames{}, err
+			}
 			lg := LibraryGame{Game: apiGame(f.g, locks), SystemID: systemID}
 			if sub, ok := strings.CutPrefix(f.folder, sys.Folder+"/"); ok {
 				id := EncodeID(f.folder)
@@ -477,6 +483,10 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 	}
 	return out, nil
 }
+
+// countCheats counts the cheats of a .cht file (cheats.CountFile; counted
+// by tests).
+var countCheats = cheats.CountFile
 
 // errEnough stops a walk that found all it needs.
 var errEnough = errors.New("enough games")

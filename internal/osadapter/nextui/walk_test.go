@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
+	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
 
@@ -157,6 +160,62 @@ func TestWalkSummariesReadsEachFolderOnce(t *testing.T) {
 	for _, name := range []string{"Saga One", "Saga Two", "Saga Three"} {
 		if want := int64(len("Discs/"+name+" (Disc 1).cue\ndiscs/"+name+" (Disc 2).cue") + 2); sizes[name+".m3u"] != want {
 			t.Errorf("%s: size %d, want %d", name, sizes[name+".m3u"], want)
+		}
+	}
+}
+
+// A walk stops during the playlist pre-pass of a folder: the client gone,
+// the other .m3u files are not read.
+func TestWalkCancelledDuringPlaylists(t *testing.T) {
+	a, sd := newAdapter(t)
+	for i := 0; i < 50; i++ {
+		testutil.WriteFile(t, sd, fmt.Sprintf("Roms/%s/List %02d.m3u", ps, i), "disc.cue")
+	}
+	sys, err := a.System(ps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	opened := 0
+	orig := openFile
+	openFile = func(name string) (*os.File, error) {
+		if strings.HasSuffix(name, ".m3u") {
+			opened++
+			cancel()
+		}
+		return orig(name)
+	}
+	t.Cleanup(func() { openFile = orig })
+	err = a.WalkSummaries(ctx, sys, func(string, osadapter.GameSummary) error { return nil })
+	if !errors.Is(err, context.Canceled) || opened != 1 {
+		t.Errorf("WalkSummaries: %v after %d playlists read", err, opened)
+	}
+}
+
+// GET /games (library.AllGames) reads each system folder once: the
+// discovery of the systems and the walk share its listing.
+func TestAllGamesReadsEachSystemRootOnce(t *testing.T) {
+	a, sd := newAdapter(t)
+	roots := RootsForSD(sd, "tg5040")
+	systems, err := a.Systems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := countReads(t)
+	origOpen := openDir
+	openDir = func(name string) (*os.File, error) {
+		reads[name]++
+		return origOpen(name)
+	}
+	t.Cleanup(func() { openDir = origOpen })
+	l := library.New(a, store.Layout{Root: roots.Data})
+	all, err := l.AllGames(context.Background(), library.MaxAllGames)
+	if err != nil || len(all.Games) == 0 {
+		t.Fatalf("AllGames: %d games, %v", len(all.Games), err)
+	}
+	for _, sys := range systems {
+		if n := reads[filepath.Join(roots.Roms, sys.Folder)]; n != 1 {
+			t.Errorf("%s read %d times", sys.Folder, n)
 		}
 	}
 }

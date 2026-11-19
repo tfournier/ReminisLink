@@ -97,8 +97,14 @@ func (a *Adapter) SetPowerSupplyDir(dir string) { a.powerSupply = dir }
 
 var _ osadapter.Adapter = (*Adapter)(nil)
 
-// readDir reads a directory (os.ReadDir; counted by tests).
-var readDir = os.ReadDir
+// readDir reads a directory, openDir opens one for a partial read and
+// openFile opens a file the listings read (os.ReadDir and os.Open;
+// counted by tests).
+var (
+	readDir  = os.ReadDir
+	openDir  = os.Open
+	openFile = os.Open
+)
 
 // dirCache keeps the folder listings read during one walk or listing, so
 // each folder is read once (several playlists may list discs of the same
@@ -201,7 +207,14 @@ func parseSystem(folder string) (osadapter.System, bool) {
 }
 
 // Systems lists the folders of Roms/ with a tag and a visible item.
-func (a *Adapter) Systems() ([]osadapter.System, error) {
+func (a *Adapter) Systems() ([]osadapter.System, error) { return a.systems(true) }
+
+// SystemFolders lists the folders of Roms/ with a tag, without looking
+// inside them: a walk that reads each one finds no game in those Systems
+// leaves out (no visible item), and reads each folder once.
+func (a *Adapter) SystemFolders() ([]osadapter.System, error) { return a.systems(false) }
+
+func (a *Adapter) systems(visible bool) ([]osadapter.System, error) {
 	des, err := readDir(a.roots.Roms)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -215,7 +228,7 @@ func (a *Adapter) Systems() ([]osadapter.System, error) {
 			continue
 		}
 		sys, ok := parseSystem(de.Name())
-		if !ok || !hasVisible(filepath.Join(a.roots.Roms, de.Name())) {
+		if !ok || (visible && !hasVisible(filepath.Join(a.roots.Roms, de.Name()))) {
 			continue
 		}
 		out = append(out, sys)
@@ -249,7 +262,7 @@ func (a *Adapter) System(folder string) (osadapter.System, error) {
 // the card so that a file has a single identifier
 // (docs/specs/03-protocole.md §5).
 func hasExactEntry(dir, name string) bool {
-	f, err := os.Open(dir)
+	f, err := openDir(dir)
 	if err != nil {
 		return false
 	}
@@ -268,7 +281,7 @@ func hasExactEntry(dir, name string) bool {
 }
 
 func hasVisible(dir string) bool {
-	f, err := os.Open(dir)
+	f, err := openDir(dir)
 	if err != nil {
 		return false
 	}
@@ -573,7 +586,10 @@ func (a *Adapter) WalkGames(ctx context.Context, sys osadapter.System, fn func(o
 }
 
 func walkGames(ctx context.Context, sys osadapter.System, dir, rel string, entries []fs.DirEntry, depth int, fn func(osadapter.Game) error) error {
-	discs := m3uSiblings(dir, entries)
+	discs, err := m3uSiblingsCtx(ctx, dir, entries)
+	if err != nil {
+		return err
+	}
 	for _, e := range entries {
 		// Checked for each entry: a folder of thousands of games stops
 		// soon after the client went away.
@@ -658,7 +674,10 @@ func (a *Adapter) WalkSummaries(ctx context.Context, sys osadapter.System, fn fu
 
 func (a *Adapter) walkSummaries(ctx context.Context, sys osadapter.System, data systemIndex, cache dirCache, dir, rel string, entries []fs.DirEntry, depth int, fn func(string, osadapter.GameSummary) error) error {
 	idx := data.withMedia(dir)
-	discs := m3uSiblings(dir, entries)
+	discs, err := m3uSiblingsCtx(ctx, dir, entries)
+	if err != nil {
+		return err
+	}
 	for _, e := range entries {
 		// Checked for each entry: a folder of thousands of games stops
 		// soon after the client went away.
@@ -1392,7 +1411,7 @@ func matchFold(entries []fs.DirEntry, name string) fs.DirEntry {
 // readM3U returns the entries of a .m3u file as cleaned relative paths
 // ("/" separator); absolute entries are dropped.
 func readM3U(m3uPath string) []string {
-	f, err := os.Open(m3uPath)
+	f, err := openFile(m3uPath)
 	if err != nil {
 		return nil
 	}
@@ -1416,10 +1435,20 @@ func readM3U(m3uPath string) []string {
 // dir lists (the discs of a loose multi-disc game). They belong to that
 // game and are not games of their own. A .m3u is never hidden this way.
 func m3uSiblings(dir string, entries []fs.DirEntry) map[string]bool {
+	out, _ := m3uSiblingsCtx(context.Background(), dir, entries)
+	return out
+}
+
+// m3uSiblingsCtx is m3uSiblings for a walk: it stops with ctx.Err()
+// before reading each playlist.
+func m3uSiblingsCtx(ctx context.Context, dir string, entries []fs.DirEntry) (map[string]bool, error) {
 	var out map[string]bool
 	for _, e := range entries {
 		if !e.Type().IsRegular() || hidden(e.Name()) || fileKind(e.Name()) != osadapter.KindM3U {
 			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		for _, clean := range readM3U(filepath.Join(dir, e.Name())) {
 			if strings.Contains(clean, "/") || clean == "." || clean == ".." || fileKind(clean) == osadapter.KindM3U {
@@ -1431,7 +1460,7 @@ func m3uSiblings(dir string, entries []fs.DirEntry) map[string]bool {
 			out[fold(clean)] = true
 		}
 	}
-	return out
+	return out, nil
 }
 
 // findFold returns the regular file of dir named name, ignoring case (an

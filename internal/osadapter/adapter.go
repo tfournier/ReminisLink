@@ -169,6 +169,10 @@ type Adapter interface {
 
 	// Systems lists the systems, sorted by label (case-insensitive).
 	Systems() ([]System, error)
+	// SystemFolders lists the folders Systems may list, without checking
+	// they hold a visible item: for a walk of every system, which finds no
+	// game in the others and so reads each folder once.
+	SystemFolders() ([]System, error)
 	// System returns the system stored in this folder of Roms/, or
 	// ErrNotFound.
 	System(folder string) (System, error)

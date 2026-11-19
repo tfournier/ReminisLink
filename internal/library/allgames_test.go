@@ -170,3 +170,23 @@ func TestGameHeapKeepsFirst(t *testing.T) {
 		}
 	}
 }
+
+// The cheat files are not read any more once the client went away.
+func TestAllGamesCancelledDuringCheatCounts(t *testing.T) {
+	l, sd := newLibrary(t)
+	for _, name := range []string{"Café Rêverie (France).gba", "Lantern Keeper [b1].gba"} {
+		testutil.WriteFile(t, sd, "Cheats/GBA/"+name+".cht", "cheats = 0\n")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := 0
+	orig := countCheats
+	countCheats = func(p string) int {
+		calls++
+		cancel()
+		return orig(p)
+	}
+	t.Cleanup(func() { countCheats = orig })
+	if _, err := l.AllGames(ctx, MaxAllGames); !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Errorf("AllGames: %v after %d cheat files read", err, calls)
+	}
+}
