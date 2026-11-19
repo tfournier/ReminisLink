@@ -58,8 +58,7 @@ struct AddView: View {
     /// Links of a share request that also held files: offered once the
     /// files are sent.
     @State private var pendingLinks: [String] = []
-    /// The shared link offered in the Link tab, recorded as sent once its
-    /// download is accepted.
+    /// The shared link offered in the Link tab (the user may replace it).
     @State private var sharedLink: String?
     @State private var showImporter = false
     @State private var systems: [GameSystem]?
@@ -385,9 +384,13 @@ struct AddView: View {
                 let request = DownloadRequest(url: url.absoluteString, target: target)
                 let accepted = try await session.perform { try await $0.createDownload(request) }
                 session.transfers.track(jobId: accepted.jobId, title: DownloadURL.displayName(url))
-                if let request = context.request, let link = sharedLink {
+                if let request = context.request {
+                    // Only the URL sent is recorded, if it is a shared link;
+                    // a shared link the user replaced stays to offer.
+                    let sent = request.sharedLink(matching: url.absoluteString)
+                    if let sent { _ = try? app.shareInbox.consumeLink(sent, of: request.id) }
+                    pendingLinks = ShareRequest.linksLeft(pendingLinks, offered: sharedLink, sent: sent)
                     sharedLink = nil
-                    _ = try? app.shareInbox.consumeLink(link, of: request.id)
                 }
                 // More shared links: offer the next one.
                 if useNextLink() { return }

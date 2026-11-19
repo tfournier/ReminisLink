@@ -36,6 +36,24 @@ public struct ShareRequest: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+extension ShareRequest {
+    /// The shared link the submitted URL is, nil when the user sent another
+    /// URL (links are compared as validated, like the extension stored them).
+    public func sharedLink(matching submitted: String) -> String? {
+        guard let sent = DownloadURL.validated(submitted)?.absoluteString else { return nil }
+        return urls.first { DownloadURL.validated($0)?.absoluteString == sent }
+    }
+
+    /// The shared links still to offer once a URL was sent: `sent` (the
+    /// shared link it was, if any) leaves the list, and the link `offered`
+    /// in the field stays to offer, at the end, when the user replaced it.
+    public static func linksLeft(_ pending: [String], offered: String?, sent: String?) -> [String] {
+        var left = pending.filter { $0 != sent }
+        if let offered, offered != sent, !left.contains(offered) { left.append(offered) }
+        return left
+    }
+}
+
 /// The share requests stored in the app group container, one directory per
 /// request: copies of the shared files and a `request.json` written last
 /// (atomically), so the app never reads a half-written request.

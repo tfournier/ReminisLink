@@ -497,6 +497,23 @@ struct AddSuggestionTests {
         #expect(!FileManager.default.fileExists(atPath: inbox.directory(for: request.id).path))
     }
 
+    /// The user replaced the offered link by another URL: the shared link
+    /// is not sent, so it stays to offer (and is never recorded as sent).
+    @Test func onlyTheSubmittedSharedLinkIsConsumed() {
+        let request = ShareRequest(files: [], urls: ["https://example.org/a.zip", "https://example.org/b.zip"])
+        #expect(request.sharedLink(matching: "https://example.org/b.zip") == "https://example.org/b.zip")
+        #expect(request.sharedLink(matching: "https://example.org/other.zip") == nil)
+        // a.zip offered, other.zip sent: a.zip stays, after b.zip.
+        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: nil)
+            == ["https://example.org/b.zip", "https://example.org/a.zip"])
+        // a.zip offered, b.zip typed and sent: b.zip leaves, a.zip stays.
+        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: "https://example.org/b.zip")
+            == ["https://example.org/a.zip"])
+        // The offered link sent as it is.
+        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: "https://example.org/a.zip")
+            == ["https://example.org/b.zip"])
+    }
+
     /// A request.json written before M8 (no `consumedURLs`) is still read.
     @Test func requestWithoutConsumedLinksIsRead() throws {
         let data = Data(#"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","createdAt":"2026-11-19T10:00:00Z","files":[],"urls":["https://example.org/a"]}"#.utf8)
