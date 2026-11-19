@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Politique de confidentialité — ReminisLink</title>
+  <meta name="description" content="ReminisLink ne collecte aucune donnée : ni compte, ni serveur, ni analytics, ni publicité, ni pistage.">
+  <link rel="canonical" href="https://reminis.link/fr/privacy/">
+  <link rel="alternate" hreflang="en" href="https://reminis.link/privacy/">
+  <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/privacy/">
+  <link rel="alternate" hreflang="x-default" href="https://reminis.link/privacy/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#2e2a7a">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Aller au contenu</a>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/fr/"><img src="/assets/icon-256.png" alt="" width="36" height="36">ReminisLink</a>
+      <nav class="site-nav" aria-label="Menu principal">
+        <ul>
+          <li><a href="/fr/">Accueil</a></li>
+          <li><a href="/fr/support/">Assistance</a></li>
+          <li><a href="/fr/privacy/" aria-current="page">Confidentialité</a></li>
+          <li class="lang"><a href="/privacy/" hreflang="en" lang="en">English</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="page-title">
+      <div class="wrap">
+        <h1>Politique de confidentialité</h1>
+        <p>Dernière mise à jour : <time datetime="2026-11-19">19 novembre 2026</time></p>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <article class="prose">
+        <p>ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton réseau Wi-Fi local. Elle est conçue pour que tes données ne quittent jamais ton réseau.</p>
+
+        <h2>Ce que nous collectons</h2>
+        <p><strong>Rien.</strong> ReminisLink n’a ni compte, ni serveur, ni analytics, ni publicité, ni pistage, ni SDK tiers. Le développeur ne reçoit aucune donnée sur toi ni sur ton utilisation de l’app.</p>
+
+        <h2>Ce qui reste sur ton iPhone</h2>
+        <ul>
+          <li><strong>Les clés d’appairage</strong> de tes consoles, dans le Trousseau iOS, lisibles seulement par ReminisLink et son extension de partage, sur cet appareil uniquement (pas de synchronisation iCloud).</li>
+          <li><strong>Les noms et préférences</strong> de tes consoles appairées, dans le stockage de l’app.</li>
+          <li><strong>Un cache des jaquettes</strong> affichées dans la bibliothèque, qu’iOS peut vider à tout moment.</li>
+          <li><strong>Des copies temporaires des fichiers que tu envoies</strong> (depuis Fichiers ou le menu de partage), gardées seulement jusqu’à la fin du transfert.</li>
+        </ul>
+        <p>Supprimer l’app efface tout. Se désappairer d’une console supprime sa clé.</p>
+
+        <h2>Ce qui va vers ta console</h2>
+        <p>ReminisLink ne communique qu’avec les consoles que tu as appairées, sur ton réseau local (trouvées par Bonjour, puis en HTTP sur ce réseau). Chaque requête est signée avec la clé d’appairage.</p>
+        <ul>
+          <li>Les fichiers que tu choisis d’envoyer (jeux, saves, patchs, fichiers de cheats).</li>
+          <li>À l’appairage, un nom pour ton iPhone (celui qu’iOS donne aux apps, en général « iPhone »), affiché dans la liste des appareils appairés de la console. Tu peux l’en retirer à tout moment.</li>
+          <li><strong>Les liens que tu saisis ou partages</strong> : l’app envoie le lien à ta console, qui télécharge elle-même le fichier, avec sa propre connexion. Le site du lien voit la console, pas l’app.</li>
+        </ul>
+
+        <h2>Autorisations</h2>
+        <ul>
+          <li><strong>Réseau local</strong> : pour trouver ta console et communiquer avec elle.</li>
+          <li><strong>Appareil photo</strong> : uniquement pour scanner le QR code affiché par ta console. Aucune photo n’est prise ni enregistrée.</li>
+        </ul>
+
+        <h2>Enfants</h2>
+        <p>ReminisLink ne collecte aucune donnée, sur personne, enfants compris.</p>
+
+        <h2>Ce site</h2>
+        <p>reminis.link n’utilise ni cookie, ni mesure d’audience, ni traqueur, et ne charge rien depuis d’autres sites. Il est hébergé par GitHub Pages, qui peut garder des journaux techniques des visites (comme les adresses IP) pour sa sécurité, selon la déclaration de confidentialité de GitHub.</p>
+
+        <h2>Modifications</h2>
+        <p>Toute modification de cette politique sera publiée sur cette page, avec une nouvelle date.</p>
+
+        <h2>Contact</h2>
+        <p>Ouvre une issue sur le dépôt du projet : <a href="https://github.com/tfournier/ReminisLink/issues">github.com/tfournier/ReminisLink/issues</a>.</p>
+      </article>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <ul>
+        <li><a href="/fr/support/">Assistance</a></li>
+        <li><a href="/fr/privacy/">Politique de confidentialité</a></li>
+        <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>
+        <li><a href="/privacy/" hreflang="en" lang="en">English</a></li>
+      </ul>
+      <p>ReminisLink est un projet indépendant et open source (licence MIT). TrimUI et NextUI sont les noms de leurs propriétaires respectifs, qui ne sont pas affiliés à ReminisLink.</p>
+      <p>Ce site n’utilise ni cookie, ni traqueur, ni ressource externe.</p>
+    </div>
+  </footer>
+</body>
+</html>
