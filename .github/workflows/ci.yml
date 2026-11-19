@@ -46,7 +46,7 @@ jobs:
     needs: [go, contract]
     runs-on: ubuntu-latest
     # Debian 11: old glibc / SDL2, compatible with the TrimUI firmware.
-    container: debian:bullseye
+    container: debian:bullseye@sha256:6f519a81440354a85eb592c5f32109ab80605f6b892455983a6f618bf87fabe9
     env:
       GOTOOLCHAIN: local
     steps:

@@ -8,7 +8,14 @@
 # Used by the Dockerfile and by the GitHub Actions build job.
 #
 #   GO_VERSION   Go version to install (default: the "go" line of go.mod)
+#   GO_SHA256    SHA-256 of go${GO_VERSION}.linux-amd64.tar.gz (default: the
+#                pinned value below for PINNED_GO_VERSION; required otherwise)
 set -eu
+
+# Checksum published on https://go.dev/dl/ (update it with the go line of
+# go.mod).
+PINNED_GO_VERSION=1.27.4
+PINNED_GO_SHA256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 
 GO_VERSION="${GO_VERSION:-}"
 if [ -z "$GO_VERSION" ] && [ -f go.mod ]; then
@@ -35,7 +42,19 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     libsdl2-dev:arm64 libsdl2-ttf-dev:arm64 libsdl2-image-dev:arm64 libsdl2-gfx-dev:arm64
 rm -rf /var/lib/apt/lists/*
 
-curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+GO_SHA256="${GO_SHA256:-}"
+if [ -z "$GO_SHA256" ] && [ "$GO_VERSION" = "$PINNED_GO_VERSION" ]; then
+    GO_SHA256="$PINNED_GO_SHA256"
+fi
+if [ -z "$GO_SHA256" ]; then
+    echo "No checksum for Go $GO_VERSION: set GO_SHA256 or update PINNED_GO_* in $0" >&2
+    exit 1
+fi
+archive="/tmp/go${GO_VERSION}.linux-amd64.tar.gz"
+curl -fsSL -o "$archive" "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
+echo "$GO_SHA256  $archive" | sha256sum -c -
+tar -C /usr/local -xzf "$archive"
+rm -f "$archive"
 ln -sf /usr/local/go/bin/go /usr/local/bin/go
 ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 go version
