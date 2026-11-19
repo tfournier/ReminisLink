@@ -829,3 +829,38 @@ func TestBattery(t *testing.T) {
 		t.Fatalf("DeviceInfo battery %+v %v", info.Battery, err)
 	}
 }
+
+// SaveDir finds the same save and clock file as GameFiles, including a
+// case-only difference and an exact match among names that differ by case.
+func TestSaveDirMatchesGameFiles(t *testing.T) {
+	a, sd := newAdapter(t)
+	testutil.WriteFile(t, sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock")
+	testutil.WriteFile(t, sd, "Saves/GBA/STARLIGHT COURIER.GBA.SAV", "other case")
+	testutil.WriteFile(t, sd, "Saves/GBA/lantern keeper [b1].gba.rtc", "lone clock")
+	games := []string{
+		gba + "/Starlight Courier.gba", gba + "/Café Rêverie (France).gba", gba + "/Lantern Keeper [b1].gba",
+		gba + "/Hacks/Starlight Courier Remix.gba", gba + "/Pixel Garden 🌱.gba", mgba + "/Starlight Courier.gba",
+		ps + "/Mossy Hollow", ps + "/Quiet Harbor.m3u",
+	}
+	dirs := map[string]osadapter.SaveDir{}
+	for _, rel := range games {
+		g, err := a.Game(rel)
+		if err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		files, err := a.GameFiles(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if dirs[g.System.Tag] == nil {
+			dirs[g.System.Tag] = a.SaveDir(g.System.Tag)
+		}
+		save, rtc := dirs[g.System.Tag].Files(g)
+		if !reflect.DeepEqual(save, files.Save) || !reflect.DeepEqual(rtc, files.RTC) {
+			t.Errorf("%s: SaveDir %+v %+v, GameFiles %+v %+v", rel, save, rtc, files.Save, files.RTC)
+		}
+	}
+	if save, _ := a.SaveDir("NOPE").Files(osadapter.Game{ROMName: "x.gba"}); save != nil {
+		t.Errorf("missing folder: %+v", save)
+	}
+}

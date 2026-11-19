@@ -1262,9 +1262,14 @@ func m3uSiblings(dir string, entries []fs.DirEntry) map[string]bool {
 // findFold returns the regular file of dir named name, ignoring case (an
 // exact match wins), or nil.
 func (a *Adapter) findFold(dir, name string) *osadapter.File {
+	return a.pickFold(dir, readNames(dir), name)
+}
+
+// pickFold is findFold on entries, a listing of dir.
+func (a *Adapter) pickFold(dir string, entries []fs.DirEntry, name string) *osadapter.File {
 	want := fold(name)
 	var match string
-	for _, e := range readNames(dir) {
+	for _, e := range entries {
 		if !e.Type().IsRegular() || fold(e.Name()) != want {
 			continue
 		}
@@ -1280,6 +1285,31 @@ func (a *Adapter) findFold(dir, name string) *osadapter.File {
 		return nil
 	}
 	return &f
+}
+
+// saveDir is one read of Saves/<TAG>: the regular files grouped by folded
+// name, in listing order, so pickFold keeps its rule.
+type saveDir struct {
+	a     *Adapter
+	dir   string
+	files map[string][]fs.DirEntry
+}
+
+// SaveDir reads Saves/<TAG> once.
+func (a *Adapter) SaveDir(tag string) osadapter.SaveDir {
+	d := &saveDir{a: a, dir: filepath.Join(a.roots.Saves, tag), files: map[string][]fs.DirEntry{}}
+	for _, e := range readNames(d.dir) {
+		if e.Type().IsRegular() {
+			k := fold(e.Name())
+			d.files[k] = append(d.files[k], e)
+		}
+	}
+	return d
+}
+
+func (d *saveDir) Files(g osadapter.Game) (save, rtc *osadapter.File) {
+	find := func(name string) *osadapter.File { return d.a.pickFold(d.dir, d.files[fold(name)], name) }
+	return find(g.ROMName + ".sav"), find(g.ROMName + ".rtc")
 }
 
 // fileAt describes a regular file (symbolic links are refused).
