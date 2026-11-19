@@ -140,6 +140,7 @@ Précisions (fixées au jalon M1, vecteurs dans `signing.json`) :
 3. Nonce déjà vu pour ce client → `401 replayed_request`. Un nonce est conservé au moins 10 minutes, et au moins jusqu'à `X-RL-Time + 300 s` (heure murale), pour qu'un recul de l'horloge de la console ne rouvre pas de fenêtre de rejeu.
 4. Signature comparée en temps constant ; différente → `401 bad_signature`. Elle porte sur l'en-tête `X-RL-Content-SHA256`, pas sur le corps : elle est donc vérifiée **avant** de lire le corps, et le corps d'une requête forgée n'est jamais lu.
 5. Le nonce est alors réservé (atomiquement). Si le cache de nonces est plein → `429 too_many_attempts` avec `Retry-After`. Un échec à une étape suivante **consomme** le nonce : l'app réessaie avec un nouveau nonce.
+5 bis. *(M10)* Client déconnecté depuis la console → `401 disconnected` (sauf `POST /clients/me/connect`) ; route d'écriture alors qu'un autre client tient le bail d'écriture → `423 read_only` (`details.writer`). Vérifié avant de lire le corps, sans rien modifier (voir [04, « Un seul appareil en écriture »](04-api-v1.md#un-seul-appareil-en-écriture-m10)).
 6. Si `X-RL-Content-SHA256` n'est pas `UNSIGNED`, le pak lit le corps (limite fixée par route : 1 Mio par défaut, 64 Mio pour `PUT /games/{gameId}/save`, 16 Mio pour `PUT /uploads/{uploadId}`, sinon `413 too_large`), dans un budget mémoire global, puis recalcule son SHA-256 ; différent → `401 bad_signature`. `UNSIGNED` n'est accepté que sur `PUT /uploads/{uploadId}`.
 
 *(Ordre fixé au jalon M1, décision du 18/11/2026 : la version précédente vérifiait le corps avant la signature, ce qui permettait à un tiers de faire lire 64 Mio par requête forgée.)*
@@ -181,6 +182,7 @@ Toute réponse d'erreur a la forme :
 | 400 | `invalid_id` | Identifiant illisible ou hors racine |
 | 400 | `invalid_name` | Nom de fichier refusé |
 | 401 | `unknown_client`, `bad_signature`, `clock_skew`, `replayed_request`, `pairing_failed` | Authentification |
+| 401 | `disconnected` | Client déconnecté depuis la console, jusqu'à `POST /clients/me/connect` (M10) |
 | 404 | `not_found` | Ressource absente |
 | 409 | `conflict` | Le fichier cible existe (`details.existing`) |
 | 409 | `checksum_mismatch` | SHA-256 final différent de celui annoncé |
@@ -188,6 +190,7 @@ Toute réponse d'erreur a la forme :
 | 413 | `too_large` | Corps ou fichier trop gros |
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
+| 423 | `read_only` | Un autre client tient le bail d'écriture (`details.writer` : son nom) ; rien n'a été modifié (M10) |
 | 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
 | 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
