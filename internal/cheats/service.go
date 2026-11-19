@@ -218,7 +218,10 @@ func (s *Service) Put(g osadapter.Game, ifMatch string, cheats []APICheat) (List
 	if !etagMatches(strings.TrimSpace(ifMatch), ETagOf(data), exists) {
 		return List{}, ErrConflict
 	}
-	cf := Parse(data)
+	cf, err := ParseFile(data)
+	if err != nil {
+		return List{}, err // never rewrite a file read in part
+	}
 	cf.Cheats = list
 	return s.writeLocked(g, p, exists, cf)
 }
@@ -237,7 +240,10 @@ func (s *Service) Import(g osadapter.Game, data []byte, mode string) (ImportResu
 	if mode != ModeMerge && mode != ModeReplace {
 		return ImportResult{}, ErrInvalidMode
 	}
-	imported := Parse(data)
+	imported, err := ParseFile(data)
+	if err != nil {
+		return ImportResult{}, err
+	}
 	if len(imported.Cheats) == 0 {
 		return ImportResult{}, ErrNoCheat
 	}
@@ -247,7 +253,10 @@ func (s *Service) Import(g osadapter.Game, data []byte, mode string) (ImportResu
 	if err != nil {
 		return ImportResult{}, err
 	}
-	cf := Parse(current)
+	cf, err := ParseFile(current)
+	if err != nil {
+		return ImportResult{}, err
+	}
 	if mode == ModeReplace {
 		cf.Cheats = nil
 		if !exists {
@@ -271,6 +280,12 @@ func (s *Service) Import(g osadapter.Game, data []byte, mode string) (ImportResu
 // atomically; an empty list removes the file (its content is in the .bak).
 // Called with the lock held.
 func (s *Service) writeLocked(g osadapter.Game, p string, exists bool, cf *File) (List, error) {
+	// The size is checked before anything changes: a file larger than the
+	// reads accept could not be read back (Codex review of M5).
+	out := cf.Bytes()
+	if len(out) > MaxFileBytes {
+		return List{}, ErrTooLarge
+	}
 	if exists {
 		// The previous .bak holds an older version: it goes to the trash
 		// before being replaced, so no version is ever lost (CLAUDE.md
@@ -296,7 +311,6 @@ func (s *Service) writeLocked(g osadapter.Game, p string, exists bool, cf *File)
 		}
 		return List{Cheats: []APICheat{}, ETag: ETagOf(nil)}, nil
 	}
-	out := cf.Bytes()
 	if err := store.WriteFileAtomic(p, out, 0o644); err != nil {
 		return List{}, fmt.Errorf("cheats: %w", err)
 	}

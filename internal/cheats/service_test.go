@@ -2,6 +2,7 @@ package cheats
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -286,5 +287,57 @@ func TestExtraKeysRoundTrip(t *testing.T) {
 	again, _ := e.svc.Get(g)
 	if again.Cheats[1].Extra["cheat1_x"] != "v" || again.Cheats[1].Extra["cheat_type"] != "t" {
 		t.Fatalf("after move: %+v", again.Cheats)
+	}
+}
+
+// Codex review of M5: a line longer than the scanner allows stops the
+// parser; the import is refused instead of keeping the cheats before it.
+func TestImportRefusesAPartialFile(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	data := "cheat0_desc = \"A\"\ncheat0_code = \"1\"\ncheat0_enable = false\n" +
+		"cheat1_desc = \"" + strings.Repeat("x", 4<<20+10) + "\"\ncheat2_desc = \"C\"\n"
+	if _, err := ParseFile([]byte(data)); !errors.Is(err, ErrUnreadable) {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	before, _ := os.ReadFile(filepath.Join(e.sd, "Cheats/GBA/Starlight Courier.gba.cht"))
+	if _, err := e.svc.Import(g, []byte(data), ModeReplace); !errors.Is(err, ErrUnreadable) {
+		t.Fatalf("import of a partial file: %v", err)
+	}
+	after, _ := os.ReadFile(filepath.Join(e.sd, "Cheats/GBA/Starlight Courier.gba.cht"))
+	if string(before) != string(after) {
+		t.Fatal("the cheat file changed")
+	}
+}
+
+// Codex review of M5: two imports each under the import limit could merge
+// into a file larger than the reads accept; the size is checked before
+// anything is written.
+func TestImportChecksTheSerializedSize(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	big := func(tag string) []byte {
+		var b strings.Builder
+		for i := 0; i < 5; i++ {
+			fmt.Fprintf(&b, "cheat%d_desc = \"%s%d\"\ncheat%d_code = \"%s\"\n", i, tag, i, i, strings.Repeat("A", 900_000))
+		}
+		return []byte(b.String())
+	}
+	if _, err := e.svc.Import(g, big("a"), ModeReplace); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(e.sd, "Cheats/GBA/Starlight Courier.gba.cht")
+	before, _ := os.ReadFile(p)
+	bak, _ := os.ReadFile(p + BakSuffix)
+	if _, err := e.svc.Import(g, big("b"), ModeMerge); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("merge past the read limit: %v", err)
+	}
+	after, _ := os.ReadFile(p)
+	bak2, _ := os.ReadFile(p + BakSuffix)
+	if string(before) != string(after) || string(bak) != string(bak2) {
+		t.Fatal("files changed by a refused import")
+	}
+	if _, err := e.svc.Get(g); err != nil {
+		t.Fatalf("the file can no longer be read: %v", err)
 	}
 }

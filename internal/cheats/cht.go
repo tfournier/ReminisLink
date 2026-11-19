@@ -17,6 +17,7 @@ package cheats
 // are renumbered on write.
 
 import (
+	"errors"
 	"bufio"
 	"bytes"
 	"fmt"
@@ -68,9 +69,21 @@ func isOn(v string) bool {
 	return v == "true" || v == "1"
 }
 
-// Parse decodes the content of a .cht file. It never fails: unknown lines are
-// kept in the header.
+// Parse decodes the content of a .cht file, keeping unknown lines in the
+// header. It never fails; use ParseFile to know whether the whole content
+// was read.
 func Parse(data []byte) *File {
+	cf, _ := ParseFile(data)
+	return cf
+}
+
+// ErrUnreadable means a .cht content could not be read to its end (a line
+// longer than the scanner allows): what precedes it is not the file.
+var ErrUnreadable = errors.New("cheat file unreadable")
+
+// ParseFile is Parse, with the error of the scanner (ErrUnreadable): a
+// partial file is never taken for the whole one (Codex review of M5).
+func ParseFile(data []byte) (*File, error) {
 	cf := &File{}
 	byIdx := map[int]*Cheat{}
 	var order []int
@@ -109,7 +122,10 @@ func Parse(data []byte) *File {
 	for _, i := range order {
 		cf.Cheats = append(cf.Cheats, *byIdx[i])
 	}
-	return cf
+	if err := sc.Err(); err != nil {
+		return cf, fmt.Errorf("%w: %v", ErrUnreadable, err)
+	}
+	return cf, nil
 }
 
 // Bytes encodes the file, renumbering cheats from 0.
