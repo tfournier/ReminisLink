@@ -27,6 +27,7 @@
 | Traversée de répertoire (`../`) | Identifiants opaques résolus et vérifiés côté serveur ; noms nettoyés |
 | Remplir la carte SD | Contrôle de l'espace libre à la création d'un envoi ; tailles maximales |
 | Téléchargement vers une adresse interne (SSRF) | Seul un client appairé peut lancer un téléchargement ; schémas `http`/`https` uniquement. Risque résiduel accepté |
+| Suppression d'un jeu pendant qu'un autre client écrit dans ses données | La confirmation de l'app affiche l'aperçu calculé par le pak (`GET /games/{gameId}/deletion`) avec la même sélection que `DELETE`. **Risque résiduel accepté** : une save ou un state ajouté par un second client entre l'aperçu et la confirmation part aussi à la corbeille sans avoir été affiché ; il y reste récupérable 30 jours (décision du 19/11/2026). Évolution possible : empreinte de la sélection vérifiée par `DELETE` |
 | Perte de données par erreur | Tout fichier supprimé ou remplacé part dans une corbeille de 30 jours ; copies automatiques avant toute opération destructive ; l'effacement définitif (vider la corbeille) exige une confirmation explicite (`X-RL-Confirm`) |
 | Fuite par le journal | Jamais de clé, secret, PIN ni signature dans les journaux |
 
