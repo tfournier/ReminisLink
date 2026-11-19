@@ -219,3 +219,26 @@ func TestAllGamesReadsEachSystemRootOnce(t *testing.T) {
 		}
 	}
 }
+
+// An unreadable system folder has no game for WalkSummaries, as Systems
+// leaves it out; the other systems are walked.
+func TestWalkSummariesUnreadableSystem(t *testing.T) {
+	a, sd := newAdapter(t)
+	sys, err := a.System(ps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied := filepath.Join(sd, "Roms", ps)
+	orig := readDir
+	readDir = func(dir string) ([]fs.DirEntry, error) {
+		if dir == denied {
+			return nil, &fs.PathError{Op: "open", Path: dir, Err: fs.ErrPermission}
+		}
+		return orig(dir)
+	}
+	t.Cleanup(func() { readDir = orig })
+	n := 0
+	if err := a.WalkSummaries(context.Background(), sys, func(string, osadapter.GameSummary) error { n++; return nil }); err != nil || n != 0 {
+		t.Errorf("unreadable system: %d games, %v", n, err)
+	}
+}

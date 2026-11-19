@@ -657,11 +657,11 @@ func (a *Adapter) summarize(idx systemIndex, dir string, entries []fs.DirEntry, 
 func (a *Adapter) WalkSummaries(ctx context.Context, sys osadapter.System, fn func(folder string, g osadapter.GameSummary) error) error {
 	dir := filepath.Join(a.roots.Roms, sys.Folder)
 	entries, err := readDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
 	if err != nil {
-		return fmt.Errorf("walk games: %w", withoutPath(err))
+		// Missing or unreadable (permissions, I/O error): no game, as
+		// Systems leaves such a folder out (hasVisible). This single read
+		// replaces its check for SystemFolders (GET /games).
+		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err

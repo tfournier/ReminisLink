@@ -541,3 +541,26 @@ func TestSendFileDeadlines(t *testing.T) {
 		t.Error("transfer reported as interrupted")
 	}
 }
+
+// GET /games answers 200 with the readable systems when one system folder
+// cannot be read.
+func TestAllGamesUnreadableSystem(t *testing.T) {
+	f := newFixture(t)
+	dir := filepath.Join(f.sd, "Roms", ps)
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if _, err := os.ReadDir(dir); err == nil {
+		t.Skip("permissions not enforced here")
+	}
+	var all allGamesJSON
+	f.get("/api/v1/games", "/games", http.StatusOK).JSON(t, &all)
+	systems := map[string]bool{}
+	for _, g := range all.Games {
+		systems[g.SystemID] = true
+	}
+	if systems[library.EncodeID(ps)] || !systems[library.EncodeID(gba)] {
+		t.Errorf("systems listed: %v", systems)
+	}
+}

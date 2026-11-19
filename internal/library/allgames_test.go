@@ -190,3 +190,46 @@ func TestAllGamesCancelledDuringCheatCounts(t *testing.T) {
 		t.Errorf("AllGames: %v after %d cheat files read", err, calls)
 	}
 }
+
+// denyFolder makes a folder unreadable until the test ends (skipped where
+// permissions do not apply, as for root).
+func denyFolder(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if _, err := os.ReadDir(dir); err == nil {
+		t.Skip("permissions not enforced here")
+	}
+}
+
+// An unreadable system is left out of GET /games, as GET /systems leaves
+// it out; the games of the other systems are listed.
+func TestAllGamesUnreadableSystem(t *testing.T) {
+	l, sd := newLibrary(t)
+	denyFolder(t, filepath.Join(sd, "Roms", ps))
+	all, err := l.AllGames(context.Background(), MaxAllGames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	systems, err := l.Systems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, s := range systems {
+		if s.Folder == ps {
+			t.Errorf("GET /systems lists the unreadable %s", ps)
+		}
+		total += s.GameCount
+	}
+	if len(all.Games) != total || total == 0 {
+		t.Errorf("%d games, GET /systems counts %d", len(all.Games), total)
+	}
+	for _, g := range all.Games {
+		if g.SystemID == EncodeID(ps) {
+			t.Errorf("game of the unreadable system: %s", g.FileName)
+		}
+	}
+}
