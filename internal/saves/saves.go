@@ -545,6 +545,29 @@ func (s *Service) InstallLocked(g osadapter.Game, tmp string) (*Backup, error) {
 	return b, nil
 }
 
+// BackupLocked backs up the current save of g with an automatic reason
+// (ReasonBeforePatch: the ROM is about to be replaced by a patched one)
+// and no label, for a caller that already holds the lock. It returns nil
+// when g has no save.
+func (s *Service) BackupLocked(g osadapter.Game, reason string) (*Backup, error) {
+	if reason == ReasonManual || !validReasons[reason] {
+		return nil, fmt.Errorf("save backup: invalid automatic reason %q", reason)
+	}
+	files, err := s.o.Adapter.GameFiles(g)
+	if err != nil {
+		return nil, fmt.Errorf("save: %w", err)
+	}
+	if files.Save == nil {
+		return nil, nil
+	}
+	m, err := s.createLocked(g, files.Save.Path, rtcPath(files), reason, nil)
+	if err != nil {
+		return nil, err
+	}
+	b := m.public()
+	return &b, nil
+}
+
 // installLocked backs up the current save (reason, label) and renames tmp
 // over it. The save keeps the name it has on the card when it exists (it
 // may differ by case from the adapter's name).

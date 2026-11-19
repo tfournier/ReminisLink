@@ -44,3 +44,10 @@ func TestClientSignsLikeTheApp(t *testing.T) {
 		t.Fatalf("wrong key: %d %s", r.Status, r.Body)
 	}
 }
+
+func TestEncodeBPS(t *testing.T) {
+	p := EncodeBPS([]byte("abcdef"), []byte("abXYef!"))
+	if string(p[:4]) != "BPS1" || len(p) < 4+3+12 {
+		t.Fatalf("%q", p)
+	}
+}
