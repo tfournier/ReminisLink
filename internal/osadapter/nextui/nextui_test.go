@@ -61,11 +61,15 @@ func TestStateFolders(t *testing.T) {
 	if got := a.StatePath(game("MD"), 0); got != filepath.Join(shared, "MD-picodrive", "x.bin.st0") {
 		t.Errorf("quoted: %q", got)
 	}
-	// The unreadable core of an extra pak: no other pak is looked at, the
-	// single folder is used.
+	// The unreadable core of an extra pak: no other pak is looked at, and
+	// the existing folder (of the former core) is never guessed (Codex
+	// review of M5): the states of the tag are suspended.
 	testutil.WriteFile(t, sd, "Emus/tg5040/MGBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=$CORE\n")
-	if got := a.StatePath(game("MGBA"), 0); got != filepath.Join(shared, "MGBA-mgba", "x.bin.st0") {
-		t.Errorf("unreadable core falls back to the single folder: %q", got)
+	if got := a.StatePath(game("MGBA"), 0); got != "" {
+		t.Errorf("unreadable core guessed the folder of another core: %q", got)
+	}
+	if err := a.CheckStateFormat(game("MGBA")); err != nil {
+		t.Errorf("format: %v", err)
 	}
 	// An extra pak wins over the system pak of the same tag (getEmuPath).
 	testutil.WriteFile(t, sd, "Emus/tg5040/GBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=mgba\n")
@@ -82,7 +86,7 @@ func TestStateFolders(t *testing.T) {
 	for _, r := range refs {
 		seen[r.Tag]++
 	}
-	if seen["GBA"] != 4 || seen["MGBA"] != 1 || seen["PS"] != 1 || seen["SFC"] != 0 {
+	if seen["GBA"] != 4 || seen["MGBA"] != 0 || seen["PS"] != 1 || seen["SFC"] != 0 {
 		t.Errorf("StateFiles: %v", seen)
 	}
 }

@@ -84,7 +84,11 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 		return DeleteResult{}, notFound(err, "game")
 	}
 	var items []store.MoveItem
-	if g.Kind == osadapter.KindFolderM3U {
+	// The discs another playlist of the system still lists stay in place
+	// (Codex review of M4): that game stays playable, and the purge never
+	// erases a disc it needs.
+	shared := l.adapter.SharedFiles(g)
+	if g.Kind.IsFolder() && len(shared) == 0 {
 		dir, err := resolveUnder(l.romsRoot(), g.Path)
 		if err != nil {
 			return DeleteResult{}, err
@@ -92,7 +96,9 @@ func (l *Library) DeleteGame(gameID string, keepSave bool, trash *store.Trash) (
 		items = append(items, store.MoveItem{Path: dir})
 	} else {
 		for _, f := range files.ROM {
-			items = append(items, store.MoveItem{Path: f.Path})
+			if !shared[f.Path] {
+				items = append(items, store.MoveItem{Path: f.Path})
+			}
 		}
 	}
 	if files.Cheats != nil {

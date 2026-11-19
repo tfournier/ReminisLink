@@ -799,3 +799,29 @@ func TestLockIntactOnlyWithItsSideFiles(t *testing.T) {
 		t.Fatal("manual restore kept the wrong disc file")
 	}
 }
+
+// Codex review of M5: an emulator pak whose core cannot be read (a custom
+// pak choosing it in a shell variable) suspends the states of its tag:
+// nothing is written nor restored into the folder of the former core.
+func TestUnknownCoreSuspendsTheTag(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	if _, err := e.svc.Lock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	e.write(statesGB+"Starlight Courier.gba.st0", "overwritten in game", 0)
+	testutil.WriteFile(t, e.sd, "Emus/tg5040/GBA.pak/launch.sh", "#!/bin/sh\nEMU_EXE=$CORE\n")
+	r := e.svc.Maintain(context.Background())
+	if len(r.Restored) != 0 || r.Held != 1 {
+		t.Fatalf("maintenance %+v", r)
+	}
+	if e.read(statesGB+"Starlight Courier.gba.st0") != "overwritten in game" {
+		t.Fatal("restored into the folder of the former core")
+	}
+	if _, err := e.svc.RestoreLock(sc, 0); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
+		t.Fatalf("manual restore: %v", err)
+	}
+	if _, err := e.svc.Lock(sc, 1); !errors.Is(err, osadapter.ErrUnsupportedFormat) {
+		t.Fatalf("lock: %v", err)
+	}
+}

@@ -48,7 +48,13 @@ const (
 	KindFile      GameKind = "file"       // a single ROM file
 	KindM3U       GameKind = "m3u"        // a .m3u file
 	KindFolderM3U GameKind = "folder-m3u" // a folder holding a .m3u of the same name
+	// KindFolderCue is a folder holding a .cue of the same name and no such
+	// .m3u: NextUI launches the .cue (nextui.c hasCue, openDirectory).
+	KindFolderCue GameKind = "folder-cue"
 )
+
+// IsFolder reports whether a game is a folder (folder-m3u, folder-cue).
+func (k GameKind) IsFolder() bool { return k == KindFolderM3U || k == KindFolderCue }
 
 // Game is a ROM (file, .m3u, or folder with a .m3u).
 type Game struct {
@@ -56,9 +62,10 @@ type Game struct {
 	Path     string   // relative to Roms/, "/" separator (source of the gameId)
 	FileName string   // last component of Path (file or folder name)
 	Name     string   // display name
-	Kind     GameKind // file, m3u or folder-m3u
+	Kind     GameKind // file, m3u, folder-m3u or folder-cue
 	// ROMName is the file name the emulator data (save, states, cheats) is
-	// named after: the ROM file, or the .m3u of a folder-m3u game.
+	// named after: the ROM file, the .m3u of a folder-m3u game or the .cue
+	// of a folder-cue game.
 	ROMName string
 }
 
@@ -170,6 +177,10 @@ type Adapter interface {
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.
 	GameFiles(g Game) (GameFiles, error)
+	// SharedFiles returns the files of g (absolute paths) that another
+	// playlist (.m3u) of its system also lists: deleting g keeps them, so
+	// the other game stays playable.
+	SharedFiles(g Game) map[string]bool
 	// IsGameFile reports whether a file with this name, in a system
 	// folder, is listed as a game (not hidden, not an ignored extension).
 	IsGameFile(name string) bool
