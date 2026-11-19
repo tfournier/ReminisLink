@@ -21,7 +21,7 @@ struct GameDetailView: View {
         List {
             Section {
                 HStack(alignment: .top, spacing: 16) {
-                    GameArtView(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt, size: 96)
+                    GameArtView(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt, size: 96, exposedToUITests: true)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(detail?.name ?? route.name)
                             .font(.title3.bold())

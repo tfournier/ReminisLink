@@ -88,8 +88,19 @@ struct GameArtView: View {
     let gameId: String
     let hasArt: Bool
     var size: CGFloat = 44
+    /// UI tests (Debug, `RL_UITEST_ART_PICTURE=1`): the view is exposed as
+    /// `game.art`, its value `image` or `none`.
+    var exposedToUITests = false
 
     @State private var image: UIImage?
+
+    private var isExposed: Bool {
+        #if DEBUG
+        exposedToUITests && ProcessInfo.processInfo.environment["RL_UITEST_ART_PICTURE"] == "1"
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         Group {
@@ -107,7 +118,9 @@ struct GameArtView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size / 8))
-        .accessibilityHidden(true)
+        .accessibilityHidden(!isExposed)
+        .accessibilityIdentifier(isExposed ? "game.art" : "")
+        .accessibilityValue(Text(verbatim: isExposed ? (image == nil ? "none" : "image") : ""))
         // Loaded again when the art is set or removed (M8).
         .task(id: "\(gameId)|\(hasArt)|\(app.session(for: deviceId).artRevision)") { await load() }
     }
