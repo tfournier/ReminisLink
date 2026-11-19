@@ -265,8 +265,7 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 			st, err := device.StorageOf(path)
 			return st.FreeBytes, err
 		},
-		Logger:    logger,
-		Downloads: transfer.DownloadOptions{CABundle: os.Getenv(CABundleEnv)},
+		Logger: logger,
 	})
 	if err != nil {
 		return err
@@ -335,10 +334,6 @@ func runHeadlessTo(opts options, logOut io.Writer) (err error) {
 	slog.Info("ReminisLink stopped")
 	return err
 }
-
-// CABundleEnv names the PEM bundle used for HTTPS downloads when the
-// system has no certificate store (default transfer.DefaultCABundle).
-const CABundleEnv = "REMINISLINK_CA_BUNDLE"
 
 // MaintenanceTimeLimit bounds the checks of the states at start (resume
 // history and locks): what is left is checked at the next start.
