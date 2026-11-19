@@ -204,12 +204,14 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 └──────────────────────────────────────┘
 ```
 
-- L'état en haut à droite : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s), `Transfert en cours`.
+- **Appairage seulement à la demande** (M8, décision du 19/11/2026) : tant qu'aucun appareil n'est appairé, l'écran principal affiche le QR code et le PIN (comme ci-dessus). Dès qu'au moins un appareil est appairé, l'écran principal ne montre plus ni QR code ni PIN (nom, IP, état, appareils connectés, transferts) ; un nouvel appareil s'appaire depuis **Réglages > Appairer un nouvel appareil**, qui affiche le QR code et le PIN. L'appairage n'est **ouvert que pendant que le QR code ou le PIN est affiché** : sinon `POST /pair` répond `401 pairing_failed` sans compter d'échec, et `GET /hello` renvoie `pairingOpen: false`. Le secret et le PIN sont régénérés à chaque ouverture de l'écran d'appairage et invalidés à sa fermeture.
+- L'état en haut à droite : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s), `Transfert en cours` ; la pastille ne chevauche jamais le titre.
 - La liste des transferts et tâches en cours avec leur progression.
 - Un bandeau de notification bref quand une action modifie la carte SD (« Save restaurée : Sky Garden Quest »).
 
 ### 7.2 Réglages (Y)
 
+- **Appairer un nouvel appareil** : affiche le QR code et le PIN et ouvre l'appairage jusqu'au retour (M8).
 - **Nom de la console** (clavier gabagool), utilisé dans Bonjour.
 - **Appareils appairés** : liste, avec suppression d'un appareil.
 - **Oublier tous les appareils** (confirmation).

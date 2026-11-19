@@ -180,6 +180,10 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 
 `image/png`, ou `404 not_found`. En-têtes `ETag` et `Cache-Control: private, max-age=86400` ; l'app met en cache et envoie `If-None-Match` (réponse `304` si inchangée).
 
+### `PUT /games/{gameId}/art` et `DELETE /games/{gameId}/art` (M8)
+
+Définir ou retirer la jaquette d'un jeu (décision du 19/11/2026). Corps de `PUT` : un PNG (`Content-Type: image/png`, 4 Mio au plus, signature PNG et dimensions vérifiées, au plus 1024 × 1024) ; l'app convertit et réduit l'image choisie (Photos ou Fichiers) avant l'envoi. Le pak l'enregistre de façon atomique à l'emplacement que NextUI lit (`.media/<nom>.png`, voir 05 §3.1) ; l'ancienne jaquette part d'abord à la corbeille (raison `overwrite`). `DELETE` déplace la jaquette à la corbeille. Réponses : `200` avec le jeu mis à jour (`hasArt`), `404` si le jeu n'existe pas, `413`, `422 unsupported_format` si le corps n'est pas un PNG valide.
+
 ### `DELETE /games/{gameId}?keepSave=false`
 
 1. **Déplace** dans la corbeille ReminisLink (`trash/<horodatage>/`, en conservant le chemin d'origine, voir [05](05-console-pak.md)) : la ROM (ou le `.m3u` et son dossier), la save, les states, les cheats et la jaquette. Rien n'est effacé définitivement par cette route : c'est un renommage sur la même carte SD, donc instantané.

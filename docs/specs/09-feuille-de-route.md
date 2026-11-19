@@ -72,3 +72,4 @@ But : remplacer toutes les mentions **[À VÉRIFIER M0]** par des faits.
 - Gestionnaire de fichiers générique, lancement d'un jeu, Pak Store, mises à jour.
 - Export / import des données d'un jeu en archive, synchronisation via l'iPhone.
 - Restauration depuis la corbeille.
+- **Interface web servie par le pak** (proposée par la personne le 19/11/2026) : les actions de l'app depuis un navigateur (ordinateur, Android) à `http://<console>:47821/`, en réutilisant l'API ; signature dans le navigateur (WebCrypto), appairage par PIN (la caméra exige HTTPS), à réconcilier avec 07 §4 (« aucun fichier statique »).

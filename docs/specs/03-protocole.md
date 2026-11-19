@@ -163,7 +163,7 @@ Les suites Go et Swift DOIVENT les lire et les vérifier.
 - Le pak DOIT décoder, refuser tout composant `..`, chemin absolu ou caractère nul, puis vérifier que le chemin final, liens symboliques résolus, reste sous la racine attendue (`400 invalid_id` sinon).
 - Le décodage est **strict** : base64url non canonique, UTF-8 invalide, caractère de contrôle, `\` et chemin non canonique (`a//b`, `./a`, `a/`, `a/.`) sont refusés (`400 invalid_id`) au lieu d'être nettoyés par `filepath.Clean`, pour qu'un fichier ait un seul identifiant. *(Décision du 18/11/2026.)*
 - Aucune normalisation Unicode : les octets du nom sur la carte sont utilisés tels quels ; une écriture NFC et une écriture NFD du même nom donnent deux identifiants différents.
-- Les noms de fichiers fournis par l'app (envoi, renommage) DOIVENT être nettoyés : pas de `/`, `\`, `..`, caractère de contrôle, ni nom vide ; longueur ≤ 255 octets ; caractères interdits en exFAT (`" * / : < > ? \ |`) remplacés par `_`.
+- Les noms de fichiers fournis par l'app (envoi, renommage, nom déduit d'un téléchargement) sont **normalisés en NFC** avant tout le reste (l'iPhone fournit souvent des noms décomposés en NFD, mal affichés par NextUI et l'écran du pak ; M8). Ils DOIVENT ensuite être nettoyés : pas de `/`, `\`, `..`, caractère de contrôle, ni nom vide ; longueur ≤ 255 octets ; caractères interdits en exFAT (`" * / : < > ? \ |`) remplacés par `_`.
 
 ## 6. Erreurs
 

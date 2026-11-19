@@ -35,7 +35,7 @@ ReminisLink is an iPhone companion for Linux retro handhelds (first target: Trim
 - Same toolchain and style as `nextui-cheat-manager` (Makefile targets `test`, `lint`, `build`, `pak`, `release`, `docker-*`; Debian 11 cross toolchain; CGO for SDL only).
 - UI: `github.com/BrandonKowalski/gabagool/v2`, as in Cheat Manager.
 - Everything outside `internal/ui` and `cmd/` must build and test with `CGO_ENABLED=0` on macOS/Linux.
-- Standard library first. Allowed extra dependencies: gabagool, an mDNS library (e.g. `github.com/grandcat/zeroconf`), a QR encoder. Ask before adding anything else.
+- Standard library first. Allowed extra dependencies: gabagool, an mDNS library (e.g. `github.com/grandcat/zeroconf`), a QR encoder, `golang.org/x/text` (Unicode normalization). Ask before adding anything else.
 - Paths come from environment variables with NextUI defaults (`SDCARD_PATH`, `ROMS_PATH`, `CHEATS_PATH`, `SAVES_PATH`, `USERDATA_PATH`, `PLATFORM`, `LOGS_PATH`), like Cheat Manager.
 - Logs: `log/slog` to `$LOGS_PATH/ReminisLink.txt`.
 
