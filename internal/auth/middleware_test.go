@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -628,16 +630,16 @@ func TestMiddlewareGate(t *testing.T) {
 	f := newMWFixture(t, 0)
 	var gotOpts RouteOptions
 	calls := 0
-	f.verifier.Gate = func(r *http.Request, c Client, opts RouteOptions) *Rejection {
+	f.verifier.Gate = func(r *http.Request, c Client, opts RouteOptions) (*Admission, *Rejection) {
 		calls++
 		gotOpts = opts
 		if c.ID != testClientA {
 			t.Errorf("gate client %q", c.ID)
 		}
 		if r.Header.Get("X-Pass") != "" {
-			return nil
+			return nil, nil
 		}
-		return &Rejection{Status: http.StatusLocked, Code: "read_only", Message: "no", Details: map[string]any{"writer": "Other"}}
+		return nil, &Rejection{Status: http.StatusLocked, Code: "read_only", Message: "no", Details: map[string]any{"writer": "Other"}}
 	}
 	const nonce = "AAAAAAAAAAAAAAAAAAAAAA"
 	req := f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: []byte("small"), nonce: nonce})
@@ -649,6 +651,9 @@ func TestMiddlewareGate(t *testing.T) {
 	f.handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusLocked || !strings.Contains(rec.Body.String(), `"writer":"Other"`) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Connection") != "close" {
+		t.Error("a pre-body rejection must close the connection instead of draining the body")
 	}
 	if body.n != 0 {
 		t.Fatalf("%d body bytes read before the gate refused", body.n)
@@ -683,5 +688,73 @@ func TestMiddlewareGate(t *testing.T) {
 	chunk := f.request(signOpts{method: "PUT", target: "/api/v1/uploads/u1", body: []byte("abc"), unsigned: true})
 	if status, code := f.do(chunk); status != http.StatusLocked || code != "read_only" {
 		t.Fatalf("unsigned chunk: %d %s", status, code)
+	}
+}
+
+// TestMiddlewareAdmission: Commit runs once the request is accepted, before
+// the handler; Rollback when the request is rejected after the Gate or by
+// Commit itself.
+func TestMiddlewareAdmission(t *testing.T) {
+	f := newMWFixture(t, 0)
+	var mu sync.Mutex
+	var events []string
+	var refuseCommit bool
+	add := func(e string) { mu.Lock(); events = append(events, e); mu.Unlock() }
+	f.verifier.Gate = func(r *http.Request, c Client, opts RouteOptions) (*Admission, *Rejection) {
+		return &Admission{
+			Commit: func() *Rejection {
+				add("commit")
+				mu.Lock()
+				refuse := refuseCommit
+				mu.Unlock()
+				if refuse {
+					return &Rejection{Status: http.StatusLocked, Code: "read_only", Message: "no"}
+				}
+				return nil
+			},
+			Rollback: func() { add("rollback") },
+		}, nil
+	}
+	take := func() []string { mu.Lock(); defer mu.Unlock(); e := events; events = nil; return e }
+
+	// Accepted.
+	if status, _ := f.do(f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: []byte("ok")})); status != 204 {
+		t.Fatal(status)
+	}
+	<-f.seen
+	if e := take(); !slices.Equal(e, []string{"commit"}) {
+		t.Fatalf("accepted: %v", e)
+	}
+	// Body hash mismatch: rolled back, never committed.
+	req := f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: []byte("signed")})
+	req.Body = io.NopCloser(strings.NewReader("other!"))
+	if status, code := f.do(req); status != 401 || code != CodeBadSignature {
+		t.Fatalf("mismatch: %d %s", status, code)
+	}
+	if e := take(); !slices.Equal(e, []string{"rollback"}) {
+		t.Fatalf("mismatch: %v", e)
+	}
+	// Too large: rolled back.
+	big := f.request(signOpts{method: "POST", target: "/api/v1/x", body: bytes.Repeat([]byte("x"), BodyLimitJSON+1)})
+	if status, _ := f.do(big); status != 413 {
+		t.Fatal(status)
+	}
+	if e := take(); !slices.Equal(e, []string{"rollback"}) {
+		t.Fatalf("too large: %v", e)
+	}
+	// Commit refuses: rolled back, handler not called.
+	mu.Lock()
+	refuseCommit = true
+	mu.Unlock()
+	if status, code := f.do(f.request(signOpts{method: "PUT", target: "/api/v1/uploads/u1", body: []byte("abc"), unsigned: true})); status != http.StatusLocked || code != "read_only" {
+		t.Fatalf("commit refused: %d %s", status, code)
+	}
+	if e := take(); !slices.Equal(e, []string{"commit", "rollback"}) {
+		t.Fatalf("commit refused: %v", e)
+	}
+	select {
+	case s := <-f.seen:
+		t.Fatalf("handler called: %+v", s)
+	default:
 	}
 }

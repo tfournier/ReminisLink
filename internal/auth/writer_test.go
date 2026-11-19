@@ -103,3 +103,58 @@ func TestWriteLeaseRace(t *testing.T) {
 		t.Fatalf("%d winners", wins.Load())
 	}
 }
+
+func TestWriteLeaseProvisional(t *testing.T) {
+	clk := &leaseClock{t: time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)}
+	l := NewWriteLease(clk.Now)
+
+	// A provisional take blocks the others and is rolled back.
+	_, ticket, ok := l.TryAcquire("a")
+	if !ok || ticket == (LeaseTicket{}) {
+		t.Fatal("try a")
+	}
+	if h, _, ok := l.TryAcquire("b"); ok || h.ClientID != "a" {
+		t.Fatalf("try b = %+v %v", h, ok)
+	}
+	l.Rollback("a", ticket)
+	if _, ok := l.Holder(); ok {
+		t.Fatal("held after rollback")
+	}
+
+	// Confirmed by an accepted request: the rollback does nothing.
+	_, ticket, _ = l.TryAcquire("a")
+	l.Renew("a")
+	l.Rollback("a", ticket)
+	if h, ok := l.Holder(); !ok || h.ClientID != "a" {
+		t.Fatal("confirmed take rolled back")
+	}
+
+	// The holder's own write does not renew it before it is accepted.
+	clk.Advance(30 * time.Second)
+	h, ticket, ok := l.TryAcquire("a")
+	if !ok || ticket != (LeaseTicket{}) || !h.ExpiresAt.Equal(clk.Now().Add(30*time.Second)) {
+		t.Fatalf("holder's try = %+v %+v %v", h, ticket, ok)
+	}
+	l.Rollback("a", ticket) // zero ticket: no effect
+	if _, ok := l.Holder(); !ok {
+		t.Fatal("zero ticket released the lease")
+	}
+
+	// A provisional take force-taken by another client is not stolen back.
+	l.Release("a")
+	_, ticket, _ = l.TryAcquire("a")
+	l.Acquire("b", true)
+	l.Rollback("a", ticket)
+	if h, ok := l.Holder(); !ok || h.ClientID != "b" {
+		t.Fatalf("after force + rollback: %+v %v", h, ok)
+	}
+	// Nor a later take of the same client.
+	l.Release("b")
+	_, old, _ := l.TryAcquire("a")
+	l.Rollback("a", old)
+	_, _, _ = l.TryAcquire("a")
+	l.Rollback("a", old)
+	if h, ok := l.Holder(); !ok || h.ClientID != "a" {
+		t.Fatalf("stale ticket released a newer take: %+v %v", h, ok)
+	}
+}

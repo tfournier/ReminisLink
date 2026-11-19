@@ -73,9 +73,22 @@ type Rejection struct {
 
 // Gate decides whether an authenticated request may go on. The Verifier
 // calls it once the signature is valid and the nonce reserved, before the
-// body is read: a rejected request never makes the pak read its body. A
-// nil result lets the request through.
-type Gate func(r *http.Request, client Client, opts RouteOptions) *Rejection
+// body is read: a rejected request never makes the pak read its body (the
+// answer carries "Connection: close" when a body was announced, so the
+// server does not wait for it either). A nil Rejection lets the request
+// through with an Admission (may be nil).
+type Gate func(r *http.Request, client Client, opts RouteOptions) (*Admission, *Rejection)
+
+// Admission is what a Gate holds for a request it let through. Exactly one
+// of its functions is called: Commit once the request is accepted (body
+// verified, or right away for an UNSIGNED body, before the handler), and
+// Rollback if the Verifier rejects the request after the Gate. A Rejection
+// from Commit rejects the request (Rollback is then called). Nil functions
+// are skipped.
+type Admission struct {
+	Commit   func() *Rejection
+	Rollback func()
+}
 
 // Route options of the API v1 routes.
 var (
@@ -161,7 +174,8 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 //     §4.2; net/url ignores the pairs holding a ";");
 //  7. the Gate, when set, may refuse the request (its body still unread);
 //  8. body larger than the route limit → 413 too_large; body hash mismatch
-//     → 401 bad_signature.
+//     → 401 bad_signature;
+//  9. the Gate's Admission is committed, and may still refuse the request.
 //
 // Signature and body hash are checked in the reverse order of the spec
 // (both answer bad_signature): the body of a forged request is never read.
@@ -222,7 +236,17 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		now = v.Now
 	}
 	var reserved int64
+	// admission is the Gate's hold on the request: rolled back on any
+	// rejection after the Gate, before the answer is written.
+	var admission *Admission
+	committed := false
 	failWith := func(status int, code, message string, details map[string]any) (Client, int64, bool) {
+		if admission != nil && !committed {
+			committed = true
+			if admission.Rollback != nil {
+				admission.Rollback()
+			}
+		}
 		// Never log keys, nonces or signatures.
 		// Every value from the network is bounded (see LogString).
 		log.Info("request rejected", "code", code, "method", LogString(r.Method, MaxLoggedMethod),
@@ -294,12 +318,39 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		return fail(http.StatusBadRequest, CodeInvalidRequest, "Semicolon in query")
 	}
 	if v.Gate != nil {
-		if rej := v.Gate(r, client, opts); rej != nil {
+		adm, rej := v.Gate(r, client, opts)
+		if rej != nil {
+			if r.ContentLength != 0 {
+				// Answer at once: without this net/http first drains up
+				// to 256 KiB of the unread body to keep the connection.
+				w.Header().Set("Connection", "close")
+			}
 			return failWith(rej.Status, rej.Code, rej.Message, rej.Details)
 		}
+		admission = adm
+	}
+	// accept commits the admission before the handler runs.
+	accept := func(unread bool) bool {
+		if admission == nil || admission.Commit == nil {
+			committed = true
+			return true
+		}
+		if rej := admission.Commit(); rej != nil {
+			// failWith rolls the admission back.
+			if unread && r.ContentLength != 0 {
+				w.Header().Set("Connection", "close")
+			}
+			failWith(rej.Status, rej.Code, rej.Message, rej.Details)
+			return false
+		}
+		committed = true
+		return true
 	}
 
 	if unsigned {
+		if !accept(true) {
+			return Client{}, 0, false
+		}
 		return client, 0, true
 	}
 	if r.ContentLength > opts.BodyLimit {
@@ -326,6 +377,9 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 	}
 	if ContentSHA256(body) != parts.ContentSHA256 {
 		return fail(http.StatusUnauthorized, CodeBadSignature, "Body hash mismatch")
+	}
+	if !accept(false) {
+		return Client{}, reserved, false
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
