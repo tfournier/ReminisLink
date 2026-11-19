@@ -12,11 +12,16 @@ struct GameDetailView: View {
     @State private var deleted = false
     @State private var patch: PatchContext?
 
+    /// Whether the game has an image now (it may have been changed here).
+    private var hasArt: Bool {
+        detail.map { $0.files.contains { $0.role == .art } } ?? route.hasArt
+    }
+
     var body: some View {
         List {
             Section {
                 HStack(alignment: .top, spacing: 16) {
-                    GameArtView(deviceId: route.deviceId, gameId: route.gameId, hasArt: route.hasArt, size: 96)
+                    GameArtView(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt, size: 96)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(detail?.name ?? route.name)
                             .font(.title3.bold())
@@ -87,6 +92,7 @@ struct GameDetailView: View {
                         Text("IPS, BPS or UPS, applied by the console to a new file or to this game.")
                     }
                 }
+                GameArtSection(deviceId: route.deviceId, gameId: route.gameId, hasArt: hasArt)
                 Section {
                     ForEach(Array(detail.files.enumerated()), id: \.offset) { _, file in
                         FileRow(file: file)

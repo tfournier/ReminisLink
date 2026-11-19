@@ -108,13 +108,17 @@ struct GameArtView: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size / 8))
         .accessibilityHidden(true)
-        .task(id: gameId) { await load() }
+        // Loaded again when the art is set or removed (M8).
+        .task(id: "\(gameId)|\(hasArt)|\(app.session(for: deviceId).artRevision)") { await load() }
     }
 
     /// Best effort: an art error never touches the session. The disk cache
     /// is read off the main actor.
     private func load() async {
-        guard hasArt else { return }
+        guard hasArt else {
+            image = nil
+            return
+        }
         let cache = app.artCache
         let deviceId = deviceId
         let gameId = gameId

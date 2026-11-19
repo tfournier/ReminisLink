@@ -681,6 +681,26 @@
         }
       }
     },
+    "Change Image…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changer l’image…"
+          }
+        }
+      }
+    },
+    "Change the Image" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changer l’image"
+          }
+        }
+      }
+    },
     "Changes are kept on this iPhone until you save them." : {
       "localizations" : {
         "fr" : {
@@ -1437,6 +1457,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Si le fichier est déjà sur la console, le renvoyer garde les deux copies."
+          }
+        }
+      }
+    },
+    "Image" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image"
+          }
+        }
+      }
+    },
+    "Image changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image changée."
+          }
+        }
+      }
+    },
+    "Image removed. It is in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image retirée. Elle est dans la corbeille de la console."
           }
         }
       }
@@ -2291,6 +2341,16 @@
         }
       }
     },
+    "Photo Library" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Photothèque"
+          }
+        }
+      }
+    },
     "Point the camera at the QR code shown by ReminisLink on the console. If it is not shown, open Settings > Pair a New Device on the console." : {
       "localizations" : {
         "fr" : {
@@ -2387,6 +2447,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retirer"
+          }
+        }
+      }
+    },
+    "Remove Image" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l’image"
+          }
+        }
+      }
+    },
+    "Remove the image?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retirer l’image ?"
           }
         }
       }
@@ -2791,6 +2871,16 @@
         }
       }
     },
+    "Shown by NextUI in the game list. The previous image goes to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichée par NextUI dans la liste des jeux. L’image précédente part dans la corbeille de la console."
+          }
+        }
+      }
+    },
     "Shows the actions for this copy" : {
       "localizations" : {
         "fr" : {
@@ -2957,6 +3047,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tâches sur la console"
+          }
+        }
+      }
+    },
+    "Test Picture" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image de test"
           }
         }
       }
@@ -3281,6 +3381,16 @@
         }
       }
     },
+    "The current image goes to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’image actuelle part dans la corbeille de la console."
+          }
+        }
+      }
+    },
     "The current resume state is archived first, then replaced by the version of %@." : {
       "localizations" : {
         "fr" : {
@@ -3437,6 +3547,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les informations d’appairage n’ont pas pu être lues ou enregistrées sur cet iPhone."
+          }
+        }
+      }
+    },
+    "The picture is scaled down to at most 1024 pixels and sent as a PNG." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’image est réduite à 1024 pixels au plus et envoyée en PNG."
           }
         }
       }
@@ -3667,6 +3787,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce patch ou la ROM patchée est trop gros pour la console."
+          }
+        }
+      }
+    },
+    "This picture cannot be used as the image of the game. Choose another one." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image ne peut pas servir d’image du jeu. Choisis-en une autre."
           }
         }
       }
