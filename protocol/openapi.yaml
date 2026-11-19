@@ -343,8 +343,9 @@ paths:
           description: |
             Device state. `ssid`, `battery` and `osVersion` may be null when
             unknown. `connectedClients` lists the paired clients with a signed
-            request accepted in the last 30 seconds, the caller included; the
-            pak keeps it in memory only (empty at launch). `writer` (M10) is
+            request accepted in the last 30 seconds or an open event stream
+            (`GET /events`, M14), the caller included; the pak keeps it in
+            memory only (empty at launch). `writer` (M10) is
             the client holding the write lease, or null.
           content:
             application/json:
@@ -2236,7 +2237,9 @@ components:
         being verified`) on `PUT /uploads/{uploadId}` and
         `POST /uploads/{uploadId}/complete`; a cheat import from a URL
         waiting for another one (one at a time) when the client gives up
-        (message `Another cheat import is running`).
+        (message `Another cheat import is running`); more than 4 event streams
+        for the client or 16 in all on `GET /events` (M14, message `Too many
+        event streams`).
       headers:
         Retry-After:
           description: Seconds before trying again.
@@ -2408,7 +2411,7 @@ components:
         uptimeSeconds: { type: integer, format: int64, minimum: 0 }
         connectedClients:
           type: array
-          description: Paired clients with a signed request accepted in the last 30 seconds (caller included). In memory only.
+          description: Paired clients with a signed request accepted in the last 30 seconds or an open event stream (M14), caller included. In memory only.
           items: { $ref: '#/components/schemas/ConnectedClient' }
         writer:
           oneOf:
