@@ -70,6 +70,10 @@ final class PatchFlow {
         case failed(AppError)
         /// Confirmed: nothing was applied.
         case cancelled
+        /// M10: the cancel of the upload is waiting for the console's
+        /// answer. Nothing is final yet (refused, the upload pauses): the
+        /// screen and the local copy stay.
+        case cancellingUpload
 
         var isSending: Bool {
             if case .sending = self { return true }
@@ -79,7 +83,7 @@ final class PatchFlow {
         /// Something runs: the inputs are locked.
         var isBusy: Bool {
             switch self {
-            case .preparing, .sending, .downloading, .starting, .patching: true
+            case .preparing, .sending, .downloading, .starting, .patching, .cancellingUpload: true
             case .idle, .downloaded, .succeeded, .failed, .cancelled: false
             }
         }
@@ -87,7 +91,7 @@ final class PatchFlow {
         /// The app side runs: closing the screen would stop it.
         var holdsTheScreen: Bool {
             switch self {
-            case .preparing, .sending, .downloading, .starting: true
+            case .preparing, .sending, .downloading, .starting, .cancellingUpload: true
             default: false
             }
         }
@@ -442,11 +446,16 @@ final class PatchFlow {
         guard !isCancelling else { return }
         cancelError = nil
         switch step {
-        case .preparing, .sending:
+        case .preparing, .sending, .failed(.upload(.cancelNotConfirmed)):
             cancelRequested = true
             runTask?.cancel()
-            step = .cancelled
-            if await cancelUpload() {
+            // Not final until the console answers: the screen and the
+            // local copy stay meanwhile.
+            step = .cancellingUpload
+            switch await cancelUpload() {
+            case .confirmed:
+                step = .cancelled
+            case .refused:
                 // M10: refused by the console (another device has write
                 // access): nothing was cancelled there. The upload and its
                 // local copy stay, paused until this iPhone has write
@@ -454,6 +463,11 @@ final class PatchFlow {
                 cancelRequested = false
                 step = .idle
                 start()
+            case .notConfirmed:
+                // No definite answer: the upload and its copy stay, to
+                // resume or cancel again.
+                cancelRequested = false
+                step = .failed(.upload(.cancelNotConfirmed))
             }
         case .starting:
             // The request answers first; its job is then cancelled.
@@ -502,21 +516,36 @@ final class PatchFlow {
     /// Cancels the upload on the console (best effort). Refused by the
     /// console (M10: another device has write access), the upload is kept:
     /// Apply resumes it.
-    /// Returns true when the console refused (the upload is then kept).
+    private enum CancelResult { case confirmed, refused, notConfirmed }
+
+    /// Cancels the upload on the console. Unless the console confirmed, the
+    /// upload is kept (to resume it, or cancel again).
     @discardableResult
-    private func cancelUpload() async -> Bool {
-        guard let current = upload else { return false }
+    private func cancelUpload() async -> CancelResult {
+        guard let current = upload else { return .confirmed }
         self.upload = nil
-        if let client = try? await session.connectedClient(),
-           case .refused = await current.upload.cancel(client: client) {
-            if self.upload == nil { self.upload = current }
-            return true
+        let outcome: ResumableUpload.CancelOutcome
+        do {
+            outcome = await current.upload.cancel(client: try await session.connectedClient())
+        } catch {
+            outcome = .notConfirmed(error as? APIError)
         }
-        return false
+        switch outcome {
+        case .cancelled, .outcomeUnknown:
+            return .confirmed
+        case .refused:
+            if self.upload == nil { self.upload = current }
+            return .refused
+        case .notConfirmed:
+            if self.upload == nil { self.upload = current }
+            return .notConfirmed
+        }
     }
 
     private func fail(_ error: Error) {
         let error = AppError.patch(error)
+        // The cancel of the upload decides the step itself.
+        if step == .cancellingUpload { return }
         // Stopped by a cancellation asked before any job existed.
         if cancelRequested && error.isCancellation && step != .cancelled {
             return finishCancelledRequest()

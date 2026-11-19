@@ -277,7 +277,10 @@ struct TransferQueueTests {
                                      destination: "GBA", ownsFile: false)
         while item.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
         queue.cancel(item)
+        // M10: final once the device confirms (cancelling until then).
+        #expect(item.phase == .cancelling)
         await queue.waitUntilIdle()
+        for _ in 0..<50 where item.phase != .cancelled { try await Task.sleep(for: .milliseconds(20)) }
         #expect(item.phase == .cancelled)
         for _ in 0..<50 where !pak.uploadIds.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
         #expect(pak.uploadIds.isEmpty)

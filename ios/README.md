@@ -441,7 +441,12 @@ find nothing new).
   connection attempt, whatever its outcome.
 - The cheat file upload (Import > Files) and the patch upload wait, paused
   with their local copy, while another device has write access, then go on.
-  A cancel refused by the console (`423`) keeps the upload. A `423`
+  A cancel is final only once the console confirms it: meanwhile the upload
+  is `cancelling` (kept in the list, not clearable; the Patch sheet cannot
+  close; the local copy stays). Refused (`423`), it pauses and resumes
+  with the lease. Only a `2xx` (or a `404` before `complete`) confirms a cancel;
+  without a definite answer (lost connection, `5xx`) the upload and its copy
+  stay, failed with "cancel not confirmed", to resume or cancel again. A `423`
   answering a request sent before a take-over is ignored.
 
 The fake pak implements the lease (single holder, 60 s expiry with an

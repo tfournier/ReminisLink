@@ -99,8 +99,9 @@ struct PatchView: View {
             if let flow, flow.step.holdsTheScreen, !flow.isCancelling {
                 Button("Cancel") { Task { await flow.cancel() } }
                     // Refused by the console while another device has write
-                    // access (M10): Take Over first.
-                    .disabled(flow.session.isReadOnly)
+                    // access (M10): Take Over first. Disabled while a
+                    // cancel waits for the console's answer.
+                    .disabled(flow.session.isReadOnly || flow.step == .cancellingUpload)
                     .accessibilityIdentifier("patch.cancel")
             } else {
                 Button(flow.map { $0.step.isBusy || $0.isCancelling } ?? false ? "Close" : "Cancel") { close() }
@@ -452,6 +453,11 @@ private struct PatchFormSections: View {
             Section { progressRow(Text("The console is downloading the patch…"), fraction: flow.job?.job?.progress.fraction) }
         case .starting:
             Section { progressRow(Text("Starting…"), fraction: nil) }
+        case .cancellingUpload:
+            Section {
+                progressRow(Text("Cancelling… Waiting for the console to confirm."), fraction: nil)
+                    .accessibilityIdentifier("patch.cancellingUpload")
+            }
         case .patching:
             Section {
                 progressRow(patchingText, fraction: flow.job?.job?.progress.fraction)
@@ -499,6 +505,12 @@ private struct PatchFormSections: View {
                 if error == .upload(.paused) {
                     Label(error.message, systemImage: "pause.circle")
                     Button("Resume") { flow.start() }
+                } else if error == .upload(.cancelNotConfirmed) {
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .accessibilityIdentifier("patch.cancelNotConfirmed")
+                    Button("Resume") { flow.start() }
+                    Button("Cancel Again", role: .destructive) { Task { await flow.cancel() } }
+                        .disabled(flow.session.isReadOnly)
                 } else {
                     Label {
                         Text(error.message).fixedSize(horizontal: false, vertical: true)

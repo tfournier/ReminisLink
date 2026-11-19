@@ -102,6 +102,8 @@ enum AppError: Error, Equatable {
             String(localized: "The file changed on this iPhone during the transfer. Add it again.")
         case .upload(.tooManyRestarts):
             String(localized: "The console keeps interrupting the transfer. Try again later.")
+        case .upload(.cancelNotConfirmed):
+            String(localized: "The cancellation did not reach the console. The transfer is kept: cancel it again, or resume it.")
         case .file:
             String(localized: "The file could not be read on this iPhone.")
         case .restoreRefused:
@@ -156,7 +158,7 @@ enum AppError: Error, Equatable {
             case .incompatible, .pairing: nil
             default: .retry
             }
-        case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .file: nil
+        case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .upload(.cancelNotConfirmed), .file: nil
         case .restoreRefused, .unsupportedGameFormat, .patchMismatch, .unsupportedPatch, .jobLost: nil
         case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
