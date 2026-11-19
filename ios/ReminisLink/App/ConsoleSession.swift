@@ -39,6 +39,8 @@ final class ConsoleSession {
     @ObservationIgnored unowned let app: AppModel
     /// The connection in progress, shared by every caller.
     @ObservationIgnored private var attempt: ConnectionAttempt?
+    /// The check in progress after the console's service disappeared (M11).
+    @ObservationIgnored private var closureCheck: Task<Void, Never>?
 
     init(deviceId: String, app: AppModel) {
         self.deviceId = deviceId
@@ -258,6 +260,41 @@ final class ConsoleSession {
         markClosedByConsole()
     }
 
+    /// The console's Bonjour service disappeared, or a background request
+    /// (a lease renewal) failed to connect (M11): sends `/hello` once, with
+    /// a short timeout. `503 shutting_down` or no connection: the console
+    /// closed ReminisLink (back to the list, uploads paused). An answer: a
+    /// Bonjour glitch, the console stays open.
+    ///
+    /// `waitForBrowsing`: right after the browser started (back from the
+    /// background), its results are not in yet: wait until it has browsed
+    /// long enough, and probe only if the console is still not seen. A
+    /// removal seen by the browser needs no wait.
+    func checkStillOpen(waitForBrowsing: Bool) {
+        guard let client, !closedByConsole, closureCheck == nil else { return }
+        closureCheck = Task { [weak self] in
+            await self?.runClosureCheck(client: client, waitForBrowsing: waitForBrowsing)
+            self?.closureCheck = nil
+        }
+    }
+
+    private func runClosureCheck(client: APIClient, waitForBrowsing: Bool) async {
+        if waitForBrowsing {
+            let deadline = ContinuousClock.now + app.closureMinimumBrowsing + .seconds(1)
+            while !app.hasBrowsedLongEnough, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            // Stopped (background) or local network denied: nothing known.
+            guard app.hasBrowsedLongEnough else { return }
+        }
+        guard self.client === client, !app.isServiceVisible(deviceId) else { return }
+        do {
+            try await client.hello(timeout: PakClosure.probeTimeout)
+        } catch {
+            if PakClosure.probeMeansClosed(error) { consoleClosed(client: client) }
+        }
+    }
+
     private func markClosedByConsole() {
         closedByConsole = true
         state = .idle
@@ -398,8 +435,14 @@ final class ConsoleSession {
         // M11: a renewal that cannot reach the console, whose Bonjour
         // service is gone: it closed ReminisLink.
         lease.onConnectionFailure = { [weak self] error in
-            guard let self, let client = self.client, self.app.meansConsoleClosed(error, deviceId: self.deviceId) else { return }
-            self.consoleClosed(client: client)
+            guard let self, let client = self.client else { return }
+            if self.app.meansConsoleClosed(error, deviceId: self.deviceId) {
+                self.consoleClosed(client: client)
+            } else {
+                // Maybe too early for Bonjour to tell (the browser has just
+                // started): checked once it has browsed long enough.
+                self.checkStillOpen(waitForBrowsing: true)
+            }
         }
         return lease
     }

@@ -407,8 +407,9 @@ struct ErgonomicsAppTests {
         let id = pak.deviceId
         let session = app.session(for: id)
         await session.connect()
-        // Stored before M11 (no console name): the user's name stays.
-        #expect(app.store.device(id: id)?.name == "Brick")
+        // Stored before M11 (no console name, "Brick"): the console's
+        // name is shown from the first connection.
+        #expect(app.store.device(id: id)?.name == pak.deviceName)
         #expect(app.store.device(id: id)?.consoleName == pak.deviceName)
         pak.rename(to: "Living Room Brick")
         await session.refresh()
@@ -418,6 +419,88 @@ struct ErgonomicsAppTests {
         app.didReplaceKey(for: id)
         await app.session(for: id).connect()
         #expect(app.store.device(id: id)?.name == "Bedroom Brick")
+    }
+
+    /// The user stays on the Console tab, doing nothing, and the pak
+    /// quits: its Bonjour service goes (goodbye) and it no longer answers.
+    /// The app goes back to the list without waiting for a request.
+    @Test func theServiceGoneWhileIdleGoesBackToTheList() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let id = pak.deviceId
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { session.state == .connected }
+        #expect(app.consoleTab == .console)
+        pak.availability = .gone
+        app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
+        await waitUntil { app.openConsoleId == nil }
+        #expect(app.openConsoleId == nil)
+        #expect(app.path.isEmpty)
+        #expect(app.closedNotice?.deviceId == id)
+        #expect(session.state == .idle)
+        #expect(session.closedByConsole)
+        #expect(session.transfers.isHeldForClosedConsole)
+    }
+
+    /// The same while the pak is still quitting (`503 shutting_down`).
+    @Test func theServiceGoneWhileShuttingDownGoesBackToTheList() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let id = pak.deviceId
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { session.state == .connected }
+        pak.availability = .shuttingDown
+        app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
+        await waitUntil { app.openConsoleId == nil }
+        #expect(app.openConsoleId == nil)
+        #expect(app.closedNotice?.deviceId == id)
+    }
+
+    /// A Bonjour glitch: the service goes, but `/hello` still answers.
+    @Test func theServiceGoneWithThePakAnsweringStaysOnTheConsole() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let id = pak.deviceId
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { session.state == .connected }
+        let hellos = pak.log.filter { $0.path == "/api/v1/hello" }.count
+        app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
+        // The probe is sent, and answered.
+        await waitUntil { pak.log.filter { $0.path == "/api/v1/hello" }.count > hellos }
+        #expect(pak.log.filter { $0.path == "/api/v1/hello" }.count == hellos + 1)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(app.openConsoleId == id)
+        #expect(app.closedNotice == nil)
+        #expect(session.state == .connected)
+        #expect(!session.closedByConsole)
+    }
+
+    /// Back from the background, the browser has just started and the pak
+    /// quit meanwhile (no removal is ever seen): the lease renewal fails to
+    /// connect before Bonjour could tell. Once it has browsed long enough
+    /// without the console, the app checks and goes back to the list.
+    @Test func aRenewalFailingRightAfterTheBrowserStartedIsCheckedLater() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.closureMinimumBrowsing = .milliseconds(500)
+        let id = pak.deviceId
+        app.openConsole(id)
+        let session = app.session(for: id)
+        await waitUntil { session.state == .connected }
+        app.discovery.stop()
+        app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
+        pak.availability = .gone
+        app.discovery.start()
+        // A renewal (as when the app comes back to the foreground).
+        await session.lease.renew()
+        // Not yet: the browser has just started.
+        #expect(app.openConsoleId == id)
+        await waitUntil { app.openConsoleId == nil }
+        #expect(app.openConsoleId == nil)
+        #expect(app.closedNotice?.deviceId == id)
     }
 
     @Test func aClosedConsoleThatIsNotOpenStaysOnTheList() async throws {

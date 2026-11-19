@@ -391,6 +391,18 @@ struct PakClosureTests {
         }
     }
 
+    /// The `/hello` probe sent when the service disappeared (M11).
+    @Test func theProbeMeansClosedOnlyWithoutAnAnswer() {
+        #expect(PakClosure.probeMeansClosed(APIError.server(ServerError(status: 503, code: .shuttingDown, message: "x"))))
+        #expect(PakClosure.probeMeansClosed(APIError.network(.cannotConnectToHost)))
+        #expect(PakClosure.probeMeansClosed(APIError.network(.timedOut)))
+        #expect(PakClosure.probeMeansClosed(APIError.network(.networkConnectionLost)))
+        #expect(!PakClosure.probeMeansClosed(APIError.network(.cancelled)))
+        #expect(!PakClosure.probeMeansClosed(APIError.server(ServerError(status: 500, code: .internal, message: "x"))))
+        #expect(!PakClosure.probeMeansClosed(APIError.unexpectedStatus(502)))
+        #expect(!PakClosure.probeMeansClosed(CancellationError()))
+    }
+
     @Test func theFakePakQuitsThenIsGone() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
