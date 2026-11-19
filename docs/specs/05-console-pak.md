@@ -5,12 +5,13 @@
 - Pak de type `TOOL`, affiché **ReminisLink** dans le menu Outils de NextUI.
 - Emplacement : `/Tools/<platform>/ReminisLink.pak/` (ex. `/Tools/tg5040/ReminisLink.pak/launch.sh`).
 - Archive de publication : `ReminisLink.pak.zip`, publiée par la CI sur un tag `vX.Y.Z`, lue par le Pak Store (même chaîne que Cheat Manager : `pak.json`, Makefile, workflow).
-- `launch.sh` : comme celui de Cheat Manager (bibliothèques embarquées dans `resources/lib`, journal d'erreurs dans `$LOGS_PATH/ReminisLink.stderr.txt`, `sync` à la fin).
+- `launch.sh` : comme celui de Cheat Manager (bibliothèques embarquées dans `resources/lib`, journal d'erreurs dans `$LOGS_PATH/ReminisLink.stderr.txt`, `sync` à la fin). Il DOIT commencer par `cd "$(dirname "$0")"` : NextUI le lance avec `eval` depuis le dossier de `MinUI.pak`, au premier plan et en root (code NextUI `MinUI.pak/launch.sh:182-196`, `nextui.c:1220-1230`).
+- Ne rien écrire dans `/.system/` : ce dossier est remplacé à chaque mise à jour de NextUI (`PAKS.md:5`).
 
 ## 2. Cycle de vie
 
 1. **Démarrage** : lecture de la configuration, création de l'identifiant de console au premier lancement.
-2. **Contrôle Wi-Fi** : une adresse IPv4 non loopback doit exister sur l'interface sans fil (`wlan0` sur tg5040 **[À VÉRIFIER M0]**). Sinon : écran « Pas de Wi-Fi. Active le Wi-Fi dans les réglages de NextUI. » et sortie avec B.
+2. **Contrôle Wi-Fi** : une adresse IPv4 non loopback doit exister sur l'interface sans fil (`wlan0` sur tg5040, code NextUI `etc/wifi/wifi_init.sh:3`). Sinon : écran « Pas de Wi-Fi. Active le Wi-Fi dans les réglages de NextUI. » et sortie avec B.
 3. **Maintenance** (avant d'ouvrir le serveur, en affichant « Préparation… ») :
    - archivage des states de reprise qui ont changé (§5.3) ;
    - contrôle des verrous et restauration automatique (§5.2) ;
@@ -21,7 +22,12 @@
 
 Le pak NE DOIT PAS laisser de processus en arrière-plan après sa fermeture.
 
-**Mise en veille** : vérifier au jalon M0 si NextUI met la console en veille pendant qu'un pak tourne, et ce que deviennent le Wi-Fi et le serveur **[À VÉRIFIER M0]**. Si nécessaire, le pak empêche la veille tant qu'un transfert est en cours.
+**Mise en veille** (analyse du code, M0) :
+
+- **Personne ne met la console en veille pendant un pak.** Dans NextUI, la veille (bouton, délai d'écran) et l'extinction sont gérées par `PWR_update()`, que chaque programme appelle dans sa propre boucle (`nextui.elf`, `minarch`) ; aucun démon ne surveille le bouton d'alimentation (`keymon` ne gère que volume, luminosité, MENU et jack) (code NextUI `api.c:4196-4204`, `keymon.c:27-33`). gabagool v2.26.6 ne contient aucune gestion de veille, d'écran ou du bouton d'alimentation (recherche dans le module Go).
+- Conséquence : tant que le pak est ouvert, la console reste allumée, écran compris, et le bouton d'alimentation n'a d'effet que si le pak le gère.
+- Si le pak déclenchait une veille par `$SYSTEM_PATH/bin/suspend`, ce script arrête `wpa_supplicant` avant `echo mem > /sys/power/state` : le Wi-Fi est coupé pendant la veille et le serveur injoignable (code NextUI `bin/suspend:33-36, 69`).
+- Reste à observer sur la console : effet réel du bouton d'alimentation (appui court et long) pendant un pak gabagool, et maintien de `wlan0` plusieurs minutes sans interaction (économie d'énergie du pilote) **[À VÉRIFIER M0]**. La conduite à tenir (gestion du bouton, extinction de l'écran, fermeture automatique) est une décision ouverte : voir [m0/questions.md](m0/questions.md).
 
 ## 3. Adaptateur d'OS
 
@@ -45,25 +51,44 @@ type Adapter interface {
 
 ### 3.1 Organisation NextUI
 
-Variables d'environnement avec valeurs par défaut, comme Cheat Manager : `SDCARD_PATH` (`/mnt/SDCARD`), `ROMS_PATH`, `SAVES_PATH`, `CHEATS_PATH`, `USERDATA_PATH` (`/mnt/SDCARD/.userdata/<platform>`), `PLATFORM` (`tg5040`), `LOGS_PATH`.
+Variables d'environnement avec valeurs par défaut, comme Cheat Manager. NextUI les exporte toutes pour les paks (code NextUI `MinUI.pak/launch.sh:14-26, 50-59`) :
+
+| Variable | Valeur sur tg5040 |
+|---|---|
+| `PLATFORM` | `tg5040` (la Brick est un TG3040 côté matériel, rangée sous tg5040 par NextUI) |
+| `DEVICE` | `brick`, `brickpro` ou `smartpro` |
+| `SDCARD_PATH` | `/mnt/SDCARD` |
+| `ROMS_PATH`, `SAVES_PATH`, `CHEATS_PATH`, `BIOS_PATH` | `$SDCARD_PATH/Roms`, `/Saves`, `/Cheats`, `/Bios` |
+| `USERDATA_PATH` | `$SDCARD_PATH/.userdata/tg5040` |
+| `SHARED_USERDATA_PATH` | `$SDCARD_PATH/.userdata/shared` |
+| `LOGS_PATH` | `$USERDATA_PATH/logs`, soit `/mnt/SDCARD/.userdata/tg5040/logs` |
+| `SYSTEM_PATH` | `$SDCARD_PATH/.system/tg5040` |
+
+Notations : `<rom.ext>` = nom du fichier ROM avec son extension, tel que `readdir` le renvoie ; `<rom>` = ce nom sans sa dernière extension (retirée seulement si elle fait 1 à 4 caractères) ; `<TAG>` = tag du dossier de premier niveau sous `Roms/` ; `<cœur>` = nom du cœur libretro de l'émulateur (voir States). Pour un multi-disques, `<rom.ext>` vaut `<Jeu>.m3u`.
 
 | Élément | Chemin | Statut |
 |---|---|---|
-| Système | `Roms/<Nom> (<TAG>)/` | Confirmé (Cheat Manager) |
-| ROM | `Roms/<Système>/[sous-dossiers/]<rom>.<ext>` | Confirmé |
-| Multi-disques | `Roms/<Système>/<Jeu>/<Jeu>.m3u` | Convention MinUI **[À VÉRIFIER M0]** |
-| Cheats | `Cheats/<TAG>/<fichier ROM avec extension>.cht` | Confirmé (Cheat Manager) |
-| Jaquette | `Roms/<Système>/.media/<nom ROM sans extension>.png` | Confirmé (guides NextUI) |
-| Save | `Saves/<TAG>/<fichier ROM avec extension>.sav` | Convention MinUI **[À VÉRIFIER M0]** |
-| States | `.userdata/shared/.minui/<TAG>/<fichier ROM>.st<N>` | Convention MinUI **[À VÉRIFIER M0]** : dossier, nommage, nombre d'emplacements |
-| Vignette de state | ? | **[À VÉRIFIER M0]** |
-| State de reprise | Emplacement 9 ? | **[À VÉRIFIER M0]** |
-| Version NextUI | ? (fichier de version sur la carte SD) | **[À VÉRIFIER M0]** |
-| Batterie | `/sys/class/power_supply/*/capacity`, `status` | **[À VÉRIFIER M0]** |
+| Système | `Roms/<Nom> (<TAG>)/`. Tag = texte entre la **dernière** `(` et la `)` suivante ; sans parenthèses, le nom entier du dossier. Dossiers cachés : nom commençant par `.`, finissant par `.disabled`, ou `map.txt` | Confirmé (code source NextUI `utils.c:36-37, 369-377`) |
+| Système affiché par NextUI | Seulement s'il existe un pak émulateur `<TAG>.pak/launch.sh` dans `.system/tg5040/paks/Emus/` ou `/Emus/tg5040/`, **et** au moins une entrée non cachée. Les dossiers de même préfixe jusqu'à `(` inclus sont fusionnés à l'affichage (`Game Boy Advance (GBA)` + `Game Boy Advance (MGBA)` = une entrée). Alias : `Roms/map.txt` | Confirmé (code source NextUI `nextui.c:535-541, 676-699, 1052-1073`) |
+| ROM | `Roms/<Système>/[sous-dossiers/]<rom.ext>`. NextUI ne filtre **aucune** extension : tout fichier non caché est une ROM ; un sous-dossier `*.pak` est un pak. Tri `strcasecmp` sur le nom d'affichage | Confirmé (code source NextUI `nextui.c:1011-1033`) |
+| Multi-disques | `Roms/<Système>/<Jeu>/<Jeu>.m3u` (nom du `.m3u` = nom exact du dossier, casse ignorée sur exFAT ; chemins relatifs au dossier). Variante : `<Jeu>/<Jeu>.cue`, lancée automatiquement. Un `.m3u` isolé est une ROM ordinaire. Le jeu s'appelle `<Jeu>.m3u` pour la save, les states et les vignettes | Confirmé (code source NextUI `nextui.c:548-575`, `ma_game.c:108-134`) |
+| Cheats | `Cheats/<TAG>/<rom.ext>.cht` | Confirmé (Cheat Manager) |
+| Jaquette | `<dossier qui contient l'entrée>/.media/<nom de l'entrée sans sa dernière extension>.png` : `Roms/<Système>/.media/<rom>.png` au premier niveau, `Roms/<Système>/<sous-dossier>/.media/<rom>.png` dans un sous-dossier, `Roms/<Système>/.media/<Jeu>.png` pour un multi-disques. Seul le **dernier** point est retiré, même pour un dossier (`Sky Garden Quest Vol. 3` → `Sky Garden Quest Vol.png`) | Confirmé (code source NextUI `nextui.c:2979-2993, 3034`) |
+| Save | `Saves/<TAG>/<rom.ext>.sav` avec le réglage par défaut (`saveFormat=0`). Autres valeurs : `1` → `<rom>.srm` compressé rzip ; `2` → `<rom>.sav` ; `3` → `<rom>.srm` non compressé | Confirmé (code source NextUI `ma_core.c:75`, `ma_saves.c:31-41`, `config.h:24-31, 236`) |
+| Horloge du jeu | `Saves/<TAG>/<rom.ext>.rtc`, quel que soit `saveFormat` ; fait partie des fichiers du jeu | Confirmé (code source NextUI `ma_saves.c:111`) |
+| States | `.userdata/shared/<TAG>-<cœur>/<rom.ext>.st<N>` avec le réglage par défaut (`stateFormat=0`). `<cœur>` = nom du `.so` sans `_libretro` (coupé au dernier `_`) : par exemple `GB-gambatte`, `GBA-gpsp`, `PS-pcsx_rearmed` ; il dépend du pak émulateur (`EMU_EXE=` de son `launch.sh`). Autres formats : `1` (rzip) et `2` → `<rom>.state.<N>` ; `3` (rzip) et `4` → `<rom>.state` (emplacement 0), `<rom>.state<N>`, et `<rom>.state.auto` pour la reprise. Emplacements : 0 à 7 pour l'utilisateur (affichés 1 à 8), 8 = state « par défaut » caché, lu au lancement s'il existe mais jamais écrit par NextUI | Confirmé (code source NextUI `ma_core.c:14-17, 74`, `ma_saves.c:166-195, 231`, `ma_menu.c:117`) |
+| Vignette de state | `.userdata/shared/.minui/<TAG>/<rom.ext>.<N>.bmp`, emplacements 0 à 7 seulement. Le contenu est un **PNG** malgré l'extension (détection par la signature `\x89PNG`) ; capture plein écran, 1024×768 sur Brick (résolution HDMI en HDMI) | Confirmé (code source NextUI `ma_menu.c:179, 1617, 1713-1714`, `platform.h:141-142`) |
+| Fichiers annexes des states | `.userdata/shared/.minui/<TAG>/<rom.ext>.txt` (dernier emplacement utilisé, lu par « Reprendre » dans la liste) ; `<rom.ext>.<N>.txt` (disque du state, multi-disques) | Confirmé (code source NextUI `ma_menu.c:1618, 1694-1697`, `nextui.c:1295-1310`) |
+| State de reprise | Emplacement **9** (`<rom.ext>.st9`). Écrit avant la mise en veille en jeu, avant l'extinction en jeu, par l'option « Quicksave » et au changement HDMI ; **pas** quand on quitte le jeu. Le chemin de la ROM va dans `.userdata/shared/.minui/auto_resume.txt`, supprimé au démarrage suivant ou au réveil ; le `.st9` reste en place jusqu'à la prochaine écriture. Pas de vignette | Confirmé (code source NextUI `defines.h:27-28`, `ma_menu.c:224-228, 1795-1796`, `nextui.c:1185-1215`) |
+| Réglages de format | `.userdata/shared/minuisettings.txt` : `saveFormat`, `stateFormat`, `useExtractedFileName` (défaut 0 : avec 1, un `.zip` que le cœur ne lit pas prend le nom du fichier extrait) | Confirmé (code source NextUI `config.c:151, 1654`, `config.h:236-238`) |
+| Version NextUI | `/mnt/SDCARD/.system/version.txt` : ligne 1 nom de release `NextUI-AAAAMMJJ-N` (ex. `NextUI-20261013-0` pour la v6.15.0), ligne 2 hash git court. Le numéro `v6.x.y` n'y figure pas. Système d'origine : `/etc/version` (ex. `1.1.1`) | Confirmé (code source NextUI `makefile:249`, `settings.cpp:1118`, `platform.c:327-329` ; firmware v1.1.1 `/etc/version`) |
+| Batterie | Niveau : `/sys/class/power_supply/axp2202-battery/capacity`. En charge : `axp2202-usb/online == 1` **et** `axp2202-battery/time_to_full_now > 0` (méthode de NextUI, qui n'utilise pas `status`) | Confirmé (code source NextUI `platform.c:183-188`) |
+| SSID | `wpa_cli -p /etc/wifi/sockets -i wlan0 status` : ligne `ssid=` si `wpa_state=COMPLETED`. Sans commande externe : datagramme `STATUS` sur la socket unix `/etc/wifi/sockets/wlan0` (protocole wpa_ctrl) | Confirmé (code source NextUI `generic_wifi.c:24-25, 272-297`, `platform.c:836` ; firmware v1.1.1 `/usr/sbin/wpa_cli`) |
+| Fichiers à ne pas toucher | `.userdata/shared/.minui/recent.txt`, `auto_resume.txt`, `game_switcher.txt` ; tout `/.system/` | Confirmé (code source NextUI) |
 
-Le script `scripts/verify-device.sh` (lecture seule) relève toutes ces informations sur une vraie console. Son résultat, joint au jalon M0, fixe les valeurs définitives de ce tableau. Une fois fixées, mettre ce tableau à jour.
+Source : analyse du code NextUI au commit `b6ec1343` (identique à v6.15.0 pour ces fichiers) et du firmware TrimUI v1.1.1, détaillée dans [m0/source-analysis.md](m0/source-analysis.md). Le script `scripts/verify-device.sh` (lecture seule) permet de reconfirmer ces valeurs sur une vraie console.
 
-**Cas particuliers à gérer** : un même tag utilisé par deux dossiers (ex. `Game Boy Advance (GBA)` et `Game Boy Advance (MGBA)` : chacun a son propre tag, donc ses propres dossiers de saves) ; noms avec accents, parenthèses, crochets, emojis ; jeux dans des sous-dossiers ; casse différente entre la ROM et ses fichiers (exFAT est insensible à la casse, la comparaison DOIT l'être aussi).
+**Cas particuliers à gérer** : deux dossiers pour la même console (ex. `Game Boy Advance (GBA)` et `Game Boy Advance (MGBA)` : chacun a son propre tag, donc ses propres dossiers de saves et de states, même si NextUI les fusionne à l'affichage) ; plusieurs dossiers `<TAG>-<cœur>` pour un même tag (changement de pak émulateur) ; des saves et states dans un format non par défaut (`minuisettings.txt`) ; noms avec accents, parenthèses, crochets, emojis ; jeux dans des sous-dossiers ; casse différente entre la ROM et ses fichiers (exFAT est insensible à la casse, la comparaison DOIT l'être aussi).
 
 ## 4. Données de ReminisLink sur la carte SD
 
@@ -90,7 +115,7 @@ ReminisLink/
 
 - `clients.json` contient les clés en clair : sur exFAT il n'y a pas de permissions. Quelqu'un qui a la carte SD en main a déjà accès à tout, ce risque est accepté (voir [07](07-securite.md)).
 - **Corbeille** : tout fichier de l'utilisateur supprimé ou remplacé par ReminisLink y est *déplacé* (renommage, même carte SD), jamais effacé directement. Seules la purge automatique (> 30 jours d'âge crédité) et les routes `DELETE /trash` effacent définitivement.
-- **Âge crédité** (décision du 18/11/2026) : l'horloge de la console n'est pas fiable (pile, NTP). Le pak tient une horloge propre, cumulée et enregistrée dans `config.json` : pendant qu'il tourne, elle avance selon l'horloge monotone du système (enregistrée régulièrement et à la fermeture) ; à chaque lancement, elle est créditée du temps écoulé depuis la dernière fermeture selon l'horloge murale, **borné entre 0 et 7 jours**. Une entrée de corbeille note la valeur de cette horloge à sa création ; elle est purgée quand l'écart atteint 30 jours. Une horloge murale fausse ne peut donc jamais vieillir une entrée de plus de 7 jours d'un coup ; au pire, la purge est retardée. Un arrêt brutal fait perdre au plus le temps depuis le dernier enregistrement (dans le sens prudent).
+- **Âge crédité** (décision du 18/11/2026) : l'horloge de la console n'est pas fiable. Faits (analyse M0) : RTC matérielle `/dev/rtc0` lue au démarrage par `sysfixtime` (`hwclock -s`) ; NextUI s'éteint par `poweroff_next`, qui contourne `sysfixtime stop` : l'heure n'est **pas** réécrite dans la RTC à l'extinction (code NextUI `poweroff_next.c:145-152` ; firmware v1.1.1 `/etc/init.d/sysfixtime`) ; NTP par busybox ntpd (`sysntpd`, réglage NextUI « Network time sync »), seulement une fois le Wi-Fi connecté, sans recopie dans la RTC. Que la RTC tienne l'heure console éteinte dépend du matériel **[À VÉRIFIER M0]**. Le pak tient une horloge propre, cumulée et enregistrée dans `config.json` : pendant qu'il tourne, elle avance selon l'horloge monotone du système (enregistrée régulièrement et à la fermeture) ; à chaque lancement, elle est créditée du temps écoulé depuis la dernière fermeture selon l'horloge murale, **borné entre 0 et 7 jours**. Une entrée de corbeille note la valeur de cette horloge à sa création ; elle est purgée quand l'écart atteint 30 jours. Une horloge murale fausse ne peut donc jamais vieillir une entrée de plus de 7 jours d'un coup ; au pire, la purge est retardée. Un arrêt brutal fait perdre au plus le temps depuis le dernier enregistrement (dans le sens prudent).
 - Toute écriture de fichier JSON est atomique (`.tmp`, `fsync`, renommage).
 - Les dossiers `uploads/`, `staging/` et `trash/` sont sur la même carte SD que les destinations : le renommage final est atomique.
 
@@ -116,7 +141,9 @@ L'app DOIT expliquer cette limite à l'utilisateur : « Le state est restauré �
 
 ### 5.3 Historique du state de reprise
 
-À chaque lancement, pour chaque jeu qui a un state de reprise **[emplacement À VÉRIFIER M0]** : si son SHA-256 diffère de la dernière entrée archivée, une copie est ajoutée à `backups/.../resume/`. On garde les 5 dernières entrées.
+À chaque lancement, pour chaque jeu qui a un state de reprise (emplacement 9, `<rom.ext>.st9` avec `stateFormat=0` ; code NextUI `defines.h:28`) : si son SHA-256 diffère de la dernière entrée archivée, une copie est ajoutée à `backups/.../resume/`. On garde les 5 dernières entrées.
+
+NextUI écrit l'emplacement 9 à la mise en veille et à l'extinction en jeu, pas quand on quitte le jeu, et ne l'efface jamais : un `.st9` peut donc être ancien. L'entrée « Reprendre » de la liste de NextUI utilise le dernier emplacement utilisé (`.minui/<TAG>/<rom.ext>.txt`), pas forcément le 9.
 
 Pour que le lancement reste rapide, le pak compare d'abord la date de modification et la taille avec la dernière entrée, et ne calcule le SHA-256 que si elles ont changé.
 
@@ -136,7 +163,7 @@ L'application se fait vers un fichier temporaire, puis vérification (pour BPS e
 
 ### 5.6 Téléchargements
 
-- Client HTTP standard de Go, avec le magasin de certificats racine utilisé par Cheat Manager pour son import par URL (via gabagool/certifiable) **[À VÉRIFIER : même mécanisme]**.
+- Client HTTP standard de Go, avec un magasin de certificats racine **embarqué par le pak** : le firmware d'origine v1.1.1 n'a aucun certificat (pas de `/etc/ssl`, aucun `.crt`/`.pem`) et NextUI n'en fournit pas pour tg5040 (firmware v1.1.1 ; code NextUI : seul `h700-init.sh:27` en fournit). Cheat Manager s'en sort grâce à gabagool : `gabagool/v2/pkg/gabagool/internal/init.go` importe `github.com/BrandonKowalski/certifiable`, qui embarque `certificates.crt` (`go:embed`) et le pose dans `http.DefaultTransport` à l'initialisation. Ce mécanisme n'existe donc que dans un binaire qui lie gabagool, pas dans `internal/transfer` compilé sans CGO ni en mode `--headless`. Choix du mécanisme : décision ouverte, voir [m0/questions.md](m0/questions.md).
 - Délai de connexion 15 s, délai d'inactivité 60 s, reprise automatique avec `Range` (3 tentatives) si le serveur la supporte.
 - Le nom de fichier final est nettoyé (voir [03 §5](03-protocole.md#5-identifiants)).
 
@@ -146,11 +173,11 @@ L'application se fait vers un fichier temporaire, puis vérification (pour BPS e
 |---|---|
 | `model` | Variable `DEVICE` exportée par NextUI (`brick`, `smartpro`...) |
 | `platform` | Variable `PLATFORM` |
-| `osVersion` | **[À VÉRIFIER M0]** |
-| `battery` | `/sys/class/power_supply/...` **[À VÉRIFIER M0]** |
+| `osVersion` | Ligne 1 de `/mnt/SDCARD/.system/version.txt` (`NextUI-AAAAMMJJ-N`), plus le hash de la ligne 2 (code NextUI `makefile:249`). Lecture robuste : accepter un vrai retour à la ligne ou un `\n` littéral comme séparateur. `null` si le fichier manque. Format exact de la chaîne : voir [m0/questions.md](m0/questions.md) |
+| `battery` | `percent` = `/sys/class/power_supply/axp2202-battery/capacity` ; `charging` = `axp2202-usb/online == 1` et `axp2202-battery/time_to_full_now > 0` (code NextUI `platform.c:183-188`). `null` si ces fichiers manquent |
 | `storage` | `statfs` sur `SDCARD_PATH` |
 | `network.ipv4` | Interfaces réseau (`net.Interfaces`) |
-| `network.ssid` | **[À VÉRIFIER M0]**, sinon `null` |
+| `network.ssid` | Réponse `STATUS` de `wpa_supplicant` (socket `/etc/wifi/sockets/wlan0`, ou `wpa_cli -p /etc/wifi/sockets -i wlan0 status`), ligne `ssid=` si `wpa_state=COMPLETED` (code NextUI `generic_wifi.c:272-297`) ; sinon `null` |
 
 ## 7. Écrans
 

@@ -3,19 +3,22 @@
 ## Jalons
 | Jalon | Statut | Branche | Revue Antigravity | Intégré le |
 |---|---|---|---|---|
-| M0 | en attente des relevés de la console | — | — | — |
+| M0 | intégré (variante code source) ; 3 vérifications console restantes | `m0-specs-source` | — (documentation ; preuves par fichier:ligne) | 2026-11-19 |
 | M1 | intégré | `m1-contrat-crypto` | « prêt à fusionner » (Gemini 3.8 Flash High) — `docs/reviews/m1-antigravity.md` ; 3 revues Claude avant — `docs/reviews/m1-claude.md` | 2026-11-18 |
 | M2 | intégré | `m2-serveur-lecture` | GPT-OSS 120B : prêt à fusionner (faux positifs) — `docs/reviews/m2-antigravity.md` ; 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m2-claude.md` | 2026-11-18 |
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
-| M5 | à faire | — | — | — |
+| M5 | en cours | `m5-saves-go`, `m5-saves-ios` | — | — |
 | M6 | à faire | — | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
 - M4 fusionné dans `main` le 2026-11-18. Sur `main` : `make lint test`, `make contract`, `go test -race`, `swift test` (135), `xcodebuild test` (30 tests app, UI démo) verts ; contre `make headless` : appairage **par Bonjour** depuis le simulateur → fiche de jeu, et envoi de 200 Mio (50 morceaux) → bibliothèque → suppression → vidage de la corbeille, réussis. `scripts/smoke-transfers.sh` : reprise d'un envoi après arrêt du pak, téléchargement local, corbeille OK.
+- M0 par le code source (2026-11-19) : NextUI `b6ec1343` (≈ v6.15.0) et firmware officiel Brick v1.1.1 (`TG3040_Brick_firmware_v1.1.1.zip`, SHA-256 conforme) analysés ; rapport `docs/specs/m0/source-analysis.md` (branche `m0-specs-source`). Faits majeurs : states dans `.userdata/shared/<TAG>-<cœur>/` (spec fausse, vérifié `ma_core.c:74`), reprise = emplacement 9, vignettes `.minui/<TAG>/<rom>.<N>.bmp` (PNG), aucun certificat racine sur la console, avahi-daemon occupe déjà le port 5353, heure non fiable au démarrage (justifie l'âge crédité), glibc 2.33 / Tina Linux (OpenWrt). Image Docker `reminislink/brick-rootfs:1.1.1` (rootfs natif ARM64). Agent M5 Go prévenu (adaptateur + carte factice) ; sous-agent M0 met à jour les specs.
+- 2026-11-19 — Test dans le rootfs du firmware (Docker linux/arm64) : le pak (binaire statique) tourne ; avahi-daemon du firmware (sans D-Bus dans le test) écoute sur 5353, le pak s'annonce quand même et un client mDNS le trouve avec le TXT complet ; avahi reste actif. Coexistence OK sur le même hôte, à confirmer sur la console en Wi-Fi.
+- (historique) M0 par le code source : la personne a autorisé (2026-11-19) le clone du dépôt NextUI et le firmware d'origine ; un sous-agent analyse le code (lecture seule, clone hors du dépôt) puis télécharge le firmware officiel (autorisé sans autre confirmation par la personne le 2026-11-19) et en extrait le rootfs dans un conteneur Docker jetable (rien du firmware n'est exécuté sur le Mac).
 - **En attente de la personne** : tests sur la vraie console (checklist `docs/specs/checklists/console.md`, scénarios 3, 4, 5, 9, 10), qui supposent les relevés M0 (chemins des saves/states, horloge, certificats).
-- M5 prêt à lancer (saves, states, verrous, cheats).
+- M5 : deux sous-agents lancés le 2026-11-19 : Go dans `../reminislink-m5-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m5-ios` (uniquement `ios/`, faux pak étendu, réactive le type « Save »).
 
 ## État du dépôt (2026-11-18)
 - Branche `main` sans aucun commit : tous les fichiers sont non suivis (`CLAUDE.md`, `README.md`, `docs/`, `go.mod`, `prompts/`, `scripts/`, `skills/`, `.gitignore`).
@@ -59,6 +62,13 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 - 2026-11-18 — Purge de la corbeille par **âge crédité** (horloge propre du pak : monotone pendant les sessions, au plus 7 jours crédités par période d'extinction ; purge à 30 jours) ; `expiresAt` devient une estimation « au plus tôt ». Specs 04, 05 §2/§4, 06 mises à jour. Décidé par la personne (option B recommandée).
 
 ## Questions ouvertes pour la personne
+8. **Décisions issues de M0** (détail et options dans `docs/specs/m0/questions.md`, D1 à D6). Recommandations de l'agent principal :
+   - D1 certificats racine (aucun sur la console) : autoriser `certifiable` en dépendance directe (déjà tirée par gabagool, même mécanisme que Cheat Manager).
+   - D2 veille : rien ne met la console en veille pendant un pak → pas de prévention à coder ; en M7, éteindre l'écran après 2 min sans interaction (rallumé par une touche), le pak reste joignable.
+   - D3 formats `saveFormat`/`stateFormat` non par défaut : v1 = format par défaut seulement ; autres formats listés en lecture seule, écritures refusées avec une erreur claire.
+   - D4 `osVersion` : renvoyer la chaîne de `.system/version.txt` (ex. `NextUI-20261112-1`) et corriger les exemples du contrat.
+   - D5 vignettes : servies telles quelles (PNG 1024×768, cache ETag), réduction faite par l'app.
+   - D6 `/systems` : lister tous les dossiers à tag (comme aujourd'hui) avec un champ `emulatorInstalled` (ajout au contrat).
 1. Relevés M0 sur la console : `survey-1-before.txt`, `survey-2-after.txt` et `notes.md` rempli dans `docs/specs/m0/` (procédure dans `docs/specs/m0/README.md`).
 
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
