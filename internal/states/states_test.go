@@ -825,3 +825,29 @@ func TestUnknownCoreSuspendsTheTag(t *testing.T) {
 		t.Fatalf("lock: %v", err)
 	}
 }
+
+// Codex review of M5: the time limit of the maintenance also stops a
+// long read already started (a big state being hashed).
+func TestMaintainStopsInsideALongRead(t *testing.T) {
+	e := newEnv(t)
+	sc := e.game("Starlight Courier.gba")
+	if _, err := e.svc.Lock(sc, 0); err != nil {
+		t.Fatal(err)
+	}
+	// A big resume state to archive (hashed, then copied).
+	big := strings.Repeat("s", 8<<20)
+	e.write(statesGB+"Starlight Courier.gba.st9", big, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := e.svc.Maintain(ctx)
+	if r.Archived != 0 || r.Failed != 0 || r.Skipped == 0 {
+		t.Fatalf("cancelled maintenance %+v", r)
+	}
+	// The hash itself stops with the context.
+	if _, _, err := store.HashFileContext(ctx, e.path(statesGB+"Starlight Courier.gba.st9")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("hash: %v", err)
+	}
+	if r := e.svc.Maintain(context.Background()); r.Archived == 0 {
+		t.Fatalf("next start %+v", r)
+	}
+}

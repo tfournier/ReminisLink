@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -22,17 +23,39 @@ const StampLayout = "20060102T150405Z"
 // HashFile returns the SHA-256 (lowercase hex) and the size of a regular
 // file.
 func HashFile(path string) (string, int64, error) {
+	return HashFileContext(context.Background(), path)
+}
+
+// HashFileContext is HashFile, stopped with ctx.Err() when ctx is done
+// (checked every MiB: the maintenance at start has a time limit).
+func HashFileContext(ctx context.Context, path string) (string, int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", 0, err
 	}
 	defer f.Close()
 	h := sha256.New()
-	n, err := io.Copy(h, f)
+	n, err := io.Copy(h, ctxReader{ctx, f})
 	if err != nil {
 		return "", 0, err
 	}
 	return hex.EncodeToString(h.Sum(nil)), n, nil
+}
+
+// ctxReader reads at most 1 MiB at a time and fails once ctx is done.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if len(p) > 1<<20 {
+		p = p[:1<<20]
+	}
+	return c.r.Read(p)
 }
 
 // CopyFileAtomic copies src to dst: it writes <dst>.tmp, fsyncs it, then
@@ -40,6 +63,12 @@ func HashFile(path string) (string, int64, error) {
 // or the complete copy. It returns the SHA-256 and the size of the bytes
 // copied. The folder of dst is created if needed.
 func CopyFileAtomic(src, dst string) (string, int64, error) {
+	return CopyFileAtomicContext(context.Background(), src, dst)
+}
+
+// CopyFileAtomicContext is CopyFileAtomic, stopped (nothing renamed) with
+// ctx.Err() when ctx is done.
+func CopyFileAtomicContext(ctx context.Context, src, dst string) (string, int64, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return "", 0, err
@@ -54,7 +83,7 @@ func CopyFileAtomic(src, dst string) (string, int64, error) {
 		return "", 0, err
 	}
 	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(out, h), in)
+	n, err := io.Copy(io.MultiWriter(out, h), ctxReader{ctx, in})
 	if err == nil {
 		err = out.Sync()
 	}

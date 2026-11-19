@@ -202,6 +202,17 @@ type Options struct {
 // Service manages the states, their locks and the resume history.
 type Service struct {
 	o Options
+	// ctx is the context of a running Maintain (nil otherwise), read with
+	// the lock held.
+	ctx context.Context
+}
+
+// context returns the context the long reads stop with.
+func (s *Service) context() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
 }
 
 // New returns a Service.
@@ -433,7 +444,7 @@ func (s *Service) matchesCopy(dir string, l *lock, path string, fi os.FileInfo) 
 	if fi.Size() == l.meta.StateSize && fi.ModTime().UnixNano() == l.meta.StateModTime {
 		return true
 	}
-	sum, _, err := store.HashFile(path)
+	sum, _, err := store.HashFileContext(s.context(), path)
 	if err != nil || sum != l.meta.SHA256 {
 		return false
 	}
@@ -765,7 +776,7 @@ func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, p
 		return err
 	}
 	defer os.Remove(tmp) // already gone after a successful rename
-	sum, size, err := store.CopyFileAtomic(l.copy, tmp)
+	sum, size, err := store.CopyFileAtomicContext(s.context(), l.copy, tmp)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}
@@ -792,7 +803,7 @@ func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, p
 			}
 			sideTmp := tmp + ext
 			defer os.Remove(sideTmp)
-			sideSum, sideSize, err := store.CopyFileAtomic(saved, sideTmp)
+			sideSum, sideSize, err := store.CopyFileAtomicContext(s.context(), saved, sideTmp)
 			if err != nil {
 				return fmt.Errorf("restore: %w", err)
 			}
@@ -1010,7 +1021,7 @@ func (s *Service) archiveLocked(tag, rom, path string, hashAlways bool) (archive
 			return archiveUnchanged, nil
 		}
 	}
-	sum, size, err := store.HashFile(path)
+	sum, size, err := store.HashFileContext(s.context(), path)
 	if err != nil {
 		return 0, err
 	}
@@ -1040,7 +1051,7 @@ func (s *Service) archiveLocked(tag, rom, path string, hashAlways bool) (archive
 	if err != nil {
 		return 0, err
 	}
-	sum, size, err = store.CopyFileAtomic(path, filepath.Join(dir, id+stateExt))
+	sum, size, err = store.CopyFileAtomicContext(s.context(), path, filepath.Join(dir, id+stateExt))
 	if err != nil {
 		return 0, err
 	}
@@ -1160,6 +1171,10 @@ type Report struct {
 func (s *Service) Maintain(ctx context.Context) Report {
 	s.o.Lock.Lock()
 	defer s.o.Lock.Unlock()
+	// The long reads (hashes, copies) stop with ctx too; the writes
+	// already engaged are journaled (store.Trash.Replace).
+	s.ctx = ctx
+	defer func() { s.ctx = nil }()
 	var r Report
 	s.archiveAll(ctx, &r)
 	s.checkLocks(ctx, &r)
@@ -1171,7 +1186,11 @@ func (s *Service) archiveAll(ctx context.Context, r *Report) {
 	if !ok {
 		return
 	}
-	refs, err := s.o.Adapter.StateFiles()
+	refs, err := s.o.Adapter.StateFiles(ctx)
+	if ctx.Err() != nil {
+		r.Skipped++
+		return
+	}
 	if err != nil {
 		s.o.Logger.Warn("maintenance: cannot list the states", "error", err)
 		r.Failed++
@@ -1190,6 +1209,10 @@ func (s *Service) archiveAll(ctx context.Context, r *Report) {
 			continue
 		}
 		res, err := s.archiveLocked(ref.Tag, ref.ROMName, ref.File.Path, false)
+		if err != nil && ctx.Err() != nil {
+			r.Skipped++ // stopped in the middle: the next start does it
+			continue
+		}
 		if err != nil {
 			s.o.Logger.Warn("maintenance: cannot archive a resume state", "tag", ref.Tag, "rom", ref.ROMName, "error", err)
 			r.Failed++

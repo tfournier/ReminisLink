@@ -1,6 +1,7 @@
 package nextui
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func TestStateFolders(t *testing.T) {
 	}
 	os.Remove(filepath.Join(sd, "Emus", "tg5040", "GBA.pak", "launch.sh"))
 	// StateFiles only lists the folder of the current core of each tag.
-	refs, err := a.StateFiles()
+	refs, err := a.StateFiles(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@
 package osadapter
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -186,7 +187,8 @@ type Adapter interface {
 	IsGameFile(name string) bool
 
 	// StateFiles lists every save state of the card (all systems).
-	StateFiles() ([]StateRef, error)
+	// StateFiles stops with ctx.Err() when ctx is done.
+	StateFiles(ctx context.Context) ([]StateRef, error)
 
 	// Where each file of a game is (or would be) stored. The emulator data
 	// (save, states, cheats) depends only on g.System.Tag and g.ROMName,

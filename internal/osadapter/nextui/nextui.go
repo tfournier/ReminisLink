@@ -12,6 +12,7 @@ package nextui
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -838,7 +839,7 @@ func (a *Adapter) stateTags() []string {
 // tags of the system folders and of the emulator paks), found with the
 // core of the tag's emulator pak: the folders of other cores are ignored,
 // and a core name is never guessed from a folder name.
-func (a *Adapter) StateFiles() ([]osadapter.StateRef, error) {
+func (a *Adapter) StateFiles(ctx context.Context) ([]osadapter.StateRef, error) {
 	var out []osadapter.StateRef
 	seen := map[string]bool{}
 	for _, tag := range a.stateTags() {
@@ -848,6 +849,9 @@ func (a *Adapter) StateFiles() ([]osadapter.StateRef, error) {
 		}
 		seen[dir] = true
 		for _, e := range readNames(dir) {
+			if err := ctx.Err(); err != nil {
+				return out, err
+			}
 			if !e.Type().IsRegular() {
 				continue
 			}
