@@ -20,6 +20,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/tfournier/ReminisLink/internal/store"
 )
 
 // Download limits (docs/specs/04-api-v1.md POST /downloads, 05 §5.6).
@@ -281,6 +283,9 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 	}
 	result, apiErr, err := s.installDownload(target, d.name, d.path, onConflict)
 	s.installMu.Unlock()
+	if errors.Is(err, store.ErrReplaceFailed) {
+		installed = true // the file is named by a pending replacement: kept
+	}
 	if err != nil {
 		s.log.Error("download: install", "error", err)
 		return nil, internal("Internal error")

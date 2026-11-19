@@ -59,8 +59,8 @@ func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Insta
 	defer t.mu.Unlock()
 	if len(items) == 0 {
 		for i, r := range records {
-			if err := t.installOne(sd, r); err != nil {
-				t.uninstall(sd, records[:i])
+			if renamed, err := t.installOne(sd, r); err != nil {
+				t.uninstall(sd, records[:doneUpTo(i, renamed)])
 				return MoveResult{}, err
 			}
 		}
@@ -71,15 +71,22 @@ func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Insta
 		return MoveResult{}, err
 	}
 	for i, r := range records {
-		if err := t.installOne(sd, r); err != nil {
-			// Roll back now: the new files back to their temporary place,
-			// the old ones back to theirs.
-			if t.uninstall(sd, records[:i]) && t.rollback(entryDir, sd, &e) {
+		renamed, err := t.installOne(sd, r)
+		if err == nil {
+			continue
+		}
+		// Roll back now: the new files back to their temporary place
+		// (this one too when its rename succeeded and only a sync
+		// failed), then, once the journal says so, the old ones back to
+		// theirs. The journal stays until every step is durable.
+		if t.uninstall(sd, records[:doneUpTo(i, renamed)]) {
+			e.State = stateRestoring
+			if t.saveEntry(entryDir, e) == nil && t.rollback(entryDir, sd, &e) {
 				return MoveResult{}, fmt.Errorf("trash: install %s (everything put back): %w", r.Dst, err)
 			}
-			t.log.Error("trash: replacement interrupted, finished at the next start", "entry", e.ID, "error", err)
-			return MoveResult{}, fmt.Errorf("%w: install %s: %v", ErrReplaceFailed, r.Dst, err)
 		}
+		t.log.Error("trash: replacement interrupted, finished at the next start", "entry", e.ID, "error", err)
+		return MoveResult{}, fmt.Errorf("%w: install %s: %v", ErrReplaceFailed, r.Dst, err)
 	}
 	e.State = stateDone
 	if err := t.saveEntry(entryDir, e); err != nil {
@@ -106,19 +113,28 @@ func relUnder(sd, p string) (string, error) {
 }
 
 // installOne renames an install into place and syncs both folders.
-func (t *Trash) installOne(sd string, r installRecord) error {
+// renamed reports that the rename happened (even if a sync then failed).
+func (t *Trash) installOne(sd string, r installRecord) (renamed bool, err error) {
 	src := filepath.Join(sd, filepath.FromSlash(r.Src))
 	dst := filepath.Join(sd, filepath.FromSlash(r.Dst))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
+		return false, err
 	}
 	if err := t.rename(src, dst); err != nil {
-		return withoutPathErr(err)
+		return false, withoutPathErr(err)
 	}
 	if err := t.syncDir(filepath.Dir(dst)); err != nil {
-		return err
+		return true, err
 	}
-	return t.syncDir(filepath.Dir(src))
+	return true, t.syncDir(filepath.Dir(src))
+}
+
+// doneUpTo is the number of installs renamed when install i failed.
+func doneUpTo(i int, renamed bool) int {
+	if renamed {
+		return i + 1
+	}
+	return i
 }
 
 // uninstall renames installed files back to their temporary place; false
@@ -129,7 +145,7 @@ func (t *Trash) uninstall(sd string, done []installRecord) bool {
 		r := done[i]
 		src := filepath.Join(sd, filepath.FromSlash(r.Src))
 		dst := filepath.Join(sd, filepath.FromSlash(r.Dst))
-		if err := restoreItem(dst, src); err != nil {
+		if err := t.restoreItem(dst, src); err != nil {
 			ok = false
 		}
 	}
@@ -145,10 +161,11 @@ func (t *Trash) rollback(entryDir, sd string, e *entryFile) bool {
 			continue
 		}
 		dst := filepath.Join(sd, filepath.FromSlash(rel))
-		if !isUnder(sd, dst) || restoreItem(src, dst) != nil {
+		if !isUnder(sd, dst) || t.restoreItem(src, dst) != nil {
 			return false
 		}
 	}
+	// Every file is back and durable: the journal can go.
 	if err := os.RemoveAll(entryDir); err != nil {
 		t.log.Warn("trash: cannot remove a rolled back entry", "entry", e.ID, "error", err)
 	}
@@ -206,7 +223,7 @@ func (t *Trash) recoverInstall(dir, sd string, e *entryFile) error {
 				finish = false // something else took the place: roll back
 				break
 			}
-			if err := t.installOne(sd, r); err != nil {
+			if _, err := t.installOne(sd, r); err != nil {
 				t.log.Error("trash: cannot finish an interrupted replacement", "entry", e.ID, "file", r.Dst, "error", err)
 				return nil // kept as it is; tried again at the next start
 			}
@@ -229,7 +246,12 @@ func (t *Trash) recoverInstall(dir, sd string, e *entryFile) error {
 			installedBack = append(installedBack, r)
 		}
 	}
-	if !t.uninstall(sd, installedBack) || !t.rollback(dir, sd, e) {
+	ok := t.uninstall(sd, installedBack)
+	if ok {
+		e.State = stateRestoring
+		ok = t.saveEntry(dir, *e) == nil && t.rollback(dir, sd, e)
+	}
+	if !ok {
 		t.log.Error("trash: interrupted replacement kept for the next start, its files could not go back", "entry", e.ID)
 		return nil
 	}
@@ -254,7 +276,7 @@ func (t *Trash) PendingSources() map[string]bool {
 	}
 	for _, name := range names {
 		e, err := readEntry(filepath.Join(t.dir, name))
-		if err != nil || e.State != stateInstalling {
+		if err != nil || (e.State != stateInstalling && e.State != stateRestoring) {
 			continue
 		}
 		for _, r := range e.Installs {

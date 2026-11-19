@@ -851,3 +851,55 @@ func TestMaintainStopsInsideALongRead(t *testing.T) {
 		t.Fatalf("next start %+v", r)
 	}
 }
+
+// Codex review of M8: when a lock restore cannot be confirmed (the folder
+// of the disc files cannot be synced after the rename), the temporary
+// files the journal names are kept and the next start finishes it.
+func TestLockRestoreKeepsTheTempsOfAPendingReplacement(t *testing.T) {
+	e := newEnv(t)
+	ps, err := e.a.Game("Sony PlayStation (PS)/Mossy Hollow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		st   = ".userdata/shared/PS-pcsx_rearmed/Mossy Hollow.m3u.st0"
+		disc = ".userdata/shared/.minui/PS/Mossy Hollow.m3u.0.txt"
+	)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 2).cue")
+	if _, err := e.svc.Lock(ps, 0); err != nil {
+		t.Fatal(err)
+	}
+	locked := e.read(st)
+	e.write(st, "disc 1 state", 0)
+	testutil.WriteFile(t, e.sd, disc, "Mossy Hollow (Disc 1).cue")
+	minui := filepath.Dir(e.path(disc))
+	armed := false
+	e.trash.SetSyncDir(func(dir string) error {
+		if data, err := os.ReadFile(e.path(disc)); err == nil && string(data) == "Mossy Hollow (Disc 2).cue" {
+			armed = true // the locked disc file was renamed in place
+		}
+		if dir == minui && armed {
+			return errors.New("simulated sync failure")
+		}
+		return nil
+	})
+	if _, err := e.svc.RestoreLock(ps, 0); !errors.Is(err, store.ErrReplaceFailed) {
+		t.Fatalf("restore: %v", err)
+	}
+	pending := e.trash.PendingSources()
+	if len(pending) != 2 {
+		t.Fatalf("pending sources %v", pending)
+	}
+	for p := range pending {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("temporary file of the pending replacement removed: %v", err)
+		}
+	}
+	e.trash.SetSyncDir(store.SyncDirChecked)
+	if err := e.trash.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if e.read(st) != locked || e.read(disc) != "Mossy Hollow (Disc 2).cue" {
+		t.Fatal("the locked set was not finished at the next start")
+	}
+}

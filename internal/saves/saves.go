@@ -465,13 +465,15 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	rtcTmp := ""
 	if m.RTCSHA256 != "" {
 		rtcTmp = tmp + rtcExt
-		defer os.Remove(rtcTmp)
 		sum, _, err := store.CopyFileAtomic(filepath.Join(filepath.Dir(path), id+rtcExt), rtcTmp)
 		if err != nil || sum != m.RTCSHA256 {
 			return nil, ErrCorruptBackup
 		}
 	}
 	res, err := s.installLocked(g, tmp, rtcTmp, ReasonBeforeRestore, nil)
+	if rtcTmp != "" && !errors.Is(err, store.ErrReplaceFailed) {
+		os.Remove(rtcTmp) // kept while a pending replacement names it
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -775,7 +775,17 @@ func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, p
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmp) // already gone after a successful rename
+	// The temporary files are removed (already gone after a successful
+	// replacement) unless a pending replacement still names them.
+	temps := []string{tmp}
+	pending := false
+	defer func() {
+		if !pending {
+			for _, p := range temps {
+				os.Remove(p)
+			}
+		}
+	}()
 	sum, size, err := store.CopyFileAtomicContext(s.context(), l.copy, tmp)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
@@ -802,7 +812,7 @@ func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, p
 				dst = cur
 			}
 			sideTmp := tmp + ext
-			defer os.Remove(sideTmp)
+			temps = append(temps, sideTmp)
 			sideSum, sideSize, err := store.CopyFileAtomicContext(s.context(), saved, sideTmp)
 			if err != nil {
 				return fmt.Errorf("restore: %w", err)
@@ -821,7 +831,8 @@ func (s *Service) restoreCopy(g osadapter.Game, slot int, dir string, l *lock, p
 		}
 	}
 	if _, err := s.o.Trash.Replace(reason, g.Name, items, installs); err != nil {
-		if markRestored && !errors.Is(err, store.ErrReplaceFailed) {
+		pending = errors.Is(err, store.ErrReplaceFailed)
+		if markRestored && !pending {
 			_ = s.writeLockMeta(dir, before)
 		}
 		return fmt.Errorf("restore: %w", err)

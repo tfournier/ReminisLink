@@ -71,8 +71,11 @@ const (
 	trashEntryVersion   = 1
 	stateMoving         = "moving"
 	stateInstalling     = "installing"
-	stateDone           = "done"
-	trashIDTimeLayout   = "20060102T150405Z"
+	// stateRestoring: a failed replacement whose new files are back at
+	// their temporary place; the old files are going back (Recover ends it).
+	stateRestoring    = "restoring"
+	stateDone         = "done"
+	trashIDTimeLayout = "20060102T150405Z"
 )
 
 // trashIDRe matches tr_<YYYYMMDDTHHMMSSZ>_<4 hex>.
@@ -197,6 +200,14 @@ func (t *Trash) SetRename(rename func(oldpath, newpath string) error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.rename = rename
+}
+
+// SetSyncDir replaces SyncDirChecked for the trash (tests of other
+// packages simulate sync failures with it).
+func (t *Trash) SetSyncDir(sync func(dir string) error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.syncDir = sync
 }
 
 // UseCreditClock ages the entries with c (docs/specs/05-console-pak.md
@@ -516,7 +527,7 @@ func (t *Trash) Undo(id string) error {
 		if _, err := os.Lstat(src); err != nil {
 			continue // already back
 		}
-		if !isUnder(sd, dst) || restoreItem(src, dst) != nil {
+		if !isUnder(sd, dst) || t.restoreItem(src, dst) != nil {
 			left = append(left, rel)
 			continue
 		}
@@ -541,26 +552,30 @@ func (t *Trash) putBack(entryDir string, moved []plannedMove) []string {
 	var left []string
 	for _, p := range moved {
 		src := filepath.Join(entryDir, filepath.FromSlash(p.rel))
-		if err := restoreItem(src, p.abs); err != nil {
+		if err := t.restoreItem(src, p.abs); err != nil {
 			left = append(left, p.rel)
 		}
 	}
 	return left
 }
 
-// restoreItem renames src back to dst when dst is free.
-func restoreItem(src, dst string) error {
+// restoreItem renames src back to dst when dst is free, and syncs (and
+// checks) both folders: until it returns nil, the move back may not be on
+// the card, so the caller keeps the journal (the trash entry).
+func (t *Trash) restoreItem(src, dst string) error {
 	if _, err := os.Lstat(dst); err == nil {
 		return fs.ErrExist
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	if err := os.Rename(src, dst); err != nil {
+	if err := t.rename(src, dst); err != nil {
 		return err
 	}
-	SyncDir(filepath.Dir(dst))
-	return nil
+	if err := t.syncDir(filepath.Dir(dst)); err != nil {
+		return err
+	}
+	return t.syncDir(filepath.Dir(src))
 }
 
 func writeEntry(dir string, e entryFile) error {
@@ -778,6 +793,14 @@ func (t *Trash) Recover() error {
 			}
 			continue
 		}
+		if e.State == stateRestoring {
+			if t.rollback(dir, sd, &e) {
+				t.log.Info("trash: interrupted roll back finished", "entry", name)
+			} else {
+				t.log.Error("trash: roll back kept for the next start, its files could not go back", "entry", name)
+			}
+			continue
+		}
 		var left []string
 		for _, rel := range e.Moves {
 			src := filepath.Join(dir, filepath.FromSlash(rel))
@@ -789,7 +812,7 @@ func (t *Trash) Recover() error {
 				left = append(left, rel)
 				continue
 			}
-			if err := restoreItem(src, dst); err != nil {
+			if err := t.restoreItem(src, dst); err != nil {
 				left = append(left, rel)
 				continue
 			}
