@@ -324,3 +324,26 @@ func TestArtRefusesALinkedMediaFolder(t *testing.T) {
 		t.Fatal("the file outside Roms/ was moved")
 	}
 }
+
+func TestDeletionPreview(t *testing.T) {
+	f := newFixture(t)
+	const path = "/games/{gameId}/deletion"
+	target := "/api/v1/games/" + id(gba+"/Starlight Courier.gba") + "/deletion"
+	r := f.get(target, path, 200)
+	var p library.DeletionPreview
+	r.JSON(t, &p)
+	if len(p.Moved) == 0 || len(p.Kept) != 0 || p.MovedBytes == 0 || p.Moved[0].Name != "Starlight Courier.gba" || p.Moved[0].Role != "rom" {
+		t.Fatalf("preview %s", r.Body)
+	}
+	r = f.get(target+"?keepSave=true", path, 200)
+	r.JSON(t, &p)
+	if len(p.Kept) == 0 {
+		t.Fatalf("keepSave preview %s", r.Body)
+	}
+	f.get(target+"?keepSave=maybe", path, 400)
+	f.get("/api/v1/games/"+id(gba+"/Nope.gba")+"/deletion", path, 404)
+	// Nothing moved by a preview.
+	if entries, _, _ := f.trash.List(); len(entries) != 0 {
+		t.Fatalf("trash %+v", entries)
+	}
+}

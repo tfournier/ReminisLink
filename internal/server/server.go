@@ -205,6 +205,7 @@ func (s *Server) routes() http.Handler {
 	signed("PUT "+Prefix+"/games/{gameId}/art", auth.RouteArt, s.notify(ChangeArtSet, s.gameName, s.handlePutArt))
 	signed("DELETE "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.notify(ChangeArtDeleted, s.gameName, s.handleDeleteArt))
 
+	signed("GET "+Prefix+"/games/{gameId}/deletion", auth.RouteJSON, s.handleDeletionPreview)
 	signed("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
 
 	// Trash.

@@ -2,8 +2,10 @@ package library
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -171,5 +173,78 @@ func TestDeleteFolderGameKeepsANestedSharedDisc(t *testing.T) {
 	}
 	if _, err := l.Game(EncodeID("Sony PlayStation (PS)/Deep Run Remix.m3u")); err != nil {
 		t.Fatalf("the other playlist: %v", err)
+	}
+}
+
+// The preview of a deletion is what DeleteGame then moves, file by file
+// (GET /games/{gameId}/deletion, M8).
+func TestPreviewDeletionIsWhatDeleteMoves(t *testing.T) {
+	for _, c := range []struct {
+		game     string
+		keepSave bool
+		shared   bool
+	}{
+		{"Sony PlayStation (PS)/Mossy Hollow", false, false},
+		{"Sony PlayStation (PS)/Mossy Hollow", true, true},
+		{"Sony PlayStation (PS)/Quiet Harbor.m3u", false, true},
+		{"Game Boy Advance (GBA)/Starlight Courier.gba", false, false},
+		{"Game Boy Advance (GBA)/Starlight Courier.gba", true, false},
+	} {
+		l, sd := newLibrary(t)
+		tr := store.NewTrash(store.Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, nil, nil)
+		ps := filepath.Join(sd, "Roms", "Sony PlayStation (PS)")
+		testutil.WriteFile(t, sd, ".userdata/shared/ReminisLink/locks/GBA/Starlight Courier.gba/slot0.st", "lock")
+		testutil.WriteFile(t, ps, "Mossy Hollow/Extras/notes.txt", "deep")
+		if c.shared {
+			testutil.WriteFile(t, ps, "Shared.m3u", "Mossy Hollow/Mossy Hollow (Disc 2).cue\nQuiet Harbor (Disc 1).cue\n")
+		}
+		id := EncodeID(c.game)
+		p, err := l.PreviewDeletion(id, c.keepSave)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g, _ := l.GameByID(id)
+		res, err := l.DeleteGame(id, c.keepSave, tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := filepath.Join(tr.Dir(), res.TrashEntryID)
+		var got []string
+		var bytes int64
+		filepath.WalkDir(entry, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && d.Type().IsRegular() && d.Name() != "entry.json" {
+				rel, _ := filepath.Rel(entry, path)
+				got = append(got, l.displayPath(g, filepath.Join(sd, rel)))
+				info, _ := d.Info()
+				bytes += info.Size()
+			}
+			return nil
+		})
+		var want []string
+		for _, it := range p.Moved {
+			want = append(want, it.Name)
+		}
+		sort.Strings(got)
+		sort.Strings(want)
+		if strings.Join(got, "|") != strings.Join(want, "|") || bytes != p.MovedBytes {
+			t.Errorf("%s keepSave=%v:\n preview %v (%d bytes)\n trash   %v (%d bytes)", c.game, c.keepSave, want, p.MovedBytes, got, bytes)
+		}
+		for _, k := range p.Kept {
+			if strings.HasPrefix(k.Name, "/") {
+				t.Errorf("absolute name %q", k.Name)
+			}
+		}
+		if c.shared && len(p.Kept) == 0 {
+			t.Errorf("%s: shared disc not listed as kept", c.game)
+		}
+		if c.keepSave && c.game == "Game Boy Advance (GBA)/Starlight Courier.gba" {
+			roles := map[string]bool{}
+			for _, k := range p.Kept {
+				roles[k.Role] = true
+			}
+			if !roles["save"] || !roles["state"] || !roles["other"] {
+				t.Errorf("keepSave: kept %+v", p.Kept)
+			}
+		}
 	}
 }
