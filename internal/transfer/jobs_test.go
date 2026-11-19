@@ -158,3 +158,81 @@ func TestJobsFailCancelClose(t *testing.T) {
 		t.Fatalf("submit after close: %v", err)
 	}
 }
+
+// TestCancelTooLateNeverShowsCancelled: a job cancelled while it installs
+// its file (it ignores the cancel and succeeds) stays "running" with
+// cancelRequested, then ends "succeeded": never "cancelled" in between.
+func TestCancelTooLateNeverShowsCancelled(t *testing.T) {
+	q := NewJobs(nil)
+	defer q.Close()
+	installing := make(chan struct{})
+	release := make(chan struct{})
+	id, err := q.Submit(JobPatch, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+		close(installing)
+		<-release // installing: too late to stop
+		return map[string]any{"gameId": "x"}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-installing
+	var mu sync.Mutex
+	var seen []string
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { // what the app polls meanwhile
+		defer wg.Done()
+		for {
+			j, _ := q.Get(id)
+			mu.Lock()
+			seen = append(seen, j.State)
+			mu.Unlock()
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}()
+	done := make(chan Job, 1)
+	go func() {
+		j, _ := q.Cancel(id)
+		done <- j
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if j, _ := q.Get(id); j.CancelRequested {
+			if j.State != JobRunning {
+				t.Fatalf("after the cancel request: %s", j.State)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("cancel not requested")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	j := <-done
+	close(stop)
+	wg.Wait()
+	if j.State != JobSucceeded || !j.CancelRequested || j.Result["gameId"] != "x" {
+		t.Fatalf("DELETE answer: %+v", j)
+	}
+	for _, s := range seen {
+		if s == JobCancelled {
+			t.Fatalf("cancelled was shown: %v", seen)
+		}
+	}
+	// A job that does stop on the cancel ends cancelled.
+	id, _ = q.Submit(JobPatch, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+		<-ctx.Done()
+		return nil, internal("stopped")
+	})
+	waitJob(t, q, id, JobRunning)
+	if j, _ := q.Cancel(id); j.State != JobCancelled || !j.CancelRequested {
+		t.Fatalf("stopped: %+v", j)
+	}
+}
