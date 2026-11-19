@@ -50,7 +50,9 @@ SDL_GFX_LIB   := /usr/lib/aarch64-linux-gnu/libSDL2_gfx-1.0.so.0
 GO_TAGS       := nodefaultfont sdl
 # The desktop window has no NextUI theme: keep gabagool's default font.
 DESKTOP_TAGS  := sdl
-LDFLAGS       := -s -w -X main.version=$(VERSION)
+# pakVersion (API, Bonjour TXT cv) is semver without the "v" of the tag.
+PAK_SEMVER    = $(patsubst v%,%,$(VERSION))
+LDFLAGS       = -s -w -X main.version=$(PAK_SEMVER)
 
 # Extra options of "make headless" and "make desktop", e.g. HEADLESS_ARGS="--port 48000 --name Test"
 HEADLESS_ARGS ?=
