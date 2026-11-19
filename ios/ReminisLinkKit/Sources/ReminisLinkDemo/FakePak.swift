@@ -61,10 +61,17 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var nextPairDelays: [TimeInterval] = []
     private var _pairingOpen = true
     private var closePairingAfterHello = false
-    private var clients: [String: SymmetricKey] = [:]
-    private var clientNames: [String: String] = [:]
+    var clients: [String: SymmetricKey] = [:]
+    var clientNames: [String: String] = [:]
     /// Last accepted signed request per client (`connectedClients`).
-    private var lastSeen: [String: Date] = [:]
+    var lastSeen: [String: Date] = [:]
+    /// The write lease (milestone M10, see FakePakWriter.swift): its holder
+    /// and expiry, the clients disconnected from the console, and the
+    /// clock of the lease (injectable, to test the expiry).
+    var writerClientId: String?
+    var writerExpiry = Date.distantPast
+    var disconnectedClients: Set<String> = []
+    var _leaseClock: @Sendable () -> Date = { Date() }
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
@@ -277,6 +284,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             jobs = [:]
             nonces = []
             lastSeen = [:]
+            // Kept in memory only (M10).
+            writerClientId = nil
+            disconnectedClients = []
         }
     }
 
@@ -332,6 +342,10 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         if let failure = verify(request, method: method, path: path, query: query, body: body) {
             return failure
         }
+        let clientId = request.value(forHTTPHeaderField: SignedHeaders.client) ?? ""
+        if let refusal = checkLease(clientId: clientId, method: method, segments: segments) {
+            return refusal
+        }
         if let next = lock.withLock({ queued.isEmpty ? nil : queued.removeFirst() }) {
             return next
         }
@@ -339,14 +353,16 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
 
         switch (method, segments) {
         case ("GET", ["device"]):
-            return device()
+            return device(clientId: clientId)
         case ("DELETE", ["clients", "me"]):
-            let clientId = request.value(forHTTPHeaderField: SignedHeaders.client) ?? ""
             lock.withLock {
                 _ = clients.removeValue(forKey: clientId)
                 lastSeen[clientId] = nil
+                if writerClientId == clientId { writerClientId = nil }
             }
             return FakeResponse(status: 204)
+        case (_, ["writer"]), ("POST", ["clients", "me", "connect"]):
+            return routeWriter(clientId: clientId, method: method, segments: segments, body: body)
         case ("GET", ["systems"]):
             return systems()
         case ("GET", ["saves"]):
@@ -484,6 +500,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
             "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": pairingOpen,
+            "writerHeld": writerHeld,
         ])
     }
 
@@ -529,7 +546,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         return response
     }
 
-    private func device() -> FakeResponse {
+    private func device(clientId: String) -> FakeResponse {
         let limit = now().addingTimeInterval(-30)
         let connected = lock.withLock { () -> [[String: Any]] in
             return lastSeen.filter { $0.value >= limit && clients[$0.key] != nil }
@@ -545,6 +562,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             "storage": [["id": "sd", "label": "SD", "totalBytes": 127_865_454_592, "freeBytes": freeBytes]],
             "uptimeSeconds": 512,
             "connectedClients": connected,
+            "writer": writerJSON(for: clientId),
         ])
     }
 

@@ -57,6 +57,10 @@ public actor APIClient {
     private let session: URLSession
     private let now: @Sendable () -> Date
     private let appVersion: String
+    /// Sees every error answer of the pak, before it is thrown (M10: the
+    /// session learns of `423 read_only` and `401 disconnected` whatever
+    /// the screen or transfer that sent the request).
+    private let errorObserver: (@Sendable (ServerError) -> Void)?
 
     /// Device time minus local time, measured on the last `/hello`.
     public private(set) var clockOffset: TimeInterval = 0
@@ -67,7 +71,8 @@ public actor APIClient {
         credentials: DeviceCredentials? = nil,
         appVersion: String = "1.0.0",
         session: URLSession = APIClient.makeSession(),
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        errorObserver: (@Sendable (ServerError) -> Void)? = nil
     ) {
         self.endpoint = endpoint
         self.expectedDeviceId = expectedDeviceId ?? credentials?.deviceId
@@ -75,6 +80,7 @@ public actor APIClient {
         self.appVersion = appVersion
         self.session = session
         self.now = now
+        self.errorObserver = errorObserver
     }
 
     /// An ephemeral session (no shared cache, no cookies). Tests and the demo
@@ -136,6 +142,38 @@ public actor APIClient {
     /// `DELETE /clients/me`. The caller then deletes the key.
     public func unpair() async throws {
         let (data, response) = try await performSigned(method: "DELETE", segments: ["clients", "me"])
+        try check(response, data: data, accept: [200, 204])
+    }
+
+    /// `POST /clients/me/connect` (M10): lifts a disconnection set from the
+    /// console. Only on an explicit user action ("Reconnect", or opening
+    /// the console from the list), never from an automatic reconnection.
+    public func connectClient() async throws {
+        let (data, response) = try await performSigned(method: "POST", segments: ["clients", "me", "connect"])
+        try check(response, data: data, accept: [200, 204])
+    }
+
+    // MARK: - Write lease (M10)
+
+    /// `GET /writer`: who holds the write lease.
+    public func writer() async throws -> WriterState {
+        try await signedJSON(method: "GET", segments: ["writer"])
+    }
+
+    /// `PUT /writer`: takes the lease if it is free, or renews it. With
+    /// `force` ("Take over", after the user confirmed), takes it from
+    /// another client; without, a lease held by another client gives
+    /// `423 read_only`.
+    public func takeWriter(force: Bool = false) async throws -> WriterState {
+        try await signedJSON(
+            method: "PUT", segments: ["writer"], body: ProtocolJSON.encoder().encode(TakeWriterRequest(force: force))
+        )
+    }
+
+    /// `DELETE /writer`: releases the lease (no effect if another client
+    /// holds it).
+    public func releaseWriter() async throws {
+        let (data, response) = try await performSigned(method: "DELETE", segments: ["writer"])
         try check(response, data: data, accept: [200, 204])
     }
 
@@ -705,7 +743,10 @@ public actor APIClient {
 
     private func check(_ response: HTTPURLResponse, data: Data, accept: Set<Int>) throws {
         if accept.contains(response.statusCode) { return }
-        if let error = Self.serverError(response, data: data) { throw APIError.server(error) }
+        if let error = Self.serverError(response, data: data) {
+            errorObserver?(error)
+            throw APIError.server(error)
+        }
         throw APIError.unexpectedStatus(response.statusCode)
     }
 

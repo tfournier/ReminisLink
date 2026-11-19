@@ -294,6 +294,20 @@ public final class TransferQueue {
         resume(item)
     }
 
+    /// Uploads paused because another client has write access (M10).
+    public var pausedForWriteAccess: [UploadItem] {
+        uploads.filter { item in
+            guard item.phase == .paused, let error = item.failure as? APIError else { return false }
+            return error.isReadOnly || error.isDisconnected
+        }
+    }
+
+    /// Resumes the uploads paused by `423 read_only` or `401 disconnected`
+    /// (the write lease is back).
+    public func resumePausedForWriteAccess() {
+        for item in pausedForWriteAccess { resume(item) }
+    }
+
     /// Resumes every paused upload.
     public func resumePaused() {
         for item in uploads where item.phase == .paused { resume(item) }
@@ -421,6 +435,12 @@ public final class TransferQueue {
                 item.phase = isSuspended || error is CancellationError ? .paused : .waiting
                 item.failure = nil
             case APIError.network:
+                item.phase = .paused
+                item.failure = error
+            case let error as APIError where error.isReadOnly || error.isDisconnected:
+                // M10: another client has write access, or the console
+                // disconnected this iPhone. Nothing was lost: the upload
+                // resumes at the confirmed offset once writing is possible.
                 item.phase = .paused
                 item.failure = error
             default:
