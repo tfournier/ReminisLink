@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -201,6 +202,9 @@ type download struct {
 	total   int64  // -1: unknown
 	name    string // deduced from the first response
 	tag     string // validator for If-Range
+	// checked: the expected SHA-256 is known, so a file assembled from two
+	// versions of the resource is refused at the end.
+	checked bool
 	report  func(int64, *int64)
 }
 
@@ -214,7 +218,8 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, internal("Cannot create the temporary file")
 	}
-	d := &download{s: s, u: u, path: filepath.Join(dir, "dl_"+s.randomHex(12)+partExt), hash: sha256.New(), total: -1, report: report}
+	d := &download{s: s, u: u, path: filepath.Join(dir, "dl_"+s.randomHex(12)+partExt), hash: sha256.New(), total: -1,
+		checked: want != "", report: report}
 	if d.file, err = os.OpenFile(d.path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644); err != nil {
 		return nil, internal("Cannot create the temporary file")
 	}
@@ -269,6 +274,11 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 
 	// Resolve and install under the install lock (see CompleteUpload).
 	s.installMu.Lock()
+	if ctx.Err() != nil {
+		// Cancelled while waiting for the lock: nothing installed.
+		s.installMu.Unlock()
+		return nil, newError(http.StatusServiceUnavailable, CodeShuttingDown, "Cancelled")
+	}
 	result, apiErr, err := s.installDownload(target, d.name, d.path, onConflict)
 	s.installMu.Unlock()
 	if err != nil {
@@ -301,18 +311,56 @@ func (s *Service) installDownload(target Target, deduced, path, onConflict strin
 	return s.installLocked(dest, path, onConflict)
 }
 
-// downloadErrorText is a short reason without the URL (url.Error repeats
-// it, with its query).
+// Reasons of a failed download, the only texts that reach the log and
+// the error of a job: never the text of a network error, which can carry
+// a URL and its query (a signed link, a malformed redirect target).
+var (
+	errUnexpectedRange = errors.New("unexpected Content-Range")
+	errNoData          = errors.New("no data received in time")
+	errShortBody       = errors.New("body shorter than announced")
+	errHTTPStatus      = errors.New("HTTP error status")
+)
+
+// downloadErrorText is a predefined short reason for err (see above).
 func downloadErrorText(err error) string {
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		err = ue.Err
+	var dns *net.DNSError
+	var tlsRecord tls.RecordHeaderError
+	var tlsAlert tls.AlertError
+	var cert *tls.CertificateVerificationError
+	var unknownAuth x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	var netErr net.Error
+	switch {
+	case errors.Is(err, errTooManyRedirects):
+		return "too many redirects"
+	case errors.Is(err, errBadRedirect):
+		return "redirect to a URL that is not http or https"
+	case errors.Is(err, errUnexpectedRange):
+		return "unexpected Content-Range"
+	case errors.Is(err, errNoData):
+		return "no data received in time"
+	case errors.Is(err, errShortBody):
+		return "connection closed before the end"
+	case errors.Is(err, errHTTPStatus):
+		return err.Error() // "HTTP error status: 503", built by the pak
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.As(err, &dns):
+		return "host not found"
+	case errors.As(err, &cert), errors.As(err, &unknownAuth), errors.As(err, &hostname), errors.As(err, &invalid),
+		errors.As(err, &tlsRecord), errors.As(err, &tlsAlert):
+		return "secure connection failed"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "connection refused"
+	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
+		return "connection lost"
+	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
+		return "network unreachable"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		return "timeout"
 	}
-	msg := err.Error()
-	if len(msg) > 200 {
-		msg = msg[:200]
-	}
-	return msg
+	return "network error"
 }
 
 // fetch sends one request (resuming with Range when bytes are already
@@ -326,6 +374,14 @@ func (d *download) fetch(ctx context.Context, client *http.Client) (*Error, erro
 		return badRequest("Invalid url"), nil
 	}
 	req.Header.Set("User-Agent", "ReminisLink")
+	if d.written > 0 && d.tag == "" && !d.checked {
+		// Neither a validator (ETag, Last-Modified) nor an expected
+		// SHA-256: a resumed range could come from another version of the
+		// resource, and nothing would tell. Start again from zero.
+		if err := d.restart(); err != nil {
+			return internal("Cannot write the file"), nil
+		}
+	}
 	if d.written > 0 {
 		req.Header.Set("Range", "bytes="+strconv.FormatInt(d.written, 10)+"-")
 		if d.tag != "" {
@@ -345,7 +401,7 @@ func (d *download) fetch(ctx context.Context, client *http.Client) (*Error, erro
 	case d.written > 0 && resp.StatusCode == http.StatusPartialContent:
 		start, total, ok := parseContentRange(resp.Header.Get("Content-Range"))
 		if !ok || start != d.written {
-			return nil, retryable{errors.New("unexpected Content-Range")}
+			return nil, retryable{errUnexpectedRange}
 		}
 		if total >= 0 {
 			d.total = total
@@ -366,7 +422,7 @@ func (d *download) fetch(ctx context.Context, client *http.Client) (*Error, erro
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 		return notFound("Download failed: HTTP " + strconv.Itoa(resp.StatusCode)), nil
 	case resp.StatusCode >= 500 || resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests:
-		return nil, retryable{fmt.Errorf("HTTP %d", resp.StatusCode)}
+		return nil, retryable{fmt.Errorf("%w: %d", errHTTPStatus, resp.StatusCode)}
 	default:
 		return internal("Download failed: HTTP " + strconv.Itoa(resp.StatusCode)), nil
 	}
@@ -467,13 +523,13 @@ func (d *download) copyBody(ctx context.Context, cancel context.CancelFunc, body
 			to := timedOut
 			mu.Unlock()
 			if to {
-				return nil, retryable{errors.New("no data for " + idle.String())}
+				return nil, retryable{errNoData}
 			}
 			return nil, retryable{rerr}
 		}
 	}
 	if d.total >= 0 && d.written != d.total {
-		return nil, retryable{errors.New("body shorter than announced")}
+		return nil, retryable{errShortBody}
 	}
 	d.progress()
 	return nil, nil
