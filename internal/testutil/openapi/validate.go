@@ -441,3 +441,22 @@ func equalJSON(a, b any) bool {
 	jb, err2 := json.Marshal(b)
 	return err1 == nil && err2 == nil && bytes.Equal(ja, jb)
 }
+
+// OperationsWithStatus returns the operations that declare a response
+// with this status code, as "METHOD /path" (path relative to /api/v1, as
+// written in the contract), sorted.
+func (s *Spec) OperationsWithStatus(status string) []string {
+	var out []string
+	paths, _ := lookup(s.root, "paths").(map[string]any)
+	for p, item := range paths {
+		ops, _ := item.(map[string]any)
+		for method, op := range ops {
+			responses, _ := lookup(op, "responses").(map[string]any)
+			if _, ok := responses[status]; ok {
+				out = append(out, strings.ToUpper(method)+" "+p)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}

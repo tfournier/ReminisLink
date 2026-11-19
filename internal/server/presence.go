@@ -41,6 +41,12 @@ func (p *presence) forget(id string) {
 	delete(p.seen, id)
 }
 
+func (p *presence) clear() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	clear(p.seen)
+}
+
 // seenSince returns the clients seen at or after since, and drops the
 // older entries.
 func (p *presence) seenSince(since time.Time) map[string]time.Time {
@@ -58,11 +64,15 @@ func (p *presence) seenSince(since time.Time) map[string]time.Time {
 }
 
 // markSeen records the authenticated client of a signed route before the
-// handler runs, so the caller of GET /device is in its own list.
+// handler runs, so the caller of GET /device is in its own list, and
+// renews its write lease.
 func (s *Server) markSeen(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, ok := auth.ClientFromContext(r.Context()); ok {
 			s.presence.touch(c.ID, s.now())
+			// Every accepted signed request of the holder renews the
+			// write lease (M10).
+			s.lease.Renew(c.ID)
 			markAccepted(r)
 		}
 		next.ServeHTTP(w, r)
