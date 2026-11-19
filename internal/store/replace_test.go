@@ -147,7 +147,7 @@ func TestTrashRecoverRollsBackAnIncompleteReplacement(t *testing.T) {
 	// The state was installed, the disc file is incomplete (wrong size).
 	write(t, sd, ".userdata/shared/ReminisLink/uploads/a.st.txt", "new")
 	id := interrupted(t, tr, sd, map[string]string{
-		".userdata/shared/GBA-gpsp/Game.gba.st0":      "old state",
+		".userdata/shared/GBA-gpsp/Game.gba.st0":     "old state",
 		".userdata/shared/.minui/GBA/Game.gba.0.txt": "old disc",
 	}, []installRecord{
 		{Src: ".userdata/shared/ReminisLink/uploads/a.st", Dst: ".userdata/shared/GBA-gpsp/Game.gba.st0", Size: 9},
@@ -158,9 +158,9 @@ func TestTrashRecoverRollsBackAnIncompleteReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	for rel, want := range map[string]string{
-		".userdata/shared/GBA-gpsp/Game.gba.st0":      "old state",
+		".userdata/shared/GBA-gpsp/Game.gba.st0":     "old state",
 		".userdata/shared/.minui/GBA/Game.gba.0.txt": "old disc",
-		".userdata/shared/ReminisLink/uploads/a.st":   "new state",
+		".userdata/shared/ReminisLink/uploads/a.st":  "new state",
 	} {
 		if data, _ := os.ReadFile(filepath.Join(sd, filepath.FromSlash(rel))); string(data) != want {
 			t.Errorf("%s = %q, want %q", rel, data, want)
