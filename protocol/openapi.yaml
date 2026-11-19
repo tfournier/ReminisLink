@@ -372,6 +372,77 @@ paths:
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
+  /events:
+    get:
+      tags: [Device]
+      operationId: streamEvents
+      summary: Stream of device events (M14)
+      description: |
+        Server-Sent Events (`text/event-stream`, UTF-8). The request is
+        signed like any other; it is checked once, when the stream opens.
+        The stream stays open while the pak runs. Each event is
+        `id: <n>` (increasing within the stream), `event: <type>` and one
+        `data: <JSON>` line, then a blank line. `Last-Event-ID` is ignored:
+        after a reconnection the app reloads the state it shows.
+
+        - `hello` (first event): `EventHello`.
+        - Keep-alive: a comment line `: keep-alive` at least every 15 s.
+          The app treats 35 s without any byte as a lost connection.
+        - `shutdown`: `EventShutdown`, sent when the pak starts closing
+          (quit from the console, or the system stopping it), just before
+          the stream ends. Then the connection closes.
+        - `device`: `EventDevice`, when the battery (percent or charging),
+          the connected clients or the free space change; at most one
+          every 5 s.
+        - `library`: `EventLibrary`, after any change of the SD card made
+          through the API by any client (upload installed, deletion,
+          replacement, restore, patch, cheats, art, trash), so the app
+          refreshes what it shows. At most one every second (changes are
+          merged).
+        - `job`: a `Job`, when a job of any client changes state, and
+          while it runs at most once per second.
+
+        The pak ends the stream of a client that is disconnected or
+        forgotten from the console (M10), unpaired, or when it closes. At
+        most 4 open streams per client and 16 in all: beyond,
+        `429 too_many_attempts`. Clients must ignore unknown event types.
+      responses:
+        '200':
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: 'Event stream; the `data` of each event type is one of the schemas below (`job` carries a `Job`).'
+                contentSchema:
+                  description: 'Not a JSON document: documents the `data` of each event (`hello`, `shutdown`, `device`, `library`, `job`).'
+                  oneOf:
+                    - { $ref: '#/components/schemas/EventHello' }
+                    - { $ref: '#/components/schemas/EventShutdown' }
+                    - { $ref: '#/components/schemas/EventDevice' }
+                    - { $ref: '#/components/schemas/EventLibrary' }
+                    - { $ref: '#/components/schemas/Job' }
+              example: |
+                id: 1
+                event: hello
+                data: {"serverTime":"2026-11-20T08:00:00Z","keepAliveSeconds":15}
+
+                : keep-alive
+
+                id: 2
+                event: library
+                data: {"systemIds":["R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ"]}
+
+                id: 3
+                event: shutdown
+                data: {"reason":"quit"}
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
   /systems:
     get:
       tags: [Library]
@@ -2434,6 +2505,41 @@ components:
         lockedStateCount: { type: integer, minimum: 0 }
         cheatCount: { type: integer, minimum: 0 }
         hasArt: { type: boolean }
+    EventHello:
+      type: object
+      required: [serverTime, keepAliveSeconds]
+      properties:
+        serverTime: { $ref: '#/components/schemas/Timestamp' }
+        keepAliveSeconds: { type: integer, minimum: 1, description: Longest gap between two keep-alives (15). }
+    EventShutdown:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, enum: [quit, stopped], description: '`quit`: the user left ReminisLink on the console; `stopped`: the system stopped the pak (power off, signal).' }
+    EventDevice:
+      type: object
+      required: [battery, connectedClients, storage]
+      properties:
+        battery:
+          type: [object, 'null']
+          required: [percent, charging]
+          properties:
+            percent: { type: integer, minimum: 0, maximum: 100 }
+            charging: { type: boolean }
+        connectedClients:
+          type: array
+          items: { $ref: '#/components/schemas/ConnectedClient' }
+        storage:
+          type: array
+          items: { $ref: '#/components/schemas/Storage' }
+    EventLibrary:
+      type: object
+      required: [systemIds]
+      properties:
+        systemIds:
+          type: array
+          description: Systems whose games changed; empty when unknown (refresh everything).
+          items: { $ref: '#/components/schemas/OpaqueId' }
     LibraryGame:
       allOf:
         - { $ref: '#/components/schemas/Game' }
