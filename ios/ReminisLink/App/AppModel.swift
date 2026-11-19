@@ -386,6 +386,11 @@ extension AppModel {
             makeSession: { APIClient.makeSession() }
         )
         #if DEBUG
+        // UI tests: a share request left by a previous run (the app was
+        // stopped while it was open) must not open in this one.
+        if environment["RL_RESET_STORE"] == "1" {
+            try? FileManager.default.removeItem(at: app.shareInbox.root)
+        }
         app.injectTestShare(environment)
         #endif
         return app

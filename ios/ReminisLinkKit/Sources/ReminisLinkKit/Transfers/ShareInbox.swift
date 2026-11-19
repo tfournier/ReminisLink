@@ -90,7 +90,9 @@ public struct ShareInbox: Sendable {
     /// Complete and valid requests, oldest first. `request.json` is read
     /// as untrusted: a request whose directory does not match its id, or
     /// with a file name that is not a plain name inside its directory, is
-    /// ignored (and purged later).
+    /// ignored (and purged later). A request whose files were all taken is
+    /// finished (the app may have been stopped before removing it): it is
+    /// ignored and purged too.
     public func pending() -> [ShareRequest] {
         let manager = FileManager.default
         guard let entries = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [] }
@@ -98,7 +100,7 @@ public struct ShareInbox: Sendable {
             guard let data = try? Data(contentsOf: directory.appending(path: "request.json")),
                   let request = try? ProtocolJSON.decoder().decode(ShareRequest.self, from: data),
                   directory.lastPathComponent == request.id.uuidString.lowercased(),
-                  isValid(request)
+                  isValid(request), !isUsedUp(request)
             else { return nil }
             return request
         }
@@ -112,6 +114,12 @@ public struct ShareInbox: Sendable {
     public func isValid(_ request: ShareRequest) -> Bool {
         guard Self.isRealDirectory(directory(for: request.id)) else { return false }
         return request.files.allSatisfy(Self.isPlainName)
+    }
+
+    /// The request had files and all of them were taken: it is finished,
+    /// even if its links were never used (they came with those files).
+    public func isUsedUp(_ request: ShareRequest) -> Bool {
+        !request.files.isEmpty && remainingFiles(of: request).isEmpty
     }
 
     /// The files of a request still in the inbox (taken ones are skipped).
@@ -169,7 +177,7 @@ public struct ShareInbox: Sendable {
             let json = directory.appending(path: "request.json")
             if let data = try? Data(contentsOf: json),
                let request = try? ProtocolJSON.decoder().decode(ShareRequest.self, from: data) {
-                if now.timeIntervalSince(request.createdAt) > age || !isValid(request)
+                if now.timeIntervalSince(request.createdAt) > age || !isValid(request) || isUsedUp(request)
                     || directory.lastPathComponent != request.id.uuidString.lowercased() {
                     try? manager.removeItem(at: directory)
                 }

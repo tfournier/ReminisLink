@@ -456,6 +456,23 @@ struct AddSuggestionTests {
         #expect(throws: CocoaError.self) { try inbox.takeFile("a.gba", from: request, to: root.appending(path: "again.gba")) }
     }
 
+    /// Regression: the app stopped while the Patch screen was open, after
+    /// it took the only file: the request must not open again.
+    @Test func requestWithAllItsFilesTakenIsFinished() throws {
+        let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = ShareInbox(root: root)
+        let request = try inbox.write(files: [try makeFile(size: 10, name: "fix.ips")], urls: [])
+        let links = try inbox.write(files: [], urls: [URL(string: "https://example.org/a.zip")!])
+        try inbox.takeFile("fix.ips", from: request, to: root.appending(path: "moved.ips"))
+        #expect(inbox.isUsedUp(request))
+        #expect(inbox.pending().map(\.id) == [links.id])
+        #expect(inbox.request(id: request.id) == nil)
+        inbox.purge()
+        #expect(!FileManager.default.fileExists(atPath: inbox.directory(for: request.id).path))
+        #expect(FileManager.default.fileExists(atPath: inbox.directory(for: links.id).path))
+    }
+
     @Test func plainNamesFromUniqueNameAreAccepted() {
         #expect(ShareInbox.isPlainName(" (2).gba"))
         #expect(ShareInbox.isPlainName("Game (2).gba"))
