@@ -2,7 +2,9 @@ package transfer
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -234,5 +236,52 @@ func TestCancelTooLateNeverShowsCancelled(t *testing.T) {
 	waitJob(t, q, id, JobRunning)
 	if j, _ := q.Cancel(id); j.State != JobCancelled || !j.CancelRequested {
 		t.Fatalf("stopped: %+v", j)
+	}
+}
+
+// OnUpdate sees every change of a job, in order (the event stream, M14).
+func TestJobsOnUpdate(t *testing.T) {
+	q := NewJobs(nil)
+	defer q.Close()
+	var mu sync.Mutex
+	var seen []string
+	q.OnUpdate(func(j Job) {
+		mu.Lock()
+		defer mu.Unlock()
+		e := j.ID[:6] + ":" + j.State
+		if j.CancelRequested {
+			e += "+cancel"
+		}
+		if j.State == JobRunning && j.Progress.Done > 0 {
+			e += ":progress"
+		}
+		seen = append(seen, e)
+	})
+	release, reported := make(chan struct{}), make(chan struct{})
+	a, _ := q.Submit(JobPatch, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+		report(1, nil)
+		close(reported)
+		<-release
+		return map[string]any{}, nil
+	})
+	<-reported
+	b, _ := q.Submit(JobDownload, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+		<-ctx.Done()
+		return nil, internal("cancelled")
+	})
+	if _, apiErr := q.Cancel(b); apiErr != nil { // queued: cancelled at once
+		t.Fatal(apiErr)
+	}
+	close(release)
+	waitJob(t, q, a, JobSucceeded)
+	mu.Lock()
+	defer mu.Unlock()
+	var got []string
+	for _, e := range seen {
+		got = append(got, e[strings.Index(e, ":")+1:])
+	}
+	want := "[queued running running:progress queued cancelled succeeded]"
+	if fmt.Sprint(got) != want {
+		t.Fatalf("updates %v, want %s", got, want)
 	}
 }

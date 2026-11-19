@@ -95,6 +95,26 @@ type Jobs struct {
 	wg      sync.WaitGroup
 	// onFinish is called, outside the lock, when a job that ran ends.
 	onFinish func(Job)
+	// onUpdate is called, with the lock held, after every change of a
+	// job (the event stream, M14).
+	onUpdate func(Job)
+}
+
+// OnUpdate sets the function called after every change of a job: queued,
+// running, progress, cancel requested, finished. It is called with the
+// queue lock held, in the order of the changes: it must not block nor
+// call the queue. Call it before submitting jobs.
+func (q *Jobs) OnUpdate(fn func(Job)) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.onUpdate = fn
+}
+
+// updatedLocked reports a change of j.
+func (q *Jobs) updatedLocked(j *job) {
+	if q.onUpdate != nil {
+		q.onUpdate(j.Job)
+	}
 }
 
 // OnFinish sets the function called when a job that ran ends (succeeded,
@@ -146,6 +166,7 @@ func (q *Jobs) SubmitLabeled(kind, label string, run RunFunc) (string, error) {
 	}
 	q.jobs[j.ID] = j
 	q.queue = append(q.queue, j)
+	q.updatedLocked(j)
 	q.startNextLocked()
 	return j.ID, nil
 }
@@ -162,6 +183,7 @@ func (q *Jobs) startNextLocked() {
 	j.State = JobRunning
 	j.UpdatedAt = q.stamp()
 	q.running = j
+	q.updatedLocked(j)
 	q.wg.Add(1)
 	go q.execute(ctx, j)
 }
@@ -173,6 +195,7 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 		defer q.mu.Unlock()
 		j.Progress = Progress{Done: done, Total: total}
 		j.UpdatedAt = q.stamp()
+		q.updatedLocked(j)
 	}
 	result, apiErr := runSafely(ctx, j.run, report)
 	q.mu.Lock()
@@ -194,6 +217,7 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 	q.ended++
 	j.order = q.ended
 	close(j.done)
+	q.updatedLocked(j)
 	q.running = nil
 	q.startNextLocked()
 	finished, onFinish := j.Job, q.onFinish
@@ -327,6 +351,7 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 		q.ended++
 		j.order = q.ended
 		close(j.done)
+		q.updatedLocked(j)
 		out := j.Job
 		q.mu.Unlock()
 		return out, nil
@@ -334,6 +359,7 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 		// Only requested: the job may still finish (installed).
 		j.CancelRequested = true
 		j.UpdatedAt = q.stamp()
+		q.updatedLocked(j)
 		j.cancel()
 		q.mu.Unlock()
 		select {
@@ -357,6 +383,7 @@ func (q *Jobs) Close() {
 		j.State = JobCancelled
 		j.UpdatedAt = q.stamp()
 		close(j.done)
+		q.updatedLocked(j)
 	}
 	q.queue = nil
 	if q.running != nil {
