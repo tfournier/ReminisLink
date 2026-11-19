@@ -17,6 +17,12 @@ import (
 // perm is only used when the file is created; the SD card is exFAT and has
 // no permissions, so callers must not rely on it.
 func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	return writeFileAtomic(path, data, perm, func(dir string) error { SyncDir(dir); return nil })
+}
+
+// writeFileAtomic is WriteFileAtomic with the sync of the folder given:
+// its error is returned (the rename may not be durable yet).
+func writeFileAtomic(path string, data []byte, perm os.FileMode, syncDir func(string) error) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
@@ -44,8 +50,7 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return fmt.Errorf("rename %s: %w", tmp, err)
 	}
-	SyncDir(dir)
-	return nil
+	return syncDir(dir)
 }
 
 // SyncDir makes the rename durable where the file system supports it.

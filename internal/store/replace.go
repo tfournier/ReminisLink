@@ -157,11 +157,24 @@ func (t *Trash) uninstall(sd string, done []installRecord) bool {
 func (t *Trash) rollback(entryDir, sd string, e *entryFile) bool {
 	for _, rel := range e.Moves {
 		src := filepath.Join(entryDir, filepath.FromSlash(rel))
-		if _, err := os.Lstat(src); err != nil {
+		dst := filepath.Join(sd, filepath.FromSlash(rel))
+		if !isUnder(sd, dst) {
+			return false
+		}
+		if _, err := os.Lstat(src); err == nil {
+			if t.restoreItem(src, dst) != nil {
+				return false
+			}
 			continue
 		}
-		dst := filepath.Join(sd, filepath.FromSlash(rel))
-		if !isUnder(sd, dst) || t.restoreItem(src, dst) != nil {
+		// Already moved back (by an earlier attempt whose sync may have
+		// failed, Codex review of M8): it must be in place, and both
+		// folders are synced again before the journal goes.
+		if _, err := os.Lstat(dst); err != nil {
+			t.log.Error("trash: a file of a roll back is neither in the entry nor in place", "entry", e.ID, "file", rel)
+			return false
+		}
+		if t.syncDir(filepath.Dir(dst)) != nil || t.syncDir(filepath.Dir(src)) != nil {
 			return false
 		}
 	}

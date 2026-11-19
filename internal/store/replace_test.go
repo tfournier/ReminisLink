@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -402,5 +403,99 @@ func TestReplaceRollbackKeepsTheJournalUntilDurable(t *testing.T) {
 		if data, _ := os.ReadFile(tmp); string(data) != "patched" {
 			t.Fatalf("start %d: temporary file %q", i, data)
 		}
+	}
+}
+
+// Codex review of M8 (counter-review): a ROM moved back from the trash
+// whose folder sync failed is synced again by the next start before the
+// journal goes; and the move to "restoring" must be durable before any
+// original goes back.
+func TestRollbackRetriesTheSyncOfAFileAlreadyBack(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	rom := write(t, sd, "Roms/GBA (GBA)/Game.gba", "old rom")
+	tmp := write(t, sd, ".userdata/shared/ReminisLink/uploads/pt_1.part", "patched")
+	romDir := filepath.Dir(rom)
+	tr.rename = func(oldpath, newpath string) error {
+		if oldpath == tmp {
+			return errors.New("simulated rename failure")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	failRomDir := func(dir string) error {
+		if dir == romDir && exists(rom) {
+			if data, _ := os.ReadFile(rom); string(data) == "old rom" {
+				return errors.New("simulated sync failure") // the ROM came back
+			}
+		}
+		return nil
+	}
+	tr.syncDir = failRomDir
+	if _, err := tr.Replace(ReasonReplaceROM, "Game", []MoveItem{{Path: rom}}, []Install{{Src: tmp, Dst: rom, Size: 7}}); !errors.Is(err, ErrReplaceFailed) {
+		t.Fatalf("error %v", err)
+	}
+	if !exists(rom) {
+		t.Fatal("the ROM did not come back")
+	}
+	// Next start: the sync still fails, the journal stays.
+	tr.rename = os.Rename
+	synced := 0
+	tr.syncDir = func(dir string) error {
+		if dir == romDir {
+			synced++
+		}
+		return failRomDir(dir)
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if st := entryStates(t, tr); len(st) != 1 || st[0] != stateRestoring || synced == 0 {
+		t.Fatalf("journal %v, ROM folder synced %d times", st, synced)
+	}
+	// Then it works: the journal goes.
+	tr.syncDir = func(string) error { return nil }
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := tr.entryDirs(); len(names) != 0 {
+		t.Fatalf("entry left %v", names)
+	}
+	if data, _ := os.ReadFile(rom); string(data) != "old rom" {
+		t.Fatalf("rom %q", data)
+	}
+}
+
+func TestRestoringTransitionIsDurableBeforeTheRollback(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	rom := write(t, sd, "Roms/GBA (GBA)/Game.gba", "old rom")
+	tmp := write(t, sd, ".userdata/shared/ReminisLink/uploads/pt_1.part", "patched")
+	tr.rename = func(oldpath, newpath string) error {
+		if oldpath == tmp {
+			return errors.New("simulated rename failure")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	tr.syncDir = func(dir string) error {
+		if data, err := os.ReadFile(filepath.Join(dir, trashEntryFile)); err == nil && strings.Contains(string(data), `"restoring"`) {
+			return errors.New("simulated sync failure of the journal")
+		}
+		return nil
+	}
+	if _, err := tr.Replace(ReasonReplaceROM, "Game", []MoveItem{{Path: rom}}, []Install{{Src: tmp, Dst: rom, Size: 7}}); !errors.Is(err, ErrReplaceFailed) {
+		t.Fatalf("error %v", err)
+	}
+	if exists(rom) {
+		t.Fatal("the ROM went back before the roll back was recorded durably")
+	}
+	tr.rename, tr.syncDir = os.Rename, func(string) error { return nil }
+	for i := 0; i < 2; i++ {
+		if err := tr.Recover(); err != nil {
+			t.Fatal(err)
+		}
+		if data, _ := os.ReadFile(rom); string(data) != "old rom" {
+			t.Fatalf("start %d: rom %q", i, data)
+		}
+	}
+	if names, _ := tr.entryDirs(); len(names) != 0 {
+		t.Fatalf("entry left %v", names)
 	}
 }

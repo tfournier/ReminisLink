@@ -190,8 +190,13 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Trash{dir: layout.TrashDir(), sd: sdRoot, now: now, log: log, rand: rand.Reader,
-		rename: os.Rename, syncDir: SyncDirChecked, saveEntry: writeEntry}
+	t := &Trash{dir: layout.TrashDir(), sd: sdRoot, now: now, log: log, rand: rand.Reader,
+		rename: os.Rename, syncDir: SyncDirChecked}
+	// The journal is durable only once its folder is synced (and checked).
+	t.saveEntry = func(dir string, e entryFile) error {
+		return writeEntryWith(dir, e, func(d string) error { return t.syncDir(d) })
+	}
+	return t
 }
 
 // SetRename replaces os.Rename for the moves and installs of the trash:
@@ -578,12 +583,16 @@ func (t *Trash) restoreItem(src, dst string) error {
 	return t.syncDir(filepath.Dir(src))
 }
 
-func writeEntry(dir string, e entryFile) error {
+func writeEntry(dir string, e entryFile) error { return writeEntryWith(dir, e, SyncDirChecked) }
+
+// writeEntryWith writes entry.json atomically and syncs its folder with
+// syncDir, returning its error.
+func writeEntryWith(dir string, e entryFile, syncDir func(string) error) error {
 	data, err := json.MarshalIndent(e, "", "  ")
 	if err != nil {
 		return fmt.Errorf("trash: encode entry: %w", err)
 	}
-	if err := WriteFileAtomic(filepath.Join(dir, trashEntryFile), append(data, '\n'), 0o644); err != nil {
+	if err := writeFileAtomic(filepath.Join(dir, trashEntryFile), append(data, '\n'), 0o644, syncDir); err != nil {
 		return fmt.Errorf("trash: %w", err)
 	}
 	return nil
