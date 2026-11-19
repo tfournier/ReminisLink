@@ -988,6 +988,39 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 // so a disc never vanishes from both the listing and the game. listed
 // holds the folder listings already read (may be nil); size and date come
 // from the listing.
+// ROMFiles returns the files g uses: the ROM; or the .m3u (or the .cue
+// of a folder-cue game), the discs it lists at any depth, and the tracks
+// of every .cue among them. The other files of a folder game (a readme)
+// are not part of it.
+func (a *Adapter) ROMFiles(g osadapter.Game) map[string]bool {
+	main := a.gamePath(g)
+	out := map[string]bool{}
+	add := func(p string) {
+		out[p] = true
+		for _, track := range cueTracks(p) {
+			out[track] = true
+		}
+	}
+	switch g.Kind {
+	case osadapter.KindFile:
+		out[main] = true
+	case osadapter.KindM3U:
+		add(main)
+		for _, d := range a.m3uDiscs(g, main, nil) {
+			add(d.Path)
+		}
+	case osadapter.KindFolderM3U:
+		m3u := filepath.Join(main, g.ROMName)
+		add(m3u)
+		for _, d := range a.m3uDiscs(g, m3u, nil) {
+			add(d.Path)
+		}
+	case osadapter.KindFolderCue:
+		add(filepath.Join(main, g.ROMName))
+	}
+	return out
+}
+
 // SharedFiles returns the files of g that another .m3u of its system
 // lists (two playlists can share a disc). Only an m3u or folder game has
 // any; the whole system folder is read, which is fine for a deletion.

@@ -79,6 +79,7 @@ type deletion struct {
 	game  osadapter.Game
 	moved []selItem
 	kept  []selItem
+	roms  map[string]bool // the files of the game itself (adapter's ROMFiles)
 }
 
 // selectDeletion is the single selection of DELETE /games/{gameId} and of
@@ -97,16 +98,15 @@ func (l *Library) selectDeletion(gameID string, keepSave bool) (deletion, error)
 	if err != nil {
 		return deletion{}, notFound(err, "game")
 	}
-	d := deletion{game: g}
+	d := deletion{game: g, roms: l.adapter.ROMFiles(g)}
 	move := func(p, role string) { d.moved = append(d.moved, selItem{path: p, role: role}) }
 	keep := func(p, role string) { d.kept = append(d.kept, selItem{path: p, role: role}) }
 	shared := l.adapter.SharedFiles(g)
-	romFiles := map[string]bool{}
-	for _, f := range files.ROM {
-		romFiles[f.Path] = true
-	}
+	// "rom" for the files of the game itself (its playlist or .cue, the
+	// discs listed at any depth and their tracks), "other" for the rest
+	// of a folder (a readme), whatever their depth.
 	romRole := func(p string) string {
-		if romFiles[p] {
+		if d.roms[p] {
 			return "rom"
 		}
 		return "other"
@@ -236,8 +236,8 @@ func (l *Library) PreviewDeletion(gameID string, keepSave bool) (DeletionPreview
 		return DeletionPreview{}, err
 	}
 	p := DeletionPreview{Moved: []DeletionItem{}, Kept: []DeletionItem{}}
-	p.Moved = l.expand(d.game, d.moved)
-	p.Kept = l.expand(d.game, d.kept)
+	p.Moved = l.expand(d.game, d.roms, d.moved)
+	p.Kept = l.expand(d.game, d.roms, d.kept)
 	for _, it := range p.Moved {
 		p.MovedBytes += it.Size
 	}
@@ -246,7 +246,7 @@ func (l *Library) PreviewDeletion(gameID string, keepSave bool) (DeletionPreview
 
 // expand lists the regular files of items (folders walked), with their
 // display name.
-func (l *Library) expand(g osadapter.Game, items []selItem) []DeletionItem {
+func (l *Library) expand(g osadapter.Game, roms map[string]bool, items []selItem) []DeletionItem {
 	out := []DeletionItem{}
 	for _, it := range items {
 		_ = filepath.WalkDir(it.path, func(p string, de fs.DirEntry, err error) error {
@@ -258,13 +258,9 @@ func (l *Library) expand(g osadapter.Game, items []selItem) []DeletionItem {
 				return nil
 			}
 			role := it.role
-			if p != it.path && role == "rom" && !it.internal {
-				// A file of a moved folder: "rom" for those the game lists
-				// (its playlist and discs), "other" for the rest.
+			if role == "rom" && p != it.path && !roms[p] {
+				// A file of a moved folder that the game does not list.
 				role = "other"
-				if parent := filepath.Dir(p); parent == it.path {
-					role = "rom"
-				}
 			}
 			out = append(out, DeletionItem{Name: l.displayPath(g, p), Role: role, Size: info.Size()})
 			return nil

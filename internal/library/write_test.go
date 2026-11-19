@@ -273,3 +273,35 @@ func TestDeleteFolderGameKeepsASharedDiscSpelledInAnotherCase(t *testing.T) {
 		t.Fatal("shared disc spelled in another case moved")
 	}
 }
+
+// Codex review of M8: the roles of the preview come from the playlist and
+// the .cue sheets, not from the depth of the files.
+func TestPreviewDeletionRoles(t *testing.T) {
+	l, sd := newLibrary(t)
+	ps := filepath.Join(sd, "Roms", "Sony PlayStation (PS)")
+	testutil.WriteFile(t, ps, "Deep Run/Deep Run.m3u", "Discs/CD1.cue\n")
+	testutil.WriteFile(t, ps, "Deep Run/Discs/CD1.cue", `FILE "CD1.bin" BINARY`)
+	testutil.WriteFile(t, ps, "Deep Run/Discs/CD1.bin", "track")
+	testutil.WriteFile(t, ps, "Deep Run/README.txt", "notes")
+	testutil.WriteFile(t, ps, "Deep Run/Extras/art.jpg", "jpg")
+	p, err := l.PreviewDeletion(EncodeID("Sony PlayStation (PS)/Deep Run"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"Deep Run/Deep Run.m3u":   "rom",
+		"Deep Run/Discs/CD1.cue":  "rom",
+		"Deep Run/Discs/CD1.bin":  "rom",
+		"Deep Run/README.txt":     "other",
+		"Deep Run/Extras/art.jpg": "other",
+	}
+	got := map[string]string{}
+	for _, it := range p.Moved {
+		got[it.Name] = it.Role
+	}
+	for name, role := range want {
+		if got[name] != role {
+			t.Errorf("%s: role %q, want %q (all: %v)", name, got[name], role, got)
+		}
+	}
+}

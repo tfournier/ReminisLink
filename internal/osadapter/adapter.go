@@ -178,6 +178,10 @@ type Adapter interface {
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.
 	GameFiles(g Game) (GameFiles, error)
+	// ROMFiles returns the files the game itself uses (absolute paths): the
+	// ROM, or the playlist (or .cue) of a multi-disc game, the discs it
+	// lists and the tracks of their .cue sheets.
+	ROMFiles(g Game) map[string]bool
 	// SharedFiles returns the files of g (absolute paths) that another
 	// playlist (.m3u) of its system also lists: deleting g keeps them, so
 	// the other game stays playable.
