@@ -82,7 +82,7 @@ other = "."
 other = "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."
 
 [hint_pair_more]
-other = "To pair another device: Settings (Y) > Pair a new device."
+other = "To pair another device: Settings (Y) > Pair a New Device."
 
 [item_about]
 other = "Version and log"
@@ -97,7 +97,7 @@ other = "Language: {{.Name}}"
 other = "Console name: {{.Name}}"
 
 [item_pair_new]
-other = "Pair a new device"
+other = "Pair a New Device"
 
 [item_paired]
 one = "Paired devices ({{.Count}})"

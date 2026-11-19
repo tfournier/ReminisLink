@@ -37,7 +37,7 @@ var (
 	BatteryCharging  = &msg{ID: "battery_charging", Other: "{{.Percent}}% (charging)"}
 	BatteryLow       = &msg{ID: "battery_low", Other: "Low: {{.Percent}}%"}
 	BatteryLowBanner = &msg{ID: "battery_low_banner", Other: "Low battery: plug the console in"}
-	HintPairMore     = &msg{ID: "hint_pair_more", Other: "To pair another device: Settings (Y) > Pair a new device."}
+	HintPairMore     = &msg{ID: "hint_pair_more", Other: "To pair another device: Settings (Y) > Pair a New Device."}
 	LabelCode        = &msg{ID: "label_code", Other: "Code"}
 	PINExpires       = &msg{ID: "pin_expires", One: "{{.PIN}}  (expires in {{.Count}} min)", Other: "{{.PIN}}  (expires in {{.Count}} min)"}
 	PINBlocked       = &msg{ID: "pin_blocked", One: "Too many failed attempts: pairing blocked for {{.Count}} min", Other: "Too many failed attempts: pairing blocked for {{.Count}} min"}
@@ -95,7 +95,7 @@ var (
 // Settings
 var (
 	TitleSettings       = &msg{ID: "title_settings", Other: "Settings"}
-	ItemPairNew         = &msg{ID: "item_pair_new", Other: "Pair a new device"}
+	ItemPairNew         = &msg{ID: "item_pair_new", Other: "Pair a New Device"}
 	ItemName            = &msg{ID: "item_name", Other: "Console name: {{.Name}}"}
 	ItemPaired          = &msg{ID: "item_paired", One: "Paired devices ({{.Count}})", Other: "Paired devices ({{.Count}})"}
 	ItemForgetAll       = &msg{ID: "item_forget_all", Other: "Forget all devices"}

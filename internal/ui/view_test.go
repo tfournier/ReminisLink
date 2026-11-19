@@ -188,7 +188,7 @@ func TestBuildMainPairingOnDemand(t *testing.T) {
 		t.Fatal("pairing wanted on the main screen with a paired device")
 	}
 	v = BuildMain(paired, now, true, false)
-	if v.ShowQR || v.QRLink != "" || v.Items[0].Label == "Code" || !strings.Contains(v.Hint, "Pair a new device") {
+	if v.ShowQR || v.QRLink != "" || v.Items[0].Label == "Code" || !strings.Contains(v.Hint, "Pair a New Device") {
 		t.Fatalf("paired main screen: %#v", v)
 	}
 	// Settings > Pair a new device: QR code and PIN, pairing wanted.

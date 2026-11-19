@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"path"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -20,7 +21,8 @@ const BodyIdleTimeout = 60 * time.Second
 // middlewares wraps the router, outermost first: panic recovery, access
 // log, shutdown gate, idle read deadline on the body.
 func (s *Server) middlewares(next http.Handler) http.Handler {
-	h := s.idleBody(next)
+	h := canonicalPaths(next)
+	h = s.idleBody(h)
 	h = s.shutdownGate(h)
 	h = s.accessLog(h)
 	return s.recoverPanics(h)
@@ -176,4 +178,18 @@ func remoteIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// canonicalPaths answers 404 not_found for a path that is not canonical
+// ("//", ".", "..", a trailing "/"): http.ServeMux would redirect it, and
+// the API never answers with a redirection (the app refuses them, M8).
+func canonicalPaths(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.EscapedPath() // as ServeMux matches it
+		if p == "" || p[0] != '/' || path.Clean(p) != p {
+			auth.WriteError(w, http.StatusNotFound, CodeNotFound, "No such route", nil)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

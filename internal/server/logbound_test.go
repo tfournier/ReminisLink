@@ -18,7 +18,8 @@ func TestLogSizeIsBounded(t *testing.T) {
 	f := newFixture(t)
 	hugeClient := strings.Repeat("x", 8<<10)
 	hugePath := "/api/v1/" + strings.Repeat("p", 4<<10)
-	// Paths ServeMux redirects (307) without any check, and unsigned routes.
+	// Paths ServeMux would redirect (now 404 without any check, M8), and
+	// unsigned routes.
 	targets := []string{"/api/v1/systems", hugePath, "/api/v1//" + strings.Repeat("p", 400),
 		"/api/v1/./systems", "/x/../api/v1/systems", "/api/v1/hello"}
 	const requests = 300
@@ -36,8 +37,8 @@ func TestLogSizeIsBounded(t *testing.T) {
 			t.Fatalf("log line of %d bytes: %.200s", len(line), line)
 		}
 	}
-	if !strings.Contains(logs, "status=307") {
-		t.Error("the redirect cases did not reach the server as redirects")
+	if strings.Contains(logs, "status=307") || strings.Contains(logs, "status=301") {
+		t.Error("a path was answered with a redirection")
 	}
 	if strings.Contains(logs, "xxxxxxxx") {
 		t.Error("raw X-RL-Client logged")

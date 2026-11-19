@@ -227,11 +227,15 @@ func TestSetAndDeleteArt(t *testing.T) {
 	if len(changes) != 1 || changes[0] != (Change{Kind: ChangeArtSet, Name: "Lantern Keeper [b1]"}) {
 		t.Fatalf("changes %+v", changes)
 	}
+	etag := f.get(target, path, 200).Header.Get("ETag")
 	// Replaced: the old art goes to the trash first.
 	data2 := pngOf(t, 1024, 1024)
 	f.send(http.MethodPut, target, path, data2, map[string]string{"Content-Type": "image/png"}, 200)
 	if f.read("Roms/"+gba+"/.media/Lantern Keeper [b1].png") != string(data2) {
 		t.Fatal("art not replaced")
+	}
+	if got := f.get(target, path, 200); got.Header.Get("ETag") == etag || string(got.Body) != string(data2) {
+		t.Fatal("GET /art: the ETag did not change with the new art")
 	}
 	entries, _, _ := f.trash.List()
 	if len(entries) != 1 || entries[0].Reason != "overwrite" ||
