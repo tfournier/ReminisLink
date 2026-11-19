@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ReminisLinkDemo
 import Testing
@@ -233,5 +234,33 @@ struct SaveSyncTests {
         _ = try await client.replaceSave(gameId: skyGarden, file: exported.save, sha256: try await FileDigest.sha256(of: exported.save))
         let restored = try #require(try await client.saves().saves.first { $0.gameId == skyGarden })
         #expect(restored.sha256 == versions.first?.info.save.sha256)
+    }
+}
+
+@Suite("Save listing timeout (M9)")
+struct SaveListingTimeoutTests {
+    /// The pak answers `GET /saves` only once every save is hashed: the
+    /// route waits longer than the session's idle timeout (15 s in the app,
+    /// 1 s here), the other routes do not.
+    @Test func theSaveListingOutlastsTheSessionTimeout() async throws {
+        let body = Data(#"{"saves":[],"truncated":false,"generatedAt":"2026-11-19T10:00:00Z"}"#.utf8)
+        let server = try LocalHTTPServer { request in
+            Thread.sleep(forTimeInterval: 2)
+            return .init(status: 200, headers: ["Content-Type": "application/json"],
+                         body: request.path == "/api/v1/saves" ? body : Data(#"{"systems":[]}"#.utf8))
+        }
+        let port = try await server.start()
+        defer { server.stop() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 1
+        let client = APIClient(
+            endpoint: Endpoint(host: "127.0.0.1", port: port),
+            credentials: DeviceCredentials(deviceId: FakePak.demoDeviceId, clientId: Pairing.makeClientId(), key: SymmetricKey(size: .bits256)),
+            session: URLSession(configuration: configuration)
+        )
+        #expect(APIClient.savesTimeout >= 120)
+        let list = try await client.saves()
+        #expect(list.saves.isEmpty)
+        await #expect(throws: APIError.network(.timedOut)) { try await client.systems() }
     }
 }
