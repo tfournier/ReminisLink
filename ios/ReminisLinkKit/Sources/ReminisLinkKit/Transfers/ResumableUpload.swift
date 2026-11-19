@@ -79,6 +79,9 @@ public actor ResumableUpload {
     public private(set) var chunkSize: Int64 = ResumableUpload.defaultChunkSize
     /// `complete` was sent and no definite answer came back yet.
     public private(set) var completeSent = false
+    /// The id of the upload once completed: what `POST /cheats/import`
+    /// takes (`source.type = "upload"`) for a staging upload.
+    public private(set) var completedUploadId: String?
 
     private let scratchDirectory: URL
     private let retry: RetryPolicy
@@ -197,6 +200,7 @@ public actor ResumableUpload {
                     throw error
                 }
                 completeSent = false
+                completedUploadId = id
                 uploadId = nil
                 return result
             } catch let error as APIError where Self.isTransient(error) {

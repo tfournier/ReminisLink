@@ -9,7 +9,9 @@ import ReminisLinkKit
 /// `/systems/{id}/games`, `/games/{id}` (GET and DELETE), `/games/{id}/art`,
 /// `/trash`, `DELETE /clients/me`, and the transfers of milestone M4:
 /// `/uploads` (create, chunks with `Upload-Offset`, status, complete with
-/// the SHA-256 check, cancel), `/downloads` and `/jobs`.
+/// the SHA-256 check, cancel), `/downloads` and `/jobs`, and the saves,
+/// states, locks, resume history, cheats and `/sd/files` of milestone M5
+/// (see FakePakGameData.swift).
 ///
 /// Uploads keep only a running SHA-256, never the bytes, so large files
 /// cost no memory. Faults can be injected (lost connection before or after
@@ -50,7 +52,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public let minClientVersion: String
     public let apiVersion: Int
 
-    private let lock = NSLock()
+    let lock = NSLock()
     private var _clockOffset: TimeInterval = 0
     private var _responseDelay: TimeInterval = 0
     private var _pairDelay: TimeInterval = 0
@@ -61,15 +63,23 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var nonces = Set<String>()
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
-    private var trashEntries: [[String: Any]]
-    private var _library: DemoLibrary
+    var trashEntries: [[String: Any]]
+    var _library: DemoLibrary
+    /// Saves, states, locks and cheats of the games (milestone M5), made
+    /// from the library counters the first time a game is used.
+    var gameData: [String: FakeGameData] = [:]
+    /// Content of completed staging uploads (small files only), by upload
+    /// id: what `cheats/import` with `source.type = "upload"` reads.
+    var stagedUploads: [String: Data] = [:]
+    /// The next `PUT /cheats` finds the file changed on the console (412).
+    var _conflictOnNextCheatsSave = false
     private var uploads: [String: FakeUpload] = [:]
     private var jobs: [String: FakeJob] = [:]
     private var chunkFaults: [ChunkFault] = []
     private var completeFaults = 0
     private var lostCompleteRequests = 0
     private var _chunkSize: Int64 = 4 << 20
-    private var _freeBytes: Int64 = 40_265_318_400
+    var _freeBytes: Int64 = 40_265_318_400
     private var _downloadSize: Int64 = 8 << 20
     private var _chunkLog: [ChunkRecord] = []
 
@@ -224,6 +234,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public func restart() {
         lock.withLock {
             uploads = [:]
+            stagedUploads = [:]
             jobs = [:]
             nonces = []
             lastSeen = [:]
@@ -355,6 +366,9 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             guard let freed else { return .error(404, code: "not_found", message: "Trash entry not found") }
             return .json(200, ["freedBytes": freed])
         default:
+            if let response = routeGameData(request, method: method, segments: segments, params: params, body: body) {
+                return response
+            }
             return .error(404, code: "not_found", message: "No route")
         }
     }
@@ -502,12 +516,14 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     }
 
     private func summary(system: DemoLibrary.System, game: DemoLibrary.Game) -> [String: Any] {
-        [
+        let data = currentData(system: system, game: game)
+        return [
             "id": DemoLibrary.id(system.folder + "/" + game.path), "name": game.name, "fileName": game.fileName,
             "kind": game.kind.rawValue, "sizeBytes": game.sizeBytes,
-            "modifiedAt": ProtocolJSON.formatDate(game.modifiedAt), "hasSave": game.hasSave,
-            "stateCount": game.stateSlots.count, "lockedStateCount": game.lockedStateCount,
-            "cheatCount": game.cheatCount, "hasArt": game.hasArt,
+            "modifiedAt": ProtocolJSON.formatDate(game.modifiedAt), "hasSave": data.save != nil,
+            "stateCount": data.slots.values.filter { $0.state != nil }.count,
+            "lockedStateCount": data.slots.values.filter { $0.lockCopy != nil }.count,
+            "cheatCount": data.cheats.count, "hasArt": game.hasArt,
             "futureField": "ignored by the app",
         ]
     }
@@ -516,7 +532,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         guard let (system, game) = library.game(id: id) else {
             return .error(404, code: "not_found", message: "Game not found")
         }
-        let files = Self.files(system: system, game: game)
+        let files = self.files(system: system, game: game)
         let total = files.reduce(Int64(0)) { $0 + Self.size($1["sizeBytes"]) }
         return .json(200, [
             "id": id, "systemId": system.id, "name": game.name, "fileName": game.fileName,
@@ -525,22 +541,25 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     }
 
     /// The files of a game, as `GET /games/{id}` lists them.
-    static func files(system: DemoLibrary.System, game: DemoLibrary.Game) -> [[String: Any]] {
+    func files(system: DemoLibrary.System, game: DemoLibrary.Game) -> [[String: Any]] {
         let date = ProtocolJSON.formatDate(game.modifiedAt)
+        let data = currentData(system: system, game: game)
         var files: [[String: Any]] = [
             ["role": "rom", "path": "Roms/\(system.folder)/\(game.path)", "sizeBytes": game.sizeBytes, "modifiedAt": date],
         ]
-        if game.hasSave {
-            files.append(["role": "save", "path": "Saves/\(system.tag)/\(game.fileName).sav", "sizeBytes": 131_072, "modifiedAt": date])
+        if let save = data.save {
+            files.append(["role": "save", "path": Self.savePath(system, game), "sizeBytes": save.size,
+                          "modifiedAt": ProtocolJSON.formatDate(data.saveModifiedAt)])
         }
-        for slot in game.stateSlots {
+        for slot in data.slots.keys.sorted() {
+            guard let state = data.slots[slot]?.state else { continue }
             files.append([
-                "role": "state", "slot": slot, "path": ".userdata/shared/.minui/\(system.tag)/\(game.fileName).st\(slot)",
-                "sizeBytes": 401_408, "modifiedAt": date,
+                "role": "state", "slot": slot, "path": Self.statePath(system, game, slot: slot),
+                "sizeBytes": state.size, "modifiedAt": ProtocolJSON.formatDate(data.slots[slot]?.modifiedAt ?? game.modifiedAt),
             ])
         }
-        if game.cheatCount > 0 {
-            files.append(["role": "cheats", "path": "Cheats/\(system.tag)/\(game.fileName).cht", "sizeBytes": 2048, "modifiedAt": date])
+        if !data.cheats.isEmpty {
+            files.append(["role": "cheats", "path": Self.cheatsPath(system, game), "sizeBytes": 2048, "modifiedAt": date])
         }
         if game.hasArt {
             files.append(["role": "art", "path": "Roms/\(system.folder)/.media/\(game.name).png", "sizeBytes": Int64(Self.artPNG.count), "modifiedAt": date])
@@ -566,7 +585,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         return .json(200, ["entries": entries, "totalBytes": total])
     }
 
-    private static func size(_ value: Any?) -> Int64 {
+    static func size(_ value: Any?) -> Int64 {
         switch value {
         case let v as Int64: v
         case let v as Int: Int64(v)
@@ -595,6 +614,8 @@ private struct FakeUpload {
     let onConflict: String
     var offset: Int64 = 0
     var hasher = SHA256()
+    /// The bytes of a small staging upload (a `.cht` to import).
+    var bytes: Data?
 }
 
 private struct FakeJob {
@@ -634,7 +655,7 @@ extension FakePak {
         case refused(FakeResponse)
     }
 
-    fileprivate static func randomId(_ prefix: String) -> String {
+    static func randomId(_ prefix: String) -> String {
         prefix + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).uppercased()
     }
 
@@ -730,7 +751,9 @@ extension FakePak {
         let id = Self.randomId("up_")
         let chunk = chunkSize
         lock.withLock {
-            uploads[id] = FakeUpload(target: target, sizeBytes: size, sha256: sha, onConflict: onConflict)
+            var upload = FakeUpload(target: target, sizeBytes: size, sha256: sha, onConflict: onConflict)
+            if case .staging = target, size <= 1 << 20 { upload.bytes = Data() }
+            uploads[id] = upload
         }
         return .json(201, [
             "uploadId": id, "chunkSize": chunk, "offset": 0,
@@ -765,6 +788,7 @@ extension FakePak {
                 return .error(400, code: "invalid_request", message: "Chunk beyond the announced size")
             }
             upload.hasher.update(data: body)
+            upload.bytes?.append(body)
             upload.offset += Int64(body.count)
             uploads[id] = upload
             _chunkLog.append(ChunkRecord(
@@ -800,6 +824,13 @@ extension FakePak {
         if response.status == 200 {
             let drop = lock.withLock { () -> Bool in
                 _ = uploads.removeValue(forKey: id)
+                if let bytes = upload.bytes {
+                    stagedUploads[id] = bytes
+                    if let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any],
+                       let stagingId = object["stagingId"] as? String {
+                        stagedUploads[stagingId] = bytes
+                    }
+                }
                 _freeBytes -= upload.sizeBytes
                 guard completeFaults > 0 else { return false }
                 completeFaults -= 1
@@ -846,16 +877,13 @@ extension FakePak {
                 }
             }
             return .json(200, ["gameId": DemoLibrary.id(system.folder + "/" + path)])
-        case .save:
-            return .json(200, ["backup": [
-                "id": Self.randomId("bk_"), "label": NSNull(), "createdAt": ProtocolJSON.formatDate(Date()),
-                "sizeBytes": 131_072, "reason": "before-replace",
-            ]])
-        case .state(_, let slot):
-            return .json(200, ["slot": [
-                "slot": slot, "sizeBytes": sizeBytes, "modifiedAt": ProtocolJSON.formatDate(Date()),
-                "hasThumbnail": false, "locked": false, "lockStatus": NSNull(),
-            ]])
+        case .save(let gameId):
+            return .json(200, ["backup": replaceSave(gameId: gameId, with: FakeBlob(size: sizeBytes, digest: Self.randomId("up-"))).map { $0 as Any } ?? NSNull()])
+        case .state(let gameId, let slot):
+            guard let json = storeState(gameId: gameId, slot: slot, blob: FakeBlob(size: sizeBytes, digest: Self.randomId("up-"))) else {
+                return .error(409, code: "state_locked", message: "State is locked")
+            }
+            return .json(200, ["slot": json])
         case .staging:
             return .json(200, ["stagingId": Self.randomId("st_")])
         }
@@ -864,7 +892,7 @@ extension FakePak {
     /// Moves a game to the trash and drops it from the library.
     @discardableResult
     fileprivate func removeGame(system: DemoLibrary.System, game: DemoLibrary.Game, keepSave: Bool, reason: String) -> [String: Any] {
-        let files = Self.files(system: system, game: game).filter { file in
+        let files = self.files(system: system, game: game).filter { file in
             let role = file["role"] as? String
             return !(keepSave && (role == "save" || role == "state"))
         }
@@ -877,11 +905,17 @@ extension FakePak {
             "id": id, "trashedAt": ProtocolJSON.formatDate(now), "reason": reason, "label": game.name,
             "files": moved, "sizeBytes": bytes, "expiresAt": ProtocolJSON.formatDate(now.addingTimeInterval(30 * 86_400)),
         ]
+        let gameId = DemoLibrary.id(system.folder + "/" + game.path)
         lock.withLock {
             if let index = _library.systems.firstIndex(where: { $0.id == system.id }) {
                 _library.systems[index].games.removeAll { $0.path == game.path }
             }
             trashEntries.insert(entry, at: 0)
+            if keepSave {
+                gameData[gameId]?.cheats = []
+            } else {
+                gameData[gameId] = nil
+            }
         }
         return ["trashEntryId": id, "moved": moved, "movedBytes": bytes]
     }

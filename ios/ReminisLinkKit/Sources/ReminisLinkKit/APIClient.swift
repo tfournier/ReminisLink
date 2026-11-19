@@ -261,6 +261,137 @@ public actor APIClient {
         try await signedJSON(method: "DELETE", segments: ["jobs", id])
     }
 
+    // MARK: - Saves (milestone M5)
+
+    /// Largest body of `PUT /games/{gameId}/save`; larger saves go through
+    /// `POST /uploads` with `target.kind = "save"`.
+    public static let maxSaveBodyBytes: Int64 = 64 << 20
+
+    /// `GET /games/{gameId}/save`, written to a new directory under `directory`.
+    public func downloadSave(gameId: String, into directory: URL) async throws -> DownloadedFile {
+        try await downloadSigned(segments: ["games", gameId, "save"], fallbackName: "save.sav", into: directory)
+    }
+
+    /// `PUT /games/{gameId}/save`: the body is streamed from `file` and
+    /// signed with its SHA-256 (`sha256`, computed while reading the file;
+    /// never `UNSIGNED`). Each attempt is signed again with a new nonce.
+    /// Returns the copy of the previous save (nil if there was none).
+    public func replaceSave(gameId: String, file: URL, sha256: String) async throws -> BackupResult {
+        let size = try FileDigest.size(of: file)
+        guard size <= Self.maxSaveBodyBytes else {
+            throw APIError.server(ServerError(status: 413, code: .tooLarge, message: "Save larger than 64 MiB"))
+        }
+        let headers = ["Content-Type": "application/octet-stream", "Content-Length": String(size)]
+        let (data, response) = try await performSigned(
+            method: "PUT", segments: ["games", gameId, "save"], headers: headers, bodyFile: file, bodyFileSHA256: sha256
+        )
+        try check(response, data: data, accept: [200])
+        return try decode(data)
+    }
+
+    public func saveBackups(gameId: String) async throws -> [SaveBackup] {
+        let list: BackupList = try await signedJSON(method: "GET", segments: ["games", gameId, "save", "backups"])
+        return list.backups
+    }
+
+    /// `POST /games/{gameId}/save/backups` ("duplicate the save").
+    public func createSaveBackup(gameId: String, label: String?) async throws -> SaveBackup {
+        try await signedJSON(
+            method: "POST", segments: ["games", gameId, "save", "backups"],
+            body: ProtocolJSON.encoder().encode(CreateBackupRequest(label: label.flatMap(BackupLabel.normalized)))
+        )
+    }
+
+    /// `POST .../backups/{backupId}/restore`: the current save is copied
+    /// first; returns that copy (nil if there was no save).
+    public func restoreSaveBackup(gameId: String, backupId: String) async throws -> BackupResult {
+        try await signedJSON(method: "POST", segments: ["games", gameId, "save", "backups", backupId, "restore"])
+    }
+
+    public func downloadSaveBackup(gameId: String, backupId: String, into directory: URL) async throws -> DownloadedFile {
+        try await downloadSigned(segments: ["games", gameId, "save", "backups", backupId], fallbackName: "\(backupId).sav", into: directory)
+    }
+
+    public func deleteSaveBackup(gameId: String, backupId: String) async throws {
+        let (data, response) = try await performSigned(method: "DELETE", segments: ["games", gameId, "save", "backups", backupId])
+        try check(response, data: data, accept: [200, 204])
+    }
+
+    // MARK: - States (milestone M5)
+
+    public func states(gameId: String) async throws -> SlotList {
+        try await signedJSON(method: "GET", segments: ["games", gameId, "states"])
+    }
+
+    public func downloadState(gameId: String, slot: Int, into directory: URL) async throws -> DownloadedFile {
+        try await downloadSigned(segments: ["games", gameId, "states", String(slot)], fallbackName: "state\(slot).st", into: directory)
+    }
+
+    /// `DELETE /games/{gameId}/states/{slot}`: to the trash. A locked slot
+    /// gives `409 state_locked`.
+    public func deleteState(gameId: String, slot: Int) async throws -> TrashMoveResult {
+        try await signedJSON(method: "DELETE", segments: ["games", gameId, "states", String(slot)])
+    }
+
+    /// `GET .../states/{slot}/thumbnail`: PNG data, nil when there is none.
+    public func stateThumbnail(gameId: String, slot: Int) async throws -> Data? {
+        let (data, response) = try await performSigned(method: "GET", segments: ["games", gameId, "states", String(slot), "thumbnail"])
+        if response.statusCode == 404 { return nil }
+        try check(response, data: data, accept: [200])
+        return data
+    }
+
+    public func lockState(gameId: String, slot: Int) async throws -> StateSlot {
+        try await signedJSON(method: "PUT", segments: ["games", gameId, "states", String(slot), "lock"])
+    }
+
+    public func unlockState(gameId: String, slot: Int) async throws -> StateSlot {
+        try await signedJSON(method: "DELETE", segments: ["games", gameId, "states", String(slot), "lock"])
+    }
+
+    /// `POST .../states/{slot}/restore`: the locked copy replaces the state
+    /// (the current state goes to the trash first).
+    public func restoreLockedState(gameId: String, slot: Int) async throws -> StateSlot {
+        try await signedJSON(method: "POST", segments: ["games", gameId, "states", String(slot), "restore"])
+    }
+
+    public func resumeHistory(gameId: String) async throws -> ResumeHistory {
+        try await signedJSON(method: "GET", segments: ["games", gameId, "resume-history"])
+    }
+
+    /// `POST .../resume-history/{entryId}/restore`: the current version is
+    /// archived first. Returns the updated history.
+    public func restoreResumeHistory(gameId: String, entryId: String) async throws -> ResumeHistory {
+        try await signedJSON(method: "POST", segments: ["games", gameId, "resume-history", entryId, "restore"])
+    }
+
+    // MARK: - Cheats (milestone M5)
+
+    public func cheats(gameId: String) async throws -> CheatList {
+        try await signedJSON(method: "GET", segments: ["games", gameId, "cheats"])
+    }
+
+    /// `PUT /games/{gameId}/cheats` with `If-Match`. If the file changed in
+    /// the meantime, throws a `412` server error (``CheatEditor/isConflict(_:)``).
+    public func replaceCheats(gameId: String, _ update: CheatsUpdate, ifMatch etag: String) async throws -> CheatList {
+        try await signedJSON(
+            method: "PUT", segments: ["games", gameId, "cheats"], headers: ["If-Match": etag],
+            body: ProtocolJSON.encoder().encode(update)
+        )
+    }
+
+    /// `POST /games/{gameId}/cheats/import`. `422 unsupported_format` when
+    /// no cheat is found.
+    public func importCheats(gameId: String, _ request: CheatImportRequest) async throws -> CheatImportResult {
+        try await signedJSON(method: "POST", segments: ["games", gameId, "cheats", "import"], body: ProtocolJSON.encoder().encode(request))
+    }
+
+    /// `GET /sd/files?type=...`.
+    public func sdFiles(type: SdFileType) async throws -> [SdFile] {
+        let list: SdFileList = try await signedJSON(method: "GET", segments: ["sd", "files"], query: [(name: "type", value: type.rawValue)])
+        return list.files
+    }
+
     // MARK: - Plumbing
 
     /// Builds a request. Segments are percent-encoded one by one, and the
@@ -304,16 +435,37 @@ public actor APIClient {
 
     /// Signs and sends a request; after `401 clock_skew`, corrects the clock
     /// with `/hello` and signs again (new nonce), once. With `bodyFile`, the
-    /// body is streamed from that file and signed as `UNSIGNED` (upload
-    /// chunks only).
+    /// body is streamed from that file and signed with `bodyFileSHA256`, or
+    /// as `UNSIGNED` without it (upload chunks only).
     private func performSigned(
         method: String,
         segments: [String],
         query: [(name: String, value: String)] = [],
         headers: [String: String] = [:],
         body: Data? = nil,
-        bodyFile: URL? = nil
+        bodyFile: URL? = nil,
+        bodyFileSHA256: String? = nil
     ) async throws -> (Data, HTTPURLResponse) {
+        try await withSignedRequests(method: method, segments: segments, query: query, headers: headers,
+                                     body: body, bodyFile: bodyFile, bodyFileSHA256: bodyFileSHA256) { request in
+            let (data, response) = try await self.transport(request, bodyFile: bodyFile)
+            return (data, response, data)
+        }
+    }
+
+    /// The signing loop shared by every signed route: `send` performs one
+    /// signed attempt and returns its result, the response and the body to
+    /// read an error from.
+    private func withSignedRequests<R: Sendable>(
+        method: String,
+        segments: [String],
+        query: [(name: String, value: String)],
+        headers: [String: String],
+        body: Data?,
+        bodyFile: URL?,
+        bodyFileSHA256: String?,
+        send: (URLRequest) async throws -> (R, HTTPURLResponse, Data)
+    ) async throws -> (R, HTTPURLResponse) {
         guard let credentials else { throw APIError.notPaired }
         let signer = Signer(clientId: credentials.clientId, key: credentials.key)
         var corrected = false
@@ -322,20 +474,84 @@ public actor APIClient {
             for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
             if let body {
                 request.httpBody = body
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if headers["Content-Type"] == nil {
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                }
             }
             do {
-                request = try signer.sign(request, time: signingTime(), unsignedBody: bodyFile != nil)
+                request = try signer.sign(
+                    request, time: signingTime(),
+                    unsignedBody: bodyFile != nil && bodyFileSHA256 == nil,
+                    bodySHA256: bodyFile != nil ? bodyFileSHA256 : nil
+                )
             } catch let error as SignerError {
                 throw APIError.signing(error)
             }
-            let (data, response) = try await transport(request, bodyFile: bodyFile)
-            if !corrected, response.statusCode == 401, Self.serverError(response, data: data)?.code == .clockSkew {
+            let (result, response, errorBody) = try await send(request)
+            if !corrected, response.statusCode == 401, Self.serverError(response, data: errorBody)?.code == .clockSkew {
                 corrected = true
                 try await hello()
                 continue
             }
-            return (data, response)
+            return (result, response)
+        }
+    }
+
+    /// A signed `GET` whose body is written to a file (never held in
+    /// memory), moved into a new directory under `directory`, named after
+    /// `Content-Disposition` (or `fallbackName`).
+    private func downloadSigned(segments: [String], fallbackName: String, into directory: URL) async throws -> DownloadedFile {
+        let ((location, errorBody), response) = try await withSignedRequests(
+            method: "GET", segments: segments, query: [], headers: [:], body: nil, bodyFile: nil, bodyFileSHA256: nil
+        ) { request -> ((URL?, Data), HTTPURLResponse, Data) in
+            let (location, response) = try await self.transportDownload(request)
+            guard response.statusCode != 200 else { return ((location, Data()), response, Data()) }
+            // Not the file: its body is an error, small. Read it (the error
+            // is decoded from it), then drop the file.
+            let errorBody = Self.readSmall(location)
+            try? FileManager.default.removeItem(at: location)
+            return ((nil, errorBody), response, errorBody)
+        }
+        guard response.statusCode == 200, let location else {
+            try check(response, data: errorBody, accept: [200])
+            throw APIError.unexpectedStatus(response.statusCode)
+        }
+        let name = ContentDisposition.fileName(response.value(forHTTPHeaderField: "Content-Disposition"))
+            ?? ContentDisposition.safe(fallbackName) ?? "download.bin"
+        let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let destination = folder.appending(path: name)
+            try FileManager.default.moveItem(at: location, to: destination)
+            return DownloadedFile(url: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: location)
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+    }
+
+    /// At most 64 KiB of a file (an error body).
+    static func readSmall(_ url: URL) -> Data {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return Data() }
+        defer { try? handle.close() }
+        return (try? handle.read(upToCount: 64 << 10)) ?? Data()
+    }
+
+    private func transportDownload(_ request: URLRequest) async throws -> (URL, HTTPURLResponse) {
+        do {
+            let (location, response) = try await session.download(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                try? FileManager.default.removeItem(at: location)
+                throw APIError.invalidResponse("not an HTTP response")
+            }
+            // The session may delete its file: keep our own.
+            let kept = FileManager.default.temporaryDirectory.appending(path: "rl-dl-\(UUID().uuidString)")
+            try FileManager.default.moveItem(at: location, to: kept)
+            return (kept, http)
+        } catch let error as URLError {
+            if error.code == .cancelled { throw CancellationError() }
+            throw APIError.network(error.code)
         }
     }
 

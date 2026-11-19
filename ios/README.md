@@ -7,8 +7,8 @@
 | `Config/*-Info.plist`, `Config/*.entitlements` | Info.plist keys and capabilities of docs/specs/06-app-ios.md §3 |
 | `ReminisLink/` | SwiftUI app: `App/` (state, pairing, connections, errors), `Views/`, `Resources/` (String Catalogs EN + FR, assets) |
 | `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
-| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete) |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox) and `ReminisLinkDemo` (fake pak, M4 routes included) |
+| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`) and `ReminisLinkDemo` (fake pak, M4 and M5 routes included) |
 
 ## Build and test
 
@@ -87,8 +87,9 @@ TEST_RUNNER_RL_UITEST_PAIR_URL='reminislink://pair?...' TEST_RUNNER_RL_UITEST_SH
   `complete` was already sent: then the outcome is reported as unknown and
   the file is never sent again without the user. Each request is signed
   with a new nonce.
-- Saves cannot be sent from the Add screen before M5 (the M4 pak trashes
-  the previous save without a named backup copy).
+- A save (`.sav`, `.srm`) sent from the Add screen goes to the game chosen
+  for it through `/uploads` (`target.kind = "save"`); the pak copies the
+  current save first (`before-replace`).
 - Files chosen in Files are copied into `Application Support/Transfers`
   (deleted when the upload ends, and at launch) so they can be resumed.
 - When the app goes to the background, the queue is suspended: the running
@@ -96,3 +97,57 @@ TEST_RUNNER_RL_UITEST_PAIR_URL='reminislink://pair?...' TEST_RUNNER_RL_UITEST_SH
   other upload or hashing starts. It resumes when the app is active again.
 - `swift test` measures the memory of a streamed SHA-256 over 100 MiB
   (`phys_footprint` peak minus baseline, under 50 MiB).
+
+## Saves, states and cheats (milestone M5)
+
+- **Save**: download (iOS share sheet; the file is written under
+  `tmp/Exports`, deleted when the sheet closes and at launch), replace from
+  Files (`PUT /games/{id}/save` up to 64 MiB, streamed from a copy of the
+  file and signed with its SHA-256, never `UNSIGNED`; above 64 MiB, the
+  transfer queue with `target.kind = "save"`), backup copies (create with
+  a label of at most 80 characters, restore, download, delete).
+- **States**: slots 0 to 7 are shown 1 to 8 as on NextUI, slot 8 (hidden
+  by NextUI) is not listed, slot 9 (`resumeSlot`) is shown with the resume
+  history. Thumbnails (full-screen PNG) are reduced to the row size.
+  `restored` is reported once by the pak; the badge stays while the
+  screen is open.
+- **Cheats**: edits stay on the iPhone until saved; the whole list is sent
+  with `If-Match`. A `412` never overwrites: the app offers to reload,
+  which discards the local edits. Unknown keys (`extra`) are sent back as
+  received. Import from a link (downloaded by the console), from Files
+  (uploaded to the staging area, then imported with its `uploadId`) or from
+  a `.cht` of the SD card (`/sd/files?type=cht`).
+
+The demo has two hooks for UI tests (Debug only): its first `PUT /cheats`
+meets a change made on the console with `RL_UITEST_CHEATS_CONFLICT=1`, and
+its first locked slot is reported `restored` once.
+
+### UI tests against the pak
+
+A pairing link works **once**: every test against the pak needs a new
+one. Show a new QR code on the pak (or restart it) between tests and pass
+each link in its own variable:
+
+| Test | Variable |
+|---|---|
+| `SaveUITests/testBackupCopiesAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_SAVE` |
+| `StatesUITests/testLocksAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_STATES` |
+| `StatesUITests/testRestoredBadgeAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_RESTORED` |
+| `CheatsUITests/testCheatsAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CHEATS` |
+
+They work on "Starlight Courier" (GBA) of `testdata/sdcard`. Run one at a
+time with `-only-testing:ReminisLinkUITests/<Class>/<test>`.
+
+Acceptance of M5 (a locked state overwritten by hand is restored at the
+next start and shown "Restored"):
+
+1. `make headless`; note the SD card folder it prints (`$sd`).
+2. Run `testLocksAgainstHeadlessPak` with a link: it locks slot 1
+   (shown "Slot 2") of Starlight Courier and leaves it locked.
+3. Stop the pak, change the state by hand:
+   `echo changed > "$sd/.userdata/shared/GBA-gpsp/Starlight Courier.gba.st1"`
+   (the states folder of the fake card today; `<TAG>-<core>/` once the pak
+   follows docs/specs/05 §3.1), then start
+   the pak again **on the same card**: `build/reminislink-host --headless --sd "$sd"`.
+4. Run `testRestoredBadgeAgainstHeadlessPak` with the new link: slot 2
+   shows "Restored".

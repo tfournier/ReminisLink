@@ -25,7 +25,7 @@ final class ConsoleSession {
     /// Uploads and jobs of this console.
     @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()
 
-    @ObservationIgnored private unowned let app: AppModel
+    @ObservationIgnored unowned let app: AppModel
     /// The connection in progress, shared by every caller.
     @ObservationIgnored private var attempt: ConnectionAttempt?
 

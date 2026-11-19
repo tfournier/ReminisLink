@@ -45,13 +45,16 @@ public enum FileDigest {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Size of a regular file.
+    /// Size of a regular file, read from the file system each time (the
+    /// resource values of a `URL` are cached by the URL object).
     public static func size(of url: URL) throws -> Int64 {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values.isRegularFile == true, let size = values.fileSize else {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = (attributes[.size] as? NSNumber)?.int64Value
+        else {
             throw CocoaError(.fileReadUnknown)
         }
-        return Int64(size)
+        return size
     }
 
     /// Copies `length` bytes of `source` from `offset` into a new file at

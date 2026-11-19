@@ -12,6 +12,11 @@ enum Route: Hashable {
     case library(String)
     case folder(FolderRoute)
     case game(GameRoute)
+    /// The save of a game and its backup copies.
+    case save(GameRoute)
+    /// The state slots of a game, their locks and the resume history.
+    case states(GameRoute)
+    case cheats(GameRoute)
     case trash(String)
     case transfers(String)
 }
@@ -30,6 +35,8 @@ struct GameRoute: Hashable {
     let systemLabel: String
     let name: String
     let hasArt: Bool
+    /// The ROM file name, when known (to find its `.cht` on the SD card).
+    var fileName: String?
 }
 
 /// What the Add screen opens with.
@@ -67,6 +74,9 @@ final class AppModel {
     let shareInbox: ShareInbox
     /// Copies of the files being uploaded, and scratch chunks.
     let transferDirectory: URL
+    /// Files downloaded from a console to hand to the share sheet (a
+    /// directory each, deleted once the sheet closes, and at launch).
+    let exportDirectory: URL
     @ObservationIgnored let background: BackgroundActivity
     #if DEBUG
     /// Pairing link of the fake pak in the demo mode.
@@ -94,7 +104,7 @@ final class AppModel {
 
     init(
         store: DeviceStore, discovery: Discovery, artCache: ArtCache,
-        shareInbox: ShareInbox? = nil, transferDirectory: URL? = nil,
+        shareInbox: ShareInbox? = nil, transferDirectory: URL? = nil, exportDirectory: URL? = nil,
         background: BackgroundActivity = NoBackgroundActivity(),
         lookupTimeout: Duration = Discovery.lookupTimeout,
         makeSession: @escaping () -> URLSession
@@ -105,6 +115,7 @@ final class AppModel {
         let temporary = FileManager.default.temporaryDirectory.appending(path: "ReminisLink-\(UUID().uuidString)")
         self.shareInbox = shareInbox ?? ShareInbox(root: temporary.appending(path: "ShareInbox"))
         self.transferDirectory = transferDirectory ?? temporary.appending(path: "Transfers")
+        self.exportDirectory = exportDirectory ?? temporary.appending(path: "Exports")
         self.background = background
         self.lookupTimeout = lookupTimeout
         self.makeSession = makeSession
@@ -313,7 +324,8 @@ extension AppModel {
         let app = AppModel(
             store: store, discovery: Discovery(), artCache: ArtCache(directory: ArtCache.defaultDirectory()),
             shareInbox: group.flatMap { ShareInbox.appGroup($0) } ?? ShareInbox(root: localInbox()),
-            transferDirectory: cleanTransferDirectory(), background: UIKitBackgroundActivity(),
+            transferDirectory: cleanTransferDirectory(), exportDirectory: cleanExportDirectory(),
+            background: UIKitBackgroundActivity(),
             makeSession: { APIClient.makeSession() }
         )
         #if DEBUG
@@ -327,6 +339,9 @@ extension AppModel {
     static func makeDemo() -> AppModel {
         let pak = FakePak()
         pak.register()
+        // UI tests: the first save of a cheat list meets a change made on
+        // the console (412).
+        pak.conflictOnNextCheatsSave = ProcessInfo.processInfo.environment["RL_UITEST_CHEATS_CONFLICT"] == "1"
         let suite = "ReminisLink.demo"
         UserDefaults.standard.removePersistentDomain(forName: suite)
         let artDirectory = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoArt")
@@ -337,10 +352,13 @@ extension AppModel {
             artCache: ArtCache(directory: artDirectory),
             // Its own inbox: the demo never consumes real shared files.
             shareInbox: ShareInbox(root: FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoInbox")),
-            transferDirectory: cleanTransferDirectory(), background: UIKitBackgroundActivity(),
+            transferDirectory: cleanTransferDirectory(), exportDirectory: cleanExportDirectory(),
+            background: UIKitBackgroundActivity(),
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
         app.demoPairingLink = pak.pairingLink
+        // A request left by a previous demo run is not opened again.
+        for request in app.shareInbox.pending() { app.shareInbox.remove(request.id) }
         app.injectTestShare(ProcessInfo.processInfo.environment)
         return app
     }
@@ -374,6 +392,15 @@ extension AppModel {
     /// the extension).
     static func localInbox() -> URL {
         URL.applicationSupportDirectory.appending(path: "ShareInbox", directoryHint: .isDirectory)
+    }
+
+    /// Downloads left by a previous run (the share sheet was still open
+    /// when the app ended) are deleted.
+    static func cleanExportDirectory() -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "Exports", directoryHint: .isDirectory)
+        try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
     }
 
     /// Copies left by uploads of a previous run are deleted: the queue is

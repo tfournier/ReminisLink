@@ -102,7 +102,7 @@ struct UploadRow: View {
                 .foregroundStyle(item.phase == .failed ? .red : .secondary)
                 .accessibilityIdentifier(item.phase == .done ? "upload.done" : "upload.status")
             if let failure = item.failure, item.phase == .failed || item.phase == .paused {
-                Text(AppError(failure).message)
+                Text(Self.failureText(failure, target: item.target))
                     .font(.footnote)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -171,9 +171,21 @@ struct UploadRow: View {
         case .failed:
             return String(localized: "Not sent")
         case .done:
+            if case .save = item.target, item.result?.backup != nil {
+                return String(localized: "Sent. The previous save was kept as a backup copy.")
+            }
             return String(localized: "Sent")
         case .cancelled:
             return String(localized: "Cancelled")
+        }
+    }
+
+    /// A save or state upload refused for its NextUI format gets the text
+    /// of the save and state screens.
+    static func failureText(_ failure: any Error, target: TransferTarget) -> String {
+        switch target {
+        case .save, .state: AppError.gameData(failure).message
+        default: AppError(failure).message
         }
     }
 

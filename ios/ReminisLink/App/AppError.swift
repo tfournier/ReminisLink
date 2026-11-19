@@ -22,6 +22,13 @@ enum AppError: Error, Equatable {
     case upload(UploadFailure)
     /// A file chosen or shared could not be read or copied.
     case file
+    /// A backup copy, locked copy or resume version could not be put back
+    /// (`409 conflict` without `details.existing`): damaged, or saved by
+    /// another emulator. Nothing was changed.
+    case restoreRefused
+    /// `422 unsupported_format` on a save or state: the game uses a NextUI
+    /// setting the pak does not handle (save or state format...).
+    case unsupportedGameFormat
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -64,6 +71,10 @@ enum AppError: Error, Equatable {
             String(localized: "The console keeps interrupting the transfer. Try again later.")
         case .file:
             String(localized: "The file could not be read on this iPhone.")
+        case .restoreRefused:
+            String(localized: "This copy cannot be restored: it is damaged or was made by another emulator. Nothing was changed.")
+        case .unsupportedGameFormat:
+            String(localized: "This game uses a NextUI setting that ReminisLink does not handle yet (save or state format). Nothing was changed.")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -88,6 +99,7 @@ enum AppError: Error, Equatable {
             default: .retry
             }
         case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .file: nil
+        case .restoreRefused, .unsupportedGameFormat: nil
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .storage, .cancelled: nil
         case .pairingClosed, .unexpected: .retry
@@ -95,6 +107,29 @@ enum AppError: Error, Equatable {
     }
 
     var isCancellation: Bool { self == .cancelled }
+
+    /// The error of an action on a save or a state: a `409 conflict`
+    /// without `details.existing` means the copy could not be restored, a
+    /// `422 unsupported_format` a NextUI format the pak does not handle.
+    static func gameData(_ error: Error) -> AppError {
+        let error = AppError(error)
+        guard case .api(.server(let server)) = error else { return error }
+        switch server.code {
+        case .conflict where server.status == 409 && server.details["existing"] == nil:
+            return .restoreRefused
+        case .unsupportedFormat:
+            return .unsupportedGameFormat
+        default:
+            return error
+        }
+    }
+
+    /// A save refused because the resource changed on the console
+    /// (`412`, e.g. the cheat list).
+    var isPreconditionFailed: Bool {
+        if case .api(let error) = self { return CheatEditor.isConflict(error) }
+        return false
+    }
 
     private static func message(for error: APIError) -> String {
         switch error {
@@ -135,6 +170,8 @@ enum AppError: Error, Equatable {
                 return String(localized: "ReminisLink is closing on the console.")
             case .tooLarge:
                 return String(localized: "The request is too large for the console.")
+            case .conflict where server.status == 412:
+                return String(localized: "The list changed on the console. Reload it.")
             case .conflict:
                 if case .string(let existing)? = server.details["existing"] {
                     return String(localized: "A file with this name already exists on the console: \(existing)")
@@ -147,7 +184,9 @@ enum AppError: Error, Equatable {
             case .invalidRequest:
                 return String(localized: "The console refused the request.")
             case .stateLocked:
-                return String(localized: "This state is locked on the console.")
+                return String(localized: "This state is locked on the console. Unlock it first.")
+            case .unsupportedFormat:
+                return String(localized: "The console found nothing it can use in this file.")
             case .internal:
                 return String(localized: "The console ran into an error. Details are in its log.")
             default:

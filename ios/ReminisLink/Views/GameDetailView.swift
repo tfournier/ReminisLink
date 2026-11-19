@@ -1,8 +1,8 @@
 import ReminisLinkKit
 import SwiftUI
 
-/// Game sheet (docs/specs/06-app-ios.md §4.5): header, counters, the files
-/// of the game and its deletion.
+/// Game sheet (docs/specs/06-app-ios.md §4.5): header, the save, states
+/// and cheats screens, the files of the game and its deletion.
 struct GameDetailView: View {
     @Environment(AppModel.self) private var app
     let route: GameRoute
@@ -38,16 +38,33 @@ struct GameDetailView: View {
             }
 
             if let detail {
-                Section("Contents") {
-                    LabeledContent("Save") {
-                        Text(detail.hasSave ? "Yes" : "No")
+                Section {
+                    NavigationLink(value: Route.save(route)) {
+                        LabeledContent {
+                            Text(detail.hasSave ? "Yes" : "No")
+                        } label: {
+                            Label("Save", systemImage: "externaldrive")
+                        }
                     }
-                    LabeledContent("States") {
-                        Text(detail.stateCount, format: .number)
+                    .accessibilityIdentifier("game.save")
+                    NavigationLink(value: Route.states(route)) {
+                        LabeledContent {
+                            Text(detail.stateCount, format: .number)
+                        } label: {
+                            Label("States", systemImage: "square.stack.3d.up")
+                        }
                     }
-                    LabeledContent("Cheats") {
-                        Text(detail.hasCheats ? "Yes" : "No")
+                    .accessibilityIdentifier("game.states")
+                    NavigationLink(value: Route.cheats(route)) {
+                        LabeledContent {
+                            Text(detail.hasCheats ? "Yes" : "No")
+                        } label: {
+                            Label("Cheats", systemImage: "wand.and.stars")
+                        }
                     }
+                    .accessibilityIdentifier("game.cheats")
+                } header: {
+                    Text("Contents")
                 }
                 Section {
                     ForEach(Array(detail.files.enumerated()), id: \.offset) { _, file in
@@ -74,6 +91,8 @@ struct GameDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if detail == nil { await load() } }
         .refreshable { await load() }
+        // Back from the save, states or cheats screens: counters may have changed.
+        .onChange(of: app.session(for: route.deviceId).libraryRevision) { Task { await load() } }
         .sheet(item: $toDelete, onDismiss: {
             // The game is gone: back to its folder.
             if deleted, app.path.last == .game(route) { app.path.removeLast() }
