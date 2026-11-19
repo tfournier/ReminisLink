@@ -988,17 +988,27 @@ extension FakePak {
             "id": id, "trashedAt": ProtocolJSON.formatDate(now), "reason": reason, "label": game.name,
             "files": moved, "sizeBytes": bytes, "expiresAt": ProtocolJSON.formatDate(now.addingTimeInterval(30 * 86_400)),
         ]
-        let gameId = DemoLibrary.id(system.folder + "/" + game.path)
+        let key = Self.dataKey(system: system, game: game)
         lock.withLock {
+            var data = gameData[key]
+            gameData[key] = nil
+            if keepSave {
+                data?.cheats = []
+            } else {
+                data = nil
+            }
             if let index = _library.systems.firstIndex(where: { $0.id == system.id }) {
                 _library.systems[index].games.removeAll { $0.path == game.path }
+                // A game sharing these files keeps them, under its own key
+                // now that the first of them may be gone.
+                let remaining = _library.systems[index]
+                if let twin = remaining.games.first(where: { $0.fileName.lowercased() == game.fileName.lowercased() }) {
+                    gameData[Self.dataKey(system: remaining, game: twin)] = data
+                } else if let data {
+                    gameData[key] = data
+                }
             }
             trashEntries.insert(entry, at: 0)
-            if keepSave {
-                gameData[gameId]?.cheats = []
-            } else {
-                gameData[gameId] = nil
-            }
         }
         return ["trashEntryId": id, "moved": moved, "movedBytes": bytes]
     }

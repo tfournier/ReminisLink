@@ -304,6 +304,42 @@ extension SaveSyncTests {
     }
 }
 
+/// The fake pak shares what NextUI shares between two games with the same
+/// ROM file name (save, states, cheats): its demo controls write where
+/// the routes read, for either game.
+@Suite("Fake pak: games sharing their files")
+struct FakePakSharedFilesTests {
+    @Test func demoControlsOnTheSecondGameShowOnBoth() async throws {
+        let base = Date(timeIntervalSince1970: 1_790_000_000)
+        let library = DemoLibrary(systems: [
+            DemoLibrary.System(folder: "Game Boy Advance (GBA)", label: "Game Boy Advance", tag: "GBA", games: [
+                DemoLibrary.Game(path: "Europe/Twin Quest.gba", sizeBytes: 1024, modifiedAt: base, hasSave: true, stateSlots: [0], cheatCount: 1),
+                DemoLibrary.Game(path: "USA/Twin Quest.gba", sizeBytes: 1024, modifiedAt: base, hasSave: true, stateSlots: [0], cheatCount: 1),
+            ]),
+        ])
+        let pak = FakePak(host: "twin-\(UUID().uuidString.lowercased()).test", library: library)
+        pak.register()
+        let client = try await pairedClient(pak)
+        let europe = DemoLibrary.id("Game Boy Advance (GBA)/Europe/Twin Quest.gba")
+        let usa = DemoLibrary.id("Game Boy Advance (GBA)/USA/Twin Quest.gba")
+
+        let before = try await client.states(gameId: usa).slots.first { $0.slot == 0 }?.modifiedAt
+        pak.overwriteStateInGame(gameId: usa, slot: 0)
+        let usaSlot = try await client.states(gameId: usa).slots.first { $0.slot == 0 }
+        let europeSlot = try await client.states(gameId: europe).slots.first { $0.slot == 0 }
+        #expect(usaSlot?.modifiedAt != before)
+        #expect(europeSlot?.modifiedAt == usaSlot?.modifiedAt)
+
+        let etag = try await client.cheats(gameId: usa).etag
+        pak.changeCheatsOnConsole(gameId: usa)
+        let usaCheats = try await client.cheats(gameId: usa)
+        #expect(usaCheats.etag != etag)
+        #expect(usaCheats.cheats.count == 2)
+        #expect(try await client.cheats(gameId: europe) == usaCheats)
+        #expect(pak.cheatsETag(gameId: europe) == pak.cheatsETag(gameId: usa))
+    }
+}
+
 @Suite("Save listing timeout (M9)")
 struct SaveListingTimeoutTests {
     /// The pak answers `GET /saves` only once every save is hashed: the

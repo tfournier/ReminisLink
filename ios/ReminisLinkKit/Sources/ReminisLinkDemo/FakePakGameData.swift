@@ -121,9 +121,12 @@ extension FakePak {
     // MARK: - Seed
 
     /// The key of a game's data: on NextUI, games of a system with the
-    /// same ROM file name (in different folders) share their save and
-    /// states (files named after the ROM, `Saves/<TAG>/<rom>.sav`), so
-    /// they share the data of the first of them.
+    /// same ROM file name (in different folders) share their save, their
+    /// states and their cheats, all named after the ROM file
+    /// (`Saves/<TAG>/<rom>.sav`, `<TAG>-<core>/<rom>.st<N>`,
+    /// `Cheats/<TAG>/<rom>.cht`; docs/specs/m0/source-analysis.md), so
+    /// they share the data of the first of them. Every read and write of
+    /// game data goes through this key.
     static func dataKey(system: DemoLibrary.System, game: DemoLibrary.Game) -> String {
         let first = system.games.first { $0.fileName.lowercased() == game.fileName.lowercased() } ?? game
         return DemoLibrary.id(system.folder + "/" + first.path)
@@ -201,7 +204,8 @@ extension FakePak {
             state: FakeBlob(size: 401_408, digest: Self.randomId("game-")), modifiedAt: Date(),
             hasThumbnail: previous?.hasThumbnail ?? true, lockCopy: previous?.lockCopy
         )
-        lock.withLock { gameData[gameId] = data }
+        let key = Self.dataKey(system: system, game: game)
+        lock.withLock { gameData[key] = data }
     }
 
     /// As if the cheat file were changed on the console (another app):
@@ -210,7 +214,8 @@ extension FakePak {
         guard let (system, game) = library.game(id: gameId) else { return }
         var data = currentData(system: system, game: game)
         data.cheats.append(FakeCheat(description: "Added on the console", code: "00000000+0000", enabled: false, extra: [:]))
-        lock.withLock { gameData[gameId] = data }
+        let key = Self.dataKey(system: system, game: game)
+        lock.withLock { gameData[key] = data }
     }
 
     /// The pak is opened again: ``restart()``, then the lock check of
@@ -256,7 +261,8 @@ extension FakePak {
     public func setLockStatus(gameId: String, slot: Int, _ status: String?) {
         guard let (system, game) = library.game(id: gameId) else { return }
         _ = currentData(system: system, game: game)
-        lock.withLock { gameData[gameId]?.slots[slot]?.forcedStatus = status }
+        let key = Self.dataKey(system: system, game: game)
+        lock.withLock { gameData[key]?.slots[slot]?.forcedStatus = status }
     }
 
     /// The etag of the cheat list of a game.
