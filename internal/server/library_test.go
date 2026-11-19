@@ -1,8 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -181,6 +187,107 @@ func TestEtagMatches(t *testing.T) {
 	} {
 		if got := etagMatches(header, `"a"`); got != want {
 			t.Errorf("etagMatches(%q) = %v", header, got)
+		}
+	}
+}
+
+// pngOf encodes a w x h image.
+func pngOf(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	img.Set(0, 0, color.NRGBA{R: 200, A: 255})
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestSetAndDeleteArt(t *testing.T) {
+	f := newFixture(t)
+	var changes []Change
+	f.server.opts.OnChange = func(c Change) { changes = append(changes, c) }
+	const path = "/games/{gameId}/art"
+	target := "/api/v1/games/" + id(gba+"/Lantern Keeper [b1].gba") + "/art"
+	data := pngOf(t, 64, 48)
+
+	// No art yet: written where NextUI reads it.
+	r := f.send(http.MethodPut, target, path, data, map[string]string{"Content-Type": "image/png"}, 200)
+	var g struct {
+		ID     string `json:"id"`
+		HasArt bool   `json:"hasArt"`
+	}
+	r.JSON(t, &g)
+	if !g.HasArt || g.ID != id(gba+"/Lantern Keeper [b1].gba") {
+		t.Fatalf("PUT art: %s", r.Body)
+	}
+	if f.read("Roms/"+gba+"/.media/Lantern Keeper [b1].png") != string(data) {
+		t.Fatal("art not written in .media")
+	}
+	if len(changes) != 1 || changes[0] != (Change{Kind: ChangeArtSet, Name: "Lantern Keeper [b1]"}) {
+		t.Fatalf("changes %+v", changes)
+	}
+	// Replaced: the old art goes to the trash first.
+	data2 := pngOf(t, 1024, 1024)
+	f.send(http.MethodPut, target, path, data2, map[string]string{"Content-Type": "image/png"}, 200)
+	if f.read("Roms/"+gba+"/.media/Lantern Keeper [b1].png") != string(data2) {
+		t.Fatal("art not replaced")
+	}
+	entries, _, _ := f.trash.List()
+	if len(entries) != 1 || entries[0].Reason != "overwrite" ||
+		f.read(".userdata/shared/ReminisLink/trash/"+entries[0].ID+"/Roms/"+gba+"/.media/Lantern Keeper [b1].png") != string(data) {
+		t.Fatalf("old art not in the trash: %+v", entries)
+	}
+	// Refused bodies: not a PNG, too large an image, truncated.
+	for name, body := range map[string][]byte{
+		"text":      []byte("not an image"),
+		"empty":     {},
+		"too wide":  pngOf(t, 1025, 10),
+		"too tall":  pngOf(t, 10, 1025),
+		"truncated": data[:len(data)-20],
+	} {
+		r := f.send(http.MethodPut, target, path, body, map[string]string{"Content-Type": "image/png"}, 422)
+		if r.ErrorCode() != CodeUnsupportedFormat {
+			t.Errorf("%s: %s", name, r.Body)
+		}
+	}
+	// More than 4 MiB: 413 before anything is read.
+	big := append(append([]byte{}, data...), bytes.Repeat([]byte{0}, 4<<20)...)
+	if r := f.send(http.MethodPut, target, path, big, nil, 413); r.ErrorCode() != "too_large" {
+		t.Errorf("large body: %s", r.Body)
+	}
+	f.send(http.MethodPut, "/api/v1/games/"+id(gba+"/Nope.gba")+"/art", path, data, nil, 404)
+
+	// DELETE: to the trash, then 404.
+	r = f.send(http.MethodDelete, target, path, nil, nil, 200)
+	r.JSON(t, &g)
+	if _, err := os.Stat(filepath.Join(f.sd, "Roms", gba, ".media", "Lantern Keeper [b1].png")); g.HasArt || err == nil {
+		t.Fatalf("DELETE art: %s", r.Body)
+	}
+	if entries, _, _ := f.trash.List(); len(entries) != 2 {
+		t.Fatalf("trash %+v", entries)
+	}
+	f.send(http.MethodDelete, target, path, nil, nil, 404)
+	if changes[len(changes)-1].Kind != ChangeArtDeleted {
+		t.Fatalf("changes %+v", changes)
+	}
+}
+
+// The art of a game in a subfolder goes to the .media of that subfolder;
+// the art of a multi-disc folder is named after the folder without its
+// last extension (05 §3.1).
+func TestSetArtLocations(t *testing.T) {
+	f := newFixture(t)
+	data := pngOf(t, 8, 8)
+	testutil.WriteFile(t, f.sd, "Roms/Sony PlayStation (PS)/Sky Garden Quest Vol. 3/Sky Garden Quest Vol. 3.m3u", "a.cue\n")
+	testutil.WriteFile(t, f.sd, "Roms/Sony PlayStation (PS)/Sky Garden Quest Vol. 3/a.cue", "x")
+	for game, want := range map[string]string{
+		"Sony PlayStation (PS)/Sky Garden Quest Vol. 3": "Roms/Sony PlayStation (PS)/.media/Sky Garden Quest Vol.png",
+		gba + "/Hacks/Starlight Courier Remix.gba":      "Roms/" + gba + "/Hacks/.media/Starlight Courier Remix.png",
+	} {
+		r := f.send(http.MethodPut, "/api/v1/games/"+id(game)+"/art", "/games/{gameId}/art", data, nil, 200)
+		if !strings.Contains(string(r.Body), `"hasArt":true`) || f.read(want) != string(data) {
+			t.Errorf("%s: %s", game, r.Body)
 		}
 	}
 }

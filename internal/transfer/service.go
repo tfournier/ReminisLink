@@ -570,3 +570,33 @@ func (s *Service) purgeStaging() error {
 	}
 	return nil
 }
+
+// SetArt writes the PNG data (already checked) to a synced temporary file
+// of the uploads folder, then installs it as the art of a game under the
+// install lock (library.SetArt). An error wrapping syscall.ENOSPC means
+// the card is full.
+func (s *Service) SetArt(gameID string, data []byte) (library.Game, error) {
+	dir := s.opts.Layout.UploadsDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return library.Game{}, err
+	}
+	tmp := filepath.Join(dir, "art_"+s.randomHex(12)+partExt)
+	if err := store.WriteFileAtomic(tmp, data, 0o644); err != nil {
+		os.Remove(tmp)
+		return library.Game{}, err
+	}
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	g, err := s.opts.Library.SetArt(gameID, tmp, s.opts.Trash)
+	if !errors.Is(err, store.ErrReplaceFailed) {
+		os.Remove(tmp) // already gone once installed; kept for a pending replacement
+	}
+	return g, err
+}
+
+// DeleteArt moves the art of a game to the trash under the install lock.
+func (s *Service) DeleteArt(gameID string) (library.Game, error) {
+	s.installMu.Lock()
+	defer s.installMu.Unlock()
+	return s.opts.Library.DeleteArt(gameID, s.opts.Trash)
+}

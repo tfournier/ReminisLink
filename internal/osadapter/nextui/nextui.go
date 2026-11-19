@@ -475,7 +475,7 @@ func (idx systemIndex) summary(a *Adapter, g osadapter.Game) osadapter.GameSumma
 	if name, ok := idx.cheats[fold(g.ROMName+".cht")]; ok {
 		s.CheatFile = filepath.Join(a.roots.Cheats, g.System.Tag, name)
 	}
-	s.HasArt = idx.media[fold(g.Name+".png")]
+	s.HasArt = idx.media[fold(artName(g)+".png")]
 	return s
 }
 
@@ -847,12 +847,16 @@ func (a *Adapter) CheatPath(g osadapter.Game) string {
 	return filepath.Join(a.roots.Cheats, g.System.Tag, g.ROMName+".cht")
 }
 
-// ArtPath is <folder of the game>/.media/<name>.png.
-// TODO(M0): .media next to the ROM for games in subfolders, and the name
-// used for folder-m3u games, are not yet checked on NextUI.
+// ArtPath is <folder that holds the entry>/.media/<entry name without its
+// last extension>.png (nextui.c:2979-2993, 3034): only the last dot is
+// removed, even for the folder of a multi-disc game
+// ("Sky Garden Quest Vol. 3" gives "Sky Garden Quest Vol.png").
 func (a *Adapter) ArtPath(g osadapter.Game) string {
-	return filepath.Join(a.folderOf(g), ".media", g.Name+".png")
+	return filepath.Join(a.folderOf(g), ".media", artName(g)+".png")
 }
+
+// artName is the name of the art of g, without ".png".
+func artName(g osadapter.Game) string { return displayName(path.Base(g.Path)) }
 
 // GameFiles finds the files of a game, with case-insensitive matching.
 func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
@@ -900,7 +904,7 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 		}
 	}
 	files.Cheats = a.findFold(filepath.Join(a.roots.Cheats, g.System.Tag), g.ROMName+".cht")
-	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), g.Name+".png")
+	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), artName(g)+".png")
 	statesDir := a.statesDir(g.System.Tag)
 	want := fold(g.ROMName)
 	var stateEntries []fs.DirEntry

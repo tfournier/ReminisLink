@@ -3,6 +3,7 @@ package library
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -156,4 +157,77 @@ func findDirFold(dir, name string) string {
 		}
 	}
 	return match
+}
+
+// GameSummary returns a game as GET /systems/{systemId}/games lists it.
+func (l *Library) GameSummary(gameID string) (Game, error) {
+	g, err := l.game(gameID)
+	if err != nil {
+		return Game{}, err
+	}
+	folderID := ""
+	if parent := path.Dir(g.Path); parent != g.System.Folder {
+		folderID = EncodeID(parent)
+	}
+	listing, err := l.ListGames(EncodeID(g.System.Folder), folderID)
+	if err != nil {
+		return Game{}, err
+	}
+	id := EncodeID(g.Path)
+	for _, x := range listing.Games {
+		if x.ID == id {
+			return x, nil
+		}
+	}
+	return Game{}, fmt.Errorf("%w: game", ErrNotFound)
+}
+
+// SetArt makes the synced PNG file tmp the art of a game (PUT
+// /games/{gameId}/art), where NextUI reads it (the adapter's ArtPath). An
+// existing art first goes to the trash (reason overwrite), as one
+// journaled replacement. The caller holds the install lock.
+func (l *Library) SetArt(gameID, tmp string, trash *store.Trash) (Game, error) {
+	g, err := l.game(gameID)
+	if err != nil {
+		return Game{}, err
+	}
+	files, err := l.adapter.GameFiles(g)
+	if err != nil {
+		return Game{}, notFound(err, "game")
+	}
+	fi, err := os.Lstat(tmp)
+	if err != nil {
+		return Game{}, err
+	}
+	dst := l.adapter.ArtPath(g)
+	var items []store.MoveItem
+	if files.Art != nil {
+		items = append(items, store.MoveItem{Path: files.Art.Path})
+		dst = files.Art.Path // the existing spelling (exFAT ignores case)
+	}
+	if _, err := trash.Replace(store.ReasonOverwrite, g.Name, items, []store.Install{{Src: tmp, Dst: dst, Size: fi.Size()}}); err != nil {
+		return Game{}, fmt.Errorf("set art: %w", err)
+	}
+	return l.GameSummary(gameID)
+}
+
+// DeleteArt moves the art of a game to the trash (DELETE
+// /games/{gameId}/art); ErrNotFound when it has none. The caller holds
+// the install lock.
+func (l *Library) DeleteArt(gameID string, trash *store.Trash) (Game, error) {
+	g, err := l.game(gameID)
+	if err != nil {
+		return Game{}, err
+	}
+	files, err := l.adapter.GameFiles(g)
+	if err != nil {
+		return Game{}, notFound(err, "game")
+	}
+	if files.Art == nil {
+		return Game{}, fmt.Errorf("%w: art", ErrNotFound)
+	}
+	if _, err := trash.Move(store.ReasonOverwrite, g.Name, []store.MoveItem{{Path: files.Art.Path}}); err != nil {
+		return Game{}, fmt.Errorf("delete art: %w", err)
+	}
+	return l.GameSummary(gameID)
 }
