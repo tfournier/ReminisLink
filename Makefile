@@ -13,6 +13,7 @@
 #   make vectors         regenerate protocol/test-vectors/ and copy them to the Swift tests
 #   make headless        run the pak (server + Bonjour, no UI) on a temporary copy of testdata/sdcard
 #   make desktop         run the pak with its UI in a window on a temporary copy of testdata/sdcard (SDL2 needed)
+#   make screenshots     regenerate docs/screenshots/ with the desktop UI under Xvfb (Docker)
 #   make build           cross-compile the binary for tg5040 (ARM64)
 #   make pak             assemble the pak folder in build/pak
 #   make release         build the release zip in dist/
@@ -28,7 +29,8 @@ RELEASE_FILE  := $(shell sed -n 's/.*"release_filename": *"\([^"]*\)".*/\1/p' pa
 TAG           ?=
 VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo $(PAK_VERSION))
 
-GO_SOURCES    := cmd internal protocol
+GO_SOURCES    := cmd internal protocol scripts
+GO_VERSION    := $(shell sed -n 's/^go \([0-9.]*\)$$/\1/p' go.mod)
 GO_PACKAGES   := ./...
 
 BUILD_DIR     := build
@@ -66,7 +68,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless desktop build pak release check-version clean docker-image FORCE
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version clean docker-image FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -109,6 +111,11 @@ desktop: ## Run the pak with its UI in a window on a temporary copy of testdata/
 		cp -R testdata/sdcard/. "$$sd/" && \
 		echo "Fake SD card copied to $$sd (logs in $$sd/.userdata/tg5040/logs)" && \
 		exec $(DESKTOP_BIN) --desktop --sd "$$sd" $(DESKTOP_ARGS)
+
+screenshots: ## Regenerate docs/screenshots/ (desktop UI under Xvfb, in Docker)
+	$(DOCKER) build -t reminislink-screenshots --build-arg GO_VERSION="$(GO_VERSION)" scripts/screenshots
+	$(DOCKER) run --rm -v "$(CURDIR)":/repo:ro -v "$(CURDIR)/docs/screenshots":/out \
+		-v reminislink-gomod:/root/go/pkg/mod reminislink-screenshots sh /repo/scripts/screenshots/run.sh
 
 build: $(BIN) ## Cross-compile the ARM64 binary (gabagool UI included)
 
