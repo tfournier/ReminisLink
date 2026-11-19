@@ -120,7 +120,7 @@ func TestGetPut(t *testing.T) {
 	// Reorder and toggle: the unknown key follows its cheat, renumbered.
 	edited := []APICheat{moon, list.Cheats[0]}
 	edited[0].Enabled = false
-	edited[1].Extra = map[string]string{"cheat0_address": "0x10"} // an indexed key is accepted
+	edited[1].Extra = map[string]string{"address": "0x10"}
 	put, err := e.svc.Put(g, list.ETag, edited)
 	if err != nil || len(put.Cheats) != 2 || put.ETag == list.ETag {
 		t.Fatalf("put: %+v %v", put, err)
@@ -152,7 +152,7 @@ func TestGetPut(t *testing.T) {
 	}
 
 	// Invalid keys.
-	for _, extra := range []map[string]string{{"desc": "x"}, {"cheat3_code": "x"}, {"bad key": "x"}, {"handler": "1", "cheat0_handler": "2"}} {
+	for _, extra := range []map[string]string{{"desc": "x"}, {"enable": "x"}, {"bad key": "x"}, {"": "x"}} {
 		bad := []APICheat{{Description: "x", Extra: extra}}
 		if _, err := e.svc.Put(g, "*", bad); !errors.Is(err, ErrInvalidCheat) {
 			t.Errorf("extra %v: %v", extra, err)
@@ -256,5 +256,35 @@ func TestNoVersionLost(t *testing.T) {
 	}
 	if !strings.Contains(e.read(pgCht+BakSuffix), "Wrong") || !strings.Contains(e.read(pgCht), "Edited") {
 		t.Fatal(".bak or .cht")
+	}
+}
+
+// TestExtraKeysRoundTrip: only the prefix of the cheat's own index is
+// removed from a file key; the rest is the key, kept on a round trip.
+func TestExtraKeysRoundTrip(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	testutil.WriteFile(t, e.sd, pgCht, "cheat0_desc = \"A\"\ncheat0_code = \"1\"\ncheat0_cheat1_x = \"v\"\ncheat0_cheat_type = \"t\"\n\ncheat1_desc = \"B\"\ncheat1_code = \"2\"\n")
+	list, err := e.svc.Get(g)
+	if err != nil || list.Cheats[0].Extra["cheat1_x"] != "v" || list.Cheats[0].Extra["cheat_type"] != "t" || len(list.Cheats[1].Extra) != 0 {
+		t.Fatalf("get: %+v %v", list, err)
+	}
+	// Unchanged, then moved to the second position.
+	for i, order := range [][]APICheat{list.Cheats, {list.Cheats[1], list.Cheats[0]}} {
+		cur, _ := e.svc.Get(g)
+		if _, err := e.svc.Put(g, cur.ETag, order); err != nil {
+			t.Fatal(err)
+		}
+		idx := []string{"0", "1"}[i]
+		written := e.read(pgCht)
+		for _, want := range []string{"cheat" + idx + "_cheat1_x = \"v\"", "cheat" + idx + "_cheat_type = \"t\""} {
+			if !strings.Contains(written, want) {
+				t.Fatalf("round trip %d: missing %q in\n%s", i, want, written)
+			}
+		}
+	}
+	again, _ := e.svc.Get(g)
+	if again.Cheats[1].Extra["cheat1_x"] != "v" || again.Cheats[1].Extra["cheat_type"] != "t" {
+		t.Fatalf("after move: %+v", again.Cheats)
 	}
 }

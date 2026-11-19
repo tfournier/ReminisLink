@@ -2026,13 +2026,14 @@ components:
         extra:
           type: object
           description: |
-            Unknown `.cht` keys of this cheat, kept as is, **without** their
-            `cheat<index>_` prefix (`handler` for `cheat0_handler` in the
-            file). The pak adds the prefix of the cheat's position on write,
-            so a key always follows its cheat when the list is reordered. A
-            key sent with a `cheat<N>_` prefix is accepted (the prefix is
-            dropped). Keys are `[A-Za-z0-9_]+` and never `desc`, `code` or
-            `enable` (`400 invalid_request`).
+            Unknown `.cht` keys of this cheat, kept as is, without the
+            `cheat<index>_` prefix of **this** cheat (`handler` for
+            `cheat0_handler`, `cheat1_x` for `cheat0_cheat1_x`). The pak adds
+            the prefix of the cheat's position on write, so a key always
+            follows its cheat when the list is reordered. A key received is
+            used as it is: no prefix is ever removed from it. Keys are
+            `[A-Za-z0-9_]+` and never `desc`, `code` or `enable`
+            (`400 invalid_request`).
           additionalProperties: { type: string }
     CheatList:
       type: object

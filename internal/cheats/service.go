@@ -50,10 +50,11 @@ var (
 )
 
 // APICheat is a cheat of the API (Cheat in protocol/openapi.yaml). Extra
-// holds the unknown keys of the cheat without their "cheat<index>_" prefix
-// ("handler" for "cheat0_handler"): the pak adds the prefix of the new
-// position on write, so a key always follows its cheat. A key sent with a
-// "cheat<N>_" prefix (older clients) is accepted, the prefix dropped.
+// holds the unknown keys of the cheat without the "cheat<index>_" prefix
+// of this cheat ("handler" for "cheat0_handler", "cheat1_x" for
+// "cheat0_cheat1_x"): the pak adds the prefix of the new position on
+// write, so a key always follows its cheat. A key received is used as it
+// is (no prefix is ever removed from it).
 type APICheat struct {
 	Index       int               `json:"index"`
 	Description string            `json:"description"`
@@ -162,10 +163,7 @@ func toAPI(cf *File) []APICheat {
 	return out
 }
 
-var (
-	indexedKey = regexp.MustCompile(`^cheat\d+_([A-Za-z0-9_]+)$`)
-	plainKey   = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-)
+var plainKey = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
 // fromAPI converts and validates the cheats of a PUT. Unknown keys are
 // written in alphabetical order.
@@ -176,21 +174,14 @@ func fromAPI(in []APICheat) ([]Cheat, error) {
 	out := make([]Cheat, 0, len(in))
 	for i, c := range in {
 		cheat := Cheat{Desc: c.Description, Code: c.Code, Enable: c.Enabled}
-		seen := map[string]bool{}
-		for k, v := range c.Extra {
-			key := k
-			if m := indexedKey.FindStringSubmatch(k); m != nil {
-				key = m[1]
-			}
+		for key, v := range c.Extra {
+			k := key
 			switch {
 			case !plainKey.MatchString(key):
 				return nil, fmt.Errorf("%w: cheat %d: invalid key %q", ErrInvalidCheat, i, k)
 			case key == "desc" || key == "code" || key == "enable":
 				return nil, fmt.Errorf("%w: cheat %d: %q is not an extra key", ErrInvalidCheat, i, k)
-			case seen[key]:
-				return nil, fmt.Errorf("%w: cheat %d: key %q given twice", ErrInvalidCheat, i, key)
 			}
-			seen[key] = true
 			cheat.Extras = append(cheat.Extras, Extra{Key: key, Value: v})
 		}
 		sort.Slice(cheat.Extras, func(a, b int) bool { return cheat.Extras[a].Key < cheat.Extras[b].Key })
