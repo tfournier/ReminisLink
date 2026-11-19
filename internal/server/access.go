@@ -215,13 +215,31 @@ func (a *access) accept(ad admission, opts auth.RouteOptions) (other *leaseHolde
 	return nil, nil, lifted
 }
 
-// check reports whether a request accepted with this admission still
-// may go on (not revoked since): the event stream checks it once
-// subscribed, as its subscription may come after a revocation.
-func (a *access) check(ad admission) *auth.Rejection {
+// streamOpened records an open event stream (M14) for a request accepted
+// with this admission: its client counts as connected until the stream
+// closes. It refuses a client revoked since the acceptance (the stream
+// subscribes after it, so the revocation did not close it).
+func (a *access) streamOpened(ad admission) *auth.Rejection {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.checkGenLocked(ad, false)
+	if rej := a.checkGenLocked(ad, false); rej != nil {
+		return rej
+	}
+	a.presence.streamOpened(ad.id)
+	return nil
+}
+
+// streamClosed is the end of a stream recorded by streamOpened: after the
+// last one, the client stays connected for ConnectedWindow. Nothing
+// happens if the client was revoked since (its presence is gone, and a
+// stream opened after a reconnection is counted with the new generation).
+func (a *access) streamClosed(ad admission) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.gen[ad.id] != ad.gen || a.disconnected[ad.id] {
+		return
+	}
+	a.presence.streamClosed(ad.id, a.now())
 }
 
 // rollback gives back the reservation of a rejected request, if nothing
@@ -342,7 +360,7 @@ func (a *access) pair(c auth.Client) error {
 func (a *access) devices(connectedSince time.Time) []DeviceStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	seen := a.presence.seenSince(connectedSince)
+	seen := a.presence.seenSince(connectedSince, a.now())
 	held := a.currentLocked()
 	list := a.clients.List()
 	out := make([]DeviceStatus, 0, len(list))

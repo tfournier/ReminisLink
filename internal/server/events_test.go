@@ -480,9 +480,15 @@ func TestEventsDevice(t *testing.T) {
 	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"battery":{"percent":80,"charging":false}`) {
 		t.Fatalf("battery %+v", ev)
 	}
-	// A client that stops being connected.
+	// Another client connects, then stops being connected; the client
+	// of the stream stays connected (M14).
+	other := f.pairNamed("iPad")
+	f.as(other, "GET", "/api/v1/systems", "/systems", nil, http.StatusOK)
+	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"clientName":"iPad"`) {
+		t.Fatalf("clients %+v", ev)
+	}
 	f.clock.Advance(ConnectedWindow + time.Second)
-	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"connectedClients":[]`) {
+	if ev := f.nextEvent(s); ev.Type != "device" || strings.Contains(ev.Data, `"iPad"`) || !strings.Contains(ev.Data, `"clientName":"Test iPhone"`) {
 		t.Fatalf("clients %+v", ev)
 	}
 	// No sampling once nobody listens.
@@ -555,4 +561,93 @@ func TestSystemOfGame(t *testing.T) {
 		}
 	}
 	_ = library.EncodeID
+}
+
+// connectedNames returns the connected clients of GET /device and of the
+// console's Devices screen.
+func (f *fixture) connectedNames() (api, console []string) {
+	f.t.Helper()
+	for _, c := range f.server.ConnectedClients() {
+		api = append(api, c.ClientName)
+	}
+	for _, d := range f.server.Devices() {
+		if d.Connected {
+			console = append(console, d.Name)
+		}
+	}
+	return api, console
+}
+
+func (f *fixture) wantConnected(want string) {
+	f.t.Helper()
+	api, console := f.connectedNames()
+	if fmt.Sprint(api) != want || fmt.Sprint(console) != want {
+		f.t.Fatalf("connected: api %v, console %v, want %s", api, console, want)
+	}
+}
+
+// An open event stream counts as presence (M14): the client is connected
+// whatever the time since its last request; after its last stream closes,
+// the 30 s rule starts again; a revocation removes it at once.
+func TestEventStreamCountsAsPresence(t *testing.T) {
+	f := newFixture(t)
+	c := f.pairNamed("iPad")
+	s1, s2 := f.openEvents(c), f.openEvents(c)
+	f.clock.Advance(10 * ConnectedWindow)
+	f.wantConnected("[iPad]")
+	var dev struct {
+		ConnectedClients []ConnectedClient `json:"connectedClients"`
+	}
+	f.get("/api/v1/device", "/device", http.StatusOK).JSON(t, &dev)
+	if len(dev.ConnectedClients) != 2 || dev.ConnectedClients[0].ClientName != "Test iPhone" && dev.ConnectedClients[1].ClientName != "Test iPhone" {
+		t.Fatalf("GET /device %+v", dev)
+	}
+	for _, cc := range dev.ConnectedClients {
+		if cc.ClientName == "iPad" && !cc.LastSeenAt.Equal(f.clock.Now().UTC()) {
+			t.Errorf("lastSeenAt of a streaming client %v, want now", cc.LastSeenAt)
+		}
+	}
+	f.clock.Advance(10 * ConnectedWindow) // the caller ages out
+	f.wantConnected("[iPad]")
+
+	// One stream left: still connected.
+	s1.Resp.Body.Close()
+	waitFor(t, "one stream", func() bool { return f.server.EventStreams() == 1 })
+	f.clock.Advance(10 * ConnectedWindow)
+	f.wantConnected("[iPad]")
+	// The last one closes: 30 s from now.
+	s2.Resp.Body.Close()
+	waitFor(t, "no stream", func() bool { return f.server.EventStreams() == 0 })
+	f.clock.Advance(ConnectedWindow - time.Second)
+	f.wantConnected("[iPad]")
+	f.clock.Advance(2 * time.Second)
+	f.wantConnected("[]")
+
+	// Disconnect removes the presence at once, and the end of the stream
+	// does not bring it back.
+	s := f.openEvents(c)
+	f.wantConnected("[iPad]")
+	if err := f.server.Disconnect(c.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	f.wantConnected("[]")
+	wantEnd(t, s)
+	waitFor(t, "no stream", func() bool { return f.server.EventStreams() == 0 })
+	f.wantConnected("[]")
+	for _, d := range f.server.Devices() {
+		if d.Name == "iPad" && (!d.Disconnected || d.Connected) {
+			t.Fatalf("device %+v", d)
+		}
+	}
+
+	// Forget too; a stream opened after a reconnection is counted anew.
+	f.as(c, "POST", "/api/v1/clients/me/connect", "/clients/me/connect", nil, http.StatusNoContent)
+	s = f.openEvents(c)
+	f.clock.Advance(10 * ConnectedWindow)
+	f.wantConnected("[iPad]")
+	if _, err := f.server.Forget(c.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	f.wantConnected("[]")
+	wantEnd(t, s)
 }

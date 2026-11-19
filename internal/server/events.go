@@ -110,13 +110,15 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer sub.Close()
-	// The client may have been revoked between the acceptance of the
-	// request and the subscription: the revocation closed the streams it
-	// had then, not this one.
-	if rej := s.access.check(ad); rej != nil {
+	// An open stream counts as presence (connectedClients, the console's
+	// "Connected" state). The client may have been revoked between the
+	// acceptance of the request and the subscription: the revocation
+	// closed the streams it had then, not this one.
+	if rej := s.access.streamOpened(ad); rej != nil {
 		auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
 		return
 	}
+	defer s.access.streamClosed(ad)
 
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")

@@ -114,7 +114,7 @@ Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §
 
 `writer` (M10) : le client qui tient le bail d'écriture (`you` : c'est l'appelant ; `expiresAt` : fin du bail s'il n'est pas renouvelé), ou `null` si le bail est libre. Voir « Un seul appareil en écriture » ci-dessous.
 
-`connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
+`connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes, ou qui ont un flux d'événements ouvert (`GET /events`, M14 : connectés tant que le flux est ouvert, `lastSeenAt` vaut alors l'heure courante ; à la fermeture de leur dernier flux, les 30 s partent de ce moment ; une déconnexion ou un oubli depuis la console les retire aussitôt) (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
 
 `ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible. Sources sur NextUI ([05 §6](05-console-pak.md#6-informations-de-la-console)) : `osVersion` = `.system/version.txt` (chaîne de release telle que l'affiche NextUI, ex. `NextUI-20261013-039a06de` : date de build et hash court ; jamais le numéro `v6.x.y` ; décision D4 du 19/11/2026) ; `battery` = `axp2202-battery/capacity` et `axp2202-usb/online` + `time_to_full_now` ; `ssid` = `wpa_supplicant` (`null` si `wpa_state` ≠ `COMPLETED`).
 
@@ -152,7 +152,8 @@ Chaque événement : `id: <n>` (croissant dans le flux, à partir de 1), `event:
 - **Client lent** : chaque écriture (événement ou signe de vie) a un délai de 60 s, comme les téléchargements de fichiers ; un client qui ne lit plus est coupé sans gêner les autres. Les événements sont mis en file par flux (bornée) : un flux trop en retard est fermé, l'app se reconnecte et recharge.
 - **Fin du flux** : à la fermeture du pak (après `shutdown`), et sans événement quand le client est déconnecté ou oublié depuis la console, se désappaire (`DELETE /clients/me`) ou est appairé de nouveau.
 - **Limites** : 4 flux ouverts par client, 16 en tout ; au-delà, `429 too_many_attempts` avec `Retry-After` (5 s). Pendant la fermeture : `503 shutting_down`.
-- `connectedClients` garde sa règle (requête signée acceptée dans les 30 dernières secondes) : un flux ouvert seul ne fait pas compter le client comme connecté.
+- **Présence** : un client qui a au moins un flux ouvert compte comme connecté (`connectedClients` de `GET /device` et des événements `device`, état « Connecté » de la console), quel que soit le temps écoulé depuis sa dernière requête ; à la fermeture de son dernier flux, la règle des 30 s s'applique à partir de ce moment. Une révocation (déconnexion, oubli, désappairage) le retire aussitôt.
+- **Pas d'événement `device` initial** : le premier relevé après l'ouverture sert de référence ; l'app lit `GET /device` après `hello` pour avoir l'état de départ, puis suit les événements `device`.
 
 ---
 
