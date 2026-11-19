@@ -242,15 +242,18 @@ public actor APIClient {
     /// `PUT /uploads/{uploadId}`: sends `length` bytes read from `file` (a
     /// file holding exactly this chunk), streamed by `URLSession` from the
     /// disk. The only request signed with `X-RL-Content-SHA256: UNSIGNED`.
-    /// Returns the new offset.
-    public func sendChunk(uploadId: String, offset: Int64, file: URL, length: Int64) async throws -> Int64 {
+    /// Returns the new offset. `onSent` gets the bytes of this chunk sent
+    /// so far (not yet confirmed by the device).
+    public func sendChunk(
+        uploadId: String, offset: Int64, file: URL, length: Int64, onSent: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> Int64 {
         let headers = [
             "Upload-Offset": String(offset),
             "Content-Type": "application/octet-stream",
             "Content-Length": String(length),
         ]
         let (data, response) = try await performSigned(
-            method: "PUT", segments: ["uploads", uploadId], headers: headers, bodyFile: file
+            method: "PUT", segments: ["uploads", uploadId], headers: headers, bodyFile: file, onSent: onSent
         )
         try check(response, data: data, accept: [200, 204])
         if let value = response.value(forHTTPHeaderField: "Upload-Offset"), let next = Int64(value.trimmingCharacters(in: .whitespaces)) {
@@ -481,11 +484,12 @@ public actor APIClient {
         headers: [String: String] = [:],
         body: Data? = nil,
         bodyFile: URL? = nil,
-        bodyFileSHA256: String? = nil
+        bodyFileSHA256: String? = nil,
+        onSent: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         try await withSignedRequests(method: method, segments: segments, query: query, headers: headers,
                                      body: body, bodyFile: bodyFile, bodyFileSHA256: bodyFileSHA256) { request in
-            let (data, response) = try await self.transport(request, bodyFile: bodyFile)
+            let (data, response) = try await self.transport(request, bodyFile: bodyFile, onSent: onSent)
             return (data, response, data)
         }
     }

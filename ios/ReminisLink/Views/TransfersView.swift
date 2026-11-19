@@ -207,7 +207,7 @@ struct UploadRow: View {
             if item.sentBytes >= item.sizeBytes {
                 return String(localized: "Finishing on the console…")
             }
-            var parts = [String(localized: "\(item.sentBytes.byteString) of \(item.sizeBytes.byteString)")]
+            var parts = [String(localized: "\(item.displayedBytes.byteString) of \(item.sizeBytes.byteString)")]
             if let speed = item.bytesPerSecond {
                 parts.append(String(localized: "\(Int64(speed).byteString)/s"))
             }
