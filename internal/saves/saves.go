@@ -454,7 +454,18 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(tmp) // already gone after a successful rename
+	// The temporary files are removed (already gone after a successful
+	// restore) unless a pending replacement of the trash still names them
+	// (Codex review of M8).
+	temps := []string{tmp}
+	pending := false
+	defer func() {
+		if !pending {
+			for _, p := range temps {
+				os.Remove(p)
+			}
+		}
+	}()
 	sum, _, err := store.CopyFileAtomic(path, tmp)
 	if err != nil {
 		return nil, fmt.Errorf("restore save: %w", err)
@@ -465,15 +476,14 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	rtcTmp := ""
 	if m.RTCSHA256 != "" {
 		rtcTmp = tmp + rtcExt
+		temps = append(temps, rtcTmp) // removed too when its copy is damaged
 		sum, _, err := store.CopyFileAtomic(filepath.Join(filepath.Dir(path), id+rtcExt), rtcTmp)
 		if err != nil || sum != m.RTCSHA256 {
 			return nil, ErrCorruptBackup
 		}
 	}
 	res, err := s.installLocked(g, tmp, rtcTmp, ReasonBeforeRestore, nil)
-	if rtcTmp != "" && !errors.Is(err, store.ErrReplaceFailed) {
-		os.Remove(rtcTmp) // kept while a pending replacement names it
-	}
+	pending = errors.Is(err, store.ErrReplaceFailed)
 	if err != nil {
 		return nil, err
 	}
