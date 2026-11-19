@@ -8,12 +8,14 @@ import UIKit
 
 /// Navigation destinations.
 enum Route: Hashable {
-    /// The console a screen belongs to.
-    var deviceId: String {
+    /// The console a screen belongs to (nil for the app settings).
+    var deviceId: String? {
         switch self {
-        case .console(let id), .library(let id), .trash(let id), .transfers(let id): id
+        case .console(let id), .library(let id), .trash(let id), .transfers(let id), .syncedSaves(let id): id
         case .folder(let folder): folder.deviceId
         case .game(let game), .save(let game), .states(let game), .cheats(let game): game.deviceId
+        case .syncedGame(let game): game.deviceId
+        case .settings, .syncedConsoles: nil
         }
     }
 
@@ -28,6 +30,21 @@ enum Route: Hashable {
     case cheats(GameRoute)
     case trash(String)
     case transfers(String)
+    /// The app settings (docs/specs/06-app-ios.md §4.9).
+    case settings
+    /// The consoles with synced saves on this iPhone (milestone M9).
+    case syncedConsoles
+    /// The synced saves of a console, by system and game.
+    case syncedSaves(String)
+    /// The versions of one synced save.
+    case syncedGame(SyncedGameRoute)
+}
+
+struct SyncedGameRoute: Hashable {
+    let deviceId: String
+    let gameId: String
+    let name: String
+    let systemName: String
 }
 
 struct FolderRoute: Hashable {
@@ -101,6 +118,20 @@ final class AppModel {
     /// directory each, deleted once the sheet closes, and at launch).
     let exportDirectory: URL
     @ObservationIgnored let background: BackgroundActivity
+    /// Preferences of the app (Settings screen).
+    @ObservationIgnored let settings: UserDefaults
+    /// Where synced saves go (milestone M9).
+    @ObservationIgnored let vaultProvider: SaveVaultProvider
+    /// Downloads of a sync waiting to go into the vault.
+    let syncScratchDirectory: URL
+    /// Sync each console when connecting to it (default on).
+    var syncOnConnect: Bool {
+        didSet { settings.set(syncOnConnect, forKey: Self.syncOnConnectKey) }
+    }
+    /// Where the saves went at the last sync or browse (nil before).
+    var vaultLocation: SaveVaultLocation?
+    /// The sync of each console, kept across connections.
+    @ObservationIgnored var syncStates: [String: SaveSyncState] = [:]
     #if DEBUG
     /// Pairing link of the fake pak in the demo mode.
     var demoPairingLink: PairingLink?
@@ -132,6 +163,8 @@ final class AppModel {
         store: DeviceStore, discovery: Discovery, artCache: ArtCache,
         shareInbox: ShareInbox? = nil, transferDirectory: URL? = nil, exportDirectory: URL? = nil,
         background: BackgroundActivity = NoBackgroundActivity(),
+        settings: UserDefaults? = nil,
+        vaultProvider: SaveVaultProvider? = nil,
         lookupTimeout: Duration = Discovery.lookupTimeout,
         makeSession: @escaping () -> URLSession
     ) {
@@ -143,9 +176,16 @@ final class AppModel {
         self.transferDirectory = transferDirectory ?? temporary.appending(path: "Transfers")
         self.exportDirectory = exportDirectory ?? temporary.appending(path: "Exports")
         self.background = background
+        let settings = settings ?? UserDefaults(suiteName: "ReminisLink.test-\(UUID().uuidString)")!
+        self.settings = settings
+        self.syncOnConnect = settings.object(forKey: Self.syncOnConnectKey) as? Bool ?? true
+        self.vaultProvider = vaultProvider ?? .folder(temporary.appending(path: "Saves"), location: .local)
+        self.syncScratchDirectory = temporary.appending(path: "SyncScratch")
         self.lookupTimeout = lookupTimeout
         self.makeSession = makeSession
     }
+
+    static let syncOnConnectKey = "syncSavesOnConnect"
 
     static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
@@ -305,7 +345,7 @@ final class AppModel {
     /// current screen offered for the PIN too (the camera may be
     /// unavailable). Pairing it asks the replacement confirmation first.
     func showRepair(deviceId: String? = nil) {
-        sheet = .addConsole(repairing: deviceId ?? path.last?.deviceId)
+        sheet = .addConsole(repairing: deviceId ?? path.last.flatMap(\.deviceId))
     }
 
     /// A new key was stored: connections signed with the old one are dropped.
@@ -383,6 +423,8 @@ extension AppModel {
             shareInbox: group.flatMap { ShareInbox.appGroup($0) } ?? ShareInbox(root: localInbox()),
             transferDirectory: cleanTransferDirectory(), exportDirectory: cleanExportDirectory(),
             background: UIKitBackgroundActivity(),
+            settings: defaults,
+            vaultProvider: .live(containerIdentifier: Bundle.main.object(forInfoDictionaryKey: "RLICloudContainer") as? String),
             makeSession: { APIClient.makeSession() }
         )
         #if DEBUG
@@ -408,6 +450,12 @@ extension AppModel {
         UserDefaults.standard.removePersistentDomain(forName: suite)
         let artDirectory = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoArt")
         try? FileManager.default.removeItem(at: artDirectory)
+        let demoSaves = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoSaves")
+        try? FileManager.default.removeItem(at: demoSaves)
+        // UI tests (M9): the second listing of the saves finds one changed.
+        if let n = ProcessInfo.processInfo.environment["RL_UITEST_SAVE_CHANGES_ON_LISTING"].flatMap(Int.init) {
+            pak.changeSaveOnListing = n
+        }
         let app = AppModel(
             store: DeviceStore(secureStore: InMemorySecureStore(), defaults: UserDefaults(suiteName: suite)!),
             discovery: Discovery(fixedDevices: [pak.discoveredDevice]),
@@ -416,6 +464,10 @@ extension AppModel {
             shareInbox: ShareInbox(root: FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoInbox")),
             transferDirectory: cleanTransferDirectory(), exportDirectory: cleanExportDirectory(),
             background: UIKitBackgroundActivity(),
+            settings: UserDefaults(suiteName: suite)!,
+            // Its own folder, emptied at each launch: the demo never mixes
+            // with real synced saves. As without iCloud.
+            vaultProvider: .folder(demoSaves, location: .local),
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
         app.demoPairingLink = pak.pairingLink

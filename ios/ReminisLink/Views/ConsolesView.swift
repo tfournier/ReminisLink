@@ -27,6 +27,12 @@ struct ConsolesView: View {
         }
         .navigationTitle("Consoles")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink(value: Route.settings) {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier("consoles.settings")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     app.sheet = .addConsole()
