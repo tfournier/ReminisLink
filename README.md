@@ -153,4 +153,4 @@ The [CI workflow](.github/workflows/ci.yml) then builds the pak and publishes th
 
 ## License
 
-To be decided (MIT, like Cheat Manager, is the default proposal). Third-party components of the pak are listed in [pak/THIRD_PARTY.md](pak/THIRD_PARTY.md).
+[MIT](LICENSE). Third-party components of the pak are listed in [pak/THIRD_PARTY.md](pak/THIRD_PARTY.md).
