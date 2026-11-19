@@ -9,7 +9,7 @@
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
 | M5 | intégré (tests console à faire) | `m5-saves-go`, `m5-saves-ios` | Go : 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m5-go-claude.md` ; iOS : 1 revue Claude (1 bloquant corrigé) — `docs/reviews/m5-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
-| M6 | en cours | `m6-patchs-go`, `m6-patchs-ios` | — | — |
+| M6 | Go livré (en revue), iOS en cours | `m6-patchs-go`, `m6-patchs-ios` | Go : revue Claude neuve en cours | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
@@ -71,6 +71,9 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
+- M6 Go : les `.ips`/`.bps`/`.ups` posés sous `Roms/` sont listés comme des jeux (`ignoredExt`) — vérifier si NextUI les affiche aussi.
+- CI absente du dépôt : y brancher `make fuzz` en mode court (M7).
+- 2026-11-19 : 4 processus `reminislink-host --headless` laissés par l'agent principal pendant M3/M4 (commande d'arrêt visant un mauvais nom de processus) ; arrêtés. Arrêter désormais par PID.
 - M5 Go : fichier `.rtc` des saves non sauvegardé/restauré ni emporté par `DELETE /games` ; formats NextUI non par défaut seulement refusés (pas listés) ; jaquette d'un multi-disques au nom avec point (`TODO(M0)`).
 - 2026-11-19 : interruption par limite d'utilisation (~40 min) pendant M5 ; agents repris sans perte.
 - Tests UI contre le pak headless : chaque test consomme le lien d'appairage (secret à usage unique) ; lancer plusieurs tests réels d'affilée demande un lien neuf par test — écrire `scripts/run-headless-uitests.sh` (08 §3) qui relance le pak ou relit le lien entre deux tests.
