@@ -263,6 +263,9 @@ func (l *Library) Game(gameID string) (GameDetail, error) {
 	if files.Save != nil {
 		add("save", *files.Save, nil)
 	}
+	if files.RTC != nil {
+		add("rtc", *files.RTC, nil)
+	}
 	for _, s := range files.States {
 		slot := s.Slot
 		add("state", s.File, &slot)

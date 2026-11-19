@@ -72,6 +72,12 @@ func TestSaveRoutes(t *testing.T) {
 	if cd := r.Header.Get("Content-Disposition"); !strings.Contains(cd, `filename="caf_ r_verie (france).gba.sav"`) || !strings.Contains(cd, "filename*=utf-8''caf%C3%A9") {
 		t.Fatalf("content disposition %q", cd)
 	}
+	// The clock file of the save is listed with the game (role rtc).
+	testutil.WriteFile(t, f.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock")
+	r = f.do(http.MethodGet, g, "/games/{gameId}", nil, http.StatusOK)
+	if !strings.Contains(string(r.Body), `{"role":"rtc","path":"Saves/GBA/Starlight Courier.gba.rtc","sizeBytes":5,`) {
+		t.Fatalf("rtc role: %s", r.Body)
+	}
 	lk := gamePath(gbaFolder + "/Lantern Keeper [b1].gba")
 	wantCode(t, f.do(http.MethodGet, lk+"/save", "/games/{gameId}/save", nil, http.StatusNotFound), "not_found")
 

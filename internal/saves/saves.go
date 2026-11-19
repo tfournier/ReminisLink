@@ -556,7 +556,8 @@ func (s *Service) InstallLocked(g osadapter.Game, tmp string) (*Backup, error) {
 //
 // rtcTmp, when not "", is a synced clock file installed next to the save
 // (a restored backup that had one); otherwise the clock file in place is
-// left as it is (it is backed up with the save).
+// left as it is (it is backed up with the save): a backup without clock
+// file never removes the current one.
 func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, label *string) (*Backup, error) {
 	// Only the default save format is written (the error wraps
 	// osadapter.ErrUnsupportedFormat).
@@ -581,9 +582,11 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return nil, fmt.Errorf("save: %w", err)
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		return nil, fmt.Errorf("save: install: %w", err)
-	}
+	// The clock file first: a power cut between the two renames leaves the
+	// previous save with the restored clock (the restore did not happen
+	// for the save, run it again), rather than the restored save with a
+	// clock of another save. Both previous files are in the backup just
+	// made.
 	if rtcTmp != "" {
 		rtcDst := strings.TrimSuffix(dst, copyExt) + rtcExt
 		if files.RTC != nil {
@@ -592,6 +595,9 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 		if err := os.Rename(rtcTmp, rtcDst); err != nil {
 			return nil, fmt.Errorf("save: install the clock file: %w", err)
 		}
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return nil, fmt.Errorf("save: install: %w", err)
 	}
 	store.SyncDir(filepath.Dir(dst))
 	store.SyncDir(filepath.Dir(tmp))

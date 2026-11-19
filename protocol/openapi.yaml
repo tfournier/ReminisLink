@@ -680,7 +680,9 @@ paths:
         Copies the current save first (`before-restore`), then replaces the
         save with the chosen backup. The response carries that safety copy
         (null if there was no current save). The clock file of the game
-        (`.rtc`) is backed up and restored with the save when there is one.
+        (`.rtc`) is backed up with the save and restored with it when the
+        backup has one (renamed before the save); a backup without clock
+        file leaves the current one in place.
         `409 conflict` when the backup does not match its checksum (nothing
         is changed).
       parameters:
@@ -1872,7 +1874,10 @@ components:
       type: object
       required: [role, path, sizeBytes, modifiedAt]
       properties:
-        role: { type: string, enum: [rom, save, state, cheats, art] }
+        role:
+          type: string
+          enum: [rom, save, rtc, state, cheats, art]
+          description: '`rtc`: the clock file NextUI writes next to the save (`Saves/<TAG>/<rom>.rtc`), counted in `totalBytes`.'
         slot: { type: integer, minimum: 0, description: Only for `state`. }
         path: { type: string, description: 'Informative, relative to the SD card root. Never sent back.' }
         sizeBytes: { $ref: '#/components/schemas/Bytes' }
