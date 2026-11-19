@@ -17,9 +17,9 @@ package cheats
 // are renumbered on write.
 
 import (
-	"errors"
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
