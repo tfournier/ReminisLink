@@ -473,6 +473,37 @@ struct AddSuggestionTests {
         #expect(FileManager.default.fileExists(atPath: inbox.directory(for: links.id).path))
     }
 
+    /// A share with a ROM and a link: the ROM is queued, then the app is
+    /// stopped before the link is sent. The request stays with its link
+    /// only, until the link is sent.
+    @Test func requestWithALinkLeftStaysUntilTheLinkIsSent() throws {
+        let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let inbox = ShareInbox(root: root)
+        let link = "https://example.org/b.zip"
+        let request = try inbox.write(
+            files: [try makeFile(size: 10, name: "a.gba")], urls: [URL(string: "https://example.org/a.zip")!, URL(string: link)!]
+        )
+        try inbox.takeFile("a.gba", from: request, to: root.appending(path: "moved.gba"))
+        try inbox.consumeLink("https://example.org/a.zip", of: request.id)
+        inbox.purge()
+        let left = try #require(inbox.request(id: request.id))
+        #expect(left.pendingURLs == [link])
+        #expect(!inbox.isUsedUp(left))
+        #expect(throws: CocoaError.self) { try inbox.consumeLink("https://example.org/other", of: request.id) }
+        try inbox.consumeLink(link, of: request.id)
+        #expect(inbox.pending().isEmpty)
+        inbox.purge()
+        #expect(!FileManager.default.fileExists(atPath: inbox.directory(for: request.id).path))
+    }
+
+    /// A request.json written before M8 (no `consumedURLs`) is still read.
+    @Test func requestWithoutConsumedLinksIsRead() throws {
+        let data = Data(#"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","createdAt":"2026-11-19T10:00:00Z","files":[],"urls":["https://example.org/a"]}"#.utf8)
+        let request = try ProtocolJSON.decoder().decode(ShareRequest.self, from: data)
+        #expect(request.pendingURLs == ["https://example.org/a"])
+    }
+
     @Test func plainNamesFromUniqueNameAreAccepted() {
         #expect(ShareInbox.isPlainName(" (2).gba"))
         #expect(ShareInbox.isPlainName("Game (2).gba"))
