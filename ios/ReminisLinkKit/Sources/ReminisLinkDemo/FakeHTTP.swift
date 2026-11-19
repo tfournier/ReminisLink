@@ -9,6 +9,9 @@ public struct FakeResponse: Sendable {
     public var body: Data
     /// When set, the request fails at the transport level instead.
     public var transportError: URLError.Code?
+    /// Seconds before the answer is delivered, without blocking the other
+    /// requests (the handler has already run).
+    public var delay: TimeInterval = 0
 
     public init(status: Int, headers: [String: String] = [:], body: Data = Data(), transportError: URLError.Code? = nil) {
         self.status = status
@@ -77,6 +80,16 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
         let response = handler.respond(to: request, body: Self.body(of: request))
+        if response.delay > 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + response.delay) { [self] in
+                deliver(response, for: url)
+            }
+        } else {
+            deliver(response, for: url)
+        }
+    }
+
+    private func deliver(_ response: FakeResponse, for url: URL) {
         if let code = response.transportError {
             client?.urlProtocol(self, didFailWithError: URLError(code))
             return

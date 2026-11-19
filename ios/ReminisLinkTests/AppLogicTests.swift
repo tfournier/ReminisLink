@@ -209,12 +209,51 @@ struct AppLogicTests {
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
         try await Task.sleep(for: .milliseconds(300)) // /pair is now in flight
-        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == pairs) // not answered yet
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == pairs + 1) // received
+        #expect(flow.paired == nil) // not answered yet
         flow.cancel()
         #expect(app.sheet == nil)
         await flow.wait()
         let after = try #require(try app.store.credentials(for: pak.deviceId)).key
         #expect(after != before)
+        let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
+        #expect(systems.count == 3)
+    }
+
+    /// A first exchange whose answer is slow, then a second pairing of the
+    /// same console: the second /pair waits for the first key to be stored,
+    /// so the iPhone ends with the key the pak kept.
+    @Test func twoPairingsOfTheSameConsoleEndWithTheSameKey() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        pak.delayNextPairs([1])
+        let first = app.startPairing(.link(link(pak)))
+        await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
+        try await Task.sleep(for: .milliseconds(300)) // the first /pair is in flight
+        let second = app.startPairing(.link(link(pak)))
+        await second.wait()
+        await first.wait()
+        #expect(second.step == .done)
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == 2)
+        let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
+        #expect(systems.count == 3)
+    }
+
+    /// Closed while waiting for an earlier exchange: its /pair is never sent.
+    @Test func aPairingClosedWhileWaitingSendsNothing() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        pak.delayNextPairs([1])
+        let first = app.startPairing(.link(link(pak)))
+        await waitUntil { pak.log.contains { $0.path == "/api/v1/hello" } }
+        try await Task.sleep(for: .milliseconds(300))
+        let second = app.startPairing(.link(link(pak)))
+        await waitUntil { pak.log.filter { $0.path == "/api/v1/hello" }.count == 2 }
+        try await Task.sleep(for: .milliseconds(100))
+        second.cancel()
+        await second.wait()
+        await first.wait()
+        #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == 1)
         let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
         #expect(systems.count == 3)
     }

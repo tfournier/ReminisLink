@@ -57,6 +57,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private var _clockOffset: TimeInterval = 0
     private var _responseDelay: TimeInterval = 0
     private var _pairDelay: TimeInterval = 0
+    private var nextPairDelays: [TimeInterval] = []
     private var clients: [String: SymmetricKey] = [:]
     private var clientNames: [String: String] = [:]
     /// Last accepted signed request per client (`connectedClients`).
@@ -170,6 +171,12 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public var pairDelay: TimeInterval {
         get { lock.withLock { _pairDelay } }
         set { lock.withLock { _pairDelay = newValue } }
+    }
+
+    /// The next `POST /pair` requests wait these delays (in their order of
+    /// arrival) after registering the client, instead of ``pairDelay``.
+    public func delayNextPairs(_ delays: [TimeInterval]) {
+        lock.withLock { nextPairDelays.append(contentsOf: delays) }
     }
 
     public var log: [LoggedRequest] { lock.withLock { _log } }
@@ -463,13 +470,19 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         guard let key = try? Pairing.deriveKey(
             ikm: ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: deviceId, clientId: request.clientId
         ) else { return .error(500, code: "internal", message: "Key derivation failed") }
-        addClient(id: request.clientId, key: key, name: request.clientName)
-        if pairDelay > 0 { Thread.sleep(forTimeInterval: pairDelay) }
-        return .json(200, [
+        let delay = lock.withLock { () -> TimeInterval in
+            clients[request.clientId] = key
+            clientNames[request.clientId] = request.clientName
+            return nextPairDelays.isEmpty ? _pairDelay : nextPairDelays.removeFirst()
+        }
+        var response = FakeResponse.json(200, [
             "deviceId": deviceId, "deviceName": deviceName,
             "deviceNonce": Base64URL.encode(deviceNonce),
             "proof": Pairing.deviceProof(key: key, deviceId: deviceId, clientId: request.clientId),
         ])
+        // Delivered later, without blocking the other requests.
+        response.delay = delay
+        return response
     }
 
     private func device() -> FakeResponse {

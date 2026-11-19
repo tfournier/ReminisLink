@@ -40,6 +40,8 @@ final class PairingFlow: Identifiable {
 
     @ObservationIgnored private unowned let app: AppModel
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// The screen went away (or a new run has not started yet).
+    @ObservationIgnored private(set) var isStopped = false
 
     init(app: AppModel, source: PairingSource) {
         self.app = app
@@ -50,6 +52,7 @@ final class PairingFlow: Identifiable {
     /// a run is already in progress.
     func start() {
         guard task == nil else { return }
+        isStopped = false
         isRunning = true
         error = nil
         step = .searching
@@ -94,9 +97,16 @@ final class PairingFlow: Identifiable {
             // have dropped the previous one): the exchange runs to its end in
             // its own task, not cancelled with the screen, and the key is
             // stored as soon as the device proof is valid.
+            //
+            // Exchanges with the same console run one after the other, each
+            // up to the Keychain write: a slow first exchange must never
+            // store its key after a newer one (the pak keeps the newer).
             let app = app
             let name = suggestedName ?? hello.deviceName
-            let exchange = Task { () throws -> PairedDevice in
+            let exchange = app.pairExchange(deviceId: deviceId) { [weak self] in
+                // Closed while an earlier exchange was finishing: /pair was
+                // not sent yet, so nothing changes.
+                if self?.isStopped ?? true { throw CancellationError() }
                 let key = try await client.pair(attempt)
                 let device = try app.store.save(deviceId: deviceId, name: name, model: hello.model, clientId: clientId, key: key)
                 app.didReplaceKey(for: deviceId)
@@ -130,6 +140,7 @@ final class PairingFlow: Identifiable {
 
     /// Stops a pairing in progress (the sheet went away).
     func stop() {
+        isStopped = true
         task?.cancel()
     }
 

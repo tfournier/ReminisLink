@@ -111,6 +111,9 @@ final class AppModel {
     /// closes, however it closes (sent, cancelled, swiped down).
     @ObservationIgnored private var presentedShare: ShareRequest?
 
+    /// The last `/pair` exchange of each console, until its key is stored.
+    @ObservationIgnored private var pairExchanges: [String: (id: UUID, task: Task<PairedDevice, Error>)] = [:]
+
     @ObservationIgnored private let makeSession: () -> URLSession
     @ObservationIgnored private var sessions: [String: ConsoleSession] = [:]
 
@@ -267,6 +270,24 @@ final class AppModel {
         sheet = .pairing(flow)
         flow.start()
         return flow
+    }
+
+    /// Runs a `/pair` exchange once the previous exchange with the same
+    /// console has ended (key stored or failed), so that the last key the
+    /// pak registered is the last one stored. The exchange is never
+    /// cancelled with its screen.
+    func pairExchange(
+        deviceId: String, _ body: @escaping @MainActor () async throws -> PairedDevice
+    ) -> Task<PairedDevice, Error> {
+        let previous = pairExchanges[deviceId]?.task
+        let id = UUID()
+        let task = Task { @MainActor in
+            defer { if self.pairExchanges[deviceId]?.id == id { self.pairExchanges[deviceId] = nil } }
+            _ = await previous?.result
+            return try await body()
+        }
+        pairExchanges[deviceId] = (id, task)
+        return task
     }
 
     /// A new key was stored: connections signed with the old one are dropped.
