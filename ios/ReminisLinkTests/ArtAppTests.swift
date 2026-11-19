@@ -54,7 +54,7 @@ struct ArtAppTests {
         let library = session.libraryRevision
         let art = session.artRevision
 
-        try await session.setArt(gameId: skyGarden, from: .data(GameArtSection.testPicture()))
+        try await session.setArt(gameId: skyGarden, from: .data(GameArtButton.testPicture()))
         #expect(app.artCache.entry(deviceId: pak.deviceId, gameId: skyGarden) == nil)
         #expect(session.artRevision == art + 1)
         #expect(session.libraryRevision == library + 1)
@@ -91,7 +91,7 @@ struct ArtAppTests {
         let app = try await makeApp(pak)
         let url = root.appending(path: "picture.jpg")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try GameArtSection.testPicture().write(to: url)
+        try GameArtButton.testPicture().write(to: url)
         try await app.session(for: pak.deviceId).setArt(gameId: skyGarden, from: .file(url))
         #expect(pak.log.contains { $0.method == "PUT" && $0.path.hasSuffix("/art") && $0.status == 200 })
     }

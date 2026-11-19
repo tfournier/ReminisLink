@@ -37,22 +37,24 @@ Pas d'entitlement multicast : Bonjour via `NWBrowser` n'en a pas besoin.
 
 ```
 Consoles ─┬─ Ajouter une console (scan QR / PIN)
-          └─ Console ─┬─ Tableau de bord (état)
-                      ├─ Bibliothèque ─ Système ─ (Dossier) ─ Jeu ─┬─ Save
-                      │                                            ├─ States
-                      │                                            ├─ Cheats
-                      │                                            ├─ Patch
-                      │                                            └─ Supprimer
-                      ├─ Ajouter (fichier / URL)
-                      ├─ Transferts
-                      ├─ Saves sur cet iPhone ─ Système ─ Jeu ─ Versions (M9)
-                      └─ Réglages de la console
+          └─ Console ouverte : barre d'onglets (M11)
+             ├─ Console : tableau de bord (état), sync des saves ─ Saves sur cet iPhone ─ Système ─ Jeu ─ Versions (M9)
+             ├─ Bibliothèque : tous les jeux (recherche, filtres) ─ Jeu ─┬─ Save
+             │   └─ (Parcourir par console) ─ Système ─ (Dossier) ─ Jeu  ├─ States
+             │                                                          ├─ Cheats
+             │                                                          ├─ Patch
+             │                                                          └─ Supprimer
+             ├─ Transferts
+             └─ Corbeille
+Ajouter (fichier / URL) : feuille ouverte depuis Bibliothèque, Transferts ou l'extension de partage
 Réglages de l'app ─ Saves sur cet iPhone ─ Console ─ …
 ```
 
+**Navigation (M11).** La liste des consoles reste la racine. Ouvrir une console affiche une barre d'onglets **Console**, **Bibliothèque**, **Transferts**, **Corbeille**, chacun avec sa propre pile de navigation ; le bouton **Consoles** en haut à gauche du premier écran de chaque onglet revient à la liste. Les liens internes (fin d'appairage, fin d'un envoi → onglet Transferts, nouvelle ROM d'un patch → onglet Bibliothèque puis le jeu) ouvrent l'onglet voulu. Le bandeau lecture seule (M10) est affiché sur tous les onglets.
+
 ### 4.1 Consoles
 
-- Liste des consoles appairées : nom, modèle, état (`En ligne` si vue par Bonjour, sinon `Hors ligne`).
+- Liste des consoles appairées : nom, modèle, état (M11 : quand la console est renommée sur le pak, le `deviceName` de `/hello` ou `/device`, rapproché par `deviceId`, jamais par le nom, remplace le nom affiché ; un nom choisi dans l'app reste jusqu'au prochain changement de nom sur la console, y compris pour une console appairée avant M11 (le premier nom reçu est seulement mémorisé) ; un nouvel appairage applique la même règle ; pas depuis Bonjour, dont le nom d'instance n'est pas authentifié et peut être suffixé en cas de conflit) (`En ligne` si vue par Bonjour, sinon `Hors ligne`).
 - Bouton **Ajouter une console**.
 - Si aucune console : écran d'accueil qui explique en 3 étapes (installer ReminisLink depuis le Pak Store, l'ouvrir, scanner le QR code).
 
@@ -68,17 +70,18 @@ Réglages de l'app ─ Saves sur cet iPhone ─ Console ─ …
 
 ### 4.3 Tableau de bord
 
-Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés (champ `connectedClients` de `GET /device`). Actions : **Corbeille** (liste des entrées avec taille et date d'expiration, suppression d'une entrée, **Vider la corbeille** avec confirmation), **Se désappairer**. Section **Synchronisation des saves** (M9, §8) : bouton **Synchroniser les saves**, progression avec **Annuler**, compte rendu de la dernière sync (nouvelles versions, saves vérifiées, saves en échec avec leur message), lien **Saves sur cet iPhone**, et l'emplacement (iCloud Drive, ou avertissement « iCloud Drive n'est pas disponible » quand les saves restent sur l'iPhone).
+Onglet **Console** (M11). Aucun ajout de fichier depuis cet onglet : l'ajout reste dans Bibliothèque et Transferts ; la corbeille a son onglet. Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés (champ `connectedClients` de `GET /device`). Actions : **Se désappairer**. L'onglet **Corbeille** liste les entrées avec taille et date d'expiration (suppression d'une entrée, **Vider la corbeille** avec confirmation). Section **Synchronisation des saves** (M9, §8) : bouton **Synchroniser les saves**, progression avec **Annuler**, compte rendu de la dernière sync (nouvelles versions, saves vérifiées, saves en échec avec leur message), lien **Saves sur cet iPhone**, et l'emplacement (iCloud Drive, ou avertissement « iCloud Drive n'est pas disponible » quand les saves restent sur l'iPhone).
 
 ### 4.4 Bibliothèque
 
-- Systèmes avec nombre de jeux, puis jeux du système : jaquette, nom, taille, pastilles (save, nombre de states, cadenas si un state est verrouillé, nombre de cheats).
-- Recherche dans le système, tri (nom, date, taille).
+- **À plat (M11)** : `GET /games`, tous les jeux de tous les systèmes dans une seule liste : jaquette, nom, console (avec le tag du système quand plusieurs systèmes ayant des jeux partagent son `label`, par exemple « Game Boy Advance (MGBA) », et le dossier), taille, pastilles (save, nombre de states, cadenas si un state est verrouillé, nombre de cheats). Recherche sur le nom et le nom de fichier (sans tenir compte de la casse ni des accents). Menu **Filtrer et trier** : console (les systèmes de même `label` sont fusionnés, comme NextUI les affiche : GBA et MGBA donnent « Game Boy Advance »), avec une save, avec des states, avec des cheats, tri (nom, date, taille), **Effacer les filtres**, et **Parcourir par console**. Bouton **+** : la feuille Ajouter (désactivé en lecture seule).
+- **Par système** : systèmes avec nombre de jeux, puis jeux du système et sous-dossiers, recherche dans le dossier, tri. Utilisé quand `truncated` est vrai (plus de 20 000 jeux, avec un message) ou quand le pak n'a pas la route (`404`/`405`, pak antérieur à M11), et depuis **Parcourir par console**.
 - Glisser vers la gauche sur un jeu : **Supprimer**.
 
 ### 4.5 Fiche d'un jeu
 
-- En-tête : jaquette, nom, système, taille totale, liste des fichiers (chemins informatifs).
+- En-tête : jaquette, nom, système, taille totale. **Toucher la jaquette** (M11) ouvre le choix : **Photothèque**, **Fichiers**, **Retirer l'image** (si le jeu en a une, avec confirmation) ; l'image est réduite à 1024 px au plus et envoyée en PNG, l'ancienne part dans la corbeille de la console. Désactivé en lecture seule (M10).
+- **Fichiers** (M11) : chaque fichier de `GET /games/{gameId}` (rôle, nom = dernier composant de `path`, taille) avec un bouton **Télécharger** : `GET /games/{gameId}/files/{fileId}` (jamais un chemin), écrit sur disque au fil de l'eau (téléchargement `URLSession` signé, progression, annulation ; une ROM peut faire des centaines de Mo), puis la feuille de partage iOS (**Enregistrer dans Fichiers**, AirDrop…), comme pour les saves et les states ; la copie locale est supprimée à la fermeture de la feuille. Permis en lecture seule. Un `404` (le fichier n'est plus dans la liste du jeu) recharge la fiche, puis, une fois rechargée, affiche « Ce fichier a changé sur la console. La liste des fichiers a été rechargée : réessaie. » ; si le jeu lui-même n'existe plus (`404` sur `GET /games/{gameId}`), la fiche perd ses rangs et actions et affiche « Ce jeu n'est plus sur la console. » Un téléchargement à la fois ; quitter l'écran l'annule. Un pak antérieur à M11 n'envoie pas de `fileId` : la fiche fonctionne, sans bouton de téléchargement.
 - **Save** : télécharger (partage iOS), remplacer (depuis Fichiers), copies de sauvegarde (créer avec un libellé, restaurer, supprimer, télécharger).
 - **States** : un rang par emplacement (vignette, date, taille, cadenas). Actions : télécharger, verrouiller / déverrouiller, restaurer, supprimer. Section **Historique de reprise**. Texte d'aide sur le fonctionnement des verrous (voir [05 §5.2](05-console-pak.md#52-verrous-de-states)).
 - **Cheats** : liste avec interrupteurs, ajout, modification (description, code, activé), suppression, réordonnancement, import (URL, Fichiers, fichier de la carte SD ; fusion ou remplacement).
@@ -114,6 +117,7 @@ Langue (suivre le système par défaut), consoles appairées (supprimer), à pro
 | Horloge décalée | `401 clock_skew` | Correction automatique et nouvel essai ; message seulement si ça échoue encore |
 | Espace insuffisant | `507` | « Espace insuffisant sur la carte SD : il manque X Go. » |
 | Pak fermé pendant un transfert | Erreur réseau | « La console ne répond plus. » Le transfert passe en pause et reprendra |
+| Pak fermé (M11) | `503 shutting_down` sur n'importe quelle requête de la connexion (écran, transfert, bail, y compris `/hello` et `/device` pendant l'ouverture), ou, y compris pendant l'ouverture, échec de connexion alors que le service Bonjour de la console a disparu (le navigateur Bonjour tourne depuis au moins 3 s) | Retour à la liste des consoles avec « La console a quitté ReminisLink » ; les envois en cours passent en pause (jamais perdus) et reprennent à la prochaine connexion. Aucune reconnexion automatique avant que l'utilisateur rouvre la console (ni un écran, ni un envoi ajouté par une feuille Ajouter encore en train de copier, qui reste en pause, ni la fin de cette feuille, qui n'ouvre pas l'onglet Transferts). Une coupure Wi-Fi seule (service toujours annoncé) garde l'écran d'erreur habituel |
 | Lecture seule (M10) | `423 read_only` (`details.writer`) sur une écriture | « Lecture seule — <appareil> a la main. Rien n’a été modifié. Prends la main pour faire des modifications depuis cet iPhone. » L’app passe en lecture seule (§9) |
 | Déconnecté par la console (M10) | `401 disconnected` | « Déconnecté par la console. » Bouton **Se reconnecter** (§9) |
 

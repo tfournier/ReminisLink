@@ -111,6 +111,54 @@ struct TransferQueueTests {
         #expect(item.phase == .done)
     }
 
+    /// M11: the console closes ReminisLink. The running upload pauses after
+    /// its chunk, the waiting one pauses too; both go on at the next
+    /// connection, from the confirmed offset.
+    @Test func aClosedConsolePausesUploadsUntilTheNextConnection() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        pak.responseDelay = 0.02
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let first = try queue.enqueue(fileURL: try makeFile(size: 200_000, name: "K1.gba"),
+                                      target: .rom(systemId: gbaSystemId, fileName: "K1.gba"), destination: "", ownsFile: false)
+        let second = try queue.enqueue(fileURL: try makeFile(size: 50_000, name: "K2.gba"),
+                                       target: .rom(systemId: gbaSystemId, fileName: "K2.gba"), destination: "", ownsFile: false)
+        while first.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        queue.pauseForClosedConsole()
+        await queue.waitUntilIdle()
+        #expect(first.phase == .paused)
+        #expect(second.phase == .paused)
+        #expect(first.sentBytes > 0 && first.sentBytes < 200_000)
+        // Back from the background meanwhile: still held.
+        queue.suspend()
+        queue.resumeAfterSuspension()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(first.phase == .paused)
+        queue.resumeAfterReconnection()
+        await queue.waitUntilIdle()
+        #expect(first.phase == .done)
+        #expect(second.phase == .done)
+    }
+
+    /// M11: `503 shutting_down` beyond the retries pauses the upload (it
+    /// never fails for it).
+    @Test func shuttingDownPausesTheUpload() async throws {
+        let pak = makePak()
+        pak.chunkSize = 32 * 1024
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        pak.injectChunkFaults(Array(repeating: .shuttingDown, count: 6))
+        let item = try queue.enqueue(fileURL: try makeFile(size: 100_000), target: .rom(systemId: gbaSystemId, fileName: "L.gba"),
+                                     destination: "GBA", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .paused)
+        #expect((item.failure as? APIError)?.code == .shuttingDown)
+        queue.resumePaused()
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+    }
+
     /// Regression: in the background, the next upload must not start.
     @Test func waitingItemStartsInBackground() async throws {
         let pak = makePak()

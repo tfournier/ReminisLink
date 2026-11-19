@@ -18,14 +18,22 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var app = app
-        NavigationStack(path: $app.path) {
-            ConsolesView()
-                .navigationDestination(for: Route.self) { route in
-                    destination(route)
-                        // M10: another device has write access.
-                        .readOnlyBanner(deviceId: route.deviceId)
+        Group {
+            // Milestone M11: an open console shows its tabs; the list of
+            // consoles is the root otherwise.
+            if let deviceId = app.openConsoleId {
+                ConsoleTabsView(deviceId: deviceId)
+                    .id(deviceId)
+                    .transition(.move(edge: .trailing))
+            } else {
+                NavigationStack(path: $app.listPath) {
+                    ConsolesView()
+                        .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
                 }
+                .transition(.move(edge: .leading))
+            }
         }
+        .animation(.default, value: app.openConsoleId)
         .sheet(item: $app.sheet, onDismiss: { app.sheetDismissed() }) { sheet in
             switch sheet {
             case .addConsole(let repairing): AddConsoleView(repairing: repairing)
@@ -64,12 +72,23 @@ struct RootView: View {
             }
         }
     }
+}
+
+/// The screen of a navigation destination, with the read-only banner of
+/// its console (M10).
+struct RouteDestination: View {
+    let route: Route
+
+    var body: some View {
+        content.readOnlyBanner(deviceId: route.deviceId)
+    }
 
     @ViewBuilder
-    private func destination(_ route: Route) -> some View {
+    private var content: some View {
         switch route {
         case .console(let id): ConsoleView(deviceId: id)
         case .library(let id): LibraryView(deviceId: id)
+        case .systems(let id): SystemsView(deviceId: id)
         case .folder(let folder): FolderView(route: folder)
         case .game(let game): GameDetailView(route: game)
         case .save(let game): SaveView(route: game)
@@ -82,5 +101,77 @@ struct RootView: View {
         case .syncedSaves(let id): SyncedSavesView(deviceId: id)
         case .syncedGame(let game): SyncedGameView(route: game)
         }
+    }
+}
+
+/// The tabs of an open console (milestone M11): Console (dashboard),
+/// Library, Transfers and Trash, each with its own navigation. A button of
+/// each tab's first screen goes back to the list of consoles.
+struct ConsoleTabsView: View {
+    @Environment(AppModel.self) private var app
+    let deviceId: String
+    @State private var isVisible = false
+
+    var body: some View {
+        @Bindable var app = app
+        let session = app.session(for: deviceId)
+        TabView(selection: $app.consoleTab) {
+            tab(.console) { ConsoleView(deviceId: deviceId) }
+                .tabItem { Label("Console", systemImage: "gamecontroller") }
+                .accessibilityIdentifier("tab.console")
+            tab(.library) { LibraryView(deviceId: deviceId) }
+                .tabItem { Label("Library", systemImage: "square.grid.2x2") }
+                .accessibilityIdentifier("tab.library")
+            tab(.transfers) { TransfersView(deviceId: deviceId) }
+                .tabItem { Label("Transfers", systemImage: "arrow.up.arrow.down") }
+                .badge(activeTransfers(session))
+                .accessibilityIdentifier("tab.transfers")
+            tab(.trash) { TrashView(deviceId: deviceId) }
+                .tabItem { Label("Trash", systemImage: "trash") }
+                .accessibilityIdentifier("tab.trash")
+        }
+        // Every tab needs the connection (the Trash tab only reads what it
+        // loaded).
+        .task { await session.connectIfNeeded() }
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
+        // A connection cancelled by a screen leaves .idle: never stay
+        // without trying again while the console is open.
+        .onChange(of: session.state) { _, state in
+            if state == .idle && isVisible {
+                Task { await session.connectIfNeeded() }
+            }
+        }
+    }
+
+    private func activeTransfers(_ session: ConsoleSession) -> Int {
+        session.transfers.uploads.filter { !$0.phase.isFinished }.count
+            + session.transfers.jobs.filter { !$0.isFinished }.count
+    }
+
+    private func tab<Content: View>(_ tab: ConsoleTab, @ViewBuilder root: () -> Content) -> some View {
+        NavigationStack(path: Binding(
+            get: { app.tabPaths[tab] ?? [] },
+            set: { app.tabPaths[tab] = $0 }
+        )) {
+            root()
+                .readOnlyBanner(deviceId: deviceId)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            app.closeConsole()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.backward").fontWeight(.semibold)
+                                Text("Consoles")
+                            }
+                        }
+                        .accessibilityLabel(Text("Consoles"))
+                        .accessibilityIdentifier("tab.consoles")
+                    }
+                }
+                .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
+        }
+        .tag(tab)
     }
 }

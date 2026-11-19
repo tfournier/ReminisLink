@@ -53,10 +53,48 @@ enum GameDataUITest {
         let done = app.buttons["pairing.done"]
         XCTAssertTrue(done.waitForExistence(timeout: timeout), "pairing did not finish")
         done.tap()
-        app.buttons["console.library"].tapWhenEnabled(timeout: timeout)
-        app.buttons["system.\(system)"].tapAfterWaiting(timeout: timeout)
-        app.buttons["game.\(game)"].tapAfterWaiting(timeout: timeout)
+        openLibraryGame(app, system: system, game: game, timeout: timeout)
         XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: timeout))
+    }
+
+    /// The Library tab of the open console (M11).
+    @MainActor
+    static func openLibraryTab(_ app: XCUIApplication, timeout: TimeInterval) {
+        app.tabBars.buttons["Library"].tapWhenEnabled(timeout: timeout)
+    }
+
+    /// From the open console to a game: the flat library (searched by
+    /// name), or the systems when the pak browses per system (an older
+    /// pak, or more than 20 000 games).
+    @MainActor
+    static func openLibraryGame(_ app: XCUIApplication, system: String, game: String, timeout: TimeInterval) {
+        openLibraryTab(app, timeout: timeout)
+        // The first row of that name: two systems with the same label (GBA
+        // and MGBA of testdata/sdcard) can each hold a game of that name;
+        // the flat list keeps the pak's order (system folder) between them.
+        let row = app.buttons.matching(identifier: "game.\(game)").firstMatch
+        let systemRow = app.buttons["system.\(system)"]
+        let deadline = Date().addingTimeInterval(timeout)
+        while !row.exists && !systemRow.exists && Date() < deadline {
+            _ = row.waitForExistence(timeout: 0.5)
+        }
+        if !row.exists && systemRow.exists {
+            systemRow.tap()
+        } else if !row.isHittable {
+            search(app, game)
+        }
+        row.tapAfterWaiting(timeout: timeout)
+    }
+
+    /// Types in the search field of the flat library.
+    @MainActor
+    static func search(_ app: XCUIApplication, _ text: String) {
+        let field = app.searchFields.firstMatch
+        if !field.waitForExistence(timeout: 2) {
+            app.swipeDown()
+        }
+        field.tapAfterWaiting(timeout: 5)
+        field.typeText(text)
     }
 
     /// The confirmation of what an action did.

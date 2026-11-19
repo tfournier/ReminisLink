@@ -102,7 +102,8 @@ func (s *Server) httpServer(baseCtx context.Context) *http.Server {
 		IdleTimeout:       IdleTimeout,
 		MaxHeaderBytes:    MaxHeaderBytes,
 		// No ReadTimeout nor WriteTimeout: transfers can be long. The body
-		// has an inactivity deadline instead (BodyIdleTimeout).
+		// has an inactivity deadline instead (BodyIdleTimeout), and so do
+		// the file downloads (SendIdleTimeout).
 		BaseContext: func(net.Listener) context.Context { return baseCtx },
 		// net/http's own messages (bad requests, TLS attempts...) can be
 		// caused by anyone: sampled like the rejected requests.

@@ -77,7 +77,7 @@ func TestSaveRoutes(t *testing.T) {
 	// The clock file of the save is listed with the game (role rtc).
 	testutil.WriteFile(t, f.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock")
 	r = f.do(http.MethodGet, g, "/games/{gameId}", nil, http.StatusOK)
-	if !strings.Contains(string(r.Body), `{"role":"rtc","path":"Saves/GBA/Starlight Courier.gba.rtc","sizeBytes":5,`) {
+	if !strings.Contains(string(r.Body), `"role":"rtc","path":"Saves/GBA/Starlight Courier.gba.rtc","sizeBytes":5,`) {
 		t.Fatalf("rtc role: %s", r.Body)
 	}
 	lk := gamePath(gbaFolder + "/Lantern Keeper [b1].gba")

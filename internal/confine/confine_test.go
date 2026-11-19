@@ -1,4 +1,4 @@
-package saves
+package confine
 
 import (
 	"errors"
@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// openConfined refuses a link at any component, inside the saves folder
+// Open refuses a link at any component, inside the saves folder
 // or out of it; os.Root itself refuses an escape even without that check.
-func TestOpenConfined(t *testing.T) {
+func TestOpen(t *testing.T) {
 	dir := t.TempDir()
 	outside := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "GBA", "sub"), 0o755); err != nil {
@@ -39,7 +39,7 @@ func TestOpenConfined(t *testing.T) {
 	}
 	defer root.Close()
 
-	f, fi, err := openConfined(root, filepath.Join("GBA", "sub", "x.sav"))
+	f, fi, err := Open(root, filepath.Join("GBA", "sub", "x.sav"))
 	if err != nil || fi.Size() != 4 {
 		t.Fatalf("plain file: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestOpenConfined(t *testing.T) {
 		filepath.Join("GBA", "sub", "esc.sav"),  // linked file outside
 		"GBA",                                   // not a regular file
 	} {
-		if f, _, err := openConfined(root, rel); !errors.Is(err, errOutside) {
+		if f, _, err := Open(root, rel); !errors.Is(err, ErrOutside) {
 			if f != nil {
 				f.Close()
 			}
@@ -65,8 +65,30 @@ func TestOpenConfined(t *testing.T) {
 		t.Error("os.Root followed a link out of the folder")
 	}
 	for _, p := range []string{filepath.Join(dir, "..", "x.sav"), dir, "/etc/passwd"} {
-		if _, err := relToRoot(dir, p); !errors.Is(err, errOutside) {
-			t.Errorf("relToRoot(%s): %v", p, err)
+		if _, err := RelToRoot(dir, p); !errors.Is(err, ErrOutside) {
+			t.Errorf("RelToRoot(%s): %v", p, err)
 		}
+	}
+}
+
+func TestOpenUnder(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a", "x.bin")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("abc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, fi, err := OpenUnder(dir, p)
+	if err != nil || fi.Size() != 3 {
+		t.Fatalf("OpenUnder: %v", err)
+	}
+	f.Close()
+	if _, _, err := OpenUnder(filepath.Join(dir, "a"), filepath.Join(dir, "x.bin")); !errors.Is(err, ErrOutside) {
+		t.Errorf("outside: %v", err)
+	}
+	if _, _, err := OpenUnder(dir, filepath.Join(dir, "a", "missing")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("missing: %v", err)
 	}
 }

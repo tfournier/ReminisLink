@@ -196,6 +196,30 @@ public actor APIClient {
         try await signedJSON(method: "GET", segments: ["games", id])
     }
 
+    /// How long `GET /games` may stay silent: the pak lists every system
+    /// (up to 20 000 games) before answering.
+    public static let allGamesTimeout: TimeInterval = 60
+
+    /// `GET /games` (M11): every game of every system, in one flat list.
+    /// An older pak without the route answers `404`.
+    public func allGames() async throws -> AllGames {
+        try await signedJSON(method: "GET", segments: ["games"], timeout: Self.allGamesTimeout)
+    }
+
+    /// `GET /games/{gameId}/files/{fileId}` (M11): one file of the game,
+    /// streamed to disk (never held in memory) into a new directory under
+    /// `directory`, named after `Content-Disposition`. `progress` gets the
+    /// bytes received so far and the expected total (`Content-Length`),
+    /// when known. A file no longer in the game's list gets `404 not_found`.
+    public func downloadGameFile(
+        gameId: String, fileId: String, into directory: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) async throws -> DownloadedFile {
+        try await downloadSigned(
+            segments: ["games", gameId, "files", fileId], fallbackName: "download.bin", into: directory, progress: progress
+        )
+    }
+
     /// Largest art accepted from the pak (the pak computes ETags up to
     /// this size, and serves larger files whole): a larger body is never
     /// held in memory, the art is treated as unreadable.
@@ -617,11 +641,14 @@ public actor APIClient {
     /// A signed `GET` whose body is written to a file (never held in
     /// memory), moved into a new directory under `directory`, named after
     /// `Content-Disposition` (or `fallbackName`).
-    private func downloadSigned(segments: [String], fallbackName: String, into directory: URL) async throws -> DownloadedFile {
+    private func downloadSigned(
+        segments: [String], fallbackName: String, into directory: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) async throws -> DownloadedFile {
         let ((location, errorBody), response) = try await withSignedRequests(
             method: "GET", segments: segments, query: [], headers: [:], body: nil, bodyFile: nil, bodyFileSHA256: nil
         ) { request -> ((URL?, Data), HTTPURLResponse, Data) in
-            let (location, response) = try await self.transportDownload(request)
+            let (location, response) = try await self.transportDownload(request, progress: progress)
             guard response.statusCode != 200 else { return ((location, Data()), response, Data()) }
             // Not the file: its body is an error, small. Read it (the error
             // is decoded from it), then drop the file.
@@ -655,9 +682,15 @@ public actor APIClient {
         return (try? handle.read(upToCount: 64 << 10)) ?? Data()
     }
 
-    private func transportDownload(_ request: URLRequest) async throws -> (URL, HTTPURLResponse) {
+    private func transportDownload(
+        _ request: URLRequest, progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) async throws -> (URL, HTTPURLResponse) {
         do {
-            let (location, response) = try await session.download(for: request, delegate: PakTaskDelegate())
+            let (location, response) = if let progress {
+                try await PakDownloadDelegate.download(request, session: session, onReceived: progress)
+            } else {
+                try await session.download(for: request, delegate: PakTaskDelegate())
+            }
             guard let http = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: location)
                 throw APIError.invalidResponse("not an HTTP response")
@@ -784,7 +817,7 @@ public actor APIClient {
 ///   local network.
 /// - `onSent` reports the body bytes sent so far (upload chunks): growing
 ///   only, and never after ``finish(totalBytesSent:)``.
-final class PakTaskDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+class PakTaskDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let onSent: (@Sendable (Int64) -> Void)?
     private let lock = NSLock()
     private var reported: Int64 = 0
@@ -824,6 +857,79 @@ final class PakTaskDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendab
             guard !finished, totalBytesSent > reported else { return }
             reported = totalBytesSent
             onSent(totalBytesSent)
+        }
+    }
+}
+
+/// Task delegate of a download that reports its progress: the bytes
+/// written to disk so far, and the expected total when the pak sent
+/// `Content-Length`. The async `download(for:delegate:)` does not report
+/// them, so the task is driven here. Redirections stay refused.
+final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let onReceived: @Sendable (Int64, Int64?) -> Void
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    /// The file, moved out of the session's temporary location.
+    private var kept: URL?
+
+    private init(onReceived: @escaping @Sendable (Int64, Int64?) -> Void) {
+        self.onReceived = onReceived
+        super.init(onSent: nil)
+    }
+
+    /// Downloads `request` to a file of the app's temporary directory.
+    static func download(
+        _ request: URLRequest, session: URLSession, onReceived: @escaping @Sendable (Int64, Int64?) -> Void
+    ) async throws -> (URL, URLResponse) {
+        let delegate = PakDownloadDelegate(onReceived: onReceived)
+        let task = session.downloadTask(with: request)
+        task.delegate = delegate
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.lock.withLock { delegate.continuation = continuation }
+                if Task.isCancelled {
+                    delegate.finish(.failure(URLError(.cancelled)))
+                } else {
+                    task.resume()
+                }
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func finish(_ result: Result<(URL, URLResponse), Error>) {
+        let continuation = lock.withLock { () -> CheckedContinuation<(URL, URLResponse), Error>? in
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume(with: result)
+    }
+
+    func urlSession(
+        _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64
+    ) {
+        onReceived(totalBytesWritten, totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil)
+    }
+
+    /// The session deletes its file when this returns: it is moved first.
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let destination = FileManager.default.temporaryDirectory.appending(path: "rl-dl-\(UUID().uuidString)")
+        if (try? FileManager.default.moveItem(at: location, to: destination)) != nil {
+            lock.withLock { kept = destination }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let kept = lock.withLock { self.kept }
+        if let error {
+            if let kept { try? FileManager.default.removeItem(at: kept) }
+            finish(.failure(error))
+        } else if let kept, let response = task.response {
+            finish(.success((kept, response)))
+        } else {
+            finish(.failure(URLError(.cannotCreateFile)))
         }
     }
 }

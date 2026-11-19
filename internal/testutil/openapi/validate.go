@@ -244,9 +244,37 @@ func typeMatches(want, got string) bool {
 }
 
 func (s *Spec) validate(node any, v any, at string) error {
+	return s.validateIn(node, v, at, nil)
+}
+
+// validateIn validates v against node. siblings are the properties
+// declared by the other branches of an enclosing allOf: for the implicit
+// strict rule, a property one branch does not declare is not an extra
+// property when another branch declares it (and validates it); an
+// explicit additionalProperties still applies to it. Properties declared
+// by none are still refused (strict by default).
+func (s *Spec) validateIn(node any, v any, at string, siblings map[string]bool) error {
 	sc, err := s.resolveRef(node)
 	if err != nil {
 		return fmt.Errorf("%s: %w", at, err)
+	}
+	all, _ := sc["allOf"].([]any)
+	if len(all) > 0 {
+		allowed := map[string]bool{}
+		for k := range siblings {
+			allowed[k] = true
+		}
+		for _, sub := range append([]any{sc}, all...) {
+			r, err := s.resolveRef(sub)
+			if err != nil {
+				return fmt.Errorf("%s: %w", at, err)
+			}
+			props, _ := r["properties"].(map[string]any)
+			for k := range props {
+				allowed[k] = true
+			}
+		}
+		siblings = allowed
 	}
 	got := jsonType(v)
 	switch t := sc["type"].(type) {
@@ -306,15 +334,13 @@ func (s *Spec) validate(node any, v any, at string) error {
 			}
 		}
 	case map[string]any:
-		if err := s.validateObject(sc, x, at); err != nil {
+		if err := s.validateObject(sc, x, at, siblings); err != nil {
 			return err
 		}
 	}
-	if all, ok := sc["allOf"].([]any); ok {
-		for _, sub := range all {
-			if err := s.validate(sub, v, at); err != nil {
-				return err
-			}
+	for _, sub := range all {
+		if err := s.validateIn(sub, v, at, siblings); err != nil {
+			return err
 		}
 	}
 	if anyOf, ok := sc["anyOf"].([]any); ok {
@@ -379,7 +405,7 @@ func (s *Spec) validateString(sc map[string]any, x, at string) error {
 	return nil
 }
 
-func (s *Spec) validateObject(sc map[string]any, x map[string]any, at string) error {
+func (s *Spec) validateObject(sc map[string]any, x map[string]any, at string, siblings map[string]bool) error {
 	if req, ok := sc["required"].([]any); ok {
 		for _, r := range req {
 			name, _ := r.(string)
@@ -409,7 +435,13 @@ func (s *Spec) validateObject(sc map[string]any, x map[string]any, at string) er
 			}
 		case nil:
 			// Strict by default: the pak must not send fields the contract
-			// does not describe.
+			// does not describe. A property declared by another allOf
+			// branch is described (and validated there); only this
+			// implicit rule gives way, never an explicit
+			// additionalProperties.
+			if siblings[k] {
+				continue
+			}
 			if props != nil || sc["type"] == "object" {
 				return fmt.Errorf("%s: property %q is not in the contract", at, k)
 			}

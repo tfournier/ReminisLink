@@ -390,20 +390,86 @@ public struct GameListing: Codable, Sendable, Equatable {
     }
 }
 
-/// A file of a game. `path` is informative only and never sent back.
+/// A game of `GET /games` (M11): a game of a folder listing, with the
+/// system and the folder that hold it.
+public struct LibraryGame: Codable, Sendable, Equatable, Hashable, Identifiable {
+    public let summary: GameSummary
+    public let systemId: String
+    /// The folder of the system that holds the game, nil at its root.
+    public let folderId: String?
+    /// Informative: folder names below the system joined with `/`, nil at
+    /// the root.
+    public let folderPath: String?
+
+    public var id: String { summary.id }
+
+    public init(summary: GameSummary, systemId: String, folderId: String? = nil, folderPath: String? = nil) {
+        self.summary = summary
+        self.systemId = systemId
+        self.folderId = folderId
+        self.folderPath = folderPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case systemId, folderId, folderPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        summary = try GameSummary(from: decoder)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        systemId = try c.decode(String.self, forKey: .systemId)
+        folderId = try c.decodeIfPresent(String.self, forKey: .folderId)
+        folderPath = try c.decodeIfPresent(String.self, forKey: .folderPath)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try summary.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(systemId, forKey: .systemId)
+        try c.encode(folderId, forKey: .folderId)
+        try c.encode(folderPath, forKey: .folderPath)
+    }
+}
+
+/// `GET /games` (M11): every game of every system, in one flat list. At
+/// most 20 000: beyond, `truncated` is true and the app browses per system.
+public struct AllGames: Codable, Sendable, Equatable {
+    public let games: [LibraryGame]
+    public let truncated: Bool
+    public let generatedAt: Date
+
+    public init(games: [LibraryGame], truncated: Bool, generatedAt: Date) {
+        self.games = games
+        self.truncated = truncated
+        self.generatedAt = generatedAt
+    }
+}
+
+/// A file of a game. `path` is informative only and never sent back: the
+/// file is downloaded by its opaque `fileId` (M11).
 public struct GameFile: Codable, Sendable, Equatable, Hashable {
+    /// Required by the M11 contract; nil from an older pak, which cannot
+    /// serve the file (`GET /games/{gameId}/files/{fileId}` does not
+    /// exist there): the game sheet works, without the download.
+    public let fileId: String?
     public let role: GameFileRole
     public let slot: Int?
     public let path: String
     public let sizeBytes: Int64
     public let modifiedAt: Date
 
-    public init(role: GameFileRole, slot: Int? = nil, path: String, sizeBytes: Int64, modifiedAt: Date) {
+    public init(fileId: String?, role: GameFileRole, slot: Int? = nil, path: String, sizeBytes: Int64, modifiedAt: Date) {
+        self.fileId = fileId
         self.role = role
         self.slot = slot
         self.path = path
         self.sizeBytes = sizeBytes
         self.modifiedAt = modifiedAt
+    }
+
+    /// The file name, from the last component of `path` (for display).
+    public var name: String {
+        path.split(separator: "/").last.map(String.init) ?? path
     }
 }
 

@@ -179,6 +179,11 @@ public final class TransferQueue {
     /// The app is in the background: no upload or hashing starts, the
     /// running one stops after its current chunk.
     public private(set) var isSuspended = false
+    /// The console closed ReminisLink (M11): nothing starts until the next
+    /// connection (``resumeAfterReconnection()``).
+    public private(set) var isHeldForClosedConsole = false
+
+    private var isHeld: Bool { isSuspended || isHeldForClosedConsole }
 
     /// Called on the main actor when an upload is done.
     @ObservationIgnored public var onUploadFinished: ((UploadItem) -> Void)?
@@ -233,6 +238,9 @@ public final class TransferQueue {
             sizeBytes: size, destination: destination, target: target, onConflict: onConflict, ownsFile: ownsFile
         )
         uploads.append(item)
+        // M11: added after the console closed ReminisLink (an Add sheet
+        // still copying): paused with the others until the next connection.
+        if isHeldForClosedConsole { item.phase = .paused }
         pump()
         return item
     }
@@ -338,6 +346,33 @@ public final class TransferQueue {
     /// goes on, and paused uploads resume.
     public func resumeAfterSuspension() {
         isSuspended = false
+        guard !isHeldForClosedConsole else { return }
+        for item in uploads where item.phase == .uploading || item.phase == .hashing { item.pauseFlag.clear() }
+        resumePaused()
+        pump()
+    }
+
+    /// The console closed ReminisLink (M11): the running upload stops after
+    /// its current chunk and the waiting ones are paused. Nothing is lost:
+    /// they resume at the offset confirmed by the console once it is back
+    /// (``resumeAfterReconnection()``).
+    public func pauseForClosedConsole() {
+        isHeldForClosedConsole = true
+        for item in uploads {
+            switch item.phase {
+            case .uploading, .hashing: item.pauseFlag.set()
+            case .waiting: item.phase = .paused
+            default: break
+            }
+        }
+    }
+
+    /// Connected again after ``pauseForClosedConsole()``: the paused
+    /// uploads go on (unless the app is in the background).
+    public func resumeAfterReconnection() {
+        guard isHeldForClosedConsole else { return }
+        isHeldForClosedConsole = false
+        guard !isSuspended else { return }
         for item in uploads where item.phase == .uploading || item.phase == .hashing { item.pauseFlag.clear() }
         resumePaused()
         pump()
@@ -355,9 +390,9 @@ public final class TransferQueue {
     }
 
     private func pump() {
-        guard worker == nil, !isSuspended else { return }
+        guard worker == nil, !isHeld else { return }
         worker = Task {
-            while !isSuspended, let item = uploads.first(where: { $0.phase == .waiting }) {
+            while !isHeld, let item = uploads.first(where: { $0.phase == .waiting }) {
                 let task = Task { await self.process(item) }
                 item.task = task
                 await task.value
@@ -368,7 +403,7 @@ public final class TransferQueue {
 
     func process(_ item: UploadItem) async {
         // Suspended between `pump` picking the item and now: start nothing.
-        guard !isSuspended else {
+        guard !isHeld else {
             item.phase = .waiting
             return
         }
@@ -446,9 +481,13 @@ public final class TransferQueue {
             switch error {
             case UploadFailure.paused, is CancellationError:
                 // Back in the foreground before the chunk ended: go on.
-                item.phase = isSuspended || error is CancellationError ? .paused : .waiting
+                item.phase = isHeld || error is CancellationError ? .paused : .waiting
                 item.failure = nil
             case APIError.network:
+                item.phase = .paused
+                item.failure = error
+            case let error as APIError where error.code == .shuttingDown:
+                // M11: the console closes ReminisLink; resumes once it is back.
                 item.phase = .paused
                 item.failure = error
             case let error as APIError where error.isReadOnly || error.isDisconnected:

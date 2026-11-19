@@ -16,6 +16,7 @@ final class PairingUITests: XCTestCase {
     @MainActor
     func testPairingLinkThenGameSheetInDemoMode() throws {
         let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_DEMO"] = "1"
         app.launch()
         XCTAssertTrue(app.descendants(matching: .any)["welcome"].waitForExistence(timeout: 10))
@@ -26,15 +27,15 @@ final class PairingUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
             .waitForExistence(timeout: 10))
         attachScreenshot(app, "dashboard")
-        app.buttons["console.library"].tapWhenEnabled()
-        app.buttons["system.GBA"].tapAfterWaiting()
+        GameDataUITest.openLibraryTab(app, timeout: 10)
         XCTAssertTrue(app.buttons["game.Sky Garden Quest"].waitForExistence(timeout: 10))
-        attachScreenshot(app, "folder")
+        attachScreenshot(app, "library")
         app.buttons["game.Sky Garden Quest"].tapAfterWaiting(timeout: 10)
         XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 10))
         attachScreenshot(app, "game")
         XCTAssertEqual(app.staticTexts["game.title"].label, "Sky Garden Quest")
-        XCTAssertTrue(app.staticTexts["Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Sky Garden Quest.gba'")).firstMatch
+            .waitForExistence(timeout: 10))
     }
 
     /// The dashboard shows the NextUI release string as the pak sends it
@@ -53,7 +54,10 @@ final class PairingUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS 'NextUI-20261013-039a06de'")).firstMatch
             .waitForExistence(timeout: 10))
-        app.buttons["console.library"].tapWhenEnabled()
+        // The flat library's menu opens the systems (M11).
+        GameDataUITest.openLibraryTab(app, timeout: 10)
+        app.buttons["library.filter"].tapAfterWaiting()
+        app.buttons["library.bySystem"].tapAfterWaiting()
         let playStation = app.buttons["system.PS"]
         XCTAssertTrue(playStation.waitForExistence(timeout: 10))
         XCTAssertTrue(playStation.label.contains("Emulator not installed on the console"), playStation.label)
@@ -72,7 +76,7 @@ final class PairingUITests: XCTestCase {
         app.launch()
         app.open(URL(string: Self.demoLink)!)
         try pairAndOpenConsole(app, deviceId: Self.demoDeviceId)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["tab.consoles"].tapAfterWaiting()
 
         app.buttons["consoles.add"].tapAfterWaiting()
         app.buttons["demo.pair"].tapAfterWaiting()
@@ -96,15 +100,18 @@ final class PairingUITests: XCTestCase {
             throw XCTSkip("Set TEST_RUNNER_RL_UITEST_PAIR_URL to the pairing link of a running pak (make headless).")
         }
         let app = XCUIApplication()
+        // The Library tab is found by its English name.
+        app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_RESET_STORE"] = "1"
         app.launch()
 
         app.open(url)
         try pairAndOpenConsole(app, deviceId: deviceId, timeout: 30)
 
-        app.buttons["console.library"].tapWhenEnabled(timeout: 30)
+        GameDataUITest.openLibraryTab(app, timeout: 30)
+        // The flat library (M11), or the systems of an older pak.
         let firstSystem = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'system.'")).firstMatch
-        firstSystem.tapAfterWaiting(timeout: 30)
+        if firstSystem.waitForExistence(timeout: 5) { firstSystem.tap() }
         let firstGame = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'game.'")).firstMatch
         firstGame.tapAfterWaiting(timeout: 30)
         XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 30))
@@ -124,9 +131,10 @@ final class PairingUITests: XCTestCase {
         let done = app.buttons["pairing.done"]
         XCTAssertTrue(done.waitForExistence(timeout: timeout), "pairing did not finish")
         done.tap()
-        // Pairing opens the console; going back shows it in the list.
-        XCTAssertTrue(app.buttons["console.library"].waitForExistence(timeout: timeout))
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        // Pairing opens the console (M11: its tabs); going back shows it
+        // in the list.
+        XCTAssertTrue(app.tabBars.buttons.element(boundBy: 1).waitForExistence(timeout: timeout))
+        app.buttons["tab.consoles"].tapAfterWaiting(timeout: timeout)
         app.buttons["console.\(deviceId)"].tapAfterWaiting(timeout: timeout)
     }
 }

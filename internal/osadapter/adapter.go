@@ -169,6 +169,10 @@ type Adapter interface {
 
 	// Systems lists the systems, sorted by label (case-insensitive).
 	Systems() ([]System, error)
+	// SystemFolders lists the folders Systems may list, without checking
+	// they hold a visible item: for a walk of every system, which finds no
+	// game in the others and so reads each folder once.
+	SystemFolders() ([]System, error)
 	// System returns the system stored in this folder of Roms/, or
 	// ErrNotFound.
 	System(folder string) (System, error)
@@ -185,6 +189,13 @@ type Adapter interface {
 	// the games ListFolder lists, reading each folder once. It stops with
 	// the error of fn, or ctx.Err() when ctx is done.
 	WalkGames(ctx context.Context, sys System, fn func(Game) error) error
+	// WalkSummaries calls fn for every game WalkGames finds, with what
+	// ListFolder says about it and the folder that holds it (relative to
+	// Roms/, sys.Folder at the root of the system), reading each folder
+	// and each data folder of the system once. A system folder that
+	// cannot be read has no game (Systems leaves it out). It stops with
+	// the error of fn, or ctx.Err() when ctx is done.
+	WalkSummaries(ctx context.Context, sys System, fn func(folder string, g GameSummary) error) error
 	// Game returns the game at rel (relative to Roms/), or ErrNotFound.
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.

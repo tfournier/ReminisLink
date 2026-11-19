@@ -13,7 +13,9 @@ import ReminisLinkKit
 /// the SHA-256 check, cancel), `/downloads` and `/jobs`, and the saves,
 /// states, locks, resume history, cheats and `/sd/files` of milestone M5
 /// (see FakePakGameData.swift), and `POST /games/{id}/patch` with
-/// `/sd/files?type=patch` of milestone M6 (see FakePakPatch.swift).
+/// `/sd/files?type=patch` of milestone M6 (see FakePakPatch.swift), and
+/// `GET /games` and `GET /games/{id}/files/{fileId}` of milestone M11 (see
+/// FakePakLibrary.swift, with the closing of the pak).
 ///
 /// Uploads keep only a running SHA-256, never the bytes, so large files
 /// cost no memory. Faults can be injected (lost connection before or after
@@ -44,7 +46,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     }
 
     public let deviceId: String
-    public let deviceName: String
+    /// Changed by ``rename(to:)`` (Settings > Console name, M11).
+    public var deviceName: String { lock.withLock { _deviceName } }
+    private var _deviceName: String
     public let model: DeviceModel
     public let secret: Data
     public let pin: String
@@ -114,6 +118,19 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     var _freeBytes: Int64 = 40_265_318_400
     private var _downloadSize: Int64 = 8 << 20
     private var _chunkLog: [ChunkRecord] = []
+    /// Milestone M11 (FakePakLibrary.swift): `GET /games`, `fileId` and the
+    /// file downloads exist (false: a pak older than M11, `404`), and
+    /// `GET /games` lists at most this many games.
+    var _allGamesSupported = true
+    var _allGamesLimit = 20_000
+    /// Whether the pak is open, quitting (`503 shutting_down`), or gone.
+    var _availability: Availability = .open
+    /// The request that makes the pak quit (demo mode, UI tests).
+    var _closeTrigger: (method: String, path: String)?
+    var _reopenDelay: TimeInterval?
+    /// Called when the pak quits (its Bonjour service is withdrawn) and
+    /// when it opens again.
+    var _onAvailabilityChange: (@Sendable (Availability) -> Void)?
 
     public init(
         deviceId: String = FakePak.demoDeviceId,
@@ -128,7 +145,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         apiVersion: Int = 1
     ) {
         self.deviceId = deviceId
-        self.deviceName = deviceName
+        self._deviceName = deviceName
         self.model = model
         self.secret = secret
         self.pin = pin
@@ -296,6 +313,12 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         }
     }
 
+    /// The console is renamed (Settings > Console name): `/hello`,
+    /// `/device` and the Bonjour instance name change.
+    public func rename(to name: String) {
+        lock.withLock { _deviceName = name }
+    }
+
     public var clientIds: [String] { lock.withLock { clients.keys.sorted() } }
 
     /// Registers a client directly, as if it had paired.
@@ -378,6 +401,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         guard path.hasPrefix(prefix) else { return .error(404, code: "not_found", message: "No route") }
         let segments = path.dropFirst(prefix.count).split(separator: "/", omittingEmptySubsequences: false)
             .map { $0.removingPercentEncoding ?? String($0) }
+        if let refusal = availabilityRefusal(method: method, path: path) {
+            return refusal
+        }
 
         switch (method, segments) {
         case ("GET", ["hello"]):
@@ -415,6 +441,10 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             return listSaves()
         case ("GET", let s) where s.count == 3 && s[0] == "systems" && s[2] == "games":
             return games(systemId: s[1], folderId: params["folderId"])
+        case ("GET", ["games"]):
+            return allGames()
+        case ("GET", let s) where s.count == 4 && s[0] == "games" && s[2] == "files":
+            return downloadFile(gameId: s[1], fileId: s[3])
         case ("GET", let s) where s.count == 2 && s[0] == "games":
             return game(id: s[1])
         case ("DELETE", let s) where s.count == 2 && s[0] == "games":
@@ -703,12 +733,14 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             ])
         }
         if !data.cheats.isEmpty {
-            files.append(["role": "cheats", "path": Self.cheatsPath(system, game), "sizeBytes": 2048, "modifiedAt": date])
+            // The size of the `.cht` the fake pak serves (M11).
+            files.append(["role": "cheats", "path": Self.cheatsPath(system, game),
+                          "sizeBytes": Self.chtText(data.cheats).count, "modifiedAt": date])
         }
         if let art = currentArt(gameId: DemoLibrary.id(system.folder + "/" + game.path), game: game) {
             files.append(["role": "art", "path": "Roms/\(system.folder)/.media/\(game.name).png", "sizeBytes": Int64(art.data.count), "modifiedAt": date])
         }
-        return files
+        return lock.withLock { _allGamesSupported } ? Self.withFileIds(files) : files
     }
 
     private func art(gameId: String, ifNoneMatch: String?) -> FakeResponse {

@@ -461,6 +461,16 @@
         }
       }
     },
+    "All Consoles" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toutes les consoles"
+          }
+        }
+      }
+    },
     "An IPS, BPS or UPS patch. It is sent to the staging area of the console, then applied." : {
       "localizations" : {
         "fr" : {
@@ -681,6 +691,16 @@
         }
       }
     },
+    "Browse by Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parcourir par console"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "fr" : {
@@ -707,6 +727,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Annuler le patch"
+          }
+        }
+      }
+    },
+    "Cancel the download of %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler le téléchargement de %@"
           }
         }
       }
@@ -751,22 +781,12 @@
         }
       }
     },
-    "Change Image…" : {
+    "Change or remove the image" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Changer l’image…"
-          }
-        }
-      }
-    },
-    "Change the Image" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Changer l’image"
+            "value" : "Changer ou retirer l’image"
           }
         }
       }
@@ -877,6 +897,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Effacer"
+          }
+        }
+      }
+    },
+    "Clear Filters" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effacer les filtres"
           }
         }
       }
@@ -1231,6 +1261,16 @@
         }
       }
     },
+    "Dismiss" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer"
+          }
+        }
+      }
+    },
     "Done" : {
       "localizations" : {
         "fr" : {
@@ -1251,12 +1291,42 @@
         }
       }
     },
+    "Download %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Télécharger %@"
+          }
+        }
+      }
+    },
+    "Download a file to keep a copy on this iPhone: Save to Files, AirDrop… The console keeps its file." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Télécharge un fichier pour en garder une copie sur cet iPhone : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+          }
+        }
+      }
+    },
     "Downloaded" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Téléchargé"
+          }
+        }
+      }
+    },
+    "Downloading %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargement de %@"
           }
         }
       }
@@ -1461,6 +1531,26 @@
         }
       }
     },
+    "Filter and Sort" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filtrer et trier"
+          }
+        }
+      }
+    },
+    "Filter by Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filtrer par console"
+          }
+        }
+      }
+    },
     "Finishing on the console…" : {
       "localizations" : {
         "fr" : {
@@ -1497,6 +1587,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jeu"
+          }
+        }
+      }
+    },
+    "Has Cheats" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec des cheats"
+          }
+        }
+      }
+    },
+    "Has States" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec des states"
+          }
+        }
+      }
+    },
+    "Has a Save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec une save"
           }
         }
       }
@@ -1551,22 +1671,32 @@
         }
       }
     },
-    "Image" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Image"
-          }
-        }
-      }
-    },
     "Image changed." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Image changée."
+          }
+        }
+      }
+    },
+    "Image of the Game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image du jeu"
+          }
+        }
+      }
+    },
+    "Image of the game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image du jeu"
           }
         }
       }
@@ -1961,6 +2091,16 @@
         }
       }
     },
+    "Name or file name" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nom ou nom de fichier"
+          }
+        }
+      }
+    },
     "New Backup Copy" : {
       "localizations" : {
         "fr" : {
@@ -2101,12 +2241,32 @@
         }
       }
     },
+    "No games match the filters" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun jeu ne correspond aux filtres"
+          }
+        }
+      }
+    },
     "No games on the console" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun jeu sur la console"
+          }
+        }
+      }
+    },
+    "No image" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas d’image"
           }
         }
       }
@@ -2447,16 +2607,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Patch : %@"
-          }
-        }
-      }
-    },
-    "Paths on the SD card, for information." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chemins sur la carte SD, à titre indicatif."
           }
         }
       }
@@ -3211,12 +3361,12 @@
         }
       }
     },
-    "Shown by NextUI in the game list. The previous image goes to the trash of the console." : {
+    "Shown by NextUI in the game list. The picture is scaled down to at most 1024 pixels and sent as a PNG; the previous image goes to the trash of the console." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Affichée par NextUI dans la liste des jeux. L’image précédente part dans la corbeille de la console."
+            "value" : "Affichée par NextUI dans la liste des jeux. L’image est réduite à 1024 pixels au plus et envoyée en PNG ; l’image précédente part dans la corbeille de la console."
           }
         }
       }
@@ -3571,6 +3721,26 @@
         }
       }
     },
+    "The console closed ReminisLink" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a quitté ReminisLink"
+          }
+        }
+      }
+    },
+    "The console closed ReminisLink." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a quitté ReminisLink."
+          }
+        }
+      }
+    },
     "The console could not download the patch. Check the link and the Wi-Fi connection of the console." : {
       "localizations" : {
         "fr" : {
@@ -3647,6 +3817,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console poursuit la tâche ; son état s’affichera de nouveau dès qu’elle répondra."
+          }
+        }
+      }
+    },
+    "The console has too many games to list them at once: browse them by console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a trop de jeux pour les lister d’un coup : parcours-les par console."
           }
         }
       }
@@ -3981,16 +4161,6 @@
         }
       }
     },
-    "The picture is scaled down to at most 1024 pixels and sent as a PNG." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’image est réduite à 1024 pixels au plus et envoyée en PNG."
-          }
-        }
-      }
-    },
     "The request is too large for the console." : {
       "localizations" : {
         "fr" : {
@@ -4171,6 +4341,16 @@
         }
       }
     },
+    "This file changed on the console. The list of files was refreshed: try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier a changé sur la console. La liste des fichiers a été rechargée : réessaie."
+          }
+        }
+      }
+    },
     "This file is not a patch the console can apply. Choose an IPS, BPS or UPS patch." : {
       "localizations" : {
         "fr" : {
@@ -4207,6 +4387,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce jeu a plusieurs disques : un patch s’applique à un seul fichier ROM, donc les jeux multi-disques ne peuvent pas être patchés ici."
+          }
+        }
+      }
+    },
+    "This game is no longer on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu n’est plus sur la console."
           }
         }
       }
@@ -4517,6 +4707,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Envois"
+          }
+        }
+      }
+    },
+    "Uploads in progress are paused. Open ReminisLink on the console, then the console here, to go on." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les envois en cours sont en pause. Ouvre ReminisLink sur la console, puis la console ici, pour continuer."
           }
         }
       }

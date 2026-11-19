@@ -3,6 +3,7 @@ package openapi
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -166,26 +167,37 @@ func TestValidateResponseFailures(t *testing.T) {
 		body         string
 		want         string
 	}{
-		"undeclared status": {"GET", "/systems", 418, jsonHeader, ok, "not declared"},
-		"unknown operation": {"POST", "/systems", 200, jsonHeader, ok, "no such operation"},
-		"wrong media type":  {"GET", "/systems", 200, http.Header{"Content-Type": {"text/plain"}}, ok, "not in"},
-		"invalid JSON":      {"GET", "/systems", 200, jsonHeader, `{"systems":`, "invalid JSON"},
-		"missing property":  {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"R2FtZQ","label":"G","folder":"G","tag":"G"}]}`, `missing required property "gameCount"`},
-		"extra property":    {"GET", "/systems", 200, jsonHeader, `{"systems":[],"extra":1}`, `"extra" is not in the contract`},
-		"wrong type":        {"GET", "/systems", 200, jsonHeader, `{"systems":{}}`, "type object, want array"},
-		"bad pattern":       {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a/b","label":"G","folder":"G","tag":"G","gameCount":1,"emulatorInstalled":true}]}`, "does not match"},
-		"negative count":    {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":-1,"emulatorInstalled":true}]}`, "minimum"},
-		"non integer":       {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":1.5,"emulatorInstalled":true}]}`, "want integer"},
-		"bad enum":          {"GET", "/systems", 401, jsonHeader, `{"error":{"code":"nope","message":"m","details":{}}}`, "not in enum"},
-		"body on 204":       {"DELETE", "/clients/me", 204, http.Header{}, `{}`, "body not allowed"},
-		"bad date":          {"GET", "/hello", 200, jsonHeader, strings.Replace(helloExample, `"2026-11-18T17:00:00Z"`, `"yesterday"`, 1), "date-time"},
-		"bad const header":  {"GET", "/games/{gameId}/art", 200, http.Header{"Content-Type": {"image/png"}, "Cache-Control": {"no-store"}}, "png", "Cache-Control"},
+		"undeclared status":             {"GET", "/systems", 418, jsonHeader, ok, "not declared"},
+		"unknown operation":             {"POST", "/systems", 200, jsonHeader, ok, "no such operation"},
+		"wrong media type":              {"GET", "/systems", 200, http.Header{"Content-Type": {"text/plain"}}, ok, "not in"},
+		"invalid JSON":                  {"GET", "/systems", 200, jsonHeader, `{"systems":`, "invalid JSON"},
+		"missing property":              {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"R2FtZQ","label":"G","folder":"G","tag":"G"}]}`, `missing required property "gameCount"`},
+		"extra property":                {"GET", "/systems", 200, jsonHeader, `{"systems":[],"extra":1}`, `"extra" is not in the contract`},
+		"wrong type":                    {"GET", "/systems", 200, jsonHeader, `{"systems":{}}`, "type object, want array"},
+		"bad pattern":                   {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a/b","label":"G","folder":"G","tag":"G","gameCount":1,"emulatorInstalled":true}]}`, "does not match"},
+		"negative count":                {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":-1,"emulatorInstalled":true}]}`, "minimum"},
+		"non integer":                   {"GET", "/systems", 200, jsonHeader, `{"systems":[{"id":"a","label":"G","folder":"G","tag":"G","gameCount":1.5,"emulatorInstalled":true}]}`, "want integer"},
+		"bad enum":                      {"GET", "/systems", 401, jsonHeader, `{"error":{"code":"nope","message":"m","details":{}}}`, "not in enum"},
+		"body on 204":                   {"DELETE", "/clients/me", 204, http.Header{}, `{}`, "body not allowed"},
+		"bad date":                      {"GET", "/hello", 200, jsonHeader, strings.Replace(helloExample, `"2026-11-18T17:00:00Z"`, `"yesterday"`, 1), "date-time"},
+		"allOf extra property":          {"GET", "/games", 200, jsonHeader, allGames(`,"extra":1`), `"extra" is not in the contract`},
+		"allOf missing branch property": {"GET", "/games", 200, jsonHeader, strings.Replace(allGames(""), `"folderPath":null,`, "", 1), `missing required property "folderPath"`},
+		"allOf bad branch property":     {"GET", "/games", 200, jsonHeader, strings.Replace(allGames(""), `"folderId":null`, `"folderId":1`, 1), "folderId"},
+		"bad const header":              {"GET", "/games/{gameId}/art", 200, http.Header{"Content-Type": {"image/png"}, "Cache-Control": {"no-store"}}, "png", "Cache-Control"},
 	} {
 		err := s.ValidateResponse(tc.method, tc.path, tc.status, tc.header, []byte(tc.body))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: got %v, want an error with %q", name, err, tc.want)
 		}
 	}
+}
+
+// allGames is a GET /games answer with one game (LibraryGame: allOf of
+// Game and its own properties), extra appended to the game.
+func allGames(extra string) string {
+	return `{"games":[{"id":"R2FtZQ","systemId":"U3lz","folderId":null,"folderPath":null,"name":"G","fileName":"G.gba","kind":"file",` +
+		`"sizeBytes":1,"modifiedAt":"2026-11-18T17:00:00Z","hasSave":false,"stateCount":0,"lockedStateCount":0,"cheatCount":0,"hasArt":false` +
+		extra + `}],"truncated":false,"generatedAt":"2026-11-18T17:00:00Z"}`
 }
 
 const helloExample = `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"brick","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","apiVersion":1,"minClientVersion":"1.0.0","serverTime":"2026-11-18T17:00:00Z","pairingOpen":true,"writerHeld":false}`
@@ -226,5 +238,72 @@ func TestOperationsWithStatus(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("PUT /writer missing from %v", ops)
+	}
+}
+
+// A LibraryGame (allOf of Game and its own properties) accepts the
+// properties of both branches.
+func TestValidateAllOf(t *testing.T) {
+	h := http.Header{"Content-Type": {"application/json"}}
+	if err := contract(t).ValidateResponse("GET", "/games", 200, h, []byte(allGames(""))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A property declared by one allOf branch only lifts the implicit "no
+// undeclared property" rule of the others: an explicit
+// additionalProperties of another branch still applies to it.
+func TestValidateAllOfExplicitAdditional(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "spec.yaml")
+	doc := `openapi: 3.1.0
+components:
+  schemas:
+    Strings:
+      allOf:
+        - type: object
+          properties:
+            x: { type: integer }
+        - type: object
+          additionalProperties: { type: string }
+    Closed:
+      allOf:
+        - type: object
+          properties:
+            x: { type: integer }
+        - type: object
+          properties:
+            y: { type: integer }
+          additionalProperties: false
+    Implicit:
+      allOf:
+        - type: object
+          properties:
+            x: { type: integer }
+        - type: object
+          properties:
+            y: { type: integer }
+`
+	if err := os.WriteFile(p, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		schema string
+		value  map[string]any
+		ok     bool
+	}{
+		{"Strings", map[string]any{"x": float64(1)}, false}, // x is not a string
+		{"Closed", map[string]any{"y": float64(1)}, true},   // declared
+		{"Closed", map[string]any{"x": float64(1)}, false},  // x not allowed by the second branch
+		{"Implicit", map[string]any{"x": float64(1), "y": float64(2)}, true},
+		{"Implicit", map[string]any{"z": float64(1)}, false}, // declared by none
+	} {
+		err := s.ValidateSchema(tc.schema, tc.value)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s %v: %v, want ok=%v", tc.schema, tc.value, err, tc.ok)
+		}
 	}
 }

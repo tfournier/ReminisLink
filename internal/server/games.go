@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
 	"github.com/tfournier/ReminisLink/internal/cheats"
@@ -91,9 +92,51 @@ func (s *Server) sendFile(w http.ResponseWriter, r *http.Request, f *os.File, na
 	}
 	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
 	w.WriteHeader(http.StatusOK)
-	if _, err := io.CopyN(w, f, fi.Size()); err != nil {
+	// No WriteTimeout on the server: a slow transfer of a large file
+	// (a disc of hundreds of MB) goes on as long as bytes flow, and a
+	// client that stops reading is cut off after SendIdleTimeout.
+	iw := &idleWriter{w: w, ctl: http.NewResponseController(w), timeout: s.timeouts.sendIdle}
+	_, err = io.CopyN(iw, f, fi.Size())
+	if err == nil {
+		// net/http buffers the end of the body: it is sent under a
+		// deadline too, before the deadline is cleared.
+		_ = iw.ctl.SetWriteDeadline(time.Now().Add(iw.timeout))
+		if ferr := iw.ctl.Flush(); ferr != nil && !errors.Is(ferr, http.ErrNotSupported) {
+			err = ferr
+		}
+	}
+	_ = iw.ctl.SetWriteDeadline(time.Time{}) // the connection may be reused
+	if err != nil {
 		s.log.Warn("file transfer interrupted", "error", err)
 	}
+}
+
+// SendChunk is the most bytes written under one write deadline: a client
+// that accepts less than SendChunk bytes in SendIdleTimeout is cut off.
+const SendChunk = 32 << 10
+
+// idleWriter writes a response body in pieces of at most SendChunk bytes,
+// each with a new write deadline, so a client that stops reading is cut
+// off after timeout while a slow but steady download is not.
+type idleWriter struct {
+	w       http.ResponseWriter
+	ctl     *http.ResponseController
+	timeout time.Duration
+}
+
+func (iw *idleWriter) Write(p []byte) (int, error) {
+	written := 0
+	for len(p) > 0 {
+		chunk := p[:min(len(p), SendChunk)]
+		_ = iw.ctl.SetWriteDeadline(time.Now().Add(iw.timeout))
+		n, err := iw.w.Write(chunk)
+		written += n
+		if err != nil {
+			return written, err
+		}
+		p = p[n:]
+	}
+	return written, nil
 }
 
 // enoughSpace answers 507 insufficient_storage when the SD card has less

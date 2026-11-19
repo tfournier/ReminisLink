@@ -10,12 +10,16 @@ public struct PairedDevice: Codable, Identifiable, Hashable, Sendable {
     public var name: String
     public var model: DeviceModel
     public let pairedAt: Date
+    /// The name the console last reported (`deviceName` of `/hello` or
+    /// `/device`), nil before it was recorded (paired before M11).
+    public var consoleName: String?
 
-    public init(id: String, name: String, model: DeviceModel, pairedAt: Date) {
+    public init(id: String, name: String, model: DeviceModel, pairedAt: Date, consoleName: String? = nil) {
         self.id = id
         self.name = name
         self.model = model
         self.pairedAt = pairedAt
+        self.consoleName = consoleName
     }
 }
 
@@ -62,16 +66,26 @@ public final class DeviceStore {
 
     /// Stores a new pairing, or replaces the key of a device paired again.
     @discardableResult
-    public func save(deviceId: String, name: String, model: DeviceModel, clientId: String, key: SymmetricKey, now: Date = Date()) throws -> PairedDevice {
+    public func save(
+        deviceId: String, name: String, model: DeviceModel, clientId: String, key: SymmetricKey,
+        consoleName: String? = nil, now: Date = Date()
+    ) throws -> PairedDevice {
         let stored = StoredCredentials(deviceId: deviceId, clientId: clientId, key: key.withUnsafeBytes { Base64URL.encode(Data($0)) })
         try secureStore.set(try JSONEncoder().encode(stored), for: Self.account(deviceId: deviceId))
         let cleanName = Self.clean(name) ?? model.displayName
         let device: PairedDevice
+        let reported = consoleName.flatMap(Self.clean)
         if let index = devices.firstIndex(where: { $0.id == deviceId }) {
             devices[index].model = model
+            // Paired again: a name changed on the console since is shown,
+            // as by ``noteConsoleName(_:for:)``.
+            if let reported {
+                if let known = devices[index].consoleName, known != reported { devices[index].name = reported }
+                devices[index].consoleName = reported
+            }
             device = devices[index]
         } else {
-            device = PairedDevice(id: deviceId, name: cleanName, model: model, pairedAt: now)
+            device = PairedDevice(id: deviceId, name: cleanName, model: model, pairedAt: now, consoleName: reported)
             devices.append(device)
         }
         persist()
@@ -98,6 +112,31 @@ public final class DeviceStore {
         guard let index = devices.firstIndex(where: { $0.id == deviceId }) else { return }
         devices[index].name = clean
         persist()
+    }
+
+    /// The console with this id reported its name (M11: renamed on the
+    /// console, Settings > Console name). A name the console changed
+    /// replaces the display name, so the list shows it; a name chosen on
+    /// the app stays until the console's name changes. Matched by id only,
+    /// never by name. A device stored before M11 (no console name yet)
+    /// only records it: its display name may have been chosen in the app.
+    /// Returns whether the display name changed.
+    @discardableResult
+    public func noteConsoleName(_ name: String, for deviceId: String) -> Bool {
+        guard let reported = Self.clean(name),
+              let index = devices.firstIndex(where: { $0.id == deviceId }),
+              devices[index].consoleName != reported
+        else { return false }
+        let known = devices[index].consoleName
+        devices[index].consoleName = reported
+        guard known != nil else {
+            persist()
+            return false
+        }
+        let changed = devices[index].name != reported
+        devices[index].name = reported
+        persist()
+        return changed
     }
 
     /// Forgets a device: its key and its entry.

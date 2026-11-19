@@ -1,15 +1,21 @@
 package library
 
 import (
+	"container/heap"
+	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/cheats"
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
@@ -73,6 +79,11 @@ type Listing struct {
 
 // GameFile is a file of GET /games/{gameId}.
 type GameFile struct {
+	// FileID names the file for GET /games/{gameId}/files/{fileId}:
+	// EncodeID of its path relative to the SD card. It is only ever
+	// compared with the identifiers of the game's current files, never
+	// decoded into a path.
+	FileID     string    `json:"fileId"`
 	Role       string    `json:"role"`
 	Slot       *int      `json:"slot,omitempty"`
 	Path       string    `json:"path"`
@@ -176,25 +187,30 @@ func (l *Library) ListGames(systemID, folderID string) (Listing, error) {
 		out.Folders = append(out.Folders, Folder{ID: EncodeID(f.Path), Name: f.Name, GameCount: f.GameCount})
 	}
 	for _, g := range listing.Games {
-		cheatCount := 0
-		if g.CheatFile != "" {
-			cheatCount = cheats.CountFile(g.CheatFile)
-		}
-		out.Games = append(out.Games, Game{
-			ID:               EncodeID(g.Path),
-			Name:             g.Name,
-			FileName:         g.FileName,
-			Kind:             string(g.Kind),
-			SizeBytes:        g.Size,
-			ModifiedAt:       timestamp(g.ModTime),
-			HasSave:          g.HasSave,
-			StateCount:       g.StateCount,
-			LockedStateCount: locks[strings.ToLower(g.ROMName)],
-			CheatCount:       cheatCount,
-			HasArt:           g.HasArt,
-		})
+		out.Games = append(out.Games, apiGame(g, locks))
 	}
 	return out, nil
+}
+
+// apiGame is the API form of a listed game; locks come from lockedSlots.
+func apiGame(g osadapter.GameSummary, locks map[string]int) Game {
+	cheatCount := 0
+	if g.CheatFile != "" {
+		cheatCount = countCheats(g.CheatFile)
+	}
+	return Game{
+		ID:               EncodeID(g.Path),
+		Name:             g.Name,
+		FileName:         g.FileName,
+		Kind:             string(g.Kind),
+		SizeBytes:        g.Size,
+		ModifiedAt:       timestamp(g.ModTime),
+		HasSave:          g.HasSave,
+		StateCount:       g.StateCount,
+		LockedStateCount: locks[strings.ToLower(g.ROMName)],
+		CheatCount:       cheatCount,
+		HasArt:           g.HasArt,
+	}
 }
 
 // lockSlotRe matches the copy of a locked state: slot<N>.st.
@@ -239,15 +255,65 @@ func (l *Library) game(gameID string) (osadapter.Game, error) {
 	return g, nil
 }
 
+// gameFile is a file of a game with where it is on disk.
+type gameFile struct {
+	GameFile
+	path string // absolute path
+	// root is the top folder the file is opened through (no link at any
+	// component below it); the file must also be lexically under within,
+	// the narrowest folder of its role (the system folder for a ROM).
+	root, within string
+}
+
+// gameFiles lists the files of g in the order of GET /games/{gameId}.
+func (l *Library) gameFiles(g osadapter.Game) ([]gameFile, error) {
+	files, err := l.adapter.GameFiles(g)
+	if err != nil {
+		return nil, notFound(err, "game")
+	}
+	roots := l.adapter.Roots()
+	system := filepath.Join(roots.Roms, filepath.FromSlash(g.System.Folder))
+	saves := filepath.Join(roots.Saves, g.System.Tag)
+	var out []gameFile
+	add := func(role string, f osadapter.File, slot *int, root, within string) {
+		out = append(out, gameFile{
+			GameFile: GameFile{FileID: EncodeID(f.Rel), Role: role, Slot: slot, Path: f.Rel, SizeBytes: f.Size, ModifiedAt: timestamp(f.ModTime)},
+			path:     f.Path,
+			root:     root,
+			within:   within,
+		})
+	}
+	for _, f := range files.ROM {
+		add("rom", f, nil, roots.Roms, system)
+	}
+	if files.Save != nil {
+		add("save", *files.Save, nil, roots.Saves, saves)
+	}
+	if files.RTC != nil {
+		add("rtc", *files.RTC, nil, roots.Saves, saves)
+	}
+	for _, s := range files.States {
+		slot := s.Slot
+		add("state", s.File, &slot, roots.States, roots.States)
+	}
+	if files.Cheats != nil {
+		add("cheats", *files.Cheats, nil, roots.Cheats, filepath.Join(roots.Cheats, g.System.Tag))
+	}
+	if files.Art != nil {
+		add("art", *files.Art, nil, roots.Roms, system)
+	}
+	return out, nil
+}
+
 // Game returns a game and all its files.
 func (l *Library) Game(gameID string) (GameDetail, error) {
 	g, err := l.game(gameID)
 	if err != nil {
 		return GameDetail{}, err
 	}
-	files, err := l.adapter.GameFiles(g)
+	files, err := l.gameFiles(g)
 	if err != nil {
-		return GameDetail{}, notFound(err, "game")
+		return GameDetail{}, err
 	}
 	d := GameDetail{
 		ID:       EncodeID(g.Path),
@@ -255,33 +321,62 @@ func (l *Library) Game(gameID string) (GameDetail, error) {
 		Name:     g.Name,
 		FileName: g.FileName,
 		Kind:     string(g.Kind),
-		Files:    []GameFile{},
+		Files:    make([]GameFile, 0, len(files)),
 	}
-	add := func(role string, f osadapter.File, slot *int) {
-		d.Files = append(d.Files, GameFile{Role: role, Slot: slot, Path: f.Rel, SizeBytes: f.Size, ModifiedAt: timestamp(f.ModTime)})
-		d.TotalBytes += f.Size
-	}
-	for _, f := range files.ROM {
-		add("rom", f, nil)
-	}
-	if files.Save != nil {
-		add("save", *files.Save, nil)
-	}
-	if files.RTC != nil {
-		add("rtc", *files.RTC, nil)
-	}
-	for _, s := range files.States {
-		slot := s.Slot
-		add("state", s.File, &slot)
-	}
-	if files.Cheats != nil {
-		add("cheats", *files.Cheats, nil)
-	}
-	if files.Art != nil {
-		add("art", *files.Art, nil)
+	for _, f := range files {
+		d.Files = append(d.Files, f.GameFile)
+		d.TotalBytes += f.SizeBytes
 	}
 	return d, nil
 }
+
+// OpenFile opens the file fileID of a game for GET
+// /games/{gameId}/files/{fileId}. The file list of the game is computed
+// again, as GET /games/{gameId} does, and only the entry whose fileId is
+// exactly fileID is opened: fileID is never decoded into a path. The open
+// refuses a link at any component below the top folder of the file's role
+// (Roms/, Saves/, Cheats/ or the states folder; confine.Open) and a file
+// outside the narrowest folder of that role (system, Saves/<TAG>,
+// Cheats/<TAG>). Errors: ErrInvalidID for a malformed
+// fileID, ErrNotFound when it is not in the list or the file is gone or
+// refused (the refusal also wraps confine.ErrOutside), or an I/O error.
+func (l *Library) OpenFile(gameID, fileID string) (*os.File, fs.FileInfo, string, error) {
+	g, err := l.game(gameID)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if fileID == "" || len(fileID) > maxFileIDLen || !isB64URLAlphabet(fileID) {
+		return nil, nil, "", fmt.Errorf("%w: file id", ErrInvalidID)
+	}
+	files, err := l.gameFiles(g)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	for _, f := range files {
+		if f.FileID != fileID {
+			continue
+		}
+		var file *os.File
+		var fi fs.FileInfo
+		_, err := confine.RelToRoot(f.within, f.path)
+		if err == nil {
+			file, fi, err = confine.OpenUnder(f.root, f.path)
+		}
+		switch {
+		case errors.Is(err, confine.ErrOutside):
+			return nil, nil, "", fmt.Errorf("%w: %w: file", confine.ErrOutside, ErrNotFound)
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, nil, "", fmt.Errorf("%w: file", ErrNotFound)
+		case err != nil:
+			return nil, nil, "", fmt.Errorf("open game file: %w", withoutPath(err))
+		}
+		return file, fi, filepath.Base(f.path), nil
+	}
+	return nil, nil, "", fmt.Errorf("%w: file", ErrNotFound)
+}
+
+// maxFileIDLen bounds a fileId: the identifier of the longest path.
+var maxFileIDLen = base64.RawURLEncoding.EncodedLen(MaxIDPathBytes)
 
 // Art returns the art file of a game (ErrNotFound if it has none).
 func (l *Library) Art(gameID string) (osadapter.File, error) {
@@ -297,4 +392,153 @@ func (l *Library) Art(gameID string) (osadapter.File, error) {
 		return osadapter.File{}, fmt.Errorf("%w: art", ErrNotFound)
 	}
 	return *files.Art, nil
+}
+
+// MaxAllGames is the most games GET /games returns (truncated beyond).
+const MaxAllGames = 20000
+
+// LibraryGame is a game of GET /games: a listed game with its system and
+// folder.
+type LibraryGame struct {
+	Game
+	SystemID string `json:"systemId"`
+	// FolderID is the folderId GET /systems/{systemId}/games gives the
+	// folder that holds the game, nil at the root of the system.
+	FolderID *string `json:"folderId"`
+	// FolderPath is the folder names below the system joined with "/",
+	// nil at the root (informative).
+	FolderPath *string `json:"folderPath"`
+}
+
+// AllGames is the answer of GET /games (GeneratedAt is set by the caller).
+type AllGames struct {
+	Games       []LibraryGame `json:"games"`
+	Truncated   bool          `json:"truncated"`
+	GeneratedAt time.Time     `json:"generatedAt"`
+}
+
+// AllGames lists the games of every system of GET /systems (with or
+// without emulator), subfolders included, with the rules of ListGames,
+// sorted by system folder then by path (case-insensitive). At most limit
+// games are returned; Truncated tells there were more. Each system is
+// walked once (WalkSummaries), keeping only the games that can still be
+// returned; it stops with ctx.Err() when ctx is done.
+func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
+	out := AllGames{Games: []LibraryGame{}}
+	// The systems without a visible item have no game: SystemFolders does
+	// not open each folder to leave them out, the walk reads it once.
+	systems, err := l.adapter.SystemFolders()
+	if err != nil {
+		return AllGames{}, err
+	}
+	sort.Slice(systems, func(i, j int) bool { return lessFold(systems[i].Folder, systems[j].Folder) })
+	for _, sys := range systems {
+		if err := ctx.Err(); err != nil {
+			return AllGames{}, err
+		}
+		room := limit - len(out.Games)
+		// The room+1 first games of the system in the final order: one
+		// more than room tells the list is truncated.
+		kept := &gameHeap{}
+		err := l.adapter.WalkSummaries(ctx, sys, func(folder string, g osadapter.GameSummary) error {
+			kept.offer(foundGame{folder, g}, room+1)
+			if room <= 0 {
+				return errEnough // only whether one more game exists
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, errEnough) {
+			return AllGames{}, err
+		}
+		if err := ctx.Err(); err != nil {
+			return AllGames{}, err
+		}
+		games := kept.sorted()
+		if len(games) > room {
+			games, out.Truncated = games[:room], true
+		}
+		if len(games) == 0 {
+			if out.Truncated {
+				return out, nil
+			}
+			continue
+		}
+		locks := l.lockedSlots(sys)
+		systemID := EncodeID(sys.Folder)
+		for _, f := range games {
+			// apiGame reads the cheat file of the game.
+			if err := ctx.Err(); err != nil {
+				return AllGames{}, err
+			}
+			lg := LibraryGame{Game: apiGame(f.g, locks), SystemID: systemID}
+			if sub, ok := strings.CutPrefix(f.folder, sys.Folder+"/"); ok {
+				id := EncodeID(f.folder)
+				lg.FolderID, lg.FolderPath = &id, &sub
+			}
+			out.Games = append(out.Games, lg)
+		}
+		if out.Truncated {
+			return out, nil
+		}
+	}
+	return out, nil
+}
+
+// countCheats counts the cheats of a .cht file (cheats.CountFile; counted
+// by tests).
+var countCheats = cheats.CountFile
+
+// errEnough stops a walk that found all it needs.
+var errEnough = errors.New("enough games")
+
+// foundGame is a game met by AllGames, with the folder that holds it.
+type foundGame struct {
+	folder string
+	g      osadapter.GameSummary
+}
+
+// gameHeap keeps the first games by path (lessFold): a max-heap whose
+// root is the last game kept, so memory stays bounded by what can be
+// returned however large the system is.
+type gameHeap []foundGame
+
+func (h gameHeap) Len() int           { return len(h) }
+func (h gameHeap) Less(i, j int) bool { return lessFold(h[j].g.Path, h[i].g.Path) }
+func (h gameHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *gameHeap) Push(x any)        { *h = append(*h, x.(foundGame)) }
+func (h *gameHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
+}
+
+// offer keeps g if it is among the n first games met so far.
+func (h *gameHeap) offer(g foundGame, n int) {
+	switch {
+	case n <= 0:
+	case h.Len() < n:
+		heap.Push(h, g)
+	case lessFold(g.g.Path, (*h)[0].g.Path):
+		(*h)[0] = g
+		heap.Fix(h, 0)
+	}
+}
+
+// sorted returns the games kept in order (and empties the heap).
+func (h *gameHeap) sorted() []foundGame {
+	out := make([]foundGame, h.Len())
+	for i := len(out) - 1; i >= 0; i-- {
+		out[i] = heap.Pop(h).(foundGame)
+	}
+	return out
+}
+
+// lessFold orders case-insensitively, then by the exact bytes.
+func lessFold(a, b string) bool {
+	fa, fb := strings.ToLower(a), strings.ToLower(b)
+	if fa != fb {
+		return fa < fb
+	}
+	return a < b
 }

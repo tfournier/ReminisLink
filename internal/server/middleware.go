@@ -18,6 +18,10 @@ import (
 // inactivity timeout instead).
 const BodyIdleTimeout = 60 * time.Second
 
+// SendIdleTimeout is the longest wait for a client to read the next bytes
+// of a file download (sendFile).
+const SendIdleTimeout = 60 * time.Second
+
 // middlewares wraps the router, outermost first: panic recovery, access
 // log, shutdown gate, idle read deadline on the body.
 func (s *Server) middlewares(next http.Handler) http.Handler {

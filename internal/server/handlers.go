@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/library"
 )
 
@@ -298,6 +299,8 @@ func notFoundMessage(err error) string {
 		return "Folder not found"
 	case strings.HasSuffix(msg, ": art"):
 		return "Art not found"
+	case strings.HasSuffix(msg, ": file"):
+		return "File not found"
 	}
 	return "Game not found"
 }
@@ -341,6 +344,46 @@ func (s *Server) handleGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+// handleAllGames answers GET /games (M11). A request whose client went
+// away stops without an answer.
+func (s *Server) handleAllGames(w http.ResponseWriter, r *http.Request) {
+	all, err := s.opts.Library.AllGames(r.Context(), s.allGamesLimit)
+	if err != nil {
+		if r.Context().Err() != nil {
+			if s.ShuttingDown() {
+				auth.WriteError(w, http.StatusServiceUnavailable, auth.CodeShuttingDown, "Shutting down", nil)
+				return
+			}
+			s.log.Info("game listing cancelled")
+			return
+		}
+		s.internal(w, r, err)
+		return
+	}
+	all.GeneratedAt = timestamp(s.now())
+	if all.Truncated {
+		s.log.Info("game listing truncated", "games", len(all.Games))
+	}
+	writeJSON(w, http.StatusOK, all)
+}
+
+// handleGameFile answers GET /games/{gameId}/files/{fileId} (M11): the
+// whole file, streamed with constant memory (sendFile: no Range, no
+// conditional request). The server has no WriteTimeout, so a long
+// transfer is never cut by the server.
+func (s *Server) handleGameFile(w http.ResponseWriter, r *http.Request) {
+	f, _, name, err := s.opts.Library.OpenFile(r.PathValue("gameId"), r.PathValue("fileId"))
+	if err != nil {
+		if errors.Is(err, confine.ErrOutside) {
+			// A link or a file out of its folder: answered as missing.
+			s.log.Warn("game file refused", "error", err)
+		}
+		s.libraryError(w, r, err)
+		return
+	}
+	s.sendFile(w, r, f, name, "application/octet-stream")
 }
 
 func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {

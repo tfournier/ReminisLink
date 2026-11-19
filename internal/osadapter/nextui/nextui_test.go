@@ -920,3 +920,70 @@ func TestWalkGamesMatchesListFolder(t *testing.T) {
 		t.Errorf("stop: %v after %d", err, n)
 	}
 }
+
+// WalkSummaries gives the summaries and folders a recursive ListFolder
+// lists, and stops with its context or the error of fn.
+func TestWalkSummariesMatchesListFolder(t *testing.T) {
+	a, sd := newAdapter(t)
+	testutil.WriteFile(t, sd, "Roms/"+ps+"/Tide Pool/Tide Pool.cue", "c")
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/Hacks/Deeper/Deepest/x.gba", "r")
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/Hacks/Deeper/.media/Tiny Trial.png", "p")
+	systems, err := a.Systems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type item struct {
+		folder string
+		g      osadapter.GameSummary
+	}
+	total := 0
+	for _, sys := range systems {
+		listed := map[string]item{}
+		var list func(rel string)
+		list = func(rel string) {
+			l, err := a.ListFolder(sys, rel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, g := range l.Games {
+				listed[g.Path] = item{rel, g}
+			}
+			for _, f := range l.Folders {
+				list(f.Path)
+			}
+		}
+		list(sys.Folder)
+		walked := map[string]item{}
+		n := 0
+		if err := a.WalkSummaries(context.Background(), sys, func(folder string, g osadapter.GameSummary) error {
+			walked[g.Path] = item{folder, g}
+			n++
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(listed, walked) || n != len(listed) {
+			t.Errorf("%s: ListFolder %+v, WalkSummaries %+v", sys.Folder, listed, walked)
+		}
+		total += n
+		if sys.Folder == gba {
+			if it := walked[gba+"/Hacks/Deeper/Tiny Trial.gba"]; !it.g.HasArt || it.folder != gba+"/Hacks/Deeper" {
+				t.Errorf("deep game: %+v", it)
+			}
+		}
+	}
+	if total < 8 {
+		t.Errorf("only %d games walked", total)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	nop := func(string, osadapter.GameSummary) error { return nil }
+	if err := a.WalkSummaries(ctx, systems[0], nop); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled: %v", err)
+	}
+	stop := errors.New("stop")
+	n := 0
+	if err := a.WalkSummaries(context.Background(), systems[0], func(string, osadapter.GameSummary) error { n++; return stop }); !errors.Is(err, stop) || n != 1 {
+		t.Errorf("stop: %v after %d", err, n)
+	}
+}

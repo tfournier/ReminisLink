@@ -107,6 +107,9 @@ type Server struct {
 	pair         *rateLimiter
 	handler      http.Handler
 	timeouts     timeouts
+	// allGamesLimit is the most games of GET /games (library.MaxAllGames;
+	// changed by tests).
+	allGamesLimit int
 	// fetchSlot allows one cheat import from a URL at a time: its body
 	// (up to 5 MiB) is read in memory outside the signed body budget.
 	fetchSlot chan struct{}
@@ -115,6 +118,7 @@ type Server struct {
 // timeouts are the durations of the server, changed by tests only.
 type timeouts struct {
 	bodyIdle time.Duration // BodyIdleTimeout
+	sendIdle time.Duration // SendIdleTimeout
 	shutdown time.Duration // ShutdownTimeout
 	grace    time.Duration // shutdownGrace
 }
@@ -141,17 +145,19 @@ func New(opts Options) (*Server, error) {
 		opts.Storage = device.StorageOf
 	}
 	s := &Server{
-		opts:      opts,
-		log:       opts.Logger,
-		rejectLog: slog.New(newSampledHandler(opts.Logger.Handler(), RejectLogRate, RejectLogBurst, opts.Now, opts.LogFull)),
-		now:       opts.Now,
-		started:   opts.Now(),
-		hello:     newRateLimiter(HelloRate, HelloBurst, opts.Now),
-		pair:      newRateLimiter(PairRate, PairBurst, opts.Now),
-		presence:  newPresence(),
-		fetchSlot: make(chan struct{}, 1),
+		opts:          opts,
+		log:           opts.Logger,
+		rejectLog:     slog.New(newSampledHandler(opts.Logger.Handler(), RejectLogRate, RejectLogBurst, opts.Now, opts.LogFull)),
+		now:           opts.Now,
+		started:       opts.Now(),
+		hello:         newRateLimiter(HelloRate, HelloBurst, opts.Now),
+		pair:          newRateLimiter(PairRate, PairBurst, opts.Now),
+		presence:      newPresence(),
+		fetchSlot:     make(chan struct{}, 1),
+		allGamesLimit: library.MaxAllGames,
 		timeouts: timeouts{
 			bodyIdle: BodyIdleTimeout,
+			sendIdle: SendIdleTimeout,
 			shutdown: ShutdownTimeout,
 			grace:    shutdownGrace,
 		},
@@ -240,7 +246,10 @@ func (s *Server) routes() http.Handler {
 	// Library.
 	signed("GET "+Prefix+"/systems", auth.RouteJSON, s.handleSystems)
 	signed("GET "+Prefix+"/systems/{systemId}/games", auth.RouteJSON, s.handleSystemGames)
+	signed("GET "+Prefix+"/games", auth.RouteJSON, s.handleAllGames)
 	signed("GET "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleGame)
+	// Read route (M11): no write lease, a read-only client downloads too.
+	signed("GET "+Prefix+"/games/{gameId}/files/{fileId}", auth.RouteJSON, s.handleGameFile)
 	signed("GET "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.handleGameArt)
 	// PUT /art takes a PNG of at most 4 MiB.
 	signed("PUT "+Prefix+"/games/{gameId}/art", writes(auth.RouteArt), s.notify(ChangeArtSet, s.gameName, s.handlePutArt))

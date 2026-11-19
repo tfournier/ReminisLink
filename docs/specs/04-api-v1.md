@@ -14,7 +14,9 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | GET / PUT / DELETE | `/writer` | Détenteur du bail d'écriture / le prendre ou le renouveler / le relâcher (M10) |
 | GET | `/systems` | Liste des systèmes |
 | GET | `/systems/{systemId}/games` | Contenu d'un système (dossiers et jeux) |
+| GET | `/games` | Tous les jeux de tous les systèmes, à plat (M11) |
 | GET | `/games/{gameId}` | Détail d'un jeu et de ses fichiers |
+| GET | `/games/{gameId}/files/{fileId}` | Télécharger un fichier du jeu (M11) |
 | GET | `/games/{gameId}/art` | Jaquette (PNG) |
 | DELETE | `/games/{gameId}` | Supprimer un jeu et ses données (vers la corbeille) |
 | GET | `/trash` | Contenu et taille de la corbeille |
@@ -207,6 +209,42 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
 - Les identifiants désignent un nom **exact** du dossier : un identifiant qui ne diffère que par la casse donne `404 not_found` (un seul identifiant par fichier, 03 §5).
 - Le comptage `stateCount` et `cheatCount` DOIT rester rapide (≤ 300 ms pour 500 jeux sur la console) : une lecture de dossier par système, pas un `stat` par jeu.
 
+### `GET /games` (M11)
+
+Tous les jeux de tous les systèmes de `GET /systems` (avec ou sans émulateur), sous-dossiers compris, en une seule liste à plat pour la bibliothèque de l'app (recherche et filtres faits par l'app).
+
+```json
+{
+  "games": [
+    {
+      "id": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcy9Ta3kgR2FyZGVuIFF1ZXN0IERYLmdiYQ",
+      "systemId": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ",
+      "folderId": "R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw",
+      "folderPath": "Hacks",
+      "name": "Sky Garden Quest DX",
+      "fileName": "Sky Garden Quest DX.gba",
+      "kind": "file",
+      "sizeBytes": 16777216,
+      "modifiedAt": "2026-10-02T09:12:00Z",
+      "hasSave": true,
+      "stateCount": 3,
+      "lockedStateCount": 1,
+      "cheatCount": 12,
+      "hasArt": true
+    }
+  ],
+  "truncated": false,
+  "generatedAt": "2026-11-19T21:00:00Z"
+}
+```
+
+- Chaque jeu a les champs de `GET /systems/{systemId}/games`, avec les mêmes règles (ce qui est un jeu, disques d'un `.m3u`, fichiers ignorés), plus `systemId`, `folderId` (l'identifiant que `GET /systems/{systemId}/games` donne au dossier qui contient le jeu, `null` à la racine du système) et `folderPath` (informatif : noms des dossiers sous le système joints par `/`, `null` à la racine).
+- Profondeur des sous-dossiers : celle de `gameCount` (la somme des `gameCount` de `GET /systems` est le nombre de jeux).
+- Tri par dossier du système puis par chemin, insensible à la casse.
+- 20 000 jeux au plus : au-delà, `truncated` vaut `true` (les 20 000 premiers dans cet ordre) et l'app revient à la navigation par système.
+- Coût : chaque dossier et chaque dossier de données d'un système (saves, states, cheats) est lu une seule fois. La requête s'arrête si le client se déconnecte.
+- Route de lecture : pas de bail d'écriture (M10).
+
 ### `GET /games/{gameId}`
 
 ```json
@@ -217,17 +255,29 @@ Liste un dossier du système. `folderId` (optionnel) est un identifiant de dossi
   "fileName": "Sky Garden Quest.gba",
   "kind": "file",
   "files": [
-    { "role": "rom",   "path": "Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba", "sizeBytes": 16777216, "modifiedAt": "..." },
-    { "role": "save",  "path": "Saves/GBA/Sky Garden Quest.gba.sav", "sizeBytes": 131072, "modifiedAt": "..." },
-    { "role": "state", "slot": 0, "path": "...", "sizeBytes": 401408, "modifiedAt": "..." },
-    { "role": "cheats","path": "Cheats/GBA/Sky Garden Quest.gba.cht", "sizeBytes": 2048, "modifiedAt": "..." },
-    { "role": "art",   "path": "Roms/Game Boy Advance (GBA)/.media/Sky Garden Quest.png", "sizeBytes": 50211, "modifiedAt": "..." }
+    { "fileId": "...", "role": "rom",   "path": "Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba", "sizeBytes": 16777216, "modifiedAt": "..." },
+    { "fileId": "...", "role": "save",  "path": "Saves/GBA/Sky Garden Quest.gba.sav", "sizeBytes": 131072, "modifiedAt": "..." },
+    { "fileId": "...", "role": "state", "slot": 0, "path": "...", "sizeBytes": 401408, "modifiedAt": "..." },
+    { "fileId": "...", "role": "cheats","path": "Cheats/GBA/Sky Garden Quest.gba.cht", "sizeBytes": 2048, "modifiedAt": "..." },
+    { "fileId": "...", "role": "art",   "path": "Roms/Game Boy Advance (GBA)/.media/Sky Garden Quest.png", "sizeBytes": 50211, "modifiedAt": "..." }
   ],
   "totalBytes": 17377096
 }
 ```
 
 `path` est **informatif** (affiché à l'utilisateur, relatif à la racine de la carte SD). L'app ne DOIT jamais le renvoyer au serveur.
+
+`fileId` (M11) identifie le fichier pour `GET /games/{gameId}/files/{fileId}`. Opaque pour l'app ; il reste le même tant que le fichier garde son chemin. Le pak le calcule comme le base64url (sans remplissage) du chemin relatif à la racine de la carte SD, mais ne le décode **jamais** en chemin : il ne sert qu'à être comparé aux `fileId` de la liste courante du jeu.
+
+### `GET /games/{gameId}/files/{fileId}` (M11)
+
+Télécharge un fichier de `files` (ROM, disque, playlist, save, fichier d'horloge, state, cheats, jaquette) pour que l'utilisateur en garde une copie sur l'iPhone.
+
+- Le pak recalcule la liste des fichiers du jeu (même code que `GET /games/{gameId}`) et ne sert que l'entrée dont le `fileId` est **exactement** celui demandé. Un `fileId` absent de cette liste (inconnu, d'un autre jeu, fichier supprimé ou renommé depuis, base64url fabriqué d'un fichier existant hors du jeu) : `404 not_found`. Un `fileId` qui n'est pas un identifiant opaque (caractères hors base64url) : `400 invalid_id`.
+- Confinement (règle 2) : le fichier est ouvert à travers `os.Root` du dossier de tête de son rôle (`Roms/`, `Saves/`, `Cheats/`, dossier des states), sans lien symbolique à aucun composant du chemin sous ce dossier, et doit être sous le dossier le plus étroit de son rôle (le dossier du système pour une ROM ou une jaquette, `Saves/<TAG>`, `Cheats/<TAG>`). Un lien, un chemin qui passe par un lien ou un fichier hors de ces dossiers : `404 not_found` (journalisé, sans chemin absolu).
+- Réponse `200` : le fichier entier, `Content-Type: application/octet-stream`, `Content-Length`, `Content-Disposition: attachment; filename="<nom>"` (même forme que le téléchargement de la save, avec `filename*` pour un nom non ASCII). Pas de `Range` ni de requête conditionnelle dans cette version.
+- Envoi en flux à mémoire constante (disques PS1 de plusieurs centaines de Mo) ; le serveur HTTP du pak n'a pas de `WriteTimeout` : un envoi lent n'est pas coupé tant que des octets passent ; le fichier est écrit par morceaux de 32 Kio au plus, chacun avec un délai de 60 s : un client qui accepte moins de 32 Kio en 60 s est coupé (comme pour les autres téléchargements de fichiers).
+- Route de lecture : pas de bail d'écriture (M10), un appareil en lecture seule télécharge aussi.
 
 ### `GET /games/{gameId}/art`
 

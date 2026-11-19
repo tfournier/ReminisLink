@@ -399,9 +399,7 @@ struct AddView: View {
             }
             if let request = context.request { app.finishShare(request) }
             dismiss()
-            if app.path.last != .transfers(deviceId) {
-                app.path = [.console(deviceId), .transfers(deviceId)]
-            }
+            app.showTransfersAfterAdd(deviceId: deviceId)
         } catch {
             let error = AppError(error)
             if !error.isCancellation { self.error = error }

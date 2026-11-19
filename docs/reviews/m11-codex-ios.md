@@ -1,0 +1,20 @@
+Verdict : à corriger
+
+## Bloquant
+
+- [Models.swift:451](ios/ReminisLinkKit/Sources/ReminisLinkKit/Models.swift#L451) Le repli sur un pak antérieur à M11 permet de lister les jeux, puis échoue à l’ouverture de leur fiche. Un pak M10 renvoie `404` ou `405` sur `GET /games`, puis un `GameDetail` sans `fileId` sur la route du jeu. Le décodage échoue dès le premier fichier et rend aussi inaccessibles les actions existantes sur la fiche. Accepter l’absence de `fileId` pour les réponses anciennes et afficher le bouton de téléchargement individuel uniquement quand le pak fournit un identifiant. Tester le parcours complet avec une réponse M10.
+- [ConsoleSession.swift:98](ios/ReminisLink/App/ConsoleSession.swift#L98) La fermeture du pak ne bloque pas toutes les reconnexions automatiques. Pendant la copie locale de plusieurs fichiers dans **Ajouter**, un premier envoi peut recevoir `503 shutting_down` et faire revenir l’app à la liste. Quand la copie des autres fichiers se termine, la feuille bascule vers Transferts et rouvre la console sans action de l’utilisateur. Un chargement dans cet onglet peut appeler `connectedClient()`, qui passe directement par `connect()` et contourne la garde de `connectIfNeeded()`. Appliquer la garde au point d’entrée commun de connexion, lever le blocage sur une ouverture explicite et empêcher la fin d’un ajout de rouvrir une console qui vient de se fermer. [AddView.swift:403](ios/ReminisLink/Views/AddView.swift#L403) · [ConsoleSession.swift:377](ios/ReminisLink/App/ConsoleSession.swift#L377)
+- [ConsoleSession.swift:176](ios/ReminisLink/App/ConsoleSession.swift#L176) Un `503 shutting_down` pendant l’ouverture reste un écran d’erreur. Si l’utilisateur touche la console pendant sa fermeture et que `/hello` ou `/device` reçoit le `503`, le client n’est pas encore installé. Le traitement de fermeture exige ce client et le `catch` de la tentative passe en `.failed`. Traiter le `503` dans la tentative courante pour revenir à la liste avec le message prévu. [ConsoleSession.swift:233](ios/ReminisLink/App/ConsoleSession.swift#L233)
+
+## À corriger
+
+- [FakePakLibrary.swift:152](ios/ReminisLinkKit/Sources/ReminisLinkDemo/FakePakLibrary.swift#L152) Le FakePak annonce environ 700 Mio pour le fichier de *Starlight Saga*, puis exporte 16 Mio avec un `200`. Le contrat prévoit le fichier entier. Faire correspondre les tailles annoncées aux fichiers de démo et vérifier la taille exportée. La taille du `.cht` est également annoncée en dur alors que son contenu est généré. [DemoLibrary.swift:130](ios/ReminisLinkKit/Sources/ReminisLinkDemo/DemoLibrary.swift#L130) · [FakePak.swift:727](ios/ReminisLinkKit/Sources/ReminisLinkDemo/FakePak.swift#L727)
+- [GameDetailView.swift:187](ios/ReminisLink/Views/GameDetailView.swift#L187) Après un `404`, l’app annonce que la liste a été rechargée avant de connaître le résultat du rechargement. Si le jeu entier a été supprimé, la seconde requête renvoie aussi `404` et la fiche conserve ses anciennes lignes. Afficher le message de rechargement après un succès et retirer les actions périmées si le jeu a disparu.
+
+## Suggestions
+
+- [LibraryTests.swift:199](ios/ReminisLinkKit/Tests/ReminisLinkKitTests/LibraryTests.swift#L199) Le test d’annulation utilise le chemin sans callback de progression, alors que la fiche utilise `PakDownloadDelegate`. Faire passer le test par le même chemin que la fiche, borner l’attente et vérifier que le téléchargement annulé ne laisse aucun export.
+
+**Tests lancés** — `git diff --check m11-ergonomie...HEAD`, `scripts/sync-test-vectors.sh --check`, `gofmt -l cmd internal protocol scripts` et validation JSON du catalogue EN/FR réussis. `plutil -lint` a rejeté le format du catalogue `.xcstrings`, que l’analyseur JSON a validé. `make lint test`, `make contract`, `swift test` et `xcodebuild test` n’ont pas été lancés, car ils écrivent des caches ou des artefacts.
+
+Revue statique du diff `m11-ergonomie...HEAD` et des six points M11. Aucun prompt M11 n’est présent dans `prompts/`. La description de la PR était inaccessible via GitHub, donc j’ai utilisé le message du commit `eb2f348b` comme contexte. Aucun fichier modifié.
