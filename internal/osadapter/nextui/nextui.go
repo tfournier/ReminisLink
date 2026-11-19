@@ -103,7 +103,14 @@ func New(roots osadapter.Roots, env Env) *Adapter {
 	if env == nil {
 		env = func(string) string { return "" }
 	}
-	return &Adapter{roots: roots, env: env, powerSupply: DefaultPowerSupplyDir}
+	a := &Adapter{roots: roots, env: env, powerSupply: DefaultPowerSupplyDir}
+	if !knownModels[env("DEVICE")] {
+		// Off the console (desktop and headless modes on a fake SD card),
+		// the battery is read from <SD>/.sys/class/power_supply when the
+		// card has one: the screenshots show a battery that way.
+		a.powerSupply = filepath.Join(roots.SD, ".sys", "class", "power_supply")
+	}
+	return a
 }
 
 // Name returns "nextui".
