@@ -9,6 +9,7 @@ Ce document décrit tout ce qui n'est pas une route métier : découverte, appai
 - Préfixe de toutes les routes : `/api/v1`.
 - Corps JSON en UTF-8, `Content-Type: application/json`. Noms de champs en `camelCase`. Dates en RFC 3339 UTC (`2026-11-18T16:57:40Z`). Tailles en octets (entiers 64 bits).
 - Taille maximale d'un corps JSON : 1 Mio. Les fichiers passent par les routes de transfert.
+- Événements poussés par la console (M14) : `GET /api/v1/events`, un flux Server-Sent Events (`text/event-stream`) signé à l'ouverture et gardé ouvert, avec un signe de vie au moins toutes les 15 s (voir [04](04-api-v1.md#get-events-m14)). Le serveur n'a pas de délai d'écriture global ; chaque écriture d'un flux a son propre délai.
 
 ## 2. Découverte (Bonjour / DNS-SD)
 
@@ -191,7 +192,7 @@ Toute réponse d'erreur a la forme :
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
 | 423 | `read_only` | Un autre client tient le bail d'écriture (`details.writer` : son nom) ; rien n'a été modifié (M10) |
-| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
+| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; trop de flux d'événements (4 par client, 16 en tout, M14) ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
 | 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
 | 507 | `insufficient_storage` | Espace libre insuffisant (`details.required`, `details.available`) |
@@ -234,6 +235,8 @@ Téléchargements depuis une URL et application de patchs. Une seule tâche à l
 - `error` (si `failed`) : le même objet que dans les réponses d'erreur.
 
 L'app suit une tâche par interrogation (`GET /api/v1/jobs/{id}`) toutes les secondes tant que l'écran est visible. Les tâches terminées sont conservées 1 heure en mémoire.
+
+Depuis M14, le flux d'événements `GET /api/v1/events` envoie aussi chaque tâche (événement `job`) : à chaque changement d'état, et au plus une fois par seconde pendant qu'elle avance ; une tâche réussie qui a installé un fichier est suivie d'un événement `library`.
 
 ## 9. Versions
 
