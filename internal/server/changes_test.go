@@ -59,6 +59,22 @@ func TestOnChange(t *testing.T) {
 		t.Fatalf("failed request: %+v", got)
 	}
 
+	// Erasing one trash entry (the deleted game).
+	var trash struct {
+		Entries []struct {
+			ID string `json:"id"`
+		} `json:"entries"`
+	}
+	f.do(http.MethodGet, "/api/v1/trash", "/trash", nil, http.StatusOK).JSON(t, &trash)
+	if len(trash.Entries) == 0 {
+		t.Fatal("empty trash")
+	}
+	f.send(http.MethodDelete, "/api/v1/trash/"+trash.Entries[0].ID, "/trash/{entryId}", nil,
+		map[string]string{"X-RL-Confirm": "empty-trash"}, http.StatusOK)
+	if got := log.take(); len(got) != 1 || got[0].Kind != ChangeTrashEntryDeleted {
+		t.Fatalf("trash entry: %+v", got)
+	}
+
 	// Emptying the trash.
 	f.send(http.MethodDelete, "/api/v1/trash", "/trash", nil, map[string]string{"X-RL-Confirm": "empty-trash"}, http.StatusOK)
 	if got := log.take(); len(got) != 1 || got[0].Kind != ChangeTrashEmptied {

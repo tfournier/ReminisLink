@@ -24,6 +24,8 @@ const (
 	ChangeGameDeleted   = "game-deleted"
 	ChangeCheatsUpdated = "cheats-updated"
 	ChangeTrashEmptied  = "trash-emptied"
+	// ChangeTrashEntryDeleted: one trash entry erased for good.
+	ChangeTrashEntryDeleted = "trash-entry-deleted"
 )
 
 // notify calls OnChange with kind after a successful (2xx) response. name,

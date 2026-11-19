@@ -29,6 +29,8 @@ var (
 	StateReady       = &msg{ID: "state_ready", Other: "Ready"}
 	StateConnected   = &msg{ID: "state_connected", Other: "Connected"}
 	StateTransfer    = &msg{ID: "state_transfer", Other: "Transfer in progress"}
+	StateNoWiFi      = &msg{ID: "state_no_wifi", Other: "No Wi-Fi"}
+	HintNoWiFi       = &msg{ID: "hint_no_wifi", Other: "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."}
 	ScanHint         = &msg{ID: "scan_hint", Other: "Scan with the ReminisLink app"}
 	QRHidden         = &msg{ID: "qr_hidden", Other: "QR code hidden: press A to show it."}
 	LabelCode        = &msg{ID: "label_code", Other: "Code"}
@@ -55,21 +57,22 @@ var (
 
 // Banner (SD card changes)
 var (
-	NoticeWithName       = &msg{ID: "notice_with_name", Other: "{{.Text}}: {{.Name}}"}
-	NoticeROMAdded       = &msg{ID: "notice_rom_added", Other: "Game added"}
-	NoticeSaveReplaced   = &msg{ID: "notice_save_replaced", Other: "Save replaced"}
-	NoticeSaveRestored   = &msg{ID: "notice_save_restored", Other: "Save restored"}
-	NoticeStateReplaced  = &msg{ID: "notice_state_replaced", Other: "State replaced"}
-	NoticeStateRestored  = &msg{ID: "notice_state_restored", Other: "State restored"}
-	NoticeStateDeleted   = &msg{ID: "notice_state_deleted", Other: "State moved to the trash"}
-	NoticeGameDeleted    = &msg{ID: "notice_game_deleted", Other: "Game moved to the trash"}
-	NoticeCheatsUpdated  = &msg{ID: "notice_cheats_updated", Other: "Cheats updated"}
-	NoticeTrashEmptied   = &msg{ID: "notice_trash_emptied", Other: "Trash emptied"}
-	NoticeDownloaded     = &msg{ID: "notice_downloaded", Other: "Download finished"}
-	NoticeDownloadFailed = &msg{ID: "notice_download_failed", Other: "Download failed"}
-	NoticePatched        = &msg{ID: "notice_patched", Other: "Patch applied"}
-	NoticePatchFailed    = &msg{ID: "notice_patch_failed", Other: "Patch failed"}
-	NoticePaired         = &msg{ID: "notice_paired", Other: "Paired with {{.Name}}"}
+	NoticeWithName          = &msg{ID: "notice_with_name", Other: "{{.Text}}: {{.Name}}"}
+	NoticeROMAdded          = &msg{ID: "notice_rom_added", Other: "Game added"}
+	NoticeSaveReplaced      = &msg{ID: "notice_save_replaced", Other: "Save replaced"}
+	NoticeSaveRestored      = &msg{ID: "notice_save_restored", Other: "Save restored"}
+	NoticeStateReplaced     = &msg{ID: "notice_state_replaced", Other: "State replaced"}
+	NoticeStateRestored     = &msg{ID: "notice_state_restored", Other: "State restored"}
+	NoticeStateDeleted      = &msg{ID: "notice_state_deleted", Other: "State moved to the trash"}
+	NoticeGameDeleted       = &msg{ID: "notice_game_deleted", Other: "Game moved to the trash"}
+	NoticeCheatsUpdated     = &msg{ID: "notice_cheats_updated", Other: "Cheats updated"}
+	NoticeTrashEmptied      = &msg{ID: "notice_trash_emptied", Other: "Trash emptied"}
+	NoticeTrashEntryDeleted = &msg{ID: "notice_trash_entry_deleted", Other: "Trash entry deleted"}
+	NoticeDownloaded        = &msg{ID: "notice_downloaded", Other: "Download finished"}
+	NoticeDownloadFailed    = &msg{ID: "notice_download_failed", Other: "Download failed"}
+	NoticePatched           = &msg{ID: "notice_patched", Other: "Patch applied"}
+	NoticePatchFailed       = &msg{ID: "notice_patch_failed", Other: "Patch failed"}
+	NoticePaired            = &msg{ID: "notice_paired", Other: "Paired with {{.Name}}"}
 )
 
 // Other screens
@@ -105,14 +108,15 @@ var (
 // All lists every message, for the tests.
 var All = []*msg{
 	BtnQuit, BtnBack, BtnSelect, BtnCancel, BtnConfirm, BtnOK, BtnForget, BtnSettings, BtnHideQR,
-	BtnShowQR, StateReady, StateConnected, StateTransfer, ScanHint, QRHidden, LabelCode, PINExpires,
-	PINBlocked, LabelConsole, ConsoleValue, LabelState, LabelConnected, NoneConnected, TitleTransfers,
-	ActUpload, ActUploadFile, ActDownload, ActDownloadFile, ActPatch, ActPatchFile, ActQueued,
-	ActProgress, ActBytes, SizeMB, DecimalSeparator, NoticeWithName, NoticeROMAdded,
-	NoticeSaveReplaced, NoticeSaveRestored, NoticeStateReplaced, NoticeStateRestored,
-	NoticeStateDeleted, NoticeGameDeleted, NoticeCheatsUpdated, NoticeTrashEmptied, NoticeDownloaded,
-	NoticeDownloadFailed, NoticePatched, NoticePatchFailed, NoticePaired, MsgNoWiFi, MsgPreparing,
-	MsgClosing, MsgStartError, MsgConfirmQuit, LanguagePrompt, TitleSettings, ItemName, ItemPaired,
-	ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout, TitlePaired, MsgNoPaired, PairedItem,
-	DateLayout, MsgConfirmForget, MsgConfirmForgetAll, MsgForgotAll, MsgNameEmpty, MsgSaveError,
+	BtnShowQR, StateReady, StateConnected, StateTransfer, StateNoWiFi, HintNoWiFi, ScanHint, QRHidden,
+	LabelCode, PINExpires, PINBlocked, LabelConsole, ConsoleValue, LabelState, LabelConnected,
+	NoneConnected, TitleTransfers, ActUpload, ActUploadFile, ActDownload, ActDownloadFile, ActPatch,
+	ActPatchFile, ActQueued, ActProgress, ActBytes, SizeMB, DecimalSeparator, NoticeWithName,
+	NoticeROMAdded, NoticeSaveReplaced, NoticeSaveRestored, NoticeStateReplaced, NoticeStateRestored,
+	NoticeStateDeleted, NoticeGameDeleted, NoticeCheatsUpdated, NoticeTrashEmptied,
+	NoticeTrashEntryDeleted, NoticeDownloaded, NoticeDownloadFailed, NoticePatched, NoticePatchFailed,
+	NoticePaired, MsgNoWiFi, MsgPreparing, MsgClosing, MsgStartError, MsgConfirmQuit, LanguagePrompt,
+	TitleSettings, ItemName, ItemPaired, ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout,
+	TitlePaired, MsgNoPaired, PairedItem, DateLayout, MsgConfirmForget, MsgConfirmForgetAll,
+	MsgForgotAll, MsgNameEmpty, MsgSaveError,
 }

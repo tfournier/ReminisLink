@@ -16,6 +16,7 @@ const (
 	StateReady     State = iota // nothing going on
 	StateConnected              // a signed request in the last 30 s
 	StateTransfer               // a transfer or a job in progress
+	StateNoWiFi                 // the Wi-Fi address was lost (sleep, Wi-Fi off)
 )
 
 // Status is what the main screen shows. It is read from in-memory state
@@ -23,8 +24,9 @@ const (
 type Status struct {
 	State State
 	Name  string
-	IP    string
+	IP    string // "" while offline
 	Port  int
+	WiFi  bool // false: no Wi-Fi address, the pairing link is empty
 
 	// Pairing: the link of the QR code holds the secret; it goes to the
 	// screen only, never to the log.
@@ -45,12 +47,16 @@ func (a *App) Status() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	name := a.DeviceName()
+	a.mu.Lock()
+	name, ip, wifi := a.name, a.ip, a.wifi
+	a.mu.Unlock()
 	st := Status{
-		Name: name, IP: a.ip, Port: a.port,
-		PairingLink: auth.PairingURL(a.conf.DeviceID, name, snap.Secret, a.ip, a.port),
-		PIN:         snap.PIN, ExpiresAt: snap.ExpiresAt, BlockedUntil: snap.BlockedUntil, Generation: snap.Generation,
+		Name: name, IP: ip, Port: a.port, WiFi: wifi,
+		PIN: snap.PIN, ExpiresAt: snap.ExpiresAt, BlockedUntil: snap.BlockedUntil, Generation: snap.Generation,
 		Activities: a.xfer.Activities(),
+	}
+	if wifi {
+		st.PairingLink = auth.PairingURL(a.deviceID, name, snap.Secret, ip, a.port)
 	}
 	if a.srv != nil {
 		for _, c := range a.srv.ConnectedClients() {
@@ -58,6 +64,8 @@ func (a *App) Status() (Status, error) {
 		}
 	}
 	switch {
+	case !wifi:
+		st.State = StateNoWiFi
 	case len(st.Activities) > 0:
 		st.State = StateTransfer
 	case len(st.Connected) > 0:

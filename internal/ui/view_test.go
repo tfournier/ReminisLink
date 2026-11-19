@@ -25,7 +25,7 @@ var now = time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
 
 func status() app.Status {
 	return app.Status{
-		State: app.StateReady, Name: "Brick de Thomas", IP: "192.168.1.42", Port: 47821,
+		State: app.StateReady, Name: "Brick de Thomas", IP: "192.168.1.42", Port: 47821, WiFi: true,
 		PairingLink: "reminislink://pair?v=1", PIN: "482913", ExpiresAt: now.Add(9*time.Minute - 10*time.Second),
 	}
 }
@@ -122,7 +122,7 @@ func TestNoticeText(t *testing.T) {
 	// Every kind has a text.
 	for _, k := range []string{server.ChangeROMAdded, server.ChangeSaveReplaced, server.ChangeSaveRestored,
 		server.ChangeStateReplaced, server.ChangeStateRestored, server.ChangeStateDeleted, server.ChangeGameDeleted,
-		server.ChangeCheatsUpdated, server.ChangeTrashEmptied, app.NoticeDownloaded, app.NoticeDownloadFailed,
+		server.ChangeCheatsUpdated, server.ChangeTrashEmptied, server.ChangeTrashEntryDeleted, app.NoticeDownloaded, app.NoticeDownloadFailed,
 		app.NoticePatched, app.NoticePatchFailed} {
 		if NoticeText(app.Notice{Kind: k, Name: "X"}) == "" {
 			t.Errorf("no text for %q", k)
@@ -146,5 +146,16 @@ func TestPairedItem(t *testing.T) {
 	at := time.Date(2026, 11, 18, 12, 0, 0, 0, time.Local)
 	if got := PairedItem("iPhone", at); got != "iPhone (appairé le 18/11/2026)" {
 		t.Errorf("PairedItem = %q", got)
+	}
+}
+
+func TestBuildMainNoWiFi(t *testing.T) {
+	setLang(t, "fr")
+	st := status()
+	st.State, st.WiFi, st.IP, st.PairingLink = app.StateNoWiFi, false, "", ""
+	v := BuildMain(st, now, true)
+	if v.State != "Pas de Wi-Fi" || v.ShowQR || !strings.Contains(v.Hint, "reprend dès son retour") ||
+		v.Items[1].Value != "Brick de Thomas" {
+		t.Fatalf("offline view %#v", v)
 	}
 }

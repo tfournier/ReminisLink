@@ -63,7 +63,7 @@ func (d *pairingDisplay) refresh() {
 		slog.Error("pairing secret", "error", err)
 		return
 	}
-	key := fmt.Sprintf("%d/%s", st.Generation, st.Name)
+	key := fmt.Sprintf("%d/%s/%s", st.Generation, st.Name, st.IP)
 	if key == d.shown {
 		return
 	}

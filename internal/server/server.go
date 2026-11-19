@@ -207,7 +207,7 @@ func (s *Server) routes() http.Handler {
 	// Trash.
 	signed("GET "+Prefix+"/trash", auth.RouteJSON, s.handleTrash)
 	signed("DELETE "+Prefix+"/trash", auth.RouteJSON, s.notify(ChangeTrashEmptied, nil, s.handleEmptyTrash))
-	signed("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.notify(ChangeTrashEmptied, nil, s.handleDeleteTrashEntry))
+	signed("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.notify(ChangeTrashEntryDeleted, nil, s.handleDeleteTrashEntry))
 
 	// Transfers. Only the chunk route accepts UNSIGNED bodies (read as a
 	// stream by the handler, bounded by the chunk size).

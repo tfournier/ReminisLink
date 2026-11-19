@@ -7,6 +7,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -46,7 +47,20 @@ type Options struct {
 	// OnPaired is called after a client is paired, besides the banner
 	// (the headless mode prints it; may be nil).
 	OnPaired func(auth.Client)
+	// NoWiFiIP is the address used while no Wi-Fi address is found
+	// ("127.0.0.1" in headless mode). Empty: the pak is offline then
+	// (Status.WiFi false) until an address comes back.
+	NoWiFiIP string
 }
+
+// ErrStopped is returned by Maintain and Start once Shutdown has begun
+// (a signal arrived during the maintenance).
+var ErrStopped = errors.New("app: stopped")
+
+// NetworkCheckEvery is how often the address of the Wi-Fi interface is
+// checked: a sleep of the console (short press on the power button) stops
+// the Wi-Fi, and DHCP may give another address on wake-up.
+const NetworkCheckEvery = 3 * time.Second
 
 // LoggedError is an error already written to the log file (and to LogOut).
 type LoggedError struct{ Err error }
@@ -76,9 +90,13 @@ type App struct {
 	layout  store.Layout
 	config  *store.ConfigFile
 
+	deviceID string // immutable
+
 	mu   sync.Mutex
 	conf store.Config // config.json as last saved
 	name string       // current device name (Options.Name until renamed)
+	ip   string       // address of the pairing link ("" while offline)
+	wifi bool         // a Wi-Fi address is known (or NoWiFiIP is used)
 
 	clients *auth.ClientStore
 	pairing *auth.PairingSession
@@ -96,15 +114,26 @@ type App struct {
 	ifaceIPv4   func(name string) (string, bool)
 	maintenance func(ctx context.Context) error // tests
 
+	// Maintenance, cancelled by Shutdown.
+	maintMu     sync.Mutex // held while Maintain runs
+	maintCtx    context.Context
+	maintCancel context.CancelFunc
+
+	// life guards the start against a concurrent Shutdown.
+	life     sync.Mutex
+	stopping bool
+
 	// Set by Start.
-	srv      *server.Server
-	ip       string
-	port     int
-	annMu    sync.Mutex
-	ann      withdrawer
-	cancel   context.CancelFunc
-	served   chan struct{} // closed when the server stopped
-	serveErr error         // set before served is closed
+	srv        *server.Server
+	port       int
+	annMu      sync.Mutex
+	ann        withdrawer
+	cancel     context.CancelFunc
+	served     chan struct{} // closed when the server stopped
+	serveErr   error         // set before served is closed
+	stopWatch  chan struct{} // stops the network watch
+	watchDone  chan struct{}
+	checkEvery time.Duration // NetworkCheckEvery (tests change it)
 
 	stopOnce sync.Once
 	stopErr  error
@@ -121,7 +150,8 @@ func Open(opts Options) (a *App, err error) {
 		return nil, err
 	}
 	a = &App{opts: opts, log: logger, logf: logf, roots: opts.Roots, notices: newNotices(time.Now),
-		announce: bonjour, ipv4: device.IPv4, ifaceIPv4: device.IPv4On}
+		announce: bonjour, ipv4: device.IPv4, ifaceIPv4: device.IPv4On, checkEvery: NetworkCheckEvery}
+	a.maintCtx, a.maintCancel = context.WithCancel(context.Background())
 	defer func() {
 		if err != nil {
 			logger.Error("fatal", "error", err)
@@ -141,17 +171,18 @@ func Open(opts Options) (a *App, err error) {
 	}, nil); err != nil {
 		return a, err
 	}
+	a.deviceID = a.conf.DeviceID
 	a.name = a.conf.DeviceName
 	if opts.Name != "" {
 		a.name = opts.Name
 	}
 	logger.Info("ReminisLink started", "version", opts.Version, "mode", opts.Mode, "sd", opts.Roots.SD,
-		"device", a.conf.DeviceID, "name", a.name, "model", a.info.Model, "platform", a.info.Platform)
+		"device", a.deviceID, "name", a.name, "model", a.info.Model, "platform", a.info.Platform)
 
 	if a.clients, err = auth.OpenClientStore(a.layout.ClientsFile()); err != nil {
 		return a, err
 	}
-	if a.pairing, err = auth.NewPairingSession(a.conf.DeviceID, nil, nil); err != nil {
+	if a.pairing, err = auth.NewPairingSession(a.deviceID, nil, nil); err != nil {
 		return a, err
 	}
 	a.lib = library.New(a.adapter, a.layout)
@@ -215,7 +246,7 @@ func (a *App) LogPath() string { return a.logf.f.Name() }
 func (a *App) Version() string { return a.opts.Version }
 
 // DeviceID returns the identifier of the console.
-func (a *App) DeviceID() string { return a.conf.DeviceID }
+func (a *App) DeviceID() string { return a.deviceID }
 
 // Info returns what the OS adapter says about the console.
 func (a *App) Info() osadapter.DeviceInfo { return a.info }
@@ -241,14 +272,30 @@ func (a *App) WiFiIPv4() (string, bool) {
 // entries with a credited age of 30 days are erased, the uploads idle for
 // 24 h and the staging files older than 24 h are deleted, and the other
 // uploads are resumed.
+//
+// Shutdown cancels it: the state checks stop at once (what is left is
+// checked at the next start), the other steps are not started, and
+// Maintain returns ErrStopped.
 func (a *App) Maintain() error {
+	a.maintMu.Lock()
+	defer a.maintMu.Unlock()
+	stopped := func() bool { return a.maintCtx.Err() != nil }
+	if stopped() {
+		return ErrStopped
+	}
 	if a.maintenance != nil {
-		return a.maintenance(context.Background())
+		if err := a.maintenance(a.maintCtx); err != nil {
+			return err
+		}
+		if stopped() {
+			return ErrStopped
+		}
+		return nil
 	}
 	if err := a.trash.Recover(); err != nil {
 		return fmt.Errorf("maintenance: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), MaintenanceTimeLimit)
+	ctx, cancel := context.WithTimeout(a.maintCtx, MaintenanceTimeLimit)
 	start := time.Now()
 	report := a.states.Maintain(ctx)
 	cancel()
@@ -258,6 +305,10 @@ func (a *App) Maintain() error {
 	a.log.Info("maintenance: states checked", "duration", time.Since(start).Round(time.Millisecond),
 		"resumeArchived", report.Archived, "locksChecked", report.LocksChecked, "locksIntact", report.LocksIntact,
 		"locksRestored", len(report.Restored), "failed", report.Failed, "skipped", report.Skipped)
+	if stopped() {
+		a.log.Info("maintenance: stopped by the shutdown, the rest is checked at the next start")
+		return ErrStopped
+	}
 	if report.Skipped > 0 {
 		a.log.Warn("maintenance: time limit reached, the rest is checked at the next start", "limit", MaintenanceTimeLimit, "skipped", report.Skipped)
 	}
@@ -266,8 +317,14 @@ func (a *App) Maintain() error {
 	} else if freed > 0 {
 		a.log.Info("trash purged", "freedBytes", freed)
 	}
+	if stopped() {
+		return ErrStopped
+	}
 	if err := a.xfer.Maintain(); err != nil {
 		return fmt.Errorf("maintenance: %w", err)
+	}
+	if stopped() {
+		return ErrStopped
 	}
 	if err := a.xfer.LoadUploads(); err != nil {
 		return fmt.Errorf("maintenance: %w", err)
@@ -277,8 +334,14 @@ func (a *App) Maintain() error {
 
 // Start opens the server on the first free port from the preferred one,
 // serves the API in a goroutine and announces it with Bonjour. ip is the
-// address put in the pairing link.
+// address put in the pairing link. A goroutine then follows the address of
+// the Wi-Fi interface (see watchNetwork). ErrStopped once Shutdown began.
 func (a *App) Start(ip string) error {
+	a.life.Lock()
+	defer a.life.Unlock()
+	if a.stopping {
+		return ErrStopped
+	}
 	port := a.conf.Port
 	if a.opts.Port != 0 {
 		port = a.opts.Port
@@ -288,7 +351,7 @@ func (a *App) Start(ip string) error {
 		return err
 	}
 	srv, err := server.New(server.Options{
-		Identity:  server.Identity{DeviceID: a.conf.DeviceID, DeviceName: a.DeviceName(), PakVersion: a.opts.Version},
+		Identity:  server.Identity{DeviceID: a.deviceID, DeviceName: a.DeviceName(), PakVersion: a.opts.Version},
 		Adapter:   a.adapter,
 		Library:   a.lib,
 		Clients:   a.clients,
@@ -308,7 +371,10 @@ func (a *App) Start(ip string) error {
 		ln.Close()
 		return err
 	}
-	a.srv, a.ip, a.port = srv, ip, port
+	a.mu.Lock()
+	a.ip, a.wifi = ip, true
+	a.mu.Unlock()
+	a.srv, a.port = srv, port
 	a.log.Info("listening", "address", ln.Addr().String(), "ip", ip, "port", port)
 	if err := a.reannounce(); err != nil {
 		ln.Close()
@@ -321,6 +387,8 @@ func (a *App) Start(ip string) error {
 		a.serveErr = srv.Serve(ctx, ln)
 		close(a.served)
 	}()
+	a.stopWatch, a.watchDone = make(chan struct{}), make(chan struct{})
+	go a.watchNetwork()
 	return nil
 }
 
@@ -331,8 +399,13 @@ func (a *App) Stopped() <-chan struct{} { return a.served }
 // Port returns the port the API listens on (0 before Start).
 func (a *App) Port() int { return a.port }
 
-// IP returns the address put in the pairing link ("" before Start).
-func (a *App) IP() string { return a.ip }
+// IP returns the address put in the pairing link ("" before Start and
+// while offline).
+func (a *App) IP() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ip
+}
 
 // paired is the OnPaired callback of the server.
 func (a *App) paired(c auth.Client) {
@@ -357,7 +430,7 @@ func (a *App) reannounce() error {
 	}
 	name := a.DeviceName()
 	ann, err := a.announce(name, a.port, discovery.Info{
-		DeviceID: a.conf.DeviceID, APIVersion: server.APIVersion, Model: a.info.Model, Platform: a.info.Platform,
+		DeviceID: a.deviceID, APIVersion: server.APIVersion, Model: a.info.Model, Platform: a.info.Platform,
 		OS: a.info.OS, OSVersion: osv, PakVersion: a.opts.Version,
 	})
 	if err != nil {
@@ -378,21 +451,49 @@ func (a *App) withdraw() {
 	}
 }
 
-// Shutdown stops the pak (05 §2.6): new requests get 503 shutting_down,
-// the running ones get up to server.ShutdownTimeout, the announcement is
-// withdrawn, the running download is cancelled (its partial file
-// deleted), the credit clock is saved and the SD card is synced. It
-// returns the error of the server, if any. Safe to call more than once.
+// Shutdown stops the pak (05 §2.6). It is also the SIGTERM path: when
+// NextUI powers off, procd waits about one second before SIGKILL and the
+// network is already down, so what protects the data comes first:
+//
+//  1. a running maintenance is cancelled and waited for (it stops between
+//     two files) and Start is refused (ErrStopped);
+//  2. new requests get 503 shutting_down;
+//  3. the trash credit clock is saved and the SD card is synced: what is
+//     written is on the card;
+//  4. then the rest, which a SIGKILL may cut without harm (every write is
+//     atomic and resumed at the next start): the running requests get up
+//     to server.ShutdownTimeout, the network watch and the announcement
+//     stop, the running download is cancelled (its partial file deleted),
+//     and the card is synced again.
+//
+// It returns the error of the server, if any. Safe to call more than once
+// and from several goroutines: the later calls wait for the first one.
 func (a *App) Shutdown() error {
 	a.stopOnce.Do(func() {
+		a.maintCancel()
+		a.maintMu.Lock() // waits for a running maintenance
+		a.maintMu.Unlock()
+		a.life.Lock()
+		a.stopping = true
+		a.life.Unlock()
+
+		if a.srv != nil {
+			a.srv.BeginShutdown()
+		}
+		a.stopCredit()
+		syscall.Sync()
+
 		if a.cancel != nil {
 			a.cancel()
 			<-a.served
 			a.stopErr = a.serveErr
 		}
+		if a.stopWatch != nil {
+			close(a.stopWatch)
+			<-a.watchDone
+		}
 		a.withdraw()
 		a.xfer.Close()
-		a.stopCredit()
 		syscall.Sync()
 		a.log.Info("ReminisLink stopped")
 	})

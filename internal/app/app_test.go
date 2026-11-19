@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -87,6 +88,7 @@ func openTest(t *testing.T, opts Options) (*App, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	a.checkEvery = time.Hour // tests call checkNetwork themselves
 	t.Cleanup(func() {
 		a.Shutdown()
 		a.Close()
@@ -346,4 +348,147 @@ func readConfig(t *testing.T, sd string) map[string]any {
 		t.Fatal(err)
 	}
 	return m
+}
+
+func TestExitOnSignalDuringMaintenance(t *testing.T) {
+	a, _ := openTest(t, Options{Port: freePort(t)})
+	a.announce = (&fakeBonjour{}).announce
+	inMaint := make(chan struct{})
+	a.maintenance = func(ctx contextT) error {
+		close(inMaint)
+		<-ctx.Done() // a long maintenance, cancelled by the shutdown
+		return nil
+	}
+	maintErr := make(chan error, 1)
+	go func() { maintErr <- a.Maintain() }()
+	<-inMaint
+
+	sigs := make(chan os.Signal, 1)
+	var cleaned, exited bool
+	exitCode := -1
+	done := make(chan struct{})
+	go func() {
+		a.ExitOnSignal(sigs, nil, func() { cleaned = true }, func(code int) { exited, exitCode = true, code })
+		close(done)
+	}()
+	sigs <- syscall.SIGTERM
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ExitOnSignal did not finish")
+	}
+	if err := <-maintErr; !errors.Is(err, ErrStopped) {
+		t.Fatalf("maintenance: %v", err)
+	}
+	if !cleaned || !exited || exitCode != 0 {
+		t.Fatalf("cleanup %v exit %v code %d", cleaned, exited, exitCode)
+	}
+	// Nothing starts after the shutdown.
+	if err := a.Start("127.0.0.1"); !errors.Is(err, ErrStopped) {
+		t.Fatalf("Start after shutdown: %v", err)
+	}
+	if err := a.Maintain(); !errors.Is(err, ErrStopped) {
+		t.Fatalf("Maintain after shutdown: %v", err)
+	}
+}
+
+func TestExitOnSignalWhileServing(t *testing.T) {
+	a, _ := openTest(t, Options{Port: freePort(t)})
+	bj := &fakeBonjour{}
+	a.announce = bj.announce
+	if err := a.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	sigs := make(chan os.Signal, 2)
+	exited := make(chan int, 1)
+	go a.ExitOnSignal(sigs, nil, nil, func(code int) { exited <- code })
+	sigs <- syscall.SIGTERM
+	sigs <- syscall.SIGTERM // a second signal is absorbed
+	select {
+	case code := <-exited:
+		if code != 0 {
+			t.Fatalf("exit code %d", code)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("no exit")
+	}
+	if active, _ := bj.state(); len(active) != 0 {
+		t.Fatalf("still announced %v", active)
+	}
+	select {
+	case <-a.Stopped():
+	default:
+		t.Fatal("server still running")
+	}
+	// stop ends the wait without shutting down.
+	b, _ := openTest(t, Options{})
+	stop := make(chan struct{})
+	close(stop)
+	b.ExitOnSignal(make(chan os.Signal), stop, nil, func(int) { t.Fatal("exit called") })
+}
+
+func TestCheckNetwork(t *testing.T) {
+	a, _ := openTest(t, Options{Port: freePort(t)})
+	bj := &fakeBonjour{}
+	a.announce = bj.announce
+	a.info.Model = "brick" // on the console: wlan0 only
+	ip, ok := "192.168.1.42", true
+	a.ifaceIPv4 = func(string) (string, bool) { return ip, ok }
+	a.checkEvery = time.Hour // checkNetwork is called by hand
+	if err := a.Start("192.168.1.42"); err != nil {
+		t.Fatal(err)
+	}
+	link := func() string {
+		st, err := a.Status()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st.PairingLink
+	}
+	a.checkNetwork() // unchanged: nothing
+	if _, all := bj.state(); len(all) != 1 || !strings.Contains(link(), "h=192.168.1.42") {
+		t.Fatalf("unchanged: %v %s", all, link())
+	}
+	// After a sleep, DHCP gives another address.
+	ip = "192.168.1.77"
+	a.checkNetwork()
+	active, all := bj.state()
+	if len(all) != 2 || len(active) != 1 || !strings.Contains(link(), "h=192.168.1.77") || a.IP() != "192.168.1.77" {
+		t.Fatalf("new address: active %v all %v link %s", active, all, link())
+	}
+	// No address: offline, announcement withdrawn, no link.
+	ip, ok = "", false
+	a.checkNetwork()
+	st, _ := a.Status()
+	if st.State != StateNoWiFi || st.WiFi || st.PairingLink != "" || st.IP != "" || a.WiFi() {
+		t.Fatalf("offline status %+v", st)
+	}
+	if active, _ := bj.state(); len(active) != 0 {
+		t.Fatalf("announced while offline: %v", active)
+	}
+	// Back.
+	ip, ok = "192.168.1.80", true
+	a.checkNetwork()
+	st, _ = a.Status()
+	if st.State != StateReady || !strings.Contains(st.PairingLink, "h=192.168.1.80") {
+		t.Fatalf("back online %+v", st)
+	}
+	if active, _ := bj.state(); len(active) != 1 {
+		t.Fatalf("announcement after coming back: %v", active)
+	}
+}
+
+func TestCheckNetworkFallback(t *testing.T) {
+	a, _ := openTest(t, Options{Port: freePort(t), NoWiFiIP: "127.0.0.1"})
+	a.announce = (&fakeBonjour{}).announce
+	a.info.Model = "brick"
+	a.ifaceIPv4 = func(string) (string, bool) { return "", false }
+	a.checkEvery = time.Hour
+	if err := a.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	a.checkNetwork()
+	if st, _ := a.Status(); !st.WiFi || st.IP != "127.0.0.1" || st.State == StateNoWiFi {
+		t.Fatalf("headless fallback %+v", st)
+	}
 }

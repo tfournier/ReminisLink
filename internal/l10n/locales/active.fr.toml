@@ -66,6 +66,9 @@ other = "02/01/2006"
 [decimal_separator]
 other = ","
 
+[hint_no_wifi]
+other = "Le Wi-Fi est coupé : active-le dans les réglages de NextUI.\nReminisLink reprend dès son retour."
+
 [item_about]
 other = "Version et journal"
 
@@ -179,6 +182,9 @@ other = "State restauré"
 [notice_trash_emptied]
 other = "Corbeille vidée"
 
+[notice_trash_entry_deleted]
+other = "Entrée de la corbeille supprimée"
+
 [notice_with_name]
 other = "{{.Text}} : {{.Name}}"
 
@@ -204,6 +210,9 @@ other = "{{.Value}} Mo"
 
 [state_connected]
 other = "Connecté"
+
+[state_no_wifi]
+other = "Pas de Wi-Fi"
 
 [state_ready]
 other = "Prêt"

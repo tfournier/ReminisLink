@@ -149,6 +149,10 @@ func (s *Service) httpClient() (*http.Client, error) {
 			t.MaxIdleConns = 2
 			// No proxy: the console downloads directly.
 			t.Proxy = nil
+			// ForceAttemptHTTP2 comes with the clone (true): kept, since
+			// setting DialContext or TLSClientConfig would otherwise turn
+			// HTTP/2 off. HTTP/2 serves Range requests the same way, and the
+			// timeouts above apply to it too.
 			rt = t
 		}
 		s.client = &http.Client{

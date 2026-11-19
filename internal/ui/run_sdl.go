@@ -66,6 +66,26 @@ func Run(o Options) error {
 	}
 	defer a.Close()
 
+	// The QR code image holds the pairing secret: a private folder of the
+	// temporary directory, deleted at exit, the signal path included.
+	qrDir, err := os.MkdirTemp("", "reminislink-")
+	if err != nil {
+		return fail(a, err)
+	}
+	removeQR := func() { os.RemoveAll(qrDir) }
+	defer removeQR()
+
+	// SIGTERM or SIGINT (NextUI's poweroff, or Ctrl-C in desktop mode),
+	// from now on, the maintenance included: app.ExitOnSignal shuts the pak
+	// down (data first, see app.Shutdown), deletes the QR code image and
+	// exits without waiting for the screen in front. The handler stays
+	// registered until the process ends: a second signal during "Closing..."
+	// does not kill the pak in the middle.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	stopSignals := make(chan struct{})
+	go a.ExitOnSignal(sigs, stopSignals, removeQR, os.Exit)
+
 	if l10n.IsSupported(a.Language()) {
 		l10n.SetLanguage(a.Language())
 	} else {
@@ -77,45 +97,37 @@ func Run(o Options) error {
 		a.Logger().Warn("no Wi-Fi address, the pak does not start")
 		gaba.ConfirmationMessage(l10n.T(l10n.MsgNoWiFi), footer("B", l10n.T(l10n.BtnQuit)), gaba.MessageOptions{})
 		a.Shutdown()
+		close(stopSignals)
 		return nil
 	}
 
-	fail := func(err error) error {
-		a.Logger().Error("fatal", "error", err)
-		a.Shutdown()
-		message(l10n.Tf(l10n.MsgStartError, "Error", err))
-		return app.LoggedError{Err: err}
-	}
 	if _, err := gaba.ProcessMessage(l10n.T(l10n.MsgPreparing), gaba.ProcessMessageOptions{ShowThemeBackground: true},
 		func() (struct{}, error) { return struct{}{}, a.Maintain() }); err != nil {
-		return fail(err)
+		return fail(a, err)
 	}
 	if err := a.Start(ip); err != nil {
-		return fail(err)
+		return fail(a, err)
 	}
 
-	// SIGTERM or SIGINT (NextUI, or Ctrl-C in desktop mode): clean
-	// shutdown, then exit without waiting for the screen in front.
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		if _, ok := <-sigs; ok {
-			signal.Stop(sigs)
-			a.Logger().Info("signal received, closing")
-			a.Shutdown()
-			a.Close()
-			os.Exit(0)
-		}
-	}()
-
-	screen := newMainScreen(a)
-	defer screen.cleanup()
+	screen := newMainScreen(a, qrDir)
 	screen.loop()
 
-	signal.Stop(sigs)
-	_, err := gaba.ProcessMessage(l10n.T(l10n.MsgClosing), gaba.ProcessMessageOptions{ShowThemeBackground: true},
+	_, err = gaba.ProcessMessage(l10n.T(l10n.MsgClosing), gaba.ProcessMessageOptions{ShowThemeBackground: true},
 		func() (struct{}, error) { return struct{}{}, a.Shutdown() })
+	close(stopSignals)
 	return err
+}
+
+// fail shuts the pak down after a start error and shows it. ErrStopped
+// means a signal is being handled: app.ExitOnSignal ends the process.
+func fail(a *app.App, err error) error {
+	if errors.Is(err, app.ErrStopped) {
+		select {} // the signal path calls os.Exit
+	}
+	a.Logger().Error("fatal", "error", err)
+	a.Shutdown()
+	message(l10n.Tf(l10n.MsgStartError, "Error", err))
+	return app.LoggedError{Err: err}
 }
 
 // footer builds footer help items from button/text pairs.
@@ -192,13 +204,10 @@ type mainScreen struct {
 
 const refreshEvery = 500 * time.Millisecond
 
-func newMainScreen(a *app.App) *mainScreen { return &mainScreen{a: a, showQR: true} }
-
-// cleanup deletes the QR image (it holds the pairing secret).
-func (m *mainScreen) cleanup() {
-	if m.qrDir != "" {
-		os.RemoveAll(m.qrDir)
-	}
+// newMainScreen returns the main screen; qrDir is the private folder of
+// the QR code image, deleted by Run.
+func newMainScreen(a *app.App, qrDir string) *mainScreen {
+	return &mainScreen{a: a, showQR: true, qrDir: qrDir}
 }
 
 // view builds the current view.
@@ -218,13 +227,6 @@ func (m *mainScreen) view() (MainView, error) {
 func (m *mainScreen) writeQR(link string) error {
 	if link == m.qrLink && m.qrPath != "" {
 		return nil
-	}
-	if m.qrDir == "" {
-		dir, err := os.MkdirTemp("", "reminislink-")
-		if err != nil {
-			return err
-		}
-		m.qrDir = dir
 	}
 	data, err := QRPNG(link)
 	if err != nil {

@@ -66,6 +66,9 @@ other = "2006-01-02"
 [decimal_separator]
 other = "."
 
+[hint_no_wifi]
+other = "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."
+
 [item_about]
 other = "Version and log"
 
@@ -179,6 +182,9 @@ other = "State restored"
 [notice_trash_emptied]
 other = "Trash emptied"
 
+[notice_trash_entry_deleted]
+other = "Trash entry deleted"
+
 [notice_with_name]
 other = "{{.Text}}: {{.Name}}"
 
@@ -204,6 +210,9 @@ other = "{{.Value}} MB"
 
 [state_connected]
 other = "Connected"
+
+[state_no_wifi]
+other = "No Wi-Fi"
 
 [state_ready]
 other = "Ready"

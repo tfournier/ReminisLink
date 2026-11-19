@@ -117,12 +117,29 @@ func runHeadlessTo(opts options, logOut io.Writer) error {
 	ao := appOptions(opts, "headless")
 	ao.LogOut = logOut
 	ao.OnPaired = display.paired
+	// Without Wi-Fi the headless mode (tests, development) keeps serving on
+	// the loopback address.
+	ao.NoWiFiIP = "127.0.0.1"
 	a, err := app.Open(ao)
 	if err != nil {
 		return err
 	}
 	defer a.Close()
+
+	// Signals are handled from here, the maintenance included: Shutdown
+	// cancels it. The default handling comes back once the shutdown
+	// starts: a second Ctrl-C kills the pak instead of waiting.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		stop()
+		a.Shutdown()
+	}()
 	fail := func(err error) error {
+		if errors.Is(err, app.ErrStopped) {
+			return a.Shutdown()
+		}
 		a.Logger().Error("fatal", "error", err)
 		a.Shutdown()
 		return app.LoggedError{Err: err}
@@ -132,23 +149,14 @@ func runHeadlessTo(opts options, logOut io.Writer) error {
 	}
 	ip, ok := a.WiFiIPv4()
 	if !ok {
-		// The UI refuses to start without Wi-Fi; headless is for tests.
+		// The UI shows "No Wi-Fi" instead; headless is for tests.
 		a.Logger().Warn("no IPv4 address found, the pairing link uses 127.0.0.1")
-		ip = "127.0.0.1"
+		ip = ao.NoWiFiIP
 	}
 	if err := a.Start(ip); err != nil {
 		return fail(err)
 	}
 	display.setStatus(a.Status)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	go func() {
-		// Restore the default signal handling once the shutdown starts: a
-		// second Ctrl-C kills the pak instead of waiting for the shutdown.
-		<-ctx.Done()
-		stop()
-	}()
 	go display.run(ctx)
 	select {
 	case <-ctx.Done():

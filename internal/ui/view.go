@@ -54,17 +54,26 @@ func (v MainView) Key() string { return fmt.Sprintf("%#v", v) }
 
 // BuildMain returns the main screen for the state of the pak at now.
 func BuildMain(st app.Status, now time.Time, showQR bool) MainView {
-	v := MainView{State: StateText(st.State), ShowQR: showQR, QRLink: st.PairingLink}
-	if showQR {
+	v := MainView{State: StateText(st.State), ShowQR: showQR && st.WiFi, QRLink: st.PairingLink}
+	switch {
+	case !st.WiFi:
+		// The Wi-Fi was lost (sleep, Wi-Fi off): no link to show until
+		// it comes back; the pak keeps running.
+		v.Hint = l10n.T(l10n.HintNoWiFi)
+	case showQR:
 		v.Hint = l10n.T(l10n.ScanHint)
-	} else {
+	default:
 		v.Hint = l10n.T(l10n.QRHidden)
 	}
 	if st.Notice != nil {
 		v.Banner = NoticeText(*st.Notice)
 	}
 	v.Items = append(v.Items, Item{l10n.T(l10n.LabelCode), PINText(st, now)})
-	v.Items = append(v.Items, Item{l10n.T(l10n.LabelConsole), l10n.Tf(l10n.ConsoleValue, "Name", st.Name, "IP", st.IP)})
+	console := st.Name
+	if st.IP != "" {
+		console = l10n.Tf(l10n.ConsoleValue, "Name", st.Name, "IP", st.IP)
+	}
+	v.Items = append(v.Items, Item{l10n.T(l10n.LabelConsole), console})
 	connected := l10n.T(l10n.NoneConnected)
 	if len(st.Connected) > 0 {
 		connected = strings.Join(st.Connected, ", ")
@@ -83,6 +92,8 @@ func StateText(s app.State) string {
 		return l10n.T(l10n.StateConnected)
 	case app.StateTransfer:
 		return l10n.T(l10n.StateTransfer)
+	case app.StateNoWiFi:
+		return l10n.T(l10n.StateNoWiFi)
 	}
 	return l10n.T(l10n.StateReady)
 }
@@ -148,19 +159,20 @@ func FormatSize(bytes int64) string {
 
 // noticeMessages are the banner texts of the notice kinds.
 var noticeMessages = map[string]*l10n.Message{
-	server.ChangeROMAdded:      l10n.NoticeROMAdded,
-	server.ChangeSaveReplaced:  l10n.NoticeSaveReplaced,
-	server.ChangeSaveRestored:  l10n.NoticeSaveRestored,
-	server.ChangeStateReplaced: l10n.NoticeStateReplaced,
-	server.ChangeStateRestored: l10n.NoticeStateRestored,
-	server.ChangeStateDeleted:  l10n.NoticeStateDeleted,
-	server.ChangeGameDeleted:   l10n.NoticeGameDeleted,
-	server.ChangeCheatsUpdated: l10n.NoticeCheatsUpdated,
-	server.ChangeTrashEmptied:  l10n.NoticeTrashEmptied,
-	app.NoticeDownloaded:       l10n.NoticeDownloaded,
-	app.NoticeDownloadFailed:   l10n.NoticeDownloadFailed,
-	app.NoticePatched:          l10n.NoticePatched,
-	app.NoticePatchFailed:      l10n.NoticePatchFailed,
+	server.ChangeROMAdded:          l10n.NoticeROMAdded,
+	server.ChangeSaveReplaced:      l10n.NoticeSaveReplaced,
+	server.ChangeSaveRestored:      l10n.NoticeSaveRestored,
+	server.ChangeStateReplaced:     l10n.NoticeStateReplaced,
+	server.ChangeStateRestored:     l10n.NoticeStateRestored,
+	server.ChangeStateDeleted:      l10n.NoticeStateDeleted,
+	server.ChangeGameDeleted:       l10n.NoticeGameDeleted,
+	server.ChangeCheatsUpdated:     l10n.NoticeCheatsUpdated,
+	server.ChangeTrashEmptied:      l10n.NoticeTrashEmptied,
+	server.ChangeTrashEntryDeleted: l10n.NoticeTrashEntryDeleted,
+	app.NoticeDownloaded:           l10n.NoticeDownloaded,
+	app.NoticeDownloadFailed:       l10n.NoticeDownloadFailed,
+	app.NoticePatched:              l10n.NoticePatched,
+	app.NoticePatchFailed:          l10n.NoticePatchFailed,
 }
 
 // NoticeText is the banner of a notice ("" for an unknown kind).
