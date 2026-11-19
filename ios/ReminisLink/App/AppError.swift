@@ -96,6 +96,13 @@ enum AppError: Error, Equatable {
 
     var isCancellation: Bool { self == .cancelled }
 
+    /// A save refused because the resource changed on the console
+    /// (`412`, e.g. the cheat list).
+    var isPreconditionFailed: Bool {
+        if case .api(let error) = self { return CheatEditor.isConflict(error) }
+        return false
+    }
+
     private static func message(for error: APIError) -> String {
         switch error {
         case .network:

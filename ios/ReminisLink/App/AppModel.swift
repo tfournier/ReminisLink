@@ -357,6 +357,8 @@ extension AppModel {
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
         app.demoPairingLink = pak.pairingLink
+        // A request left by a previous demo run is not opened again.
+        for request in app.shareInbox.pending() { app.shareInbox.remove(request.id) }
         app.injectTestShare(ProcessInfo.processInfo.environment)
         return app
     }

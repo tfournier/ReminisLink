@@ -49,7 +49,7 @@ struct StatesView: View {
             }
             if let slots {
                 slotsSection(slots)
-                historySection(resumeSlot: slots.resumeSlot)
+                resumeSection(slots)
             }
         }
         .overlay {
@@ -67,7 +67,7 @@ struct StatesView: View {
         .refreshable { await load() }
         .exportSheet($exported)
         .confirmationDialog(
-            selected.map { String(localized: "Slot \($0.slot)") } ?? "",
+            selected.map(title) ?? "",
             isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } }),
             titleVisibility: .visible, presenting: selected
         ) { slot in
@@ -94,22 +94,12 @@ struct StatesView: View {
 
     private func slotsSection(_ list: SlotList) -> some View {
         Section {
-            if list.slots.isEmpty {
+            if list.userSlots.isEmpty {
                 Text("No state for this game on the console.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(list.slots) { slot in
-                Button {
-                    selected = slot
-                } label: {
-                    StateRow(
-                        deviceId: route.deviceId, gameId: route.gameId, slot: slot,
-                        isResume: slot.slot == list.resumeSlot,
-                        restored: slot.wasRestored || restoredSlots.contains(slot.slot)
-                    )
-                }
-                .foregroundStyle(.primary)
-                .accessibilityIdentifier("state.\(slot.slot)")
+            ForEach(list.userSlots) { slot in
+                row(slot)
             }
         } header: {
             Text("Slots")
@@ -122,10 +112,32 @@ struct StatesView: View {
         }
     }
 
+    private func row(_ slot: StateSlot) -> some View {
+        Button {
+            selected = slot
+        } label: {
+            StateRow(
+                deviceId: route.deviceId, gameId: route.gameId, slot: slot, title: title(slot),
+                restored: slot.wasRestored || restoredSlots.contains(slot.slot)
+            )
+        }
+        .foregroundStyle(.primary)
+        .accessibilityIdentifier("state.\(slot.slot)")
+    }
+
+    /// "Slot 1" to "Slot 8" (as NextUI shows them), or the resume state.
+    private func title(_ slot: StateSlot) -> String {
+        slot.slot == slots?.resumeSlot ? String(localized: "Automatic Resume") : String(localized: "Slot \(slot.displayNumber)")
+    }
+
+    /// The automatic resume state (slot 9 on NextUI) and its history.
     @ViewBuilder
-    private func historySection(resumeSlot: Int?) -> some View {
-        if let history, resumeSlot != nil || !history.entries.isEmpty {
+    private func resumeSection(_ list: SlotList) -> some View {
+        if let history, list.resume != nil || !history.entries.isEmpty {
             Section {
+                if let resume = list.resume {
+                    row(resume)
+                }
                 if history.entries.isEmpty {
                     Text("No version archived yet.")
                         .foregroundStyle(.secondary)
@@ -149,10 +161,7 @@ struct StatesView: View {
                 Text("Resume History")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let resumeSlot {
-                        Text("The automatic resume state is in slot \(resumeSlot).")
-                            .accessibilityIdentifier("resume.slot")
-                    }
+                    Text("NextUI writes the automatic resume state when the console goes to sleep or turns off during a game.")
                     Text("Each time ReminisLink opens on the console, it archives the resume state if it changed. The last 5 versions are kept.")
                 }
             }
@@ -182,9 +191,9 @@ struct StatesView: View {
 
     private func title(_ confirmation: Confirmation) -> Text {
         switch confirmation {
-        case .unlock(let slot): Text("Unlock slot \(slot.slot)?")
-        case .restore(let slot): Text("Restore slot \(slot.slot)?")
-        case .delete(let slot): Text("Delete slot \(slot.slot)?")
+        case .unlock(let slot): Text("Unlock “\(title(slot))”?")
+        case .restore(let slot): Text("Restore “\(title(slot))”?")
+        case .delete(let slot): Text("Delete “\(title(slot))”?")
         case .restoreResume: Text("Restore this version?")
         }
     }
@@ -266,7 +275,7 @@ struct StatesView: View {
         let number = slot.slot
         await run {
             updated(try await session.perform { try await $0.lockState(gameId: gameId, slot: number) })
-            notice = String(localized: "Slot \(number) locked.")
+            notice = String(localized: "Locked: \(title(slot)).")
         }
     }
 
@@ -275,7 +284,7 @@ struct StatesView: View {
         let number = slot.slot
         await run {
             let result = try await session.perform { try await $0.unlockState(gameId: gameId, slot: number) }
-            notice = String(localized: "Slot \(number) unlocked.")
+            notice = String(localized: "Unlocked: \(title(slot)).")
             if slot.isMissing {
                 // Nothing left in that slot.
                 session.contentChanged()
@@ -291,7 +300,7 @@ struct StatesView: View {
         let number = slot.slot
         await run {
             updated(try await session.perform { try await $0.restoreLockedState(gameId: gameId, slot: number) })
-            notice = String(localized: "Slot \(number) restored from its locked copy.")
+            notice = String(localized: "Restored from its locked copy: \(title(slot)).")
         }
     }
 
@@ -300,7 +309,7 @@ struct StatesView: View {
         let number = slot.slot
         await run {
             _ = try await session.perform { try await $0.deleteState(gameId: gameId, slot: number) }
-            notice = String(localized: "Slot \(number) moved to the trash of the console.")
+            notice = String(localized: "Moved to the trash of the console: \(title(slot)).")
             session.contentChanged()
             await load()
         }
@@ -332,7 +341,7 @@ struct StateRow: View {
     let deviceId: String
     let gameId: String
     let slot: StateSlot
-    let isResume: Bool
+    let title: String
     let restored: Bool
 
     @State private var thumbnail: UIImage?
@@ -355,10 +364,7 @@ struct StateRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text("Slot \(slot.slot)").font(.headline)
-                    if isResume {
-                        TagView(text: Text("Resume State"))
-                    }
+                    Text(title).font(.headline)
                     if restored {
                         TagView(text: Text("Restored"), tint: .green)
                             .accessibilityIdentifier("state.restored")
@@ -395,8 +401,16 @@ struct StateRow: View {
         }
         let number = slot.slot
         let gameId = gameId
-        if let data = try? await client.stateThumbnail(gameId: gameId, slot: number) {
-            thumbnail = UIImage(data: data)
-        }
+        guard let data = try? await client.stateThumbnail(gameId: gameId, slot: number) else { return }
+        thumbnail = await Self.downscaled(data)
+    }
+
+    /// NextUI saves a full-screen capture (1024×768 on Brick): reduced to
+    /// the size of the row, off the main actor.
+    nonisolated static func downscaled(_ data: Data, to size: CGSize = CGSize(width: 128, height: 96)) async -> UIImage? {
+        await Task.detached(priority: .utility) {
+            guard let image = UIImage(data: data) else { return nil }
+            return await image.byPreparingThumbnail(ofSize: size) ?? image
+        }.value
     }
 }

@@ -135,14 +135,20 @@ public struct StateSlot: Codable, Sendable, Equatable, Hashable, Identifiable {
     public var canDownload: Bool { !isMissing }
     /// The pak refuses to delete a locked slot (`409 state_locked`).
     public var canDelete: Bool { !locked && !isMissing }
+
+    /// The number NextUI shows: slots 0 to 7 are shown 1 to 8
+    /// (docs/specs/04-api-v1.md, States).
+    public var displayNumber: Int { slot + 1 }
 }
 
 /// `GET /games/{gameId}/states`.
 public struct SlotList: Codable, Sendable, Equatable {
     public let slots: [StateSlot]
-    /// Slot of the automatic resume state, if any. TODO(M0): the resume
-    /// slot of NextUI is still to be checked on a console.
+    /// Slot of the automatic resume state (9 on NextUI), if any.
     public let resumeSlot: Int?
+
+    /// The slots of the user on NextUI (shown 1 to 8).
+    public static let userSlotRange = 0...7
 
     public init(slots: [StateSlot], resumeSlot: Int?) {
         self.slots = slots
@@ -153,6 +159,19 @@ public struct SlotList: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         slots = try c.decode([StateSlot].self, forKey: .slots)
         resumeSlot = try c.decodeIfPresent(Int.self, forKey: .resumeSlot)
+    }
+
+    /// The slots the user saves to (0 to 7, shown 1 to 8). Slot 8 (a hidden
+    /// "default" state NextUI never writes) and the resume slot are not
+    /// among them.
+    public var userSlots: [StateSlot] {
+        slots.filter { Self.userSlotRange.contains($0.slot) && $0.slot != resumeSlot }
+    }
+
+    /// The automatic resume state, if present.
+    public var resume: StateSlot? {
+        guard let resumeSlot else { return nil }
+        return slots.first { $0.slot == resumeSlot }
     }
 
     /// The same list with one slot replaced (after lock, unlock, restore).

@@ -197,7 +197,7 @@ struct CheatsView: View {
             self.editor?.load(saved)
             notice = String(localized: "Cheats saved.")
             session.contentChanged()
-        } catch where CheatEditor.isConflict(error) {
+        } catch let error as AppError where error.isPreconditionFailed {
             showConflict = true
         } catch {
             show(error)
@@ -227,6 +227,7 @@ struct CheatRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
+            .tint(.primary)
             .accessibilityLabel(Text(cheat.description))
             .accessibilityHint(Text("Edits this cheat"))
             .accessibilityIdentifier("cheat.edit")

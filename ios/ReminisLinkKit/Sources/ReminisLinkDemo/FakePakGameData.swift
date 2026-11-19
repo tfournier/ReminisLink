@@ -74,8 +74,7 @@ struct FakeGameData {
     var resume: [FakeResumeEntry] = []
     var cheats: [FakeCheat] = []
 
-    /// TODO(M0): the slot of the NextUI resume state is still to be
-    /// checked; the example of openapi.yaml says 9.
+    /// The NextUI resume slot (docs/specs/05 §3.1).
     static let resumeSlot = 9
     static let maxAutomaticBackups = 10
     static let maxResumeEntries = 5
@@ -133,6 +132,11 @@ extension FakePak {
             )
         }
         if !game.stateSlots.isEmpty {
+            // The resume state NextUI writes when the console sleeps in game.
+            data.slots[FakeGameData.resumeSlot] = FakeSlot(
+                state: FakeBlob(size: 401_408, digest: "seed-rh0-\(game.path)"), modifiedAt: base,
+                hasThumbnail: false, lockCopy: nil
+            )
             data.resume = (0..<3).map { i in
                 let date = base.addingTimeInterval(Double(-i) * 86_400)
                 return FakeResumeEntry(id: "rh_\(Self.stamp(date))", capturedAt: date,

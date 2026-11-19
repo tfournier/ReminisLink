@@ -431,6 +431,16 @@
         }
       }
     },
+    "Automatic Resume" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprise automatique"
+          }
+        }
+      }
+    },
     "Automatic copies are limited to 10 per game: the oldest ones are deleted. Copies you make yourself are kept." : {
       "localizations" : {
         "fr" : {
@@ -851,22 +861,22 @@
         }
       }
     },
-    "Delete slot %lld?" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supprimer l’emplacement %lld ?"
-          }
-        }
-      }
-    },
     "Delete this copy?" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Supprimer cette copie ?"
+          }
+        }
+      }
+    },
+    "Delete “%@”?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer « %@ » ?"
           }
         }
       }
@@ -1421,6 +1431,16 @@
         }
       }
     },
+    "Locked: %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verrouillé : %@."
+          }
+        }
+      }
+    },
     "Looking for consoles…" : {
       "localizations" : {
         "fr" : {
@@ -1511,6 +1531,16 @@
         }
       }
     },
+    "Moved to the trash of the console: %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mis dans la corbeille de la console : %@."
+          }
+        }
+      }
+    },
     "Name" : {
       "localizations" : {
         "fr" : {
@@ -1557,6 +1587,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Liens partagés suivants"
+          }
+        }
+      }
+    },
+    "NextUI writes the automatic resume state when the console goes to sleep or turns off during a game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "NextUI écrit le state de reprise automatique quand la console se met en veille ou s’éteint pendant une partie."
           }
         }
       }
@@ -2081,16 +2121,6 @@
         }
       }
     },
-    "Restore slot %lld?" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restaurer l’emplacement %lld ?"
-          }
-        }
-      }
-    },
     "Restore the Locked Copy…" : {
       "localizations" : {
         "fr" : {
@@ -2121,12 +2151,32 @@
         }
       }
     },
+    "Restore “%@”?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer « %@ » ?"
+          }
+        }
+      }
+    },
     "Restored" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Restauré"
+          }
+        }
+      }
+    },
+    "Restored from its locked copy: %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restauré depuis sa copie verrouillée : %@."
           }
         }
       }
@@ -2167,16 +2217,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Historique de reprise"
-          }
-        }
-      }
-    },
-    "Resume State" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reprise"
           }
         }
       }
@@ -2351,46 +2391,6 @@
         }
       }
     },
-    "Slot %lld locked." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Emplacement %lld verrouillé."
-          }
-        }
-      }
-    },
-    "Slot %lld moved to the trash of the console." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Emplacement %lld mis dans la corbeille de la console."
-          }
-        }
-      }
-    },
-    "Slot %lld restored from its locked copy." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Emplacement %lld restauré depuis sa copie verrouillée."
-          }
-        }
-      }
-    },
-    "Slot %lld unlocked." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Emplacement %lld déverrouillé."
-          }
-        }
-      }
-    },
     "Slots" : {
       "localizations" : {
         "fr" : {
@@ -2507,16 +2507,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les fichiers .cht du dossier Cheats de la carte SD. Ceux qui portent le nom de ce jeu sont en premier."
-          }
-        }
-      }
-    },
-    "The automatic resume state is in slot %lld." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le state de reprise automatique est dans l’emplacement %lld."
           }
         }
       }
@@ -3141,12 +3131,22 @@
         }
       }
     },
-    "Unlock slot %lld?" : {
+    "Unlock “%@”?" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Déverrouiller l’emplacement %lld ?"
+            "value" : "Déverrouiller « %@ » ?"
+          }
+        }
+      }
+    },
+    "Unlocked: %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déverrouillé : %@."
           }
         }
       }

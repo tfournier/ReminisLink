@@ -43,6 +43,19 @@ struct GameDataModelTests {
         #expect(noResume.resumeSlot == nil)
     }
 
+    @Test func userSlotsAreShownOneToEightWithoutTheHiddenAndResumeSlots() {
+        let date = Date(timeIntervalSince1970: 0)
+        func slot(_ n: Int) -> StateSlot {
+            StateSlot(slot: n, sizeBytes: 1, modifiedAt: date, hasThumbnail: false, locked: false, lockStatus: nil)
+        }
+        let list = SlotList(slots: [0, 7, 8, 9].map(slot), resumeSlot: 9)
+        #expect(list.userSlots.map(\.displayNumber) == [1, 8])
+        #expect(list.resume?.slot == 9)
+        let noResume = SlotList(slots: [slot(3)], resumeSlot: nil)
+        #expect(noResume.resume == nil)
+        #expect(noResume.userSlots.map(\.slot) == [3])
+    }
+
     @Test func slotListReplacesOneSlot() {
         let date = Date(timeIntervalSince1970: 0)
         let list = SlotList(slots: [
@@ -307,7 +320,9 @@ struct GameDataAPITests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let first = try await client.states(gameId: skyGarden)
-        #expect(first.slots.map(\.slot) == [0, 1, 2])
+        #expect(first.slots.map(\.slot) == [0, 1, 2, 9])
+        #expect(first.userSlots.map(\.displayNumber) == [1, 2, 3])
+        #expect(first.resume?.slot == 9)
         #expect(first.slots[0].lockStatus == .restored)
         #expect(first.resumeSlot == 9)
         let second = try await client.states(gameId: skyGarden)
@@ -344,7 +359,7 @@ struct GameDataAPITests {
         #expect(!unlocked.locked && unlocked.lockStatus == nil)
         let moved = try await client.deleteState(gameId: skyGarden, slot: 0)
         #expect(moved.movedBytes == 401_408)
-        #expect(try await client.states(gameId: skyGarden).slots.map(\.slot) == [1, 2])
+        #expect(try await client.states(gameId: skyGarden).slots.map(\.slot) == [1, 2, 9])
         let state = try await client.downloadState(gameId: skyGarden, slot: 1, into: downloadsDirectory())
         #expect(state.url.lastPathComponent == "Sky Garden Quest.gba.st1")
     }
@@ -462,8 +477,8 @@ struct GameDataAPITests {
         #expect(try await summary().lockedStateCount == 2)
         _ = try await client.unlockState(gameId: skyGarden, slot: 0)
         _ = try await client.deleteState(gameId: skyGarden, slot: 0)
-        #expect(try await summary().stateCount == 2)
-        #expect(try await client.game(id: skyGarden).stateCount == 2)
+        #expect(try await summary().stateCount == 3)
+        #expect(try await client.game(id: skyGarden).stateCount == 3)
     }
 }
 
