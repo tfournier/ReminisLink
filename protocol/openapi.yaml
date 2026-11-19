@@ -375,7 +375,9 @@ paths:
         the game (ReminisLink copies) go into the same trash entry. With
         `keepSave=true`, the save, the states, the locks and the resume
         history stay in place. Space is only freed when the trash is purged
-        (automatically after 30 days, or with `DELETE /trash`).
+        (automatically after 30 days, or with `DELETE /trash`). The discs of
+        a multi-disc game that another playlist of the system still lists
+        stay in place (M8), so that game stays playable.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: keepSave
@@ -1460,8 +1462,8 @@ paths:
         `unsupported_format`. `patch_mismatch` has `details.reason`:
         `source-mismatch` (another ROM version) or `already-patched` (the
         ROM is the target of the patch: refused, never patched backwards).
-        Only single-file games can be patched: `m3u` and `folder-m3u`
-        games and `.zip`/`.7z` ROMs answer `422 unsupported_format`.
+        Only single-file games can be patched: `m3u`, `folder-m3u` and
+        `folder-cue` games and `.zip`/`.7z` ROMs answer `422 unsupported_format`.
         `new-file`: default name `<name> (patched).<ext>`; the default or
         given `fileName` (cleaned, and it must be a ROM name, else
         `400 invalid_name`) always ends with the extension of the ROM: it
@@ -1993,8 +1995,13 @@ components:
         gameCount: { type: integer, minimum: 0 }
     GameKind:
       type: string
-      enum: [file, m3u, folder-m3u]
-      description: '`file` (single ROM), `m3u` (`.m3u` file), `folder-m3u` (folder holding a `.m3u` of the same name).'
+      enum: [file, m3u, folder-m3u, folder-cue]
+      description: |
+        `file` (single ROM), `m3u` (`.m3u` file), `folder-m3u` (folder
+        holding a `.m3u` of the same name), `folder-cue` (M8: folder holding
+        a `.cue` of the same name and no such `.m3u`; NextUI launches the
+        `.cue`, and the save and states are named after it). Clients must
+        treat an unknown kind like `folder-m3u`.
     Game:
       type: object
       required: [id, name, fileName, kind, sizeBytes, modifiedAt, hasSave, stateCount, lockedStateCount, cheatCount, hasArt]
