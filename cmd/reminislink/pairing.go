@@ -63,7 +63,7 @@ func (d *pairingDisplay) refresh() {
 		slog.Error("pairing secret", "error", err)
 		return
 	}
-	key := fmt.Sprintf("%d/%s/%s", st.Generation, st.Name, st.IP)
+	key := fmt.Sprintf("%t/%d/%s/%s", st.PairingOpen, st.Generation, st.Name, st.IP)
 	if key == d.shown {
 		return
 	}
@@ -73,6 +73,10 @@ func (d *pairingDisplay) refresh() {
 
 func (d *pairingDisplay) print(st app.Status) {
 	fmt.Fprintf(d.out, "\nReminisLink %q on %s:%d\n", st.Name, st.IP, st.Port)
+	if !st.PairingOpen {
+		fmt.Fprintln(d.out, "Pairing closed: a device is already paired (run with --pairing-open to pair another one)")
+		return
+	}
 	if q, err := qrcode.New(st.PairingLink, qrcode.Medium); err == nil {
 		fmt.Fprint(d.out, q.ToSmallString(false))
 	}

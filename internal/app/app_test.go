@@ -24,6 +24,7 @@ import (
 // fakeBonjour records the announcements.
 type fakeBonjour struct {
 	mu     sync.Mutex
+	fail   error    // returned by announce when set
 	active []string // names currently announced
 	all    []string // every announcement, in order
 	infos  []discovery.Info
@@ -98,7 +99,7 @@ func openTest(t *testing.T, opts Options) (*App, string) {
 
 func TestLifecycle(t *testing.T) {
 	bj := &fakeBonjour{}
-	a, sd := openTest(t, Options{Mode: "test", Port: freePort(t), Name: "Brick de test"})
+	a, sd := openTest(t, Options{Mode: "test", Port: freePort(t), Name: "Brick de test", Pairing: PairingAlways})
 	a.announce = bj.announce
 	if err := a.Maintain(); err != nil {
 		t.Fatal(err)
@@ -428,7 +429,7 @@ func TestExitOnSignalWhileServing(t *testing.T) {
 }
 
 func TestCheckNetwork(t *testing.T) {
-	a, _ := openTest(t, Options{Port: freePort(t)})
+	a, _ := openTest(t, Options{Port: freePort(t), Pairing: PairingAlways})
 	bj := &fakeBonjour{}
 	a.announce = bj.announce
 	a.info.Model = "brick" // on the console: wlan0 only
@@ -490,5 +491,72 @@ func TestCheckNetworkFallback(t *testing.T) {
 	a.checkNetwork()
 	if st, _ := a.Status(); !st.WiFi || st.IP != "127.0.0.1" || st.State == StateNoWiFi {
 		t.Fatalf("headless fallback %+v", st)
+	}
+}
+
+func TestPairingModes(t *testing.T) {
+	// The UI opens pairing while it shows the QR code and the PIN.
+	a, _ := openTest(t, Options{Port: freePort(t)})
+	a.announce = (&fakeBonjour{}).announce
+	if err := a.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := a.Status()
+	if st.PairingOpen || st.PairingLink != "" || st.PIN != "" || st.Paired {
+		t.Fatalf("manual mode opened pairing: %+v", st)
+	}
+	if err := a.SetPairingVisible(true); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = a.Status()
+	if !st.PairingOpen || st.PairingLink == "" || len(st.PIN) != 6 {
+		t.Fatalf("visible pairing screen: %+v", st)
+	}
+	shown := st.PairingLink
+	if err := a.SetPairingVisible(false); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := a.Status(); st.PairingOpen || st.PairingLink != "" {
+		t.Fatalf("hidden pairing screen: %+v", st)
+	}
+	a.SetPairingVisible(true)
+	if st, _ := a.Status(); st.PairingLink == shown {
+		t.Fatal("the secret was not drawn again")
+	}
+
+	// Headless: open while no device is paired.
+	b, _ := openTest(t, Options{Port: freePort(t), Pairing: PairingWhileUnpaired})
+	b.announce = (&fakeBonjour{}).announce
+	if err := b.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	if !b.pairing.IsOpen() {
+		t.Fatal("headless without client: pairing closed")
+	}
+	if err := b.SetPairingVisible(false); err != nil || !b.pairing.IsOpen() {
+		t.Fatal("SetPairingVisible applies to the UI only")
+	}
+	c := testutil.PairClient(t, b.clients, "http://127.0.0.1:"+itoa(b.Port()))
+	b.paired(auth.Client{ID: c.ClientID, Name: "iPhone"})
+	if b.pairing.IsOpen() {
+		t.Fatal("still open with a paired client")
+	}
+	if st, _ := b.Status(); !st.Paired || st.PairingLink != "" {
+		t.Fatalf("status with a client: %+v", st)
+	}
+	if err := b.ForgetClient(c.ClientID); err != nil || !b.pairing.IsOpen() {
+		t.Fatalf("not reopened once no client is left: %v", err)
+	}
+
+	// --pairing-open: always open.
+	d, _ := openTest(t, Options{Port: freePort(t), Pairing: PairingAlways})
+	d.announce = (&fakeBonjour{}).announce
+	if err := d.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.PairClient(t, d.clients, "http://127.0.0.1:"+itoa(d.Port()))
+	d.checkNetwork()
+	if !d.pairing.IsOpen() {
+		t.Fatal("--pairing-open closed pairing")
 	}
 }

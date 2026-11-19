@@ -66,25 +66,21 @@ func Run(o Options) error {
 	}
 	defer a.Close()
 
-	// The QR code image holds the pairing secret: a private folder of the
-	// temporary directory, deleted at exit, the signal path included.
-	qrDir, err := os.MkdirTemp("", "reminislink-")
-	if err != nil {
-		return fail(a, err)
-	}
-	removeQR := func() { os.RemoveAll(qrDir) }
-	defer removeQR()
+	// The QR code image holds the pairing secret: it stays in memory (see
+	// qrimage.go) and is dropped at exit, the signal path included.
+	screen := newMainScreen(a)
+	defer screen.closeQR()
 
 	// SIGTERM or SIGINT (NextUI's poweroff, or Ctrl-C in desktop mode),
 	// from now on, the maintenance included: app.ExitOnSignal shuts the pak
-	// down (data first, see app.Shutdown), deletes the QR code image and
+	// down (data first, see app.Shutdown), drops the QR code image and
 	// exits without waiting for the screen in front. The handler stays
 	// registered until the process ends: a second signal during "Closing..."
 	// does not kill the pak in the middle.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	stopSignals := make(chan struct{})
-	go a.ExitOnSignal(sigs, stopSignals, removeQR, os.Exit)
+	go a.ExitOnSignal(sigs, stopSignals, screen.closeQR, os.Exit)
 
 	if l10n.IsSupported(a.Language()) {
 		l10n.SetLanguage(a.Language())
@@ -109,10 +105,10 @@ func Run(o Options) error {
 		return fail(a, err)
 	}
 
-	screen := newMainScreen(a, qrDir)
 	screen.loop()
+	a.SetPairingVisible(false)
 
-	_, err = gaba.ProcessMessage(l10n.T(l10n.MsgClosing), gaba.ProcessMessageOptions{ShowThemeBackground: true},
+	_, err := gaba.ProcessMessage(l10n.T(l10n.MsgClosing), gaba.ProcessMessageOptions{ShowThemeBackground: true},
 		func() (struct{}, error) { return struct{}{}, a.Shutdown() })
 	close(stopSignals)
 	return err
@@ -184,18 +180,29 @@ func chooseLanguage(a *app.App, firstLaunch bool) {
 	}
 }
 
-// mainScreen is the main screen (05 §7.1). gabagool screens are modal
-// loops without a refresh hook: the screen is a DetailScreen rebuilt each
-// time its view changes. A goroutine compares the view every
-// refreshEvery and, when it changed, ends the DetailScreen with a pushed
-// SDL quit event; the loop then rebuilds it. The goroutine reads the
-// state of the pak from memory (app.Status), never waiting for a request.
+// mainScreen is the main screen (05 §7.1), and the pairing screen of the
+// settings (05 §7.2), which is the same screen in pairing mode. gabagool
+// screens are modal loops without a refresh hook: the screen is a
+// DetailScreen rebuilt each time its view changes. A goroutine compares
+// the view every refreshEvery and, when it changed, ends the DetailScreen
+// with a pushed SDL quit event; the loop then rebuilds it. The goroutine
+// reads the state of the pak from memory (app.Status), never waiting for
+// a request.
+//
+// Pairing is on demand (M8): it is open only while the screen shows the
+// QR code and the PIN, that is on the main screen while no device is
+// paired (and the QR code is not hidden with A), or in pairing mode.
 type mainScreen struct {
-	a      *app.App
-	showQR bool
-	qrDir  string // private temporary folder of the QR image
-	qrPath string
-	qrLink string // link encoded in qrPath
+	a       *app.App
+	showQR  bool
+	pairing bool // pairing mode (Settings > Pair a new device)
+	// pairedAtStart is the number of paired devices when the pairing mode
+	// opened: a new one ends it.
+	pairedAtStart int
+
+	qrMu   sync.Mutex // guards qr (closeQR runs on the signal path)
+	qr     *qrImage
+	qrLink string // link encoded in qr
 
 	mu        sync.Mutex // guards visible and refreshed with the pushes
 	visible   bool       // a DetailScreen of this screen is running
@@ -204,52 +211,65 @@ type mainScreen struct {
 
 const refreshEvery = 500 * time.Millisecond
 
-// newMainScreen returns the main screen; qrDir is the private folder of
-// the QR code image, deleted by Run.
-func newMainScreen(a *app.App, qrDir string) *mainScreen {
-	return &mainScreen{a: a, showQR: true, qrDir: qrDir}
+// newMainScreen returns the main screen.
+func newMainScreen(a *app.App) *mainScreen {
+	return &mainScreen{a: a, showQR: true}
 }
 
-// view builds the current view.
+// view builds the current view, opening or closing pairing to match what
+// it shows.
 func (m *mainScreen) view() (MainView, error) {
 	st, err := m.a.Status()
 	if err != nil {
 		return MainView{}, err
 	}
-	return BuildMain(st, time.Now(), m.showQR), nil
+	if want := WantPairing(st, m.showQR, m.pairing); want != st.PairingOpen {
+		if err := m.a.SetPairingVisible(want); err != nil {
+			return MainView{}, err
+		}
+		if st, err = m.a.Status(); err != nil {
+			return MainView{}, err
+		}
+	}
+	return BuildMain(st, time.Now(), m.showQR, m.pairing), nil
 }
 
-// writeQR writes the QR image of link. gabagool loads images from files:
-// the file goes to a private folder of the temporary directory (/tmp, in
-// memory on the console), never to the SD card, and is deleted when the
-// secret changes and at exit.
-// TODO(M0): check on the console that /tmp is a tmpfs (OpenWrt default).
-func (m *mainScreen) writeQR(link string) error {
-	if link == m.qrLink && m.qrPath != "" {
-		return nil
+// qrPath returns a path to the QR image of link, drawn again when the
+// link changed (a new secret).
+func (m *mainScreen) qrPath(link string) (string, error) {
+	m.qrMu.Lock()
+	defer m.qrMu.Unlock()
+	if m.qr == nil || link != m.qrLink {
+		if m.qr != nil {
+			m.qr.close()
+			m.qr = nil
+		}
+		data, err := QRPNG(link)
+		if err != nil {
+			return "", err
+		}
+		m.qr, m.qrLink = &qrImage{data: data}, link
 	}
-	data, err := QRPNG(link)
-	if err != nil {
-		return err
+	return m.qr.path()
+}
+
+// releaseQR is called once the screen loaded the image.
+func (m *mainScreen) releaseQR() {
+	m.qrMu.Lock()
+	defer m.qrMu.Unlock()
+	if m.qr != nil {
+		m.qr.release()
 	}
-	if m.qrPath != "" {
-		os.Remove(m.qrPath)
+}
+
+// closeQR drops the QR image (exit, signal path included).
+func (m *mainScreen) closeQR() {
+	m.qrMu.Lock()
+	defer m.qrMu.Unlock()
+	if m.qr != nil {
+		m.qr.close()
+		m.qr, m.qrLink = nil, ""
 	}
-	// A new name each time: the image cache of SDL never shows an old one.
-	f, err := os.CreateTemp(m.qrDir, "qr-*.png")
-	if err != nil {
-		return err
-	}
-	_, werr := f.Write(data)
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		os.Remove(f.Name())
-		return werr
-	}
-	m.qrPath, m.qrLink = f.Name(), link
-	return nil
 }
 
 // loop shows the main screen until the user quits.
@@ -261,13 +281,15 @@ func (m *mainScreen) loop() {
 			message(l10n.Tf(l10n.MsgStartError, "Error", err))
 			return
 		}
+		qrPath := ""
 		if v.ShowQR {
-			if err := m.writeQR(v.QRLink); err != nil {
+			if qrPath, err = m.qrPath(v.QRLink); err != nil {
 				m.a.Logger().Error("cannot draw the QR code", "error", err)
-				v.ShowQR = false
 			}
+		} else {
+			m.closeQR()
 		}
-		action := m.show(v)
+		action := m.show(v, qrPath)
 		select {
 		case <-m.a.Stopped():
 			return // the server stopped on its own: nothing left to show
@@ -275,15 +297,39 @@ func (m *mainScreen) loop() {
 		}
 		switch action {
 		case actionRefresh:
+			if m.pairing && len(m.a.PairedClients()) > m.pairedAtStart {
+				m.pairing = false // paired: back to the main screen, with the banner
+			}
 		case actionToggleQR:
-			m.showQR = !m.showQR
+			if !m.pairing {
+				m.showQR = !m.showQR
+			}
 		case actionSettings:
-			settings(m.a)
+			m.settings()
 		case actionQuit:
+			if m.pairing {
+				// B leaves the pairing screen for the settings.
+				m.pairing = false
+				m.settings()
+				continue
+			}
 			if !m.a.Busy() || confirm(l10n.T(l10n.MsgConfirmQuit), l10n.T(l10n.BtnQuit)) {
 				return
 			}
 		}
+	}
+}
+
+// settings shows the settings (pairing closed meanwhile: no QR code is
+// shown); "Pair a new device" switches the screen to pairing mode.
+func (m *mainScreen) settings() {
+	if err := m.a.SetPairingVisible(false); err != nil {
+		m.a.Logger().Error("pairing", "error", err)
+	}
+	m.closeQR()
+	if settings(m.a) == settingsPair {
+		m.pairing = true
+		m.pairedAtStart = len(m.a.PairedClients())
 	}
 }
 
@@ -297,7 +343,7 @@ const (
 )
 
 // show runs one DetailScreen of the view until a button or a refresh.
-func (m *mainScreen) show(v MainView) mainAction {
+func (m *mainScreen) show(v MainView, qrPath string) mainAction {
 	key := v.Key()
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -308,17 +354,19 @@ func (m *mainScreen) show(v MainView) mainAction {
 		defer close(done)
 		t := time.NewTicker(refreshEvery)
 		defer t.Stop()
+		released := false
 		for {
 			select {
 			case <-stop:
 				return
 			case <-t.C:
 			}
-			next, err := m.view()
-			if err == nil {
-				next.ShowQR = v.ShowQR // a failed QR image does not loop
-				next.QRLink = qrKey(next, v)
+			if !released {
+				// The DetailScreen loads its images before its first frame.
+				m.releaseQR()
+				released = true
 			}
+			next, err := m.view()
 			if err == nil && next.Key() == key {
 				select {
 				case <-m.a.Stopped():
@@ -336,7 +384,7 @@ func (m *mainScreen) show(v MainView) mainAction {
 		}
 	}()
 
-	res, err := gaba.DetailScreen(AppName, m.options(v), m.footer())
+	res, err := gaba.DetailScreen(AppName, m.options(v, qrPath), m.footer(v))
 
 	m.mu.Lock()
 	m.visible = false
@@ -363,27 +411,19 @@ func (m *mainScreen) show(v MainView) mainAction {
 	return actionRefresh
 }
 
-// qrKey keeps the link of the shown view when the QR code is hidden, so
-// that a new secret does not redraw a screen that does not show it.
-func qrKey(next, shown MainView) string {
-	if !shown.ShowQR {
-		return shown.QRLink
-	}
-	return next.QRLink
-}
-
-// options lays out the view in a DetailScreen.
-func (m *mainScreen) options(v MainView) gaba.DetailScreenOptions {
+// options lays out the view in a DetailScreen. The state is a line of
+// its own under the title (05 §7.1: it never overlaps the title, which
+// the status bar of gabagool did with a long state).
+func (m *mainScreen) options(v MainView, qrPath string) gaba.DetailScreenOptions {
 	opts := gaba.DefaultInfoScreenOptions()
 	opts.ShowThemeBackground = true
 	opts.ShowScrollbar = true
 	opts.ConfirmButton = constants.VirtualButtonA
 	opts.ActionButton = constants.VirtualButtonY
-	opts.AllowAction = true
+	opts.AllowAction = !v.Pairing
 	opts.MaxImageHeight = QRSize
 	opts.MaxImageWidth = QRSize
-	opts.StatusBar = gaba.StatusBarOptions{Enabled: true, Icons: []gaba.StatusBarIcon{{Text: v.State}}}
-	var sections []gaba.Section
+	sections := []gaba.Section{gaba.NewInfoSection("", []gaba.MetadataItem{{Label: l10n.T(l10n.LabelState), Value: v.State}})}
 	if v.Banner != "" {
 		sections = append(sections, gaba.NewDescriptionSection("", v.Banner))
 	}
@@ -392,9 +432,17 @@ func (m *mainScreen) options(v MainView) gaba.DetailScreenOptions {
 	if len(v.Transfers) > 0 {
 		sections = append(sections, gaba.NewDescriptionSection(l10n.T(l10n.TitleTransfers), joinLines(v.Transfers)))
 	}
-	if v.ShowQR && m.qrPath != "" {
+	title := v.Hint
+	if v.Pairing {
+		title = l10n.T(l10n.ItemPairNew)
+	}
+	if v.ShowQR && qrPath != "" {
 		// The hint is the title of the QR code section.
-		sections = append(sections, gaba.NewImageSection(v.Hint, m.qrPath, QRSize, QRSize, constants.TextAlignCenter))
+		if v.Pairing {
+			sections = append(sections, gaba.NewDescriptionSection(title, v.Hint))
+			title = ""
+		}
+		sections = append(sections, gaba.NewImageSection(title, qrPath, QRSize, QRSize, constants.TextAlignCenter))
 	} else {
 		sections = append(sections, gaba.NewDescriptionSection("", v.Hint))
 	}
@@ -407,13 +455,21 @@ func (m *mainScreen) options(v MainView) gaba.DetailScreenOptions {
 	return opts
 }
 
-func (m *mainScreen) footer() []gaba.FooterHelpItem {
-	qr := l10n.T(l10n.BtnHideQR)
-	if !m.showQR {
-		qr = l10n.T(l10n.BtnShowQR)
+func (m *mainScreen) footer(v MainView) []gaba.FooterHelpItem {
+	if v.Pairing {
+		return footer("B", l10n.T(l10n.BtnBack))
 	}
-	return footer("B", l10n.T(l10n.BtnQuit), "Y", l10n.T(l10n.BtnSettings), "A", qr)
+	items := footer("B", l10n.T(l10n.BtnQuit), "Y", l10n.T(l10n.BtnSettings))
+	if v.ShowQR {
+		items = append(items, footer("A", l10n.T(l10n.BtnHideQR))...)
+	} else if !m.showQR && m.unpaired() {
+		items = append(items, footer("A", l10n.T(l10n.BtnShowQR))...)
+	}
+	return items
 }
+
+// unpaired reports whether no device is paired (A shows the QR code).
+func (m *mainScreen) unpaired() bool { return !m.a.HasPairedClients() }
 
 func joinLines(lines []string) string {
 	out := ""

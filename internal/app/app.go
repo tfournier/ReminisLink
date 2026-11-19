@@ -51,6 +51,8 @@ type Options struct {
 	// ("127.0.0.1" in headless mode). Empty: the pak is offline then
 	// (Status.WiFi false) until an address comes back.
 	NoWiFiIP string
+	// Pairing says who opens pairing (PairingManual: the UI).
+	Pairing PairingMode
 }
 
 // ErrStopped is returned by Maintain and Start once Shutdown has begun
@@ -375,6 +377,7 @@ func (a *App) Start(ip string) error {
 	a.ip, a.wifi = ip, true
 	a.mu.Unlock()
 	a.srv, a.port = srv, port
+	a.syncPairing()
 	a.log.Info("listening", "address", ln.Addr().String(), "ip", ip, "port", port)
 	if err := a.reannounce(); err != nil {
 		ln.Close()
@@ -409,6 +412,7 @@ func (a *App) IP() string {
 
 // paired is the OnPaired callback of the server.
 func (a *App) paired(c auth.Client) {
+	a.syncPairing()
 	a.notices.push(Notice{Kind: NoticePaired, Name: c.Name})
 	if a.opts.OnPaired != nil {
 		a.opts.OnPaired(c)

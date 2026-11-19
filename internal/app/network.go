@@ -31,6 +31,7 @@ func (a *App) watchNetwork() {
 // comes back. With Options.NoWiFiIP (headless mode), that address is used
 // instead of going offline.
 func (a *App) checkNetwork() {
+	a.syncPairing() // a device may have unpaired itself through the API
 	ip, ok := a.WiFiIPv4()
 	if !ok && a.opts.NoWiFiIP != "" {
 		ip, ok = a.opts.NoWiFiIP, true

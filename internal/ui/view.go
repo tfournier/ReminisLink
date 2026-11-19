@@ -40,10 +40,13 @@ type Item struct {
 // MainView is the text of the main screen (05 §7.1). Two equal views
 // draw the same screen: the UI redraws only when the view changes.
 type MainView struct {
-	State     string // top right: Ready, Connected or Transfer in progress
+	State string // Ready, Connected or Transfer in progress, on its own line
+	// Pairing: the pairing screen opened from the settings (05 §7.2),
+	// not the main screen.
+	Pairing   bool
 	Banner    string // a change of the SD card, "" when none
-	ShowQR    bool
-	QRLink    string // the pairing link the QR code encodes
+	ShowQR    bool   // the QR code and the PIN are shown (pairing is open)
+	QRLink    string // the pairing link the QR code encodes ("" when hidden)
 	Hint      string // under the QR code
 	Items     []Item
 	Transfers []string
@@ -52,23 +55,40 @@ type MainView struct {
 // Key identifies what is drawn, to compare two views.
 func (v MainView) Key() string { return fmt.Sprintf("%#v", v) }
 
-// BuildMain returns the main screen for the state of the pak at now.
-func BuildMain(st app.Status, now time.Time, showQR bool) MainView {
-	v := MainView{State: StateText(st.State), ShowQR: showQR && st.WiFi, QRLink: st.PairingLink}
+// WantPairing reports whether the screen shows the QR code and the PIN,
+// which is when pairing must be open (M8, 05 §7.1): on the pairing screen
+// of the settings, or on the main screen while no device is paired and
+// the QR code is not hidden with A. Never without Wi-Fi (no link).
+func WantPairing(st app.Status, showQR, pairingScreen bool) bool {
+	return st.WiFi && (pairingScreen || !st.Paired && showQR)
+}
+
+// BuildMain returns the main screen for the state of the pak at now
+// (pairingScreen false), or the pairing screen of the settings (true).
+// The QR code and the PIN appear only while pairing is open.
+func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainView {
+	v := MainView{State: StateText(st.State), Pairing: pairingScreen}
+	if WantPairing(st, showQR, pairingScreen) && st.PairingOpen {
+		v.ShowQR, v.QRLink = true, st.PairingLink
+	}
 	switch {
 	case !st.WiFi:
 		// The Wi-Fi was lost (sleep, Wi-Fi off): no link to show until
 		// it comes back; the pak keeps running.
 		v.Hint = l10n.T(l10n.HintNoWiFi)
-	case showQR:
+	case v.ShowQR:
 		v.Hint = l10n.T(l10n.ScanHint)
-	default:
+	case pairingScreen || !st.Paired:
 		v.Hint = l10n.T(l10n.QRHidden)
+	default:
+		v.Hint = l10n.T(l10n.HintPairMore)
 	}
 	if st.Notice != nil {
 		v.Banner = NoticeText(*st.Notice)
 	}
-	v.Items = append(v.Items, Item{l10n.T(l10n.LabelCode), PINText(st, now)})
+	if v.ShowQR {
+		v.Items = append(v.Items, Item{l10n.T(l10n.LabelCode), PINText(st, now)})
+	}
 	console := st.Name
 	if st.IP != "" {
 		console = l10n.Tf(l10n.ConsoleValue, "Name", st.Name, "IP", st.IP)
@@ -169,6 +189,8 @@ var noticeMessages = map[string]*l10n.Message{
 	server.ChangeCheatsUpdated:     l10n.NoticeCheatsUpdated,
 	server.ChangeTrashEmptied:      l10n.NoticeTrashEmptied,
 	server.ChangeTrashEntryDeleted: l10n.NoticeTrashEntryDeleted,
+	server.ChangeArtSet:            l10n.NoticeArtSet,
+	server.ChangeArtDeleted:        l10n.NoticeArtDeleted,
 	app.NoticeDownloaded:           l10n.NoticeDownloaded,
 	app.NoticeDownloadFailed:       l10n.NoticeDownloadFailed,
 	app.NoticePatched:              l10n.NoticePatched,

@@ -32,7 +32,8 @@ var (
 	StateNoWiFi      = &msg{ID: "state_no_wifi", Other: "No Wi-Fi"}
 	HintNoWiFi       = &msg{ID: "hint_no_wifi", Other: "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."}
 	ScanHint         = &msg{ID: "scan_hint", Other: "Scan with the ReminisLink app"}
-	QRHidden         = &msg{ID: "qr_hidden", Other: "QR code hidden: press A to show it."}
+	QRHidden         = &msg{ID: "qr_hidden", Other: "QR code and PIN hidden: pairing is closed.\nPress A to show them."}
+	HintPairMore     = &msg{ID: "hint_pair_more", Other: "To pair another device: Settings (Y) > Pair a new device."}
 	LabelCode        = &msg{ID: "label_code", Other: "Code"}
 	PINExpires       = &msg{ID: "pin_expires", One: "{{.PIN}}  (expires in {{.Count}} min)", Other: "{{.PIN}}  (expires in {{.Count}} min)"}
 	PINBlocked       = &msg{ID: "pin_blocked", One: "Too many failed attempts: pairing blocked for {{.Count}} min", Other: "Too many failed attempts: pairing blocked for {{.Count}} min"}
@@ -73,6 +74,8 @@ var (
 	NoticePatched           = &msg{ID: "notice_patched", Other: "Patch applied"}
 	NoticePatchFailed       = &msg{ID: "notice_patch_failed", Other: "Patch failed"}
 	NoticePaired            = &msg{ID: "notice_paired", Other: "Paired with {{.Name}}"}
+	NoticeArtSet            = &msg{ID: "notice_art_set", Other: "Art updated"}
+	NoticeArtDeleted        = &msg{ID: "notice_art_deleted", Other: "Art moved to the trash"}
 )
 
 // Other screens
@@ -88,6 +91,7 @@ var (
 // Settings
 var (
 	TitleSettings       = &msg{ID: "title_settings", Other: "Settings"}
+	ItemPairNew         = &msg{ID: "item_pair_new", Other: "Pair a new device"}
 	ItemName            = &msg{ID: "item_name", Other: "Console name: {{.Name}}"}
 	ItemPaired          = &msg{ID: "item_paired", One: "Paired devices ({{.Count}})", Other: "Paired devices ({{.Count}})"}
 	ItemForgetAll       = &msg{ID: "item_forget_all", Other: "Forget all devices"}
@@ -118,5 +122,5 @@ var All = []*msg{
 	NoticePaired, MsgNoWiFi, MsgPreparing, MsgClosing, MsgStartError, MsgConfirmQuit, LanguagePrompt,
 	TitleSettings, ItemName, ItemPaired, ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout,
 	TitlePaired, MsgNoPaired, PairedItem, DateLayout, MsgConfirmForget, MsgConfirmForgetAll,
-	MsgForgotAll, MsgNameEmpty, MsgSaveError,
+	MsgForgotAll, MsgNameEmpty, MsgSaveError, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
 }

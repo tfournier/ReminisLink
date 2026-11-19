@@ -117,6 +117,9 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := pairing.Open(); err != nil { // the pairing screen is shown
+		t.Fatal(err)
+	}
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	lib := library.New(adapter, layout)

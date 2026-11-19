@@ -69,6 +69,9 @@ other = "."
 [hint_no_wifi]
 other = "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."
 
+[hint_pair_more]
+other = "To pair another device: Settings (Y) > Pair a new device."
+
 [item_about]
 other = "Version and log"
 
@@ -80,6 +83,9 @@ other = "Language: {{.Name}}"
 
 [item_name]
 other = "Console name: {{.Name}}"
+
+[item_pair_new]
+other = "Pair a new device"
 
 [item_paired]
 one = "Paired devices ({{.Count}})"
@@ -139,6 +145,12 @@ other = "ReminisLink could not start:\n{{.Error}}"
 
 [none_connected]
 other = "None"
+
+[notice_art_deleted]
+other = "Art moved to the trash"
+
+[notice_art_set]
+other = "Art updated"
 
 [notice_cheats_updated]
 other = "Cheats updated"
@@ -200,7 +212,7 @@ one = "{{.PIN}}  (expires in {{.Count}} min)"
 other = "{{.PIN}}  (expires in {{.Count}} min)"
 
 [qr_hidden]
-other = "QR code hidden: press A to show it."
+other = "QR code and PIN hidden: pairing is closed.\nPress A to show them."
 
 [scan_hint]
 other = "Scan with the ReminisLink app"

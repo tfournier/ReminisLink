@@ -53,12 +53,21 @@ type PairingSnapshot struct {
 	ExpiresAt    time.Time
 	BlockedUntil time.Time // zero when not blocked
 	Generation   uint64    // changes each time the secret is regenerated
+	// Open reports whether pairing is open (the pairing screen is shown,
+	// docs/specs/05-console-pak.md §7.1). Secret and PIN are only
+	// meaningful while it is.
+	Open bool
 }
 
 // PairingSession holds the current pairing secret and PIN: 32 random bytes
 // and 6 random digits, valid PairingTTL, single use. After
 // MaxPairingFailures failed attempts both are regenerated and pairing is
 // blocked for PairingBlock.
+//
+// Pairing is on demand (M8, 05 §7.1): the session starts closed, Open
+// draws a new secret and PIN when the pairing screen appears and Close
+// invalidates them when it goes away. While closed, every well-formed
+// attempt fails without counting as a failure.
 type PairingSession struct {
 	mu       sync.Mutex
 	deviceID string
@@ -71,9 +80,10 @@ type PairingSession struct {
 	failures     int
 	blockedUntil time.Time
 	generation   uint64
+	open         bool
 }
 
-// NewPairingSession creates a session with a fresh secret. A nil now uses
+// NewPairingSession creates a closed session (see Open). A nil now uses
 // time.Now and a nil random source uses crypto/rand.
 func NewPairingSession(deviceID string, now func() time.Time, random io.Reader) (*PairingSession, error) {
 	if now == nil {
@@ -89,13 +99,56 @@ func NewPairingSession(deviceID string, now func() time.Time, random io.Reader) 
 	return s, nil
 }
 
+// Open opens pairing with a new secret and PIN. Opening a session already
+// open keeps its secret (the screen redraws without changing the QR code).
+func (s *PairingSession) Open() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.open {
+		return nil
+	}
+	if err := s.regenerateLocked(s.now()); err != nil {
+		return err
+	}
+	s.open = true
+	return nil
+}
+
+// Close closes pairing and invalidates the secret and the PIN: a new
+// secret is drawn and kept hidden, so that nothing seen before still
+// works. A block after too many failures stays in force.
+func (s *PairingSession) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.open {
+		return nil
+	}
+	s.open = false
+	return s.regenerateLocked(s.now())
+}
+
+// SetOpen opens or closes pairing.
+func (s *PairingSession) SetOpen(open bool) error {
+	if open {
+		return s.Open()
+	}
+	return s.Close()
+}
+
+// IsOpen reports whether pairing is open.
+func (s *PairingSession) IsOpen() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.open
+}
+
 // Snapshot returns the current secret and PIN, regenerating them first if
-// they expired.
+// they expired while pairing is open.
 func (s *PairingSession) Snapshot() (PairingSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	if !now.Before(s.expiresAt) {
+	if s.open && !now.Before(s.expiresAt) {
 		if err := s.regenerateLocked(now); err != nil {
 			return PairingSnapshot{}, err
 		}
@@ -105,6 +158,7 @@ func (s *PairingSession) Snapshot() (PairingSnapshot, error) {
 		PIN:        s.pin,
 		ExpiresAt:  s.expiresAt,
 		Generation: s.generation,
+		Open:       s.open,
 	}
 	if now.Before(s.blockedUntil) {
 		snap.BlockedUntil = s.blockedUntil
@@ -141,6 +195,10 @@ func (s *PairingSession) Attempt(req PairRequest) (res PairResult, retryAfter ti
 		ikm = PINIKM(s.pin)
 	default:
 		return PairResult{}, 0, fmt.Errorf("%w: method must be qr or pin", ErrInvalidPairRequest)
+	}
+	if !s.open {
+		// Pairing on demand: closed, no secret to test, not a failure.
+		return PairResult{}, 0, ErrPairingFailed
 	}
 	if !now.Before(s.expiresAt) {
 		// Expired secret: the proof cannot match the new one. This counts as

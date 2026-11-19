@@ -26,6 +26,9 @@ const (
 	ChangeTrashEmptied  = "trash-emptied"
 	// ChangeTrashEntryDeleted: one trash entry erased for good.
 	ChangeTrashEntryDeleted = "trash-entry-deleted"
+	// ChangeArtSet and ChangeArtDeleted: PUT and DELETE /games/{gameId}/art.
+	ChangeArtSet     = "art-set"
+	ChangeArtDeleted = "art-deleted"
 )
 
 // notify calls OnChange with kind after a successful (2xx) response. name,

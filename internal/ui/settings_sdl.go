@@ -13,15 +13,24 @@ import (
 
 // Settings items, in display order (05 §7.2).
 const (
-	itemName = iota
+	itemPairNew = iota
+	itemName
 	itemPaired
 	itemForgetAll
 	itemLanguage
 	itemAbout
 )
 
-// settings shows the settings until B.
-func settings(a *app.App) {
+// settingsResult says how the settings were left.
+type settingsResult int
+
+const (
+	settingsBack settingsResult = iota // B
+	settingsPair                       // Pair a new device: show the pairing screen
+)
+
+// settings shows the settings until B or "Pair a new device".
+func settings(a *app.App) settingsResult {
 	sel := 0
 	for {
 		lang := a.Language()
@@ -29,6 +38,7 @@ func settings(a *app.App) {
 			lang = l.Name
 		}
 		labels := []string{
+			itemPairNew:   l10n.T(l10n.ItemPairNew),
 			itemName:      l10n.Tf(l10n.ItemName, "Name", a.DeviceName()),
 			itemPaired:    l10n.Tn(l10n.ItemPaired, len(a.PairedClients())),
 			itemForgetAll: l10n.T(l10n.ItemForgetAll),
@@ -37,10 +47,12 @@ func settings(a *app.App) {
 		}
 		i, err := showList(l10n.T(l10n.TitleSettings), labels, sel, "", l10n.T(l10n.BtnSelect))
 		if err != nil {
-			return
+			return settingsBack
 		}
 		sel = i
 		switch i {
+		case itemPairNew:
+			return settingsPair
 		case itemName:
 			rename(a)
 		case itemPaired:
