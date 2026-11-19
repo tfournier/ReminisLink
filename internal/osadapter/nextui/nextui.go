@@ -442,67 +442,125 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 	discs := m3uSiblings(dir, entries)
 	listing := osadapter.Listing{Folders: []osadapter.Folder{}, Games: []osadapter.GameSummary{}}
 	for _, e := range entries {
-		name := e.Name()
-		if hidden(name) || isSymlink(e) {
-			continue
-		}
-		childRel := rel + "/" + name
-		if e.IsDir() {
-			sub := filepath.Join(dir, name)
-			subEntries, err := os.ReadDir(sub)
-			if err != nil {
-				continue
-			}
-			if romName, kind, ok := folderGame(name, subEntries); ok {
-				g := osadapter.Game{
-					System: sys, Path: childRel, FileName: name, Name: name,
-					Kind: kind, ROMName: romName,
-				}
-				s := idx.summary(a, g)
+		g, subEntries, class := classify(sys, dir, rel, e, discs)
+		switch class {
+		case folderEntry:
+			listing.Folders = append(listing.Folders, osadapter.Folder{
+				Path: g.Path, Name: g.FileName,
+				GameCount: countGames(filepath.Join(dir, g.FileName), subEntries, strings.Count(g.Path, "/")),
+			})
+		case gameEntry:
+			s := idx.summary(a, g)
+			if g.Kind.IsFolder() {
 				for _, se := range subEntries {
 					if !se.Type().IsRegular() || hidden(se.Name()) {
 						continue
 					}
 					if info, err := se.Info(); err == nil {
 						s.Size += info.Size()
-						if se.Name() == romName {
+						if se.Name() == g.ROMName {
 							s.ModTime = info.ModTime().UTC()
 						}
 					}
 				}
-				listing.Games = append(listing.Games, s)
-				continue
+			} else {
+				info, err := e.Info()
+				if err != nil {
+					continue
+				}
+				s.Size = info.Size()
+				s.ModTime = info.ModTime().UTC()
+				if g.Kind == osadapter.KindM3U {
+					// Same total as the ROM files of GET /games/{gameId}.
+					for _, d := range a.m3uDiscs(g, filepath.Join(dir, g.FileName), map[string][]fs.DirEntry{dir: entries}) {
+						s.Size += d.Size
+					}
+				}
 			}
-			listing.Folders = append(listing.Folders, osadapter.Folder{
-				Path: childRel, Name: name, GameCount: countGames(sub, subEntries, strings.Count(childRel, "/")),
-			})
-			continue
+			listing.Games = append(listing.Games, s)
 		}
-		if !e.Type().IsRegular() || !isGameFile(name) || discs[fold(name)] {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		g := osadapter.Game{
-			System: sys, Path: childRel, FileName: name, Name: displayName(name),
-			Kind: fileKind(name), ROMName: name,
-		}
-		s := idx.summary(a, g)
-		s.Size = info.Size()
-		s.ModTime = info.ModTime().UTC()
-		if g.Kind == osadapter.KindM3U {
-			// Same total as the ROM files of GET /games/{gameId}.
-			for _, d := range a.m3uDiscs(g, filepath.Join(dir, name), map[string][]fs.DirEntry{dir: entries}) {
-				s.Size += d.Size
-			}
-		}
-		listing.Games = append(listing.Games, s)
 	}
 	sort.Slice(listing.Folders, func(i, j int) bool { return lessFold(listing.Folders[i].Name, listing.Folders[j].Name) })
 	sort.Slice(listing.Games, func(i, j int) bool { return lessFold(listing.Games[i].FileName, listing.Games[j].FileName) })
 	return listing, nil
+}
+
+// entryClass is what an entry of a folder of a system is.
+type entryClass int
+
+const (
+	skipEntry   entryClass = iota // hidden, link, ignored file, disc of a .m3u, unreadable folder
+	gameEntry                     // a game (file, .m3u, folder-m3u or folder-cue)
+	folderEntry                   // a plain subfolder
+)
+
+// classify tells what the entry e of dir (rel relative to Roms/, discs
+// from m3uSiblings) is, as ListFolder lists it. The game (or, for a
+// folder, its Path and FileName) and the listing of a subfolder come with
+// it.
+func classify(sys osadapter.System, dir, rel string, e fs.DirEntry, discs map[string]bool) (osadapter.Game, []fs.DirEntry, entryClass) {
+	name := e.Name()
+	if hidden(name) || isSymlink(e) {
+		return osadapter.Game{}, nil, skipEntry
+	}
+	childRel := rel + "/" + name
+	if e.IsDir() {
+		subEntries, err := os.ReadDir(filepath.Join(dir, name))
+		if err != nil {
+			return osadapter.Game{}, nil, skipEntry
+		}
+		if romName, kind, ok := folderGame(name, subEntries); ok {
+			return osadapter.Game{
+				System: sys, Path: childRel, FileName: name, Name: name, Kind: kind, ROMName: romName,
+			}, subEntries, gameEntry
+		}
+		return osadapter.Game{Path: childRel, FileName: name}, subEntries, folderEntry
+	}
+	if !e.Type().IsRegular() || !isGameFile(name) || discs[fold(name)] {
+		return osadapter.Game{}, nil, skipEntry
+	}
+	return osadapter.Game{
+		System: sys, Path: childRel, FileName: name, Name: displayName(name), Kind: fileKind(name), ROMName: name,
+	}, nil, gameEntry
+}
+
+// WalkGames calls fn for every game of sys, subfolders included (down to
+// MaxFolderDepth, like CountGames), with the games ListFolder lists. Each
+// folder is read once. It stops with the error of fn, or ctx.Err().
+func (a *Adapter) WalkGames(ctx context.Context, sys osadapter.System, fn func(osadapter.Game) error) error {
+	dir := filepath.Join(a.roots.Roms, sys.Folder)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("walk games: %w", withoutPath(err))
+	}
+	return walkGames(ctx, sys, dir, sys.Folder, entries, 0, fn)
+}
+
+func walkGames(ctx context.Context, sys osadapter.System, dir, rel string, entries []fs.DirEntry, depth int, fn func(osadapter.Game) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	discs := m3uSiblings(dir, entries)
+	for _, e := range entries {
+		g, subEntries, class := classify(sys, dir, rel, e, discs)
+		switch class {
+		case gameEntry:
+			if err := fn(g); err != nil {
+				return err
+			}
+		case folderEntry:
+			if depth >= MaxFolderDepth {
+				continue
+			}
+			if err := walkGames(ctx, sys, filepath.Join(dir, g.FileName), g.Path, subEntries, depth+1, fn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (idx systemIndex) summary(a *Adapter, g osadapter.Game) osadapter.GameSummary {

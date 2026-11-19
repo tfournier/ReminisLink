@@ -864,3 +864,59 @@ func TestSaveDirMatchesGameFiles(t *testing.T) {
 		t.Errorf("missing folder: %+v", save)
 	}
 }
+
+// WalkGames gives the games a recursive ListFolder lists, and stops with
+// its context or the error of fn.
+func TestWalkGamesMatchesListFolder(t *testing.T) {
+	a, sd := newAdapter(t)
+	testutil.WriteFile(t, sd, "Roms/"+ps+"/Tide Pool/Tide Pool.cue", "c")
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/Hacks/Deeper/Deepest/x.gba", "r")
+	systems, err := a.Systems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sys := range systems {
+		var listed []osadapter.Game
+		var list func(rel string)
+		list = func(rel string) {
+			l, err := a.ListFolder(sys, rel)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, g := range l.Games {
+				listed = append(listed, g.Game)
+			}
+			for _, f := range l.Folders {
+				list(f.Path)
+			}
+		}
+		list(sys.Folder)
+		var walked []osadapter.Game
+		if err := a.WalkGames(context.Background(), sys, func(g osadapter.Game) error {
+			walked = append(walked, g)
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		key := func(gs []osadapter.Game) map[string]osadapter.Game {
+			m := map[string]osadapter.Game{}
+			for _, g := range gs {
+				m[g.Path] = g
+			}
+			return m
+		}
+		if !reflect.DeepEqual(key(listed), key(walked)) || len(listed) != len(walked) {
+			t.Errorf("%s: ListFolder %+v, WalkGames %+v", sys.Folder, listed, walked)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := a.WalkGames(ctx, systems[0], func(osadapter.Game) error { return nil }); !errors.Is(err, context.Canceled) {
+		t.Errorf("cancelled: %v", err)
+	}
+	stop := errors.New("stop")
+	n := 0
+	if err := a.WalkGames(context.Background(), systems[0], func(osadapter.Game) error { n++; return stop }); !errors.Is(err, stop) || n != 1 {
+		t.Errorf("stop: %v after %d", err, n)
+	}
+}

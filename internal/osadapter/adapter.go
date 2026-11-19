@@ -181,6 +181,10 @@ type Adapter interface {
 	// is sys.Folder for the root of the system. ErrNotFound if it is not a
 	// folder of the system (a game folder is not a folder).
 	ListFolder(sys System, rel string) (Listing, error)
+	// WalkGames calls fn for every game of sys, subfolders included, with
+	// the games ListFolder lists, reading each folder once. It stops with
+	// the error of fn, or ctx.Err() when ctx is done.
+	WalkGames(ctx context.Context, sys System, fn func(Game) error) error
 	// Game returns the game at rel (relative to Roms/), or ErrNotFound.
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.
