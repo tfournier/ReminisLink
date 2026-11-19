@@ -400,3 +400,28 @@ func TestAllGames(t *testing.T) {
 		}
 	}
 }
+
+// A client that stops reading a download is cut off after the send idle
+// timeout; no write deadline ends a transfer that keeps going.
+func TestGameFileStalledClient(t *testing.T) {
+	f := newFixture(t)
+	f.server.timeouts.sendIdle = 200 * time.Millisecond
+	rel := ps + "/Huge Disc.bin"
+	big := bytes.Repeat([]byte{0x5a}, 64<<20)
+	if err := os.WriteFile(filepath.Join(f.sd, "Roms", ps, "Huge Disc.bin"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := f.detail(rel)
+	conn := dial(t, strings.TrimPrefix(f.http.URL, "http://"))
+	defer conn.Close()
+	if _, err := conn.Write(signedRaw(t, f, http.MethodGet, gamePath(rel)+"/files/"+d.Files[0].FileID, nil)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(f.logs.String(), "file transfer interrupted") {
+		if time.Now().After(deadline) {
+			t.Fatal("the stalled download was not cut off")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

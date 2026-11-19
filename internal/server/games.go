@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
 	"github.com/tfournier/ReminisLink/internal/cheats"
@@ -91,9 +92,29 @@ func (s *Server) sendFile(w http.ResponseWriter, r *http.Request, f *os.File, na
 	}
 	w.Header().Set("Content-Length", strconv.FormatInt(fi.Size(), 10))
 	w.WriteHeader(http.StatusOK)
-	if _, err := io.CopyN(w, f, fi.Size()); err != nil {
+	// No WriteTimeout on the server: a slow transfer of a large file
+	// (a disc of hundreds of MB) goes on as long as bytes flow, and a
+	// client that stops reading is cut off after SendIdleTimeout.
+	iw := &idleWriter{w: w, ctl: http.NewResponseController(w), timeout: s.timeouts.sendIdle}
+	_, err = io.CopyN(iw, f, fi.Size())
+	_ = iw.ctl.SetWriteDeadline(time.Time{}) // the connection may be reused
+	if err != nil {
 		s.log.Warn("file transfer interrupted", "error", err)
 	}
+}
+
+// idleWriter sets a write deadline before each write of a response body,
+// so a client that stops reading is cut off after timeout while a slow
+// but steady download is not.
+type idleWriter struct {
+	w       http.ResponseWriter
+	ctl     *http.ResponseController
+	timeout time.Duration
+}
+
+func (iw *idleWriter) Write(p []byte) (int, error) {
+	_ = iw.ctl.SetWriteDeadline(time.Now().Add(iw.timeout))
+	return iw.w.Write(p)
 }
 
 // enoughSpace answers 507 insufficient_storage when the SD card has less

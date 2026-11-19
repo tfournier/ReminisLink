@@ -118,6 +118,7 @@ type Server struct {
 // timeouts are the durations of the server, changed by tests only.
 type timeouts struct {
 	bodyIdle time.Duration // BodyIdleTimeout
+	sendIdle time.Duration // SendIdleTimeout
 	shutdown time.Duration // ShutdownTimeout
 	grace    time.Duration // shutdownGrace
 }
@@ -156,6 +157,7 @@ func New(opts Options) (*Server, error) {
 		allGamesLimit: library.MaxAllGames,
 		timeouts: timeouts{
 			bodyIdle: BodyIdleTimeout,
+			sendIdle: SendIdleTimeout,
 			shutdown: ShutdownTimeout,
 			grace:    shutdownGrace,
 		},
