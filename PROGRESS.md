@@ -63,7 +63,7 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-19 — Icône de l'app (deux maillons et traînée de pixels, `ios/Design/`) validée par la personne.
 
-- 2026-11-19 — Préfixe iOS `link.reminis` (domaine `reminis.link` commandé par la personne) ; l'équipe de signature fournie par la personne va dans `ios/Config/Local.xcconfig` (ignoré par Git), à appliquer après la fusion de M7. Rappel donné : le vendeur affiché sur l'App Store est le compte qui publie.
+- 2026-11-19 — Identifiant iOS `link.reminis.app` (extension `.share`, groupe `group.link.reminis.app` ; domaine `reminis.link` commandé par la personne), appliqué sur `m7-publication-ios` ; l'équipe de signature fournie par la personne va dans `ios/Config/Local.xcconfig` (ignoré par Git), à appliquer après la fusion de M7. Rappel donné : le vendeur affiché sur l'App Store est le compte qui publie.
 
 ## Questions ouvertes pour la personne
 

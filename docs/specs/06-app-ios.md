@@ -5,7 +5,7 @@
 - iPhone, iOS 17 minimum. iPad plus tard.
 - SwiftUI, Observation (`@Observable`), Swift Concurrency. Aucune dépendance tierce sans accord.
 - Langues : anglais et français en v1 (String Catalog `Localizable.xcstrings`).
-- Identifiants : préfixe **`link.reminis`** (domaine du produit, décision du 19/11/2026, définitif) : app `link.reminis.reminislink`, extension `link.reminis.reminislink.share`, groupe d'apps `group.link.reminis.reminislink`. Le préfixe ne rattache pas l'app à une entreprise ; le nom du vendeur affiché sur l'App Store est celui du compte qui publie. L'équipe de signature reste locale (`ios/Config/Local.xcconfig`, ignoré par Git).
+- Identifiants : domaine du produit `reminis.link`, décision du 19/11/2026, définitifs : app **`link.reminis.app`**, extension `link.reminis.app.share`, groupe d'apps `group.link.reminis.app`, groupe de Trousseau `<Team ID>.link.reminis.app.shared`. Le préfixe ne rattache pas l'app à une entreprise ; le nom du vendeur affiché sur l'App Store est celui du compte qui publie. L'équipe de signature reste locale (`ios/Config/Local.xcconfig`, ignoré par Git).
 
 ## 2. Structure
 
@@ -26,7 +26,7 @@
 | `NSCameraUsageDescription` | « Pour scanner le QR code affiché par ta console. » |
 | `NSAppTransportSecurity` → `NSAllowsLocalNetworking` | `true` (HTTP vers le réseau local) |
 | URL scheme | `reminislink` (lien d'appairage du QR code) |
-| App Groups | `group.<préfixe>.reminislink` (app ↔ extension) |
+| App Groups | `group.link.reminis.app` (app ↔ extension) |
 | Keychain Sharing | Groupe partagé avec l'extension |
 
 Pas d'entitlement multicast : Bonjour via `NWBrowser` n'en a pas besoin.
