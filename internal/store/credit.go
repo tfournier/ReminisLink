@@ -19,7 +19,17 @@ import (
 //   - on the first launch (no saved value), C = 0.
 //
 // A wrong wall clock can therefore never age an entry by more than 7 days
-// at once; at worst the purge is delayed. After a crash (the previous run
+// at once; at worst the purge is delayed.
+//
+// The offline time is counted from the latest wall time ever recorded
+// (creditWallMax), not only from the last close (M8, Codex review of M4):
+// a console whose clock is behind when the pak closes (RTC reset at boot,
+// before NTP) and right when it opens (after NTP) would otherwise get 7
+// days at each such pair of sessions, a month in a few minutes. With the
+// high-water mark, only the wall time that goes past everything already
+// seen is credited, which real time can do but a clock going back and
+// forth cannot. A wall clock once set far in the future only delays the
+// purge (the session time still counts). After a crash (the previous run
 // did not close cleanly), nothing is credited for the time since its last
 // save: that time is lost, never added (the prudent way).
 // TODO(M0): check whether the Brick keeps its clock on battery and when
@@ -37,6 +47,8 @@ const (
 	keyCredit     = "creditSeconds"
 	keyCreditWall = "creditWall"
 	keyCreditOpen = "creditOpen"
+	// keyCreditWallMax is the latest wall time ever recorded.
+	keyCreditWallMax = "creditWallMax"
 )
 
 // CreditClock is the credited-age clock.
@@ -48,6 +60,7 @@ type CreditClock struct {
 	mu        sync.Mutex
 	base      time.Duration // C when the session started (after the launch credit)
 	monoStart time.Duration
+	wallMax   time.Time // latest wall time recorded (creditWallMax)
 }
 
 // NewCreditClock loads the credit from config, credits the offline time
@@ -83,10 +96,18 @@ func NewCreditClock(config *ConfigFile, wall func() time.Time, mono func() time.
 		if raw, ok := fields[keyCreditOpen]; ok {
 			_ = json.Unmarshal(raw, &open)
 		}
+		if raw, ok := fields[keyCreditWallMax]; ok {
+			if err := json.Unmarshal(raw, &c.wallMax); err != nil {
+				return nil, fmt.Errorf("credit clock: invalid %s", keyCreditWallMax)
+			}
+		}
+	}
+	if last.After(c.wallMax) {
+		c.wallMax = last // a config.json written before creditWallMax
 	}
 	c.base = time.Duration(seconds) * time.Second
 	if hasCredit && !open && !last.IsZero() {
-		c.base += min(max(wall().Sub(last), 0), MaxOfflineCredit)
+		c.base += min(max(wall().Sub(c.wallMax), 0), MaxOfflineCredit)
 	}
 	c.monoStart = mono()
 	if err := c.save(true); err != nil {
@@ -118,6 +139,10 @@ func (c *CreditClock) save(open bool) error {
 	defer c.mu.Unlock()
 	seconds := int64(c.nowLocked() / time.Second)
 	wall := c.wall().UTC().Truncate(time.Second)
+	if wall.After(c.wallMax) {
+		c.wallMax = wall
+	}
+	wallMax := c.wallMax
 	return c.config.Update(func(fields map[string]json.RawMessage) error {
 		// Keys of the first M4 drafts (clock guard): ignored, removed.
 		delete(fields, "lastSeenTime")
@@ -128,6 +153,8 @@ func (c *CreditClock) save(open bool) error {
 		fields[keyCreditWall] = v
 		v, _ = json.Marshal(open)
 		fields[keyCreditOpen] = v
+		v, _ = json.Marshal(wallMax)
+		fields[keyCreditWallMax] = v
 		return nil
 	})
 }

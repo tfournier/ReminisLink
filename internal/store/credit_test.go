@@ -232,3 +232,42 @@ func TestCreditConfigKeys(t *testing.T) {
 		t.Fatal("negative credit accepted")
 	}
 }
+
+// Codex review of M4: the clock is behind when the pak closes (RTC reset
+// at boot, before NTP) and right when it opens (after NTP). Without a
+// bound, each pair of sessions credited 7 days: five pairs in a few
+// minutes purged a fresh entry.
+func TestCreditClockBackAndForthIsNotCreditedTwice(t *testing.T) {
+	e := newCreditEnv(t)
+	real := e.clk.wall
+	behind := real.Add(-200 * day)
+	e.move("a")
+	for i := 0; i < 5; i++ {
+		// Boot with the RTC behind, pak opened and closed before NTP.
+		e.closePak()
+		real = real.Add(time.Minute)
+		e.clk.wall = behind
+		e.launch()
+		e.clk.run(time.Minute)
+		e.closePak()
+		// NTP has set the clock, pak opened again.
+		real = real.Add(time.Minute)
+		e.clk.wall = real
+		e.launch()
+		e.clk.run(time.Minute)
+	}
+	if got := e.clock.Now(); got > time.Hour {
+		t.Fatalf("credited %v for a few minutes of real time", got)
+	}
+	e.purge()
+	if e.count() != 1 {
+		t.Fatal("entry purged by a clock going back and forth")
+	}
+	// Real offline time past the latest wall time seen still counts.
+	e.closePak()
+	e.clk.off(3 * day)
+	e.launch()
+	if got := e.clock.Now(); got < 3*day || got > 3*day+time.Hour {
+		t.Fatalf("real outage credited %v, want about 3 days", got)
+	}
+}
