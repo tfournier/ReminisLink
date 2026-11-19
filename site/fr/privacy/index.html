@@ -40,7 +40,7 @@
 
     <div class="wrap">
       <article class="prose">
-        <p>ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton réseau Wi-Fi local. Elle est conçue pour que tes données ne quittent jamais ton réseau.</p>
+        <p>ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton réseau Wi-Fi local. Elle est conçue pour que tes données ne quittent jamais ton réseau, sauf les copies de tes saves que tu gardes dans ton propre iCloud Drive.</p>
 
         <h2>Ce que nous collectons</h2>
         <p><strong>Rien.</strong> ReminisLink n’a ni compte, ni serveur, ni analytics, ni publicité, ni pistage, ni SDK tiers. Le développeur ne reçoit aucune donnée sur toi ni sur ton utilisation de l’app.</p>
@@ -52,7 +52,7 @@
           <li><strong>Un cache des jaquettes</strong> affichées dans la bibliothèque, qu’iOS peut vider à tout moment.</li>
           <li><strong>Des copies temporaires des fichiers que tu envoies</strong> (depuis Fichiers ou le menu de partage), gardées seulement jusqu’à la fin du transfert.</li>
         </ul>
-        <p>Supprimer l’app efface tout. Se désappairer d’une console supprime sa clé.</p>
+        <p>Supprimer l’app efface tout (sauf les copies de tes saves dans iCloud Drive, voir plus bas). Se désappairer d’une console supprime sa clé.</p>
 
         <h2>Ce qui va vers ta console</h2>
         <p>ReminisLink ne communique qu’avec les consoles que tu as appairées, sur ton réseau local (trouvées par Bonjour, puis en HTTP sur ce réseau). Chaque requête est signée avec la clé d’appairage.</p>
@@ -61,6 +61,10 @@
           <li>À l’appairage, un nom pour ton iPhone (celui qu’iOS donne aux apps, en général « iPhone »), affiché dans la liste des appareils appairés de la console. Tu peux l’en retirer à tout moment.</li>
           <li><strong>Les liens que tu saisis ou partages</strong> : l’app envoie le lien à ta console, qui télécharge elle-même le fichier, avec sa propre connexion. Le site du lien voit la console, pas l’app.</li>
         </ul>
+
+        <h2>Copies de tes saves (iCloud Drive)</h2>
+        <p>ReminisLink peut copier les saves de tes consoles (avec leurs fichiers d’horloge) sur ton iPhone : avec le bouton Synchroniser d’une console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Jusqu’à 10 versions de chaque save sont gardées.</p>
+        <p>Les copies vont dans <strong>ton propre iCloud Drive</strong>, dans le dossier ReminisLink de l’app Fichiers, où tu peux les voir, les déplacer ou les supprimer. iCloud est le service d’Apple, sous ton compte Apple et la politique de confidentialité d’Apple : le développeur n’a aucun serveur et ne reçoit jamais ces copies. Si iCloud Drive est désactivé, les copies restent sur ton iPhone (Fichiers &gt; Sur mon iPhone &gt; ReminisLink) et sont supprimées avec l’app.</p>
 
         <h2>Autorisations</h2>
         <ul>

@@ -29,9 +29,14 @@ PATCHES
 NOTHING IS LOST
 Deleting a game or patching it in place first moves its files to the trash of the handheld, where they stay for at least 30 days: the space is freed only when you empty the trash. Replacing or restoring a save always makes a backup copy first.
 
+SAVES ON YOUR IPHONE
+• Copy the saves of the handheld (with their clock files) to your own iCloud Drive, with one tap or each time it connects
+• Only the saves that changed are copied; up to 10 versions of each are kept, in the ReminisLink folder of the Files app
+• Put a version back on the handheld, or share it
+
 SIMPLE AND PRIVATE
 • Pair in one scan of the QR code shown on the handheld. No IP address to type
-• Everything stays on your local network: no account, no server, no analytics, no ads
+• No account, no server, no analytics, no ads: the app talks only to your handheld, on your local network, and copies saves only to your own iCloud Drive
 • Pairing keys are kept in the iPhone Keychain
 
 REQUIREMENTS

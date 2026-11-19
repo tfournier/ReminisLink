@@ -29,9 +29,14 @@ PATCHS
 RIEN NE SE PERD
 Supprimer un jeu ou le patcher sur place met d’abord ses fichiers dans la corbeille de la console, où ils restent au moins 30 jours : l’espace n’est libéré qu’en vidant la corbeille. Remplacer ou restaurer une save fait toujours d’abord une copie de sauvegarde.
 
+TES SAVES SUR L’IPHONE
+• Copie les saves de la console (avec leurs fichiers d’horloge) dans ton propre iCloud Drive, d’une touche ou à chaque connexion
+• Seules les saves modifiées sont copiées ; jusqu’à 10 versions de chacune sont gardées, dans le dossier ReminisLink de l’app Fichiers
+• Remets une version sur la console, ou partage-la
+
 SIMPLE ET PRIVÉ
 • Appairage en un scan du QR code affiché par la console. Aucune adresse IP à taper
-• Tout reste sur ton réseau local : pas de compte, pas de serveur, pas d’analytics, pas de publicité
+• Pas de compte, pas de serveur, pas d’analytics, pas de publicité : l’app ne parle qu’à ta console, sur ton réseau local, et ne copie les saves que dans ton propre iCloud Drive
 • Les clés d’appairage sont gardées dans le Trousseau de l’iPhone
 
 CONFIGURATION REQUISE
