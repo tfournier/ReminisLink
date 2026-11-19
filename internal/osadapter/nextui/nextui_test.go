@@ -697,3 +697,15 @@ func TestM3UDiscsMatchedIgnoringCase(t *testing.T) {
 		t.Errorf("roms = %+v", files.ROM)
 	}
 }
+
+func TestPatchFilesAreNotGames(t *testing.T) {
+	a := New(RootsForSD(t.TempDir(), "tg5040"), nil)
+	for _, name := range []string{"Hack.ips", "Hack.BPS", "hack.ups"} {
+		if a.IsGameFile(name) {
+			t.Errorf("%s listed as a game", name)
+		}
+	}
+	if !a.IsGameFile("Hack.gba") {
+		t.Error("ROM not a game")
+	}
+}

@@ -74,6 +74,9 @@ var ignoredExt = map[string]bool{
 	".txt": true, ".png": true, ".jpg": true, ".jpeg": true, ".bmp": true, ".xml": true,
 	".json": true, ".log": true, ".db": true, ".srm": true, ".sav": true, ".state": true,
 	".cht": true, ".bak": true, ".tmp": true, ".pdf": true, ".md": true,
+	// Patches (IPS, BPS, UPS) dropped next to their ROM: 04 lists them
+	// under Roms/ for GET /sd/files?type=patch, they are not games.
+	".ips": true, ".bps": true, ".ups": true,
 }
 
 // Adapter is the NextUI adapter.
