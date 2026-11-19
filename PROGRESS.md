@@ -9,12 +9,12 @@
 | M3 | intégré (appareils connectés à afficher, avec M4) | `m3-ios-base` | GPT-OSS 120B : 1 point retenu — `docs/reviews/m3-antigravity.md` ; 2 revues Claude (aucun bloquant, corrigées) — `docs/reviews/m3-claude.md` | 2026-11-18 |
 | M4 | intégré (tests console à faire) | `m4-transferts-go`, `m4-transferts-ios` | Go : GPT-OSS « prêt à fusionner » (a manqué le bloquant) — `docs/reviews/m4-go-antigravity.md` ; 3 revues Claude (2 bloquants corrigés, règle de purge tranchée par la personne) — `docs/reviews/m4-go-claude.md`. iOS : 2 revues Claude (aucun bloquant) — `docs/reviews/m4-ios-claude.md` | 2026-11-18 |
 | M5 | intégré (tests console à faire) | `m5-saves-go`, `m5-saves-ios` | Go : 2 revues Claude (2 bloquants corrigés) — `docs/reviews/m5-go-claude.md` ; iOS : 1 revue Claude (1 bloquant corrigé) — `docs/reviews/m5-ios-claude.md` ; pas de revue croisée (quota Gemini) | 2026-11-19 |
-| M6 | à faire | — | — | — |
+| M6 | en cours | `m6-patchs-go`, `m6-patchs-ios` | — | — |
 | M7 | à faire | — | — | — |
 
 ## En cours
 - M5 fusionné dans `main` le 2026-11-19. Sur `main` : `make lint test`, `make contract`, `go test -race ./...`, `swift test` (173), `xcodebuild test` (39 tests app, UI démo) verts. Contre le pak headless : tests UI Save, Cheats, Verrous réussis ; critère « Fait quand » vérifié (state verrouillé écrasé à la main → restauré au lancement, « Restauré » affiché, state écrasé en corbeille).
-- M6 (patchs IPS/BPS/UPS) : à lancer.
+- M6 : deux sous-agents lancés le 2026-11-19 : Go dans `../reminislink-m6-go` (seul autorisé à modifier `protocol/`), iOS dans `../reminislink-m6-ios`.
 - **En attente de la personne** : décisions D1–D6 (question 8) ; tests sur console (checklist, scénarios 3, 4, 5, 7, 8, 9, 10) et les 3 relevés M0 restants.
 
 ## État du dépôt (2026-11-18)
