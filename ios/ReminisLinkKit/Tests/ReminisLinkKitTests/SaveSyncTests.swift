@@ -132,6 +132,19 @@ struct SaveSyncTests {
         #expect(moon[0].info.save.sha256 == sha256Hex(Data("moon-2".utf8)))
     }
 
+    @Test func aSyncFinishesARotationLeftUnfinished() async throws {
+        let sandbox = try VaultSandbox()
+        let eleven = sandbox.vault(maxVersions: 11)
+        let game = VaultGameInfo(gameId: "g1", systemId: "sys-gba", systemName: "Game Boy Advance (GBA)", name: "Sky Garden")
+        for i in 1...11 {
+            _ = try await eleven.addVersion(console: brick, game: game, save: try sandbox.input("Sky Garden.gba.sav", i == 11 ? "sky" : "old-\(i)"), rtc: nil, modifiedAt: nil)
+        }
+        let source = StubSaveSource([.entry("g1", name: "Sky Garden", save: "sky")])
+        let report = try await makeSync(source, sandbox).run()
+        #expect(report.unchanged == 1)
+        #expect(try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g1").count == 10)
+    }
+
     @Test func aChecksumMismatchIsRejectedAndTheOtherGamesGoOn() async throws {
         let sandbox = try VaultSandbox()
         var bad = StubSaveSource.Entry.entry("g1", name: "Sky Garden", save: "sky-1")

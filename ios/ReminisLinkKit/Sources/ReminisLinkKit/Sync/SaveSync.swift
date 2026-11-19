@@ -150,7 +150,8 @@ public struct SaveSync: Sendable {
 
     /// Stores a new version if the save changed; returns whether it did.
     private func sync(_ save: SaveSummary, systemName: String) async throws -> Bool {
-        let latest = try await vault.latestVersion(deviceId: console.deviceId, gameId: save.gameId)
+        // Also finishes a rotation left unfinished by an earlier sync.
+        let latest = try await vault.retainedVersions(deviceId: console.deviceId, gameId: save.gameId).first
         guard Self.needsNewVersion(save, latest: latest) else { return false }
 
         let folder = scratchDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)

@@ -95,6 +95,38 @@ struct SaveVaultTests {
         #expect(!folders.contains(added[1].id))
     }
 
+    @Test func aClockMovedBackNeverDeletesTheVersionJustPublished() async throws {
+        let sandbox = try VaultSandbox()
+        let vault = sandbox.vault()
+        for i in 1...10 {
+            _ = try await vault.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "save-\(i)"), rtc: nil, modifiedAt: nil)
+        }
+        // The iPhone clock is set a year back.
+        let past = sandbox.vault(clock: TestClock(start: Date(timeIntervalSince1970: 1_700_000_000)))
+        let added = try await past.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "save-11"), rtc: nil, modifiedAt: nil)
+        let versions = try await past.versions(deviceId: "dev-1", gameId: "g-courier")
+        #expect(versions.count == 10)
+        #expect(versions.first?.id == added.id)
+        #expect(versions.first?.info.sequence == 11)
+        #expect(versions.first?.info.save.sha256 == sha256Hex(Data("save-11".utf8)))
+        // The oldest published (sequence 1) went, whatever its date.
+        #expect(!versions.contains { $0.info.sequence == 1 })
+    }
+
+    @Test func anUnfinishedRotationIsFinishedLater() async throws {
+        let sandbox = try VaultSandbox()
+        // Eleven versions, as left by a rotation interrupted after the move.
+        let eleven = sandbox.vault(maxVersions: 11)
+        for i in 1...11 {
+            _ = try await eleven.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "save-\(i)"), rtc: nil, modifiedAt: nil)
+        }
+        let vault = sandbox.vault()
+        #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-courier").count == 11)
+        let retained = try await vault.retainedVersions(deviceId: "dev-1", gameId: "g-courier")
+        #expect(retained.map(\.info.sequence) == Array((2...11).reversed()))
+        #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-courier").count == 10)
+    }
+
     @Test func aFolderThatIsNotAVersionIsNeverCountedNorDeleted() async throws {
         let sandbox = try VaultSandbox()
         let vault = sandbox.vault(maxVersions: 2)

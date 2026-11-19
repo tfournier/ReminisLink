@@ -70,6 +70,10 @@ public struct SaveVersionFile: Codable, Sendable, Hashable {
 /// What a version holds (`.version.json`, written with its files).
 public struct SaveVersionInfo: Codable, Sendable, Hashable {
     public let gameId: String
+    /// Publication order in its game folder (1 for the first version):
+    /// versions are ordered and kept by it, never by a date, as the clock
+    /// of the iPhone can go back.
+    public let sequence: Int
     /// When the iPhone copied it.
     public let syncedAt: Date
     /// When the console last wrote the save (its clock may be wrong).
@@ -78,8 +82,9 @@ public struct SaveVersionInfo: Codable, Sendable, Hashable {
     /// The clock file of the game, when the console has one.
     public let rtc: SaveVersionFile?
 
-    public init(gameId: String, syncedAt: Date, modifiedAt: Date?, save: SaveVersionFile, rtc: SaveVersionFile?) {
+    public init(gameId: String, sequence: Int, syncedAt: Date, modifiedAt: Date?, save: SaveVersionFile, rtc: SaveVersionFile?) {
         self.gameId = gameId
+        self.sequence = sequence
         self.syncedAt = syncedAt
         self.modifiedAt = modifiedAt
         self.save = save
@@ -151,10 +156,16 @@ public protocol SaveVault: Sendable {
     func consoles() async throws -> [VaultConsole]
     /// The games of a console that have at least one version, by system then name.
     func games(deviceId: String) async throws -> [VaultGame]
-    /// The versions of a game, newest first.
+    /// The versions of a game, last published first.
     func versions(deviceId: String, gameId: String) async throws -> [SaveVersion]
-    /// Stores a new version (the files are moved in), then deletes the
-    /// oldest versions beyond ``SaveVaultLimits/maxVersions``.
+    /// The versions of a game, last published first, after deleting the
+    /// oldest beyond ``SaveVaultLimits/maxVersions`` (a rotation left
+    /// unfinished, e.g. the app was stopped between the move and the
+    /// deletion). The sync calls it before comparing.
+    func retainedVersions(deviceId: String, gameId: String) async throws -> [SaveVersion]
+    /// Stores a new version (the files are moved in) with the next
+    /// sequence number, then deletes the oldest versions beyond
+    /// ``SaveVaultLimits/maxVersions`` (never the new one).
     func addVersion(
         console: VaultConsoleInfo, game: VaultGameInfo,
         save: NewVersionFile, rtc: NewVersionFile?, modifiedAt: Date?
@@ -167,4 +178,5 @@ extension SaveVault {
     public func latestVersion(deviceId: String, gameId: String) async throws -> SaveVersion? {
         try await versions(deviceId: deviceId, gameId: gameId).first
     }
+
 }

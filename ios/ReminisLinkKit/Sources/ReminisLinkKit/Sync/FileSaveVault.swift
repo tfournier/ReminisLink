@@ -11,7 +11,9 @@ import Foundation
 /// - Nothing is ever deleted, except the oldest versions beyond
 ///   ``SaveVaultLimits/maxVersions`` once a new version is in place. A
 ///   folder without a readable `.version.json` is not a version: it is
-///   never counted nor deleted.
+///   never counted nor deleted. Versions are ordered by their publication
+///   `sequence`, never by date (the iPhone clock can go back): the version
+///   just published is always kept.
 /// - Console and game folders are found by the identifier in their
 ///   `.console.json` / `.game.json`, never by name: renaming a console or
 ///   two games with the same name do not mix histories.
@@ -115,28 +117,45 @@ public actor FileSaveVault: SaveVault {
         let rtcName = try rtc.map { try Self.checkedFileName($0.name) }
         if let rtcName, rtcName.lowercased() == saveName.lowercased() { throw SaveVaultError.invalidName(rtcName) }
 
-        // 1. Assemble the version outside the vault.
+        // 1. Assemble the version outside the vault, numbered after the
+        //    versions already there.
+        let gameFolder = try ensureGameFolder(console: console, game: game)
+        let sequence = (try versions(in: gameFolder).map(\.info.sequence).max() ?? 0) + 1
         let manager = FileManager.default
         let stage = stagingDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try manager.createDirectory(at: stage, withIntermediateDirectories: true)
         defer { try? manager.removeItem(at: stage) }
         let saveFile = try stageFile(save, as: saveName, in: stage)
         let rtcFile = try rtc.map { try stageFile($0, as: rtcName!, in: stage) }
-        let info = SaveVersionInfo(gameId: game.gameId, syncedAt: now(), modifiedAt: modifiedAt, save: saveFile, rtc: rtcFile)
+        let info = SaveVersionInfo(
+            gameId: game.gameId, sequence: sequence, syncedAt: now(), modifiedAt: modifiedAt, save: saveFile, rtc: rtcFile
+        )
         try Self.writeSynced(Self.encoder().encode(info), to: stage.appending(path: Self.versionFile))
 
         // 2. Move it into the game folder in one rename.
-        let gameFolder = try ensureGameFolder(console: console, game: game)
         let name = try uniqueName(Self.versionName(info.syncedAt, timeZone: timeZone), in: gameFolder)
         let destination = gameFolder.appending(path: name, directoryHint: .isDirectory)
         try coordinateMove(from: stage, to: destination)
 
-        // 3. Only then, rotate.
-        let all = try versions(in: gameFolder)
-        for old in all.dropFirst(maxVersions) {
+        // 3. Only then, rotate (the new version has the highest sequence;
+        //    it is also excluded by name, whatever happens).
+        let version = SaveVersion(id: name, info: info)
+        try rotate(gameFolder, keeping: version.id)
+        return version
+    }
+
+    public func retainedVersions(deviceId: String, gameId: String) throws -> [SaveVersion] {
+        guard let folder = try gameFolder(deviceId: deviceId, gameId: gameId) else { return [] }
+        try rotate(folder, keeping: nil)
+        return try versions(in: folder)
+    }
+
+    /// Deletes the versions beyond the limit, oldest published first,
+    /// never `kept`.
+    private func rotate(_ gameFolder: URL, keeping kept: String?) throws {
+        for old in try versions(in: gameFolder).dropFirst(maxVersions) where old.id != kept {
             try coordinateDeleting(gameFolder.appending(path: old.id, directoryHint: .isDirectory))
         }
-        return SaveVersion(id: name, info: info)
     }
 
     private func stageFile(_ file: NewVersionFile, as name: String, in stage: URL) throws -> SaveVersionFile {
@@ -211,7 +230,7 @@ public actor FileSaveVault: SaveVault {
         try coordinateMove(from: stage, to: folder)
     }
 
-    /// The version folders of a game, newest first.
+    /// The version folders of a game, last published first.
     private func versions(in game: URL) throws -> [SaveVersion] {
         var versions: [SaveVersion] = []
         for folder in try subfolders(of: game) {
@@ -219,6 +238,7 @@ public actor FileSaveVault: SaveVault {
             versions.append(SaveVersion(id: folder.lastPathComponent, info: info))
         }
         return versions.sorted {
+            if $0.info.sequence != $1.info.sequence { return $0.info.sequence > $1.info.sequence }
             if $0.info.syncedAt != $1.info.syncedAt { return $0.info.syncedAt > $1.info.syncedAt }
             return $0.id > $1.id
         }
