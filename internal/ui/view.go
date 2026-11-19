@@ -20,6 +20,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/app"
 	"github.com/tfournier/ReminisLink/internal/l10n"
+	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
@@ -47,6 +48,10 @@ type Item struct {
 // draw the same screen: the UI redraws only when the view changes.
 type MainView struct {
 	State string // Ready, Connected or Transfer in progress, on its own line
+	// Battery is the level shown at the top right ("" when unknown);
+	// LowBattery: under LowBatteryPercent and not charging.
+	Battery    string
+	LowBattery bool
 	// Pairing: the pairing screen opened from the settings (05 §7.2),
 	// not the main screen.
 	Pairing   bool
@@ -61,6 +66,24 @@ type MainView struct {
 // Key identifies what is drawn, to compare two views.
 func (v MainView) Key() string { return fmt.Sprintf("%#v", v) }
 
+// LowBatteryPercent is the level under which the battery is shown as low
+// when it is not charging (05 §7.1).
+const LowBatteryPercent = 15
+
+// BatteryText is the battery at the top right, and whether it is low.
+func BatteryText(b *osadapter.Battery) (string, bool) {
+	if b == nil {
+		return "", false
+	}
+	switch {
+	case b.Charging:
+		return l10n.Tf(l10n.BatteryCharging, "Percent", b.Percent), false
+	case b.Percent < LowBatteryPercent:
+		return l10n.Tf(l10n.BatteryLow, "Percent", b.Percent), true
+	}
+	return l10n.Tf(l10n.BatteryLevel, "Percent", b.Percent), false
+}
+
 // WantPairing reports whether the screen shows the QR code and the PIN,
 // which is when pairing must be open (M8, 05 §7.1): on the pairing screen
 // of the settings, or on the main screen while no device is paired and
@@ -74,6 +97,7 @@ func WantPairing(st app.Status, showQR, pairingScreen bool) bool {
 // The QR code and the PIN appear only while pairing is open.
 func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainView {
 	v := MainView{State: StateText(st.State), Pairing: pairingScreen}
+	v.Battery, v.LowBattery = BatteryText(st.Battery)
 	if WantPairing(st, showQR, pairingScreen) && st.PairingOpen {
 		v.ShowQR, v.QRLink = true, st.PairingLink
 	}
@@ -91,6 +115,14 @@ func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainVie
 	}
 	if st.Notice != nil {
 		v.Banner = NoticeText(*st.Notice)
+	}
+	if v.LowBattery && len(st.Activities) > 0 {
+		// A transfer cut by an empty battery resumes, but tell first.
+		low := l10n.T(l10n.BatteryLowBanner)
+		if v.Banner != "" {
+			low += "\n" + v.Banner
+		}
+		v.Banner = low
 	}
 	if v.ShowQR {
 		v.Items = append(v.Items, Item{l10n.T(l10n.LabelCode), PINText(st, now)})

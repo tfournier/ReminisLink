@@ -792,3 +792,39 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+// The battery as NextUI reads it (05 §6), from a fake sysfs.
+func TestBattery(t *testing.T) {
+	a, _ := newAdapter(t)
+	sys := t.TempDir()
+	a.SetPowerSupplyDir(sys)
+	if b := a.Battery(); b != nil {
+		t.Fatalf("no sysfs: %+v", b)
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/capacity", "78\n")
+	if b := a.Battery(); b == nil || b.Percent != 78 || b.Charging {
+		t.Fatalf("level only: %+v", b)
+	}
+	testutil.WriteFile(t, sys, "axp2202-usb/online", "1\n")
+	testutil.WriteFile(t, sys, "axp2202-battery/time_to_full_now", "0\n")
+	if b := a.Battery(); b.Charging {
+		t.Fatal("plugged in but full: not charging (time_to_full_now = 0)")
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/time_to_full_now", "3600\n")
+	if b := a.Battery(); !b.Charging {
+		t.Fatal("charging not seen")
+	}
+	testutil.WriteFile(t, sys, "axp2202-usb/online", "0\n")
+	if b := a.Battery(); b.Charging {
+		t.Fatal("unplugged seen as charging")
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/capacity", "garbage")
+	if b := a.Battery(); b != nil {
+		t.Fatalf("unreadable level: %+v", b)
+	}
+	testutil.WriteFile(t, sys, "axp2202-battery/capacity", "100")
+	info, err := a.DeviceInfo()
+	if err != nil || info.Battery == nil || info.Battery.Percent != 100 {
+		t.Fatalf("DeviceInfo battery %+v %v", info.Battery, err)
+	}
+}

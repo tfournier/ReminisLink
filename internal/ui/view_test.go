@@ -9,6 +9,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/app"
 	"github.com/tfournier/ReminisLink/internal/l10n"
+	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
@@ -222,5 +223,37 @@ func TestNamesShownInNFC(t *testing.T) {
 	v := BuildMain(st, now, true, false)
 	if !strings.Contains(v.Key(), "Brick de José") || !strings.Contains(v.Key(), "iPhone de Amélie") || strings.Contains(v.Key(), "\u0301") {
 		t.Errorf("main view %#v", v)
+	}
+}
+
+func TestBatteryOnTheMainScreen(t *testing.T) {
+	setLang(t, "fr")
+	st := status()
+	if v := BuildMain(st, now, true, false); v.Battery != "" || v.LowBattery {
+		t.Fatalf("unknown battery: %#v", v)
+	}
+	st.Battery = &osadapter.Battery{Percent: 78}
+	if v := BuildMain(st, now, true, false); v.Battery != "78 %" || v.LowBattery {
+		t.Fatalf("78 %%: %#v", v)
+	}
+	st.Battery = &osadapter.Battery{Percent: 12, Charging: true}
+	if v := BuildMain(st, now, true, false); v.Battery != "12 % (en charge)" || v.LowBattery {
+		t.Fatalf("charging: %#v", v)
+	}
+	// Low and not charging: alert, and a banner only during a transfer.
+	st.Battery = &osadapter.Battery{Percent: 14}
+	v := BuildMain(st, now, true, false)
+	if v.Battery != "Faible : 14 %" || !v.LowBattery || v.Banner != "" {
+		t.Fatalf("low: %#v", v)
+	}
+	st.Activities = []transfer.Activity{{Kind: transfer.ActivityUpload, Name: "x.gba", Done: 1, Total: 2}}
+	st.Notice = &app.Notice{Kind: server.ChangeROMAdded, Name: "y.gba"}
+	v = BuildMain(st, now, true, false)
+	if !strings.HasPrefix(v.Banner, "Batterie faible : branche la console\n") || !strings.Contains(v.Banner, "y.gba") {
+		t.Fatalf("low during a transfer: %#v", v)
+	}
+	st.Battery.Percent = 15
+	if v := BuildMain(st, now, true, false); v.LowBattery || strings.Contains(v.Banner, "faible") {
+		t.Fatalf("15 %% is not low: %#v", v)
 	}
 }

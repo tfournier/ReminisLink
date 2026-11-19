@@ -27,6 +27,18 @@ other = "Receiving: {{.Name}}"
 [activity_upload_file]
 other = "Receiving a file"
 
+[battery_charging]
+other = "{{.Percent}}% (charging)"
+
+[battery_level]
+other = "{{.Percent}}%"
+
+[battery_low]
+other = "Low: {{.Percent}}%"
+
+[battery_low_banner]
+other = "Low battery: plug the console in"
+
 [button_back]
 other = "Back"
 

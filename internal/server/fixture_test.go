@@ -107,6 +107,7 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	roots := nextui.RootsForSD(sd, "tg5040")
 	env := map[string]string{"DEVICE": "brick", "PLATFORM": "tg5040"}
 	adapter := nextui.New(roots, func(k string) string { return env[k] })
+	adapter.SetPowerSupplyDir(filepath.Join(sd, "no-sysfs")) // no battery unless a test writes one
 	layout := store.Layout{Root: roots.Data}
 	clients, err := auth.OpenClientStore(layout.ClientsFile())
 	if err != nil {

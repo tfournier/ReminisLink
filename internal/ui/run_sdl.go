@@ -411,9 +411,12 @@ func (m *mainScreen) show(v MainView, qrPath string) mainAction {
 	return actionRefresh
 }
 
-// options lays out the view in a DetailScreen. The state is a line of
-// its own under the title (05 §7.1: it never overlaps the title, which
-// the status bar of gabagool did with a long state).
+// options lays out the view in a DetailScreen (05 §7.1): the state is the
+// first line, on the left, under the title; the battery is in the status
+// bar at the top right. The status bar of gabagool is short with the
+// battery only, so it never overlaps the centered title (the long state
+// "Transfer in progress" did). gabagool draws it in the theme colors: a
+// low battery is told by its text ("Low: 12%"), not by a color.
 func (m *mainScreen) options(v MainView, qrPath string) gaba.DetailScreenOptions {
 	opts := gaba.DefaultInfoScreenOptions()
 	opts.ShowThemeBackground = true
@@ -423,6 +426,9 @@ func (m *mainScreen) options(v MainView, qrPath string) gaba.DetailScreenOptions
 	opts.AllowAction = !v.Pairing
 	opts.MaxImageHeight = QRSize
 	opts.MaxImageWidth = QRSize
+	if v.Battery != "" {
+		opts.StatusBar = gaba.StatusBarOptions{Enabled: true, Icons: []gaba.StatusBarIcon{{Text: v.Battery}}}
+	}
 	sections := []gaba.Section{gaba.NewInfoSection("", []gaba.MetadataItem{{Label: l10n.T(l10n.LabelState), Value: v.State}})}
 	if v.Banner != "" {
 		sections = append(sections, gaba.NewDescriptionSection("", v.Banner))

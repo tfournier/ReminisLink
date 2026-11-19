@@ -27,6 +27,18 @@ other = "Envoi : {{.Name}}"
 [activity_upload_file]
 other = "Envoi d'un fichier"
 
+[battery_charging]
+other = "{{.Percent}} % (en charge)"
+
+[battery_level]
+other = "{{.Percent}} %"
+
+[battery_low]
+other = "Faible : {{.Percent}} %"
+
+[battery_low_banner]
+other = "Batterie faible : branche la console"
+
 [button_back]
 other = "Retour"
 

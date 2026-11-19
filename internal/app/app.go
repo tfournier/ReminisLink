@@ -138,6 +138,10 @@ type App struct {
 	watchDone  chan struct{}
 	checkEvery time.Duration // NetworkCheckEvery (tests change it)
 
+	batMu sync.Mutex // guards bat and batAt
+	bat   *osadapter.Battery
+	batAt time.Time
+
 	stopOnce sync.Once
 	stopErr  error
 }

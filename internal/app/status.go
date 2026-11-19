@@ -4,8 +4,12 @@ import (
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
+
+// BatteryReadEvery is how often Status reads the battery again.
+const BatteryReadEvery = 30 * time.Second
 
 // State is the state shown at the top right of the main screen
 // (docs/specs/05-console-pak.md §7.1).
@@ -39,7 +43,8 @@ type Status struct {
 	BlockedUntil time.Time // zero when pairing is not blocked
 	Generation   uint64    // changes with the secret
 
-	Connected  []string // names of the connected clients, most recent first
+	Battery    *osadapter.Battery // nil when unknown (desktop)
+	Connected  []string           // names of the connected clients, most recent first
 	Activities []transfer.Activity
 	Notice     *Notice // the banner, nil when none
 }
@@ -58,6 +63,7 @@ func (a *App) Status() (Status, error) {
 		PairingOpen: snap.Open, Paired: a.HasPairedClients(),
 		BlockedUntil: snap.BlockedUntil, Generation: snap.Generation,
 		Activities: a.xfer.Activities(),
+		Battery:    a.battery(),
 	}
 	if snap.Open {
 		st.PIN, st.ExpiresAt = snap.PIN, snap.ExpiresAt
@@ -82,4 +88,14 @@ func (a *App) Status() (Status, error) {
 		st.Notice = &n
 	}
 	return st, nil
+}
+
+// battery returns the battery, read again every BatteryReadEvery.
+func (a *App) battery() *osadapter.Battery {
+	a.batMu.Lock()
+	defer a.batMu.Unlock()
+	if now := time.Now(); a.batAt.IsZero() || now.Sub(a.batAt) >= BatteryReadEvery {
+		a.bat, a.batAt = a.adapter.Battery(), now
+	}
+	return a.bat
 }

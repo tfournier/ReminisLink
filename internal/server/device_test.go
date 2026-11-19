@@ -301,6 +301,19 @@ func TestDevice(t *testing.T) {
 	}
 }
 
+func TestDeviceBattery(t *testing.T) {
+	f := newFixture(t)
+	testutil.WriteFile(t, f.sd, "no-sysfs/axp2202-battery/capacity", "12\n")
+	testutil.WriteFile(t, f.sd, "no-sysfs/axp2202-battery/time_to_full_now", "1200\n")
+	testutil.WriteFile(t, f.sd, "no-sysfs/axp2202-usb/online", "1\n")
+	r := f.get("/api/v1/device", "/device", 200)
+	var d deviceResponse
+	r.JSON(t, &d)
+	if d.Battery == nil || d.Battery.Percent != 12 || !d.Battery.Charging {
+		t.Fatalf("battery %s", r.Body)
+	}
+}
+
 func TestDeviceWithoutNetworkNorStorage(t *testing.T) {
 	f := newFixture(t, func(o *Options) {
 		o.IPv4 = func(string) (string, bool) { return "", false }

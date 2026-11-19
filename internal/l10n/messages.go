@@ -33,6 +33,10 @@ var (
 	HintNoWiFi       = &msg{ID: "hint_no_wifi", Other: "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."}
 	ScanHint         = &msg{ID: "scan_hint", Other: "Scan with the ReminisLink app"}
 	QRHidden         = &msg{ID: "qr_hidden", Other: "QR code and PIN hidden: pairing is closed.\nPress A to show them."}
+	BatteryLevel     = &msg{ID: "battery_level", Other: "{{.Percent}}%"}
+	BatteryCharging  = &msg{ID: "battery_charging", Other: "{{.Percent}}% (charging)"}
+	BatteryLow       = &msg{ID: "battery_low", Other: "Low: {{.Percent}}%"}
+	BatteryLowBanner = &msg{ID: "battery_low_banner", Other: "Low battery: plug the console in"}
 	HintPairMore     = &msg{ID: "hint_pair_more", Other: "To pair another device: Settings (Y) > Pair a new device."}
 	LabelCode        = &msg{ID: "label_code", Other: "Code"}
 	PINExpires       = &msg{ID: "pin_expires", One: "{{.PIN}}  (expires in {{.Count}} min)", Other: "{{.PIN}}  (expires in {{.Count}} min)"}
@@ -122,5 +126,5 @@ var All = []*msg{
 	NoticePaired, MsgNoWiFi, MsgPreparing, MsgClosing, MsgStartError, MsgConfirmQuit, LanguagePrompt,
 	TitleSettings, ItemName, ItemPaired, ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout,
 	TitlePaired, MsgNoPaired, PairedItem, DateLayout, MsgConfirmForget, MsgConfirmForgetAll,
-	MsgForgotAll, MsgNameEmpty, MsgSaveError, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
+	MsgForgotAll, MsgNameEmpty, MsgSaveError, BatteryLevel, BatteryCharging, BatteryLow, BatteryLowBanner, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
 }

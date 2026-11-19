@@ -83,7 +83,16 @@ var ignoredExt = map[string]bool{
 type Adapter struct {
 	roots osadapter.Roots
 	env   Env
+	// powerSupply is the sysfs folder of the power supplies
+	// (DefaultPowerSupplyDir; tests use a fake one).
+	powerSupply string
 }
+
+// DefaultPowerSupplyDir holds the battery and USB power supplies.
+const DefaultPowerSupplyDir = "/sys/class/power_supply"
+
+// SetPowerSupplyDir changes the sysfs folder of the power supplies (tests).
+func (a *Adapter) SetPowerSupplyDir(dir string) { a.powerSupply = dir }
 
 var _ osadapter.Adapter = (*Adapter)(nil)
 
@@ -93,7 +102,7 @@ func New(roots osadapter.Roots, env Env) *Adapter {
 	if env == nil {
 		env = func(string) string { return "" }
 	}
-	return &Adapter{roots: roots, env: env}
+	return &Adapter{roots: roots, env: env, powerSupply: DefaultPowerSupplyDir}
 }
 
 // Name returns "nextui".
@@ -1201,8 +1210,8 @@ func (a *Adapter) relToSD(p string) string {
 }
 
 // DeviceInfo returns the model and platform from the NextUI environment
-// (DEVICE, PLATFORM) and the NextUI release (.system/version.txt). The
-// battery is unknown.
+// (DEVICE, PLATFORM), the NextUI release (.system/version.txt) and the
+// battery (sysfs).
 func (a *Adapter) DeviceInfo() (osadapter.DeviceInfo, error) {
 	model := a.env("DEVICE")
 	if !knownModels[model] {
@@ -1217,13 +1226,33 @@ func (a *Adapter) DeviceInfo() (osadapter.DeviceInfo, error) {
 		Platform:  platform,
 		OS:        OSName,
 		OSVersion: ReadOSVersion(filepath.Join(a.roots.SD, VersionFile)),
-		// TODO(M0): the battery (axp2202-battery/capacity, docs/specs/
-		// 05-console-pak.md §6) is not read yet; null until then.
-		Battery: nil,
+		Battery:   a.Battery(),
 		// TODO(M0): the SSID (wpa_supplicant STATUS, 05 §6) is not read yet.
 		SSID:              nil,
 		WirelessInterface: WirelessInterface,
 	}, nil
+}
+
+// Battery reads the battery as NextUI does (platform.c:183-188, 05 §6):
+// the level in axp2202-battery/capacity; charging when axp2202-usb/online
+// is 1 and axp2202-battery/time_to_full_now is above 0 (NextUI does not use
+// "status"). nil when the level cannot be read (desktop mode).
+func (a *Adapter) Battery() *osadapter.Battery {
+	read := func(supply, name string) (int, bool) {
+		data, err := os.ReadFile(filepath.Join(a.powerSupply, supply, name))
+		if err != nil || len(data) > 32 {
+			return 0, false
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		return n, err == nil
+	}
+	percent, ok := read("axp2202-battery", "capacity")
+	if !ok || percent < 0 {
+		return nil
+	}
+	online, _ := read("axp2202-usb", "online")
+	toFull, _ := read("axp2202-battery", "time_to_full_now")
+	return &osadapter.Battery{Percent: min(percent, 100), Charging: online == 1 && toFull > 0}
 }
 
 // MaxOSVersionBytes bounds the osVersion string (it also goes in the
