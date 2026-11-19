@@ -48,6 +48,9 @@ other = "Cancel"
 [button_confirm]
 other = "Confirm"
 
+[button_disconnect]
+other = "Disconnect"
+
 [button_forget]
 other = "Forget"
 
@@ -78,6 +81,21 @@ other = "2006-01-02"
 [decimal_separator]
 other = "."
 
+[device_item]
+other = "{{.Name}} ({{.State}})"
+
+[device_state_connected]
+other = "connected"
+
+[device_state_disconnected]
+other = "disconnected"
+
+[device_state_separator]
+other = ", "
+
+[device_state_writer]
+other = "has write access"
+
 [hint_no_wifi]
 other = "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."
 
@@ -100,8 +118,8 @@ other = "Console name: {{.Name}}"
 other = "Pair a New Device"
 
 [item_paired]
-one = "Paired devices ({{.Count}})"
-other = "Paired devices ({{.Count}})"
+one = "Devices ({{.Count}})"
+other = "Devices ({{.Count}})"
 
 [label_code]
 other = "Code"
@@ -114,6 +132,9 @@ other = "Console"
 
 [label_state]
 other = "State"
+
+[label_writer]
+other = "Write access"
 
 [language_prompt]
 other = "Choose the interface language."
@@ -132,6 +153,12 @@ other = "Forget all paired devices?\nEach device will have to pair again."
 
 [msg_confirm_quit]
 other = "A transfer is in progress. Quit anyway?"
+
+[msg_device_error]
+other = "Cannot change this device:\n{{.Error}}"
+
+[msg_disconnected]
+other = "{{.Name}} is disconnected.\nIt can reconnect from the app."
 
 [msg_forgot_all]
 one = "{{.Count}} device forgotten."
@@ -248,7 +275,7 @@ other = "Ready"
 other = "Transfer in progress"
 
 [title_paired]
-other = "Paired devices"
+other = "Devices"
 
 [title_settings]
 other = "Settings"

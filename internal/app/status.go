@@ -45,6 +45,7 @@ type Status struct {
 
 	Battery    *osadapter.Battery // nil when unknown (desktop)
 	Connected  []string           // names of the connected clients, most recent first
+	Writer     string             // name of the client with write access (M10), "" when none
 	Activities []transfer.Activity
 	Notice     *Notice // the banner, nil when none
 }
@@ -75,6 +76,7 @@ func (a *App) Status() (Status, error) {
 		for _, c := range a.srv.ConnectedClients() {
 			st.Connected = append(st.Connected, c.ClientName)
 		}
+		st.Writer, _ = a.srv.WriterName()
 	}
 	switch {
 	case !wifi:
