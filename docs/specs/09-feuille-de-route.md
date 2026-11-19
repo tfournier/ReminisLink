@@ -129,3 +129,13 @@ Demande et décisions de la personne du 19/11/2026.
 - **Remplacement et suppression** : l'ancien pak passe à la corbeille (récupérable 30 jours) avant un remplacement ; suppression vers la corbeille avec confirmation. ReminisLink ne peut ni se supprimer ni se remplacer pendant qu'il tourne.
 - **Pas de remplacement du Pak Store** : ni catalogue ni mises à jour automatiques (pour l'instant).
 
+## M13 — Appairage inspiré de HomeKit (décidé, ordre à fixer)
+
+Décisions de la personne du 19/11/2026 : s'inspirer du protocole des accessoires HomeKit sans le suivre à la lettre. Demande un nouvel appairage de l'iPhone (changement de contrat et des vecteurs de test partagés).
+
+- **Un seul appareil appairé** : pas de rôles. Pour appairer un autre iPhone, il faut d'abord supprimer l'appairage existant (console : Réglages > Appareil > Oublier ; app : Se désappairer). L'appairage n'est ouvert que si aucun appareil n'est appairé. Le bail d'écriture de M10 reste (deux sessions du même appareil), mais l'écran Appareils de la console devient « Appareil ».
+- **Clés asymétriques Ed25519** à la place de la clé HMAC partagée : chaque requête est signée par la clé privée de l'iPhone (Keychain) ; le pak ne garde sur la carte que la clé publique de l'iPhone, inutilisable pour signer (corrige la copie de `clients.json` depuis une carte SD retirée de la console). Le pak a sa propre paire de clés, dont l'iPhone garde la clé publique.
+- **PIN gardé** (secours si l'appareil photo est abîmé) mais par **PAKE** (SRP-6a, RFC 5054, groupe 3072 bits, SHA-256, ou équivalent), pour qu'une écoute du Wi-Fi pendant l'appairage ne permette plus de retrouver le PIN hors ligne. Le QR code reste la voie normale. Vecteurs de test partagés Go et Swift.
+- **Chiffrement par TLS épinglé** : le pak génère un certificat (ECDSA P-256) ; son empreinte est transmise de façon authentifiée à l'appairage (dans le QR code, ou protégée par la clé issue du PAKE pour le PIN) et épinglée par l'app. TLS 1.3 de la bibliothèque standard Go (ChaCha20-Poly1305 choisi automatiquement si le processeur n'a pas d'instructions AES) ; débit à mesurer sur la console.
+- 07 mis à jour : menace « copie de la carte SD » ajoutée, risques « PIN cassable hors ligne » et « contenu en clair » retirés.
+
