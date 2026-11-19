@@ -92,9 +92,6 @@ func TestSmokeSaves(t *testing.T) {
 	if s := slot0(); status(s) != "intact" {
 		t.Fatalf("second GET /states: %s", status(s))
 	}
-	if !strings.Contains(p.logs.String(), "locked state restored") {
-		t.Errorf("restoration not logged:\n%s", p.logs.String())
-	}
 	var trash struct {
 		Entries []struct {
 			Reason string `json:"reason"`
@@ -165,4 +162,10 @@ func TestSmokeSaves(t *testing.T) {
 		t.Fatal("no .bak")
 	}
 	t.Log("cheats: import, edit with If-Match, stale ETag answered 412: ok")
+
+	// The log is read once the pak has exited (it writes it until then).
+	p.stop()
+	if !strings.Contains(p.logs.String(), "locked state restored") {
+		t.Errorf("restoration not logged:\n%s", p.logs.String())
+	}
 }
