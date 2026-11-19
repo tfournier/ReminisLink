@@ -144,6 +144,8 @@ public struct ExportedVersion: Sendable, Equatable {
 
 public enum SaveVaultError: Error, Equatable, Sendable {
     case versionNotFound
+    /// The copy read back from the vault is not the version chosen.
+    case versionMismatch
     /// A file name the vault cannot use (empty, a path...).
     case invalidName(String)
 }
@@ -179,4 +181,23 @@ extension SaveVault {
         try await versions(deviceId: deviceId, gameId: gameId).first
     }
 
+    /// Copies a version out of the vault and checks that the save (and its
+    /// `.rtc`) read back are the ones of `version` (SHA-256): what is sent
+    /// to a console is always the version the user confirmed.
+    public func exportVerified(
+        deviceId: String, gameId: String, version: SaveVersion, to directory: URL
+    ) async throws -> ExportedVersion {
+        let exported = try await export(deviceId: deviceId, gameId: gameId, versionId: version.id, to: directory)
+        do {
+            let save = try await FileDigest.sha256(of: exported.save)
+            let rtc: String? = if let url = exported.rtc { try await FileDigest.sha256(of: url) } else { nil }
+            guard save == version.info.save.sha256, rtc == version.info.rtc?.sha256 else {
+                throw SaveVaultError.versionMismatch
+            }
+            return exported
+        } catch {
+            try? FileManager.default.removeItem(at: exported.directory)
+            throw error
+        }
+    }
 }

@@ -134,3 +134,25 @@ extension AppModel {
         return vault
     }
 }
+
+extension ConsoleSession {
+    /// Restores a synced version of a save to the console (milestone M9):
+    /// the version is read from `vault` (the one it was shown from) and
+    /// checked against its SHA-256 before anything is sent, then sent with
+    /// `PUT /games/{gameId}/save` (the queue above 64 MiB); the pak copies
+    /// the current save first. Only the save is sent: the console keeps
+    /// its clock file.
+    func restore(_ version: SaveVersion, gameId: String, gameName: String, from vault: any SaveVault) async throws -> SaveReplacement {
+        let files = try await vault.exportVerified(deviceId: deviceId, gameId: gameId, version: version, to: app.exportDirectory)
+        if let rtc = files.rtc { try? FileManager.default.removeItem(at: rtc) }
+        let size: Int64
+        do {
+            size = try FileDigest.size(of: files.save)
+        } catch {
+            try? FileManager.default.removeItem(at: files.directory)
+            throw error
+        }
+        let picked = PickedFile(url: files.save, name: version.info.save.name, sizeBytes: size)
+        return try await replaceSave(gameId: gameId, gameName: gameName, with: picked)
+    }
+}

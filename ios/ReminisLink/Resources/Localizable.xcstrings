@@ -4101,6 +4101,16 @@
         }
       }
     },
+    "This version changed on this iPhone since it was shown. Nothing was sent to the console; open the list again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette version a changé sur cet iPhone depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
+          }
+        }
+      }
+    },
     "This version of the app is not compatible with the ReminisLink version on the console. Update both." : {
       "localizations" : {
         "fr" : {

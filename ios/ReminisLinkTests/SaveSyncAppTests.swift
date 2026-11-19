@@ -115,6 +115,38 @@ struct SaveSyncAppTests {
         pak.responseDelay = 0
     }
 
+    @Test func aRestoredVersionIsTheOneConfirmedOrNothingIsSent() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        await app.session(for: pak.deviceId).connect()
+        await waitForSync(app.saveSync(for: pak.deviceId))
+        let skyGarden = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+        let vault = await app.currentVault()
+        let version = try #require(try await vault.latestVersion(deviceId: pak.deviceId, gameId: skyGarden))
+        let session = app.session(for: pak.deviceId)
+        pak.play(gameId: skyGarden, content: Data("played".utf8))
+
+        // The file of the version changed on the iPhone (another vault,
+        // edited in Files...): refused before any request.
+        let file = root.appending(path: "Saves/Brick/Game Boy Advance (GBA)/Sky Garden Quest/\(version.id)/Sky Garden Quest.gba.sav")
+        let original = try Data(contentsOf: file)
+        try Data("tampered".utf8).write(to: file)
+        await #expect(throws: SaveVaultError.versionMismatch) {
+            _ = try await session.restore(version, gameId: skyGarden, gameName: "Sky Garden Quest", from: vault)
+        }
+        #expect(AppError.restore(SaveVaultError.versionMismatch) == .versionChanged)
+        #expect(!pak.log.contains { $0.method == "PUT" })
+
+        // Intact: sent, and the console has the bytes of the version.
+        try original.write(to: file)
+        let outcome = try await session.restore(version, gameId: skyGarden, gameName: "Sky Garden Quest", from: vault)
+        guard case .replaced(let backup) = outcome else { Issue.record("not replaced"); return }
+        #expect(backup?.reason == .beforeReplace)
+        let client = try await session.connectedClient()
+        let now = try #require(try await client.saves().saves.first { $0.gameId == skyGarden })
+        #expect(now.sha256 == version.info.save.sha256)
+    }
+
     @Test func syncErrorsHaveTheirOwnTexts() {
         #expect(AppError.sync(SaveSyncError.checksumMismatch(file: "a.sav")) == .syncChecksumMismatch)
         #expect(AppError.sync(SaveVaultError.versionNotFound) == .vault)

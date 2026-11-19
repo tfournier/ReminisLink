@@ -252,6 +252,8 @@ struct SyncedGameView: View {
     @State private var toRestore: SaveVersion?
     @State private var exported: ExportedFile?
     @State private var isWorking = false
+    /// The vault the versions shown come from.
+    @State private var vault: (any SaveVault)?
 
     var body: some View {
         List {
@@ -334,26 +336,27 @@ struct SyncedGameView: View {
         }
     }
 
+    /// Lists the versions, and keeps the vault they come from: share and
+    /// restore read that vault, even if iCloud is turned on or off since.
     private func load() async {
         do {
-            versions = try await app.currentVault().versions(deviceId: route.deviceId, gameId: route.gameId)
+            let vault = await app.currentVault()
+            versions = try await vault.versions(deviceId: route.deviceId, gameId: route.gameId)
+            self.vault = vault
             error = nil
         } catch {
             self.error = AppError.sync(error)
         }
     }
 
-    private func export(_ version: SaveVersion) async throws -> ExportedVersion {
-        try await app.currentVault().export(
-            deviceId: route.deviceId, gameId: route.gameId, versionId: version.id, to: app.exportDirectory
-        )
-    }
-
     private func share(_ version: SaveVersion) async {
+        guard let vault else { return }
         isWorking = true
         defer { isWorking = false }
         do {
-            let files = try await export(version)
+            let files = try await vault.exportVerified(
+                deviceId: route.deviceId, gameId: route.gameId, version: version, to: app.exportDirectory
+            )
             exported = ExportedFile(file: DownloadedFile(url: files.save), others: files.rtc.map { [$0] } ?? [])
             error = nil
         } catch {
@@ -361,24 +364,14 @@ struct SyncedGameView: View {
         }
     }
 
-    /// `PUT /games/{gameId}/save` (or the transfer queue above 64 MiB):
-    /// the pak copies the current save first (`before-replace`).
     private func restore(_ version: SaveVersion) async {
+        guard let vault else { return }
         isWorking = true
         defer { isWorking = false }
         notice = nil
-        let files: ExportedVersion
         do {
-            files = try await export(version)
-        } catch {
-            self.error = AppError.sync(error)
-            return
-        }
-        // Only the save goes back; the clock file of the console stays.
-        if let rtc = files.rtc { try? FileManager.default.removeItem(at: rtc) }
-        let picked = PickedFile(url: files.save, name: version.info.save.name, sizeBytes: version.info.save.sizeBytes)
-        do {
-            switch try await app.session(for: route.deviceId).replaceSave(gameId: route.gameId, gameName: route.name, with: picked) {
+            let session = app.session(for: route.deviceId)
+            switch try await session.restore(version, gameId: route.gameId, gameName: route.name, from: vault) {
             case .replaced:
                 notice = String(localized: "Version restored. The previous save is in the backup copies of the game on the console.")
             case .queued:
@@ -386,7 +379,7 @@ struct SyncedGameView: View {
             }
             error = nil
         } catch {
-            let error = AppError.gameData(error)
+            let error = AppError.restore(error)
             if !error.isCancellation { self.error = error }
         }
     }

@@ -127,6 +127,25 @@ struct SaveVaultTests {
         #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-courier").count == 10)
     }
 
+    @Test func aVerifiedExportRefusesACopyThatIsNotTheVersionChosen() async throws {
+        let sandbox = try VaultSandbox()
+        let vault = sandbox.vault()
+        let version = try await vault.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "chosen"), rtc: nil, modifiedAt: nil)
+        let out = sandbox.base.appending(path: "Out")
+        let good = try await vault.exportVerified(deviceId: "dev-1", gameId: "g-courier", version: version, to: out)
+        #expect(try Data(contentsOf: good.save) == Data("chosen".utf8))
+        // Another vault holds a version with the same folder name but other bytes.
+        let other = FileSaveVault(location: .iCloud, root: sandbox.base.appending(path: "Other"), stagingDirectory: sandbox.staging,
+                                  timeZone: TimeZone(identifier: "Europe/Paris")!, now: { Date(timeIntervalSince1970: 1_795_609_330) })
+        let twin = try await other.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "other bytes"), rtc: nil, modifiedAt: nil)
+        #expect(twin.id == version.id)
+        await #expect(throws: SaveVaultError.versionMismatch) {
+            try await other.exportVerified(deviceId: "dev-1", gameId: "g-courier", version: version, to: out)
+        }
+        // The refused copy is not left behind.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: out.path).count == 1)
+    }
+
     @Test func aFolderThatIsNotAVersionIsNeverCountedNorDeleted() async throws {
         let sandbox = try VaultSandbox()
         let vault = sandbox.vault(maxVersions: 2)

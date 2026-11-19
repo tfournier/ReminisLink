@@ -55,6 +55,9 @@ enum AppError: Error, Equatable {
     case syncChecksumMismatch
     /// The synced saves could not be read or written on this iPhone.
     case vault
+    /// The copy of a synced version read back is not the version chosen:
+    /// nothing was sent.
+    case versionChanged
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -122,6 +125,8 @@ enum AppError: Error, Equatable {
             String(localized: "The save changed on the console during the sync, or arrived damaged. It was not kept; the next sync will try again.")
         case .vault:
             String(localized: "The synced saves could not be read or written on this iPhone.")
+        case .versionChanged:
+            String(localized: "This version changed on this iPhone since it was shown. Nothing was sent to the console; open the list again.")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -150,7 +155,7 @@ enum AppError: Error, Equatable {
         case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .storage, .cancelled, .unreadablePicture: nil
-        case .syncChecksumMismatch, .vault: nil
+        case .syncChecksumMismatch, .vault, .versionChanged: nil
         case .pairingClosed, .unexpected: .retry
         }
     }
@@ -178,9 +183,19 @@ enum AppError: Error, Equatable {
     static func sync(_ error: Error) -> AppError {
         switch error {
         case is SaveSyncError: .syncChecksumMismatch
+        case SaveVaultError.versionMismatch: .versionChanged
         case is SaveVaultError, is CocoaError: .vault
         case let error as NSError where error.domain == NSCocoaErrorDomain: .vault
         default: AppError(error)
+        }
+    }
+
+    /// The error of restoring a synced version: the vault's own errors,
+    /// else those of a save replacement.
+    static func restore(_ error: Error) -> AppError {
+        switch error {
+        case is SaveVaultError, is CocoaError: sync(error)
+        default: gameData(error)
         }
     }
 
