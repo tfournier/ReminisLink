@@ -97,6 +97,14 @@ func (s *Server) sendFile(w http.ResponseWriter, r *http.Request, f *os.File, na
 	// client that stops reading is cut off after SendIdleTimeout.
 	iw := &idleWriter{w: w, ctl: http.NewResponseController(w), timeout: s.timeouts.sendIdle}
 	_, err = io.CopyN(iw, f, fi.Size())
+	if err == nil {
+		// net/http buffers the end of the body: it is sent under a
+		// deadline too, before the deadline is cleared.
+		_ = iw.ctl.SetWriteDeadline(time.Now().Add(iw.timeout))
+		if ferr := iw.ctl.Flush(); ferr != nil && !errors.Is(ferr, http.ErrNotSupported) {
+			err = ferr
+		}
+	}
 	_ = iw.ctl.SetWriteDeadline(time.Time{}) // the connection may be reused
 	if err != nil {
 		s.log.Warn("file transfer interrupted", "error", err)

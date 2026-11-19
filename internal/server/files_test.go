@@ -453,47 +453,91 @@ func TestIdleWriterChunks(t *testing.T) {
 	}
 }
 
-// A slow client that keeps reading gets the whole file, however long the
-// transfer takes compared with the send idle timeout.
-func TestGameFileSlowClient(t *testing.T) {
+// deadlineWriter is a ResponseWriter that records its write deadlines
+// (through http.ResponseController) and checks that every write and the
+// final flush happen under a deadline renewed for them.
+type deadlineWriter struct {
+	t        *testing.T
+	header   http.Header
+	body     bytes.Buffer
+	timeout  time.Duration
+	delay    time.Duration // each write takes this long (a slow client)
+	deadline time.Time
+	events   []string
+}
+
+func (d *deadlineWriter) Header() http.Header { return d.header }
+func (d *deadlineWriter) WriteHeader(int)     {}
+
+// renewed reports whether the deadline was set for the operation that
+// starts now: about timeout ahead.
+func (d *deadlineWriter) renewed() bool {
+	return !d.deadline.IsZero() && time.Until(d.deadline) > d.timeout-d.timeout/4
+}
+
+func (d *deadlineWriter) Write(p []byte) (int, error) {
+	if len(p) > SendChunk {
+		d.t.Errorf("write of %d bytes", len(p))
+	}
+	if !d.renewed() {
+		d.t.Errorf("write %d without a renewed deadline (%v left)", len(d.events), time.Until(d.deadline))
+	}
+	d.events = append(d.events, "write")
+	time.Sleep(d.delay)
+	return d.body.Write(p)
+}
+
+func (d *deadlineWriter) SetWriteDeadline(t time.Time) error {
+	if t.IsZero() {
+		d.events = append(d.events, "clear")
+	} else {
+		d.events = append(d.events, "deadline")
+	}
+	d.deadline = t
+	return nil
+}
+
+func (d *deadlineWriter) FlushError() error {
+	if !d.renewed() {
+		d.t.Errorf("flush without a renewed deadline (%v left)", time.Until(d.deadline))
+	}
+	d.events = append(d.events, "flush")
+	return nil
+}
+
+// sendFile renews the write deadline for each piece of the body, so a
+// slow client that keeps reading gets the whole file however long it
+// takes, and keeps it for the final flush of what net/http buffered
+// before clearing it.
+func TestSendFileDeadlines(t *testing.T) {
 	f := newFixture(t)
-	// Well above the stalls of TCP itself: on macOS loopback one write of
-	// 32 KiB can wait about 1.4 s for a reader that keeps going.
-	f.server.timeouts.sendIdle = 3 * time.Second
-	rel := ps + "/Slow Disc.bin"
-	big := bytes.Repeat([]byte("slow disc data. "), 3<<15) // 1.5 MiB
-	if err := os.WriteFile(filepath.Join(f.sd, "Roms", ps, "Slow Disc.bin"), big, 0o644); err != nil {
+	f.server.timeouts.sendIdle = 100 * time.Millisecond
+	data := bytes.Repeat([]byte("0123456789abcdef"), 10*SendChunk/16+7) // 10 pieces and 112 bytes
+	p := filepath.Join(t.TempDir(), "disc.bin")
+	if err := os.WriteFile(p, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d := f.detail(rel)
-	conn := dial(t, strings.TrimPrefix(f.http.URL, "http://"))
-	defer conn.Close()
-	if _, err := conn.Write(signedRaw(t, f, http.MethodGet, gamePath(rel)+"/files/"+d.Files[0].FileID, nil)); err != nil {
+	file, err := os.Open(p)
+	if err != nil {
 		t.Fatal(err)
 	}
-	// 4 KiB every 20 ms: 32 KiB in 160 ms, well within the timeout; the
-	// whole transfer outlasts it.
+	w := &deadlineWriter{t: t, header: http.Header{}, timeout: f.server.timeouts.sendIdle, delay: 30 * time.Millisecond}
 	start := time.Now()
-	var got []byte
-	var readErr error
-	buf := make([]byte, 4<<10)
-	for len(got) < len(big) || !bytes.HasSuffix(got, big) {
-		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, err := conn.Read(buf)
-		got = append(got, buf[:n]...)
-		if err != nil {
-			readErr = err
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	f.server.sendFile(w, httptest.NewRequest(http.MethodGet, "/", nil), file, "disc.bin", "application/octet-stream")
+	if elapsed := time.Since(start); elapsed < 3*w.timeout {
+		t.Errorf("transfer took %v, want more than the idle timeout", elapsed)
 	}
-	if !bytes.HasSuffix(got, big) {
-		t.Fatalf("got %d bytes (%v), want the %d bytes of the file after the headers; logs:\n%s", len(got), readErr, len(big), f.logs.String())
+	if !bytes.Equal(w.body.Bytes(), data) {
+		t.Errorf("body: %d bytes, want %d", w.body.Len(), len(data))
 	}
-	if elapsed := time.Since(start); elapsed < f.server.timeouts.sendIdle {
-		t.Errorf("transfer took only %v: the test does not outlast the timeout", elapsed)
+	writes := strings.Count(strings.Join(w.events, " "), "write")
+	if writes < 11 {
+		t.Errorf("%d writes, want at least 11", writes)
+	}
+	if n := len(w.events); n < 3 || strings.Join(w.events[n-3:], " ") != "deadline flush clear" {
+		t.Errorf("events end with %v, want a deadline, the flush, then the clear", w.events[max(0, n-4):])
 	}
 	if strings.Contains(f.logs.String(), "file transfer interrupted") {
-		t.Error("the slow transfer was cut off")
+		t.Error("transfer reported as interrupted")
 	}
 }
