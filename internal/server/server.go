@@ -94,6 +94,9 @@ type Server struct {
 	pair         *rateLimiter
 	handler      http.Handler
 	timeouts     timeouts
+	// fetchSlot allows one cheat import from a URL at a time: its body
+	// (up to 5 MiB) is read in memory outside the signed body budget.
+	fetchSlot chan struct{}
 }
 
 // timeouts are the durations of the server, changed by tests only.
@@ -133,6 +136,7 @@ func New(opts Options) (*Server, error) {
 		hello:     newRateLimiter(HelloRate, HelloBurst, opts.Now),
 		pair:      newRateLimiter(PairRate, PairBurst, opts.Now),
 		presence:  newPresence(),
+		fetchSlot: make(chan struct{}, 1),
 		timeouts: timeouts{
 			bodyIdle: BodyIdleTimeout,
 			shutdown: ShutdownTimeout,

@@ -594,8 +594,16 @@ func (s *Server) handleImportCheats(w http.ResponseWriter, r *http.Request) {
 			missing()
 			return
 		}
+		select {
+		case s.fetchSlot <- struct{}{}:
+		case <-r.Context().Done():
+			auth.WriteError(w, http.StatusServiceUnavailable, auth.CodeShuttingDown, "Shutting down", nil)
+			return
+		}
 		var apiErr *transfer.Error
-		if data, apiErr = s.opts.Transfers.FetchSmall(r.Context(), *src.URL, cheats.MaxImportBytes); apiErr != nil {
+		data, apiErr = s.opts.Transfers.FetchSmall(r.Context(), *src.URL, cheats.MaxImportBytes)
+		<-s.fetchSlot
+		if apiErr != nil {
 			s.transferError(w, r, apiErr, nil)
 			return
 		}
