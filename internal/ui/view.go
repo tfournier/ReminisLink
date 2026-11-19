@@ -16,12 +16,18 @@ import (
 	"time"
 
 	"github.com/skip2/go-qrcode"
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/tfournier/ReminisLink/internal/app"
 	"github.com/tfournier/ReminisLink/internal/l10n"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
+
+// shown is a name as the screen draws it: in NFC (M8), whatever the
+// spelling of the file on the card (an NFD name is never renamed, but its
+// combining accents are drawn badly by the fonts of the pak).
+func shown(name string) string { return norm.NFC.String(name) }
 
 // AppName is the title of the screens (a brand name, not translated).
 const AppName = "ReminisLink"
@@ -89,14 +95,14 @@ func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainVie
 	if v.ShowQR {
 		v.Items = append(v.Items, Item{l10n.T(l10n.LabelCode), PINText(st, now)})
 	}
-	console := st.Name
+	console := shown(st.Name)
 	if st.IP != "" {
-		console = l10n.Tf(l10n.ConsoleValue, "Name", st.Name, "IP", st.IP)
+		console = l10n.Tf(l10n.ConsoleValue, "Name", shown(st.Name), "IP", st.IP)
 	}
 	v.Items = append(v.Items, Item{l10n.T(l10n.LabelConsole), console})
 	connected := l10n.T(l10n.NoneConnected)
 	if len(st.Connected) > 0 {
-		connected = strings.Join(st.Connected, ", ")
+		connected = shown(strings.Join(st.Connected, ", "))
 	}
 	v.Items = append(v.Items, Item{l10n.T(l10n.LabelConnected), connected})
 	for _, a := range st.Activities {
@@ -166,7 +172,7 @@ func named(name string, withName, without *l10n.Message) string {
 	if name == "" {
 		return l10n.T(without)
 	}
-	return l10n.Tf(withName, "Name", name)
+	return l10n.Tf(withName, "Name", shown(name))
 }
 
 // FormatSize writes a size in megabytes with one decimal, with the decimal
@@ -200,7 +206,7 @@ var noticeMessages = map[string]*l10n.Message{
 // NoticeText is the banner of a notice ("" for an unknown kind).
 func NoticeText(n app.Notice) string {
 	if n.Kind == app.NoticePaired {
-		return l10n.Tf(l10n.NoticePaired, "Name", n.Name)
+		return l10n.Tf(l10n.NoticePaired, "Name", shown(n.Name))
 	}
 	m, ok := noticeMessages[n.Kind]
 	if !ok {
@@ -210,7 +216,7 @@ func NoticeText(n app.Notice) string {
 	if n.Name == "" {
 		return text
 	}
-	return l10n.Tf(l10n.NoticeWithName, "Text", text, "Name", n.Name)
+	return l10n.Tf(l10n.NoticeWithName, "Text", text, "Name", shown(n.Name))
 }
 
 // QRPNG encodes the pairing link as a PNG image of QRSize pixels.
@@ -220,5 +226,5 @@ func QRPNG(link string) ([]byte, error) {
 
 // PairedItem is a paired device in the settings list.
 func PairedItem(name string, pairedAt time.Time) string {
-	return l10n.Tf(l10n.PairedItem, "Name", name, "Date", pairedAt.Local().Format(l10n.T(l10n.DateLayout)))
+	return l10n.Tf(l10n.PairedItem, "Name", shown(name), "Date", pairedAt.Local().Format(l10n.T(l10n.DateLayout)))
 }

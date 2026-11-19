@@ -205,3 +205,22 @@ func TestBuildMainPairingOnDemand(t *testing.T) {
 		t.Fatalf("pairing screen before opening: %#v", v)
 	}
 }
+
+// M8: names are drawn in NFC, even for a file whose name is in NFD on the
+// card (it is not renamed).
+func TestNamesShownInNFC(t *testing.T) {
+	setLang(t, "en")
+	nfd, nfc := "Cafe\u0301 Re\u0302verie", "Café Rêverie"
+	if got := NoticeText(app.Notice{Kind: server.ChangeSaveRestored, Name: nfd}); got != "Save restored: "+nfc {
+		t.Errorf("notice %q", got)
+	}
+	if got := ActivityText(transfer.Activity{Kind: transfer.ActivityUpload, Name: nfd + ".gba"}); got != "Receiving: "+nfc+".gba" {
+		t.Errorf("activity %q", got)
+	}
+	st := status()
+	st.Name, st.Connected = "Brick de Jose\u0301", []string{"iPhone de Ame\u0301lie"}
+	v := BuildMain(st, now, true, false)
+	if !strings.Contains(v.Key(), "Brick de José") || !strings.Contains(v.Key(), "iPhone de Amélie") || strings.Contains(v.Key(), "\u0301") {
+		t.Errorf("main view %#v", v)
+	}
+}

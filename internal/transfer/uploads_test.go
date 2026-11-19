@@ -532,3 +532,14 @@ func TestOverwriteRenameFailurePutsTheROMBack(t *testing.T) {
 		t.Fatalf("old ROM not in the trash: %+v", entries)
 	}
 }
+
+// M8: a name sent in NFD is written in NFC.
+func TestUploadNameIsNFC(t *testing.T) {
+	e := newEnv(t)
+	data := randomBytes(t, 100)
+	id := e.uploaded(romTarget("Pétanque.gba"), data, "")
+	res := e.complete(id)
+	if res["gameId"] != gameID(gbaSystem+"/Pétanque.gba") || e.read("Roms/"+gbaSystem+"/Pétanque.gba") != string(data) {
+		t.Fatalf("result %v", res)
+	}
+}

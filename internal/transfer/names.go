@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // MaxFileNameBytes is the longest file name (exFAT allows 255 characters;
@@ -25,7 +27,10 @@ var ErrInvalidName = errors.New("invalid file name")
 const exFATForbidden = `"*:<>?|`
 
 // CleanFileName checks and cleans a file name given by the app or deduced
-// from a download (docs/specs/03-protocole.md §5): refused when empty,
+// from a download (docs/specs/03-protocole.md §5). The name is first
+// normalized to Unicode NFC (M8: the iPhone often gives decomposed NFD
+// names, which NextUI and the pak screen draw badly). Then it is refused
+// when empty,
 // "." or "..", holding "/", "\" or a control character, not valid UTF-8,
 // or longer than MaxFileNameBytes; the characters exFAT forbids are
 // replaced by "_". Trailing spaces and dots are dropped too: the Linux
@@ -44,6 +49,7 @@ func CleanFileName(name string) (string, error) {
 	if !utf8.ValidString(name) {
 		return "", ErrInvalidName
 	}
+	name = norm.NFC.String(name)
 	if strings.ContainsAny(name, `/\`) {
 		return "", ErrInvalidName
 	}
@@ -163,6 +169,10 @@ func deduceName(contentDisposition string, u *url.URL) string {
 		}
 	}
 	for _, c := range candidates {
+		// NFC before the truncation (the normalization changes the length).
+		if utf8.ValidString(c) {
+			c = norm.NFC.String(c)
+		}
 		if n, err := CleanFileName(truncateName(c)); err == nil {
 			return n
 		}

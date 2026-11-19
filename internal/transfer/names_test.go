@@ -104,3 +104,23 @@ func TestFreeNameAndFindFold(t *testing.T) {
 		t.Errorf("freeName long = %q", got)
 	}
 }
+
+// M8: names are normalized to NFC before anything else (an iPhone gives
+// decomposed NFD names).
+func TestNamesAreNormalizedToNFC(t *testing.T) {
+	nfd := "Café Rêverie.gba" // e + U+0301, e + U+0302
+	nfc := "Café Rêverie.gba"
+	if got, err := CleanFileName(nfd); err != nil || got != nfc {
+		t.Fatalf("CleanFileName(NFD) = %q %v, want %q", got, err, nfc)
+	}
+	if got, err := CleanFileName(nfc); err != nil || got != nfc {
+		t.Fatalf("CleanFileName(NFC) = %q %v", got, err)
+	}
+	u, _ := url.Parse("https://example.org/files/" + url.PathEscape(nfd))
+	if got := deduceName("", u); got != nfc {
+		t.Fatalf("deduceName(URL in NFD) = %q", got)
+	}
+	if got := deduceName(`attachment; filename*=UTF-8''`+url.PathEscape(nfd), nil); got != nfc {
+		t.Fatalf("deduceName(Content-Disposition in NFD) = %q", got)
+	}
+}
