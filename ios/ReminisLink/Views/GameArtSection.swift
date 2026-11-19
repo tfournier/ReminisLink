@@ -40,7 +40,7 @@ struct GameArtSection: View {
                     }
                 }
             }
-            .disabled(isWorking)
+            .disabled(isWorking || app.session(for: deviceId).isReadOnly)
             .accessibilityIdentifier("game.changeArt")
             .confirmationDialog("Change the Image", isPresented: $choosingSource, titleVisibility: .visible) {
                 Button("Photo Library") { showPhotos = true }
@@ -59,7 +59,7 @@ struct GameArtSection: View {
             }
             if hasArt {
                 Button("Remove Image", role: .destructive) { confirmRemove = true }
-                    .disabled(isWorking)
+                    .disabled(isWorking || app.session(for: deviceId).isReadOnly)
                     .accessibilityIdentifier("game.removeArt")
                     .confirmationDialog("Remove the image?", isPresented: $confirmRemove, titleVisibility: .visible) {
                         Button("Remove Image", role: .destructive) { Task { await remove() } }

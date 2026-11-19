@@ -53,6 +53,12 @@ struct ErrorView: View {
             case .repair:
                 Button("Pair Again") { app.showRepair(deviceId: deviceId) }
                     .buttonStyle(.borderedProminent)
+            case .reconnect:
+                if let id = deviceId ?? app.path.last?.deviceId {
+                    Button("Reconnect") { Task { await app.session(for: id).reconnect() } }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("error.reconnect")
+                }
             case nil:
                 EmptyView()
             }

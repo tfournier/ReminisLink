@@ -66,12 +66,17 @@ struct SaveView: View {
             isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } }),
             titleVisibility: .visible, presenting: selected
         ) { backup in
-            Button("Restore…") { toRestore = backup }
-                .accessibilityIdentifier("backup.restore")
+            // Writes are hidden while another device has write access (M10).
+            if !session.isReadOnly {
+                Button("Restore…") { toRestore = backup }
+                    .accessibilityIdentifier("backup.restore")
+            }
             Button("Download") { downloadTask = Task { await download(backup) } }
                 .accessibilityIdentifier("backup.download")
-            Button("Delete…", role: .destructive) { toDelete = backup }
-                .accessibilityIdentifier("backup.delete")
+            if !session.isReadOnly {
+                Button("Delete…", role: .destructive) { toDelete = backup }
+                    .accessibilityIdentifier("backup.delete")
+            }
         } message: { backup in
             Text("\(backup.createdAt.dateTimeString) · \(backup.sizeBytes.byteString)")
         }
@@ -142,6 +147,7 @@ struct SaveView: View {
             } label: {
                 Label("Replace from Files…", systemImage: "folder")
             }
+            .disabled(session.isReadOnly)
             .accessibilityIdentifier("save.replace")
             if save != nil {
                 Button {
@@ -149,6 +155,7 @@ struct SaveView: View {
                 } label: {
                     Label("Make a Backup Copy…", systemImage: "doc.on.doc")
                 }
+                .disabled(session.isReadOnly)
                 .accessibilityIdentifier("save.createBackup")
             }
         } header: {

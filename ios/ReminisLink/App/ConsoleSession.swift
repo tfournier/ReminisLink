@@ -26,6 +26,13 @@ final class ConsoleSession {
 
     /// Uploads and jobs of this console.
     @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()
+    /// The write lease of this iPhone on the console (milestone M10).
+    @ObservationIgnored private(set) lazy var lease: WriterLease = makeLease()
+    /// The user opened this console from the list, or tapped "Reconnect":
+    /// the connection that follows may lift a disconnection set from the
+    /// console (`POST /clients/me/connect`). Never set by an automatic
+    /// reconnection.
+    @ObservationIgnored private(set) var userAskedToConnect = false
 
     @ObservationIgnored unowned let app: AppModel
     /// The connection in progress, shared by every caller.
@@ -39,6 +46,33 @@ final class ConsoleSession {
     var error: AppError? {
         if case .failed(let error) = state { return error }
         return nil
+    }
+
+    /// Another client has write access (M10): write actions are disabled.
+    var isReadOnly: Bool { lease.isReadOnly }
+
+    /// The console disconnected this iPhone (`401 disconnected`).
+    var isDisconnected: Bool { error?.isDisconnected ?? false }
+
+    /// The user opened this console from the list of consoles: a
+    /// disconnection set from the console may be lifted by the connection
+    /// that follows (or at once if it is shown).
+    func userOpened() {
+        userAskedToConnect = true
+        if isDisconnected { Task { await connect() } }
+    }
+
+    /// Back on the list of consoles: no connection may lift a
+    /// disconnection any more without a new explicit action.
+    func userLeft() {
+        userAskedToConnect = false
+    }
+
+    /// "Reconnect", after a disconnection by the console: connects again,
+    /// lifting the disconnection (`POST /clients/me/connect`).
+    func reconnect() async {
+        userAskedToConnect = true
+        await connect()
     }
 
     func connectIfNeeded() async {
@@ -88,13 +122,33 @@ final class ConsoleSession {
                 throw AppError.api(.notPaired)
             }
             let endpoint = try await app.endpoint(for: deviceId)
-            let client = app.makeClient(endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials)
+            let observed = ObservedClient()
+            let client = app.makeClient(
+                endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials,
+                errorObserver: { [weak self] error in
+                    Task { @MainActor in
+                        guard let client = observed.client else { return }
+                        self?.observe(error, from: client)
+                    }
+                }
+            )
+            observed.client = client
             hello = try await client.hello()
-            status = try await client.device()
+            let status: DeviceStatus
+            do {
+                status = try await client.device()
+            } catch let error as APIError where error.isDisconnected && userAskedToConnect {
+                // Only after an explicit action of the user (M10).
+                try await client.connectClient()
+                status = try await client.device()
+            }
+            self.status = status
             try Task.checkCancellation()
             guard self.attempt === attempt else { return }
             self.client = client
+            userAskedToConnect = false
             state = .connected
+            lease.start(device: status)
             // Milestone M9: copy the saves that changed (setting, default on).
             // A sync of the previous connection still running: this one
             // starts when it ends.
@@ -153,12 +207,65 @@ final class ConsoleSession {
         guard let client, client === failed else { return }
         state = .failed(error)
         self.client = nil
+        lease.stop()
     }
 
     static func losesConnection(_ error: AppError) -> Bool {
         guard case .api(let api) = error else { return false }
         if case .network = api { return true }
-        return api.code == .unknownClient
+        return api.code == .unknownClient || api.code == .disconnected
+    }
+
+    /// Every error answer of the pak to this connection (M10): a
+    /// `423 read_only` makes the session read-only, a `401 disconnected`
+    /// ends the connection, whatever screen or transfer sent the request.
+    func observe(_ error: ServerError, from client: APIClient) {
+        switch error.code {
+        case .readOnly:
+            guard self.client === client else { return }
+            lease.noteReadOnly(holder: error.writerName)
+        case .disconnected:
+            connectionLost(.api(.server(error)), client: client)
+        default:
+            break
+        }
+    }
+
+    /// "Take over", after the user confirmed: this iPhone gets write
+    /// access, the other client becomes read-only.
+    func takeOver() async throws {
+        _ = try await connectedClient()
+        do {
+            try await lease.takeOver()
+        } catch {
+            let appError = AppError(error)
+            if let client, Self.losesConnection(appError) { connectionLost(appError, client: client) }
+            throw appError
+        }
+    }
+
+    /// The app comes to the foreground or goes to the background: the
+    /// lease is renewed in the foreground (or while a transfer runs), and
+    /// released in the background.
+    func setForeground(_ foreground: Bool) {
+        guard client != nil else { return }
+        let lease = lease
+        Task { await lease.setForeground(foreground) }
+    }
+
+    private func makeLease() -> WriterLease {
+        let lease = WriterLease(
+            isForeground: app.isForeground,
+            client: { [weak self] in self?.client },
+            transfersRunning: { [weak self] in self?.transfers.isBusy ?? false }
+        )
+        // The lease is back: uploads paused by `423` go on.
+        lease.onAcquired = { [weak self] in self?.transfers.resumePausedForWriteAccess() }
+        lease.onFatalError = { [weak self] error in
+            guard let self, let client = self.client else { return }
+            self.connectionLost(AppError(error), client: client)
+        }
+        return lease
     }
 
     /// A signed client, connecting first if needed.
@@ -219,6 +326,16 @@ final class ConsoleSession {
             }
         }
         try app.forget(deviceId: deviceId)
+    }
+}
+
+/// The client of a connection, for the error observer set before it exists.
+private final class ObservedClient: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _client: APIClient?
+    var client: APIClient? {
+        get { lock.withLock { _client } }
+        set { lock.withLock { _client = newValue } }
     }
 }
 

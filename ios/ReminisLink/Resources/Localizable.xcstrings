@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ becomes read-only. Its transfers in progress pause." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ passe en lecture seule. Ses transferts en cours se mettent en pause."
+          }
+        }
+      }
+    },
     "%@ free" : {
       "localizations" : {
         "fr" : {
@@ -1187,6 +1197,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Abandonner tes modifications ?"
+          }
+        }
+      }
+    },
+    "Disconnected by the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déconnecté par la console."
           }
         }
       }
@@ -2451,6 +2471,36 @@
         }
       }
     },
+    "Paused: %@ has write access. The transfer resumes when this iPhone takes over." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En pause : %@ a la main. Le transfert reprendra quand cet iPhone reprendra la main."
+          }
+        }
+      }
+    },
+    "Paused: another device has write access. The transfer resumes when this iPhone takes over." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En pause : un autre appareil a la main. Le transfert reprendra quand cet iPhone reprendra la main."
+          }
+        }
+      }
+    },
+    "Paused: disconnected by the console. The transfer resumes after reconnecting." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En pause : déconnecté par la console. Le transfert reprendra après la reconnexion."
+          }
+        }
+      }
+    },
     "Pending" : {
       "localizations" : {
         "fr" : {
@@ -2521,12 +2571,82 @@
         }
       }
     },
+    "Read-only — %@ has write access" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule — %@ a la main"
+          }
+        }
+      }
+    },
+    "Read-only — %@ has write access. Nothing was changed. Take over to make changes from this iPhone." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule — %@ a la main. Rien n’a été modifié. Prends la main pour faire des modifications depuis cet iPhone."
+          }
+        }
+      }
+    },
+    "Read-only — %@ took over" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule — %@ a pris la main"
+          }
+        }
+      }
+    },
+    "Read-only — another device has write access" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule — un autre appareil a la main"
+          }
+        }
+      }
+    },
+    "Read-only — another device has write access. Nothing was changed. Take over to make changes from this iPhone." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule — un autre appareil a la main. Rien n’a été modifié. Prends la main pour faire des modifications depuis cet iPhone."
+          }
+        }
+      }
+    },
+    "Read-only — another device took over" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule — un autre appareil a pris la main"
+          }
+        }
+      }
+    },
     "Reading what will be moved…" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lecture de ce qui sera déplacé…"
+          }
+        }
+      }
+    },
+    "Reconnect" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se reconnecter"
           }
         }
       }
@@ -3301,6 +3421,26 @@
         }
       }
     },
+    "Take Over" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prendre la main"
+          }
+        }
+      }
+    },
+    "Take write access?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prendre la main ?"
+          }
+        }
+      }
+    },
     "Tasks on the Console" : {
       "localizations" : {
         "fr" : {
@@ -3797,6 +3937,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La ROM d’origine part dans la corbeille de la console. La save, les states et les cheats sont conservés."
+          }
+        }
+      }
+    },
+    "The other device becomes read-only. Its transfers in progress pause." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’autre appareil passe en lecture seule. Ses transferts en cours se mettent en pause."
           }
         }
       }
@@ -4387,6 +4537,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Versions : %1$lld · dernière le %2$@"
+          }
+        }
+      }
+    },
+    "Viewing and downloading still work. Changes are disabled on this iPhone." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consulter et télécharger restent possibles. Les modifications sont désactivées sur cet iPhone."
           }
         }
       }

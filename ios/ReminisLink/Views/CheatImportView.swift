@@ -84,7 +84,7 @@ struct CheatImportView: View {
                         Button("Import") {
                             if mode == .replace { confirmReplace = true } else { Task { await runImport() } }
                         }
-                        .disabled(!canImport)
+                        .disabled(!canImport || session.isReadOnly)
                         .accessibilityIdentifier("import.run")
                     }
                 }

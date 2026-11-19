@@ -54,6 +54,8 @@ struct PatchView: View {
                     PatchFormSections(flow: flow, choosesGame: context.game == nil, close: close)
                 }
             }
+            // Another device has write access (M10).
+            .readOnlyBanner(deviceId: deviceId ?? context.deviceId)
             .navigationTitle("Apply a Patch")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -161,7 +163,7 @@ private struct PatchApplyButton: View {
         Button("Apply") {
             if flow.mode == .replace { confirmReplace = true } else { flow.start() }
         }
-        .disabled(!flow.canStart)
+        .disabled(!flow.canStart || flow.session.isReadOnly)
         .accessibilityIdentifier("patch.apply")
         .confirmationDialog("Replace the game?", isPresented: $confirmReplace, titleVisibility: .visible) {
             Button("Replace the Game", role: .destructive) { flow.start() }
