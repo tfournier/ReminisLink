@@ -31,7 +31,7 @@ Enregistrement TXT (clé=valeur, tout en ASCII) :
 | `model` | `brick` | Modèle (`brick`, `brickpro`, `smartpro`, `smartpros`, `h700`, `my355`, `desktop`) |
 | `platform` | `tg5040` | Plateforme NextUI |
 | `os` | `nextui` | OS de la console |
-| `osv` | `6.14.0` | Version de l'OS si connue |
+| `osv` | `NextUI-20261013-039a06de` | Version de l'OS si connue (chaîne de release NextUI, voir 04 `/device`) |
 | `cv` | `1.0.0` | Version du pak |
 
 Côté iOS : `NWBrowser` avec `.bonjourWithTXTRecord(type: "_reminislink._tcp", domain: nil)`. L'app identifie une console appairée par son `id`, jamais par son IP ni son nom.

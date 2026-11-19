@@ -55,7 +55,7 @@ Sert à vérifier qu'on parle bien à la bonne console, à mesurer l'écart d'ho
   "model": "brick",
   "platform": "tg5040",
   "os": "nextui",
-  "osVersion": "6.14.0",
+  "osVersion": "NextUI-20261013-039a06de",
   "pakVersion": "1.0.0",
   "apiVersion": 1,
   "minClientVersion": "1.0.0",
@@ -83,7 +83,7 @@ Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuit
   "model": "brick",
   "platform": "tg5040",
   "os": "nextui",
-  "osVersion": "6.14.0",
+  "osVersion": "NextUI-20261013-039a06de",
   "pakVersion": "1.0.0",
   "network": { "ipv4": "192.168.1.42", "ssid": "MaBox" },
   "battery": { "percent": 78, "charging": false },
@@ -99,7 +99,7 @@ Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuit
 
 `connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
 
-`ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible. Sources sur NextUI ([05 §6](05-console-pak.md#6-informations-de-la-console)) : `osVersion` = `.system/version.txt` (nom de release `NextUI-AAAAMMJJ-N` et hash, pas le numéro `v6.x.y` : l'exemple ci-dessus est à aligner, voir [m0/questions.md](m0/questions.md)) ; `battery` = `axp2202-battery/capacity` et `axp2202-usb/online` + `time_to_full_now` ; `ssid` = `wpa_supplicant` (`null` si `wpa_state` ≠ `COMPLETED`).
+`ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible. Sources sur NextUI ([05 §6](05-console-pak.md#6-informations-de-la-console)) : `osVersion` = `.system/version.txt` (chaîne de release telle que l'affiche NextUI, ex. `NextUI-20261013-039a06de` : date de build et hash court ; jamais le numéro `v6.x.y` ; décision D4 du 19/11/2026) ; `battery` = `axp2202-battery/capacity` et `axp2202-usb/online` + `time_to_full_now` ; `ssid` = `wpa_supplicant` (`null` si `wpa_state` ≠ `COMPLETED`).
 
 ---
 

@@ -49,7 +49,9 @@ Ils sont tranchés par le code (confiance haute ou moyenne) et intégrés aux sp
 
 Ces faits changent une décision. Rien n'a été modifié dans l'architecture : la personne choisit, puis la spec est mise à jour.
 
-## D1 — Certificats racine pour les téléchargements HTTPS (05 §5.6)
+## D1 — Certificats racine *(tranché le 19/11/2026 : aucune nouvelle dépendance ; gabagool, déjà autorisé, importe `certifiable` qui embarque 143 certificats racine et les installe dans `http.DefaultTransport` — c'est ainsi que le Pak Store télécharge en HTTPS ; les téléchargements du pak partent de `http.DefaultTransport.Clone()`. Vérifié : la base NSS `/etc/pki/nssdb/cert9.db` du firmware est vide.)*
+
+### Détail pour les téléchargements HTTPS (05 §5.6)
 
 Fait : le firmware v1.1.1 n'a aucun magasin de certificats (pas de `/etc/ssl`, aucun `.crt`/`.pem`) et NextUI n'en fournit pas pour tg5040. Le client HTTP de Go ne trouvera rien. Cheat Manager fonctionne parce que gabagool importe `github.com/BrandonKowalski/certifiable`, qui embarque `certificates.crt` (`go:embed`) et le pose dans `http.DefaultTransport` à l'initialisation. Dans ReminisLink, ce code n'est lié que si `internal/ui` l'est : pas en `--headless`, pas dans les tests `CGO_ENABLED=0` de `internal/transfer`, et le client de 05 §5.6 devrait cloner `http.DefaultTransport` (et non en créer un neuf) pour en profiter.
 
@@ -59,7 +61,9 @@ Options :
 3. **Fichier dans le pak** (`resources/certs/ca-certificates.crt`) et `export SSL_CERT_FILE=…` dans `launch.sh` (Go le lit sous Linux). Magasin remplaçable sans recompiler ; ne marche que lancé par `launch.sh` (en mode desktop, magasin du système).
 4. **Compter sur l'import de gabagool** sans rien ajouter : fragile (ordre d'initialisation, `--headless` sans HTTPS), déconseillé.
 
-## D2 — Veille pendant le pak (05 §2)
+## D2 — Veille pendant le pak *(tranché le 19/11/2026 par la personne : comportement normal de la console, rien à gérer — l'absence d'interaction sur la console ne veut pas dire qu'aucun fichier n'arrive de l'iPhone ; NextUI ne met pas la console en veille pendant un pak.)*
+
+### Détail (05 §2)
 
 Fait : ni NextUI ni gabagool ne mettent la console en veille pendant un pak ; empêcher la veille pendant un transfert est donc inutile. Mais un pak laissé ouvert garde l'écran allumé et vide la batterie, et une veille par `bin/suspend` couperait le Wi-Fi.
 
@@ -69,7 +73,9 @@ Options (combinables, sauf la 1) :
 3. **Gérer le bouton d'alimentation** : refus (avec message) pendant un transfert ou une tâche, sinon fermeture propre du pak (ou veille par `bin/suspend` après retrait de l'annonce).
 4. **Fermeture automatique** après N minutes sans requête, transfert ni touche.
 
-## D3 — Formats de save et de state non par défaut (05 §3.1, 04 States)
+## D3 — Formats *(tranché le 19/11/2026 : format par défaut seulement en v1 ; autres formats : écritures refusées en `422` — déjà appliqué en M5.)*
+
+### Détail de save et de state non par défaut (05 §3.1, 04 States)
 
 Fait : `minuisettings.txt` peut fixer `saveFormat` (1 à 3 : `.srm` rzip, `<rom>.sav`, `.srm`), `stateFormat` (1 à 4 : `.state.<N>`, ou `.state`/`.state<N>`, reprise `.state.auto`, certains compressés rzip) et `useExtractedFileName`. Le dossier des states dépend aussi du cœur (`<TAG>-<cœur>`), qui change si l'utilisateur change de pak émulateur.
 
@@ -80,19 +86,25 @@ Options :
 
 À trancher aussi : quel dossier `<TAG>-<cœur>` utiliser quand il y en a plusieurs (celui du pak émulateur actif, lu dans `EMU_EXE=` de son `launch.sh`, ou tous), et si les fichiers d'un format inactif doivent apparaître.
 
-## D4 — Format de `osVersion` (04 `/hello` et `/device`, 03 §2 TXT `osv`, `protocol/openapi.yaml`)
+## D4 — Format de `osVersion` *(tranché le 19/11/2026 : chaîne de release NextUI, ex. `NextUI-20261013-039a06de`.)*
+
+### Détail (04 `/hello` et `/device`, 03 §2 TXT `osv`, `protocol/openapi.yaml`)
 
 Fait : `.system/version.txt` contient `NextUI-AAAAMMJJ-N` et un hash, jamais `v6.x.y`. Les exemples `6.14.0` de la spec et du contrat ne correspondent à rien de lisible sur la console.
 
 Options : `NextUI-20261013-0` seul ; `NextUI-20261013-0 (<hash>)` ; en plus, la version du système d'origine (`/etc/version`, ex. `1.1.1`) dans un champ séparé. Le contrat (`openapi.yaml`, exemples) et 03 §2 sont à aligner une fois choisi (le TXT `osv` doit rester court et ASCII).
 
-## D5 — Taille des vignettes de state (04 `GET /games/{gameId}/states/{slot}/thumbnail`)
+## D5 — Taille des vignettes *(tranché le 19/11/2026 : servies telles quelles, réduites par l'app — déjà appliqué.)*
+
+### Détail de state (04 `GET /games/{gameId}/states/{slot}/thumbnail`)
 
 Fait : la vignette est une capture plein écran PNG de 1024×768 (plus en HDMI), pas une miniature.
 
 Options : servir le fichier tel quel (simple, l'app réduit) ; réduire côté pak (décodage PNG en Go pur, coût CPU sur la console, cache éventuel) ; ajouter un paramètre de taille (changement du contrat).
 
-## D6 — Systèmes que NextUI n'affiche pas (04 `/systems`)
+## D6 — Systèmes que NextUI n'affiche pas *(tranché le 19/11/2026 : tous les dossiers à tag listés, avec un champ `emulatorInstalled`.)*
+
+### Détail (04 `/systems`)
 
 Fait : NextUI n'affiche un dossier de `Roms/` que si un pak émulateur `<TAG>.pak` existe, et fusionne à l'affichage les dossiers de même préfixe (`Game Boy Advance (GBA)` et `(MGBA)`).
 
