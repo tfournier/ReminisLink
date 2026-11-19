@@ -70,6 +70,9 @@ public final class WriterLease {
     /// Called when a lease request meets an error that ends the session
     /// (`401 disconnected`, `401 unknown_client`...). The loop stops.
     @ObservationIgnored public var onFatalError: ((APIError) -> Void)?
+    /// A lease request did not reach the console (M11: with the Bonjour
+    /// service gone, the console closed ReminisLink).
+    @ObservationIgnored public var onConnectionFailure: ((APIError) -> Void)?
 
     @ObservationIgnored private let renewInterval: Duration
     @ObservationIgnored private let sleep: @Sendable (Duration) async throws -> Void
@@ -231,6 +234,8 @@ public final class WriterLease {
                     self.expiresAt = nil
                 } else if Self.isFatal(error) {
                     self.onFatalError?(error)
+                } else if case .network = error {
+                    self.onConnectionFailure?(error)
                 }
                 // A lost connection: try again at the next renewal.
                 return .failure(error)

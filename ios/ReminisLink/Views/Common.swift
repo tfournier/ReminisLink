@@ -97,6 +97,9 @@ struct GameArtView: View {
     /// UI tests (Debug, `RL_UITEST_ART_PICTURE=1`): the view is exposed as
     /// `game.art`, its value `image` or `none`.
     var exposedToUITests = false
+    /// Told whether an image is shown, whenever that changes (M11: the
+    /// image of the game sheet is a button that says it).
+    var onImageShown: ((Bool) -> Void)?
 
     @State private var image: UIImage?
 
@@ -129,6 +132,7 @@ struct GameArtView: View {
         .accessibilityValue(Text(verbatim: isExposed ? (image == nil ? "none" : "image") : ""))
         // Loaded again when the art is set or removed (M8).
         .task(id: "\(gameId)|\(hasArt)|\(app.session(for: deviceId).artRevision)") { await load() }
+        .onChange(of: image != nil, initial: true) { _, shown in onImageShown?(shown) }
     }
 
     /// Best effort: an art error never touches the session. The disk cache

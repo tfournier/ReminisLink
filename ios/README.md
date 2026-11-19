@@ -10,8 +10,8 @@
 | `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
-| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync) |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M10 routes included) |
+| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync, tabs, flat library, file download, console closing) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M11 routes included) |
 
 ## Build and test
 
@@ -454,3 +454,45 @@ injectable `leaseClock`, renewal by every request of the holder, `force`,
 release, `disconnect(clientId:)`, `forget(clientId:)`). UI tests (Debug
 only): `RL_UITEST_OTHER_WRITER=<name>` makes another paired iPhone hold the
 lease of the demo console (`WriteAccessUITests`).
+
+## App ergonomics (milestone M11)
+
+- **Tabs**: the list of consoles is the root. Opening a console shows a tab
+  bar (Console, Library, Transfers, Trash), each tab with its own
+  `NavigationStack`; **Consoles** (top left of each tab's first screen) goes
+  back to the list. `AppModel.path` stays one path for the code that opens
+  screens (`[.console(id), .library(id), .game(…)]` opens the Library tab
+  and pushes the game; `.transfers(id)` and `.trash(id)` select their tab;
+  no second route is the Console tab). Nothing is added from the Console
+  tab: **+** is in the Library tab, and in Transfers.
+- **Flat library**: `GET /games` (every game, at most 20 000) and
+  `GET /systems` (the labels). Search (name, file name) and filters
+  (console, save, states, cheats) and sort run on the iPhone
+  (`LibraryFiltering`, ReminisLinkKit); systems with the same label are one
+  console in the filter, as NextUI shows them. `truncated`, or a pak
+  without the route (`404`/`405`), falls back to browsing per system, also
+  reachable from the menu (**Browse by Console**).
+- **Game sheet**: tapping the image changes it (Photos, Files, Remove
+  Image); disabled read-only. Each file of `GET /games/{gameId}` has a
+  download button: `GET /games/{gameId}/files/{fileId}` (the opaque
+  `fileId`, never a path), streamed to disk by a signed `URLSession`
+  download task with progress and cancel, then the share sheet (Save to
+  Files, AirDrop…). A `404` reloads the sheet ("This file changed on the
+  console"). Allowed read-only.
+- **Console closed**: `503 shutting_down` seen by any request of the
+  connection (screen, transfer, lease renewal), or a connection failure
+  while the console's Bonjour service is gone (the browser has run for at
+  least 3 s, `PakClosure`), ends the connection without an error screen:
+  back to the list with "The console closed ReminisLink", uploads paused
+  (`TransferQueue.pauseForClosedConsole`), no automatic reconnection until
+  the user opens the console again; the next connection resumes them. A
+  Wi-Fi glitch alone (service still announced) keeps today's error screen.
+
+The fake pak serves `GET /games` (`allGamesSupported`, `allGamesLimit` to
+test the fallback), a `fileId` per file (base64url of `f_<role>[slot]`) and
+`GET /games/{gameId}/files/{fileId}` (made-up content, at most 16 MiB; a
+`.cht` built from its cheats). It can quit (`availability`: `503
+shutting_down`, then gone), and the demo withdraws its Bonjour service
+meanwhile. UI tests (Debug only): `RL_UITEST_PAK_CLOSES_ON="GET /games"`
+makes it quit on that request and open again 5 s later
+(`ErgonomicsUITests`).

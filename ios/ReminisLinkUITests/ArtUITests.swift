@@ -25,30 +25,30 @@ final class ArtUITests: XCTestCase {
         changeThenRemove(app, timeout: 30)
     }
 
+    /// M11: the image of the game sheet's header is the button: tap it to
+    /// change or remove the image.
     @MainActor
     private func changeThenRemove(_ app: XCUIApplication, timeout: TimeInterval) {
-        let art = app.descendants(matching: .any)["game.art"].firstMatch
-        XCTAssertTrue(art.waitForExistence(timeout: timeout), "no game image view")
-        let change = app.buttons["game.changeArt"]
-        XCTAssertTrue(GameDataUITest.scrollTo(change, in: app), "no Change Image button")
-        change.tap()
+        let art = app.buttons["game.changeArt"]
+        XCTAssertTrue(art.waitForExistence(timeout: timeout), "no game image button")
+        art.tapWhenEnabled(timeout: timeout)
         app.buttons["art.test"].tapAfterWaiting(timeout: 10)
         GameDataUITest.waitForNotice(app, timeout: timeout)
         XCTAssertTrue(app.descendants(matching: .any)["notice"].firstMatch.label.contains("Image changed"))
-        app.swipeDown()
         XCTAssertTrue(waitForValue(art, "image", timeout: timeout), "the new image is not shown")
         attachScreenshot(of: app, named: "art-changed")
 
-        let remove = app.buttons["game.removeArt"]
-        XCTAssertTrue(GameDataUITest.scrollTo(remove, in: app), "no Remove Image button")
-        remove.tap()
+        art.tapWhenEnabled(timeout: timeout)
+        app.buttons["game.removeArt"].tapAfterWaiting(timeout: 10)
         app.buttons["art.removeConfirm"].tapAfterWaiting(timeout: 10)
         let removed = app.descendants(matching: .any).matching(identifier: "notice")
             .matching(NSPredicate(format: "label CONTAINS 'Image removed'")).firstMatch
         XCTAssertTrue(removed.waitForExistence(timeout: timeout), "not removed")
-        XCTAssertTrue(remove.waitForNonExistence(timeout: 10), "the game still has an image")
-        app.swipeDown()
         XCTAssertTrue(waitForValue(art, "none", timeout: timeout), "an image is still shown")
+        // No image: the menu no longer offers to remove one.
+        art.tapWhenEnabled(timeout: timeout)
+        XCTAssertTrue(app.buttons["art.photos"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["game.removeArt"].exists, "the game still has an image")
         attachScreenshot(of: app, named: "art-removed")
     }
 

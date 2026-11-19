@@ -11,7 +11,7 @@ enum Route: Hashable {
     /// The console a screen belongs to (nil for the app settings).
     var deviceId: String? {
         switch self {
-        case .console(let id), .library(let id), .trash(let id), .transfers(let id), .syncedSaves(let id): id
+        case .console(let id), .library(let id), .systems(let id), .trash(let id), .transfers(let id), .syncedSaves(let id): id
         case .folder(let folder): folder.deviceId
         case .game(let game), .save(let game), .states(let game), .cheats(let game): game.deviceId
         case .syncedGame(let game): game.deviceId
@@ -20,7 +20,10 @@ enum Route: Hashable {
     }
 
     case console(String)
+    /// The Library tab of a console (M11: every game in one list).
     case library(String)
+    /// The systems of a console, to browse its library per system.
+    case systems(String)
     case folder(FolderRoute)
     case game(GameRoute)
     /// The save of a game and its backup copies.
@@ -38,6 +41,36 @@ enum Route: Hashable {
     case syncedSaves(String)
     /// The versions of one synced save.
     case syncedGame(SyncedGameRoute)
+}
+
+/// The tabs shown while a console is open (milestone M11).
+enum ConsoleTab: Hashable, CaseIterable {
+    case console
+    case library
+    case transfers
+    case trash
+
+    /// The route that stands for this tab in ``AppModel/path``.
+    func route(_ deviceId: String) -> Route? {
+        switch self {
+        case .console: nil
+        case .library: .library(deviceId)
+        case .transfers: .transfers(deviceId)
+        case .trash: .trash(deviceId)
+        }
+    }
+
+    /// The tab a route opens when it follows `.console` in a path.
+    static func opened(by route: Route, deviceId: String) -> ConsoleTab? {
+        allCases.first { $0.route(deviceId) == route }
+    }
+}
+
+/// "The console closed ReminisLink" (milestone M11), shown on the list of
+/// consoles.
+struct ClosedConsoleNotice: Equatable, Identifiable {
+    let id = UUID()
+    let deviceId: String
 }
 
 struct SyncedGameRoute: Hashable {
@@ -139,9 +172,72 @@ final class AppModel {
     /// How long to look for a console with Bonjour.
     let lookupTimeout: Duration
 
-    var path: [Route] = [] {
-        didSet { pathChanged(from: oldValue) }
+    /// The screens pushed above the list of consoles (settings, synced
+    /// saves), while no console is open.
+    var listPath: [Route] = []
+    /// The console shown with its tabs (milestone M11), nil for the list.
+    private(set) var openConsoleId: String?
+    var consoleTab: ConsoleTab = .console
+    /// The screens pushed in each tab of the open console.
+    var tabPaths: [ConsoleTab: [Route]] = [:]
+    /// The console closed ReminisLink (M11): said once on the list.
+    var closedNotice: ClosedConsoleNotice?
+    /// How long Bonjour must have been browsing before the absence of a
+    /// console means it closed ReminisLink (tests shorten it).
+    @ObservationIgnored var closureMinimumBrowsing = PakClosure.minimumBrowsing
+
+    /// The navigation as one path: the list's screens, or `.console(id)`,
+    /// the route of the selected tab (`.library`, `.transfers`, `.trash`;
+    /// none for the Console tab) and the screens pushed in it. Setting it
+    /// opens that console, tab and screens (deep links, end of an upload or
+    /// of a patch), or goes back to the list.
+    var path: [Route] {
+        get {
+            guard let id = openConsoleId else { return listPath }
+            return [.console(id)] + (consoleTab.route(id).map { [$0] } ?? []) + (tabPaths[consoleTab] ?? [])
+        }
+        set {
+            guard case .console(let id)? = newValue.first else {
+                openConsoleId = nil
+                tabPaths = [:]
+                consoleTab = .console
+                listPath = newValue
+                return
+            }
+            let wasClosed = openConsoleId == nil
+            if openConsoleId != id {
+                tabPaths = [:]
+                openConsoleId = id
+            }
+            listPath = []
+            var rest = Array(newValue.dropFirst())
+            if let first = rest.first, let tab = ConsoleTab.opened(by: first, deviceId: id) {
+                consoleTab = tab
+                rest.removeFirst()
+            } else {
+                consoleTab = .console
+            }
+            tabPaths[consoleTab] = rest
+            if wasClosed {
+                closedNotice = nil
+                // Opening a console from the list is an explicit action of
+                // the user: the connection it starts may lift a
+                // disconnection set from the console (M10).
+                if newValue.count == 1 { session(for: id).userOpened() }
+            }
+        }
     }
+
+    /// Opens a console from the list, on its Console tab.
+    func openConsole(_ deviceId: String) {
+        path = [.console(deviceId)]
+    }
+
+    /// Back to the list of consoles.
+    func closeConsole() {
+        path = []
+    }
+
     var sheet: Sheet?
     /// The app is active (M10: the write lease is renewed while it is).
     @ObservationIgnored private(set) var isForeground = false
@@ -317,15 +413,6 @@ final class AppModel {
         checkShareInbox()
     }
 
-    /// Opening a console from the list is an explicit action of the user:
-    /// the connection it starts may lift a disconnection set from the
-    /// console (M10).
-    private func pathChanged(from old: [Route]) {
-        if old.isEmpty, path.count == 1, case .console(let id)? = path.first {
-            session(for: id).userOpened()
-        }
-    }
-
     func confirmRepair() {
         guard let source = pendingRepair else { return }
         pendingRepair = nil
@@ -415,6 +502,26 @@ final class AppModel {
         )
     }
 
+    /// Whether a failed request of a live connection means the console
+    /// closed ReminisLink (M11): `503 shutting_down`, or a connection
+    /// failure while its Bonjour service is gone.
+    func meansConsoleClosed(_ error: APIError, deviceId: String) -> Bool {
+        PakClosure.isClosed(
+            error,
+            serviceVisible: DiscoveryLogic.find(id: deviceId, in: discovery.devices) != nil,
+            browsingFor: discovery.browsingDuration,
+            minimumBrowsing: closureMinimumBrowsing
+        )
+    }
+
+    /// The console closed ReminisLink (M11): back to the list of consoles,
+    /// with a short message, if it was open.
+    func consoleClosed(deviceId: String) {
+        guard openConsoleId == deviceId else { return }
+        closeConsole()
+        closedNotice = ClosedConsoleNotice(deviceId: deviceId)
+    }
+
     /// Forgets a device on this iPhone (after unpairing).
     func forget(deviceId: String) throws {
         sessions[deviceId] = nil
@@ -500,6 +607,19 @@ extension AppModel {
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
         app.demoPairingLink = pak.pairingLink
+        // Milestone M11: the fake pak withdraws its Bonjour service when it
+        // quits, and announces it again when it opens.
+        let discovery = app.discovery
+        let device = pak.discoveredDevice
+        pak.onAvailabilityChange = { availability in
+            Task { @MainActor in discovery.setFixedDevice(device, visible: availability == .open) }
+        }
+        // UI tests (M11): `RL_UITEST_PAK_CLOSES_ON="GET /games"` makes the
+        // fake pak quit on that request, and open again 5 seconds later.
+        if let spec = ProcessInfo.processInfo.environment["RL_UITEST_PAK_CLOSES_ON"] {
+            let parts = spec.split(separator: " ", maxSplits: 1).map(String.init)
+            if parts.count == 2 { pak.closeOnRequest(method: parts[0], path: parts[1], reopenAfter: 5) }
+        }
         // A request left by a previous demo run is not opened again.
         for request in app.shareInbox.pending() { app.shareInbox.remove(request.id) }
         app.injectTestShare(ProcessInfo.processInfo.environment)

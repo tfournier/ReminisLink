@@ -3,14 +3,18 @@ import ReminisLinkKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The image of a game in the game sheet (milestone M8): change it from
-/// Photos or Files, or remove it. The previous image goes to the trash of
-/// the console.
-struct GameArtSection: View {
+/// The image of a game in the header of the game sheet (milestone M8;
+/// M11: tapping it changes it). Change it from Photos or Files, or remove
+/// it; the previous image goes to the trash of the console. Disabled while
+/// another device has write access (M10).
+struct GameArtButton: View {
     @Environment(AppModel.self) private var app
     let deviceId: String
     let gameId: String
     let hasArt: Bool
+    /// What the last action did, or its error, shown by the game sheet.
+    @Binding var notice: String?
+    @Binding var error: AppError?
 
     @State private var choosingSource = false
     @State private var showPhotos = false
@@ -18,60 +22,71 @@ struct GameArtSection: View {
     @State private var photo: PhotosPickerItem?
     @State private var confirmRemove = false
     @State private var isWorking = false
-    @State private var error: AppError?
-    @State private var notice: String?
+    @State private var isImageShown = false
+
+    private var isReadOnly: Bool { app.session(for: deviceId).isReadOnly }
+
+    /// UI tests (Debug, `RL_UITEST_ART_PICTURE=1`): the value of the button
+    /// is `image` or `none`.
+    private var exposesValue: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["RL_UITEST_ART_PICTURE"] == "1"
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
-        Section {
-            if let error {
-                ErrorView(error: error)
-            }
-            if let notice {
-                NoticeView(text: notice)
-            }
-            Button {
-                choosingSource = true
-            } label: {
-                HStack {
-                    Label("Change Image…", systemImage: "photo")
-                    if isWorking {
-                        Spacer()
-                        ProgressView()
+        Button {
+            choosingSource = true
+        } label: {
+            GameArtView(deviceId: deviceId, gameId: gameId, hasArt: hasArt, size: 96, onImageShown: { isImageShown = $0 })
+                .overlay(alignment: .bottomTrailing) {
+                    Group {
+                        if isWorking {
+                            ProgressView()
+                                .padding(6)
+                        } else if !isReadOnly {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.title2)
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, Color.accentColor)
+                        }
                     }
+                    .background(.regularMaterial, in: Circle())
+                    .offset(x: 6, y: 6)
                 }
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking || isReadOnly)
+        .accessibilityLabel(Text(hasArt ? "Image of the game" : "No image"))
+        .accessibilityHint(Text("Change or remove the image"))
+        .accessibilityValue(Text(verbatim: exposesValue ? (isImageShown ? "image" : "none") : ""))
+        .accessibilityIdentifier("game.changeArt")
+        .confirmationDialog("Image of the Game", isPresented: $choosingSource, titleVisibility: .visible) {
+            Button("Photo Library") { showPhotos = true }
+                .accessibilityIdentifier("art.photos")
+            Button("Files") { showFiles = true }
+                .accessibilityIdentifier("art.files")
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["RL_UITEST_ART_PICTURE"] == "1" {
+                // UI tests: Photos and Files cannot be driven by XCUITest.
+                Button("Test Picture") { Task { await set(.data(Self.testPicture())) } }
+                    .accessibilityIdentifier("art.test")
             }
-            .disabled(isWorking || app.session(for: deviceId).isReadOnly)
-            .accessibilityIdentifier("game.changeArt")
-            .confirmationDialog("Change the Image", isPresented: $choosingSource, titleVisibility: .visible) {
-                Button("Photo Library") { showPhotos = true }
-                    .accessibilityIdentifier("art.photos")
-                Button("Files") { showFiles = true }
-                    .accessibilityIdentifier("art.files")
-                #if DEBUG
-                if ProcessInfo.processInfo.environment["RL_UITEST_ART_PICTURE"] == "1" {
-                    // UI tests: Photos and Files cannot be driven by XCUITest.
-                    Button("Test Picture") { Task { await set(.data(Self.testPicture())) } }
-                        .accessibilityIdentifier("art.test")
-                }
-                #endif
-            } message: {
-                Text("The picture is scaled down to at most 1024 pixels and sent as a PNG.")
-            }
+            #endif
             if hasArt {
                 Button("Remove Image", role: .destructive) { confirmRemove = true }
-                    .disabled(isWorking || app.session(for: deviceId).isReadOnly)
                     .accessibilityIdentifier("game.removeArt")
-                    .confirmationDialog("Remove the image?", isPresented: $confirmRemove, titleVisibility: .visible) {
-                        Button("Remove Image", role: .destructive) { Task { await remove() } }
-                            .accessibilityIdentifier("art.removeConfirm")
-                    } message: {
-                        Text("The current image goes to the trash of the console.")
-                    }
             }
-        } header: {
-            Text("Image")
-        } footer: {
-            Text("Shown by NextUI in the game list. The previous image goes to the trash of the console.")
+        } message: {
+            Text("Shown by NextUI in the game list. The picture is scaled down to at most 1024 pixels and sent as a PNG; the previous image goes to the trash of the console.")
+        }
+        .confirmationDialog("Remove the image?", isPresented: $confirmRemove, titleVisibility: .visible) {
+            Button("Remove Image", role: .destructive) { Task { await remove() } }
+                .accessibilityIdentifier("art.removeConfirm")
+        } message: {
+            Text("The current image goes to the trash of the console.")
         }
         .photosPicker(isPresented: $showPhotos, selection: $photo, matching: .images)
         .onChange(of: photo) { _, item in

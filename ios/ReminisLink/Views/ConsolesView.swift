@@ -11,14 +11,28 @@ struct ConsolesView: View {
                 WelcomeView()
             } else {
                 List {
+                    if let notice = app.closedNotice {
+                        Section { ClosedConsoleNoticeView(notice: notice) }
+                    }
                     if app.discovery.status == .localNetworkDenied {
                         Section { ErrorView(error: .localNetworkDenied) }
                     }
                     Section {
                         ForEach(app.store.devices) { device in
-                            NavigationLink(value: Route.console(device.id)) {
-                                ConsoleRow(device: device, isOnline: DiscoveryLogic.find(id: device.id, in: app.discovery.devices) != nil)
+                            // Opens the console with its tabs (M11).
+                            Button {
+                                app.openConsole(device.id)
+                            } label: {
+                                HStack {
+                                    ConsoleRow(device: device, isOnline: DiscoveryLogic.find(id: device.id, in: app.discovery.devices) != nil)
+                                    Image(systemName: "chevron.forward")
+                                        .font(.footnote.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                        .accessibilityHidden(true)
+                                }
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                             .accessibilityIdentifier("console.\(device.id)")
                         }
                     }
@@ -41,6 +55,45 @@ struct ConsolesView: View {
                 }
                 .accessibilityIdentifier("consoles.add")
             }
+        }
+    }
+}
+
+/// "The console closed ReminisLink" (milestone M11): the app came back
+/// to the list when the pak quit; its uploads wait, paused.
+struct ClosedConsoleNoticeView: View {
+    @Environment(AppModel.self) private var app
+    let notice: ClosedConsoleNotice
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "power.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("The console closed ReminisLink")
+                    .font(.headline)
+                if let name = app.store.device(id: notice.deviceId)?.name {
+                    Text(name).font(.subheadline).foregroundStyle(.secondary)
+                }
+                Text("Uploads in progress are paused. Open ReminisLink on the console, then the console here, to go on.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("consoles.closedNotice")
+            Spacer(minLength: 0)
+            Button {
+                app.closedNotice = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Dismiss"))
+            .accessibilityIdentifier("closedNotice.dismiss")
         }
     }
 }

@@ -24,15 +24,14 @@ final class WriteAccessUITests: XCTestCase {
         let title = app.staticTexts["readOnly.title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertTrue(title.label.contains("Other iPhone has write access"), title.label)
-        XCTAssertFalse(app.buttons["console.add"].isEnabled, "adding is a write")
-        // Reads still work.
-        app.buttons["console.library"].tapWhenEnabled(timeout: 15)
-        XCTAssertTrue(app.buttons["system.GBA"].waitForExistence(timeout: 15))
+        // Reads still work (M11: the Library tab, where adding is).
+        GameDataUITest.openLibraryTab(app, timeout: 15)
+        XCTAssertTrue(app.buttons["game.Sky Garden Quest"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.buttons["library.add"].isEnabled, "adding is a write")
         XCTAssertTrue(banner.exists, "the banner stays on the screens of the console")
         attachScreenshot(of: app, named: "read-only")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        // Take over, after the confirmation.
+        // Take over (the banner is on every tab), after the confirmation.
         app.buttons["readOnly.takeOver"].tapAfterWaiting()
         let confirm = app.buttons["readOnly.confirm"].firstMatch
         if confirm.waitForExistence(timeout: 5) {
@@ -41,7 +40,7 @@ final class WriteAccessUITests: XCTestCase {
             app.sheets.buttons["Take Over"].firstMatch.tap()
         }
         XCTAssertTrue(banner.waitForNonExistence(timeout: 15), "still read-only after taking over")
-        app.buttons["console.add"].tapWhenEnabled(timeout: 10)
+        app.buttons["library.add"].tapWhenEnabled(timeout: 10)
         attachScreenshot(of: app, named: "took-over")
     }
 
@@ -66,13 +65,13 @@ final class WriteAccessUITests: XCTestCase {
         let title = app.staticTexts["readOnly.title"]
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertTrue(title.label.contains("\(holder) has write access"), title.label)
-        XCTAssertFalse(app.buttons["console.add"].isEnabled, "adding is a write")
-        app.buttons["console.library"].tapWhenEnabled(timeout: 30)
-        XCTAssertTrue(app.buttons["system.GBA"].waitForExistence(timeout: 30), "reads still work")
+        GameDataUITest.openLibraryTab(app, timeout: 30)
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'game.' OR identifier BEGINSWITH 'system.'"))
+            .firstMatch.waitForExistence(timeout: 30), "reads still work")
+        XCTAssertFalse(app.buttons["library.add"].isEnabled, "adding is a write")
         attachScreenshot(of: app, named: "read-only-headless")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        // Take over, after the confirmation.
+        // Take over (the banner is on every tab), after the confirmation.
         app.buttons["readOnly.takeOver"].tapAfterWaiting()
         let confirm = app.buttons["readOnly.confirm"].firstMatch
         if confirm.waitForExistence(timeout: 5) {
@@ -81,7 +80,7 @@ final class WriteAccessUITests: XCTestCase {
             app.sheets.buttons["Take Over"].firstMatch.tap()
         }
         XCTAssertTrue(banner.waitForNonExistence(timeout: 15), "still read-only after taking over")
-        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: app.buttons["console.add"])
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: app.buttons["library.add"])
         XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 10), .completed, "adding stays disabled")
         attachScreenshot(of: app, named: "took-over-headless")
         // Stay in the foreground while the script sees the take-over (it
