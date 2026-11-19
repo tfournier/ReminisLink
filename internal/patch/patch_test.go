@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"hash/crc32"
+	"io"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -60,7 +62,7 @@ func TestApplyAllFormats(t *testing.T) {
 				if f, err := Detect(p); err != nil || f != format {
 					t.Fatalf("Detect: %v %v", f, err)
 				}
-				info, err := Inspect(bytes.NewReader(p), int64(len(p)), int64(len(src)), Options{})
+				info, err := Inspect(context.Background(), bytes.NewReader(p), int64(len(p)), int64(len(src)), Options{})
 				if err != nil || info.TargetSize != int64(len(tgt)) || info.Format != format {
 					t.Fatalf("Inspect: %+v %v", info, err)
 				}
@@ -288,7 +290,7 @@ func TestTargetTooLarge(t *testing.T) {
 	tgt := randomBytes(11, 2000)
 	for format, enc := range encoders {
 		p := enc(src, tgt)
-		_, err := Inspect(bytes.NewReader(p), int64(len(p)), int64(len(src)), Options{MaxTargetSize: 1000})
+		_, err := Inspect(context.Background(), bytes.NewReader(p), int64(len(p)), int64(len(src)), Options{MaxTargetSize: 1000})
 		if !errors.Is(err, ErrTooLarge) {
 			t.Errorf("%s Inspect: %v", format, err)
 		}
@@ -353,5 +355,110 @@ func TestCancel(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("%s: %v", format, err)
 		}
+	}
+}
+
+func TestIPSTruncationCannotLengthen(t *testing.T) {
+	src := randomBytes(30, 100)
+	// The result is 100 bytes (the ROM; the record ends at 0x22): a
+	// truncation to 0x30 shortens it, one to 0x80 would lengthen it.
+	if got, _, err := apply(t, []byte("PATCH\x00\x00\x20\x00\x02ABEOF\x00\x00\x30"), src); err != nil || len(got) != 0x30 {
+		t.Fatalf("shorten: %d %v", len(got), err)
+	}
+	if _, _, err := apply(t, []byte("PATCH\x00\x00\x20\x00\x02ABEOF\x00\x00\x80"), src); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("lengthen: %v", err)
+	}
+	// Equal to the size: accepted (nothing to cut).
+	if got, _, err := apply(t, []byte("PATCHEOF\x00\x00\x64"), src); err != nil || !bytes.Equal(got, src) {
+		t.Fatalf("same size: %v", err)
+	}
+}
+
+func TestInspectCancel(t *testing.T) {
+	var b bytes.Buffer
+	b.WriteString("PATCH")
+	for i := 0; i < 3*checkEvery; i++ {
+		b.WriteString("\x00\x00\x01\x00\x01\x42")
+	}
+	b.WriteString("EOF")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Inspect(ctx, bytes.NewReader(b.Bytes()), int64(b.Len()), 10, Options{}); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
+
+// eofReader returns io.EOF with the last bytes, as io.ReaderAt allows.
+type eofReader struct{ *bytes.Reader }
+
+func (r eofReader) ReadAt(p []byte, off int64) (int, error) {
+	n, err := r.Reader.ReadAt(p, off)
+	if err == nil && off+int64(n) == r.Size() {
+		err = io.EOF
+	}
+	return n, err
+}
+
+func TestReaderEOFWithLastBytes(t *testing.T) {
+	src := randomBytes(31, 3000)
+	tgt := variants(src)["changed"]
+	for _, format := range []Format{BPS, UPS} {
+		p := encoders[format](src, tgt)
+		dst := &memTarget{}
+		_, err := Apply(context.Background(), eofReader{bytes.NewReader(p)}, int64(len(p)), eofReader{bytes.NewReader(src)}, int64(len(src)), dst, Options{})
+		if err != nil || !bytes.Equal(dst.b, tgt) {
+			t.Errorf("%s: %v", format, err)
+		}
+	}
+}
+
+func TestProgressAndInfo(t *testing.T) {
+	src := randomBytes(32, 300<<10)
+	tgt := variants(src)["longer"]
+	for format, enc := range encoders {
+		p := enc(src, tgt)
+		var last, total int64
+		var reports int
+		info, err := Apply(context.Background(), bytes.NewReader(p), int64(len(p)), bytes.NewReader(src), int64(len(src)), &memTarget{},
+			Options{Progress: func(done, tot int64) {
+				if done < last || done > tot {
+					t.Errorf("%s: progress %d after %d, total %d", format, done, last, tot)
+				}
+				last, total = done, tot
+				reports++
+			}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Verified != (format != IPS) || total != info.Work || last != info.Work {
+			t.Errorf("%s: %+v, last %d/%d", format, info, last, total)
+		}
+		if info.TargetCRC32 != crc32.ChecksumIEEE(tgt) {
+			t.Errorf("%s: target CRC32", format)
+		}
+		if format != IPS && (info.Work != int64(len(p))-4+int64(len(src))+int64(len(tgt)) || reports < 3) {
+			t.Errorf("%s: work %d, %d reports", format, info.Work, reports)
+		}
+		pre, err := Inspect(context.Background(), bytes.NewReader(p), int64(len(p)), int64(len(src)), Options{})
+		if err != nil || pre.Work != info.Work || pre.Verified != info.Verified {
+			t.Errorf("%s: Inspect %+v %v", format, pre, err)
+		}
+	}
+}
+
+func TestMismatchDetails(t *testing.T) {
+	src := randomBytes(33, 2000)
+	tgt := variants(src)["changed"]
+	other := bytes.Clone(src)
+	other[0] ^= 1
+	p := encodeBPS(src, tgt)
+	_, _, err := apply(t, p, other)
+	var m *MismatchError
+	if !errors.As(err, &m) || !m.CRCKnown || m.ExpectedCRC32 != crc32.ChecksumIEEE(src) || m.ActualCRC32 != crc32.ChecksumIEEE(other) {
+		t.Fatalf("%v %+v", err, m)
+	}
+	_, _, err = apply(t, p, src[:10])
+	if !errors.As(err, &m) || m.CRCKnown || m.ActualSize != 10 || m.ExpectedSize != 2000 {
+		t.Fatalf("size: %v %+v", err, m)
 	}
 }

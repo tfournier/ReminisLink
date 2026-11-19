@@ -52,53 +52,54 @@ func applyUPS(ctx context.Context, p io.ReaderAt, pSize int64, src io.ReaderAt, 
 	if err != nil {
 		return h.info, err
 	}
-	if err := checkSelf(ctx, p, pSize, selfCRC); err != nil {
-		return h.info, err
+	info := withWork(h.info, pSize, srcSize)
+	m := &meter{fn: opts.Progress, total: info.Work}
+	if err := checkSelf(ctx, p, pSize, selfCRC, m); err != nil {
+		return info, err
 	}
-	if err := checkSource(ctx, src, srcSize, h.info, srcCRC, tgtCRC); err != nil {
-		return h.info, err
+	if err := checkSource(ctx, src, srcSize, info, srcCRC, tgtCRC, m); err != nil {
+		return info, err
 	}
 
-	size := h.info.TargetSize
+	size := info.TargetSize
 	r := newPatchReader(p, h.hunks, pSize-footerSize)
-	w := newTargetWriter(ctx, dst, size, opts.Progress)
+	w := newTargetWriter(ctx, dst, m)
 	s := newSourceReader(src, srcSize)
 	scratch := make([]byte, readBuffer)
-	// pos is the offset in the source and the target; it may pass the
-	// target size (ignored writes), bounded so it cannot overflow.
-	limit := max(srcSize, size) + pSize
+	// pos is the offset in the source and the target. Past the target
+	// size nothing is written any more (ignored writes, as in beat), so a
+	// skip is clamped at the target size: pos stays below size + pSize and
+	// cannot overflow, the result is the same.
+	limit := size
 	var pos int64
 	var one [1]byte
 	for n := 0; r.remaining() > 0; n++ {
 		if n%checkEvery == 0 {
 			if err := ctx.Err(); err != nil {
-				return h.info, err
+				return info, err
 			}
 		}
 		skip, err := readVLI(r)
 		if err != nil {
-			return h.info, err
-		}
-		if skip > limit-pos {
-			return h.info, corrupt("hunk past the end")
+			return info, err
 		}
 		if keep := max(min(skip, size-pos), 0); keep > 0 {
 			if err := copySource(w, s, pos, keep, scratch); err != nil {
-				return h.info, err
+				return info, err
 			}
 		}
-		pos += skip
+		pos += min(skip, max(limit-pos, 0))
 		for {
 			x, err := r.ReadByte()
 			if err != nil {
-				return h.info, err
+				return info, err
 			}
 			if pos < size {
 				if err := s.readAt(one[:], pos); err != nil {
-					return h.info, err
+					return info, err
 				}
 				if err := w.writeByte(one[0] ^ x); err != nil {
-					return h.info, err
+					return info, err
 				}
 			}
 			pos++
@@ -109,17 +110,18 @@ func applyUPS(ctx context.Context, p io.ReaderAt, pSize int64, src io.ReaderAt, 
 	}
 	if pos < size {
 		if err := copySource(w, s, pos, size-pos, scratch); err != nil {
-			return h.info, err
+			return info, err
 		}
 	}
 	if w.off() != size {
-		return h.info, corrupt("target is %d bytes, the patch declares %d", w.off(), size)
+		return info, corrupt("target is %d bytes, the patch declares %d", w.off(), size)
 	}
 	if err := w.finish(); err != nil {
-		return h.info, err
+		return info, err
 	}
 	if w.crc.Sum32() != tgtCRC {
-		return h.info, corrupt("target checksum mismatch")
+		return info, corrupt("target checksum mismatch")
 	}
-	return h.info, nil
+	info.TargetCRC32 = tgtCRC
+	return info, nil
 }

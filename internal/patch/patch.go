@@ -84,7 +84,49 @@ type Info struct {
 	SourceSize int64
 	// TargetSize is the size of the patched file.
 	TargetSize int64
+	// Verified: the format checks the ROM and the result (BPS, UPS: CRC32
+	// of the source and the target). IPS has no checksum.
+	Verified bool
+	// Work is the total of the progress reports of Apply: the bytes read
+	// for the checksums before writing (BPS, UPS) plus the target.
+	Work int64
+	// TargetCRC32 is the CRC32 of the patched file, set by Apply.
+	TargetCRC32 uint32
 }
+
+// MismatchError is an ErrSourceMismatch with what was expected and found.
+type MismatchError struct {
+	ExpectedSize, ActualSize   int64
+	ExpectedCRC32, ActualCRC32 uint32
+	// CRCKnown: the CRC32 of the ROM was computed (its size matched).
+	CRCKnown bool
+}
+
+func (e *MismatchError) Error() string {
+	if !e.CRCKnown {
+		return fmt.Sprintf("%v: size %d, the patch expects %d", ErrSourceMismatch, e.ActualSize, e.ExpectedSize)
+	}
+	return fmt.Sprintf("%v: CRC32 %08x, the patch expects %08x", ErrSourceMismatch, e.ActualCRC32, e.ExpectedCRC32)
+}
+
+// Is makes errors.Is(err, ErrSourceMismatch) true.
+func (e *MismatchError) Is(target error) bool { return target == ErrSourceMismatch }
+
+// meter turns the progress of each phase into a progress of the whole
+// work.
+type meter struct {
+	fn          func(done, total int64)
+	total, base int64
+}
+
+func (m *meter) report(done int64) {
+	if m.fn != nil {
+		m.fn(min(m.base+done, m.total), m.total)
+	}
+}
+
+// next moves the base past a finished phase of n bytes.
+func (m *meter) next(n int64) { m.base += n }
 
 // Target is where the patched file is written: written in order, read back
 // (BPS TargetCopy), truncated to its final size. *os.File implements it.
@@ -135,23 +177,41 @@ func detectAt(p io.ReaderAt, size int64) (Format, error) {
 // Inspect reads the header of a patch (and, for IPS, its records) and
 // returns what it expects and produces. srcSize is the size of the ROM
 // (needed for the size of an IPS result). It does not check the
-// checksums: Apply does.
-func Inspect(p io.ReaderAt, pSize, srcSize int64, opts Options) (Info, error) {
+// checksums: Apply does. ctx stops the scan of a large IPS patch.
+func Inspect(ctx context.Context, p io.ReaderAt, pSize, srcSize int64, opts Options) (Info, error) {
 	f, err := detectAt(p, pSize)
 	if err != nil {
 		return Info{}, err
 	}
+	var info Info
 	switch f {
 	case IPS:
-		h, err := scanIPS(context.Background(), p, pSize, srcSize, opts)
-		return h.info, err
+		var h ipsHeader
+		h, err = scanIPS(ctx, p, pSize, srcSize, opts)
+		info = h.info
 	case BPS:
-		h, err := readBPSHeader(p, pSize, opts)
-		return h.info, err
+		var h bpsHeader
+		h, err = readBPSHeader(p, pSize, opts)
+		info = h.info
 	default:
-		h, err := readUPSHeader(p, pSize, opts)
-		return h.info, err
+		var h upsHeader
+		h, err = readUPSHeader(p, pSize, opts)
+		info = h.info
 	}
+	if err != nil {
+		return info, err
+	}
+	return withWork(info, pSize, srcSize), nil
+}
+
+// withWork fills Verified and Work.
+func withWork(info Info, pSize, srcSize int64) Info {
+	info.Verified = info.Format != IPS
+	info.Work = info.TargetSize
+	if info.Verified {
+		info.Work += pSize - 4 + srcSize
+	}
+	return info
 }
 
 // Apply applies the patch p (pSize bytes) to the ROM src (srcSize bytes)
@@ -265,8 +325,9 @@ func readVLI(r io.ByteReader) (int64, error) {
 	return int64(data), nil // < 2^58: fits
 }
 
-// crcOf computes the CRC32 (IEEE) of r[0:n], checking ctx between blocks.
-func crcOf(ctx context.Context, r io.ReaderAt, n int64) (uint32, error) {
+// crcOf computes the CRC32 (IEEE) of r[0:n], checking ctx and reporting
+// the progress (m may be nil) between blocks.
+func crcOf(ctx context.Context, r io.ReaderAt, n int64, m *meter) (uint32, error) {
 	h := crc32.NewIEEE()
 	buf := make([]byte, readBuffer)
 	for off := int64(0); off < n; {
@@ -283,14 +344,24 @@ func crcOf(ctx context.Context, r io.ReaderAt, n int64) (uint32, error) {
 			}
 			return 0, err
 		}
+		if m != nil {
+			m.report(off)
+		}
+	}
+	if m != nil {
+		m.next(n)
 	}
 	return h.Sum32(), nil
 }
 
 // readFooter reads the 12-byte CRC32 footer of BPS and UPS (little endian).
+// A reader may return io.EOF with the last bytes: 12 bytes read is enough.
 func readFooter(p io.ReaderAt, pSize int64) (src, tgt, self uint32, err error) {
 	var b [footerSize]byte
-	if _, err := p.ReadAt(b[:], pSize-footerSize); err != nil {
+	if n, err := p.ReadAt(b[:], pSize-footerSize); n < footerSize {
+		if err == nil {
+			err = io.ErrUnexpectedEOF
+		}
 		return 0, 0, 0, readErr(err)
 	}
 	le := func(b []byte) uint32 { return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24 }
@@ -298,8 +369,8 @@ func readFooter(p io.ReaderAt, pSize int64) (src, tgt, self uint32, err error) {
 }
 
 // checkSelf verifies the CRC32 of the patch (all bytes but the last 4).
-func checkSelf(ctx context.Context, p io.ReaderAt, pSize int64, want uint32) error {
-	got, err := crcOf(ctx, p, pSize-4)
+func checkSelf(ctx context.Context, p io.ReaderAt, pSize int64, want uint32, m *meter) error {
+	got, err := crcOf(ctx, p, pSize-4, m)
 	if err != nil {
 		return readErr(err)
 	}
@@ -311,12 +382,13 @@ func checkSelf(ctx context.Context, p io.ReaderAt, pSize int64, want uint32) err
 
 // checkSource compares the ROM with the source (and target) the patch
 // declares: nil when it is the source, ErrAlreadyPatched when it is the
-// target, ErrSourceMismatch otherwise.
-func checkSource(ctx context.Context, src io.ReaderAt, srcSize int64, info Info, srcCRC, tgtCRC uint32) error {
+// target, a *MismatchError otherwise.
+func checkSource(ctx context.Context, src io.ReaderAt, srcSize int64, info Info, srcCRC, tgtCRC uint32, m *meter) error {
+	mismatch := &MismatchError{ExpectedSize: info.SourceSize, ActualSize: srcSize, ExpectedCRC32: srcCRC}
 	if srcSize != info.SourceSize && srcSize != info.TargetSize {
-		return fmt.Errorf("%w: size %d, the patch expects %d", ErrSourceMismatch, srcSize, info.SourceSize)
+		return mismatch
 	}
-	got, err := crcOf(ctx, src, srcSize)
+	got, err := crcOf(ctx, src, srcSize, m)
 	if err != nil {
 		return err
 	}
@@ -326,7 +398,8 @@ func checkSource(ctx context.Context, src io.ReaderAt, srcSize int64, info Info,
 	if srcSize == info.TargetSize && got == tgtCRC {
 		return ErrAlreadyPatched
 	}
-	return fmt.Errorf("%w: CRC32 %08x, the patch expects %08x", ErrSourceMismatch, got, srcCRC)
+	mismatch.ActualCRC32, mismatch.CRCKnown = got, true
+	return mismatch
 }
 
 // sourceReader reads the ROM with random access through a one-block cache
@@ -377,12 +450,11 @@ type targetWriter struct {
 	buf      []byte
 	flushed  int64 // bytes already in dst
 	crc      hash.Hash32
-	total    int64
-	progress func(done, total int64)
+	progress *meter
 }
 
-func newTargetWriter(ctx context.Context, dst Target, total int64, progress func(int64, int64)) *targetWriter {
-	return &targetWriter{ctx: ctx, dst: dst, buf: make([]byte, 0, writeBuffer), crc: crc32.NewIEEE(), total: total, progress: progress}
+func newTargetWriter(ctx context.Context, dst Target, progress *meter) *targetWriter {
+	return &targetWriter{ctx: ctx, dst: dst, buf: make([]byte, 0, writeBuffer), crc: crc32.NewIEEE(), progress: progress}
 }
 
 // off is the number of bytes written so far.
@@ -425,9 +497,7 @@ func (w *targetWriter) flush() error {
 		w.flushed += int64(len(w.buf))
 		w.buf = w.buf[:0]
 	}
-	if w.progress != nil {
-		w.progress(w.flushed, w.total)
-	}
+	w.progress.report(w.flushed)
 	return nil
 }
 

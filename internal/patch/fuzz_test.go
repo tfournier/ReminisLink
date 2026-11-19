@@ -45,7 +45,7 @@ func fuzzApply(t *testing.T, p []byte) {
 	if int64(len(dst.b)) != info.TargetSize {
 		t.Fatalf("wrote %d bytes, info says %d", len(dst.b), info.TargetSize)
 	}
-	if _, err := Inspect(bytes.NewReader(p), int64(len(p)), int64(len(fuzzSource)), opts); err != nil {
+	if _, err := Inspect(context.Background(), bytes.NewReader(p), int64(len(p)), int64(len(fuzzSource)), opts); err != nil {
 		t.Fatalf("applied but Inspect fails: %v", err)
 	}
 }
@@ -70,23 +70,27 @@ func FuzzUPS(f *testing.F) {
 	f.Fuzz(fuzzApply)
 }
 
-// FuzzBPSNoChecksum skips the CRC checks (which reject nearly every
-// mutation) to reach the action parser: the footer is recomputed for the
-// fuzzed body, with the real source CRC.
+// FuzzIPSReference compares every fuzzed IPS patch with the reference
+// decoder: same refusal, same result.
+func FuzzIPSReference(f *testing.F) {
+	fuzzSeeds(f, encodeIPS, []byte("PATCHEOF\x00\x10\x00"), []byte("PATCH\x00\x00\x05\x00\x00\x00\x03\x07EOF\x00\x00\x06"))
+	f.Fuzz(func(t *testing.T, p []byte) {
+		want, ok := refIPS(p, fuzzSource, fuzzMaxTarget)
+		sameAsReference(t, p, fuzzSource, want, ok, fuzzMaxTarget)
+	})
+}
+
+// FuzzBPSNoChecksum reaches the action parser past the CRC checks (which
+// reject nearly every mutation): the fuzzed body gets a footer with the
+// CRC32 of the source and of the reference result, and the result must
+// match the reference decoder.
 func FuzzBPSNoChecksum(f *testing.F) {
 	for _, tgt := range variants(fuzzSource) {
 		p := encodeBPS(fuzzSource, tgt)
 		f.Add(p[:len(p)-12])
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {
-		if len(body) < 4 || string(body[:4]) != bpsMagic {
-			return
-		}
-		var b bytes.Buffer
-		b.Write(body)
-		// The target CRC cannot be known: the apply ends with ErrCorrupt
-		// unless the body is consistent, after running every action.
-		fuzzApply(t, footer(&b, fuzzSource, nil))
+		fuzzWithReference(t, body, bpsMagic, refBPS)
 	})
 }
 
@@ -97,11 +101,19 @@ func FuzzUPSNoChecksum(f *testing.F) {
 		f.Add(p[:len(p)-12])
 	}
 	f.Fuzz(func(t *testing.T, body []byte) {
-		if len(body) < 4 || string(body[:4]) != upsMagic {
-			return
-		}
-		var b bytes.Buffer
-		b.Write(body)
-		fuzzApply(t, footer(&b, fuzzSource, nil))
+		fuzzWithReference(t, body, upsMagic, refUPS)
 	})
+}
+
+func fuzzWithReference(t *testing.T, body []byte, magic string, ref func(p, src []byte, maxTarget int) ([]byte, bool)) {
+	if len(body) < len(magic) || string(body[:len(magic)]) != magic {
+		return // another format: covered by the other fuzzers
+	}
+	want, ok := ref(withFooter(body, nil, nil), fuzzSource, fuzzMaxTarget)
+	if !ok {
+		// Refused by the reference: refused here too, whatever the footer.
+		sameAsReference(t, withFooter(body, fuzzSource, nil), fuzzSource, nil, false, fuzzMaxTarget)
+		return
+	}
+	sameAsReference(t, withFooter(body, fuzzSource, want), fuzzSource, want, true, fuzzMaxTarget)
 }

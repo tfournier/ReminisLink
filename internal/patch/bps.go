@@ -66,60 +66,62 @@ func applyBPS(ctx context.Context, p io.ReaderAt, pSize int64, src io.ReaderAt, 
 		return h.info, err
 	}
 	// Patch, then ROM, before anything is written.
-	if err := checkSelf(ctx, p, pSize, selfCRC); err != nil {
-		return h.info, err
+	info := withWork(h.info, pSize, srcSize)
+	m := &meter{fn: opts.Progress, total: info.Work}
+	if err := checkSelf(ctx, p, pSize, selfCRC, m); err != nil {
+		return info, err
 	}
-	if err := checkSource(ctx, src, srcSize, h.info, srcCRC, tgtCRC); err != nil {
-		return h.info, err
+	if err := checkSource(ctx, src, srcSize, info, srcCRC, tgtCRC, m); err != nil {
+		return info, err
 	}
 
-	size := h.info.TargetSize
+	size := info.TargetSize
 	r := newPatchReader(p, h.actions, pSize-footerSize)
-	w := newTargetWriter(ctx, dst, size, opts.Progress)
+	w := newTargetWriter(ctx, dst, m)
 	s := newSourceReader(src, srcSize)
 	scratch := make([]byte, readBuffer)
 	var srcRel, tgtRel int64
 	for n := 0; r.remaining() > 0; n++ {
 		if n%checkEvery == 0 {
 			if err := ctx.Err(); err != nil {
-				return h.info, err
+				return info, err
 			}
 		}
 		data, err := readVLI(r)
 		if err != nil {
-			return h.info, err
+			return info, err
 		}
 		cmd, length := data&3, data>>2+1
 		out := w.off()
 		if length > size-out {
-			return h.info, corrupt("action past the end of the target")
+			return info, corrupt("action past the end of the target")
 		}
 		switch cmd {
 		case bpsSourceRead:
 			if out+length > srcSize {
-				return h.info, corrupt("source read past the end of the ROM")
+				return info, corrupt("source read past the end of the ROM")
 			}
 			if err := copySource(w, s, out, length, scratch); err != nil {
-				return h.info, err
+				return info, err
 			}
 		case bpsTargetRead:
 			if length > r.remaining() {
-				return h.info, corrupt("truncated")
+				return info, corrupt("truncated")
 			}
 			for done := int64(0); done < length; {
 				k := min(int64(len(scratch)), length-done)
 				if err := r.full(scratch[:k]); err != nil {
-					return h.info, err
+					return info, err
 				}
 				if err := w.write(scratch[:k]); err != nil {
-					return h.info, err
+					return info, err
 				}
 				done += k
 			}
 		case bpsSourceCopy, bpsTargetCopy:
 			d, err := readVLI(r)
 			if err != nil {
-				return h.info, err
+				return info, err
 			}
 			delta := d >> 1
 			if d&1 != 0 {
@@ -128,28 +130,50 @@ func applyBPS(ctx context.Context, p io.ReaderAt, pSize int64, src io.ReaderAt, 
 			if cmd == bpsSourceCopy {
 				srcRel += delta
 				if srcRel < 0 || srcRel > srcSize || length > srcSize-srcRel {
-					return h.info, corrupt("source copy outside the ROM")
+					return info, corrupt("source copy outside the ROM")
 				}
 				if err := copySource(w, s, srcRel, length, scratch); err != nil {
-					return h.info, err
+					return info, err
 				}
 				srcRel += length
 				continue
 			}
 			tgtRel += delta
 			if tgtRel < 0 || tgtRel >= out {
-				return h.info, corrupt("target copy outside the written target")
+				return info, corrupt("target copy outside the written target")
+			}
+			dist := out - tgtRel
+			if dist < length && dist <= int64(len(scratch))/2 {
+				// Overlapping copy with a short distance (a run): the
+				// output repeats the dist bytes before it. Read them once,
+				// repeat them in scratch by doubling, write whole patterns.
+				if err := w.readAt(scratch[:dist], tgtRel); err != nil {
+					return info, err
+				}
+				filled := dist
+				for filled*2 <= int64(len(scratch)) {
+					copy(scratch[filled:], scratch[:filled])
+					filled *= 2
+				}
+				for left := length; left > 0; {
+					k := min(filled, left)
+					if err := w.write(scratch[:k]); err != nil {
+						return info, err
+					}
+					left -= k
+				}
+				tgtRel += length
+				continue
 			}
 			// The distance stays the same while copying: chunks of at
 			// most that distance only read bytes already written.
-			dist := out - tgtRel
 			for left := length; left > 0; {
 				k := min(int64(len(scratch)), left, dist)
 				if err := w.readAt(scratch[:k], tgtRel); err != nil {
-					return h.info, err
+					return info, err
 				}
 				if err := w.write(scratch[:k]); err != nil {
-					return h.info, err
+					return info, err
 				}
 				tgtRel += k
 				left -= k
@@ -157,13 +181,14 @@ func applyBPS(ctx context.Context, p io.ReaderAt, pSize int64, src io.ReaderAt, 
 		}
 	}
 	if w.off() != size {
-		return h.info, corrupt("target is %d bytes, the patch declares %d", w.off(), size)
+		return info, corrupt("target is %d bytes, the patch declares %d", w.off(), size)
 	}
 	if err := w.finish(); err != nil {
-		return h.info, err
+		return info, err
 	}
 	if w.crc.Sum32() != tgtCRC {
-		return h.info, corrupt("target checksum mismatch")
+		return info, corrupt("target checksum mismatch")
 	}
-	return h.info, nil
+	info.TargetCRC32 = tgtCRC
+	return info, nil
 }

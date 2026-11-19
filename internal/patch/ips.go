@@ -16,14 +16,18 @@ import (
 // addresses the first 16 MiB (IPSMaxAddress); bytes past it are copied
 // from the ROM unchanged. An offset equal to "EOF" (0x454f46) cannot be
 // written, as in every IPS tool.
+//
+// Stricter than some tools, on purpose (a patch that does not follow the
+// format is more likely damaged than meant):
+//   - after "EOF", only nothing or exactly the 3 bytes of the truncation
+//     extension are accepted; any other tail is ErrCorrupt;
+//   - the truncation can only shorten: a size larger than the file the
+//     records produce is ErrCorrupt (no padding with zeros).
 
 // IPSMaxAddress is the first offset an IPS record cannot address (16 MiB).
 const IPSMaxAddress = 1 << 24
 
-const (
-	ipsRecordHeader = 5
-	ipsEOF          = 0x454f46
-)
+const ipsEOF = 0x454f46
 
 type ipsHeader struct {
 	info Info
@@ -74,8 +78,8 @@ func nextIPS(r *patchReader) (rec ipsRecord, ok bool, trunc int64, err error) {
 }
 
 // scanIPS validates the records and computes the size of the patched file:
-// the truncation size when given, else the larger of the ROM and the end
-// of the last byte written.
+// the larger of the ROM and the end of the last byte written, or the
+// truncation size when given (never larger).
 func scanIPS(ctx context.Context, p io.ReaderAt, pSize, srcSize int64, opts Options) (ipsHeader, error) {
 	h := ipsHeader{info: Info{Format: IPS, SourceSize: -1}}
 	if pSize < int64(len(ipsMagic))+3 {
@@ -94,6 +98,9 @@ func scanIPS(ctx context.Context, p io.ReaderAt, pSize, srcSize int64, opts Opti
 			return h, err
 		}
 		if !ok {
+			if trunc > end {
+				return h, corrupt("truncation to %d bytes, larger than the %d bytes patched", trunc, end)
+			}
 			if trunc >= 0 {
 				end = trunc
 			}
@@ -118,62 +125,73 @@ func applyIPS(ctx context.Context, p io.ReaderAt, pSize int64, src io.ReaderAt, 
 	if err != nil {
 		return h.info, err
 	}
-	size := h.info.TargetSize
+	info := withWork(h.info, pSize, srcSize)
+	size := info.TargetSize
+	m := &meter{fn: opts.Progress, total: info.Work}
 	// 1. The ROM, up to the size of the patched file.
-	w := newTargetWriter(ctx, dst, size, opts.Progress)
+	w := newTargetWriter(ctx, dst, m)
 	s := newSourceReader(src, srcSize)
 	scratch := make([]byte, readBuffer)
 	if err := copySource(w, s, 0, min(srcSize, size), scratch); err != nil {
-		return h.info, err
+		return info, err
 	}
 	if err := w.flush(); err != nil {
-		return h.info, err
+		return info, err
 	}
 	// Past the ROM (the patch makes it longer): zeros until written.
 	if err := dst.Truncate(size); err != nil {
-		return h.info, fmt.Errorf("truncate patched file: %w", err)
+		return info, fmt.Errorf("truncate patched file: %w", err)
 	}
 	// 2. The records, clipped to the size (truncation extension).
 	r := newPatchReader(p, int64(len(ipsMagic)), pSize)
+	rleVal, rleLen := -1, 0 // what scratch holds for the RLE records
 	for n := 0; ; n++ {
 		if n%checkEvery == 0 {
 			if err := ctx.Err(); err != nil {
-				return h.info, err
+				return info, err
 			}
 		}
 		rec, ok, _, err := nextIPS(r)
 		if err != nil {
-			return h.info, err
+			return info, err
 		}
 		if !ok {
 			break
 		}
 		keep := max(min(rec.size, size-rec.off), 0)
 		if rec.rle {
-			for i := range scratch[:min(int64(len(scratch)), keep)] {
-				scratch[i] = rec.val
+			if need := int(min(int64(len(scratch)), keep)); rleVal != int(rec.val) || rleLen < need {
+				fill := scratch[:need]
+				for i := range fill {
+					fill[i] = rec.val
+				}
+				rleVal, rleLen = int(rec.val), need
 			}
 			for done := int64(0); done < keep; {
-				k := min(int64(len(scratch)), keep-done)
+				k := min(int64(rleLen), keep-done)
 				if _, err := dst.WriteAt(scratch[:k], rec.off+done); err != nil {
-					return h.info, fmt.Errorf("write patched file: %w", err)
+					return info, fmt.Errorf("write patched file: %w", err)
 				}
 				done += k
 			}
 			continue
 		}
+		rleVal = -1                // scratch is reused for the data
 		data := scratch[:rec.size] // size <= 0xffff < len(scratch)
 		if err := r.full(data); err != nil {
-			return h.info, err
+			return info, err
 		}
 		if keep > 0 {
 			if _, err := dst.WriteAt(data[:keep], rec.off); err != nil {
-				return h.info, fmt.Errorf("write patched file: %w", err)
+				return info, fmt.Errorf("write patched file: %w", err)
 			}
 		}
 	}
-	if opts.Progress != nil {
-		opts.Progress(size, size)
+	// IPS has no checksum: the CRC32 of the result is computed here, for
+	// the caller to check the file later (installation after a power cut).
+	if info.TargetCRC32, err = crcOf(ctx, dst, size, nil); err != nil {
+		return info, err
 	}
-	return h.info, nil
+	m.report(size)
+	return info, nil
 }
