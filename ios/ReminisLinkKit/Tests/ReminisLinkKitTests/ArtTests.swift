@@ -118,6 +118,32 @@ struct ArtTests {
         #expect(pak.trashedArtCount == 2)
     }
 
+    /// Two fetches around a replacement: the one started before the
+    /// invalidation ends last and must not store the former art, nor pair
+    /// it with the new ETag (a later 304 would keep it).
+    @Test func aFetchStartedBeforeAnInvalidationStoresNothing() {
+        let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let (old, new) = (Data("old".utf8), Data("new".utf8))
+        cache.store(old, etag: "\"1\"", deviceId: "d", gameId: "g")
+        let before = cache.startFetch(deviceId: "d", gameId: "g")
+        #expect(before.cached == ArtCache.Entry(data: old, etag: "\"1\""))
+        cache.invalidate(deviceId: "d", gameId: "g")
+        let after = cache.startFetch(deviceId: "d", gameId: "g")
+        #expect(after.cached == nil)
+        #expect(cache.complete(after, with: .image(new, etag: "\"2\"")) == new)
+        // The former fetch ends: its art is returned to its caller only.
+        #expect(cache.complete(before, with: .image(old, etag: "\"1\"")) == old)
+        #expect(cache.complete(before, with: .none) == nil)
+        #expect(cache.entry(deviceId: "d", gameId: "g") == ArtCache.Entry(data: new, etag: "\"2\""))
+        // The next 304 confirms the art that came with that ETag.
+        let next = cache.startFetch(deviceId: "d", gameId: "g")
+        #expect(cache.complete(next, with: .notModified) == new)
+        // A PNG and its ETag are one entry; no ETag is kept as such.
+        cache.store(old, etag: nil, deviceId: "d", gameId: "g")
+        #expect(cache.entry(deviceId: "d", gameId: "g") == ArtCache.Entry(data: old, etag: nil))
+    }
+
     @Test func theFakePakRefusesWhatThePakRefuses() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
