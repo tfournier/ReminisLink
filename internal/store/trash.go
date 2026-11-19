@@ -375,6 +375,58 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 	return res, nil
 }
 
+// ErrNotPutBack means some files of an entry could not go back (their
+// place is taken): they stay in the entry.
+var ErrNotPutBack = errors.New("trash: files left in the entry, their place is taken")
+
+// Undo puts every item of an entry back to its original place, as if Move
+// had not happened (an operation that failed after moving its files):
+// the entry is removed when it is empty, otherwise it keeps what could not
+// go back and ErrNotPutBack is returned.
+func (t *Trash) Undo(id string) error {
+	if !ValidTrashID(id) {
+		return ErrInvalidTrashID
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	dir := filepath.Join(t.dir, id)
+	e, err := readEntry(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return ErrTrashNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("trash: %w", err)
+	}
+	sd, err := filepath.Abs(t.sd)
+	if err != nil {
+		return fmt.Errorf("trash: %w", err)
+	}
+	var left []string
+	for _, rel := range e.Moves {
+		src := filepath.Join(dir, filepath.FromSlash(rel))
+		dst := filepath.Join(sd, filepath.FromSlash(rel))
+		if _, err := os.Lstat(src); err != nil {
+			continue // already back
+		}
+		if !isUnder(sd, dst) || restoreItem(src, dst) != nil {
+			left = append(left, rel)
+			continue
+		}
+		t.log.Info("trash: put back", "entry", id, "file", rel)
+	}
+	if len(left) > 0 {
+		recount(dir, &e, left)
+		if err := writeEntry(dir, e); err != nil {
+			return err
+		}
+		return ErrNotPutBack
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("trash: remove the undone entry: %w", err)
+	}
+	return nil
+}
+
 // putBack moves the planned items of an entry back to their place and
 // returns those that could not go back (relative paths).
 func (t *Trash) putBack(entryDir string, moved []plannedMove) []string {
