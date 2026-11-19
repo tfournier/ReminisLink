@@ -18,7 +18,9 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | GET | `/trash` | Contenu et taille de la corbeille |
 | DELETE | `/trash` | Vider la corbeille |
 | DELETE | `/trash/{entryId}` | Supprimer définitivement une entrée de la corbeille |
+| GET | `/saves` | Toutes les saves de la console, avec SHA-256 (sync, M9) |
 | GET / PUT | `/games/{gameId}/save` | Télécharger / remplacer la save |
+| GET | `/games/{gameId}/save/rtc` | Télécharger le fichier d'horloge de la save (M9) |
 | GET / POST | `/games/{gameId}/save/backups` | Lister / créer des copies de la save |
 | POST | `/games/{gameId}/save/backups/{backupId}/restore` | Restaurer une copie |
 | GET / DELETE | `/games/{gameId}/save/backups/{backupId}` | Télécharger / supprimer une copie |
@@ -237,9 +239,45 @@ La restauration depuis la corbeille n'est pas dans la v1 (voir [09](09-feuille-d
 
 ## Saves
 
+### `GET /saves` (M9)
+
+Liste, en lecture seule et en une requête, toutes les saves de tous les jeux, pour la synchronisation vers l'iPhone (09, M9) : l'app ne télécharge que les saves dont le `sha256` a changé depuis sa dernière sync.
+
+```json
+{
+  "saves": [
+    {
+      "gameId": "...",
+      "systemId": "...",
+      "gameName": "Sky Garden Quest",
+      "fileName": "Sky Garden Quest.gba",
+      "path": "Saves/GBA/Sky Garden Quest.gba.sav",
+      "sizeBytes": 131072,
+      "modifiedAt": "2026-11-18T16:55:00Z",
+      "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "rtc": { "path": "Saves/GBA/Sky Garden Quest.gba.rtc", "sizeBytes": 16, "modifiedAt": "...", "sha256": "..." }
+    }
+  ],
+  "truncated": false,
+  "generatedAt": "2026-11-19T10:00:00Z"
+}
+```
+
+- Mêmes jeux et même résolution de la save que `GET /systems/{systemId}/games` et `GET /games/{gameId}` (types `file`, `m3u`, `folder-m3u`, `folder-cue`, sous-dossiers compris ; save nommée d'après la ROM, le `.m3u` ou la `.cue`, sans tenir compte de la casse).
+- Un jeu n'est listé que s'il a une save (`.sav`). Le fichier d'horloge (`.rtc`) appartient à sa save (M5) : il est donné dans `rtc` (`null` s'il n'y en a pas), jamais listé seul ; un jeu qui n'a qu'un `.rtc` n'est pas listé.
+- Deux jeux d'un même système portant le même nom de fichier dans des dossiers différents partagent une save sur NextUI : les deux sont listés, avec le même `path` et le même `sha256`.
+- Les saves de 1 Mio au plus (presque toutes) sont hachées à chaque requête : une save réécrite sur place peut garder sa taille et sa date, et exFAT n'a pas d'autre indicateur de changement. Au-delà, le pak réutilise un SHA-256 gardé en mémoire tant que le fichier (périphérique et inode), sa taille, sa date de modification et, si la plateforme en a une, sa date de changement d'état sont inchangés, et seulement si la date de modification précède d'au moins 3 s le calcul du hash (règle « racy git »). Les liens symboliques, les fichiers atteints par un lien (même resté dans le dossier des saves) et ceux hors du dossier des saves sont ignorés. Une seule liste est calculée à la fois (une seconde requête attend). La requête s'arrête si le client se déconnecte.
+- Au plus 10 000 saves ; au-delà, `truncated` vaut `true` et l'app ne DOIT rien déduire d'une save absente de la liste. Pas de pagination (comme les autres listes).
+- `path` est informatif, jamais renvoyé ; `modifiedAt` vient de l'horloge de la console (informatif) : l'app compare `sha256`.
+- Téléchargement : `GET /games/{gameId}/save` et, si `rtc` n'est pas `null`, `GET /games/{gameId}/save/rtc`.
+
 ### `GET /games/{gameId}/save`
 
 `application/octet-stream`, `Content-Disposition: attachment; filename="<nom>"`. `404` si pas de save.
+
+### `GET /games/{gameId}/save/rtc` (M9)
+
+Le fichier d'horloge (`.rtc`) écrit par NextUI à côté de la save, pour que l'app le garde avec sa copie de la save. `application/octet-stream`, `Content-Disposition` comme ci-dessus. `404` si le jeu n'a pas de fichier d'horloge, ou s'il est un lien symbolique, atteint par un lien ou hors du dossier des saves.
 
 ### `PUT /games/{gameId}/save`
 

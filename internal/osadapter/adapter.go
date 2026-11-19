@@ -133,6 +133,13 @@ type GameFiles struct {
 	StateSide []File
 }
 
+// SaveDir is one read of the save folder of a tag (Adapter.SaveDir).
+type SaveDir interface {
+	// Files returns the save and the clock file of g (a game of that
+	// tag), as GameFiles would find them; nil when missing.
+	Files(g Game) (save, rtc *File)
+}
+
 // Battery is the battery state.
 type Battery struct {
 	Percent  int
@@ -174,6 +181,10 @@ type Adapter interface {
 	// is sys.Folder for the root of the system. ErrNotFound if it is not a
 	// folder of the system (a game folder is not a folder).
 	ListFolder(sys System, rel string) (Listing, error)
+	// WalkGames calls fn for every game of sys, subfolders included, with
+	// the games ListFolder lists, reading each folder once. It stops with
+	// the error of fn, or ctx.Err() when ctx is done.
+	WalkGames(ctx context.Context, sys System, fn func(Game) error) error
 	// Game returns the game at rel (relative to Roms/), or ErrNotFound.
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.
@@ -189,6 +200,11 @@ type Adapter interface {
 	// IsGameFile reports whether a file with this name, in a system
 	// folder, is listed as a game (not hidden, not an ignored extension).
 	IsGameFile(name string) bool
+
+	// SaveDir reads the save folder of a tag once, to find the save and
+	// the clock file of many games with the same rule as GameFiles (GET
+	// /saves).
+	SaveDir(tag string) SaveDir
 
 	// StateFiles lists every save state of the card (all systems).
 	// StateFiles stops with ctx.Err() when ctx is done.
