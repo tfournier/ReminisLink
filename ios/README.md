@@ -285,6 +285,18 @@ card.
 | `PatchUITests/testPatchAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_PATCH` |
 | `ArtUITests/testChangeThenRemoveTheImageAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_ART` |
 | `SyncUITests/testSyncAndRestoreAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_SYNC` (pak of milestone M9: `GET /saves`) |
+| `WriteAccessUITests/testReadOnlyThenTakeOverAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_WRITER` (milestone M10; see below) |
+
+`testReadOnlyThenTakeOverAgainstHeadlessPak` needs another client holding
+the write lease: run `scripts/smoke-writer.sh` in hold mode first
+(`HOLD=1 PAK_LOG=<pak output> scripts/smoke-writer.sh`, pak started with
+`--pairing-open > <pak output>`). It pairs as "smoke-writer B" (the name the
+banner must show; `TEST_RUNNER_RL_UITEST_WRITER_NAME` if `WRITER_NAME` is
+changed) and takes the lease; give the test the next link the pak prints.
+After Take Over, the script checks that its writes get `423` naming the
+simulator. Without hold mode, `scripts/smoke-writer.sh` checks the lease
+with two scripted clients (read-only, take-over, release, 60 s expiry;
+`SKIP_EXPIRY=1` skips the expiry).
 
 They work on "Starlight Courier" (GBA) of `testdata/sdcard`. Run one at a
 time with `-only-testing:ReminisLinkUITests/<Class>/<test>`.
