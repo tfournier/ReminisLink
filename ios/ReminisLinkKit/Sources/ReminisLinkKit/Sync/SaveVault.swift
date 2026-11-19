@@ -1,0 +1,170 @@
+import Foundation
+
+// Saves copied from the consoles to the iPhone (milestone M9,
+// docs/specs/09-feuille-de-route.md): one folder per console, system and
+// game, holding up to ``SaveVaultLimits/maxVersions`` versions of the save
+// (with its `.rtc`), each in a folder named by the date of the sync:
+//
+//     <root>/<console>/<system>/<game>/2026-11-19 15.42.10/Game.gba.sav
+//                                                         /Game.gba.rtc
+//
+// The root is the "ReminisLink" folder of the user's iCloud Drive, or the
+// app's own Documents folder when iCloud is unavailable.
+
+/// Where the saves are kept.
+public enum SaveVaultLocation: String, Sendable, Codable {
+    /// The app's folder in the user's iCloud Drive.
+    case iCloud
+    /// The app's Documents folder on this iPhone (iCloud unavailable or off).
+    case local
+}
+
+public enum SaveVaultLimits {
+    /// Versions kept per save; older ones are deleted when a new one is added.
+    public static let maxVersions = 10
+}
+
+/// Who a console folder belongs to (`.console.json`).
+public struct VaultConsoleInfo: Codable, Sendable, Hashable {
+    public let deviceId: String
+    /// The console name when its folder was made (the folder keeps it).
+    public let name: String
+
+    public init(deviceId: String, name: String) {
+        self.deviceId = deviceId
+        self.name = name
+    }
+}
+
+/// Which game a game folder belongs to (`.game.json`).
+public struct VaultGameInfo: Codable, Sendable, Hashable {
+    public let gameId: String
+    public let systemId: String
+    /// The name of the system folder.
+    public let systemName: String
+    /// The game name (the name of its folder, made safe).
+    public let name: String
+
+    public init(gameId: String, systemId: String, systemName: String, name: String) {
+        self.gameId = gameId
+        self.systemId = systemId
+        self.systemName = systemName
+        self.name = name
+    }
+}
+
+/// One file of a version.
+public struct SaveVersionFile: Codable, Sendable, Hashable {
+    public let name: String
+    /// Lowercase hex SHA-256.
+    public let sha256: String
+    public let sizeBytes: Int64
+
+    public init(name: String, sha256: String, sizeBytes: Int64) {
+        self.name = name
+        self.sha256 = sha256
+        self.sizeBytes = sizeBytes
+    }
+}
+
+/// What a version holds (`.version.json`, written with its files).
+public struct SaveVersionInfo: Codable, Sendable, Hashable {
+    public let gameId: String
+    /// When the iPhone copied it.
+    public let syncedAt: Date
+    /// When the console last wrote the save (its clock may be wrong).
+    public let modifiedAt: Date?
+    public let save: SaveVersionFile
+    /// The clock file of the game, when the console has one.
+    public let rtc: SaveVersionFile?
+
+    public init(gameId: String, syncedAt: Date, modifiedAt: Date?, save: SaveVersionFile, rtc: SaveVersionFile?) {
+        self.gameId = gameId
+        self.syncedAt = syncedAt
+        self.modifiedAt = modifiedAt
+        self.save = save
+        self.rtc = rtc
+    }
+}
+
+/// A stored version of a save.
+public struct SaveVersion: Sendable, Hashable, Identifiable {
+    /// The name of its folder (unique in its game folder).
+    public let id: String
+    public let info: SaveVersionInfo
+
+    public init(id: String, info: SaveVersionInfo) {
+        self.id = id
+        self.info = info
+    }
+}
+
+public struct VaultConsole: Sendable, Hashable, Identifiable {
+    public var id: String { info.deviceId }
+    public let info: VaultConsoleInfo
+    /// The folder name in the vault.
+    public let folderName: String
+}
+
+public struct VaultGame: Sendable, Hashable, Identifiable {
+    public var id: String { info.gameId }
+    public let info: VaultGameInfo
+    /// The folder path in the console folder: `<system>/<game>`.
+    public let folderPath: String
+    /// The newest version, if any.
+    public let latest: SaveVersion?
+    public let versionCount: Int
+}
+
+/// A file to store in a new version. The vault takes it (moves it).
+public struct NewVersionFile: Sendable {
+    public let url: URL
+    public let name: String
+    public let sha256: String
+
+    public init(url: URL, name: String, sha256: String) {
+        self.url = url
+        self.name = name
+        self.sha256 = sha256
+    }
+}
+
+/// Copies of a version's files, outside the vault (to restore or share).
+public struct ExportedVersion: Sendable, Equatable {
+    public let save: URL
+    public let rtc: URL?
+    /// The folder holding them: delete it once used.
+    public var directory: URL { save.deletingLastPathComponent() }
+}
+
+public enum SaveVaultError: Error, Equatable, Sendable {
+    case versionNotFound
+    /// A file name the vault cannot use (empty, a path...).
+    case invalidName(String)
+}
+
+/// The store of synced saves. ``FileSaveVault`` keeps them in a folder
+/// (iCloud Drive, the app's Documents, or a temporary folder in tests).
+public protocol SaveVault: Sendable {
+    var location: SaveVaultLocation { get }
+    /// The consoles with a folder, by name.
+    func consoles() async throws -> [VaultConsole]
+    /// The games of a console that have at least one version, by system then name.
+    func games(deviceId: String) async throws -> [VaultGame]
+    /// The versions of a game, newest first.
+    func versions(deviceId: String, gameId: String) async throws -> [SaveVersion]
+    /// Stores a new version (the files are moved in), then deletes the
+    /// oldest versions beyond ``SaveVaultLimits/maxVersions``.
+    func addVersion(
+        console: VaultConsoleInfo, game: VaultGameInfo,
+        save: NewVersionFile, rtc: NewVersionFile?, modifiedAt: Date?
+    ) async throws -> SaveVersion
+    /// Copies the files of a version into a new folder under `directory`.
+    func export(deviceId: String, gameId: String, versionId: String, to directory: URL) async throws -> ExportedVersion
+}
+
+extension SaveVault {
+    public func latestVersion(deviceId: String, gameId: String) async throws -> SaveVersion? {
+        try await versions(deviceId: deviceId, gameId: gameId).first
+    }
+}
