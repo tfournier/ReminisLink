@@ -499,3 +499,36 @@ func TestLoadUploadsDropsBrokenOnes(t *testing.T) {
 		t.Errorf("leftovers %v", des)
 	}
 }
+
+// Codex review of M4: an overwrite whose new file cannot be renamed in
+// place leaves neither an empty slot nor the old ROM purgeable: the old ROM
+// goes back at once and the upload can be completed again.
+func TestOverwriteRenameFailurePutsTheROMBack(t *testing.T) {
+	e := newEnv(t)
+	old := e.read("Roms/" + gbaSystem + "/Starlight Courier.gba")
+	data := randomBytes(t, 3000)
+	id := e.uploaded(romTarget("Starlight Courier.gba"), data, ConflictOverwrite)
+	e.trash.SetRename(func(oldpath, newpath string) error {
+		if strings.HasSuffix(oldpath, partExt) {
+			return errors.New("simulated rename failure")
+		}
+		return os.Rename(oldpath, newpath)
+	})
+	if _, apiErr, err := e.svc.CompleteUpload(id); apiErr == nil && err == nil {
+		t.Fatal("expected a failure")
+	}
+	if e.read("Roms/"+gbaSystem+"/Starlight Courier.gba") != old {
+		t.Fatal("old ROM not put back")
+	}
+	if entries, _, _ := e.trash.List(); len(entries) != 0 {
+		t.Fatalf("trash entry kept: %+v", entries)
+	}
+	e.trash.SetRename(os.Rename)
+	e.complete(id)
+	if e.read("Roms/"+gbaSystem+"/Starlight Courier.gba") != string(data) {
+		t.Fatal("upload not completed on the second try")
+	}
+	if entries, _, _ := e.trash.List(); len(entries) != 1 {
+		t.Fatalf("old ROM not in the trash: %+v", entries)
+	}
+}

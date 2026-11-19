@@ -427,7 +427,14 @@ func TestPatchRenameFailurePutsTheROMBack(t *testing.T) {
 	e := newEnv(t)
 	src, tgt := e.patchFixture(8192)
 	st := e.stage("hack.bps", testutil.EncodeBPS(src, tgt))
-	e.svc.rename = func(string, string) error { return errors.New("simulated rename failure") }
+	// The patched file cannot be renamed in place (the ROM already went
+	// to the trash).
+	e.trash.SetRename(func(oldpath, newpath string) error {
+		if strings.HasSuffix(oldpath, partExt) {
+			return errors.New("simulated rename failure")
+		}
+		return os.Rename(oldpath, newpath)
+	})
 	j := e.patchJob(courier, stagingPatch(st), &PatchOutput{Mode: ptr(OutputReplace)})
 	if j.State != JobFailed || j.Error.Code != CodeInternal {
 		t.Fatalf("%+v %+v", j, j.Error)
@@ -451,6 +458,13 @@ func TestPatchRenameFailurePutsTheROMBack(t *testing.T) {
 // would: the marker written, the ROM moved to the trash (when moved), the
 // patched file present (when written).
 func (e *env) interruptedReplace(patched []byte, moved, withTemp bool) (tmp, marker string) {
+	return e.interruptedReplaceID(patched, moved, withTemp, true)
+}
+
+// interruptedReplaceID is interruptedReplace; recordID false leaves the
+// first version of the marker (written before the move, without the id of
+// the trash entry), as a power cut right after the move leaves it.
+func (e *env) interruptedReplaceID(patched []byte, moved, withTemp, recordID bool) (tmp, marker string) {
 	e.t.Helper()
 	dir := e.layout.UploadsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -468,7 +482,9 @@ func (e *env) interruptedReplace(patched []byte, moved, withTemp bool) (tmp, mar
 		if err != nil {
 			e.t.Fatal(err)
 		}
-		p.TrashEntryID = res.Entry.ID
+		if recordID {
+			p.TrashEntryID = res.Entry.ID
+		}
 	}
 	marker = pendingPath(tmp)
 	if err := store.WriteJSONAtomic(marker, p); err != nil {
@@ -515,6 +531,20 @@ func TestPatchPowerCutDuringReplace(t *testing.T) {
 			if entries, _, _ := e.trash.List(); len(entries) != 0 {
 				t.Fatalf("entry kept: %+v", entries)
 			}
+		}
+	})
+	t.Run("marker without the trash entry: original found and put back", func(t *testing.T) {
+		// Codex review of M6: the move succeeded but the marker kept its
+		// first version (no trashEntryId); the patched file is missing.
+		e := newEnv(t)
+		src, tgt := e.patchFixture(4096)
+		tmp, marker := e.interruptedReplaceID(tgt, true, false, false)
+		e.restart()
+		if e.read("Roms/"+courier) != string(src) || fileExists(marker) || fileExists(tmp) {
+			t.Fatal("original ROM not put back from the trash")
+		}
+		if entries, _, _ := e.trash.List(); len(entries) != 0 {
+			t.Fatalf("entry kept: %+v", entries)
 		}
 	})
 	t.Run("ROM never moved", func(t *testing.T) {

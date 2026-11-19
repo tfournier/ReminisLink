@@ -454,7 +454,9 @@ func (s *Service) installPatch(j patchJob, before os.FileInfo, tmp string, info 
 }
 
 // patchPending is the marker of a replace being installed
-// (uploads/pt_<hex>.pending.json).
+// (uploads/pt_<hex>.pending.json), written by the pak up to M7. A
+// replacement is now journaled in its trash entry (store.Trash.Replace);
+// the markers left by an older pak are still finished at start.
 type patchPending struct {
 	Version      int    `json:"version"`
 	Temp         string `json:"temp"` // file name in uploads/
@@ -466,43 +468,26 @@ type patchPending struct {
 
 func pendingPath(tmp string) string { return strings.TrimSuffix(tmp, partExt) + pendingExt }
 
-// replaceROM backs up the save, moves the ROM to the trash and renames tmp
-// to its place, with a marker on the card for a power cut in between. If
-// the rename fails, the ROM is put back. keep reports that tmp must stay
-// (installed, or referenced by a marker left for the next start).
+// replaceROM backs up the save, then moves the ROM to the trash and
+// renames tmp to its place as one journaled replacement: a power cut in
+// between is finished (the patched file is complete) or rolled back at
+// the next start, and the original is never purged before; a failed
+// rename puts the ROM back at once. keep reports that tmp must stay
+// (installed, or referenced by the trash entry for the next start).
 func (s *Service) replaceROM(g osadapter.Game, romPath, tmp string, info patch.Info) (keep bool, err error) {
 	if _, err := s.opts.Saves.BackupLocked(g, saves.ReasonBeforePatch); err != nil {
 		return false, fmt.Errorf("save backup: %w", err)
 	}
-	marker := pendingPath(tmp)
-	pending := patchPending{Version: 1, Temp: filepath.Base(tmp), Dest: s.relToSD(romPath), Size: info.TargetSize, CRC32: info.TargetCRC32}
-	if err := store.WriteJSONAtomic(marker, pending); err != nil {
-		return false, err
-	}
-	res, err := s.opts.Trash.Move(store.ReasonReplaceROM, g.Name, []store.MoveItem{{Path: romPath}})
-	if err != nil {
-		os.Remove(marker) // nothing moved (Move is all or nothing)
-		return false, err
-	}
-	pending.TrashEntryID = res.Entry.ID
-	if err := store.WriteJSONAtomic(marker, pending); err != nil {
-		// The first marker still tells the next start what to do.
-		s.log.Warn("patch: cannot record the trash entry in the marker", "error", err)
-	}
-	if err := s.rename(tmp, romPath); err != nil {
-		if uerr := s.opts.Trash.Undo(res.Entry.ID); uerr != nil {
-			// The ROM stays in the trash; the marker and tmp stay for the
-			// next start, which finishes the installation.
-			s.log.Error("patch: cannot put the ROM back from the trash", "entry", res.Entry.ID, "error", uerr)
-			return true, fmt.Errorf("rename patched ROM: %w", err)
-		}
-		os.Remove(marker)
-		s.log.Warn("patch: rename failed, original ROM put back", "rom", pending.Dest)
+	_, err = s.opts.Trash.Replace(store.ReasonReplaceROM, g.Name, []store.MoveItem{{Path: romPath}},
+		[]store.Install{{Src: tmp, Dst: romPath, Size: info.TargetSize}})
+	switch {
+	case errors.Is(err, store.ErrReplaceFailed):
+		s.log.Error("patch: replacement left for the next start", "rom", s.relToSD(romPath), "error", err)
+		return true, fmt.Errorf("rename patched ROM: %w", err)
+	case err != nil:
+		s.log.Warn("patch: rename failed, original ROM put back", "rom", s.relToSD(romPath))
 		return false, fmt.Errorf("rename patched ROM (original put back): %w", err)
 	}
-	store.SyncDir(filepath.Dir(romPath))
-	store.SyncDir(filepath.Dir(tmp))
-	os.Remove(marker)
 	return true, nil
 }
 
@@ -576,10 +561,16 @@ func (s *Service) recoverPatch(marker string) (done bool) {
 		s.log.Info("patch: interrupted installation finished", "rom", p.Dest)
 		return true
 	}
-	// No usable patched file: the original goes back.
+	// No usable patched file: the original goes back. A marker written
+	// before the move recorded its entry has no id: the entry is found by
+	// the ROM it holds (the most recent replace-rom entry of that path).
 	if p.TrashEntryID == "" {
-		s.log.Warn("patch: interrupted installation, patched file missing; the original ROM is in the trash", "rom", p.Dest)
-		return true
+		id, ok := s.opts.Trash.FindMove(store.ReasonReplaceROM, p.Dest)
+		if !ok {
+			s.log.Warn("patch: interrupted installation, patched file missing and no trash entry holds the ROM", "rom", p.Dest)
+			return true
+		}
+		p.TrashEntryID = id
 	}
 	if err := s.opts.Trash.Undo(p.TrashEntryID); err != nil {
 		s.log.Error("patch: cannot put the original ROM back; it stays in the trash", "rom", p.Dest, "entry", p.TrashEntryID, "error", err)
