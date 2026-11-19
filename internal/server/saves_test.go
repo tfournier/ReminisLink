@@ -84,3 +84,27 @@ func TestSaveClockRoute(t *testing.T) {
 	wantCode(t, f.do(http.MethodGet, gamePath(gbaFolder+"/Nope.gba")+"/save/rtc", path, nil, http.StatusNotFound), CodeNotFound)
 	wantCode(t, f.do(http.MethodGet, "/api/v1/games/%2E%2E/save/rtc", path, nil, http.StatusBadRequest), CodeInvalidID)
 }
+
+// A clock file behind a linked tag folder (outside Saves/ or inside it)
+// is never served.
+func TestSaveClockRouteRefusesLinkedFolder(t *testing.T) {
+	f := newFixture(t)
+	const path = "/games/{gameId}/save/rtc"
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "Starlight Courier.gba.rtc"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gbaSaves := filepath.Join(f.sd, "Saves/GBA")
+	if err := os.Rename(gbaSaves, filepath.Join(f.sd, "Saves/GBA real")); err != nil {
+		t.Fatal(err)
+	}
+	f.writeSD("Saves/GBA real/Starlight Courier.gba.rtc", "clock")
+	for _, target := range []string{outside, "GBA real"} {
+		os.Remove(gbaSaves)
+		if err := os.Symlink(target, gbaSaves); err != nil {
+			t.Skipf("no symbolic links here: %v", err)
+		}
+		r := f.do(http.MethodGet, gamePath(scPath)+"/save/rtc", path, nil, http.StatusNotFound)
+		wantCode(t, r, CodeNotFound)
+	}
+}

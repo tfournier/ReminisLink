@@ -437,7 +437,11 @@ func (s *Service) OpenClock(g osadapter.Game) (*os.File, string, error) {
 	if files.RTC == nil {
 		return nil, "", ErrNoClock
 	}
-	f, err := os.Open(files.RTC.Path)
+	f, err := s.openSavesFile(files.RTC.Path)
+	if errors.Is(err, errOutside) {
+		s.o.Logger.Warn("clock file refused: outside the saves folder or reached through a link", "game", g.Path)
+		return nil, "", ErrNoClock
+	}
 	if err != nil {
 		return nil, "", fmt.Errorf("clock file: %w", err)
 	}
