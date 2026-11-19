@@ -989,13 +989,19 @@ extension FakePak {
             "files": moved, "sizeBytes": bytes, "expiresAt": ProtocolJSON.formatDate(now.addingTimeInterval(30 * 86_400)),
         ]
         let key = Self.dataKey(system: system, game: game)
+        // The files as they are now (made from the seed if never read).
+        _ = currentData(system: system, game: game)
         lock.withLock {
             var data = gameData[key]
             gameData[key] = nil
+            // As the pak (internal/library/write.go): the cheats always go
+            // to the trash; the save, the states, their locks and history
+            // too, unless keepSave. What goes is gone for a game sharing
+            // these files: an explicit empty state, never the seed again.
             if keepSave {
                 data?.cheats = []
             } else {
-                data = nil
+                data = FakeGameData(saveModifiedAt: now)
             }
             if let index = _library.systems.firstIndex(where: { $0.id == system.id }) {
                 _library.systems[index].games.removeAll { $0.path == game.path }

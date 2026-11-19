@@ -363,6 +363,43 @@ struct FakePakSharedFilesTests {
     }
 }
 
+extension FakePakSharedFilesTests {
+    /// Deleting one of two games sharing their files: what the deletion
+    /// took (save, states, cheats; only cheats with keepSave) is gone for
+    /// the other, as on the pak.
+    @Test(arguments: [false, true])
+    func deletingOneGameLeavesTheOtherWithWhatWasKept(keepSave: Bool) async throws {
+        let base = Date(timeIntervalSince1970: 1_790_000_000)
+        let library = DemoLibrary(systems: [
+            DemoLibrary.System(folder: "Game Boy Advance (GBA)", label: "Game Boy Advance", tag: "GBA", games: [
+                DemoLibrary.Game(path: "Europe/Twin Quest.gba", sizeBytes: 1024, modifiedAt: base, hasSave: true, stateSlots: [0], cheatCount: 1),
+                DemoLibrary.Game(path: "USA/Twin Quest.gba", sizeBytes: 1024, modifiedAt: base, hasSave: true, stateSlots: [0], cheatCount: 1),
+            ]),
+        ])
+        let pak = FakePak(host: "twin-\(UUID().uuidString.lowercased()).test", library: library)
+        pak.register()
+        let client = try await pairedClient(pak)
+        let europe = DemoLibrary.id("Game Boy Advance (GBA)/Europe/Twin Quest.gba")
+        let usa = DemoLibrary.id("Game Boy Advance (GBA)/USA/Twin Quest.gba")
+        pak.play(gameId: usa, content: Data("shared progress".utf8))
+
+        _ = try await client.deleteGame(id: europe, keepSave: keepSave)
+        let saves = try await client.saves().saves
+        let states = try await client.states(gameId: usa).slots
+        let cheats = try await client.cheats(gameId: usa).cheats
+        #expect(cheats.isEmpty)
+        if keepSave {
+            #expect(saves.map(\.gameId) == [usa])
+            #expect(saves.first?.sha256 == sha256Hex(Data("shared progress".utf8)))
+            #expect(!states.isEmpty)
+        } else {
+            #expect(saves.isEmpty)
+            #expect(states.isEmpty)
+            await #expect(throws: APIError.self) { try await client.downloadSave(gameId: usa, into: downloadsDirectory()) }
+        }
+    }
+}
+
 @Suite("Save listing timeout (M9)")
 struct SaveListingTimeoutTests {
     /// The pak answers `GET /saves` only once every save is hashed: the
