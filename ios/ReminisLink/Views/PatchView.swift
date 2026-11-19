@@ -377,11 +377,24 @@ private struct PatchFormSections: View {
             .disabled(locked)
             .accessibilityIdentifier("patch.mode")
             if flow.mode == .newFile {
-                TextField("File Name", text: $flow.fileName)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .disabled(locked)
-                    .accessibilityIdentifier("patch.fileName")
+                HStack {
+                    TextField("File Name", text: $flow.fileName)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .disabled(locked)
+                        .accessibilityIdentifier("patch.fileName")
+                    if !flow.fileName.isEmpty && !locked {
+                        Button {
+                            flow.fileName = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel(Text("Clear"))
+                        .accessibilityIdentifier("patch.clearName")
+                    }
+                }
             } else {
                 Label {
                     Text("The original ROM goes to the trash of the console. The save, the states and the cheats are kept.")

@@ -64,12 +64,17 @@ final class PatchUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["patch.file"].firstMatch.waitForExistence(timeout: 10), "shared file not shown")
         let name = app.textFields["patch.fileName"]
         XCTAssertEqual(name.value as? String, "Sky Garden Quest (patched).gba")
+        // Without extension: the ROM's is added (shown, then sent).
+        replaceText(of: name, with: "Sky Garden Quest DX")
+        let finalName = app.staticTexts["patch.finalName"]
+        XCTAssertTrue(finalName.waitForExistence(timeout: 5))
+        XCTAssertTrue(finalName.label.contains("Sky Garden Quest DX.gba"), finalName.label)
         attachScreenshot(of: app, named: "patch-shared")
         app.buttons["patch.apply"].tapWhenEnabled()
         app.buttons["patch.openGame"].tapAfterWaiting(timeout: 30)
         let title = app.staticTexts["game.title"]
         XCTAssertTrue(title.waitForExistence(timeout: 15))
-        XCTAssertEqual(title.label, "Sky Garden Quest (patched)")
+        XCTAssertEqual(title.label, "Sky Garden Quest DX")
     }
 
     /// Against a real pak (`make headless`), on Starlight Courier
@@ -151,13 +156,27 @@ final class PatchUITests: XCTestCase {
         XCTAssertTrue(app.buttons["patch.apply"].waitForExistence(timeout: timeout), "Patch screen not shown")
     }
 
+    /// Replaces the name of the new file: clears it with its Clear
+    /// button, waits until the field really has the keyboard focus (a tap
+    /// during a sheet animation is lost), then types.
     @MainActor
-    private func replaceText(of field: XCUIElement, with text: String) {
-        // The cursor at the end of the text.
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
-        let current = field.value as? String ?? ""
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
+    private func replaceText(of field: XCUIElement, with text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let app = XCUIApplication()
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "no field", file: file, line: line)
+        let clear = app.buttons["patch.clearName"]
+        if clear.waitForExistence(timeout: 3) { clear.tap() }
+        XCTAssertTrue((field.value as? String ?? "").isEmpty || field.value as? String == field.placeholderValue,
+                      "field not cleared", file: file, line: line)
+        let focused = NSPredicate(format: "hasKeyboardFocus == true")
+        var hasFocus = false
+        for _ in 0..<5 where !hasFocus {
+            if !field.isHittable { app.swipeUp() }
+            field.tap()
+            hasFocus = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: focused, object: field)], timeout: 2) == .completed
+        }
+        XCTAssertTrue(hasFocus, "the field never got the keyboard focus", file: file, line: line)
         field.typeText(text)
+        XCTAssertEqual(field.value as? String, text, file: file, line: line)
     }
 
     /// CRC-32 (IEEE), to describe the source of the next patch.

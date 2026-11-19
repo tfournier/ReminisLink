@@ -781,6 +781,16 @@
         }
       }
     },
+    "Clear" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effacer"
+          }
+        }
+      }
+    },
     "Clear Finished" : {
       "localizations" : {
         "fr" : {
