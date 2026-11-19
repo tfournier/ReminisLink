@@ -1,0 +1,5 @@
+First version of ReminisLink.
+• Pair with your handheld by scanning its QR code
+• Browse your library and add your own games, saves, patches and cheat files
+• Back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches
+• Nothing is lost: deleted games go to the trash of the handheld, replaced saves get a backup copy

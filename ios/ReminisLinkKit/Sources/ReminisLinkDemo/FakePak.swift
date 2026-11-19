@@ -148,7 +148,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     public var discoveredDevice: DiscoveredDevice {
         DiscoveredDevice(
             id: deviceId, name: deviceName, model: model, platform: "tg5040", os: "nextui",
-            osVersion: "6.14.0", pakVersion: "1.0.0", apiVersion: apiVersion,
+            osVersion: "NextUI-20261013-039a06de", pakVersion: "1.0.0", apiVersion: apiVersion,
             service: BonjourService(name: deviceName), fixedEndpoint: endpoint
         )
     }
@@ -432,7 +432,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     private func hello() -> FakeResponse {
         .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
-            "platform": "tg5040", "os": "nextui", "osVersion": "6.14.0", "pakVersion": "1.0.0",
+            "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
             "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": true,
         ])
@@ -482,7 +482,7 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         }
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
-            "platform": "tg5040", "os": "nextui", "osVersion": "6.14.0", "pakVersion": "1.0.0",
+            "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "network": ["ipv4": "192.168.1.42", "ssid": "DemoNet"],
             "battery": ["percent": 78, "charging": false],
             "storage": [["id": "sd", "label": "SD", "totalBytes": 127_865_454_592, "freeBytes": freeBytes]],
@@ -495,7 +495,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
         let list = library.systems
             .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
             .map { s -> [String: Any] in
-                ["id": s.id, "label": s.label, "folder": s.folder, "tag": s.tag, "gameCount": s.games.count]
+                ["id": s.id, "label": s.label, "folder": s.folder, "tag": s.tag, "gameCount": s.games.count,
+                 "emulatorInstalled": s.emulatorInstalled]
             }
         return .json(200, ["systems": list])
     }

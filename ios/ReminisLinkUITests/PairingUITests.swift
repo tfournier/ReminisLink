@@ -37,6 +37,32 @@ final class PairingUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba"].waitForExistence(timeout: 10))
     }
 
+    /// The dashboard shows the NextUI release string as the pak sends it
+    /// (decision D4), and the library marks a system without an emulator
+    /// but keeps it open (decision D6).
+    @MainActor
+    func testReleaseStringAndSystemWithoutEmulatorInDemoMode() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["RL_DEMO"] = "1"
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["welcome"].waitForExistence(timeout: 10))
+        app.open(URL(string: Self.demoLink)!)
+        try pairAndOpenConsole(app, deviceId: Self.demoDeviceId)
+
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS 'NextUI-20261013-039a06de'")).firstMatch
+            .waitForExistence(timeout: 10))
+        app.buttons["console.library"].tapWhenEnabled()
+        let playStation = app.buttons["system.PS"]
+        XCTAssertTrue(playStation.waitForExistence(timeout: 10))
+        XCTAssertTrue(playStation.label.contains("Emulator not installed on the console"), playStation.label)
+        XCTAssertFalse(app.buttons["system.GBA"].label.contains("Emulator"), app.buttons["system.GBA"].label)
+        attachScreenshot(app, "systems")
+        playStation.tapAfterWaiting()
+        XCTAssertTrue(app.buttons["game.Starlight Saga"].waitForExistence(timeout: 10))
+    }
+
     /// Pairing again a console that is already paired asks first, once the
     /// add sheet is closed.
     @MainActor

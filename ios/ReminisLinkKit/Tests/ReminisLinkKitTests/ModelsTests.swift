@@ -11,7 +11,7 @@ struct ModelsTests {
     @Test func helloFromContractExample() throws {
         let hello = try decode(Hello.self, """
         {"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"Brick de Thomas","model":"brick",
-         "platform":"tg5040","os":"nextui","osVersion":"6.14.0","pakVersion":"1.0.0","apiVersion":1,
+         "platform":"tg5040","os":"nextui","osVersion":"NextUI-20261013-039a06de","pakVersion":"1.0.0","apiVersion":1,
          "minClientVersion":"1.0.0","serverTime":"2026-11-18T17:00:00Z","pairingOpen":true}
         """)
         #expect(hello.model == .brick)
@@ -38,7 +38,7 @@ struct ModelsTests {
     @Test func deviceConnectedClients() throws {
         let device = try decode(DeviceStatus.self, """
         {"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"Brick","model":"brick",
-         "platform":"tg5040","os":"nextui","osVersion":"6.14.0","pakVersion":"1.0.0",
+         "platform":"tg5040","os":"nextui","osVersion":"NextUI-20261013-039a06de","pakVersion":"1.0.0",
          "network":{"ipv4":"192.168.1.42","ssid":"MaBox"},"battery":{"percent":78,"charging":false},
          "storage":[],"uptimeSeconds":512,
          "connectedClients":[{"clientName":"iPhone de Thomas","lastSeenAt":"2026-11-18T17:00:00Z","extra":1}]}
@@ -51,10 +51,22 @@ struct ModelsTests {
     @Test func deviceWithoutConnectedClientsIsTolerated() throws {
         let device = try decode(DeviceStatus.self, """
         {"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"Brick","model":"brick",
-         "platform":"tg5040","os":"nextui","osVersion":"6.14.0","pakVersion":"1.0.0",
+         "platform":"tg5040","os":"nextui","osVersion":"NextUI-20261013-039a06de","pakVersion":"1.0.0",
          "network":{"ipv4":"192.168.1.42","ssid":null},"battery":null,"storage":[],"uptimeSeconds":1}
         """)
         #expect(device.connectedClients.isEmpty)
+    }
+
+    @Test func systemEmulatorInstalledDefaultsToTrue() throws {
+        let list = try decode(SystemList.self, """
+        {"systems":[
+          {"id":"R0JB","label":"Game Boy Advance","folder":"Game Boy Advance (GBA)","tag":"GBA","gameCount":42},
+          {"id":"UFM","label":"Sony PlayStation","folder":"Sony PlayStation (PS)","tag":"PS","gameCount":1,
+           "emulatorInstalled":false},
+          {"id":"R0I","label":"Game Boy","folder":"Game Boy (GB)","tag":"GB","gameCount":2,"emulatorInstalled":true}
+        ]}
+        """)
+        #expect(list.systems.map(\.emulatorInstalled) == [true, false, true])
     }
 
     @Test func gameListingKeepsUnknownKinds() throws {

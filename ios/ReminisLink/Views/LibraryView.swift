@@ -17,11 +17,20 @@ struct LibraryView: View {
                 NavigationLink(value: Route.folder(FolderRoute(
                     deviceId: deviceId, systemId: system.id, systemLabel: system.label, folderId: nil, title: system.label
                 ))) {
-                    LabeledContent {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(system.label)
+                            if !system.emulatorInstalled {
+                                Text("Emulator not installed on the console")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
                         Text("\(system.gameCount) games")
-                    } label: {
-                        Text(system.label)
+                            .foregroundStyle(.secondary)
                     }
+                    .accessibilityElement(children: .combine)
                 }
                 .accessibilityIdentifier("system.\(system.tag)")
             }

@@ -7,7 +7,7 @@ import Testing
 struct DiscoveryTests {
     let id = "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10"
     let txt = ["v": "1", "id": "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "api": "1", "model": "brick",
-               "platform": "tg5040", "os": "nextui", "osv": "6.14.0", "cv": "1.0.0"]
+               "platform": "tg5040", "os": "nextui", "osv": "NextUI-20261013-039a06de", "cv": "1.0.0"]
 
     func device(_ id: String, _ name: String) -> DiscoveredDevice {
         DiscoveredDevice(id: id, name: name, model: .brick, service: BonjourService(name: name))
@@ -19,7 +19,7 @@ struct DiscoveryTests {
         #expect(d.name == "Brick de Thomas")
         #expect(d.model == .brick)
         #expect(d.platform == "tg5040")
-        #expect(d.osVersion == "6.14.0")
+        #expect(d.osVersion == "NextUI-20261013-039a06de")
         #expect(d.pakVersion == "1.0.0")
         #expect(d.apiVersion == 1)
         #expect(d.isCompatible)

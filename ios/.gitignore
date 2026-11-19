@@ -1,0 +1,4 @@
+# Personal signing settings (see README.md, "Release").
+Config/Local.xcconfig
+# Archives made by hand.
+/build/

@@ -199,13 +199,30 @@ public struct GameSystem: Codable, Sendable, Equatable, Hashable, Identifiable {
     public let folder: String
     public let tag: String
     public let gameCount: Int
+    /// False when the console has no emulator for this system (NextUI then
+    /// hides its folder). Its games can still be managed. A pak that does not
+    /// send the field is taken as having the emulator.
+    public let emulatorInstalled: Bool
 
-    public init(id: String, label: String, folder: String, tag: String, gameCount: Int) {
+    public init(
+        id: String, label: String, folder: String, tag: String, gameCount: Int, emulatorInstalled: Bool = true
+    ) {
         self.id = id
         self.label = label
         self.folder = folder
         self.tag = tag
         self.gameCount = gameCount
+        self.emulatorInstalled = emulatorInstalled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        label = try c.decode(String.self, forKey: .label)
+        folder = try c.decode(String.self, forKey: .folder)
+        tag = try c.decode(String.self, forKey: .tag)
+        gameCount = try c.decode(Int.self, forKey: .gameCount)
+        emulatorInstalled = try c.decodeIfPresent(Bool.self, forKey: .emulatorInstalled) ?? true
     }
 }
 

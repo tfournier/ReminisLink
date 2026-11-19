@@ -3,10 +3,13 @@
 | Path | Content |
 |---|---|
 | `ReminisLink.xcodeproj` | App, share extension and UI tests (hand-written project, see below) |
-| `Config/Config.xcconfig` | Identifier prefix and versions shared by every target |
-| `Config/*-Info.plist`, `Config/*.entitlements` | Info.plist keys and capabilities of docs/specs/06-app-ios.md §3 |
-| `ReminisLink/` | SwiftUI app: `App/` (state, pairing, connections, errors), `Views/`, `Resources/` (String Catalogs EN + FR, assets) |
+| `Config/Config.xcconfig` | Identifier prefix, team and versions shared by every target |
+| `Config/*-Info.plist`, `Config/*.entitlements` | Info.plist keys (launch screen included) and capabilities of docs/specs/06-app-ios.md §3 |
+| `Config/ExportOptions.plist` | Options of `xcodebuild -exportArchive` for App Store Connect (see "Release") |
+| `ReminisLink/` | SwiftUI app: `App/` (state, pairing, connections, errors), `Views/`, `Resources/` (String Catalogs EN + FR, assets, privacy manifest) |
 | `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
+| `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
+| `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
 | `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch) |
 | `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`) and `ReminisLinkDemo` (fake pak, M4, M5 and M6 routes included) |
 
@@ -18,9 +21,108 @@ cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulat
 ```
 
 No Apple Developer account is needed for the simulator. To run on a device,
-set `RL_BUNDLE_PREFIX` (your reverse-DNS prefix) and `DEVELOPMENT_TEAM` in
-`Config/Config.xcconfig`: the bundle ids, the app group and the shared
-Keychain group all derive from the prefix.
+set `DEVELOPMENT_TEAM` in `Config/Local.xcconfig` (see "Release" below).
+
+## Release (TestFlight and App Store)
+
+The identifiers are fixed in `Config/Config.xcconfig` (app `link.reminis.app`,
+from the product domain reminis.link); the signing team is not in the
+repository. Nothing is ever uploaded by a script of the repository.
+
+### 1. Identifiers and team
+
+Find your Team ID (developer.apple.com > Account > Membership details) and
+put it in `Config/Local.xcconfig` (ignored by Git, included last by
+`Config.xcconfig`):
+
+```
+DEVELOPMENT_TEAM = ABCDE12345
+```
+
+The identifiers are the app `link.reminis.app`, the extension
+`link.reminis.app.share`, the app group `group.link.reminis.app` and the
+Keychain group `<Team ID>.link.reminis.app.shared`. Never change them once
+the app is published: a new identifier is a new app for the App Store, and
+installed copies lose their pairings. The seller name shown on the App Store
+is the one of the account that publishes the app, not the identifier.
+
+Signing is automatic. Open the project in Xcode once, select the
+`ReminisLink` and `ReminisLinkShare` targets in *Signing & Capabilities*
+and check that Xcode registered the two App IDs and the App Group without
+error (it may ask to sign in with the Apple Developer account in *Settings >
+Accounts*).
+
+### 2. App Store Connect record
+
+In App Store Connect, *Apps > + > New App*: platform iOS, name ReminisLink,
+primary language, the bundle id `<prefix>.reminislink`, any SKU. Fill the
+page with the texts of `AppStore/` (see `AppStore/README.md`), the URL of
+the privacy policy (step 5) and "Data Not Collected" for App Privacy.
+
+### 3. Versions
+
+`MARKETING_VERSION` (shown on the App Store, `1.0`) and
+`CURRENT_PROJECT_VERSION` (build number, `1`) are in `Config/Config.xcconfig`
+and shared by the app and the extension. Increase the build number for every
+upload, the version for every release.
+
+### 4. Archive and upload
+
+In Xcode: destination *Any iOS Device (arm64)*, *Product > Archive*, then in
+the Organizer *Distribute App > App Store Connect > Upload*. The build shows
+in TestFlight after Apple's processing; add testers there.
+
+Or from the command line (the upload is a separate, explicit step):
+
+```sh
+cd ios
+xcodebuild archive -scheme ReminisLink -destination 'generic/platform=iOS' \
+  -archivePath build/ReminisLink.xcarchive -allowProvisioningUpdates
+xcodebuild -exportArchive -archivePath build/ReminisLink.xcarchive \
+  -exportOptionsPlist Config/ExportOptions.plist -exportPath build/export \
+  -allowProvisioningUpdates
+# build/export/ReminisLink.ipa: upload it with the Transporter app, or set
+# "destination" to "upload" in a copy of ExportOptions.plist.
+```
+
+Check that the app archives without an account or signing (what the CI
+can do):
+
+```sh
+cd ios
+xcodebuild archive -scheme ReminisLink -destination 'generic/platform=iOS' \
+  -archivePath build/ReminisLink.xcarchive CODE_SIGNING_ALLOWED=NO
+```
+
+At the first upload, App Store Connect asks about encryption: the app uses
+HMAC-SHA256 and HKDF (CryptoKit) to authenticate its requests to the
+console, and sends them over plain HTTP on the local network. Answer the
+questions (and, once the answer is known, add
+`ITSAppUsesNonExemptEncryption` to `Config/ReminisLink-Info.plist` so they
+are not asked again).
+
+### 5. Privacy policy
+
+`docs/privacy.md` (English and French) is plain Markdown. With GitHub Pages
+set to *Deploy from a branch*, `main`, folder `/docs`, it is served at
+`https://<user>.github.io/ReminisLink/privacy` (the rest of `docs/`, the
+specifications included, is published too; publish only this file from
+another branch otherwise). Give that URL to App Store Connect.
+
+### 6. App Review
+
+The demo mode exists in Debug builds only: a reviewer cannot use the app
+without a console. Attach a video of the whole flow and complete
+`AppStore/review_notes.txt` in *App Review Information > Notes*.
+
+### App icon and launch screen
+
+The icon (two links and a pixel trail, no brand) is drawn in
+`Design/AppIcon/*.svg`: light, dark and tinted appearances, and the launch
+screen mark. After a change, run `Design/make-icons.sh` (AppKit renders the
+SVG, nothing to install) and commit the SVG and the PNG files together. The
+launch screen is the `UILaunchScreen` key of `Config/ReminisLink-Info.plist`
+(colour `LaunchBackground`, image `LaunchLogo`).
 
 ## The Xcode project
 
@@ -43,6 +145,10 @@ xcrun simctl openurl booted 'reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c
 ```
 
 The fake pak checks signatures like the real one; its game names are made up.
+Its PlayStation system has no emulator (`emulatorInstalled: false`): the
+library shows it with "Emulator not installed on the console", and it can
+still be managed. A pak that does not send the field is taken as having the
+emulator.
 
 ## Against the pak on the Mac (`make headless`)
 

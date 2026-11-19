@@ -1,0 +1,40 @@
+ReminisLink turns your iPhone into the companion of your retro handheld. Open ReminisLink on the handheld, manage everything from your phone over your home Wi-Fi, close it and play.
+
+BRING YOUR OWN FILES
+ReminisLink does not provide, list or suggest any game. You add the games, saves, patches and cheat files you already own: from the Files app, from the share sheet of any app, or from a link that the handheld downloads itself.
+
+YOUR LIBRARY
+• Every system and game on the SD card, including the ones you copied by hand
+• For each game: size, save, save states, locked states, cheats and box art
+• Search and sort by name, date or size
+
+SAVES
+• Download a save to your iPhone or replace it from Files
+• Make named backup copies and restore them in one tap
+• The current save is always copied before it is replaced or restored
+
+SAVE STATES
+• See every slot with its thumbnail, date and size
+• Lock a state: if a game overwrites it, ReminisLink restores it the next time it opens on the handheld
+• Restore an earlier version of the automatic resume state
+
+CHEATS
+• Turn cheats on or off, edit, reorder and delete them
+• Import cheat files (.cht) from your iPhone, from a link or from the SD card, merged or replacing the list
+
+PATCHES
+• Apply IPS, BPS and UPS patches (translations, fixes, improvements) to a game you own
+• The result goes to a new file by default, or replaces the game after a confirmation
+
+NOTHING IS LOST
+Deleting a game or patching it in place first moves its files to the trash of the handheld, where they stay for at least 30 days: the space is freed only when you empty the trash. Replacing or restoring a save always makes a backup copy first.
+
+SIMPLE AND PRIVATE
+• Pair in one scan of the QR code shown on the handheld. No IP address to type
+• Everything stays on your local network: no account, no server, no analytics, no ads
+• Pairing keys are kept in the iPhone Keychain
+
+REQUIREMENTS
+The free ReminisLink tool must be installed on the handheld (from the Pak Store, or by hand). Version 1.0 works with the TrimUI Brick running NextUI. The iPhone and the handheld must be on the same Wi-Fi network.
+
+ReminisLink is an independent project. TrimUI and NextUI are the names of their respective owners, who are not affiliated with ReminisLink.
