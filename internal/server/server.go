@@ -226,7 +226,9 @@ func (s *Server) routes() http.Handler {
 	signed("DELETE "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleCancelJob)
 
 	// Saves. Only PUT /save takes a larger body (64 MiB).
+	signed("GET "+Prefix+"/saves", auth.RouteJSON, s.handleListSaves)
 	signed("GET "+Prefix+"/games/{gameId}/save", auth.RouteJSON, s.handleGetSave)
+	signed("GET "+Prefix+"/games/{gameId}/save/rtc", auth.RouteJSON, s.handleGetSaveClock)
 	signed("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, s.notify(ChangeSaveReplaced, s.gameName, s.handlePutSave))
 	signed("GET "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleListBackups)
 	signed("POST "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleCreateBackup)

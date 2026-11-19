@@ -125,6 +125,8 @@ func (s *Server) saveError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, saves.ErrNoSave):
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "Save not found", nil)
+	case errors.Is(err, saves.ErrNoClock):
+		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "Clock file not found", nil)
 	case errors.Is(err, saves.ErrBackupNotFound):
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "Backup not found", nil)
 	case errors.Is(err, saves.ErrInvalidBackupID):
@@ -155,6 +157,38 @@ func (s *Server) handleGetSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.sendFile(w, r, f, name, "application/octet-stream")
+}
+
+func (s *Server) handleGetSaveClock(w http.ResponseWriter, r *http.Request) {
+	g, ok := s.game(w, r)
+	if !ok {
+		return
+	}
+	f, name, err := s.opts.Saves.OpenClock(g)
+	if err != nil {
+		s.saveError(w, r, err)
+		return
+	}
+	s.sendFile(w, r, f, name, "application/octet-stream")
+}
+
+// handleListSaves answers GET /saves. A request whose client went away
+// stops without an answer.
+func (s *Server) handleListSaves(w http.ResponseWriter, r *http.Request) {
+	l, err := s.opts.Saves.ListAll(r.Context())
+	if err != nil {
+		if r.Context().Err() != nil {
+			if s.ShuttingDown() {
+				auth.WriteError(w, http.StatusServiceUnavailable, auth.CodeShuttingDown, "Shutting down", nil)
+				return
+			}
+			s.log.Info("save listing cancelled")
+			return
+		}
+		s.internal(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, l)
 }
 
 func (s *Server) handlePutSave(w http.ResponseWriter, r *http.Request) {
