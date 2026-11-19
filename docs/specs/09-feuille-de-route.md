@@ -83,6 +83,20 @@ Décisions du 19/11/2026 (personne) :
 
 **Fait quand** : sync complète puis incrémentale testée contre `make headless`, restauration d'une version, comportement sans iCloud, textes et politique à jour.
 
+## M10 — Un seul appareil en écriture (verrou façon KVM)
+
+Décision du 19/11/2026 (personne) : quand plusieurs iPhones sont connectés, **un seul a la main en écriture**, les autres sont en lecture seule ; la console peut déconnecter ou oublier un appareil. Remplace le risque résiduel « deux clients pendant une suppression » (07 §3).
+
+- **Bail d'écriture** tenu en mémoire par le pak : un seul client à la fois. Le premier client qui fait une opération d'écriture le prend s'il est libre. Il est renouvelé par chaque requête signée de ce client et par un renouvellement explicite (environ toutes les 20 s tant que l'app est au premier plan, et tant qu'un envoi ou un téléchargement du client est en cours). Il expire après **60 s** sans signe de vie ; il est libéré à la fermeture du pak et quand l'app passe en arrière-plan sans transfert en cours.
+- **Lecture seule** pour les autres clients : toutes les routes de lecture, téléchargements et Sync (M9) restent permis ; toute route qui modifie la carte (envoi, suppression, remplacement, restauration, patch, cheats, image, corbeille, verrous) répond **`423 read_only`** avec le nom de l'appareil qui a la main. Les tâches déjà lancées par l'ancien détenteur se terminent ou s'interrompent proprement (envoi mis en pause, jamais perdu).
+- **Prendre la main** depuis l'app, avec confirmation : le bail passe au nouveau client ; l'ancien voit « Lecture seule — <appareil> a pris la main ».
+- **Contrat** : `GET /hello` et `GET /device` indiquent le détenteur (`writer` : nom du client ou `null`) ; route signée pour prendre, renouveler et relâcher le bail ; erreur `423 read_only`. À écrire d'abord dans `protocol/openapi.yaml`.
+- **Console** (05 §7) : dans **Réglages > Appareils**, la liste des appareils appairés avec leur état (connecté, a la main) ; **Déconnecter** (retire le bail et refuse ses requêtes jusqu'à sa prochaine connexion volontaire depuis l'app) et **Oublier** (supprime l'appairage, avec confirmation ; l'appareil devra se réappairer).
+- **App** : bandeau « Lecture seule » et bouton **Prendre la main** ; actions d'écriture désactivées en lecture seule ; message clair après un `423` ou une déconnexion par la console.
+- 07 §3 mis à jour (risque résiduel retiré, nouvelle menace : un client appairé qui prend la main sans arrêt — accepté, car tous les clients appairés sont de confiance).
+
+**Fait quand** : deux clients contre `make headless` (le second en lecture seule, prise de main, expiration du bail, déconnexion et oubli depuis l'interface), tests des deux côtés, revue croisée.
+
 ## Après la v1 (idées, non engagées)
 
 - Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli.
