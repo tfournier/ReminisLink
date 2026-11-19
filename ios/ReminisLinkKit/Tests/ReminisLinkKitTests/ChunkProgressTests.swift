@@ -49,6 +49,26 @@ struct ChunkProgressTests {
         #expect(sent.last == Int64(length))
     }
 
+    /// The session reports the bytes sent asynchronously: the delegate
+    /// closes them when the request ends, with the whole body, and drops
+    /// late or out-of-order callbacks.
+    @Test func theDelegateClosesTheReportsWhenTheRequestEnds() {
+        let reports = Reports()
+        let delegate = PakTaskDelegate(onSent: { reports.addSent($0) })
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        let task = session.dataTask(with: URL(string: "http://127.0.0.1:9/")!)
+        func send(_ total: Int64) {
+            delegate.urlSession(session, task: task, didSendBodyData: 1, totalBytesSent: total, totalBytesExpectedToSend: 10)
+        }
+        send(3)
+        send(2) // out of order
+        delegate.finish(totalBytesSent: 10)
+        send(7) // late
+        delegate.finish(totalBytesSent: 12) // once only
+        #expect(reports.sentBytes == [3, 10])
+    }
+
     /// The upload numbers its chunk attempts, reports their bytes, and the
     /// confirmed offset after each attempt, also after a failed one.
     @Test func theUploadReportsTheChunksAndTheConfirmedOffsets() async throws {

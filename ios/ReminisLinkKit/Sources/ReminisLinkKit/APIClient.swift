@@ -609,12 +609,26 @@ public actor APIClient {
                 try await session.data(for: request, delegate: delegate)
             }
             guard let http = response as? HTTPURLResponse else {
+                delegate.finish(totalBytesSent: nil)
                 throw APIError.invalidResponse("not an HTTP response")
+            }
+            // The send reports reach the delegate asynchronously: close them
+            // before returning so that a caller sees all of them, in order,
+            // ending with the whole body once the pak accepted it.
+            if let bodyFile, (200..<300).contains(http.statusCode) {
+                let size = (try? bodyFile.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+                delegate.finish(totalBytesSent: size)
+            } else {
+                delegate.finish(totalBytesSent: nil)
             }
             return (data, http)
         } catch let error as URLError {
+            delegate.finish(totalBytesSent: nil)
             if error.code == .cancelled { throw CancellationError() }
             throw APIError.network(error.code)
+        } catch {
+            delegate.finish(totalBytesSent: nil)
+            throw error
         }
     }
 
@@ -692,12 +706,30 @@ public actor APIClient {
 ///   redirection would send the request again outside the signing loop
 ///   (without a new nonce), possibly with its body, and possibly off the
 ///   local network.
-/// - `onSent` reports the body bytes sent so far (upload chunks).
-final class PakTaskDelegate: NSObject, URLSessionTaskDelegate, Sendable {
+/// - `onSent` reports the body bytes sent so far (upload chunks): growing
+///   only, and never after ``finish(totalBytesSent:)``.
+final class PakTaskDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     private let onSent: (@Sendable (Int64) -> Void)?
+    private let lock = NSLock()
+    private var reported: Int64 = 0
+    private var finished = false
 
     init(onSent: (@Sendable (Int64) -> Void)? = nil) {
         self.onSent = onSent
+    }
+
+    /// Closes the reports of the request: a last one with `totalBytesSent`
+    /// when it is more than what was reported, then none (a late callback
+    /// from the session is dropped).
+    func finish(totalBytesSent: Int64?) {
+        lock.withLock {
+            guard !finished else { return }
+            finished = true
+            if let totalBytesSent, totalBytesSent > reported {
+                reported = totalBytesSent
+                onSent?(totalBytesSent)
+            }
+        }
     }
 
     func urlSession(
@@ -711,7 +743,12 @@ final class PakTaskDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         _ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
         totalBytesSent: Int64, totalBytesExpectedToSend: Int64
     ) {
-        onSent?(totalBytesSent)
+        guard let onSent else { return }
+        lock.withLock {
+            guard !finished, totalBytesSent > reported else { return }
+            reported = totalBytesSent
+            onSent(totalBytesSent)
+        }
     }
 }
 
