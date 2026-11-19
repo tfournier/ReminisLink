@@ -474,10 +474,11 @@ func (a *App) withdraw() {
 //  3. the trash credit clock is saved and the SD card is synced: what is
 //     written is on the card;
 //  4. then the rest, which a SIGKILL may cut without harm (every write is
-//     atomic and resumed at the next start): the running requests get up
-//     to server.ShutdownTimeout, the network watch and the announcement
-//     stop, the running download is cancelled (its partial file deleted),
-//     and the card is synced again.
+//     atomic and resumed at the next start): the network watch and the
+//     announcement stop (the Bonjour goodbye never waits for the requests
+//     nor the event streams), the running requests get up to
+//     server.ShutdownTimeout, the running download is cancelled (its
+//     partial file deleted), and the card is synced again.
 //
 // It returns the error of the server, if any. Safe to call more than once
 // and from several goroutines: the later calls wait for the first one.
@@ -505,16 +506,17 @@ func (a *App) shutdown(reason string) error {
 		a.stopCredit()
 		syscall.Sync()
 
-		if a.cancel != nil {
-			a.cancel()
-			<-a.served
-			a.stopErr = a.serveErr
-		}
+		// The watch first: it could announce again.
 		if a.stopWatch != nil {
 			close(a.stopWatch)
 			<-a.watchDone
 		}
 		a.withdraw()
+		if a.cancel != nil {
+			a.cancel()
+			<-a.served
+			a.stopErr = a.serveErr
+		}
 		a.xfer.Close()
 		syscall.Sync()
 		a.log.Info("ReminisLink stopped")

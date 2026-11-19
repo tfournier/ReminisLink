@@ -15,6 +15,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/auth"
 	"github.com/tfournier/ReminisLink/internal/discovery"
+	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -724,5 +725,61 @@ func TestShutdownEvent(t *testing.T) {
 				t.Fatalf("still announced: %v", active)
 			}
 		})
+	}
+}
+
+// The Bonjour goodbye does not wait for the server: with a request stuck
+// (its body never comes, the server would wait server.ShutdownTimeout),
+// the announcement is withdrawn at once.
+func TestShutdownWithdrawsBeforeTheServerStops(t *testing.T) {
+	bj := &fakeBonjour{}
+	a, _ := openTest(t, Options{Mode: "test", Port: freePort(t), Name: "Brick", Pairing: PairingAlways})
+	a.announce = bj.announce
+	if err := a.Maintain(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	addr := "127.0.0.1:" + itoa(a.Port())
+	c := testutil.PairClient(t, a.clients, "http://"+addr)
+	body := make([]byte, 1<<20)
+	target := "/api/v1/games/" + library.EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba") + "/save"
+	req := c.Request(t, "PUT", target, body)
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	var raw strings.Builder
+	raw.WriteString("PUT " + target + " HTTP/1.1\r\nHost: x\r\nContent-Length: " + itoa(len(body)) + "\r\n")
+	for k, v := range req.Header {
+		raw.WriteString(k + ": " + v[0] + "\r\n")
+	}
+	raw.WriteString("\r\n")
+	conn.Write([]byte(raw.String()))
+	conn.Write(body[:1024]) // and the rest never comes
+	time.Sleep(100 * time.Millisecond)
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- a.Shutdown() }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if active, _ := bj.state(); len(active) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("still announced while the server waits for the stuck request")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	select {
+	case <-stopped:
+		t.Fatal("the server did not wait for the stuck request (the test proves nothing)")
+	default:
+	}
+	conn.Close() // the request fails, the shutdown ends
+	if err := <-stopped; err != nil {
+		t.Fatal(err)
 	}
 }
