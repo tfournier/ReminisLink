@@ -10,6 +10,9 @@ struct PatchGame: Equatable, Hashable {
     let fileName: String
     let kind: GameKind
     let systemLabel: String
+
+    /// Why this game cannot be patched (several discs, an archive), or nil.
+    var refusal: PatchRefusal? { PatchNaming.refusal(kind: kind, fileName: fileName) }
 }
 
 /// A thread-safe flag, read by the patch upload between two chunks.
@@ -32,6 +35,11 @@ nonisolated final class PatchPauseFlag: @unchecked Sendable {
 /// the Transfers screen). The screen calls ``tick()`` every second while
 /// it is visible and the app is active (docs/specs/03-protocole.md §8):
 /// nothing is polled otherwise.
+///
+/// A cancellation never leads to a patch: a download cancelled too late
+/// ends "downloaded, nothing applied" (the staged patch is kept for an
+/// explicit new try); the final state of a cancelled job is always the
+/// one the console reports.
 @MainActor
 @Observable
 final class PatchFlow {
@@ -53,16 +61,21 @@ final class PatchFlow {
         case starting
         /// The console applies the patch.
         case patching
-        /// `gameId` of the produced ROM.
-        case succeeded(gameId: String?)
+        /// The download of the link ended although it was cancelled: the
+        /// patch is in the staging area, nothing was applied.
+        case downloaded
+        /// `gameId` of the produced ROM; `late`: the cancellation reached
+        /// the console after the patch was in place.
+        case succeeded(gameId: String?, late: Bool)
         case failed(AppError)
+        /// Confirmed: nothing was applied.
         case cancelled
 
         /// Something runs: the inputs are locked.
         var isBusy: Bool {
             switch self {
             case .preparing, .sending, .downloading, .starting, .patching: true
-            case .idle, .succeeded, .failed, .cancelled: false
+            case .idle, .downloaded, .succeeded, .failed, .cancelled: false
             }
         }
 
@@ -102,6 +115,17 @@ final class PatchFlow {
     private(set) var step: Step = .idle
     /// The job followed now (download of the patch, then the patch).
     private(set) var job: JobItem?
+    /// A cancellation was asked and the console has not confirmed it yet.
+    private(set) var isCancelling = false
+    /// The last polling error of the job (the job itself goes on).
+    private(set) var pollError: AppError?
+    /// The cancellation could not be sent.
+    private(set) var cancelError: AppError?
+    /// The ROM the patch expects and the one on the console, after a
+    /// `source-mismatch` that carries them.
+    private(set) var mismatchDetails: PatchMismatchDetails?
+    /// `result.verified` of the patch job: false for IPS.
+    private(set) var verified: Bool?
 
     /// The patch already in the staging area, by source.
     @ObservationIgnored private var staged: (key: String, stagingId: String)?
@@ -109,8 +133,14 @@ final class PatchFlow {
     @ObservationIgnored private var upload: (key: String, upload: ResumableUpload)?
     /// The source the running download is for.
     @ObservationIgnored private var downloadKey: String?
+    /// Jobs the user cancelled: their end never leads further.
+    @ObservationIgnored private var cancelledJobs: Set<String> = []
+    /// A cancellation asked while a request was in flight.
+    @ObservationIgnored private var cancelRequested = false
     @ObservationIgnored private var pauseFlag = PatchPauseFlag()
     @ObservationIgnored private var runTask: Task<Void, Never>?
+    /// Waits between two polls of a cancelled job (tests shorten it).
+    @ObservationIgnored var cancelPollInterval: Duration = .seconds(1)
 
     init(session: ConsoleSession, game: PatchGame?) {
         self.session = session
@@ -121,18 +151,18 @@ final class PatchFlow {
 
     // MARK: Inputs
 
-    var isPatchable: Bool { game?.kind.isPatchable ?? false }
+    var isPatchable: Bool { game != nil && game?.refusal == nil }
 
-    /// The new file name, or nil if the pak would refuse it.
-    var validatedFileName: String? { PatchNaming.validatedFileName(fileName) }
+    /// What the typed name becomes (the ROM's extension added if missing).
+    var outputName: PatchNaming.OutputName {
+        guard let game else { return .invalid }
+        return PatchNaming.outputName(fileName, romFileName: game.fileName)
+    }
 
     var validatedLink: URL? { DownloadURL.validated(linkText) }
 
-    /// The new name does not keep the extension of the ROM.
-    var changesExtension: Bool {
-        guard let game, mode == .newFile, let name = validatedFileName else { return false }
-        return !PatchNaming.sameExtension(name, game.fileName)
-    }
+    /// Something was sent to this console: it can no longer be changed.
+    var isBoundToConsole: Bool { step.isBusy || staged != nil || upload != nil }
 
     /// Identifies the chosen patch, to reuse what is already staged.
     private var sourceKey: String? {
@@ -144,13 +174,15 @@ final class PatchFlow {
     }
 
     var canStart: Bool {
-        guard isPatchable, !step.isBusy, sourceKey != nil else { return false }
-        return mode == .replace || validatedFileName != nil
+        guard isPatchable, !step.isBusy, !isCancelling, sourceKey != nil else { return false }
+        if mode == .replace { return true }
+        if case .valid = outputName { return true }
+        return false
     }
 
     private func inputChanged() {
         switch step {
-        case .failed, .cancelled: step = .idle
+        case .failed, .cancelled, .downloaded: step = .idle
         default: break
         }
     }
@@ -161,6 +193,11 @@ final class PatchFlow {
     func start() {
         guard canStart else { return }
         pauseFlag = PatchPauseFlag()
+        cancelRequested = false
+        cancelError = nil
+        pollError = nil
+        mismatchDetails = nil
+        verified = nil
         // Busy at once: the inputs lock before the task starts.
         step = .starting
         runTask = Task { await run() }
@@ -201,12 +238,14 @@ final class PatchFlow {
     /// local copy is deleted once the console has it.
     private func stageFile(key: String) async throws -> String {
         guard let file else { throw AppError.file }
+        if cancelRequested { throw CancellationError() }
         let upload: ResumableUpload
         if let current = self.upload, current.key == key {
             upload = current.upload
         } else {
             step = .preparing
             let sha = try await FileDigest.sha256(of: file.url)
+            try Task.checkCancellation()
             upload = ResumableUpload(
                 source: UploadSource(fileURL: file.url, sizeBytes: file.sizeBytes, sha256: sha),
                 target: .staging(fileName: file.name), onConflict: .rename,
@@ -229,6 +268,8 @@ final class PatchFlow {
         staged = (key, stagingId)
         self.upload = nil
         file.remove()
+        // Cancelled while the upload ended: go no further.
+        try Task.checkCancellation()
         return stagingId
     }
 
@@ -240,28 +281,55 @@ final class PatchFlow {
     /// `POST /downloads` to the staging area; ``tick()`` follows the job.
     private func startDownload(key: String) async throws {
         guard let url = validatedLink else { return }
+        guard !cancelRequested else { return finishCancelledRequest() }
         step = .downloading
         let request = DownloadRequest(url: url.absoluteString, target: .staging(fileName: nil))
         let accepted = try await session.perform { try await $0.createDownload(request) }
         downloadKey = key
-        job = session.transfers.track(jobId: accepted.jobId, title: DownloadURL.displayName(url), kind: .download)
+        let item = session.transfers.track(jobId: accepted.jobId, title: DownloadURL.displayName(url), kind: .download)
+        job = item
+        // Cancelled while the request was in flight: cancel the job now.
+        if cancelRequested { await cancelJob(item) }
     }
 
     private func startPatch(_ patch: PatchSource) async throws {
         guard let game else { return }
+        // Never after a cancellation.
+        guard !cancelRequested, step != .cancelled, !Task.isCancelled else { return finishCancelledRequest() }
         step = .starting
-        let request = PatchRequest(patch: patch, output: PatchOutput(mode: mode, fileName: validatedFileName))
+        let request: PatchRequest
+        switch mode {
+        case .replace:
+            request = PatchRequest(patch: patch, output: PatchOutput(mode: .replace))
+        case .newFile:
+            guard case .valid(let name) = outputName else { throw AppError.unexpected }
+            request = PatchRequest(patch: patch, output: PatchOutput(mode: .newFile, fileName: name))
+        }
         let gameId = game.id
         let accepted = try await session.perform { try await $0.patchGame(gameId: gameId, request) }
-        job = session.transfers.track(jobId: accepted.jobId, title: String(localized: "Patch: \(game.name)"), kind: .patch)
+        let item = session.transfers.track(jobId: accepted.jobId, title: String(localized: "Patch: \(game.name)"), kind: .patch)
+        job = item
         step = .patching
+        if cancelRequested { await cancelJob(item) }
+    }
+
+    /// A cancellation asked before any job existed: nothing was applied.
+    private func finishCancelledRequest() {
+        step = .cancelled
+        isCancelling = false
     }
 
     /// Polls the job followed now and moves on when it ends. Called every
-    /// second by the screen while it is visible and the app is active.
+    /// second by the screen while it is visible and the app is active;
+    /// paused while a cancellation is in progress.
     func tick() async {
-        guard let job, step == .downloading || step == .patching else { return }
-        if !job.isFinished { await session.transfers.refreshJobs() }
+        guard !isCancelling, let job, step == .downloading || step == .patching else { return }
+        if !job.isFinished {
+            await session.transfers.refreshJobs()
+            pollError = !job.isLost ? job.failure.map(AppError.init) : nil
+        }
+        // Cancelled elsewhere (the Transfers screen): never go further.
+        if job.job?.cancelRequested == true { cancelledJobs.insert(job.id) }
         advance()
     }
 
@@ -272,6 +340,11 @@ final class PatchFlow {
             return
         }
         guard let job = item.job else { return }
+        pollError = nil
+        if cancelledJobs.contains(item.id) {
+            finishAfterCancel(item, job)
+            return
+        }
         switch (step, job.state) {
         case (.downloading, .succeeded):
             guard let stagingId = job.resultStagingId, let key = downloadKey else {
@@ -286,16 +359,44 @@ final class PatchFlow {
                 do { try await startPatch(.staging(stagingId: stagingId)) } catch { fail(error) }
             }
         case (.patching, .succeeded):
-            step = .succeeded(gameId: job.resultGameId)
+            verified = job.resultVerified
+            step = .succeeded(gameId: job.resultGameId, late: false)
         case (_, .failed):
-            if let server = job.serverError {
-                step = .failed(AppError.patchJob(server, kind: item.kind))
-            } else {
-                step = .failed(.unexpected)
-            }
+            fail(job: job, kind: item.kind)
         case (_, .cancelled):
             step = .cancelled
         default:
+            step = .failed(.unexpected)
+        }
+    }
+
+    /// The end of a job the user cancelled, as the console reports it.
+    private func finishAfterCancel(_ item: JobItem, _ job: Job) {
+        isCancelling = false
+        switch job.state {
+        case .cancelled:
+            step = .cancelled
+        case .succeeded where item.kind == .download:
+            // Downloaded before the cancellation arrived: keep it for an
+            // explicit new try, apply nothing.
+            if let stagingId = job.resultStagingId, let key = downloadKey { staged = (key, stagingId) }
+            step = .downloaded
+        case .succeeded:
+            verified = job.resultVerified
+            step = .succeeded(gameId: job.resultGameId, late: true)
+            session.contentChanged()
+        case .failed:
+            fail(job: job, kind: item.kind)
+        default:
+            step = .failed(.unexpected)
+        }
+    }
+
+    private func fail(job: Job, kind: JobKind) {
+        if let server = job.serverError {
+            mismatchDetails = server.patchMismatchDetails
+            step = .failed(AppError.patchJob(server, kind: kind))
+        } else {
             step = .failed(.unexpected)
         }
     }
@@ -313,42 +414,89 @@ final class PatchFlow {
     }
 
     /// Stops what runs: the upload (also on the console), or the job
-    /// (`DELETE /jobs/{id}`). A patch job cancelled while the console
-    /// installs its file may still end `succeeded`.
+    /// (`DELETE /jobs/{id}`). A request in flight is cancelled as soon as
+    /// it answers. A patch job cancelled while the console installs its
+    /// file may still end `succeeded`: that is what is shown then.
     func cancel() async {
+        guard !isCancelling else { return }
+        cancelError = nil
         switch step {
         case .preparing, .sending:
+            cancelRequested = true
             runTask?.cancel()
             step = .cancelled
-            if let upload = upload?.upload, let client = try? await session.connectedClient() {
-                _ = await upload.cancel(client: client)
-            }
-            self.upload = nil
+            await cancelUpload()
+        case .starting:
+            // The request answers first; its job is then cancelled.
+            cancelRequested = true
+            isCancelling = true
         case .downloading, .patching:
-            guard let job else { return }
-            do {
-                try await session.transfers.cancel(job)
-                if job.job?.state == .succeeded { session.contentChanged() }
-                advance()
-            } catch {
-                let error = AppError(error)
-                if !error.isCancellation { step = .failed(error) }
+            cancelRequested = true
+            if let job {
+                await cancelJob(job)
+            } else {
+                isCancelling = true
             }
         default:
             break
         }
     }
 
+    /// `DELETE /jobs/{id}`, then the final state the console reports
+    /// (polled until it is final).
+    private func cancelJob(_ item: JobItem) async {
+        isCancelling = true
+        cancelledJobs.insert(item.id)
+        do {
+            try await session.transfers.cancel(item)
+        } catch {
+            let error = AppError(error)
+            isCancelling = false
+            if !error.isCancellation { cancelError = error }
+            // The job goes on: its end is still handled as cancelled.
+            return
+        }
+        for _ in 0..<30 where !item.isFinished {
+            try? await Task.sleep(for: cancelPollInterval)
+            await session.transfers.refreshJobs()
+        }
+        if item.isFinished {
+            advance()
+        } else {
+            // Not confirmed yet: the screen polls on, the end is handled
+            // as a cancellation.
+            isCancelling = false
+        }
+    }
+
+    /// Cancels the upload on the console (best effort).
+    private func cancelUpload() async {
+        guard let upload = upload?.upload else { return }
+        self.upload = nil
+        if let client = try? await session.connectedClient() {
+            _ = await upload.cancel(client: client)
+        }
+    }
+
     private func fail(_ error: Error) {
         let error = AppError.patch(error)
+        // Stopped by a cancellation asked before any job existed.
+        if cancelRequested && error.isCancellation && step != .cancelled {
+            return finishCancelledRequest()
+        }
         // A cancellation sets its own step.
         guard !error.isCancellation, step != .cancelled else { return }
+        isCancelling = false
         step = .failed(error)
     }
 
-    /// The screen goes away: the local copy of a file not sent is deleted.
+    /// The screen goes away: the local copy of a file not sent is deleted,
+    /// and an upload left paused or failed is cancelled on the console.
     func discardFile() {
         guard !step.holdsTheScreen else { return }
         file?.remove()
+        if upload != nil {
+            Task { await cancelUpload() }
+        }
     }
 }

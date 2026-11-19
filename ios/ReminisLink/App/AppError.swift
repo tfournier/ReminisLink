@@ -37,6 +37,12 @@ enum AppError: Error, Equatable {
     case unsupportedPatch
     /// The console could not download the patch of a link.
     case patchDownloadFailed
+    /// `422 patch_mismatch` with `details.reason = already-patched`.
+    case alreadyPatched
+    /// `409 conflict` of a patch job: the ROM changed while it ran.
+    case romChangedDuringPatch
+    /// `413` of a patch job.
+    case patchTooLarge
     /// The device no longer knows a job (the pak was restarted).
     case jobLost
     /// The task was cancelled (the screen went away): never shown.
@@ -87,6 +93,12 @@ enum AppError: Error, Equatable {
             String(localized: "This game uses a NextUI setting that ReminisLink does not handle yet (save or state format). Nothing was changed.")
         case .patchMismatch:
             String(localized: "This patch does not match this ROM. Check the ROM version the patch asks for.")
+        case .alreadyPatched:
+            String(localized: "This game seems to be already patched with this patch.")
+        case .romChangedDuringPatch:
+            String(localized: "The ROM changed while the patch was applied. Nothing was changed, try again.")
+        case .patchTooLarge:
+            String(localized: "This patch or the patched ROM is too large for the console.")
         case .unsupportedPatch:
             String(localized: "This file is not a patch the console can apply. Choose an IPS, BPS or UPS patch.")
         case .patchDownloadFailed:
@@ -118,7 +130,7 @@ enum AppError: Error, Equatable {
             }
         case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .file: nil
         case .restoreRefused, .unsupportedGameFormat, .patchMismatch, .unsupportedPatch, .jobLost: nil
-        case .patchDownloadFailed: nil
+        case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .storage, .cancelled: nil
         case .pairingClosed, .unexpected: .retry
@@ -150,7 +162,7 @@ enum AppError: Error, Equatable {
         let error = AppError(error)
         guard case .api(.server(let server)) = error else { return error }
         switch server.code {
-        case .patchMismatch: return .patchMismatch
+        case .patchMismatch: return server.patchMismatchReason == "already-patched" ? .alreadyPatched : .patchMismatch
         case .unsupportedFormat: return .unsupportedPatch
         default: return error
         }
@@ -160,7 +172,13 @@ enum AppError: Error, Equatable {
     /// above; the download of the patch to the staging area says the
     /// console could not download it, unless the SD card is full.
     static func patchJob(_ server: ServerError, kind: JobKind) -> AppError {
-        if kind == .patch { return patch(APIError.server(server)) }
+        if kind == .patch {
+            switch server.code {
+            case .conflict: return .romChangedDuringPatch
+            case .tooLarge: return .patchTooLarge
+            default: return patch(APIError.server(server))
+            }
+        }
         if server.code == .insufficientStorage { return .api(.server(server)) }
         return .patchDownloadFailed
     }

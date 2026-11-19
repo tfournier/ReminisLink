@@ -162,17 +162,31 @@ next start and shown "Restored"):
   job's result) or from the SD card (`GET /sd/files?type=patch`). A staged
   patch is not sent again when the user tries another output.
 - Output: a new file, named `<name> (patched).<ext>` by default (editable;
-  the console adds ` (2)` if the name is taken), or **replace** the game
-  after a confirmation: the original ROM goes to the trash of the console,
-  the save, states and cheats stay.
+  like the pak, the app adds `.<extension of the ROM>` when the name does
+  not end with it, shows the final name and sends it; the console adds
+  ` (2)` if it is taken), or **replace** the game after a confirmation: the
+  original ROM goes to the trash of the console, the save, states and
+  cheats stay.
 - `POST /games/{gameId}/patch` starts a job, followed every second while
   the screen is visible and the app is active; it also shows on the
   Transfers screen, so the screen can be closed. A new game can then be
   opened. `patch_mismatch` and `unsupported_format` have their own texts.
-- Multi-disc games (`m3u`, `folder-m3u`) are not offered: a patch applies
-  to a single ROM file.
+  A `source-mismatch` shows the expected ROM and the one on the console
+  (sizes, CRC32) when the pak sends them; `already-patched`, `409` (the ROM
+  changed) and `413` have their own texts; an IPS result says the source
+  could not be verified (`verified: false`).
+- Cancellation never leads to a patch. The final state is always the one
+  the console reports (a running job stays `running` with
+  `cancelRequested` until it stops): a download cancelled too late ends
+  "downloaded, nothing applied" (kept for an explicit new try), a patch
+  cancelled too late shows its result. Polling stops during a
+  cancellation; a polling error is shown with Try Again.
+- Multi-disc games (`m3u`, `folder-m3u`) and `.zip`/`.7z` ROMs are not
+  offered: a patch applies to a single, extracted ROM file.
 - A shared `.ips`, `.bps` or `.ups` (alone) opens the Patch screen directly:
-  the console is chosen if there are several, then the game.
+  the console is chosen if there are several (locked once something was
+  sent to it), then the game. Closing the screen cancels an upload left
+  paused on the console.
 
 The fake pak judges a patch by its header and, for BPS and UPS, by the
 source size it declares, compared with the size of the game. Its SD card

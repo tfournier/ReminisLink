@@ -42,7 +42,8 @@ struct PatchView: View {
                                 Text(device.name).tag(Optional(device.id))
                             }
                         }
-                        .disabled(flow?.step.isBusy ?? false)
+                        // Once something was sent to a console, it stays.
+                        .disabled(flow?.isBoundToConsole ?? false)
                         .accessibilityIdentifier("patch.console")
                     }
                 }
@@ -57,7 +58,7 @@ struct PatchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
         }
-        .interactiveDismissDisabled(flow?.step.holdsTheScreen ?? false)
+        .interactiveDismissDisabled(flow.map { $0.step.holdsTheScreen && !$0.isCancelling } ?? false)
         .task {
             guard !didLoad else { return }
             didLoad = true
@@ -91,12 +92,13 @@ struct PatchView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
-            if let flow, flow.step.holdsTheScreen, flow.step != .starting {
+            // Always a way out: Cancel while the app side runs, then Close
+            // (a cancellation in flight goes on without the screen).
+            if let flow, flow.step.holdsTheScreen, !flow.isCancelling {
                 Button("Cancel") { Task { await flow.cancel() } }
                     .accessibilityIdentifier("patch.cancel")
             } else {
-                Button(flow?.step == .patching ? "Close" : "Cancel") { close() }
-                    .disabled(flow?.step == .starting)
+                Button(flow.map { $0.step.isBusy || $0.isCancelling } ?? false ? "Close" : "Cancel") { close() }
                     .accessibilityIdentifier("patch.close")
             }
         }
@@ -186,7 +188,7 @@ private struct PatchFormSections: View {
     @State private var openError: AppError?
     @State private var isOpening = false
 
-    private var locked: Bool { flow.step.isBusy || isSucceeded }
+    private var locked: Bool { flow.step.isBusy || flow.isCancelling || isSucceeded }
 
     private var isSucceeded: Bool {
         if case .succeeded = flow.step { return true }
@@ -196,21 +198,21 @@ private struct PatchFormSections: View {
     var body: some View {
         gameSection
         if let game = flow.game {
-            if game.kind.isPatchable {
-                statusSection
-                sourceSection
-                outputSection
-            } else {
+            if let refusal = game.refusal {
                 Section {
                     Label {
-                        Text("This game has several discs: a patch applies to a single ROM file, so multi-disc games cannot be patched here.")
+                        Text(refusal.text)
                             .fixedSize(horizontal: false, vertical: true)
                     } icon: {
                         Image(systemName: "info.circle").accessibilityHidden(true)
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("patch.multiDisc")
+                    .accessibilityIdentifier("patch.refused")
                 }
+            } else {
+                statusSection
+                sourceSection
+                outputSection
             }
         }
     }
@@ -396,21 +398,17 @@ private struct PatchFormSections: View {
             Text("Output")
         } footer: {
             if flow.mode == .newFile {
-                if flow.validatedFileName == nil {
+                switch flow.outputName {
+                case .invalid:
                     Text("Enter a file name without / or \\, not starting with a dot.")
                         .foregroundStyle(.red)
-                } else if flow.changesExtension, let game = flow.game {
-                    Text("Keep the extension of the game (\(Self.extensionText(game.fileName))) so that NextUI opens it with the same emulator.")
-                } else {
-                    Text("A new game is created next to the original. If the name is taken, the console adds a number.")
+                        .accessibilityIdentifier("patch.nameError")
+                case .valid(let name):
+                    Text("Will be created: \(name). If the name is taken, the console adds a number. The extension of the game is added when the name does not end with it.")
+                        .accessibilityIdentifier("patch.finalName")
                 }
             }
         }
-    }
-
-    static func extensionText(_ fileName: String) -> String {
-        guard let dot = fileName.lastIndex(of: "."), dot != fileName.startIndex else { return "" }
-        return String(fileName[dot...])
     }
 
     // MARK: Status
@@ -433,16 +431,27 @@ private struct PatchFormSections: View {
         case .patching:
             Section {
                 progressRow(patchingText, fraction: flow.job?.job?.progress.fraction)
-                Button("Cancel the Patch", role: .destructive) { Task { await flow.cancel() } }
-                    .accessibilityIdentifier("patch.cancelJob")
+                if !cancelInProgress {
+                    Button("Cancel the Patch", role: .destructive) { Task { await flow.cancel() } }
+                        .accessibilityIdentifier("patch.cancelJob")
+                }
             } footer: {
                 Text("You can close this screen: the console goes on. Follow it in Transfers.")
             }
-        case .succeeded(let gameId):
+        case .downloaded:
             Section {
-                NoticeView(text: flow.mode == .replace
-                           ? String(localized: "Patch applied. The original ROM is in the trash of the console.")
-                           : String(localized: "Patch applied. The new game is in the library."))
+                Text("The console downloaded the patch before the cancellation arrived. Nothing was applied: tap Apply to use it.")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("patch.downloaded")
+            }
+        case .succeeded(let gameId, let late):
+            Section {
+                NoticeView(text: successText(late: late))
+                if flow.verified == false {
+                    Label("IPS: the source ROM could not be verified.", systemImage: "info.circle")
+                        .font(.footnote)
+                        .accessibilityIdentifier("patch.unverified")
+                }
                 if let openError {
                     ErrorView(error: openError)
                 }
@@ -474,6 +483,9 @@ private struct PatchFormSections: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("patch.error")
+                    if let details = flow.mismatchDetails {
+                        Self.mismatchRows(details)
+                    }
                 }
             }
         case .cancelled:
@@ -482,6 +494,59 @@ private struct PatchFormSections: View {
                     .accessibilityIdentifier("patch.cancelled")
             }
         }
+        if cancelInProgress {
+            Section {
+                progressRow(Text("Cancelling… Waiting for the console to confirm."), fraction: nil)
+            }
+        }
+        if let error = flow.cancelError {
+            Section {
+                Label(String(localized: "The cancellation could not be sent: \(error.message)"), systemImage: "exclamationmark.triangle.fill")
+                    .accessibilityIdentifier("patch.cancelError")
+                Button("Try Again") { Task { await flow.cancel() } }
+            }
+        }
+        if let error = flow.pollError, flow.step.isBusy {
+            Section {
+                Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                    .accessibilityIdentifier("patch.pollError")
+                Button("Try Again") { Task { await flow.tick() } }
+                    .accessibilityIdentifier("patch.pollRetry")
+            } footer: {
+                Text("The console goes on with the task; its state shows again once it answers.")
+            }
+        }
+    }
+
+    /// What the patch expects and what the console has.
+    @ViewBuilder
+    static func mismatchRows(_ details: PatchMismatchDetails) -> some View {
+        if details.expectedSize != nil || details.expectedCrc32 != nil {
+            LabeledContent("Expected ROM", value: describe(size: details.expectedSize, crc: details.expectedCrc32))
+                .font(.footnote)
+        }
+        if details.actualSize != nil || details.actualCrc32 != nil {
+            LabeledContent("ROM on the console", value: describe(size: details.actualSize, crc: details.actualCrc32))
+                .font(.footnote)
+        }
+    }
+
+    static func describe(size: Int64?, crc: String?) -> String {
+        [size.map { $0.byteString }, crc.map { "CRC32 \($0)" }].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// Asked here, or seen on the job (asked from the Transfers screen).
+    private var cancelInProgress: Bool {
+        flow.isCancelling || (flow.step.isBusy && flow.job?.job?.cancelRequested == true)
+    }
+
+    private func successText(late: Bool) -> String {
+        if late {
+            return String(localized: "Patch applied: the cancellation arrived too late.")
+        }
+        return flow.mode == .replace
+            ? String(localized: "Patch applied. The original ROM is in the trash of the console.")
+            : String(localized: "Patch applied. The new game is in the library.")
     }
 
     private var patchingText: Text {
@@ -552,6 +617,17 @@ private struct PatchFormSections: View {
         } catch {
             let error = AppError(error)
             if !error.isCancellation { openError = error }
+        }
+    }
+}
+
+extension PatchRefusal {
+    var text: String {
+        switch self {
+        case .multiDisc:
+            String(localized: "This game has several discs: a patch applies to a single ROM file, so multi-disc games cannot be patched here.")
+        case .archive:
+            String(localized: "Extract the ROM first: the console does not patch an archive (.zip, .7z).")
         }
     }
 }

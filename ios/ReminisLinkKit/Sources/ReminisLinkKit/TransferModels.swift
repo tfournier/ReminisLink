@@ -208,10 +208,13 @@ public struct Job: Codable, Sendable, Equatable, Identifiable {
     public let result: [String: JSONValue]?
     /// When `failed`: the same object as an error response.
     public let error: ErrorEnvelope.Body?
+    /// `DELETE /jobs/{jobId}` arrived while the job was running (M6): it
+    /// stays `running` until its real end. Nil from an older pak.
+    public let cancelRequested: Bool?
 
     public init(
         id: String, kind: JobKind, state: JobState, progress: Progress, createdAt: Date, updatedAt: Date,
-        result: [String: JSONValue]? = nil, error: ErrorEnvelope.Body? = nil
+        result: [String: JSONValue]? = nil, error: ErrorEnvelope.Body? = nil, cancelRequested: Bool? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -221,6 +224,7 @@ public struct Job: Codable, Sendable, Equatable, Identifiable {
         self.updatedAt = updatedAt
         self.result = result
         self.error = error
+        self.cancelRequested = cancelRequested
     }
 
     /// `result.gameId`, if any.

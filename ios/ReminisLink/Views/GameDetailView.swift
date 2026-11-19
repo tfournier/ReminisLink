@@ -76,15 +76,15 @@ struct GameDetailView: View {
                     } label: {
                         Label("Apply a Patch…", systemImage: "bandage")
                     }
-                    .disabled(!detail.kind.isPatchable)
+                    .disabled(PatchNaming.refusal(kind: detail.kind, fileName: detail.fileName) != nil)
                     .accessibilityIdentifier("game.patch")
                 } header: {
                     Text("Patch")
                 } footer: {
-                    if detail.kind.isPatchable {
-                        Text("IPS, BPS or UPS, applied by the console to a new file or to this game.")
+                    if let refusal = PatchNaming.refusal(kind: detail.kind, fileName: detail.fileName) {
+                        Text(refusal.text)
                     } else {
-                        Text("This game has several discs: a patch applies to a single ROM file, so multi-disc games cannot be patched here.")
+                        Text("IPS, BPS or UPS, applied by the console to a new file or to this game.")
                     }
                 }
                 Section {

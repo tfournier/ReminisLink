@@ -97,6 +97,36 @@ public enum PatchNaming {
         return name
     }
 
+    /// What the name typed for a new file becomes, as the pak does it: a
+    /// name that does not already end with `.<extension of the ROM>`
+    /// (ignoring case) gets it (`Hack v1.2` → `Hack v1.2.gba`, `Hack.zip`
+    /// → `Hack.zip.gba`). The app sends this final name.
+    public enum OutputName: Equatable, Sendable {
+        case valid(String)
+        /// Refused by the pak's naming rules.
+        case invalid
+    }
+
+    public static func outputName(_ text: String, romFileName: String) -> OutputName {
+        guard var name = validatedFileName(text) else { return .invalid }
+        let romExt = AddKind.fileExtension(romFileName)
+        if !romExt.isEmpty, !name.lowercased().hasSuffix("." + romExt) {
+            name += "." + romFileName.suffix(romExt.count)
+            guard validatedFileName(name) != nil else { return .invalid }
+        }
+        return .valid(name)
+    }
+
+    /// Archives the console does not patch: the ROM must be extracted first.
+    public static let archiveExtensions: Set<String> = ["zip", "7z"]
+
+    /// Why a game cannot be patched, or nil.
+    public static func refusal(kind: GameKind, fileName: String) -> PatchRefusal? {
+        if !kind.isPatchable { return .multiDisc }
+        if archiveExtensions.contains(AddKind.fileExtension(fileName)) { return .archive }
+        return nil
+    }
+
     /// Whether two file names have the same extension (ignoring case).
     public static func sameExtension(_ a: String, _ b: String) -> Bool {
         AddKind.fileExtension(a) == AddKind.fileExtension(b)
@@ -110,6 +140,56 @@ public enum PatchNaming {
     }
 }
 
+/// Why the Patch screen is not offered for a game.
+public enum PatchRefusal: Equatable, Sendable {
+    /// `m3u` or `folder-m3u`: several files.
+    case multiDisc
+    /// A `.zip` or `.7z` ROM.
+    case archive
+}
+
+/// The `details` of a `source-mismatch`: the ROM the patch expects and the
+/// one on the console (`actualCrc32` only when the sizes match). Every
+/// field is optional: an older pak sends none.
+public struct PatchMismatchDetails: Equatable, Sendable {
+    public let expectedSize: Int64?
+    public let actualSize: Int64?
+    public let expectedCrc32: String?
+    public let actualCrc32: String?
+
+    public init(expectedSize: Int64? = nil, actualSize: Int64? = nil, expectedCrc32: String? = nil, actualCrc32: String? = nil) {
+        self.expectedSize = expectedSize
+        self.actualSize = actualSize
+        self.expectedCrc32 = expectedCrc32
+        self.actualCrc32 = actualCrc32
+    }
+
+    public var isEmpty: Bool { expectedSize == nil && actualSize == nil && expectedCrc32 == nil && actualCrc32 == nil }
+}
+
+extension ServerError {
+    /// `details.reason` of `422 patch_mismatch`: `source-mismatch` or
+    /// `already-patched`.
+    public var patchMismatchReason: String? {
+        guard code == .patchMismatch, case .string(let reason)? = details["reason"] else { return nil }
+        return reason
+    }
+
+    /// The sizes and CRC32s of a `patch_mismatch`, nil when it has none.
+    public var patchMismatchDetails: PatchMismatchDetails? {
+        guard code == .patchMismatch else { return nil }
+        func string(_ key: String) -> String? {
+            if case .string(let value)? = details[key] { return value }
+            return nil
+        }
+        let result = PatchMismatchDetails(
+            expectedSize: details["expectedSize"]?.int64Value, actualSize: details["actualSize"]?.int64Value,
+            expectedCrc32: string("expectedCrc32"), actualCrc32: string("actualCrc32")
+        )
+        return result.isEmpty ? nil : result
+    }
+}
+
 extension GameKind {
     /// Only a single-file game can be patched: a multi-disc game (`m3u`,
     /// `folder-m3u`) or an unknown kind is not offered.
@@ -117,6 +197,13 @@ extension GameKind {
 }
 
 extension Job {
+    /// `result.verified` of a patch job: false for IPS (no checksum, the
+    /// source ROM could not be checked); nil when absent.
+    public var resultVerified: Bool? {
+        if case .bool(let value)? = result?["verified"] { return value }
+        return nil
+    }
+
     /// `result.stagingId` of a download to the staging area.
     public var resultStagingId: String? {
         if case .string(let id) = result?["stagingId"] { return id }

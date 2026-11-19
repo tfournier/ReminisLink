@@ -128,6 +128,7 @@ struct PatchFakePakTests {
         #expect(job.progress.done == job.progress.total)
         let gameId = try #require(job.resultGameId)
         #expect(gameId == DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"))
+        #expect(job.resultVerified == true)
         let game = try await client.game(id: gameId)
         #expect(game.name == "Sky Garden Quest (patched)")
         #expect(game.totalBytes == 32)
@@ -153,6 +154,8 @@ struct PatchFakePakTests {
         let job = try await finish(accepted.jobId, client: client)
         #expect(job.state == .succeeded)
         #expect(job.resultGameId == skyGarden)
+        // IPS carries no checksum.
+        #expect(job.resultVerified == false)
         let game = try await client.game(id: skyGarden)
         #expect(game.hasSave && game.hasCheats)
         #expect(game.stateCount == before.stateCount)
@@ -173,19 +176,92 @@ struct PatchFakePakTests {
         let job = try await finish(accepted.jobId, client: client)
         #expect(job.state == .failed)
         #expect(job.serverError?.code == .patchMismatch)
+        #expect(job.serverError?.patchMismatchReason == "source-mismatch")
+        let details = try #require(job.serverError?.patchMismatchDetails)
+        #expect(details.expectedSize == 4_194_304 && details.actualSize == 16_777_216)
+        #expect(details.expectedCrc32 == "1234abcd" && details.actualCrc32 == nil)
         #expect(job.resultGameId == nil)
         // Nothing went to the trash.
         #expect(try await client.trash().entries.first?.reason != "replace-rom")
     }
 
-    @Test func aFileThatIsNotAPatchIsUnsupported() async throws {
+    @Test func aFileThatIsNotAPatchIsRefusedAtOnce() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let stagingId = try await stage(Data("hello".utf8), name: "notes.bps", client: client)
+        do {
+            _ = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .staging(stagingId: stagingId), output: PatchOutput(mode: .newFile)))
+            Issue.record("accepted")
+        } catch let error as APIError {
+            #expect(error.code == .unsupportedFormat)
+        }
+    }
+
+    @Test func anAlreadyPatchedROMSaysWhy() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        // Declares the game's size as its target: the ROM is already patched.
+        let ups = DemoPatch.upsHeader(sourceSize: 100, targetSize: 16_777_216)
+        let stagingId = try await stage(ups, name: "hack.ups", client: client)
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .staging(stagingId: stagingId), output: PatchOutput(mode: .newFile)))
         let job = try await finish(accepted.jobId, client: client)
-        #expect(job.state == .failed)
-        #expect(job.serverError?.code == .unsupportedFormat)
+        #expect(job.serverError?.patchMismatchReason == "already-patched")
+    }
+
+    @Test func aROMThatChangesFailsWithConflict() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let files = try await client.sdFiles(type: .patch)
+        let ips = try #require(files.first { $0.fileName == "Bonus Levels.ips" })
+        pak.romChangesDuringNextPatch = true
+        let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .replace)))
+        let job = try await finish(accepted.jobId, client: client)
+        #expect(job.serverError?.code == .conflict)
+    }
+
+    @Test func outputNamesKeepTheExtensionOfTheROM() async throws {
+        #expect(PatchNaming.outputName("Sky (FR).gba", romFileName: "Sky.gba") == .valid("Sky (FR).gba"))
+        #expect(PatchNaming.outputName("Sky (FR).GBA", romFileName: "Sky.gba") == .valid("Sky (FR).GBA"))
+        #expect(PatchNaming.outputName(" Sky (FR) ", romFileName: "Sky.GBA") == .valid("Sky (FR).GBA"))
+        // Another ending: the ROM's extension is added, never refused.
+        #expect(PatchNaming.outputName("Sky (FR).gb", romFileName: "Sky.gba") == .valid("Sky (FR).gb.gba"))
+        #expect(PatchNaming.outputName("Hack v1.2", romFileName: "Sky.gba") == .valid("Hack v1.2.gba"))
+        #expect(PatchNaming.outputName("Hack.zip", romFileName: "Sky.gba") == .valid("Hack.zip.gba"))
+        #expect(PatchNaming.outputName("a/b", romFileName: "Sky.gba") == .invalid)
+        #expect(PatchNaming.outputName("Sky", romFileName: "NoExt") == .valid("Sky"))
+
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let files = try await client.sdFiles(type: .patch)
+        let ips = try #require(files.first { $0.fileName == "Bonus Levels.ips" })
+        // Without extension: the pak adds the ROM's.
+        let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile, fileName: "Sky Bonus")))
+        #expect(try await finish(accepted.jobId, client: client).resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/Sky Bonus.gba"))
+        let other = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile, fileName: "Sky Bonus.txt")))
+        #expect(try await finish(other.jobId, client: client).resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/Sky Bonus.txt.gba"))
+    }
+
+    @Test func archivesAndMultiDiscGamesAreNotPatchable() async throws {
+        #expect(PatchNaming.refusal(kind: .file, fileName: "a.gba") == nil)
+        #expect(PatchNaming.refusal(kind: .file, fileName: "a.ZIP") == .archive)
+        #expect(PatchNaming.refusal(kind: .file, fileName: "a.7z") == .archive)
+        #expect(PatchNaming.refusal(kind: .m3u, fileName: "a.m3u") == .multiDisc)
+
+        let library = DemoLibrary(systems: [DemoLibrary.System(folder: "Game Boy Advance (GBA)", label: "GBA", tag: "GBA", games: [
+            DemoLibrary.Game(path: "Packed.zip", sizeBytes: 100, modifiedAt: Date()),
+        ])])
+        let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", library: library)
+        pak.register()
+        let client = try await pairedClient(pak)
+        let files = try await client.sdFiles(type: .patch)
+        let ips = try #require(files.first { $0.fileName == "Bonus Levels.ips" })
+        do {
+            _ = try await client.patchGame(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Packed.zip"),
+                                           PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile)))
+            Issue.record("accepted")
+        } catch let error as APIError {
+            #expect(error.code == .unsupportedFormat)
+        }
     }
 
     @Test func aDownloadedPatchIsAppliedByItsStagingId() async throws {
@@ -205,10 +281,15 @@ struct PatchFakePakTests {
         let files = try await client.sdFiles(type: .patch)
         let bps = try #require(files.first { $0.fileName.hasSuffix(".bps") })
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: bps.id), output: PatchOutput(mode: .newFile)))
+        // Running: it stays running with cancelRequested until it stops.
         _ = try await client.job(id: accepted.jobId)
-        let cancelled = try await client.cancelJob(id: accepted.jobId)
-        #expect(cancelled.state == .cancelled)
-        #expect(try await client.job(id: accepted.jobId).state == .cancelled)
+        let cancelling = try await client.cancelJob(id: accepted.jobId)
+        #expect(cancelling.state == .running && cancelling.cancelRequested == true)
+        let final = try await client.job(id: accepted.jobId)
+        #expect(final.state == .cancelled && final.cancelRequested == true)
+        // Queued: cancelled at once.
+        let queued = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: bps.id), output: PatchOutput(mode: .newFile)))
+        #expect(try await client.cancelJob(id: queued.jobId).state == .cancelled)
     }
 
     @Test func refusedRequestsAnswerAtOnce() async throws {

@@ -75,6 +75,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     /// Staging files by `stagingId` (milestone M6): their name, and their
     /// bytes when small enough to be kept.
     var stagedFiles: [String: FakeStagedFile] = [:]
+    /// The next patch job finds its ROM changed and fails `409 conflict`.
+    var _romChangesDuringNextPatch = false
     /// The next `PUT /cheats` finds the file changed on the console (412).
     var _conflictOnNextCheatsSave = false
     private var uploads: [String: FakeUpload] = [:]
@@ -641,6 +643,9 @@ struct FakeJob {
     var url: String? = nil
     /// What a patch job does (milestone M6).
     var patch: FakePatchPlan? = nil
+    /// `DELETE` arrived while running: the job ends `cancelled` at its
+    /// next step (M6), unless it was already done.
+    var cancelRequested = false
 
     var json: [String: Any] {
         [
@@ -648,6 +653,7 @@ struct FakeJob {
             "progress": ["done": done, "total": total.map { $0 as Any } ?? NSNull()],
             "createdAt": ProtocolJSON.formatDate(createdAt), "updatedAt": ProtocolJSON.formatDate(updatedAt),
             "result": result.map { $0 as Any } ?? NSNull(), "error": error.map { $0 as Any } ?? NSNull(),
+            "cancelRequested": cancelRequested,
         ]
     }
 }
@@ -971,7 +977,10 @@ extension FakePak {
         let total = downloadSize
         guard var job = lock.withLock({ jobs[id] }) else { return nil }
         let now = Date()
-        if job.patch != nil {
+        if job.cancelRequested && job.state == "running" {
+            // Stopped before installing anything.
+            job.state = "cancelled"
+        } else if job.patch != nil {
             advancePatch(&job)
             job.updatedAt = now
             lock.withLock { jobs[id] = job }
@@ -1019,11 +1028,16 @@ extension FakePak {
     fileprivate func cancelJob(_ id: String) -> [String: Any]? {
         lock.withLock {
             guard var job = jobs[id] else { return nil }
-            if job.state == "queued" || job.state == "running" {
+            // Queued: cancelled at once. Running: it stays running with
+            // `cancelRequested` until its real end (docs: DELETE /jobs).
+            if job.state == "queued" {
                 job.state = "cancelled"
                 job.updatedAt = Date()
-                jobs[id] = job
+            } else if job.state == "running" {
+                job.cancelRequested = true
+                job.updatedAt = Date()
             }
+            jobs[id] = job
             return job.json
         }
     }

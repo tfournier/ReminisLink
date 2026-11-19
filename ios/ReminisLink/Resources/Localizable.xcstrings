@@ -331,16 +331,6 @@
         }
       }
     },
-    "A new game is created next to the original. If the name is taken, the console adds a number." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un nouveau jeu est créé à côté de l’original. Si le nom est pris, la console ajoute un numéro."
-          }
-        }
-      }
-    },
     "Add" : {
       "localizations" : {
         "fr" : {
@@ -477,6 +467,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Application du patch… %@"
+          }
+        }
+      }
+    },
+    "Archive: extract the ROM first" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive : extrais d’abord la ROM"
           }
         }
       }
@@ -667,6 +667,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Annulé. Rien n’a été modifié sur la console."
+          }
+        }
+      }
+    },
+    "Cancelling… Waiting for the console to confirm." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annulation… En attente de la confirmation de la console."
           }
         }
       }
@@ -1231,12 +1241,32 @@
         }
       }
     },
+    "Expected ROM" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ROM attendue"
+          }
+        }
+      }
+    },
     "Expires no earlier than %@" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Expire au plus tôt le %@"
+          }
+        }
+      }
+    },
+    "Extract the ROM first: the console does not patch an archive (.zip, .7z)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extrais d’abord la ROM : la console ne patche pas une archive (.zip, .7z)."
           }
         }
       }
@@ -1361,6 +1391,16 @@
         }
       }
     },
+    "IPS: the source ROM could not be verified." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IPS : la ROM source n’a pas pu être vérifiée."
+          }
+        }
+      }
+    },
     "If the file is already on the console, sending it again keeps both copies." : {
       "localizations" : {
         "fr" : {
@@ -1477,16 +1517,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Garder la save et les states"
-          }
-        }
-      }
-    },
-    "Keep the extension of the game (%@) so that NextUI opens it with the same emulator." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Garde l’extension du jeu (%@) pour que NextUI l’ouvre avec le même émulateur."
           }
         }
       }
@@ -2171,6 +2201,16 @@
         }
       }
     },
+    "Patch applied: the cancellation arrived too late." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Patch appliqué (l’annulation est arrivée trop tard)."
+          }
+        }
+      }
+    },
     "Patch: %@" : {
       "localizations" : {
         "fr" : {
@@ -2257,6 +2297,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scanner de QR code"
+          }
+        }
+      }
+    },
+    "ROM on the console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ROM sur la console"
           }
         }
       }
@@ -2861,6 +2911,26 @@
         }
       }
     },
+    "The ROM changed while the patch was applied. Nothing was changed, try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La ROM a changé pendant l’application. Rien n’a été modifié, réessaie."
+          }
+        }
+      }
+    },
+    "The cancellation could not be sent: %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’annulation n’a pas pu être envoyée : %@"
+          }
+        }
+      }
+    },
     "The cheat file of the game is deleted on the console; its previous content is kept there (.cht.bak)." : {
       "localizations" : {
         "fr" : {
@@ -2921,6 +2991,16 @@
         }
       }
     },
+    "The console downloaded the patch before the cancellation arrived. Nothing was applied: tap Apply to use it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a téléchargé le patch avant l’arrivée de l’annulation. Rien n’a été appliqué : touche Appliquer pour l’utiliser."
+          }
+        }
+      }
+    },
     "The console downloads the .cht file itself (5 MB at most)." : {
       "localizations" : {
         "fr" : {
@@ -2957,6 +3037,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console n’a rien trouvé d’utilisable dans ce fichier."
+          }
+        }
+      }
+    },
+    "The console goes on with the task; its state shows again once it answers." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console poursuit la tâche ; son état s’affichera de nouveau dès qu’elle répondra."
           }
         }
       }
@@ -3431,6 +3521,16 @@
         }
       }
     },
+    "This game seems to be already patched with this patch." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu semble déjà patché avec ce patch."
+          }
+        }
+      }
+    },
     "This game uses a NextUI setting that ReminisLink does not handle yet (save or state format). Nothing was changed." : {
       "localizations" : {
         "fr" : {
@@ -3467,6 +3567,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce patch ne correspond pas à cette ROM. Vérifie la version de la ROM demandée par le patch."
+          }
+        }
+      }
+    },
+    "This patch or the patched ROM is too large for the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce patch ou la ROM patchée est trop gros pour la console."
           }
         }
       }
@@ -3717,6 +3827,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Wi-Fi"
+          }
+        }
+      }
+    },
+    "Will be created: %@. If the name is taken, the console adds a number. The extension of the game is added when the name does not end with it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sera créé : %@. Si le nom est pris, la console ajoute un numéro. L’extension du jeu est ajoutée quand le nom ne se termine pas par elle."
           }
         }
       }

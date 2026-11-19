@@ -86,7 +86,8 @@ struct GameFolderPickerView: View {
                     }
                 }
                 ForEach(listing.games) { game in
-                    let refused = patchOnly && !game.kind.isPatchable
+                    let refusal = patchOnly ? PatchNaming.refusal(kind: game.kind, fileName: game.fileName) : nil
+                    let refused = refusal != nil
                     Button {
                         onPick(PickedGame(id: game.id, name: game.name, hasSave: game.hasSave, fileName: game.fileName,
                                           kind: game.kind, systemLabel: systemLabel))
@@ -94,8 +95,8 @@ struct GameFolderPickerView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(game.name).foregroundStyle(refused ? .secondary : .primary)
-                                if refused {
-                                    Text("Several discs: cannot be patched")
+                                if let refusal {
+                                    (refusal == .archive ? Text("Archive: extract the ROM first") : Text("Several discs: cannot be patched"))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }

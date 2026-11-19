@@ -13,7 +13,12 @@ import ReminisLinkKit
 // Conventions of the demo and the tests:
 // - a staging file without bytes (a download, or an upload over 1 MiB) is
 //   judged by its extension; a name containing "mismatch" does not match;
-// - a multi-disc game is refused at once (`422 unsupported_format`).
+// - a file with bytes and no known header is refused at once (`422
+//   unsupported_format`), as are multi-disc games and `.zip`/`.7z` ROMs;
+// - a BPS or UPS whose declared target size is the game's size while its
+//   source size is not is taken as already applied (`already-patched`);
+// - an output name that does not end with `.<extension of the ROM>`
+//   gets it (`Hack.zip` → `Hack.zip.gba`).
 
 /// A file of the staging area.
 struct FakeStagedFile {
@@ -26,14 +31,20 @@ struct FakeStagedFile {
 struct FakePatchPlan {
     enum Outcome: Equatable {
         case apply(targetSize: Int64)
-        case mismatch
+        /// Another ROM: the source size the patch declares, if known.
+        case mismatch(expectedSize: Int64?)
+        case alreadyPatched
         case unsupported
+        /// The ROM changed while the job ran (`409 conflict`).
+        case romChanged
     }
 
     let gameId: String
     let outcome: Outcome
     let mode: String
     let fileName: String?
+    /// `result.verified`: false for IPS (no checksum).
+    var verified = true
 }
 
 /// Minimal patch files for the demo and the tests (never a real game's
@@ -141,7 +152,7 @@ extension FakePak {
         guard let bytes else {
             let ext = name.split(separator: ".").last.map { $0.lowercased() } ?? ""
             guard ["ips", "bps", "ups"].contains(ext) else { return .unsupported }
-            return name.lowercased().contains("mismatch") ? .mismatch : .apply(targetSize: gameSize)
+            return name.lowercased().contains("mismatch") ? .mismatch(expectedSize: nil) : .apply(targetSize: gameSize)
         }
         if bytes.starts(with: Data("PATCH".utf8)) { return .apply(targetSize: gameSize) }
         let isBPS = bytes.starts(with: Data("BPS1".utf8))
@@ -151,7 +162,7 @@ extension FakePak {
         guard let source = DemoPatch.readVarint(bytes, at: &index), let target = DemoPatch.readVarint(bytes, at: &index) else {
             return .unsupported
         }
-        guard Int64(source) == gameSize else { return .mismatch }
+        guard Int64(source) == gameSize else { return Int64(target) == gameSize ? .alreadyPatched : .mismatch(expectedSize: Int64(source)) }
         return .apply(targetSize: Int64(target))
     }
 
@@ -164,15 +175,19 @@ extension FakePak {
         guard mode == "new-file" || mode == "replace" else {
             return .error(400, code: "invalid_request", message: "Invalid output mode")
         }
-        var fileName: String?
-        if let raw = output["fileName"] as? String {
-            guard let clean = Self.cleanFileName(raw), !clean.hasPrefix(".") else {
-                return .error(400, code: "invalid_name", message: "Invalid file name")
-            }
-            fileName = clean
-        }
         guard let (_, game) = library.game(id: gameId) else {
             return .error(404, code: "not_found", message: "Game not found")
+        }
+        var fileName: String?
+        if mode == "new-file", let raw = output["fileName"] as? String {
+            guard var clean = Self.cleanFileName(raw), !clean.hasPrefix(".") else {
+                return .error(400, code: "invalid_name", message: "Invalid file name")
+            }
+            let romExt = game.fileName.split(separator: ".").count > 1 ? String(game.fileName.split(separator: ".").last ?? "") : ""
+            if !romExt.isEmpty, !clean.lowercased().hasSuffix("." + romExt.lowercased()) {
+                clean += "." + romExt
+            }
+            fileName = clean
         }
         let staged: (name: String, bytes: Data?)
         switch type {
@@ -192,11 +207,23 @@ extension FakePak {
         guard game.kind == .file else {
             return .error(422, code: "unsupported_format", message: "Multi-disc games cannot be patched")
         }
+        let romExt = game.fileName.split(separator: ".").last.map { $0.lowercased() } ?? ""
+        guard !["zip", "7z"].contains(romExt) else {
+            return .error(422, code: "unsupported_format", message: "Archives cannot be patched")
+        }
+        var outcome = Self.judge(bytes: staged.bytes, name: staged.name, gameSize: game.sizeBytes)
+        if outcome == .unsupported, staged.bytes != nil {
+            return .error(422, code: "unsupported_format", message: "Not an IPS, BPS or UPS patch")
+        }
+        let changes = lock.withLock { () -> Bool in
+            defer { _romChangesDuringNextPatch = false }
+            return _romChangesDuringNextPatch
+        }
+        if changes, case .apply = outcome { outcome = .romChanged }
         let now = Date()
-        let plan = FakePatchPlan(
-            gameId: gameId, outcome: Self.judge(bytes: staged.bytes, name: staged.name, gameSize: game.sizeBytes),
-            mode: mode, fileName: fileName
-        )
+        let plan = FakePatchPlan(gameId: gameId, outcome: outcome, mode: mode, fileName: fileName,
+                                 verified: staged.bytes.map { !$0.starts(with: Data("PATCH".utf8)) }
+                                    ?? !staged.name.lowercased().hasSuffix(".ips"))
         let job = FakeJob(
             id: Self.randomId("job_"), kind: "patch", state: "queued", done: 0, total: nil,
             createdAt: now, updatedAt: now, result: nil, error: nil, target: .staging(fileName: nil),
@@ -224,9 +251,22 @@ extension FakePak {
             job.total = game.sizeBytes
         case "running":
             switch plan.outcome {
-            case .mismatch:
+            case .mismatch(let expectedSize):
                 job.state = "failed"
-                job.error = ["code": "patch_mismatch", "message": "The ROM does not match the source of the patch", "details": [String: Any]()]
+                // The sizes differ in the fake: no `actualCrc32`.
+                var details: [String: Any] = ["reason": "source-mismatch", "actualSize": game.sizeBytes]
+                if let expectedSize {
+                    details["expectedSize"] = expectedSize
+                    details["expectedCrc32"] = "1234abcd"
+                }
+                job.error = ["code": "patch_mismatch", "message": "The ROM does not match the source of the patch", "details": details]
+            case .alreadyPatched:
+                job.state = "failed"
+                job.error = ["code": "patch_mismatch", "message": "The ROM is the target of the patch",
+                             "details": ["reason": "already-patched"]]
+            case .romChanged:
+                job.state = "failed"
+                job.error = ["code": "conflict", "message": "The ROM changed while it was patched", "details": [String: Any]()]
             case .unsupported:
                 job.state = "failed"
                 job.error = ["code": "unsupported_format", "message": "Not an IPS, BPS or UPS patch", "details": [String: Any]()]
@@ -235,7 +275,7 @@ extension FakePak {
                 job.done = min(total, job.done + max(1, total / 3))
                 guard job.done >= total else { return }
                 job.state = "succeeded"
-                job.result = ["gameId": finishPatch(plan, system: system, game: game, targetSize: targetSize)]
+                job.result = ["gameId": finishPatch(plan, system: system, game: game, targetSize: targetSize), "verified": plan.verified]
             }
         default:
             break
@@ -272,6 +312,13 @@ extension FakePak {
         let response = store(target: .rom(system: system, folder: game.parent, fileName: base), sizeBytes: targetSize, onConflict: "rename")
         let object = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
         return object?["gameId"] as? String ?? plan.gameId
+    }
+}
+extension FakePak {
+    /// The next patch job finds its ROM changed (`409 conflict`).
+    public var romChangesDuringNextPatch: Bool {
+        get { lock.withLock { _romChangesDuringNextPatch } }
+        set { lock.withLock { _romChangesDuringNextPatch = newValue } }
     }
 }
 #endif
