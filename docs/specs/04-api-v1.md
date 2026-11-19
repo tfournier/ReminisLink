@@ -266,7 +266,7 @@ Liste, en lecture seule et en une requête, toutes les saves de tous les jeux, p
 - Mêmes jeux et même résolution de la save que `GET /systems/{systemId}/games` et `GET /games/{gameId}` (types `file`, `m3u`, `folder-m3u`, `folder-cue`, sous-dossiers compris ; save nommée d'après la ROM, le `.m3u` ou la `.cue`, sans tenir compte de la casse).
 - Un jeu n'est listé que s'il a une save (`.sav`). Le fichier d'horloge (`.rtc`) appartient à sa save (M5) : il est donné dans `rtc` (`null` s'il n'y en a pas), jamais listé seul ; un jeu qui n'a qu'un `.rtc` n'est pas listé.
 - Deux jeux d'un même système portant le même nom de fichier dans des dossiers différents partagent une save sur NextUI : les deux sont listés, avec le même `path` et le même `sha256`.
-- Le pak garde en mémoire les SHA-256 (clé : fichier, taille, date de modification) : une sync répétée ne relit que les saves modifiées. Les fichiers atteints par un lien symbolique ou hors du dossier des saves sont ignorés. Une seule liste est calculée à la fois (une seconde requête attend). La requête s'arrête si le client se déconnecte.
+- Le pak garde en mémoire les SHA-256 (clé : fichier, taille, date de modification) : une sync répétée ne relit que les saves modifiées. Un fichier modifié moins de 3 s avant le calcul de son hash est relu (règle « racy git » : exFAT garde les dates à 2 s près). Les liens symboliques, les fichiers atteints par un lien (même resté dans le dossier des saves) et ceux hors du dossier des saves sont ignorés. Une seule liste est calculée à la fois (une seconde requête attend). La requête s'arrête si le client se déconnecte.
 - Au plus 10 000 saves ; au-delà, `truncated` vaut `true` et l'app ne DOIT rien déduire d'une save absente de la liste. Pas de pagination (comme les autres listes).
 - `path` est informatif, jamais renvoyé ; `modifiedAt` vient de l'horloge de la console (informatif) : l'app compare `sha256`.
 - Téléchargement : `GET /games/{gameId}/save` et, si `rtc` n'est pas `null`, `GET /games/{gameId}/save/rtc`.
@@ -277,7 +277,7 @@ Liste, en lecture seule et en une requête, toutes les saves de tous les jeux, p
 
 ### `GET /games/{gameId}/save/rtc` (M9)
 
-Le fichier d'horloge (`.rtc`) écrit par NextUI à côté de la save, pour que l'app le garde avec sa copie de la save. `application/octet-stream`, `Content-Disposition` comme ci-dessus. `404` si le jeu n'a pas de fichier d'horloge.
+Le fichier d'horloge (`.rtc`) écrit par NextUI à côté de la save, pour que l'app le garde avec sa copie de la save. `application/octet-stream`, `Content-Disposition` comme ci-dessus. `404` si le jeu n'a pas de fichier d'horloge, ou s'il est un lien symbolique, atteint par un lien ou hors du dossier des saves.
 
 ### `PUT /games/{gameId}/save`
 

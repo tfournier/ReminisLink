@@ -47,6 +47,22 @@ func byGame(l Listing) map[string]Summary {
 	return m
 }
 
+// ageSaves dates every file of Saves/ an hour ago, long before any hash
+// (RacyMargin).
+func (e *env) ageSaves() {
+	e.t.Helper()
+	old := time.Now().Add(-time.Hour)
+	err := filepath.WalkDir(filepath.Join(e.sd, "Saves"), func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			err = os.Chtimes(p, old, old)
+		}
+		return err
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 func (e *env) hashed() int {
 	e.svc.hashes.mu.Lock()
 	defer e.svc.hashes.mu.Unlock()
@@ -129,6 +145,7 @@ func TestListAllNoSavesFolder(t *testing.T) {
 
 func TestListAllHashCache(t *testing.T) {
 	e := newEnv(t)
+	e.ageSaves()
 	first := e.listAll()
 	n := e.hashed()
 	if n != len(first.Saves) {
@@ -242,8 +259,17 @@ func TestListAllSkipsLinks(t *testing.T) {
 	if err := os.Symlink(outside, mgba); err != nil {
 		t.Fatal(err)
 	}
+	// A tag folder linked to a folder that stays inside Saves/ is refused
+	// too.
+	psDir := filepath.Join(e.sd, "Saves/PS")
+	if err := os.Rename(psDir, filepath.Join(e.sd, "Saves/PS real")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("PS real", psDir); err != nil {
+		t.Fatal(err)
+	}
 	got := byGame(e.listAll())
-	for _, g := range []string{gba + "/Hacks/Starlight Courier Remix.gba", "Game Boy Advance (MGBA)/Starlight Courier.gba"} {
+	for _, g := range []string{gba + "/Hacks/Starlight Courier Remix.gba", "Game Boy Advance (MGBA)/Starlight Courier.gba", ps + "/Mossy Hollow"} {
 		if s, ok := got[library.EncodeID(g)]; ok {
 			t.Errorf("%s: read through a link: %+v", g, s)
 		}
@@ -268,6 +294,7 @@ func TestListAllManyGames(t *testing.T) {
 		e.write(dir+"/"+name, "rom")
 		e.write("Saves/MANY/"+name+".sav", fmt.Sprintf("save %d", i))
 	}
+	e.ageSaves()
 	start := time.Now()
 	l := e.listAll()
 	count := 0
@@ -285,6 +312,48 @@ func TestListAllManyGames(t *testing.T) {
 		t.Fatalf("second listing hashed %d files", e.hashed()-before)
 	}
 	t.Logf("%d saves listed in %v", len(l.Saves), time.Since(start))
+}
+
+// A save rewritten in place right after it was hashed, with the same size
+// and the same date (exFAT keeps dates to 2 s), is hashed again: a hash
+// is reused only for a file older than RacyMargin when it was computed.
+func TestListAllRacyRewrite(t *testing.T) {
+	e := newEnv(t)
+	rel := "Saves/GBA/Starlight Courier.gba.sav"
+	p := filepath.Join(e.sd, rel)
+	e.write(rel, "first version")
+	mtime := time.Now().Truncate(2 * time.Second)
+	if err := os.Chtimes(p, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	id := library.EncodeID(gba + "/Starlight Courier.gba")
+	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf("first version") {
+		t.Fatalf("first %+v", s)
+	}
+	// Rewritten in place (same file), same size, same date.
+	f, err := os.OpenFile(p, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteAt([]byte("other version"), 0); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if err := os.Chtimes(p, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	if s := byGame(e.listAll())[id]; s.SHA256 != shaOf("other version") {
+		t.Fatalf("stale hash after an in-place rewrite: %+v", s)
+	}
+	// Once the date is older than the hash by RacyMargin, the hash is
+	// reused.
+	e.svc.hashes.now = func() time.Time { return time.Now().Add(time.Hour) }
+	e.listAll() // hashed again, now long after the date
+	n := e.hashed()
+	e.listAll()
+	if e.hashed() != n {
+		t.Fatal("old file hashed again")
+	}
 }
 
 func TestListAllTruncated(t *testing.T) {
@@ -309,4 +378,62 @@ func TestOpenClock(t *testing.T) {
 		t.Fatalf("open: %q %v", name, err)
 	}
 	f.Close()
+
+	// A tag folder linked outside Saves/, or inside it: not served.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "Starlight Courier.gba.rtc"), []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gbaDir := filepath.Join(e.sd, "Saves/GBA")
+	if err := os.Rename(gbaDir, filepath.Join(e.sd, "Saves/GBA real")); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{outside, "GBA real"} {
+		os.Remove(gbaDir)
+		if err := os.Symlink(target, gbaDir); err != nil {
+			t.Skipf("no symbolic links here: %v", err)
+		}
+		if _, _, err := e.svc.OpenClock(g); !errors.Is(err, ErrNoClock) {
+			t.Errorf("linked tag folder %s: %v", target, err)
+		}
+	}
+}
+
+// TestListAllLargeCard measures a listing on a large card: 5000 games of
+// 20 systems, half in subfolders, each with a 128 KiB save (one in ten
+// with a clock file). Run with REMINISLINK_LARGE_CARD=1.
+func TestListAllLargeCard(t *testing.T) {
+	if os.Getenv("REMINISLINK_LARGE_CARD") == "" {
+		t.Skip("set REMINISLINK_LARGE_CARD=1 to run")
+	}
+	e := newEnv(t)
+	const systems, perSystem, saveSize = 20, 250, 128 << 10
+	buf := make([]byte, saveSize)
+	for s := range systems {
+		tag := fmt.Sprintf("S%02d", s)
+		for i := range perSystem {
+			name := fmt.Sprintf("Game %04d.bin", i)
+			dir := fmt.Sprintf("Roms/System %02d (%s)", s, tag)
+			if i%2 == 1 {
+				dir += fmt.Sprintf("/Folder %d", i%7)
+			}
+			e.write(dir+"/"+name, "rom")
+			copy(buf, fmt.Sprintf("%s %d", tag, i))
+			e.write("Saves/"+tag+"/"+name+".sav", string(buf))
+			if i%10 == 0 {
+				e.write("Saves/"+tag+"/"+name+".rtc", "clock")
+			}
+		}
+	}
+	e.ageSaves()
+	start := time.Now()
+	l := e.listAll()
+	cold := time.Since(start)
+	if len(l.Saves) < systems*perSystem {
+		t.Fatalf("listed %d saves", len(l.Saves))
+	}
+	start = time.Now()
+	e.listAll()
+	warm := time.Since(start)
+	t.Logf("%d saves (%d MiB): cold %v, warm %v", len(l.Saves), len(l.Saves)*saveSize>>20, cold, warm)
 }

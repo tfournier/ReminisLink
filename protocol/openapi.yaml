@@ -690,8 +690,10 @@ paths:
 
         The hashes are cached by the pak (keyed by the file, its size and
         its modification time), so a repeated sync only reads the saves
-        that changed. Files reached through a symbolic link, or resolving
-        outside the saves folder, are skipped. One listing runs at a time
+        that changed; a file modified less than 3 s before its hash was
+        computed is hashed again (exFAT keeps dates to 2 s). Files that
+        are symbolic links, reached through one (even one that stays in
+        the saves folder), or outside the saves folder are skipped. One listing runs at a time
         (a second request waits). Order: stable, not meaningful. At most
         10000 saves: beyond, `truncated` is true and the app must not infer
         anything from a save missing from the list. `path` is informative
@@ -797,7 +799,8 @@ paths:
         M9. The clock file (`.rtc`) NextUI writes next to the save, which
         belongs to it (M5: backed up and restored with it), so the app can
         keep it with its copy of the save. `404 not_found` when the game has
-        no clock file.
+        no clock file, or when it is a symbolic link, reached through one or
+        outside the saves folder.
       parameters:
         - $ref: '#/components/parameters/GameId'
       responses:
