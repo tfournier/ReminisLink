@@ -69,10 +69,14 @@ func (p *presence) seenSince(since time.Time) map[string]time.Time {
 func (s *Server) markSeen(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c, ok := auth.ClientFromContext(r.Context()); ok {
-			s.presence.touch(c.ID, s.now())
-			// Every accepted signed request of the holder renews the
-			// write lease (M10).
-			s.lease.Renew(c.ID)
+			// A client disconnected while its request was being verified
+			// (or calling POST /clients/me/connect) is not marked seen.
+			if !s.disconnected.has(c.ID) {
+				s.presence.touch(c.ID, s.now())
+				// Every accepted signed request of the holder renews the
+				// write lease (M10).
+				s.lease.Renew(c.ID)
+			}
 			markAccepted(r)
 		}
 		next.ServeHTTP(w, r)
