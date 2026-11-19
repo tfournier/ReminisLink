@@ -185,6 +185,12 @@ type Adapter interface {
 	// the games ListFolder lists, reading each folder once. It stops with
 	// the error of fn, or ctx.Err() when ctx is done.
 	WalkGames(ctx context.Context, sys System, fn func(Game) error) error
+	// WalkSummaries calls fn for every game WalkGames finds, with what
+	// ListFolder says about it and the folder that holds it (relative to
+	// Roms/, sys.Folder at the root of the system), reading each folder
+	// and each data folder of the system once. It stops with the error of
+	// fn, or ctx.Err() when ctx is done.
+	WalkSummaries(ctx context.Context, sys System, fn func(folder string, g GameSummary) error) error
 	// Game returns the game at rel (relative to Roms/), or ErrNotFound.
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.

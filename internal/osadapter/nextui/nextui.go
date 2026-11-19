@@ -355,11 +355,27 @@ func readNames(dir string) []fs.DirEntry {
 }
 
 func (a *Adapter) index(sys osadapter.System, dir string) systemIndex {
+	return a.dataIndex(sys).withMedia(dir)
+}
+
+// withMedia returns idx with the art of the folder dir (one read of
+// dir/.media); the data maps are shared.
+func (idx systemIndex) withMedia(dir string) systemIndex {
+	idx.media = map[string]bool{}
+	for _, e := range readNames(filepath.Join(dir, ".media")) {
+		if e.Type().IsRegular() {
+			idx.media[fold(e.Name())] = true
+		}
+	}
+	return idx
+}
+
+// dataIndex reads the save, state and cheat folders of a system once.
+func (a *Adapter) dataIndex(sys osadapter.System) systemIndex {
 	idx := systemIndex{
 		saves:  map[string]bool{},
 		states: map[string]map[int]bool{},
 		cheats: map[string]string{},
-		media:  map[string]bool{},
 	}
 	for _, e := range readNames(filepath.Join(a.roots.Saves, sys.Tag)) {
 		if e.Type().IsRegular() {
@@ -386,11 +402,6 @@ func (a *Adapter) index(sys osadapter.System, dir string) systemIndex {
 	for _, e := range readNames(filepath.Join(a.roots.Cheats, sys.Tag)) {
 		if e.Type().IsRegular() {
 			idx.cheats[fold(e.Name())] = e.Name()
-		}
-	}
-	for _, e := range readNames(filepath.Join(dir, ".media")) {
-		if e.Type().IsRegular() {
-			idx.media[fold(e.Name())] = true
 		}
 	}
 	return idx
@@ -450,34 +461,9 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 				GameCount: countGames(filepath.Join(dir, g.FileName), subEntries, strings.Count(g.Path, "/")),
 			})
 		case gameEntry:
-			s := idx.summary(a, g)
-			if g.Kind.IsFolder() {
-				for _, se := range subEntries {
-					if !se.Type().IsRegular() || hidden(se.Name()) {
-						continue
-					}
-					if info, err := se.Info(); err == nil {
-						s.Size += info.Size()
-						if se.Name() == g.ROMName {
-							s.ModTime = info.ModTime().UTC()
-						}
-					}
-				}
-			} else {
-				info, err := e.Info()
-				if err != nil {
-					continue
-				}
-				s.Size = info.Size()
-				s.ModTime = info.ModTime().UTC()
-				if g.Kind == osadapter.KindM3U {
-					// Same total as the ROM files of GET /games/{gameId}.
-					for _, d := range a.m3uDiscs(g, filepath.Join(dir, g.FileName), map[string][]fs.DirEntry{dir: entries}) {
-						s.Size += d.Size
-					}
-				}
+			if s, ok := a.summarize(idx, dir, entries, e, g, subEntries); ok {
+				listing.Games = append(listing.Games, s)
 			}
-			listing.Games = append(listing.Games, s)
 		}
 	}
 	sort.Slice(listing.Folders, func(i, j int) bool { return lessFold(listing.Folders[i].Name, listing.Folders[j].Name) })
@@ -556,6 +542,84 @@ func walkGames(ctx context.Context, sys osadapter.System, dir, rel string, entri
 				continue
 			}
 			if err := walkGames(ctx, sys, filepath.Join(dir, g.FileName), g.Path, subEntries, depth+1, fn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// summarize describes the game g found as the entry e of dir (entries:
+// the listing of dir, subEntries: the listing of a game folder), as
+// ListFolder lists it; ok is false when the entry cannot be read.
+func (a *Adapter) summarize(idx systemIndex, dir string, entries []fs.DirEntry, e fs.DirEntry, g osadapter.Game, subEntries []fs.DirEntry) (osadapter.GameSummary, bool) {
+	s := idx.summary(a, g)
+	if g.Kind.IsFolder() {
+		for _, se := range subEntries {
+			if !se.Type().IsRegular() || hidden(se.Name()) {
+				continue
+			}
+			if info, err := se.Info(); err == nil {
+				s.Size += info.Size()
+				if se.Name() == g.ROMName {
+					s.ModTime = info.ModTime().UTC()
+				}
+			}
+		}
+		return s, true
+	}
+	info, err := e.Info()
+	if err != nil {
+		return s, false
+	}
+	s.Size = info.Size()
+	s.ModTime = info.ModTime().UTC()
+	if g.Kind == osadapter.KindM3U {
+		// Same total as the ROM files of GET /games/{gameId}.
+		for _, d := range a.m3uDiscs(g, filepath.Join(dir, g.FileName), map[string][]fs.DirEntry{dir: entries}) {
+			s.Size += d.Size
+		}
+	}
+	return s, true
+}
+
+// WalkSummaries calls fn for every game of sys, subfolders included, as
+// WalkGames finds them, with what ListFolder says about each game and the
+// folder that holds it (relative to Roms/, sys.Folder at the root of the
+// system). Each folder is read once and the save, state and cheat folders
+// of the system once. It stops with the error of fn, or ctx.Err().
+func (a *Adapter) WalkSummaries(ctx context.Context, sys osadapter.System, fn func(folder string, g osadapter.GameSummary) error) error {
+	dir := filepath.Join(a.roots.Roms, sys.Folder)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("walk games: %w", withoutPath(err))
+	}
+	return a.walkSummaries(ctx, sys, a.dataIndex(sys), dir, sys.Folder, entries, 0, fn)
+}
+
+func (a *Adapter) walkSummaries(ctx context.Context, sys osadapter.System, data systemIndex, dir, rel string, entries []fs.DirEntry, depth int, fn func(string, osadapter.GameSummary) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	idx := data.withMedia(dir)
+	discs := m3uSiblings(dir, entries)
+	for _, e := range entries {
+		g, subEntries, class := classify(sys, dir, rel, e, discs)
+		switch class {
+		case gameEntry:
+			if s, ok := a.summarize(idx, dir, entries, e, g, subEntries); ok {
+				if err := fn(rel, s); err != nil {
+					return err
+				}
+			}
+		case folderEntry:
+			if depth >= MaxFolderDepth {
+				continue
+			}
+			if err := a.walkSummaries(ctx, sys, data, filepath.Join(dir, g.FileName), g.Path, subEntries, depth+1, fn); err != nil {
 				return err
 			}
 		}
