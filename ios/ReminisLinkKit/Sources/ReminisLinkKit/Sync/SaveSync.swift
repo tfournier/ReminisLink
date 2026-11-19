@@ -103,6 +103,10 @@ public struct SaveSync: Sendable {
     public func run(progress: @escaping @Sendable (SaveSyncProgress) -> Void = { _ in }) async throws -> SaveSyncReport {
         let list = try await source.saves()
         try Task.checkCancellation()
+        // Rotations left unfinished (the app stopped between a move and
+        // its deletions), also for games no longer listed. Housekeeping:
+        // a failure here does not stop the sync.
+        try? await vault.finishRotations(deviceId: console.deviceId)
         // Folder names of the systems: label and tag, as two systems can
         // share a label (GBA and MGBA are both "Game Boy Advance"). Without
         // the list (a busy pak), the tag of the saves folder (`Saves/<TAG>/...`).
@@ -150,8 +154,7 @@ public struct SaveSync: Sendable {
 
     /// Stores a new version if the save changed; returns whether it did.
     private func sync(_ save: SaveSummary, systemName: String) async throws -> Bool {
-        // Also finishes a rotation left unfinished by an earlier sync.
-        let latest = try await vault.retainedVersions(deviceId: console.deviceId, gameId: save.gameId).first
+        let latest = try await vault.latestVersion(deviceId: console.deviceId, gameId: save.gameId)
         guard Self.needsNewVersion(save, latest: latest) else { return false }
 
         let folder = scratchDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)

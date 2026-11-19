@@ -72,7 +72,9 @@ public struct SaveVersionInfo: Codable, Sendable, Hashable {
     public let gameId: String
     /// Publication order in its game folder (1 for the first version):
     /// versions are ordered and kept by it, never by a date, as the clock
-    /// of the iPhone can go back.
+    /// of the iPhone can go back. 0 for a version written before it existed
+    /// (first M9 builds): those rank before every numbered version, by
+    /// `syncedAt` then folder name.
     public let sequence: Int
     /// When the iPhone copied it.
     public let syncedAt: Date
@@ -89,6 +91,16 @@ public struct SaveVersionInfo: Codable, Sendable, Hashable {
         self.modifiedAt = modifiedAt
         self.save = save
         self.rtc = rtc
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        gameId = try c.decode(String.self, forKey: .gameId)
+        sequence = try c.decodeIfPresent(Int.self, forKey: .sequence) ?? 0
+        syncedAt = try c.decode(Date.self, forKey: .syncedAt)
+        modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt)
+        save = try c.decode(SaveVersionFile.self, forKey: .save)
+        rtc = try c.decodeIfPresent(SaveVersionFile.self, forKey: .rtc)
     }
 }
 
@@ -165,6 +177,9 @@ public protocol SaveVault: Sendable {
     /// unfinished, e.g. the app was stopped between the move and the
     /// deletion). The sync calls it before comparing.
     func retainedVersions(deviceId: String, gameId: String) async throws -> [SaveVersion]
+    /// Finishes the rotations left unfinished in every game of a console,
+    /// also the games the console no longer lists.
+    func finishRotations(deviceId: String) async throws
     /// Stores a new version (the files are moved in) with the next
     /// sequence number, then deletes the oldest versions beyond
     /// ``SaveVaultLimits/maxVersions`` (never the new one).

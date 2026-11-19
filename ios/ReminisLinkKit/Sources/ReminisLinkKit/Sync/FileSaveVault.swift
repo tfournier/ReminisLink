@@ -150,6 +150,13 @@ public actor FileSaveVault: SaveVault {
         return try versions(in: folder)
     }
 
+    public func finishRotations(deviceId: String) throws {
+        gameIndex[deviceId] = nil
+        for (_, folder) in try loadGameIndex(deviceId: deviceId) {
+            try rotate(folder, keeping: nil)
+        }
+    }
+
     /// Deletes the versions beyond the limit, oldest published first,
     /// never `kept`.
     private func rotate(_ gameFolder: URL, keeping kept: String?) throws {

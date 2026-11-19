@@ -146,6 +146,20 @@ struct SaveSyncTests {
         #expect(try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g1").count == 10)
     }
 
+    @Test func aSyncFinishesRotationsOfGamesNoLongerListed() async throws {
+        let sandbox = try VaultSandbox()
+        let eleven = sandbox.vault(maxVersions: 11)
+        let gone = VaultGameInfo(gameId: "g-gone", systemId: "sys-gba", systemName: "Game Boy Advance (GBA)", name: "Gone")
+        for i in 1...11 {
+            _ = try await eleven.addVersion(console: brick, game: gone, save: try sandbox.input("Gone.gba.sav", "v\(i)"), rtc: nil, modifiedAt: nil)
+        }
+        // The console no longer has this save.
+        let source = StubSaveSource([.entry("g1", name: "Sky Garden", save: "sky")])
+        _ = try await makeSync(source, sandbox).run()
+        let left = try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g-gone")
+        #expect(left.map(\.info.sequence) == Array((2...11).reversed()))
+    }
+
     @Test func aChecksumMismatchIsRejectedAndTheOtherGamesGoOn() async throws {
         let sandbox = try VaultSandbox()
         var bad = StubSaveSource.Entry.entry("g1", name: "Sky Garden", save: "sky-1")

@@ -146,6 +146,43 @@ struct SaveVaultTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: out.path).count == 1)
     }
 
+    /// Versions written by the first M9 builds have no `sequence`: they
+    /// are still listed and restorable, ranked before every numbered
+    /// version (by date, then folder name), and rotated first.
+    @Test func versionsWithoutSequenceAreKeptAndRankedFirst() async throws {
+        let sandbox = try VaultSandbox()
+        let vault = sandbox.vault()
+        var legacy: [SaveVersion] = []
+        for i in 1...3 {
+            legacy.append(try await vault.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "old-\(i)"), rtc: nil, modifiedAt: nil))
+        }
+        // As written before `sequence` existed.
+        let game = sandbox.root.appending(path: "My Brick/Game Boy Advance/Starlight Courier")
+        for version in legacy {
+            let url = game.appending(path: "\(version.id)/.version.json")
+            var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            object["sequence"] = nil
+            try JSONSerialization.data(withJSONObject: object).write(to: url)
+        }
+        let upgraded = sandbox.vault()
+        let read = try await upgraded.versions(deviceId: "dev-1", gameId: "g-courier")
+        #expect(read.map(\.id) == legacy.reversed().map(\.id))
+        #expect(read.allSatisfy { $0.info.sequence == 0 })
+        let exported = try await upgraded.exportVerified(deviceId: "dev-1", gameId: "g-courier", version: read[2], to: sandbox.base.appending(path: "Out"))
+        #expect(try Data(contentsOf: exported.save) == Data("old-1".utf8))
+
+        // New versions are numbered from 1 and rank above; rotation removes
+        // the legacy versions first, oldest first.
+        let small = sandbox.vault(maxVersions: 4, clock: TestClock(start: Date(timeIntervalSince1970: 1_700_000_000)))
+        var added: [SaveVersion] = []
+        for i in 1...2 {
+            added.append(try await small.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "new-\(i)"), rtc: nil, modifiedAt: nil))
+        }
+        let after = try await small.versions(deviceId: "dev-1", gameId: "g-courier")
+        #expect(after.map(\.info.sequence) == [2, 1, 0, 0])
+        #expect(after.map(\.id) == [added[1].id, added[0].id, legacy[2].id, legacy[1].id])
+    }
+
     @Test func aFolderThatIsNotAVersionIsNeverCountedNorDeleted() async throws {
         let sandbox = try VaultSandbox()
         let vault = sandbox.vault(maxVersions: 2)
