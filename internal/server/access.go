@@ -51,6 +51,10 @@ type access struct {
 	// lookupHook, when set (tests), is called by Lookup after the client
 	// is read, before the verifier goes on.
 	lookupHook atomic.Pointer[func(id string)]
+	// onRevoke is called, with mu held, on every revocation: it closes
+	// the event streams of the client (M14). It must not block nor call
+	// access.
+	onRevoke func(id string)
 }
 
 // Lookup is the auth.ClientLookup of the verifier: the client and its
@@ -122,6 +126,9 @@ func (a *access) revokeLocked(id, code string) {
 	a.revokedCode[id] = code
 	a.dropLeaseLocked(id)
 	a.presence.forget(id)
+	if a.onRevoke != nil {
+		a.onRevoke(id)
+	}
 }
 
 // checkLocked refuses a disconnected client (unless allowed) or one no
@@ -206,6 +213,15 @@ func (a *access) accept(ad admission, opts auth.RouteOptions) (other *leaseHolde
 		a.presence.touch(ad.id, a.now())
 	}
 	return nil, nil, lifted
+}
+
+// check reports whether a request accepted with this admission still
+// may go on (not revoked since): the event stream checks it once
+// subscribed, as its subscription may come after a revocation.
+func (a *access) check(ad admission) *auth.Rejection {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.checkGenLocked(ad, false)
 }
 
 // rollback gives back the reservation of a rejected request, if nothing

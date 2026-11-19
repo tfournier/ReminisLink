@@ -44,7 +44,7 @@ const (
 
 // Defaults of Options.
 const (
-	DefaultBuffer          = 64
+	DefaultBuffer          = 256
 	DefaultMaxPerClient    = 4
 	DefaultMaxTotal        = 16
 	DefaultLibraryInterval = time.Second
