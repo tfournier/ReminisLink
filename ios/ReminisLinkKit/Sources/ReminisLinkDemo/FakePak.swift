@@ -88,6 +88,10 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
     var _romChangesDuringNextPatch = false
     /// The next `PUT /cheats` finds the file changed on the console (412).
     var _conflictOnNextCheatsSave = false
+    /// `GET /saves` calls so far, and the call that finds a save changed
+    /// on the console (milestone M9, UI tests).
+    var _saveListings = 0
+    var _changeSaveOnListing: Int?
     private var uploads: [String: FakeUpload] = [:]
     var jobs: [String: FakeJob] = [:]
     private var chunkFaults: [ChunkFault] = []
@@ -345,6 +349,8 @@ public final class FakePak: FakeHTTPHandler, @unchecked Sendable {
             return FakeResponse(status: 204)
         case ("GET", ["systems"]):
             return systems()
+        case ("GET", ["saves"]):
+            return listSaves()
         case ("GET", let s) where s.count == 3 && s[0] == "systems" && s[2] == "games":
             return games(systemId: s[1], folderId: params["folderId"])
         case ("GET", let s) where s.count == 2 && s[0] == "games":

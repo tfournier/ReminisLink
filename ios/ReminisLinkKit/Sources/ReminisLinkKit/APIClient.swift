@@ -321,6 +321,17 @@ public actor APIClient {
         try await downloadSigned(segments: ["games", gameId, "save"], fallbackName: "save.sav", into: directory)
     }
 
+    /// `GET /games/{gameId}/save/rtc` (M9): the clock file of the save,
+    /// written to a new directory under `directory`.
+    public func downloadSaveClock(gameId: String, into directory: URL) async throws -> DownloadedFile {
+        try await downloadSigned(segments: ["games", gameId, "save", "rtc"], fallbackName: "save.rtc", into: directory)
+    }
+
+    /// `GET /saves` (M9): every save of the console, with its SHA-256.
+    public func saves() async throws -> SaveList {
+        try await signedJSON(method: "GET", segments: ["saves"])
+    }
+
     /// `PUT /games/{gameId}/save`: the body is streamed from `file` and
     /// signed with its SHA-256 (`sha256`, computed while reading the file;
     /// never `UNSIGNED`). Each attempt is signed again with a new nonce.
