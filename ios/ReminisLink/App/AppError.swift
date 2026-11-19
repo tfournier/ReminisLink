@@ -29,6 +29,22 @@ enum AppError: Error, Equatable {
     /// `422 unsupported_format` on a save or state: the game uses a NextUI
     /// setting the pak does not handle (save or state format...).
     case unsupportedGameFormat
+    /// `422 patch_mismatch`: the patch was made for another version of the
+    /// ROM (milestone M6).
+    case patchMismatch
+    /// `422 unsupported_format` on a patch: not an IPS, BPS or UPS patch
+    /// the console can apply.
+    case unsupportedPatch
+    /// The console could not download the patch of a link.
+    case patchDownloadFailed
+    /// `422 patch_mismatch` with `details.reason = already-patched`.
+    case alreadyPatched
+    /// `409 conflict` of a patch job: the ROM changed while it ran.
+    case romChangedDuringPatch
+    /// `413` of a patch job.
+    case patchTooLarge
+    /// The device no longer knows a job (the pak was restarted).
+    case jobLost
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -75,6 +91,20 @@ enum AppError: Error, Equatable {
             String(localized: "This copy cannot be restored: it is damaged or was made by another emulator. Nothing was changed.")
         case .unsupportedGameFormat:
             String(localized: "This game uses a NextUI setting that ReminisLink does not handle yet (save or state format). Nothing was changed.")
+        case .patchMismatch:
+            String(localized: "This patch does not match this ROM. Check the ROM version the patch asks for.")
+        case .alreadyPatched:
+            String(localized: "This game seems to be already patched with this patch.")
+        case .romChangedDuringPatch:
+            String(localized: "The ROM changed while the patch was applied. Nothing was changed, try again.")
+        case .patchTooLarge:
+            String(localized: "This patch or the patched ROM is too large for the console.")
+        case .unsupportedPatch:
+            String(localized: "This file is not a patch the console can apply. Choose an IPS, BPS or UPS patch.")
+        case .patchDownloadFailed:
+            String(localized: "The console could not download the patch. Check the link and the Wi-Fi connection of the console.")
+        case .jobLost:
+            String(localized: "The console was restarted and stopped this task. Check the library before trying again.")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -99,7 +129,8 @@ enum AppError: Error, Equatable {
             default: .retry
             }
         case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .file: nil
-        case .restoreRefused, .unsupportedGameFormat: nil
+        case .restoreRefused, .unsupportedGameFormat, .patchMismatch, .unsupportedPatch, .jobLost: nil
+        case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .storage, .cancelled: nil
         case .pairingClosed, .unexpected: .retry
@@ -122,6 +153,34 @@ enum AppError: Error, Equatable {
         default:
             return error
         }
+    }
+
+    /// The error of a patch (`POST /games/{gameId}/patch` or the `error`
+    /// of its job): `422 patch_mismatch` and `422 unsupported_format` get
+    /// their own texts.
+    static func patch(_ error: Error) -> AppError {
+        let error = AppError(error)
+        guard case .api(.server(let server)) = error else { return error }
+        switch server.code {
+        case .patchMismatch: return server.patchMismatchReason == "already-patched" ? .alreadyPatched : .patchMismatch
+        case .unsupportedFormat: return .unsupportedPatch
+        default: return error
+        }
+    }
+
+    /// The `error` of a failed job of the Patch screen: the patch job as
+    /// above; the download of the patch to the staging area says the
+    /// console could not download it, unless the SD card is full.
+    static func patchJob(_ server: ServerError, kind: JobKind) -> AppError {
+        if kind == .patch {
+            switch server.code {
+            case .conflict: return .romChangedDuringPatch
+            case .tooLarge: return .patchTooLarge
+            default: return patch(APIError.server(server))
+            }
+        }
+        if server.code == .insufficientStorage { return .api(.server(server)) }
+        return .patchDownloadFailed
     }
 
     /// A save refused because the resource changed on the console

@@ -53,12 +53,24 @@ enum Sheet: Identifiable {
     case addConsole
     case pairing(PairingFlow)
     case add(AddContext)
+    /// A shared patch file: the Patch screen (milestone M6).
+    case patch(PatchContext)
 
     var id: String {
         switch self {
         case .addConsole: "add"
         case .pairing(let flow): "pairing-\(flow.id)"
         case .add(let context): "add-\(context.id)"
+        case .patch(let context): "patch-\(context.id)"
+        }
+    }
+
+    /// The share request shown by this sheet, if any.
+    var shareRequestId: UUID? {
+        switch self {
+        case .add(let context): context.request?.id
+        case .patch(let context): context.request?.id
+        case .addConsole, .pairing: nil
         }
     }
 }
@@ -95,7 +107,7 @@ final class AppModel {
     @ObservationIgnored private var queuedRepair: PairingSource?
     /// A share request to open once the current sheet is dismissed.
     @ObservationIgnored private var queuedShare: ShareRequest?
-    /// The share request shown by the Add sheet: consumed when the sheet
+    /// The share request shown by the Add or Patch sheet: consumed when the sheet
     /// closes, however it closes (sent, cancelled, swiped down).
     @ObservationIgnored private var presentedShare: ShareRequest?
 
@@ -196,22 +208,28 @@ final class AppModel {
     func checkShareInbox() {
         shareInbox.purge()
         guard let request = shareInbox.pending().first else { return }
-        if case .add(let context) = sheet, context.request?.id == request.id { return }
+        if sheet?.shareRequestId == request.id { return }
         openShare(request)
     }
 
     /// Opens the Add screen prefilled with a share request, once the
-    /// current sheet (pairing...) is gone.
+    /// current sheet (pairing...) is gone. A single patch file opens the
+    /// Patch screen instead (docs/specs/06-app-ios.md §4.8): the console
+    /// if there are several, then the game, are chosen there.
     func openShare(_ request: ShareRequest) {
         guard !store.devices.isEmpty else { return }
-        if case .add(let context) = sheet, context.request?.id == request.id { return }
+        if sheet?.shareRequestId == request.id { return }
         if sheet != nil {
             queuedShare = request
             return
         }
         let deviceId = store.devices.count == 1 ? store.devices.first?.id : nil
         presentedShare = request
-        sheet = .add(AddContext(deviceId: deviceId, request: request))
+        if request.isSinglePatch {
+            sheet = .patch(PatchContext(deviceId: deviceId, request: request))
+        } else {
+            sheet = .add(AddContext(deviceId: deviceId, request: request))
+        }
     }
 
     /// The share request was used or dismissed.
@@ -368,6 +386,7 @@ extension AppModel {
     /// content), as the share extension would. The document picker cannot
     /// be driven by XCUITest; this path covers the rest of "add a file".
     func injectTestShare(_ environment: [String: String]) {
+        if injectTestPatch(environment) { return }
         guard let spec = environment["RL_UITEST_SHARE_FILE"], let colon = spec.lastIndex(of: ":"),
               let size = Int(spec[spec.index(after: colon)...]), size >= 0
         else { return }
@@ -385,6 +404,24 @@ extension AppModel {
         try? Data(bytes).write(to: file)
         _ = try? shareInbox.write(files: [file], urls: [])
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    /// UI tests (milestone M6): `RL_UITEST_SHARE_PATCH=<name>:<source
+    /// size>:<source CRC32, hex>:<target text>` stores a share request
+    /// holding a BPS made by the app (``DemoPatch``: it writes the target
+    /// text and declares that source), as the share extension would.
+    func injectTestPatch(_ environment: [String: String]) -> Bool {
+        guard let spec = environment["RL_UITEST_SHARE_PATCH"] else { return false }
+        let parts = spec.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 4, let size = Int(parts[1]), let crc = UInt32(parts[2], radix: 16) else { return false }
+        for request in shareInbox.pending() { shareInbox.remove(request.id) }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "rl-uitest-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: parts[0])
+        try? DemoPatch.bps(sourceSize: size, sourceCRC32: crc, target: Data(parts[3].utf8)).write(to: file)
+        _ = try? shareInbox.write(files: [file], urls: [])
+        try? FileManager.default.removeItem(at: directory)
+        return true
     }
     #endif
 

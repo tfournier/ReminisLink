@@ -1,9 +1,9 @@
 import ReminisLinkKit
 import SwiftUI
 
-/// Uploads and console downloads (docs/specs/06-app-ios.md §4.7): progress,
-/// speed, time left, cancel, resume. Jobs are polled every second while
-/// the screen is visible.
+/// Uploads and console jobs (downloads and patches, docs/specs/06-app-ios.md
+/// §4.7): progress, speed, time left, cancel, resume. Jobs are polled every
+/// second while the screen is visible.
 struct TransfersView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.scenePhase) private var scenePhase
@@ -20,7 +20,7 @@ struct TransfersView: View {
                 }
             }
             if !queue.jobs.isEmpty {
-                Section("Downloads by the Console") {
+                Section("Tasks on the Console") {
                     ForEach(queue.jobs) { item in
                         JobRow(item: item, queue: queue)
                     }
@@ -240,8 +240,14 @@ struct JobRow: View {
 
     private var failureMessage: String? {
         if let error { return error.message }
-        if let server = item.job?.serverError { return AppError.api(.server(server)).message }
-        if item.isLost { return String(localized: "The console was restarted: this download was stopped.") }
+        if let server = item.job?.serverError {
+            return item.kind == .patch ? AppError.patch(APIError.server(server)).message : AppError.api(.server(server)).message
+        }
+        if item.isLost {
+            return item.kind == .patch
+                ? String(localized: "The console was restarted: this patch was stopped.")
+                : String(localized: "The console was restarted: this download was stopped.")
+        }
         return nil
     }
 
@@ -250,11 +256,18 @@ struct JobRow: View {
         switch job.state {
         case .queued:
             return String(localized: "Waiting")
+        case .running where item.kind == .patch:
+            if let fraction = job.progress.fraction {
+                return String(localized: "Applying the patch… \(fraction.formatted(.percent.precision(.fractionLength(0))))")
+            }
+            return String(localized: "Applying the patch…")
         case .running:
             if let total = job.progress.total {
                 return String(localized: "\(job.progress.done.byteString) of \(total.byteString)")
             }
             return job.progress.done.byteString
+        case .succeeded where item.kind == .patch:
+            return String(localized: "Patch applied")
         case .succeeded:
             return String(localized: "Downloaded")
         case .failed:

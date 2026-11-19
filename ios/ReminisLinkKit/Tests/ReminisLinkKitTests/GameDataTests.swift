@@ -470,7 +470,7 @@ struct GameDataAPITests {
     @Test func sdFilesNeedAType() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        #expect(try await client.sdFiles(type: .patch).isEmpty)
+        #expect(try await client.sdFiles(type: .patch).count == 4)
         #expect(pak.log.last?.query == "type=patch")
     }
 

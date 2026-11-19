@@ -261,6 +261,13 @@ public actor APIClient {
         try await signedJSON(method: "DELETE", segments: ["jobs", id])
     }
 
+    /// `POST /games/{gameId}/patch`: the device applies the patch in a job
+    /// (milestone M6). A failed job carries `422 patch_mismatch` or
+    /// `422 unsupported_format` in its `error`.
+    public func patchGame(gameId: String, _ request: PatchRequest) async throws -> JobAccepted {
+        try await signedJSON(method: "POST", segments: ["games", gameId, "patch"], body: ProtocolJSON.encoder().encode(request))
+    }
+
     // MARK: - Saves (milestone M5)
 
     /// Largest body of `PUT /games/{gameId}/save`; larger saves go through

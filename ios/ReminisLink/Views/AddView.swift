@@ -18,11 +18,14 @@ struct AddFile: Identifiable, Equatable {
     var game: PickedGame?
 }
 
-/// The game chosen for a save.
+/// The game chosen for a save or a patch.
 struct PickedGame: Equatable {
     let id: String
     let name: String
     let hasSave: Bool
+    var fileName: String = ""
+    var kind: GameKind = .file
+    var systemLabel: String = ""
 }
 
 /// The file whose game is being chosen.
