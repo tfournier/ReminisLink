@@ -1123,7 +1123,11 @@ paths:
         (`*` matches an existing file); a missing `If-Match` is
         `400 invalid_request`. The ETag of a game without cheat file is the
         one of an empty file. An empty list deletes the `.cht` file (its
-        content stays in the `.bak`).
+        content stays in the `.bak`). M8: a current file that cannot be
+        read to its end (a line too long) is never rewritten
+        (`422 unsupported_format`), and a list whose file would exceed the
+        8 MiB the reads accept is refused before anything changes (`413`);
+        imports check both too.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: If-Match
@@ -1157,6 +1161,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/PreconditionFailed' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
