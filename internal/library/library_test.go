@@ -305,3 +305,28 @@ func TestLibraryListGamesPerformance(t *testing.T) {
 		t.Errorf("500 games listed in %v, want < 300 ms", elapsed)
 	}
 }
+
+// TestSystemsEmulatorInstalled checks decision D6: every system folder is
+// listed, with emulatorInstalled telling whether NextUI would show it.
+func TestSystemsEmulatorInstalled(t *testing.T) {
+	l, sd := newLibrary(t)
+	dir := filepath.Join(sd, "Roms", "Famicom (FC)")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Tiny Quest.nes"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	systems, err := l.Systems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, s := range systems {
+		got[s.Tag] = s.EmulatorInstalled
+	}
+	want := map[string]bool{"GB": true, "GBA": true, "MGBA": true, "PS": true, "FC": false}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("emulatorInstalled = %v, want %v", got, want)
+	}
+}

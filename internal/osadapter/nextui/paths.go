@@ -19,6 +19,9 @@ const (
 	// SettingsFileName is the NextUI settings file under the shared
 	// userdata (saveFormat, stateFormat).
 	SettingsFileName = "minuisettings.txt"
+	// VersionFile is the NextUI release file, relative to the SD card root
+	// (written by the NextUI makefile, replaced by each update).
+	VersionFile = ".system/version.txt"
 )
 
 // Env reads an environment variable ("" when unset). os.Getenv fits.

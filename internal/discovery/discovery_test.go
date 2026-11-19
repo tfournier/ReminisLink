@@ -17,10 +17,10 @@ import (
 func TestTXT(t *testing.T) {
 	info := Info{
 		DeviceID: "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", APIVersion: 1, Model: "brick",
-		Platform: "tg5040", OS: "nextui", OSVersion: "6.14.0", PakVersion: "1.0.0",
+		Platform: "tg5040", OS: "nextui", OSVersion: "NextUI-20261013-039a06de", PakVersion: "1.0.0",
 	}
 	want := []string{"v=1", "id=7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "api=1", "model=brick",
-		"platform=tg5040", "os=nextui", "osv=6.14.0", "cv=1.0.0"}
+		"platform=tg5040", "os=nextui", "osv=NextUI-20261013-039a06de", "cv=1.0.0"}
 	if got := TXT(info); !reflect.DeepEqual(got, want) {
 		t.Errorf("TXT = %q", got)
 	}

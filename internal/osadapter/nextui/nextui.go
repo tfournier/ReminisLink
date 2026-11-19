@@ -572,6 +572,28 @@ func (a *Adapter) StatePath(g osadapter.Game, slot int) string {
 	return filepath.Join(dir, g.ROMName+".st"+strconv.Itoa(slot))
 }
 
+// emuPakDirs are the folders of the emulator paks, in the order NextUI
+// looks them up (getEmuPath in utils.c): the extra paks of
+// <SD>/Emus/<platform>, then the system paks of .system/<platform>/paks/Emus.
+func (a *Adapter) emuPakDirs() []string {
+	return []string{a.roots.Emus, filepath.Join(a.roots.System, "paks", "Emus")}
+}
+
+// EmulatorInstalled reports whether an emulator pak <TAG>.pak/launch.sh
+// exists in one of emuPakDirs (the condition NextUI puts on showing a
+// system, nextui.c hasEmu).
+func (a *Adapter) EmulatorInstalled(tag string) bool {
+	if !validTag(tag) {
+		return false
+	}
+	for _, dir := range a.emuPakDirs() {
+		if fi, err := os.Stat(filepath.Join(dir, tag+".pak", "launch.sh")); err == nil && fi.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
+}
+
 // pakCore returns the libretro core of the emulator pak of a tag: the
 // EMU_EXE value of <TAG>.pak/launch.sh, looked up like NextUI launches a
 // game (getEmuPath in utils.c): the extra paks of <SD>/Emus/<platform>
@@ -579,7 +601,7 @@ func (a *Adapter) StatePath(g osadapter.Game, slot int) string {
 // names the core after "<EMU_EXE>_libretro.so" cut at its last "_", that
 // is EMU_EXE itself.
 func (a *Adapter) pakCore(tag string) string {
-	for _, dir := range []string{a.roots.Emus, filepath.Join(a.roots.System, "paks", "Emus")} {
+	for _, dir := range a.emuPakDirs() {
 		f, err := os.Open(filepath.Join(dir, tag+".pak", "launch.sh"))
 		if err != nil {
 			continue
@@ -1049,7 +1071,8 @@ func (a *Adapter) relToSD(p string) string {
 }
 
 // DeviceInfo returns the model and platform from the NextUI environment
-// (DEVICE, PLATFORM). The OS version and the battery are unknown.
+// (DEVICE, PLATFORM) and the NextUI release (.system/version.txt). The
+// battery is unknown.
 func (a *Adapter) DeviceInfo() (osadapter.DeviceInfo, error) {
 	model := a.env("DEVICE")
 	if !knownModels[model] {
@@ -1060,18 +1083,57 @@ func (a *Adapter) DeviceInfo() (osadapter.DeviceInfo, error) {
 		platform = DefaultPlatform
 	}
 	return osadapter.DeviceInfo{
-		Model:    model,
-		Platform: platform,
-		OS:       OSName,
-		// TODO(M0): read the NextUI version (file on the SD card) and the
-		// battery (/sys/class/power_supply/*/capacity and status) once
-		// their location is checked; null until then.
-		OSVersion: nil,
-		Battery:   nil,
-		// TODO(M0): the source of the SSID on NextUI is not known yet.
+		Model:     model,
+		Platform:  platform,
+		OS:        OSName,
+		OSVersion: ReadOSVersion(filepath.Join(a.roots.SD, VersionFile)),
+		// TODO(M0): the battery (axp2202-battery/capacity, docs/specs/
+		// 05-console-pak.md §6) is not read yet; null until then.
+		Battery: nil,
+		// TODO(M0): the SSID (wpa_supplicant STATUS, 05 §6) is not read yet.
 		SSID:              nil,
 		WirelessInterface: WirelessInterface,
 	}, nil
+}
+
+// MaxOSVersionBytes bounds the osVersion string (it also goes in the
+// Bonjour TXT record, which must stay short).
+const MaxOSVersionBytes = 64
+
+// ReadOSVersion returns the NextUI release as NextUI shows it in Settings >
+// About (decision D4, docs/specs/m0/questions.md): the file has the
+// release name on its first line (NextUI-YYYYMMDD-N) and the short git
+// hash on the second; NextUI prints the whole file on one line, so the
+// lines are joined without separator, e.g. "NextUI-20261013-0" and
+// "39a06de" give "NextUI-20261013-039a06de". The separator may be a real
+// newline or a literal "\n" (NextUI makefile:249, depending on the shell
+// of the build). nil when the file is missing, empty, too long or not
+// printable ASCII.
+func ReadOSVersion(path string) *string {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, 1024))
+	if err != nil {
+		return nil
+	}
+	text := strings.ReplaceAll(string(data), `\n`, "\n")
+	var b strings.Builder
+	for _, line := range strings.Split(text, "\n") {
+		b.WriteString(strings.TrimSpace(line))
+	}
+	v := b.String()
+	if v == "" || len(v) > MaxOSVersionBytes {
+		return nil
+	}
+	for i := 0; i < len(v); i++ {
+		if v[i] < '!' || v[i] > '~' {
+			return nil
+		}
+	}
+	return &v
 }
 
 // withoutPath drops the path of an *fs.PathError so the error never shows

@@ -157,6 +157,9 @@ type Adapter interface {
 	// System returns the system stored in this folder of Roms/, or
 	// ErrNotFound.
 	System(folder string) (System, error)
+	// EmulatorInstalled reports whether an emulator for the tag is
+	// installed (NextUI only shows the systems that have one).
+	EmulatorInstalled(tag string) bool
 	// CountGames counts the games of a system, subfolders included.
 	CountGames(sys System) (int, error)
 	// ListFolder lists a folder of a system: rel is relative to Roms/ and

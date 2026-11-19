@@ -709,3 +709,82 @@ func TestPatchFilesAreNotGames(t *testing.T) {
 		t.Error("ROM not a game")
 	}
 }
+
+func TestReadOSVersion(t *testing.T) {
+	dir := t.TempDir()
+	cases := map[string]*string{
+		"NextUI-20261013-0\n39a06de\n":      ptr("NextUI-20261013-039a06de"), // real newline
+		`NextUI-20261013-0\n39a06de` + "\n": ptr("NextUI-20261013-039a06de"), // literal \n
+		"NextUI-20261013-0\r\n39a06de\r\n":  ptr("NextUI-20261013-039a06de"),
+		"NextUI-20261013-0\n":               ptr("NextUI-20261013-0"),
+		"":                                  nil,
+		"\n\n":                              nil,
+		"NextUI 6\n":                        nil, // space inside
+		"Nèxt\n":                            nil, // not ASCII
+		strings.Repeat("a", 65):             nil, // too long
+	}
+	for content, want := range cases {
+		p := filepath.Join(dir, "version.txt")
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := ReadOSVersion(p)
+		if (got == nil) != (want == nil) || got != nil && *got != *want {
+			t.Errorf("ReadOSVersion(%q) = %v, want %v", content, deref(got), deref(want))
+		}
+	}
+	if ReadOSVersion(filepath.Join(dir, "missing.txt")) != nil {
+		t.Error("missing file must give nil")
+	}
+}
+
+func TestDeviceInfoOSVersion(t *testing.T) {
+	a, sd := newAdapter(t)
+	if err := os.WriteFile(filepath.Join(sd, ".system", "version.txt"), []byte("NextUI-20261013-0\n39a06de\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := a.DeviceInfo()
+	if err != nil || info.OSVersion == nil || *info.OSVersion != "NextUI-20261013-039a06de" {
+		t.Fatalf("OSVersion = %v, %v", deref(info.OSVersion), err)
+	}
+}
+
+func TestEmulatorInstalled(t *testing.T) {
+	a, sd := newAdapter(t)
+	for tag, want := range map[string]bool{
+		"GBA":  true,  // system pak
+		"MGBA": true,  // extra pak
+		"GB":   true,  // system pak
+		"PS":   true,  // system pak
+		"HID":  false, // no pak
+		"NOPE": false,
+		"":     false,
+		"..":   false,
+	} {
+		if got := a.EmulatorInstalled(tag); got != want {
+			t.Errorf("EmulatorInstalled(%q) = %v", tag, got)
+		}
+	}
+	// A pak folder without launch.sh is not an emulator.
+	if err := os.MkdirAll(filepath.Join(sd, "Emus", "tg5040", "FC.pak"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if a.EmulatorInstalled("FC") {
+		t.Error("pak without launch.sh")
+	}
+	if err := os.WriteFile(filepath.Join(sd, "Emus", "tg5040", "FC.pak", "launch.sh"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !a.EmulatorInstalled("FC") {
+		t.Error("extra pak with launch.sh")
+	}
+}
+
+func ptr(s string) *string { return &s }
+
+func deref(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
+}
