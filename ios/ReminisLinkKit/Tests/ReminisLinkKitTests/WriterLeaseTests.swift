@@ -734,4 +734,61 @@ struct UploadLeaseTests {
         await queue.waitUntilIdle()
         #expect(item.phase == .done)
     }
+
+    /// Round 4 #1: a cancel that gets no answer (lost connection) is not a
+    /// cancel: the upload, its id on the device and its local copy stay;
+    /// it can be cancelled again (or resumed).
+    @Test func aCancelWithoutAnswerKeepsTheUpload() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        let (client, _) = try await namedClient(pak, name: "Mine")
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-lease-\(UUID().uuidString)")
+        let queue = TransferQueue(scratchDirectory: scratch, retry: RetryPolicy(delays: [], sleep: { _ in })) { client }
+        pak.injectChunkFaults([.dropAfterStoring])
+        let file = try makeFile(size: 100_000, name: "N.gba")
+        let item = try queue.enqueue(fileURL: file, target: .rom(systemId: gbaSystemId, fileName: "N.gba"),
+                                     destination: "GBA", ownsFile: true)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .paused) // the connection dropped
+        #expect(pak.uploadIds.count == 1)
+        pak.enqueue(.networkFailure()) // the DELETE never reaches the pak
+        queue.cancel(item)
+        await waitFor { item.phase != .cancelling }
+        #expect(item.phase == .failed)
+        #expect(item.failure as? UploadFailure == .cancelNotConfirmed)
+        #expect(pak.uploadIds.count == 1, "still on the device")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(FileManager.default.fileExists(atPath: file.path), "the local copy is kept")
+
+        // Cancel again, now confirmed.
+        queue.cancel(item)
+        await waitFor { item.phase == .cancelled }
+        #expect(item.phase == .cancelled)
+        #expect(pak.uploadIds.isEmpty)
+    }
+
+    /// Round 4 #2: after a `complete` whose answer was lost, the cancel is
+    /// `cancelling` too while the DELETE waits for its answer (no Resume
+    /// meanwhile).
+    @Test func aCancelAfterALostCompleteIsCancellingUntilAnswered() async throws {
+        let pak = makePak()
+        let (client, _) = try await namedClient(pak, name: "Mine")
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-lease-\(UUID().uuidString)")
+        let queue = TransferQueue(scratchDirectory: scratch, retry: RetryPolicy(delays: [], sleep: { _ in })) { client }
+        pak.loseCompleteRequests(1)
+        let item = try queue.enqueue(fileURL: try makeFile(size: 10_000), target: .rom(systemId: gbaSystemId, fileName: "C3.gba"),
+                                     destination: "", ownsFile: false)
+        await queue.waitUntilIdle()
+        #expect(item.completeSent)
+        let uploadId = try #require(pak.uploadIds.first)
+        let delete = pak.holdNextAnswer(method: "DELETE", path: "/api/v1/uploads/\(uploadId)")
+        queue.cancel(item)
+        await waitFor { delete.reached }
+        #expect(item.phase == .cancelling)
+        queue.resume(item) // ignored while cancelling
+        #expect(item.phase == .cancelling)
+        delete.open()
+        await waitFor { item.phase == .cancelled }
+        #expect(item.phase == .cancelled)
+    }
 }

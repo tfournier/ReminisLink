@@ -373,6 +373,43 @@ struct WriteAccessAppTests {
         #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (big).gba"), late: false))
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
+
+    /// Round 4 #1: a patch upload cancel without answer (lost connection)
+    /// keeps the upload and its local copy: Resume or Cancel Again.
+    @Test func aPatchCancelWithoutAnswerKeepsTheUpload() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        let (app, _) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let game = PatchGame(
+            id: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
+            fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Game Boy Advance"
+        )
+        let flow = PatchFlow(session: session, game: game)
+        let file = try await picked(app, name: "net.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 100_000)))
+        flow.file = file
+        flow.fileName = "Sky Garden Quest (net).gba"
+        let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
+        flow.start()
+        await waitUntil { created.reached }
+        let uploadId = try #require(pak.uploadIds.first)
+        let chunk = pak.holdNextArrival(method: "PUT", path: "/api/v1/uploads/\(uploadId)")
+        created.open()
+        await waitUntil { chunk.reached }
+        pak.enqueue(.networkFailure()) // the DELETE never reaches the pak
+        await flow.cancel()
+        #expect(flow.step == .failed(.upload(.cancelNotConfirmed)))
+        #expect(!flow.step.isBusy)
+        #expect(FileManager.default.fileExists(atPath: file.url.path), "the local copy is kept")
+        #expect(pak.uploadIds.count == 1)
+        chunk.open()
+
+        flow.start() // Resume
+        await waitUntil { flow.step == .patching || !flow.step.isBusy }
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (net).gba"), late: false))
+        #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
+    }
 }
 
 /// A value shared with `@Sendable` closures.

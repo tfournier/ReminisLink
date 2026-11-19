@@ -13,6 +13,10 @@ public enum UploadFailure: Error, Equatable, Sendable {
     case fileChanged
     /// The device keeps forgetting the upload or rejecting the offset.
     case tooManyRestarts
+    /// A cancel got no definite answer (lost connection, error of the
+    /// device): the upload may still be on the device, it is kept and can
+    /// be resumed or cancelled again.
+    case cancelNotConfirmed
 }
 
 /// The file to send, already hashed.
@@ -279,30 +283,35 @@ public actor ResumableUpload {
         /// M10: the device refused (`423 read_only`, `401 disconnected`).
         /// Nothing changed there; the upload is kept and can resume.
         case refused(APIError)
+        /// No definite answer (lost connection, timeout, `5xx`...): the
+        /// upload may still be on the device; it is kept (resume, or cancel
+        /// again). The error, when it came from the client.
+        case notConfirmed(APIError?)
     }
 
-    /// Cancels the upload on the device (best effort) and forgets it.
+    /// Cancels the upload on the device and forgets it, but only once the
+    /// device confirmed: `2xx`, or `404` (already gone) before `complete`
+    /// was sent. Otherwise the upload is kept, to resume or cancel again.
     @discardableResult
     public func cancel(client: APIClient) async -> CancelOutcome {
         guard let id = uploadId else { return completeSent ? .outcomeUnknown : .cancelled }
-        let previousOffset = offset
-        uploadId = nil
-        offset = 0
+        let outcome: CancelOutcome
         do {
             try await client.cancelUpload(id: id)
-            completeSent = false
-            return .cancelled
+            outcome = .cancelled
+        } catch APIError.server(let error) where error.code == .notFound {
+            // Already gone: before `complete`, nothing was written; after
+            // it, the file may have been.
+            outcome = completeSent ? .outcomeUnknown : .cancelled
         } catch let error as APIError where error.isReadOnly || error.isDisconnected {
-            // Not cancelled on the device: keep what resumes it.
-            uploadId = id
-            offset = previousOffset
-            needsSync = true
             return .refused(error)
-        } catch APIError.server(let error) where error.code == .notFound && completeSent {
-            return .outcomeUnknown
         } catch {
-            return completeSent ? .outcomeUnknown : .cancelled
+            return .notConfirmed(error as? APIError)
         }
+        uploadId = nil
+        offset = 0
+        if outcome == .cancelled { completeSent = false }
+        return outcome
     }
 
     private func forget(_ restarts: inout Int) throws {

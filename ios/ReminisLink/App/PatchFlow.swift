@@ -446,13 +446,16 @@ final class PatchFlow {
         guard !isCancelling else { return }
         cancelError = nil
         switch step {
-        case .preparing, .sending:
+        case .preparing, .sending, .failed(.upload(.cancelNotConfirmed)):
             cancelRequested = true
             runTask?.cancel()
             // Not final until the console answers: the screen and the
             // local copy stay meanwhile.
             step = .cancellingUpload
-            if await cancelUpload() {
+            switch await cancelUpload() {
+            case .confirmed:
+                step = .cancelled
+            case .refused:
                 // M10: refused by the console (another device has write
                 // access): nothing was cancelled there. The upload and its
                 // local copy stay, paused until this iPhone has write
@@ -460,8 +463,11 @@ final class PatchFlow {
                 cancelRequested = false
                 step = .idle
                 start()
-            } else {
-                step = .cancelled
+            case .notConfirmed:
+                // No definite answer: the upload and its copy stay, to
+                // resume or cancel again.
+                cancelRequested = false
+                step = .failed(.upload(.cancelNotConfirmed))
             }
         case .starting:
             // The request answers first; its job is then cancelled.
@@ -510,17 +516,30 @@ final class PatchFlow {
     /// Cancels the upload on the console (best effort). Refused by the
     /// console (M10: another device has write access), the upload is kept:
     /// Apply resumes it.
-    /// Returns true when the console refused (the upload is then kept).
+    private enum CancelResult { case confirmed, refused, notConfirmed }
+
+    /// Cancels the upload on the console. Unless the console confirmed, the
+    /// upload is kept (to resume it, or cancel again).
     @discardableResult
-    private func cancelUpload() async -> Bool {
-        guard let current = upload else { return false }
+    private func cancelUpload() async -> CancelResult {
+        guard let current = upload else { return .confirmed }
         self.upload = nil
-        if let client = try? await session.connectedClient(),
-           case .refused = await current.upload.cancel(client: client) {
-            if self.upload == nil { self.upload = current }
-            return true
+        let outcome: ResumableUpload.CancelOutcome
+        do {
+            outcome = await current.upload.cancel(client: try await session.connectedClient())
+        } catch {
+            outcome = .notConfirmed(error as? APIError)
         }
-        return false
+        switch outcome {
+        case .cancelled, .outcomeUnknown:
+            return .confirmed
+        case .refused:
+            if self.upload == nil { self.upload = current }
+            return .refused
+        case .notConfirmed:
+            if self.upload == nil { self.upload = current }
+            return .notConfirmed
+        }
     }
 
     private func fail(_ error: Error) {

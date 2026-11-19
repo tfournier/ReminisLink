@@ -691,6 +691,16 @@
         }
       }
     },
+    "Cancel Again" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler à nouveau"
+          }
+        }
+      }
+    },
     "Cancel the Patch" : {
       "localizations" : {
         "fr" : {
@@ -3507,6 +3517,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L’annulation n’a pas pu être envoyée : %@"
+          }
+        }
+      }
+    },
+    "The cancellation did not reach the console. The transfer is kept: cancel it again, or resume it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’annulation n’a pas atteint la console. Le transfert est gardé : annule-le à nouveau, ou reprends-le."
           }
         }
       }

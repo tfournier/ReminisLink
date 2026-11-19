@@ -505,6 +505,12 @@ private struct PatchFormSections: View {
                 if error == .upload(.paused) {
                     Label(error.message, systemImage: "pause.circle")
                     Button("Resume") { flow.start() }
+                } else if error == .upload(.cancelNotConfirmed) {
+                    Label(error.message, systemImage: "exclamationmark.triangle.fill")
+                        .accessibilityIdentifier("patch.cancelNotConfirmed")
+                    Button("Resume") { flow.start() }
+                    Button("Cancel Again", role: .destructive) { Task { await flow.cancel() } }
+                        .disabled(flow.session.isReadOnly)
                 } else {
                     Label {
                         Text(error.message).fixedSize(horizontal: false, vertical: true)
