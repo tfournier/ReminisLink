@@ -57,7 +57,9 @@ struct ConsoleView: View {
                 Section("Console") {
                     LabeledContent("Name", value: status.deviceName)
                     LabeledContent("Model", value: status.model.localizedName)
-                    LabeledContent("System", value: [status.os, status.osVersion].compactMap { $0 }.joined(separator: " "))
+                    // The release string of the OS as the console shows it
+                    // (e.g. NextUI-20261013-039a06de), else the OS id.
+                    LabeledContent("System", value: status.osVersion ?? status.os)
                     LabeledContent("ReminisLink version", value: status.pakVersion)
                     LabeledContent("IP address", value: status.network.ipv4)
                     if let ssid = status.network.ssid {

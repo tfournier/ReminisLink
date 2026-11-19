@@ -1201,6 +1201,16 @@
         }
       }
     },
+    "Emulator not installed on the console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Émulateur non installé sur la console"
+          }
+        }
+      }
+    },
     "Enabled" : {
       "localizations" : {
         "fr" : {

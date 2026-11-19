@@ -21,6 +21,9 @@ struct LibraryView: View {
                         Text("\(system.gameCount) games")
                     } label: {
                         Text(system.label)
+                        if !system.emulatorInstalled {
+                            Text("Emulator not installed on the console")
+                        }
                     }
                 }
                 .accessibilityIdentifier("system.\(system.tag)")

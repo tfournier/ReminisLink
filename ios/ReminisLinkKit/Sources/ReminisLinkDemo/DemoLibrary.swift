@@ -55,11 +55,13 @@ public struct DemoLibrary: Sendable {
         public let label: String
         public let tag: String
         public var games: [Game]
+        public let emulatorInstalled: Bool
 
-        public init(folder: String, label: String, tag: String, games: [Game]) {
+        public init(folder: String, label: String, tag: String, emulatorInstalled: Bool = true, games: [Game]) {
             self.folder = folder
             self.label = label
             self.tag = tag
+            self.emulatorInstalled = emulatorInstalled
             self.games = games
         }
 
@@ -120,7 +122,7 @@ public struct DemoLibrary: Sendable {
         System(folder: "01) Game Boy (GB)", label: "Game Boy", tag: "GB", games: [
             Game(path: "Moonlit Maze 🌙.gb", sizeBytes: 262_144, modifiedAt: base, hasSave: true, stateSlots: [0], hasArt: true),
         ]),
-        System(folder: "Sony PlayStation (PS)", label: "Sony PlayStation", tag: "PS", games: [
+        System(folder: "Sony PlayStation (PS)", label: "Sony PlayStation", tag: "PS", emulatorInstalled: false, games: [
             Game(path: "Starlight Saga", kind: .folderM3U, sizeBytes: 734_003_200, modifiedAt: base,
                  hasSave: true, stateSlots: [0, 1], lockedStateCount: 2),
         ]),
