@@ -42,6 +42,9 @@ final class SaveSyncState {
     /// The last sync that went to its end (kept while a new one runs).
     private(set) var lastReport: SaveSyncReport?
     @ObservationIgnored fileprivate var task: Task<Void, Never>?
+    /// A sync asked for while one runs (a reconnection): it starts when
+    /// the running one ends.
+    @ObservationIgnored fileprivate var startAgain = false
 
     var isRunning: Bool {
         if case .running = phase { return true }
@@ -53,7 +56,10 @@ final class SaveSyncState {
         return nil
     }
 
-    func cancel() { task?.cancel() }
+    func cancel() {
+        startAgain = false
+        task?.cancel()
+    }
 
     fileprivate func start() { phase = .running(SaveSyncProgress()) }
 
@@ -86,15 +92,24 @@ extension AppModel {
 
     /// Starts the save sync of a console, unless one is running for it
     /// (never two at once for the same console, even across connections).
-    func startSaveSync(deviceId: String) {
+    /// With `afterCurrent` (a new connection), a running sync is followed
+    /// by a new one, with the new client, once it ends.
+    func startSaveSync(deviceId: String, afterCurrent: Bool = false) {
         let state = saveSync(for: deviceId)
-        guard state.task == nil else { return }
+        guard state.task == nil else {
+            if afterCurrent { state.startAgain = true }
+            return
+        }
         state.start()
         let token = background.begin(name: "Save sync") { [weak state] in state?.cancel() }
         state.task = Task { [weak self] in
             defer {
                 state.task = nil
                 self?.background.end(token)
+                if state.startAgain {
+                    state.startAgain = false
+                    if !Task.isCancelled { self?.startSaveSync(deviceId: deviceId) }
+                }
             }
             guard let self else { return }
             do {
@@ -122,7 +137,7 @@ extension AppModel {
             }
         } catch {
             let appError = AppError(error)
-            if ConsoleSession.losesConnection(appError) { session.connectionLost(appError) }
+            if ConsoleSession.losesConnection(appError) { session.connectionLost(appError, client: client) }
             throw error
         }
     }

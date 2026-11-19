@@ -97,6 +97,39 @@ struct SaveSyncAppTests {
         #expect(listings(pak) == 2)
     }
 
+    /// A sync of an older connection fails after a reconnection: the new
+    /// client stays, and the reconnection's sync runs once the old one ends.
+    @Test func aStaleSyncFailureKeepsTheNewConnectionAndItsSyncFollows() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.syncOnConnect = false
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let old = try #require(session.client)
+        app.syncOnConnect = true
+
+        // The listing of the first sync fails, late, as if the Wi-Fi dropped.
+        var failure = FakeResponse.networkFailure(.networkConnectionLost)
+        failure.delay = 0.5
+        pak.enqueue(failure)
+        app.startSaveSync(deviceId: pak.deviceId)
+        for _ in 0..<50 where listings(pak) == 0 { try await Task.sleep(for: .milliseconds(10)) }
+
+        // Meanwhile the app reconnects (the dashboard's Try Again).
+        session.connectionLost(.api(.network(.timedOut)), client: old)
+        await session.connect()
+        let new = try #require(session.client)
+        #expect(new !== old)
+
+        let state = app.saveSync(for: pak.deviceId)
+        for _ in 0..<300 where listings(pak) < 2 || state.isRunning { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(session.client === new)
+        #expect(session.state == .connected)
+        #expect(listings(pak) == 2)
+        guard case .finished(let report) = state.phase else { Issue.record("no report: \(state.phase)"); return }
+        #expect(report.stored.count == 4)
+    }
+
     @Test func aCancelledSyncKeepsTheLastReport() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)

@@ -96,7 +96,9 @@ final class ConsoleSession {
             self.client = client
             state = .connected
             // Milestone M9: copy the saves that changed (setting, default on).
-            if app.syncOnConnect { app.startSaveSync(deviceId: deviceId) }
+            // A sync of the previous connection still running: this one
+            // starts when it ends.
+            if app.syncOnConnect { app.startSaveSync(deviceId: deviceId, afterCurrent: true) }
             await loadTrash()
         } catch {
             // A cancelled connection replaced by a newer one changes nothing.
@@ -139,15 +141,18 @@ final class ConsoleSession {
             return try await operation(client)
         } catch {
             let appError = AppError(error)
-            if Self.losesConnection(appError) { connectionLost(appError) }
+            if Self.losesConnection(appError) { connectionLost(appError, client: client) }
             throw appError
         }
     }
 
-    /// The console is gone or no longer knows this iPhone.
-    func connectionLost(_ error: AppError) {
+    /// The console is gone or no longer knows this iPhone, as seen by a
+    /// request sent with `client`. A request of an older connection
+    /// changes nothing: a reconnection has installed another client since.
+    func connectionLost(_ error: AppError, client failed: APIClient) {
+        guard let client, client === failed else { return }
         state = .failed(error)
-        client = nil
+        self.client = nil
     }
 
     static func losesConnection(_ error: AppError) -> Bool {
