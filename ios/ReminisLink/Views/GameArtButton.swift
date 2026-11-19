@@ -63,7 +63,7 @@ struct GameArtButton: View {
         .buttonStyle(.plain)
         .disabled(!Self.isEnabled(isWorking: isWorking, isReadOnly: isReadOnly, isGameGone: isGameGone))
         .accessibilityLabel(Text(hasArt ? "Image of the game" : "No image"))
-        .accessibilityHint(Text("Change or remove the image"))
+        .accessibilityHint(isGameGone ? Text(verbatim: "") : Text("Change or remove the image"))
         .accessibilityValue(Text(verbatim: exposesValue ? (isImageShown ? "image" : "none") : ""))
         .accessibilityIdentifier("game.changeArt")
         .confirmationDialog("Image of the Game", isPresented: $choosingSource, titleVisibility: .visible) {
@@ -96,6 +96,8 @@ struct GameArtButton: View {
             if gone {
                 choosingSource = false
                 confirmRemove = false
+                showPhotos = false
+                showFiles = false
             }
         }
         .photosPicker(isPresented: $showPhotos, selection: $photo, matching: .images)
@@ -123,8 +125,9 @@ struct GameArtButton: View {
         defer { isWorking = false }
         do {
             guard let data = try await item.loadTransferable(type: Data.self) else { throw AppError.unreadablePicture }
-            try await apply { try await $0.setArt(gameId: gameId, from: .data(data)) }
-            notice = String(localized: "Image changed.")
+            if try await apply({ try await $0.setArt(gameId: gameId, from: .data(data)) }) {
+                notice = String(localized: "Image changed.")
+            }
         } catch {
             show(error)
         }
@@ -134,8 +137,9 @@ struct GameArtButton: View {
         isWorking = true
         defer { isWorking = false }
         do {
-            try await apply { try await $0.setArt(gameId: gameId, from: picture) }
-            notice = String(localized: "Image changed.")
+            if try await apply({ try await $0.setArt(gameId: gameId, from: picture) }) {
+                notice = String(localized: "Image changed.")
+            }
         } catch {
             show(error)
         }
@@ -145,17 +149,22 @@ struct GameArtButton: View {
         isWorking = true
         defer { isWorking = false }
         do {
-            try await apply { try await $0.removeArt(gameId: gameId) }
-            notice = String(localized: "Image removed. It is in the trash of the console.")
+            if try await apply({ try await $0.removeArt(gameId: gameId) }) {
+                notice = String(localized: "Image removed. It is in the trash of the console.")
+            }
         } catch {
             show(error)
         }
     }
 
-    private func apply(_ action: (ConsoleSession) async throws -> Void) async throws {
+    /// Runs a change of the image; a picker result arriving once the game
+    /// is gone is ignored (nothing sent). Returns whether it ran.
+    func apply(_ action: (ConsoleSession) async throws -> Void) async throws -> Bool {
+        guard !isGameGone else { return false }
         error = nil
         notice = nil
         try await action(app.session(for: deviceId))
+        return true
     }
 
     private func show(_ error: Error) {

@@ -49,10 +49,32 @@ struct StoreTests {
         #expect(!store.noteConsoleName("", for: deviceId))
         #expect(!store.noteConsoleName("X", for: "unknown"))
         #expect(store.device(id: deviceId)?.name == "Living Room")
-        // A device stored before M11 (no console name) takes the console's.
+        // A device stored before M11 (no console name): the first name
+        // reported is only recorded (the displayed name may be the user's);
+        // a later change is shown.
         #expect(store.device(id: other)?.consoleName == nil)
-        #expect(store.noteConsoleName("Bedroom", for: other))
-        #expect(store.device(id: other)?.name == "Bedroom")
+        #expect(!store.noteConsoleName("Bedroom", for: other))
+        #expect(store.device(id: other)?.name == "Brick 3a10")
+        #expect(store.device(id: other)?.consoleName == "Bedroom")
+        #expect(store.noteConsoleName("Attic", for: other))
+        #expect(store.device(id: other)?.name == "Attic")
+    }
+
+    /// Paired again after a rename on the console: the new name is shown,
+    /// while a name chosen in the app survives a pairing without rename.
+    @Test func pairingAgainShowsANameChangedOnTheConsole() throws {
+        let store = DeviceStore(secureStore: InMemorySecureStore(), defaults: makeDefaults())
+        let key = SymmetricKey(size: .bits256)
+        let clientId = try store.installationClientId()
+        try store.save(deviceId: deviceId, name: "Salon", model: .brick, clientId: clientId, key: key, consoleName: "Salon")
+        // Renamed on the console, paired again before reopening it.
+        try store.save(deviceId: deviceId, name: "Bureau", model: .brick, clientId: clientId, key: key, consoleName: "Bureau")
+        #expect(store.device(id: deviceId)?.name == "Bureau")
+        #expect(!store.noteConsoleName("Bureau", for: deviceId))
+        // A name chosen in the app, paired again without a rename: kept.
+        try store.rename(deviceId, to: "My Brick")
+        try store.save(deviceId: deviceId, name: "Bureau", model: .brick, clientId: clientId, key: key, consoleName: "Bureau")
+        #expect(store.device(id: deviceId)?.name == "My Brick")
     }
 
     @Test func aDeviceStoredBeforeM11Decodes() throws {
