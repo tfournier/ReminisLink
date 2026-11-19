@@ -97,11 +97,11 @@ type App struct {
 	maintenance func(ctx context.Context) error // tests
 
 	// Set by Start.
-	srv    *server.Server
-	ip     string
-	port   int
-	annMu  sync.Mutex
-	ann    withdrawer
+	srv      *server.Server
+	ip       string
+	port     int
+	annMu    sync.Mutex
+	ann      withdrawer
 	cancel   context.CancelFunc
 	served   chan struct{} // closed when the server stopped
 	serveErr error         // set before served is closed

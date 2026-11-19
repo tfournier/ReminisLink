@@ -34,6 +34,9 @@ var Languages = []Language{
 	{"fr", "Français", "Bienvenue dans ReminisLink !"},
 }
 
+// Message is a translatable message (declared in messages.go).
+type Message = i18n.Message
+
 // DefaultLanguage is used when no language has been chosen yet.
 const DefaultLanguage = "en"
 
