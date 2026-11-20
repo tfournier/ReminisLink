@@ -193,6 +193,17 @@ public final class TransferQueue {
     /// `423 read_only` or `401 disconnected` (M10): the write access may
     /// already be back, then it resumes.
     @ObservationIgnored public var onPausedForWriteAccess: ((UploadItem) -> Void)?
+    /// The console's event stream is live (M14): jobs follow its `job`
+    /// events and ``refreshJobs()`` sends nothing (polling is the fallback
+    /// when no stream is open, e.g. a pak older than M14).
+    public var jobsFollowedByEvents = false
+    /// Observers of every job update (event or poll), on the main actor;
+    /// one returning false is removed.
+    @ObservationIgnored private var jobObservers: [UUID: (JobItem) -> Bool] = [:]
+    /// The last `job` events of jobs not tracked yet (the event of a new
+    /// job may arrive before ``track(jobId:title:kind:)``).
+    @ObservationIgnored private var untrackedJobEvents: [String: Job] = [:]
+    @ObservationIgnored private var untrackedOrder: [String] = []
 
     @ObservationIgnored private let client: () async throws -> APIClient
     @ObservationIgnored private let scratchDirectory: URL
@@ -530,33 +541,79 @@ public final class TransferQueue {
         if let existing = jobs.first(where: { $0.id == jobId }) { return existing }
         let item = JobItem(id: jobId, title: title, kind: kind)
         jobs.append(item)
+        if let job = untrackedJobEvents.removeValue(forKey: jobId) {
+            untrackedOrder.removeAll { $0 == jobId }
+            item.job = job
+        }
         return item
     }
 
+    /// A `job` event (M14): updates the job if this app follows it (the
+    /// pak sends the jobs of every client), and calls its observers.
+    public func apply(_ job: Job) {
+        guard let item = jobs.first(where: { $0.id == job.id }) else {
+            if untrackedJobEvents.updateValue(job, forKey: job.id) == nil { untrackedOrder.append(job.id) }
+            while untrackedOrder.count > 32 { untrackedJobEvents[untrackedOrder.removeFirst()] = nil }
+            return
+        }
+        // A late event of a job already ended changes nothing.
+        guard !item.isFinished else { return }
+        item.job = job
+        item.failure = nil
+        if job.state.isFinished { onJobFinished?(item) }
+        notifyJobObservers(item)
+    }
+
+    /// Calls `observer` after each update of a job; it is removed once it
+    /// returns false.
+    public func observeJobs(_ observer: @escaping (JobItem) -> Bool) {
+        jobObservers[UUID()] = observer
+    }
+
+    private func notifyJobObservers(_ item: JobItem) {
+        for (id, observer) in jobObservers where !observer(item) {
+            jobObservers[id] = nil
+        }
+    }
+
     /// `GET /jobs/{id}` for every job not finished. The screens call it every
-    /// second while they are visible (docs/specs/03-protocole.md §8).
-    public func refreshJobs() async {
+    /// second while they are visible (docs/specs/03-protocole.md §8), unless
+    /// the event stream is live (M14). `force`: polls even then (to catch up
+    /// after a reconnection of the stream).
+    /// `isCurrent`: asked after each answer, before it is shown; false
+    /// stops (M14: the catch-up of a stream that ended since).
+    public func refreshJobs(force: Bool = false, isCurrent: (() -> Bool)? = nil) async {
+        guard force || !jobsFollowedByEvents else { return }
         let pending = jobs.filter { !$0.isFinished }
         guard !pending.isEmpty else { return }
+        let current = { isCurrent?() ?? true }
         let api: APIClient
         do {
             api = try await client()
         } catch {
+            guard current() else { return }
             for item in pending { item.failure = error }
             return
         }
         for item in pending {
+            guard current() else { return }
             do {
                 let job = try await api.job(id: item.id)
+                guard current() else { return }
+                // An event may have ended it meanwhile.
+                guard !item.isFinished else { continue }
                 item.job = job
                 item.failure = nil
                 if job.state.isFinished { onJobFinished?(item) }
+                notifyJobObservers(item)
             } catch APIError.server(let error) where error.code == .notFound {
+                guard current() else { return }
                 item.isLost = true
                 item.failure = APIError.server(error)
             } catch is CancellationError {
                 return
             } catch {
+                guard current() else { return }
                 item.failure = error
             }
         }

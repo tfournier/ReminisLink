@@ -10,7 +10,12 @@ struct CheatsView: View {
     @Environment(\.dismiss) private var dismiss
     let route: GameRoute
 
-    @State private var editor: CheatEditor?
+    /// The list and every read of it (one load generation, M14).
+    @State private var loader = CheatsLoader()
+    private var editor: CheatEditor? {
+        get { loader.editor }
+        nonmutating set { loader.editor = newValue }
+    }
     @State private var error: AppError?
     @State private var notice: String?
     @State private var isWorking = false
@@ -54,13 +59,21 @@ struct CheatsView: View {
         .navigationBarBackButtonHidden(hasChanges)
         .toolbar { toolbar }
         .task { if editor == nil { await load() } }
-        .refreshable { if !hasChanges { await load() } }
-        .sheet(item: $editing) { cheat in
+        // Through the same protections as a change on the console: the
+        // same list keeps the editor (an open sheet still works).
+        .refreshable { await refresh(userAsked: true) }
+        // M14: the console changed something (any device): the list is
+        // read again; local edits are kept, and the user is told if they
+        // can no longer be saved.
+        .onChange(of: session.libraryRevision) { Task { await refresh(userAsked: false) } }
+        // M14: a newer list of the console held back while a sheet edits
+        // a cheat is shown once the sheet closes.
+        .sheet(item: $editing, onDismiss: applyHeldList) { cheat in
             CheatEditView(cheat: cheat) { description, code, enabled in
                 editor?.update(id: cheat.id, description: description, code: code, enabled: enabled) ?? false
             }
         }
-        .sheet(isPresented: $isAdding) {
+        .sheet(isPresented: $isAdding, onDismiss: applyHeldList) {
             CheatEditView(cheat: nil) { description, code, enabled in
                 editor?.add(description: description, code: code, enabled: enabled) ?? false
             }
@@ -85,7 +98,11 @@ struct CheatsView: View {
             Text("The cheat file of the game is deleted on the console; its previous content is kept there (.cht.bak).")
         }
         .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-            Button("Discard Changes", role: .destructive) { editor?.discardChanges() }
+            Button("Discard Changes", role: .destructive) {
+                // A newer list of the console, if one was reported, is shown.
+                editor?.discardChanges()
+                notice = nil
+            }
                 .accessibilityIdentifier("cheats.discardConfirm")
         } message: {
             Text("The list of the console stays as it is.")
@@ -185,20 +202,38 @@ struct CheatsView: View {
 
     // MARK: Actions
 
-    private func load() async {
+    private var fetch: CheatsLoader.Fetch {
+        let session = session
         let gameId = route.gameId
+        return { try await session.perform { try await $0.cheats(gameId: gameId) } }
+    }
+
+    /// Replaces the list (first load, Reload after a conflict, after an
+    /// import, Try Again without edits).
+    private func load() async {
         saveFailed = false
         do {
-            let list = try await session.perform { try await $0.cheats(gameId: gameId) }
-            if editor == nil {
-                editor = CheatEditor(list)
-            } else {
-                editor?.load(list)
-            }
-            error = nil
+            if try await loader.load(fetch) { error = nil }
         } catch {
             show(error)
         }
+    }
+
+    /// Pull-to-refresh, or a change on the console (M14).
+    private func refresh(userAsked: Bool) async {
+        do {
+            let change = try await loader.refresh(canApply: { editing == nil && !isAdding }, fetch)
+            if change != nil { error = nil }
+            if change == .conflict {
+                notice = String(localized: "This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list.")
+            }
+        } catch {
+            if userAsked { show(error) }
+        }
+    }
+
+    private func applyHeldList() {
+        editor?.applyConsoleList()
     }
 
     private func show(_ error: Error) {
@@ -217,8 +252,8 @@ struct CheatsView: View {
         notice = nil
         saveFailed = false
         do {
-            let saved = try await session.perform { try await $0.replaceCheats(gameId: gameId, update, ifMatch: etag) }
-            self.editor?.load(saved)
+            let session = session
+            try await loader.save { try await session.perform { try await $0.replaceCheats(gameId: gameId, update, ifMatch: etag) } }
             notice = String(localized: "Cheats saved.")
             session.contentChanged()
         } catch let error as AppError where error.isPreconditionFailed {
@@ -227,6 +262,8 @@ struct CheatsView: View {
             show(error)
             saveFailed = !AppError(error).isCancellation
         }
+        // A change on the console reported during the save.
+        if loader.takeMissedRefresh() { await refresh(userAsked: false) }
     }
 
     /// "Try Again" repeats what failed: the save, or the first load. It
