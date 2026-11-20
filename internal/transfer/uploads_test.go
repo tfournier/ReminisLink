@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"errors"
 	"io"
@@ -54,7 +55,7 @@ func (e *env) send(id string, data []byte, from, to int) {
 
 func (e *env) complete(id string) map[string]any {
 	e.t.Helper()
-	res, apiErr, err := e.svc.CompleteUpload(id)
+	res, apiErr, err := e.svc.CompleteUpload(context.Background(), id)
 	if apiErr != nil || err != nil {
 		e.t.Fatalf("complete: %v %v", apiErr, err)
 	}
@@ -129,7 +130,7 @@ func TestUploadResumesAfterRestart(t *testing.T) {
 				t.Fatalf("after restart %+v %v", st, apiErr)
 			}
 			e.send(c.UploadID, data, int(st.Offset), len(data))
-			res, apiErr, err := e.svc.CompleteUpload(c.UploadID)
+			res, apiErr, err := e.svc.CompleteUpload(context.Background(), c.UploadID)
 			if mode == "zeroed tail" {
 				if apiErr == nil || apiErr.Code != CodeChecksumMismatch || e.exists("Roms/"+gbaSystem+"/Resumed.gba") {
 					t.Fatalf("corrupt file installed: %v %v %v", res, apiErr, err)
@@ -178,7 +179,7 @@ func TestUploadChunkErrors(t *testing.T) {
 		t.Fatalf("partial file is %d bytes", fi.Size())
 	}
 	// Not complete yet.
-	if _, apiErr, _ := e.svc.CompleteUpload(c.UploadID); apiErr == nil || apiErr.Code != CodeConflict {
+	if _, apiErr, _ := e.svc.CompleteUpload(context.Background(), c.UploadID); apiErr == nil || apiErr.Code != CodeConflict {
 		t.Fatalf("early complete: %v", apiErr)
 	}
 	e.send(c.UploadID, data, 1024, len(data))
@@ -208,7 +209,7 @@ func TestUploadChecksumMismatch(t *testing.T) {
 	req := CreateUploadRequest{Target: romTarget("Bad.gba"), SizeBytes: ptr(int64(len(data))), SHA256: ptr(sum([]byte("other")))}
 	c, _, _ := e.svc.CreateUpload(req)
 	e.send(c.UploadID, data, 0, len(data))
-	if _, apiErr, _ := e.svc.CompleteUpload(c.UploadID); apiErr == nil || apiErr.Code != CodeChecksumMismatch || apiErr.Status != http.StatusConflict {
+	if _, apiErr, _ := e.svc.CompleteUpload(context.Background(), c.UploadID); apiErr == nil || apiErr.Code != CodeChecksumMismatch || apiErr.Status != http.StatusConflict {
 		t.Fatalf("mismatch: %v", apiErr)
 	}
 	if e.exists("Roms/" + gbaSystem + "/Bad.gba") {
@@ -306,7 +307,7 @@ func TestUploadConflictRules(t *testing.T) {
 	if err := os.WriteFile(e.path("Roms/"+gbaSystem+"/LATE.gba"), []byte("first"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, apiErr, _ := e.svc.CompleteUpload(c.UploadID); apiErr == nil || apiErr.Code != CodeConflict {
+	if _, apiErr, _ := e.svc.CompleteUpload(context.Background(), c.UploadID); apiErr == nil || apiErr.Code != CodeConflict {
 		t.Fatalf("late conflict: %v", apiErr)
 	}
 	if st, apiErr := e.svc.Status(c.UploadID); apiErr != nil || st.Offset != int64(len(data)) {
@@ -335,7 +336,7 @@ func TestUploadConflictRules(t *testing.T) {
 	ps := &Target{Kind: KindROM, SystemID: gameID("Sony PlayStation (PS)"), FileName: ptr("Mossy Hollow")}
 	c = e.create(ps, data, ConflictOverwrite)
 	e.send(c.UploadID, data, 0, 1)
-	if _, apiErr, _ := e.svc.CompleteUpload(c.UploadID); apiErr == nil || apiErr.Code != CodeConflict {
+	if _, apiErr, _ := e.svc.CompleteUpload(context.Background(), c.UploadID); apiErr == nil || apiErr.Code != CodeConflict {
 		t.Fatalf("folder replaced: %v", apiErr)
 	}
 }
@@ -391,7 +392,7 @@ func TestUploadSaveStateStaging(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(lockDir, "slot0.st"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, apiErr, _ := e.svc.CompleteUpload(c.UploadID); apiErr == nil || apiErr.Code != CodeStateLocked {
+	if _, apiErr, _ := e.svc.CompleteUpload(context.Background(), c.UploadID); apiErr == nil || apiErr.Code != CodeStateLocked {
 		t.Fatalf("locked at completion: %v", apiErr)
 	}
 	req := CreateUploadRequest{Target: &Target{Kind: KindState, GameID: game, Slot: ptr(0)}, SizeBytes: ptr(int64(1)), SHA256: ptr(sum([]byte{1}))}
@@ -514,7 +515,7 @@ func TestOverwriteRenameFailurePutsTheROMBack(t *testing.T) {
 		}
 		return os.Rename(oldpath, newpath)
 	})
-	if _, apiErr, err := e.svc.CompleteUpload(id); apiErr == nil && err == nil {
+	if _, apiErr, err := e.svc.CompleteUpload(context.Background(), id); apiErr == nil && err == nil {
 		t.Fatal("expected a failure")
 	}
 	if e.read("Roms/"+gbaSystem+"/Starlight Courier.gba") != old {

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"net"
 	"net/http"
@@ -23,6 +25,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
+	"github.com/tfournier/ReminisLink/internal/tlsid"
 )
 
 // SmokeSizeEnv sets the size in MiB of the file uploaded by
@@ -37,6 +40,30 @@ type pak struct {
 	port int
 	cmd  *exec.Cmd
 	logs bytes.Buffer
+	pin  string // of the pak's certificate, read from the card (M13)
+}
+
+// readPin returns the pin of the certificate the pak keeps on the card,
+// or "" while it does not exist yet.
+func (p *pak) readPin() string {
+	data, err := os.ReadFile(filepath.Join(nextui.RootsForSD(p.sd, "tg5040").Data, "tls", tlsid.CertFile))
+	if err != nil {
+		return ""
+	}
+	block, _ := pem.Decode(data)
+	if block == nil {
+		return ""
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return ""
+	}
+	return auth.CertificatePin(cert.RawSubjectPublicKeyInfo)
+}
+
+// httpClient talks HTTPS to the pak, pinned to its certificate.
+func (p *pak) httpClient(timeout time.Duration) *http.Client {
+	return &http.Client{Timeout: timeout, Transport: &http.Transport{TLSClientConfig: tlsid.ClientConfig(p.pin)}}
 }
 
 func (p *pak) start() {
@@ -50,8 +77,11 @@ func (p *pak) start() {
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		resp, err := http.Get(p.url() + "/api/v1/hello")
-		if err == nil {
+		if p.pin == "" {
+			p.pin = p.readPin()
+		}
+		resp, err := p.httpClient(5 * time.Second).Get(p.url() + "/api/v1/hello")
+		if p.pin != "" && err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return
@@ -65,7 +95,7 @@ func (p *pak) start() {
 	}
 }
 
-func (p *pak) url() string { return "http://127.0.0.1:" + strconv.Itoa(p.port) }
+func (p *pak) url() string { return "https://127.0.0.1:" + strconv.Itoa(p.port) }
 
 // stop sends SIGINT and waits for the pak to exit.
 func (p *pak) stop() {
@@ -142,8 +172,8 @@ func TestSmokeTransfers(t *testing.T) {
 	}
 	p := &pak{t: t, bin: bin, sd: sd, port: freePort(t)}
 	c := testutil.PairClient(t, clients, p.url())
-	c.HTTP = &http.Client{Timeout: 60 * time.Second}
 	p.start()
+	c.HTTP = p.httpClient(60 * time.Second)
 	defer p.stop()
 
 	// 1. Upload, SIGINT in the middle, restart, resume.

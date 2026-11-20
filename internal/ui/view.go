@@ -34,7 +34,7 @@ func shown(name string) string { return norm.NFC.String(name) }
 const AppName = "ReminisLink"
 
 // QRSize is the side of the QR code image, in pixels (the Brick screen is
-// 1024x768; the main screen also shows the PIN, the name and the
+// 1024x768; the main screen also shows the expiry, the name and the
 // transfers below it).
 const QRSize = 260
 
@@ -56,7 +56,7 @@ type MainView struct {
 	// not the main screen.
 	Pairing   bool
 	Banner    string // a change of the SD card, "" when none
-	ShowQR    bool   // the QR code and the PIN are shown (pairing is open)
+	ShowQR    bool   // the QR code is shown (pairing is open)
 	QRLink    string // the pairing link the QR code encodes ("" when hidden)
 	Hint      string // under the QR code
 	Items     []Item
@@ -84,7 +84,7 @@ func BatteryText(b *osadapter.Battery) (string, bool) {
 	return l10n.Tf(l10n.BatteryLevel, "Percent", b.Percent), false
 }
 
-// WantPairing reports whether the screen shows the QR code and the PIN,
+// WantPairing reports whether the screen shows the QR code,
 // which is when pairing must be open (M8, 05 §7.1): on the pairing screen
 // of the settings, or on the main screen while no device is paired and
 // the QR code is not hidden with A. Never without Wi-Fi (no link).
@@ -94,7 +94,7 @@ func WantPairing(st app.Status, showQR, pairingScreen bool) bool {
 
 // BuildMain returns the main screen for the state of the pak at now
 // (pairingScreen false), or the pairing screen of the settings (true).
-// The QR code and the PIN appear only while pairing is open.
+// The QR code appears only while pairing is open.
 func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainView {
 	v := MainView{State: StateText(st.State), Pairing: pairingScreen}
 	v.Battery, v.LowBattery = BatteryText(st.Battery)
@@ -125,7 +125,7 @@ func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainVie
 		v.Banner = low
 	}
 	if v.ShowQR {
-		v.Items = append(v.Items, Item{l10n.T(l10n.LabelCode), PINText(st, now)})
+		v.Items = append(v.Items, Item{l10n.T(l10n.LabelQR), PairingExpiryText(st, now)})
 	}
 	console := shown(st.Name)
 	if st.IP != "" {
@@ -137,9 +137,6 @@ func BuildMain(st app.Status, now time.Time, showQR, pairingScreen bool) MainVie
 		connected = shown(strings.Join(st.Connected, ", "))
 	}
 	v.Items = append(v.Items, Item{l10n.T(l10n.LabelConnected), connected})
-	if st.Writer != "" {
-		v.Items = append(v.Items, Item{l10n.T(l10n.LabelWriter), shown(st.Writer)})
-	}
 	for _, a := range st.Activities {
 		v.Transfers = append(v.Transfers, ActivityText(a))
 	}
@@ -159,21 +156,17 @@ func StateText(s app.State) string {
 	return l10n.T(l10n.StateReady)
 }
 
-// PINText is the PIN ("482 913") and the minutes before it expires, or
-// the remaining block after too many failed attempts.
-func PINText(st app.Status, now time.Time) string {
+// PairingExpiryText is the minutes before the QR code expires, or the
+// remaining block after too many failed attempts. There is no PIN (M13).
+func PairingExpiryText(st app.Status, now time.Time) string {
 	if st.BlockedUntil.After(now) {
-		return l10n.Tn(l10n.PINBlocked, minutesLeft(st.BlockedUntil.Sub(now)))
+		return l10n.Tn(l10n.PairingBlocked, minutesLeft(st.BlockedUntil.Sub(now)))
 	}
-	pin := st.PIN
-	if len(pin) == 6 {
-		pin = pin[:3] + " " + pin[3:]
-	}
-	return l10n.Tn(l10n.PINExpires, minutesLeft(st.ExpiresAt.Sub(now)), "PIN", pin)
+	return l10n.Tn(l10n.PairingExpires, minutesLeft(st.ExpiresAt.Sub(now)))
 }
 
-// minutesLeft rounds a duration up to whole minutes (at least 1): a PIN
-// valid for 30 more seconds "expires in 1 min".
+// minutesLeft rounds a duration up to whole minutes (at least 1): a QR
+// code valid for 30 more seconds "expires in 1 min".
 func minutesLeft(d time.Duration) int {
 	m := int((d + time.Minute - time.Nanosecond) / time.Minute)
 	return max(m, 1)
@@ -264,9 +257,9 @@ func PairedItem(name string, pairedAt time.Time) string {
 	return l10n.Tf(l10n.PairedItem, "Name", shown(name), "Date", pairedAt.Local().Format(l10n.T(l10n.DateLayout)))
 }
 
-// DeviceText is a device of Settings > Devices (M10): its name and state
-// (connected, write access, disconnected), or its pairing date when it is
-// idle.
+// DeviceText is a device of Settings > Devices (M10): its name, its
+// platform (M13) and its state (connected, disconnected), or its pairing
+// date when it is idle.
 func DeviceText(d app.Device) string {
 	var states []string
 	if d.Disconnected {
@@ -275,11 +268,41 @@ func DeviceText(d app.Device) string {
 	if d.Connected {
 		states = append(states, l10n.T(l10n.DeviceStateConnected))
 	}
-	if d.Writer {
-		states = append(states, l10n.T(l10n.DeviceStateWriter))
-	}
+	platform := PlatformText(d.Platform, d.Platforms)
 	if len(states) == 0 {
-		return PairedItem(d.Name, d.PairedAt)
+		return l10n.Tf(l10n.DeviceIdleItem, "Name", shown(d.Name), "Platform", platform,
+			"Date", d.PairedAt.Local().Format(l10n.T(l10n.DateLayout)))
 	}
-	return l10n.Tf(l10n.DeviceItem, "Name", shown(d.Name), "State", strings.Join(states, l10n.T(l10n.DeviceStateSeparator)))
+	return l10n.Tf(l10n.DeviceItem, "Name", shown(d.Name), "Platform", platform,
+		"State", strings.Join(states, l10n.T(l10n.DeviceStateSeparator)))
+}
+
+// devicePlatformNames are the X-RL-Platform values as shown (product
+// names, not translated).
+var devicePlatformNames = map[string]string{
+	"iphone": "iPhone", "ipad": "iPad", "mac": "Mac", "android": "Android", "web": "Web",
+}
+
+// PlatformText is the platform of a paired client: the devices seen
+// recently ("iPhone, iPad") when known, otherwise its kind (Apple,
+// Android, Web, Other).
+func PlatformText(platform string, seen []string) string {
+	var names []string
+	for _, p := range seen {
+		if n, ok := devicePlatformNames[p]; ok {
+			names = append(names, n)
+		}
+	}
+	if len(names) > 0 {
+		return strings.Join(names, l10n.T(l10n.DeviceStateSeparator))
+	}
+	switch platform {
+	case "apple":
+		return l10n.T(l10n.PlatformApple)
+	case "android":
+		return l10n.T(l10n.PlatformAndroid)
+	case "web":
+		return l10n.T(l10n.PlatformWeb)
+	}
+	return l10n.T(l10n.PlatformOther)
 }

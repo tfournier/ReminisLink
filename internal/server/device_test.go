@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -23,7 +25,7 @@ func TestHello(t *testing.T) {
 	var h helloResponse
 	r.JSON(t, &h)
 	if r.Status != 200 || h.DeviceID != testDeviceID || h.Model != "brick" || h.Platform != "tg5040" || h.OS != "nextui" ||
-		h.OSVersion != nil || h.APIVersion != 1 || h.MinClientVersion != MinClientVersion || !h.PairingOpen ||
+		h.OSVersion != nil || h.APIVersion != 2 || h.MinClientVersion != MinClientVersion || !h.PairingOpen ||
 		!h.ServerTime.Equal(f.clock.Now()) || h.PakVersion != "1.0.0-test" {
 		t.Errorf("hello = %d %+v", r.Status, h)
 	}
@@ -54,7 +56,7 @@ func TestHelloPairingBlocked(t *testing.T) {
 	f := newFixture(t)
 	for i := 0; i < auth.MaxPairingFailures; i++ {
 		f.clock.Advance(3 * time.Second) // stay under the /pair rate limit
-		r := f.pair(t, "qr", make([]byte, auth.SecretSize), "iPhone")
+		r := f.pair(t, make([]byte, auth.SecretSize), "iPhone")
 		if r.Status != 401 {
 			t.Fatalf("failure %d: %d %s", i, r.Status, r.Body)
 		}
@@ -84,7 +86,7 @@ func TestPairingClosed(t *testing.T) {
 	hidden, _ := f.pairing.Snapshot()
 	for i := 0; i < 2*auth.MaxPairingFailures; i++ {
 		f.clock.Advance(3 * time.Second) // stay under the /pair rate limit
-		r := f.pair(t, "qr", hidden.Secret, "iPhone")
+		r := f.pair(t, hidden.Secret, "iPhone")
 		if r.Status != 401 || r.ErrorCode() != CodePairingFailed {
 			t.Fatalf("attempt %d while closed: %d %s", i, r.Status, r.Body)
 		}
@@ -97,32 +99,48 @@ func TestPairingClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap, _ := f.pairing.Snapshot()
-	if r := f.pair(t, "pin", auth.PINIKM(snap.PIN), "iPhone"); r.Status != 200 {
+	if r := f.pair(t, snap.Secret, "iPhone"); r.Status != 200 {
 		t.Fatalf("pair once opened: %d %s", r.Status, r.Body)
 	}
 }
 
-// pair sends POST /pair with a proof made from ikm and returns the
-// response with the client nonce and id used.
-func (f *fixture) pair(t *testing.T, method string, ikm []byte, name string) testutil.Response {
+// pairing is a POST /pair v2 attempt as the app makes it.
+type pairing struct {
+	clientID    string
+	key         ed25519.PrivateKey
+	publicKey   string // b64u
+	clientNonce string // b64u
+}
+
+// pair sends POST /pair v2 with a proof made from secret.
+func (f *fixture) pair(t *testing.T, secret []byte, name string) testutil.Response {
 	t.Helper()
-	r, _, _ := f.pairWith(t, method, ikm, name)
+	r, _ := f.pairWith(t, secret, name, nil)
 	return r
 }
 
-func (f *fixture) pairWith(t *testing.T, method string, ikm []byte, name string) (testutil.Response, string, []byte) {
+func (f *fixture) pairWith(t *testing.T, secret []byte, name string, header http.Header) (testutil.Response, pairing) {
 	t.Helper()
-	clientID := "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+	p := pairing{clientID: "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", key: testutil.NewKey(t)}
 	nonce := make([]byte, auth.PairingNonceSize)
 	_, _ = rand.Read(nonce)
-	nonceB64 := auth.EncodeB64U(nonce)
+	p.clientNonce = auth.EncodeB64U(nonce)
+	p.publicKey = auth.EncodeB64U(p.key.Public().(ed25519.PublicKey))
 	body, _ := json.Marshal(map[string]string{
-		"method": method, "clientId": clientID, "clientName": name, "clientNonce": nonceB64,
-		"proof": auth.ClientProof(ikm, testDeviceID, clientID, nonceB64),
+		"clientId": p.clientID, "clientName": name, "platform": "apple",
+		"clientPublicKey": p.publicKey, "clientNonce": p.clientNonce,
+		"proof": auth.PairClientProof(secret, testDeviceID, p.clientID, p.publicKey, p.clientNonce),
 	})
-	r := f.unsigned("POST", "/api/v1/pair", body)
+	req, err := http.NewRequest("POST", f.http.URL+"/api/v1/pair", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range header {
+		req.Header[k] = v
+	}
+	r := f.client.Send(t, req)
 	f.check("POST", "/pair", r)
-	return r, clientID, nonce
+	return r, p
 }
 
 func TestPairQRThenSignedRequest(t *testing.T) {
@@ -133,42 +151,52 @@ func TestPairQRThenSignedRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, clientID, clientNonce := f.pairWith(t, "qr", snap.Secret, "iPhone de Thomas")
+	r, p := f.pairWith(t, snap.Secret, "iPhone de Thomas", http.Header{auth.HeaderPlatform: {"ipad"}})
 	if r.Status != 200 {
 		t.Fatalf("pair: %d %s", r.Status, r.Body)
 	}
 	var resp pairResponse
 	r.JSON(t, &resp)
-	deviceNonce, err := auth.DecodeB64U(resp.DeviceNonce)
-	if err != nil {
-		t.Fatal(err)
+	if dn, err := auth.DecodeB64U(resp.DeviceNonce); err != nil || len(dn) != auth.PairingNonceSize {
+		t.Fatalf("device nonce %q", resp.DeviceNonce)
 	}
-	key, err := auth.DeriveKey(snap.Secret, clientNonce, deviceNonce, testDeviceID, clientID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.DeviceID != testDeviceID || resp.DeviceName != "Brick de test" || !auth.VerifyDeviceProof(key, testDeviceID, clientID, resp.Proof) {
+	if resp.DeviceID != testDeviceID || resp.DeviceName != "Brick de test" ||
+		!auth.VerifyPairDeviceProof(snap.Secret, testDeviceID, p.clientID, p.publicKey, p.clientNonce, resp.DeviceNonce, resp.Proof) {
 		t.Fatalf("pair response = %+v", resp)
 	}
-	stored, ok := f.clients.Lookup(clientID)
-	if !ok || stored.Name != "iPhone de Thomas" || string(stored.Key) != string(key) {
+	stored, ok := f.clients.Lookup(p.clientID)
+	if !ok || stored.Name != "iPhone de Thomas" || auth.EncodeB64U(stored.PublicKey) != p.publicKey ||
+		stored.Platform != auth.PlatformApple || strings.Join(stored.Platforms, ",") != "ipad" {
 		t.Fatalf("stored client = %+v", stored)
 	}
-	if len(paired) != 1 || paired[0].ID != clientID {
+	if len(paired) != 1 || paired[0].ID != p.clientID {
 		t.Errorf("OnPaired = %+v", paired)
 	}
+	// Only the public key is on the card: no secret, no private key.
+	data, err := os.ReadFile(filepath.Join(f.sd, ".userdata", "shared", "ReminisLink", "clients.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), auth.EncodeB64U(p.key.Seed())) || strings.Contains(string(data), auth.EncodeB64U(snap.Secret)) ||
+		!strings.Contains(string(data), p.publicKey) {
+		t.Fatalf("clients.json:\n%s", data)
+	}
 	// The secret is single use.
-	if again := f.pair(t, "qr", snap.Secret, "iPhone"); again.Status != 401 || again.ErrorCode() != CodePairingFailed {
+	if again := f.pair(t, snap.Secret, "iPhone"); again.Status != 401 || again.ErrorCode() != CodePairingFailed {
 		t.Errorf("secret reused: %d %s", again.Status, again.Body)
 	}
-	// The derived key signs requests.
-	c := &testutil.Client{BaseURL: f.http.URL, ClientID: clientID, Key: key, Now: f.clock.Now}
+	// The client's private key signs requests (RL2-ED25519).
+	c := &testutil.Client{BaseURL: f.http.URL, ClientID: p.clientID, Key: p.key, Now: f.clock.Now, Platform: "iphone"}
 	if r := c.Do(t, "GET", "/api/v1/systems", nil); r.Status != 200 {
-		t.Fatalf("signed request with the derived key: %d %s", r.Status, r.Body)
+		t.Fatalf("signed request with the client key: %d %s", r.Status, r.Body)
+	}
+	// X-RL-Platform is recorded for the Devices screen.
+	if c, _ := f.clients.Lookup(p.clientID); strings.Join(c.Platforms, ",") != "iphone,ipad" {
+		t.Errorf("platforms = %v", c.Platforms)
 	}
 	// Nothing secret reaches the log.
 	logs := f.logs.String()
-	for _, secret := range []string{auth.EncodeB64U(snap.Secret), snap.PIN, auth.EncodeB64U(key), resp.Proof, resp.DeviceNonce} {
+	for _, secret := range []string{auth.EncodeB64U(snap.Secret), auth.EncodeB64U(p.key.Seed()), resp.Proof, resp.DeviceNonce, p.clientNonce} {
 		if strings.Contains(logs, secret) {
 			t.Errorf("log contains a secret %q:\n%s", secret, logs)
 		}
@@ -178,11 +206,34 @@ func TestPairQRThenSignedRequest(t *testing.T) {
 	}
 }
 
-func TestPairPIN(t *testing.T) {
+// Pairing again with the same clientId replaces the public key: the old
+// key no longer signs.
+func TestPairAgainReplacesTheKey(t *testing.T) {
 	f := newFixture(t)
 	snap, _ := f.pairing.Snapshot()
-	if r := f.pair(t, "pin", auth.PINIKM(snap.PIN), "iPad"); r.Status != 200 {
-		t.Fatalf("pin pairing: %d %s", r.Status, r.Body)
+	_, first := f.pairWith(t, snap.Secret, "iPhone", nil)
+	snap, _ = f.pairing.Snapshot()
+	r, second := f.pairWith(t, snap.Secret, "iPhone", nil)
+	if r.Status != 200 {
+		t.Fatalf("pair again: %d %s", r.Status, r.Body)
+	}
+	old := &testutil.Client{BaseURL: f.http.URL, ClientID: first.clientID, Key: first.key, Now: f.clock.Now}
+	if r := old.Do(t, "GET", "/api/v1/systems", nil); r.Status != 401 || r.ErrorCode() != auth.CodeBadSignature {
+		t.Fatalf("old key: %d %s", r.Status, r.Body)
+	}
+	cur := &testutil.Client{BaseURL: f.http.URL, ClientID: second.clientID, Key: second.key, Now: f.clock.Now}
+	if r := cur.Do(t, "GET", "/api/v1/systems", nil); r.Status != 200 {
+		t.Fatalf("new key: %d %s", r.Status, r.Body)
+	}
+}
+
+// An expired secret fails like a wrong proof.
+func TestPairExpiredSecret(t *testing.T) {
+	f := newFixture(t)
+	snap, _ := f.pairing.Snapshot()
+	f.clock.Advance(auth.PairingTTL)
+	if r := f.pair(t, snap.Secret, "iPhone"); r.Status != 401 || r.ErrorCode() != CodePairingFailed {
+		t.Fatalf("expired: %d %s", r.Status, r.Body)
 	}
 }
 
@@ -190,8 +241,9 @@ func TestPairErrors(t *testing.T) {
 	f := newFixture(t)
 	valid := func(mod func(map[string]any)) []byte {
 		m := map[string]any{
-			"method": "qr", "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "clientName": "iPhone",
-			"clientNonce": auth.EncodeB64U(make([]byte, 32)), "proof": auth.EncodeB64U(make([]byte, 32)),
+			"clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "clientName": "iPhone", "platform": "apple",
+			"clientPublicKey": auth.EncodeB64U(make([]byte, 32)),
+			"clientNonce":     auth.EncodeB64U(make([]byte, 32)), "proof": auth.EncodeB64U(make([]byte, 32)),
 		}
 		mod(m)
 		b, _ := json.Marshal(m)
@@ -210,7 +262,11 @@ func TestPairErrors(t *testing.T) {
 		"blank name":        {valid(func(m map[string]any) { m["clientName"] = "   " }), 400, auth.CodeInvalidRequest},
 		"name too long":     {valid(func(m map[string]any) { m["clientName"] = strings.Repeat("é", 65) }), 400, auth.CodeInvalidRequest},
 		"control character": {valid(func(m map[string]any) { m["clientName"] = "a\nb" }), 400, auth.CodeInvalidRequest},
-		"bad method":        {valid(func(m map[string]any) { m["method"] = "nfc" }), 400, auth.CodeInvalidRequest},
+		"missing key":       {valid(func(m map[string]any) { delete(m, "clientPublicKey") }), 400, auth.CodeInvalidRequest},
+		"short key":         {valid(func(m map[string]any) { m["clientPublicKey"] = "AAAA" }), 400, auth.CodeInvalidRequest},
+		"missing platform":  {valid(func(m map[string]any) { delete(m, "platform") }), 400, auth.CodeInvalidRequest},
+		"bad platform":      {valid(func(m map[string]any) { m["platform"] = "ios" }), 400, auth.CodeInvalidRequest},
+		"RL1 body":          {[]byte(`{"method":"qr","clientId":"3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d","clientName":"x","clientNonce":"` + auth.EncodeB64U(make([]byte, 32)) + `","proof":"` + auth.EncodeB64U(make([]byte, 32)) + `"}`), 400, auth.CodeInvalidRequest},
 		"bad client id":     {valid(func(m map[string]any) { m["clientId"] = "ABC" }), 400, auth.CodeInvalidRequest},
 		"short nonce":       {valid(func(m map[string]any) { m["clientNonce"] = "AAAA" }), 400, auth.CodeInvalidRequest},
 		"wrong proof":       {valid(func(map[string]any) {}), 401, CodePairingFailed},
@@ -232,19 +288,19 @@ func TestPairBlockedAfterFailures(t *testing.T) {
 	f := newFixture(t)
 	for i := 0; i < auth.MaxPairingFailures; i++ {
 		f.clock.Advance(3 * time.Second)
-		if r := f.pair(t, "pin", []byte("000000x"), "iPhone"); r.Status != 401 {
+		if r := f.pair(t, []byte("wrong secret"), "iPhone"); r.Status != 401 {
 			t.Fatalf("failure %d: %d", i, r.Status)
 		}
 	}
 	f.clock.Advance(3 * time.Second)
 	snap, _ := f.pairing.Snapshot()
-	r := f.pair(t, "qr", snap.Secret, "iPhone")
+	r := f.pair(t, snap.Secret, "iPhone")
 	if r.Status != 429 || r.ErrorCode() != auth.CodeTooManyAttempts || r.Header.Get("Retry-After") != "27" {
 		t.Fatalf("blocked: %d %s Retry-After=%q", r.Status, r.Body, r.Header.Get("Retry-After"))
 	}
 	f.clock.Advance(auth.PairingBlock)
 	snap, _ = f.pairing.Snapshot()
-	if r := f.pair(t, "qr", snap.Secret, "iPhone"); r.Status != 200 {
+	if r := f.pair(t, snap.Secret, "iPhone"); r.Status != 200 {
 		t.Fatalf("after the block: %d %s", r.Status, r.Body)
 	}
 }

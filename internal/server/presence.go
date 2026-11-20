@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -116,12 +117,13 @@ func (p *presence) seenSince(since, now time.Time) map[string]time.Time {
 // so the caller of GET /device is in its own list.
 func (s *Server) markSeen(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := auth.ClientFromContext(r.Context()); ok {
+		if c, ok := auth.ClientFromContext(r.Context()); ok {
 			// A client disconnected while its request was being verified
 			// (or calling POST /clients/me/connect) is not marked seen.
-			// Presence and the lease renewal are recorded by the gate's
-			// commit (access.accept), under the M10 lock.
+			// Presence is recorded by the gate's commit (access.accept),
+			// under the M10 lock.
 			markAccepted(r)
+			s.notePlatform(c, r.Header.Get(auth.HeaderPlatform))
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -149,4 +151,16 @@ func (s *Server) ConnectedClients() []ConnectedClient {
 		return out[i].ClientName < out[j].ClientName
 	})
 	return out
+}
+
+// notePlatform records the X-RL-Platform of an accepted request (M13,
+// informative): clients.json changes only when a platform is new for the
+// client. Unknown values are ignored.
+func (s *Server) notePlatform(c auth.Client, p string) {
+	if p == "" || slices.Contains(c.Platforms, p) || !auth.ValidDevicePlatform(p) {
+		return
+	}
+	if _, err := s.opts.Clients.NotePlatform(c.ID, p); err != nil {
+		s.log.Warn("cannot record the client platform", "client", c.ID, "error", err)
+	}
 }

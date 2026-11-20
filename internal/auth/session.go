@@ -1,20 +1,20 @@
 package auth
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"sync"
 	"time"
 )
 
 const (
-	// PairingTTL is how long a pairing secret and PIN stay valid.
+	// PairingTTL is how long a pairing secret stays valid.
 	PairingTTL = 10 * time.Minute
 	// MaxPairingFailures is the number of failed attempts before the secret
-	// and PIN are regenerated and pairing is blocked.
+	// is regenerated and pairing is blocked.
 	MaxPairingFailures = 5
 	// PairingBlock is how long pairing stays blocked after too many failures.
 	PairingBlock = 30 * time.Second
@@ -29,10 +29,10 @@ var (
 	ErrTooManyAttempts = errors.New("too many pairing attempts")
 )
 
-// PairRequest is the authentication part of POST /pair.
+// PairRequest is the authentication part of POST /pair (v2, M13).
 type PairRequest struct {
-	Method      PairingMethod
 	ClientID    string
+	PublicKey   string // clientPublicKey, b64u, exactly as received
 	ClientNonce string // b64u, exactly as received
 	Proof       string // b64u
 }
@@ -41,7 +41,7 @@ type PairRequest struct {
 // client (ClientStore.Put) and answers with DeviceNonce and Proof.
 type PairResult struct {
 	ClientID    string
-	Key         []byte
+	PublicKey   ed25519.PublicKey
 	DeviceNonce string // b64u
 	Proof       string // b64u
 }
@@ -49,24 +49,23 @@ type PairResult struct {
 // PairingSnapshot is what the pak displays.
 type PairingSnapshot struct {
 	Secret       []byte // the QR code carries b64u(Secret)
-	PIN          string
 	ExpiresAt    time.Time
 	BlockedUntil time.Time // zero when not blocked
 	Generation   uint64    // changes each time the secret is regenerated
 	// Open reports whether pairing is open (the pairing screen is shown,
-	// docs/specs/05-console-pak.md §7.1). Secret and PIN are only
-	// meaningful while it is.
+	// docs/specs/05-console-pak.md §7.1). Secret is only meaningful
+	// while it is.
 	Open bool
 }
 
-// PairingSession holds the current pairing secret and PIN: 32 random bytes
-// and 6 random digits, valid PairingTTL, single use. After
-// MaxPairingFailures failed attempts both are regenerated and pairing is
-// blocked for PairingBlock.
+// PairingSession holds the current pairing secret: 32 random bytes, valid
+// PairingTTL, single use. There is no PIN (M13). After MaxPairingFailures
+// failed attempts the secret is regenerated and pairing is blocked for
+// PairingBlock.
 //
 // Pairing is on demand (M8, 05 §7.1): the session starts closed, Open
-// draws a new secret and PIN when the pairing screen appears and Close
-// invalidates them when it goes away. While closed, every well-formed
+// draws a new secret when the pairing screen appears and Close
+// invalidates it when it goes away. While closed, every well-formed
 // attempt fails without counting as a failure.
 type PairingSession struct {
 	mu       sync.Mutex
@@ -75,7 +74,6 @@ type PairingSession struct {
 	rand     io.Reader
 
 	secret       []byte
-	pin          string
 	expiresAt    time.Time
 	failures     int
 	blockedUntil time.Time
@@ -99,7 +97,7 @@ func NewPairingSession(deviceID string, now func() time.Time, random io.Reader) 
 	return s, nil
 }
 
-// Open opens pairing with a new secret and PIN. Opening a session already
+// Open opens pairing with a new secret. Opening a session already
 // open keeps its secret (the screen redraws without changing the QR code).
 func (s *PairingSession) Open() error {
 	s.mu.Lock()
@@ -114,7 +112,7 @@ func (s *PairingSession) Open() error {
 	return nil
 }
 
-// Close closes pairing and invalidates the secret and the PIN: a new
+// Close closes pairing and invalidates the secret: a new
 // secret is drawn and kept hidden, so that nothing seen before still
 // works. A block after too many failures stays in force.
 func (s *PairingSession) Close() error {
@@ -142,8 +140,8 @@ func (s *PairingSession) IsOpen() bool {
 	return s.open
 }
 
-// Snapshot returns the current secret and PIN, regenerating them first if
-// they expired while pairing is open.
+// Snapshot returns the current secret, regenerating it first if it
+// expired while pairing is open.
 func (s *PairingSession) Snapshot() (PairingSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -155,7 +153,6 @@ func (s *PairingSession) Snapshot() (PairingSnapshot, error) {
 	}
 	snap := PairingSnapshot{
 		Secret:     append([]byte(nil), s.secret...),
-		PIN:        s.pin,
 		ExpiresAt:  s.expiresAt,
 		Generation: s.generation,
 		Open:       s.open,
@@ -166,7 +163,7 @@ func (s *PairingSession) Snapshot() (PairingSnapshot, error) {
 	return snap, nil
 }
 
-// Attempt checks a pairing request. On success it derives the key and the
+// Attempt checks a pairing request (v2, M13). On success it produces the
 // device proof and regenerates the secret (single use). When it returns
 // ErrTooManyAttempts, retryAfter is how long pairing stays blocked.
 //
@@ -180,18 +177,13 @@ func (s *PairingSession) Attempt(req PairRequest) (res PairResult, retryAfter ti
 	if !ValidID(req.ClientID) {
 		return PairResult{}, 0, fmt.Errorf("%w: clientId must be a lowercase UUID", ErrInvalidPairRequest)
 	}
+	pub, err := DecodePublicKey(req.PublicKey)
+	if err != nil {
+		return PairResult{}, 0, fmt.Errorf("%w: clientPublicKey must be %d bytes in base64url", ErrInvalidPairRequest, PublicKeySize)
+	}
 	clientNonce, err := DecodeB64U(req.ClientNonce)
 	if err != nil || len(clientNonce) != PairingNonceSize {
 		return PairResult{}, 0, fmt.Errorf("%w: clientNonce must be %d bytes in base64url", ErrInvalidPairRequest, PairingNonceSize)
-	}
-	var ikm []byte
-	switch req.Method {
-	case MethodQR:
-		ikm = s.secret
-	case MethodPIN:
-		ikm = PINIKM(s.pin)
-	default:
-		return PairResult{}, 0, fmt.Errorf("%w: method must be qr or pin", ErrInvalidPairRequest)
 	}
 	if !s.open {
 		// Pairing on demand: closed, no secret to test, not a failure. This
@@ -210,22 +202,19 @@ func (s *PairingSession) Attempt(req PairRequest) (res PairResult, retryAfter ti
 		}
 		return PairResult{}, 0, s.failLocked(now)
 	}
-	if !VerifyClientProof(ikm, s.deviceID, req.ClientID, req.ClientNonce, req.Proof) {
+	if !VerifyPairClientProof(s.secret, s.deviceID, req.ClientID, req.PublicKey, req.ClientNonce, req.Proof) {
 		return PairResult{}, 0, s.failLocked(now)
 	}
 	deviceNonce := make([]byte, PairingNonceSize)
 	if _, err := io.ReadFull(s.rand, deviceNonce); err != nil {
 		return PairResult{}, 0, fmt.Errorf("device nonce: %w", err)
 	}
-	key, err := DeriveKey(ikm, clientNonce, deviceNonce, s.deviceID, req.ClientID)
-	if err != nil {
-		return PairResult{}, 0, err
-	}
+	dn := EncodeB64U(deviceNonce)
 	res = PairResult{
 		ClientID:    req.ClientID,
-		Key:         key,
-		DeviceNonce: EncodeB64U(deviceNonce),
-		Proof:       DeviceProof(key, s.deviceID, req.ClientID),
+		PublicKey:   pub,
+		DeviceNonce: dn,
+		Proof:       PairDeviceProof(s.secret, s.deviceID, req.ClientID, req.PublicKey, req.ClientNonce, dn),
 	}
 	if err := s.regenerateLocked(now); err != nil {
 		return PairResult{}, 0, err
@@ -244,18 +233,13 @@ func (s *PairingSession) failLocked(now time.Time) error {
 	return ErrPairingFailed
 }
 
-// regenerateLocked draws a new secret and PIN and resets the failure count.
+// regenerateLocked draws a new secret and resets the failure count.
 func (s *PairingSession) regenerateLocked(now time.Time) error {
 	secret := make([]byte, SecretSize)
 	if _, err := io.ReadFull(s.rand, secret); err != nil {
 		return fmt.Errorf("pairing secret: %w", err)
 	}
-	n, err := rand.Int(s.rand, big.NewInt(1_000_000))
-	if err != nil {
-		return fmt.Errorf("pairing PIN: %w", err)
-	}
 	s.secret = secret
-	s.pin = fmt.Sprintf("%0*d", PINLength, n.Int64())
 	s.expiresAt = now.Add(PairingTTL)
 	s.failures = 0
 	s.generation++

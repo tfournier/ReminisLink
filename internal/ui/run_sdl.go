@@ -190,7 +190,7 @@ func chooseLanguage(a *app.App, firstLaunch bool) {
 // a request.
 //
 // Pairing is on demand (M8): it is open only while the screen shows the
-// QR code and the PIN, that is on the main screen while no device is
+// QR code, that is on the main screen while no device is
 // paired (and the QR code is not hidden with A), or in pairing mode.
 type mainScreen struct {
 	a       *app.App
@@ -288,7 +288,7 @@ func (m *mainScreen) loop() {
 			if qrPath, err = m.qrPath(v.QRLink); errors.Is(err, errNoMemoryFile) {
 				if !m.noQRLogged {
 					m.noQRLogged = true
-					m.a.Logger().Info("no memory file for the QR code here: the PIN only is shown")
+					m.a.Logger().Info("no memory file for the QR code here: no QR code is shown")
 				}
 			} else if err != nil {
 				m.a.Logger().Error("cannot draw the QR code", "error", err)
@@ -457,7 +457,7 @@ func (m *mainScreen) options(v MainView, qrPath string) gaba.DetailScreenOptions
 		}
 		sections = append(sections, gaba.NewImageSection(title, qrPath, QRSize, QRSize, constants.TextAlignCenter))
 	} else if v.ShowQR {
-		// No QR image (no memory file here): the PIN below pairs.
+		// No QR image (no memory file here): nothing to scan.
 		if !v.Pairing {
 			title = ""
 		}

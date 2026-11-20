@@ -21,6 +21,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/saves"
 	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
+	"github.com/tfournier/ReminisLink/internal/writelock"
 )
 
 // Target kinds (UploadTarget in protocol/openapi.yaml).
@@ -78,6 +79,10 @@ type Options struct {
 	// Lock serializes the changes of the SD card files; share it with
 	// Saves, States and the cheats (nil: a lock of its own).
 	Lock *sync.Mutex
+	// Writes runs the API writes one at a time (M13); the server shares it
+	// through Service.Writes. An upload's final step and a job's install
+	// step hold it (nil: a lock of its own).
+	Writes *writelock.Lock
 	// FreeSpace returns the free bytes of the file system holding path
 	// (the SD card). Tests inject it to simulate a full card.
 	FreeSpace func(path string) (int64, error)
@@ -152,6 +157,9 @@ func New(opts Options) (*Service, error) {
 	}
 	if opts.Lock == nil {
 		opts.Lock = &sync.Mutex{}
+	}
+	if opts.Writes == nil {
+		opts.Writes = writelock.New(0)
 	}
 	if opts.FreeSpace == nil {
 		return nil, errors.New("transfer: missing FreeSpace")
@@ -599,4 +607,26 @@ func (s *Service) DeleteArt(gameID string) (library.Game, error) {
 	s.installMu.Lock()
 	defer s.installMu.Unlock()
 	return s.opts.Library.DeleteArt(gameID, s.opts.Trash)
+}
+
+// Writes returns the lock that runs the API writes one at a time (M13).
+func (s *Service) Writes() *writelock.Lock { return s.opts.Writes }
+
+// ErrorDeviceBusy is the answer to a request that waited too long for the
+// write in progress (429, M13).
+func ErrorDeviceBusy() *Error {
+	return newError(http.StatusTooManyRequests, CodeTooManyAttempts, "Device busy")
+}
+
+// acquireWrites takes the write lock for a request: busy after its wait,
+// shutting_down when ctx ends first.
+func (s *Service) acquireWrites(ctx context.Context) *Error {
+	switch err := s.opts.Writes.AcquireRequest(ctx); {
+	case err == nil:
+		return nil
+	case errors.Is(err, writelock.ErrBusy):
+		return ErrorDeviceBusy()
+	default:
+		return newError(http.StatusServiceUnavailable, CodeShuttingDown, "Request cancelled")
+	}
 }

@@ -11,10 +11,11 @@ import (
 	"time"
 )
 
-// Request signing (docs/specs/03-protocole.md §4).
+// Request signing (docs/specs/03-protocole.md §4): RL2-ED25519 (M13).
 const (
-	// SignatureAlgorithm is the first line of the canonical string.
-	SignatureAlgorithm = "RL1-HMAC-SHA256"
+	// SignatureAlgorithm is the first line of the canonical string (RL2,
+	// M13: Ed25519 signatures).
+	SignatureAlgorithm = "RL2-ED25519"
 	// UnsignedPayload replaces the body hash on upload chunks only.
 	UnsignedPayload = "UNSIGNED"
 	// RequestNonceSize is the length of X-RL-Nonce once decoded.
@@ -186,7 +187,7 @@ type RequestParts struct {
 
 // CanonicalRequest builds the string to sign:
 //
-//	RL1-HMAC-SHA256\n<METHOD>\n<path>\n<canonical query>\n<time>\n<nonce>\n<content sha256>
+//	RL2-ED25519\n<METHOD>\n<path>\n<canonical query>\n<time>\n<nonce>\n<content sha256>
 //
 // with no trailing newline. The method is uppercased. Fields that could break
 // the line structure are rejected.
@@ -219,16 +220,6 @@ func CanonicalRequest(p RequestParts) (string, error) {
 	return strings.Join([]string{
 		SignatureAlgorithm, method, p.Path, query, p.Time, p.Nonce, p.ContentSHA256,
 	}, "\n"), nil
-}
-
-// Sign returns b64u(HMAC-SHA256(key, canonical)).
-func Sign(key []byte, canonical string) string {
-	return EncodeB64U(mac(key, canonical))
-}
-
-// Verify checks a b64u signature of canonical in constant time.
-func Verify(key []byte, canonical, signature string) bool {
-	return verifyMAC(mac(key, canonical), signature)
 }
 
 func hasControlOrSpace(s string) bool {

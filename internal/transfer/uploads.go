@@ -533,7 +533,11 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 // cut) sees 404 on GET /uploads/{id} afterwards: the outcome is uncertain
 // and the app checks the destination (e.g. the game list) instead of
 // reporting a failure.
-func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
+//
+// The final step (resolve and install) holds the write lock (M13): it
+// waits for the write in progress, at most its wait, else 429 Device busy
+// and the upload stays.
+func (s *Service) CompleteUpload(ctx context.Context, id string) (map[string]any, *Error, error) {
 	u, apiErr := s.lookup(id)
 	if apiErr != nil {
 		return nil, apiErr, nil
@@ -559,8 +563,12 @@ func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 	if err := syncFile(partPath); err != nil {
 		return nil, nil, err
 	}
-	// Resolve and install under the install lock: a DELETE /games of the
-	// target game cannot slip in between (no orphan save recreated).
+	// Resolve and install under the write lock and the install lock: a
+	// DELETE /games of the target game cannot slip in between (no orphan
+	// save recreated).
+	if apiErr := s.acquireWrites(ctx); apiErr != nil {
+		return nil, apiErr, nil
+	}
 	s.installMu.Lock()
 	d, apiErr, err := s.resolve(u.meta.Target, true)
 	var result map[string]any
@@ -568,6 +576,7 @@ func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 		result, apiErr, err = s.installLocked(d, partPath, u.meta.OnConflict)
 	}
 	s.installMu.Unlock()
+	s.opts.Writes.Release()
 	if apiErr != nil || err != nil {
 		return nil, apiErr, err
 	}

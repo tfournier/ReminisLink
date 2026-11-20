@@ -3,6 +3,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -25,8 +26,9 @@ import (
 const (
 	// Prefix starts every route.
 	Prefix = "/api/v1"
-	// APIVersion is the major version of the API.
-	APIVersion = 1
+	// APIVersion is the version of the API: 2 since M13 (TLS, pairing v2,
+	// RL2-ED25519 signing). The path prefix stays /api/v1.
+	APIVersion = 2
 	// MinClientVersion is the oldest app version the pak supports.
 	MinClientVersion = "1.0.0"
 	// MaxJSONBody is the largest JSON body of an unsigned route (/pair).
@@ -80,6 +82,10 @@ type Options struct {
 	// (the banner of the pak screen, docs/specs/05-console-pak.md §7.1);
 	// may be nil. It must not block.
 	OnChange func(Change)
+	// TLS is the configuration of the HTTPS server (M13: the pak serves
+	// TLS only, tlsid.Identity.ServerConfig). Nil serves plain HTTP
+	// (handler tests only).
+	TLS *tls.Config
 	// LogFull reports that the log file reached its cap: the sampled lines
 	// (unsigned and rejected requests) are then no longer written (nil:
 	// never full).
@@ -92,13 +98,14 @@ type Server struct {
 	log       *slog.Logger
 	rejectLog *slog.Logger // sampled: lines about rejected requests
 	presence  *presence
-	// access is the M10 state (write lease, disconnections, access
-	// generations) behind one mutex, in memory only.
+	// access is the M10 state (disconnections, access generations)
+	// behind one mutex, in memory only.
 	access *access
 	// gateHook, when set (tests), is called after each gate decision.
 	gateHook atomic.Pointer[func()]
 	// routeTable lists the signed routes with their options, as
-	// registered (walked by the tests: every write route takes the lease).
+	// registered (walked by the tests: every write route takes the write
+	// lock).
 	routeTable   []signedRoute
 	now          func() time.Time
 	started      time.Time
@@ -197,8 +204,8 @@ func New(opts Options) (*Server, error) {
 	// The rejections of the verifier share the sampled logger. The
 	// verifier is configured here, before it serves any request.
 	opts.Verifier.Logger = s.rejectLog
-	// The disconnection and the write lease (M10) are checked in one
-	// place, before any body is read.
+	// The disconnection (M10) is checked in one place, before any body is
+	// read.
 	opts.Verifier.Gate = s.gate
 	// Clients are read through access, with their access generation.
 	opts.Verifier.Clients = s.access
@@ -234,35 +241,38 @@ type signedRoute struct {
 	opts    auth.RouteOptions
 	// library: a successful answer publishes a library event (M14).
 	library bool
-}
-
-// writes marks a route that changes the SD card: it takes the write lease
-// (M10) or answers 423 read_only, before its body is read. Every route
-// whose responses include 423 in protocol/openapi.yaml uses it, except
-// PUT /writer (which takes the lease itself).
-func writes(o auth.RouteOptions) auth.RouteOptions {
-	o.TakesLease = true
-	return o
+	// write: how the route takes the write lock (M13, writes.go).
+	write writeMode
 }
 
 // routes registers the API. Signed routes are wrapped one by one with the
 // options of the route, fixed here (never deduced from the path): body
-// limit, lease (writes) and disconnection.
+// limit, disconnection and how the route takes the write lock.
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	v := s.opts.Verifier
 	s.routeTable = nil
-	signed := func(pattern string, opts auth.RouteOptions, h http.HandlerFunc) {
-		s.routeTable = append(s.routeTable, signedRoute{pattern: pattern, opts: opts})
+	reg := func(pattern string, opts auth.RouteOptions, mode writeMode, library bool, h http.HandlerFunc) {
+		if mode == writeHandler {
+			// The lock is taken once the body was verified (the verifier
+			// runs first), never while a body is read.
+			h = s.serialized(h)
+		}
+		if library {
+			h = s.changes(h)
+		}
+		s.routeTable = append(s.routeTable, signedRoute{pattern: pattern, opts: opts, library: library, write: mode})
 		mux.Handle(pattern, v.Require(opts, s.markSeen(h)))
 	}
-	// changing is signed for a route that changes the SD card when it
-	// succeeds: it publishes a library event then (M14).
-	changing := func(pattern string, opts auth.RouteOptions, h http.HandlerFunc) {
-		signed(pattern, opts, s.changes(h))
-		s.routeTable[len(s.routeTable)-1].library = true
+	// signed: a read (or a route that changes nothing on the card).
+	signed := func(pattern string, opts auth.RouteOptions, h http.HandlerFunc) {
+		reg(pattern, opts, writeNone, false, h)
 	}
-	jsonWrite := writes(auth.RouteJSON)
+	// changing: a write serialized as a whole; it publishes a library
+	// event when it succeeds (M14).
+	changing := func(pattern string, opts auth.RouteOptions, h http.HandlerFunc) {
+		reg(pattern, opts, writeHandler, true, h)
+	}
 
 	// Unsigned routes.
 	mux.Handle(helloPattern, s.limit(s.hello, http.HandlerFunc(s.handleHello)))
@@ -274,80 +284,81 @@ func (s *Server) routes() http.Handler {
 	reconnect := auth.RouteJSON
 	reconnect.WhileDisconnected = true
 	signed("POST "+Prefix+"/clients/me/connect", reconnect, s.handleConnect)
-	// Event stream (M14): a read route, no write lease.
+	// Event stream (M14): a read route, never waits for a write.
 	signed(eventsPattern, auth.RouteJSON, s.handleEvents)
-
-	// Write lease (M10): never guarded by the lease itself.
-	signed("GET "+Prefix+"/writer", auth.RouteJSON, s.handleGetWriter)
-	signed("PUT "+Prefix+"/writer", auth.RouteJSON, s.handleTakeWriter)
-	signed("DELETE "+Prefix+"/writer", auth.RouteJSON, s.handleReleaseWriter)
 
 	// Library.
 	signed("GET "+Prefix+"/systems", auth.RouteJSON, s.handleSystems)
 	signed("GET "+Prefix+"/systems/{systemId}/games", auth.RouteJSON, s.handleSystemGames)
 	signed("GET "+Prefix+"/games", auth.RouteJSON, s.handleAllGames)
 	signed("GET "+Prefix+"/games/{gameId}", auth.RouteJSON, s.handleGame)
-	// Read route (M11): no write lease, a read-only client downloads too.
+	// Read route (M11): never waits for a write.
 	signed("GET "+Prefix+"/games/{gameId}/files/{fileId}", auth.RouteJSON, s.handleGameFile)
 	signed("GET "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.handleGameArt)
 	// PUT /art takes a PNG of at most 4 MiB.
-	changing("PUT "+Prefix+"/games/{gameId}/art", writes(auth.RouteArt), s.notify(ChangeArtSet, s.gameName, s.handlePutArt))
-	changing("DELETE "+Prefix+"/games/{gameId}/art", jsonWrite, s.notify(ChangeArtDeleted, s.gameName, s.handleDeleteArt))
+	changing("PUT "+Prefix+"/games/{gameId}/art", auth.RouteArt, s.notify(ChangeArtSet, s.gameName, s.handlePutArt))
+	changing("DELETE "+Prefix+"/games/{gameId}/art", auth.RouteJSON, s.notify(ChangeArtDeleted, s.gameName, s.handleDeleteArt))
 
 	signed("GET "+Prefix+"/games/{gameId}/deletion", auth.RouteJSON, s.handleDeletionPreview)
-	changing("DELETE "+Prefix+"/games/{gameId}", jsonWrite, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
+	changing("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
 
 	// Trash.
 	signed("GET "+Prefix+"/trash", auth.RouteJSON, s.handleTrash)
-	changing("DELETE "+Prefix+"/trash", jsonWrite, s.notify(ChangeTrashEmptied, nil, s.handleEmptyTrash))
-	changing("DELETE "+Prefix+"/trash/{entryId}", jsonWrite, s.notify(ChangeTrashEntryDeleted, nil, s.handleDeleteTrashEntry))
+	changing("DELETE "+Prefix+"/trash", auth.RouteJSON, s.notify(ChangeTrashEmptied, nil, s.handleEmptyTrash))
+	changing("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.notify(ChangeTrashEntryDeleted, nil, s.handleDeleteTrashEntry))
 
 	// Transfers. Only the chunk route accepts UNSIGNED bodies (read as a
-	// stream by the handler, bounded by the chunk size).
-	signed("POST "+Prefix+"/uploads", jsonWrite, s.handleCreateUpload)
+	// stream by the handler, bounded by the chunk size). Uploads and their
+	// chunks go to the staging area without waiting for a write; the final
+	// step holds the write lock around the install (M13).
+	reg("POST "+Prefix+"/uploads", auth.RouteJSON, writeStaging, false, s.handleCreateUpload)
 	signed("GET "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, s.handleUploadStatus)
-	signed("PUT "+Prefix+"/uploads/{uploadId}", writes(auth.RouteChunk), s.handleUploadChunk)
-	signed("DELETE "+Prefix+"/uploads/{uploadId}", jsonWrite, s.handleCancelUpload)
-	signed("POST "+Prefix+"/uploads/{uploadId}/complete", jsonWrite, s.changesUpload(s.notifyUpload(s.handleCompleteUpload)))
+	reg("PUT "+Prefix+"/uploads/{uploadId}", auth.RouteChunk, writeStaging, false, s.handleUploadChunk)
+	reg("DELETE "+Prefix+"/uploads/{uploadId}", auth.RouteJSON, writeStaging, false, s.handleCancelUpload)
+	// changesUpload publishes its own library event (only for a file
+	// installed in Roms/).
+	reg("POST "+Prefix+"/uploads/{uploadId}/complete", auth.RouteJSON, writeInstall, false, s.changesUpload(s.notifyUpload(s.handleCompleteUpload)))
 	s.routeTable[len(s.routeTable)-1].library = true
-	signed("POST "+Prefix+"/downloads", jsonWrite, s.handleCreateDownload)
+	// A job waits for the write lock at its install step only.
+	reg("POST "+Prefix+"/downloads", auth.RouteJSON, writeInstall, false, s.handleCreateDownload)
 	signed("GET "+Prefix+"/jobs", auth.RouteJSON, s.handleJobs)
 	signed("GET "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleJob)
-	signed("DELETE "+Prefix+"/jobs/{jobId}", jsonWrite, s.handleCancelJob)
+	reg("DELETE "+Prefix+"/jobs/{jobId}", auth.RouteJSON, writeStaging, false, s.handleCancelJob)
 
 	// Saves. Only PUT /save takes a larger body (64 MiB).
 	signed("GET "+Prefix+"/saves", auth.RouteJSON, s.handleListSaves)
 	signed("GET "+Prefix+"/games/{gameId}/save", auth.RouteJSON, s.handleGetSave)
 	signed("GET "+Prefix+"/games/{gameId}/save/rtc", auth.RouteJSON, s.handleGetSaveClock)
-	changing("PUT "+Prefix+"/games/{gameId}/save", writes(auth.RouteSave), s.notify(ChangeSaveReplaced, s.gameName, s.handlePutSave))
+	changing("PUT "+Prefix+"/games/{gameId}/save", auth.RouteSave, s.notify(ChangeSaveReplaced, s.gameName, s.handlePutSave))
 	signed("GET "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleListBackups)
-	changing("POST "+Prefix+"/games/{gameId}/save/backups", jsonWrite, s.handleCreateBackup)
+	changing("POST "+Prefix+"/games/{gameId}/save/backups", auth.RouteJSON, s.handleCreateBackup)
 	signed("GET "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleGetBackup)
-	changing("DELETE "+Prefix+"/games/{gameId}/save/backups/{backupId}", jsonWrite, s.handleDeleteBackup)
-	changing("POST "+Prefix+"/games/{gameId}/save/backups/{backupId}/restore", jsonWrite, s.notify(ChangeSaveRestored, s.gameName, s.handleRestoreBackup))
+	changing("DELETE "+Prefix+"/games/{gameId}/save/backups/{backupId}", auth.RouteJSON, s.handleDeleteBackup)
+	changing("POST "+Prefix+"/games/{gameId}/save/backups/{backupId}/restore", auth.RouteJSON, s.notify(ChangeSaveRestored, s.gameName, s.handleRestoreBackup))
 
 	// States, locks and resume history.
 	signed("GET "+Prefix+"/games/{gameId}/states", auth.RouteJSON, s.handleListStates)
 	signed("GET "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.handleGetState)
-	changing("DELETE "+Prefix+"/games/{gameId}/states/{slot}", jsonWrite, s.notify(ChangeStateDeleted, s.gameName, s.handleDeleteState))
+	changing("DELETE "+Prefix+"/games/{gameId}/states/{slot}", auth.RouteJSON, s.notify(ChangeStateDeleted, s.gameName, s.handleDeleteState))
 	signed("GET "+Prefix+"/games/{gameId}/states/{slot}/thumbnail", auth.RouteJSON, s.handleStateThumbnail)
-	changing("PUT "+Prefix+"/games/{gameId}/states/{slot}/lock", jsonWrite, s.handleLockState)
-	changing("DELETE "+Prefix+"/games/{gameId}/states/{slot}/lock", jsonWrite, s.handleUnlockState)
-	changing("POST "+Prefix+"/games/{gameId}/states/{slot}/restore", jsonWrite, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreState))
+	changing("PUT "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleLockState)
+	changing("DELETE "+Prefix+"/games/{gameId}/states/{slot}/lock", auth.RouteJSON, s.handleUnlockState)
+	changing("POST "+Prefix+"/games/{gameId}/states/{slot}/restore", auth.RouteJSON, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreState))
 	signed("GET "+Prefix+"/games/{gameId}/resume-history", auth.RouteJSON, s.handleResumeHistory)
-	changing("POST "+Prefix+"/games/{gameId}/resume-history/{entryId}/restore", jsonWrite, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreResume))
+	changing("POST "+Prefix+"/games/{gameId}/resume-history/{entryId}/restore", auth.RouteJSON, s.notify(ChangeStateRestored, s.gameName, s.handleRestoreResume))
 
 	// Cheats.
 	signed("GET "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.handleGetCheats)
-	changing("PUT "+Prefix+"/games/{gameId}/cheats", jsonWrite, s.notify(ChangeCheatsUpdated, s.gameName, s.handlePutCheats))
-	changing("POST "+Prefix+"/games/{gameId}/cheats/import", jsonWrite, s.notify(ChangeCheatsUpdated, s.gameName, s.handleImportCheats))
+	changing("PUT "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.notify(ChangeCheatsUpdated, s.gameName, s.handlePutCheats))
+	// The import fetches its source first, then takes the write lock.
+	reg("POST "+Prefix+"/games/{gameId}/cheats/import", auth.RouteJSON, writeInner, true, s.notify(ChangeCheatsUpdated, s.gameName, s.handleImportCheats))
 	signed("GET "+Prefix+"/sd/files", auth.RouteJSON, s.handleSDFiles)
 
 	// Patches (a job, like the downloads).
-	signed("POST "+Prefix+"/games/{gameId}/patch", jsonWrite, s.handlePatchGame)
+	reg("POST "+Prefix+"/games/{gameId}/patch", auth.RouteJSON, writeInstall, false, s.handlePatchGame)
 
 	// Every signed route besides PUT /save, PUT /art and the upload chunks
-	// uses auth.RouteJSON (jsonWrite when it changes the SD card).
+	// uses auth.RouteJSON.
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "No such route", nil)

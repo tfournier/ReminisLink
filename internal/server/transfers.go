@@ -44,7 +44,11 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 func (s *Server) transferError(w http.ResponseWriter, r *http.Request, apiErr *transfer.Error, err error) {
 	if apiErr != nil {
 		if apiErr.Status == http.StatusTooManyRequests {
-			w.Header().Set("Retry-After", strconv.Itoa(TransfersRetryAfter))
+			retry := TransfersRetryAfter
+			if apiErr.Message == transfer.ErrorDeviceBusy().Message {
+				retry = BusyRetryAfter
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(retry))
 		}
 		auth.WriteError(w, apiErr.Status, apiErr.Code, apiErr.Message, apiErr.Details)
 		return
@@ -223,7 +227,7 @@ func (s *Server) handleCancelUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
-	res, apiErr, err := s.opts.Transfers.CompleteUpload(r.PathValue("uploadId"))
+	res, apiErr, err := s.opts.Transfers.CompleteUpload(r.Context(), r.PathValue("uploadId"))
 	if apiErr != nil || err != nil {
 		s.transferError(w, r, apiErr, err)
 		return

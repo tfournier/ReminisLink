@@ -14,7 +14,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/auth"
 )
 
-// pairingDisplay prints the pairing link, the PIN and an ASCII QR code in
+// pairingDisplay prints the pairing link and an ASCII QR code in
 // the terminal (headless mode), and prints them again each time the
 // secret changes (after a pairing, an expiry or too many failures) or the
 // console is renamed. This goes to the terminal only, never to the log.
@@ -81,7 +81,7 @@ func (d *pairingDisplay) print(st app.Status) {
 		fmt.Fprint(d.out, q.ToSmallString(false))
 	}
 	fmt.Fprintf(d.out, "Pairing link: %s\n", st.PairingLink)
-	fmt.Fprintf(d.out, "PIN: %s %s (expires at %s)\n", st.PIN[:3], st.PIN[3:], st.ExpiresAt.Local().Format("15:04:05"))
+	fmt.Fprintf(d.out, "Expires at %s (no PIN since M13)\n", st.ExpiresAt.Local().Format("15:04:05"))
 	if st.BlockedUntil.After(time.Now()) {
 		fmt.Fprintf(d.out, "Pairing blocked until %s (too many failed attempts)\n", st.BlockedUntil.Local().Format("15:04:05"))
 	}

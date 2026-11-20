@@ -110,7 +110,7 @@ func TestResumedUploadIsVerifiedInBackground(t *testing.T) {
 	if apiErr == nil || apiErr.Status != http.StatusTooManyRequests || apiErr.Message != "Upload is being verified" {
 		t.Fatalf("chunk during verification: %v", apiErr)
 	}
-	if _, apiErr, _ := s.CompleteUpload(c.UploadID); apiErr == nil || apiErr.Status != http.StatusTooManyRequests {
+	if _, apiErr, _ := s.CompleteUpload(context.Background(), c.UploadID); apiErr == nil || apiErr.Status != http.StatusTooManyRequests {
 		t.Fatalf("complete during verification: %v", apiErr)
 	}
 	for i := 0; i < MaxParallelVerify; i++ {
@@ -180,7 +180,7 @@ func TestConcurrentCompletes(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					_, errs[i], _ = e.svc.CompleteUpload(id)
+					_, errs[i], _ = e.svc.CompleteUpload(context.Background(), id)
 				}()
 			}
 			wg.Wait()
@@ -219,7 +219,7 @@ func TestOverwriteDuringDeleteGame(t *testing.T) {
 	var delErr error
 	var apiErr *Error
 	go func() { defer wg.Done(); _, delErr = e.svc.DeleteGame(game, false) }()
-	go func() { defer wg.Done(); _, apiErr, _ = e.svc.CompleteUpload(id) }()
+	go func() { defer wg.Done(); _, apiErr, _ = e.svc.CompleteUpload(context.Background(), id) }()
 	wg.Wait()
 	if apiErr != nil {
 		t.Fatalf("complete: %v", apiErr)

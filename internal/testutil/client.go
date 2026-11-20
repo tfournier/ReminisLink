@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"io"
@@ -19,24 +20,34 @@ import (
 type Client struct {
 	BaseURL  string // e.g. httptest.Server.URL, without /api/v1
 	ClientID string
-	Key      []byte
+	Key      ed25519.PrivateKey
+	// Platform, when set, is sent as X-RL-Platform (informative, M13).
+	Platform string
 	Now      func() time.Time // nil: time.Now
 	HTTP     *http.Client     // nil: http.DefaultClient
 }
 
-// PairClient registers a new client with a random key in clients (as a
-// successful pairing would) and returns a Client for baseURL.
+// NewKey returns a random Ed25519 private key.
+func NewKey(t testing.TB) ed25519.PrivateKey {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+// PairClient registers a new client with a random Ed25519 key in clients
+// (as a successful pairing would) and returns a Client for baseURL.
 func PairClient(t testing.TB, clients *auth.ClientStore, baseURL string) *Client {
 	t.Helper()
 	id, err := store.NewUUIDv4(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := make([]byte, auth.KeySize)
-	if _, err := rand.Read(key); err != nil {
-		t.Fatal(err)
-	}
-	if err := clients.Put(auth.Client{ID: id, Name: "Test iPhone", Key: key, PairedAt: time.Now()}); err != nil {
+	key := NewKey(t)
+	if err := clients.Put(auth.Client{ID: id, Name: "Test iPhone", Platform: auth.PlatformApple,
+		PublicKey: key.Public().(ed25519.PublicKey), PairedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	return &Client{BaseURL: baseURL, ClientID: id, Key: key}
@@ -98,6 +109,9 @@ func (c *Client) sign(req *http.Request, content string) error {
 	req.Header.Set(auth.HeaderNonce, auth.EncodeB64U(nonce))
 	req.Header.Set(auth.HeaderContentSHA256, content)
 	req.Header.Set(auth.HeaderSignature, auth.Sign(c.Key, canonical))
+	if c.Platform != "" {
+		req.Header.Set(auth.HeaderPlatform, c.Platform)
+	}
 	return nil
 }
 

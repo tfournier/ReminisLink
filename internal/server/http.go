@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -65,7 +66,14 @@ func Listen(host string, preferred int) (net.Listener, int, error) {
 // connections are refused at the TCP level; the 503 shutting_down answer
 // only reaches requests on connections already accepted (keep-alive
 // connections, or a request read just before the shutdown started).
+//
+// With Options.TLS (always, in the pak: M13), every connection is TLS:
+// the handshake is bounded by ReadHeaderTimeout and plain HTTP gets no
+// answer from the API.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	if s.opts.TLS != nil {
+		ln = tls.NewListener(ln, s.opts.TLS)
+	}
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	defer cancelBase()
 	srv := s.httpServer(baseCtx)

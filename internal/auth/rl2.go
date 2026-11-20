@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // RL2 (M13): pairing v2 and Ed25519 request signing
@@ -13,10 +12,8 @@ import (
 
 // RL2 strings, byte for byte as in the contract.
 const (
-	// SignatureAlgorithmRL2 is the first line of the RL2 canonical string.
-	SignatureAlgorithmRL2 = "RL2-ED25519"
-	pairClientPrefixRL2   = "RL2-PAIR-CLIENT|"
-	pairDevicePrefixRL2   = "RL2-PAIR-DEVICE|"
+	pairClientPrefixRL2 = "RL2-PAIR-CLIENT|"
+	pairDevicePrefixRL2 = "RL2-PAIR-DEVICE|"
 )
 
 const (
@@ -78,23 +75,14 @@ func DecodePublicKey(s string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(b), nil
 }
 
-// CanonicalRequestRL2 is CanonicalRequest with the first line RL2-ED25519.
-func CanonicalRequestRL2(p RequestParts) (string, error) {
-	c, err := CanonicalRequest(p)
-	if err != nil {
-		return "", err
-	}
-	return SignatureAlgorithmRL2 + strings.TrimPrefix(c, SignatureAlgorithm), nil
-}
-
-// SignRL2 returns b64u(Ed25519(priv, canonical)), 64 bytes once decoded.
-func SignRL2(priv ed25519.PrivateKey, canonical string) string {
+// Sign returns b64u(Ed25519(priv, canonical)), 64 bytes once decoded.
+func Sign(priv ed25519.PrivateKey, canonical string) string {
 	return EncodeB64U(ed25519.Sign(priv, []byte(canonical)))
 }
 
-// VerifyRL2 checks a b64u Ed25519 signature of canonical. A malformed
+// Verify checks a b64u Ed25519 signature of canonical. A malformed
 // encoding, a wrong length or a bad public key simply fails.
-func VerifyRL2(pub ed25519.PublicKey, canonical, signature string) bool {
+func Verify(pub ed25519.PublicKey, canonical, signature string) bool {
 	if len(pub) != PublicKeySize {
 		return false
 	}

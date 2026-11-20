@@ -9,39 +9,23 @@ import (
 	"github.com/tfournier/ReminisLink/internal/auth"
 )
 
-// WriteLeaseTTL is how long the write lease lasts after its last renewal
-// (protocol/openapi.yaml "Single writer (M10)").
-const WriteLeaseTTL = 60 * time.Second
-
-// access is the in-memory state of M10 behind ONE mutex: the write lease,
-// the disconnections by the console, the access generation of each client,
+// access is the in-memory state of M10 behind ONE mutex: the
+// disconnections by the console, the access generation of each client,
 // and the presence updates of accepted requests. Every operation below
 // takes the lock once and does all its checks and changes inside it, so no
-// two operations interleave.
+// two operations interleave. (The M10 write lease is gone since M13: the
+// writes are serialized by the write lock instead, see writes.go.)
 //
 // Access generation: a revocation (disconnect, forget, unpair, re-pairing)
 // bumps the client's generation. A request captures it when the gate
-// admits it, before its body is read; when the request is accepted (or
-// takes over with PUT /writer), a different generation means the client
-// was revoked in between, even if it reconnected or was paired again
-// since, and the request is refused.
-//
-// Lease: a write request admitted while the lease is free reserves it
-// (unconfirmed, with a token). Accepting a write is one atomic
-// acquire-or-confirm. Rolling back frees only an unconfirmed lease that
-// still carries the request's token. Other accepted requests renew only a
-// confirmed lease of their client.
+// admits it, before its body is read; when the request is accepted, a
+// different generation means the client was revoked in between, even if
+// it reconnected or was paired again since, and the request is refused.
 type access struct {
 	mu       sync.Mutex
 	now      func() time.Time
 	clients  *auth.ClientStore
 	presence *presence
-
-	holder    string // client id, "" when free
-	expires   time.Time
-	confirmed bool
-	token     uint64 // of the reservation or take that set holder
-	tokens    uint64 // token counter
 
 	disconnected map[string]bool
 	gen          map[string]uint64 // access generation; absent = 0
@@ -89,15 +73,8 @@ func newAccess(now func() time.Time, clients *auth.ClientStore, p *presence) *ac
 
 // admission is what the gate captured for a request.
 type admission struct {
-	id     string
-	gen    uint64
-	ticket uint64 // token of the reservation it made, 0 when none
-}
-
-// leaseHolder is the current holder, for the answers.
-type leaseHolder struct {
-	id      string
-	expires time.Time
+	id  string
+	gen uint64
 }
 
 func unauthorized(code string) *auth.Rejection {
@@ -110,31 +87,10 @@ func unauthorized(code string) *auth.Rejection {
 
 // --- helpers, called with mu held -----------------------------------------
 
-// currentLocked drops an expired lease and reports whether one is held.
-func (a *access) currentLocked() bool {
-	if a.holder != "" && !a.now().Before(a.expires) {
-		a.holder, a.expires, a.confirmed = "", time.Time{}, false
-	}
-	return a.holder != ""
-}
-
-func (a *access) setLocked(id string, confirmed bool) uint64 {
-	a.tokens++
-	a.holder, a.expires, a.confirmed, a.token = id, a.now().Add(WriteLeaseTTL), confirmed, a.tokens
-	return a.token
-}
-
-func (a *access) dropLeaseLocked(id string) {
-	if a.holder == id {
-		a.holder, a.expires, a.confirmed = "", time.Time{}, false
-	}
-}
-
 func (a *access) revokeLocked(id, code string) {
 	a.gens++
 	a.gen[id] = a.gens
 	a.revokedCode[id] = code
-	a.dropLeaseLocked(id)
 	a.presence.forget(id)
 	if a.onRevoke != nil {
 		a.onRevoke(id)
@@ -166,55 +122,30 @@ func (a *access) checkGenLocked(ad admission, whileDisconnected bool) *auth.Reje
 	return a.checkLocked(ad.id, whileDisconnected)
 }
 
-func (a *access) holderLocked() leaseHolder { return leaseHolder{a.holder, a.expires} }
-
 // --- operations ------------------------------------------------------------
 
 // admit is the pre-body check of the gate, for client c as read by Lookup
 // (its Epoch is the generation of the pairing that verified the request).
-// A write reserves a free lease.
-func (a *access) admit(c auth.Client, opts auth.RouteOptions) (admission, *leaseHolder, *auth.Rejection) {
+func (a *access) admit(c auth.Client, opts auth.RouteOptions) (admission, *auth.Rejection) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	id := c.ID
-	ad := admission{id: id, gen: c.Epoch}
+	ad := admission{id: c.ID, gen: c.Epoch}
 	if rej := a.checkGenLocked(ad, opts.WhileDisconnected); rej != nil {
-		return admission{}, nil, rej
+		return admission{}, rej
 	}
-	if opts.TakesLease {
-		switch {
-		case !a.currentLocked():
-			ad.ticket = a.setLocked(id, false)
-		case a.holder != id:
-			h := a.holderLocked()
-			return admission{}, &h, nil
-		}
-	}
-	return ad, nil, nil
+	return ad, nil
 }
 
 // accept is the commit of an accepted request (body verified): checks the
-// generation; a write acquires or confirms the lease atomically; any other
-// request renews a confirmed lease of its client; presence is recorded.
-// For POST /clients/me/connect (WhileDisconnected), the disconnection is
-// lifted here, in the same step that validated the generation (a newer
-// disconnection bumped it, so it is never cleared by an older request);
-// lifted reports whether there was one.
-func (a *access) accept(ad admission, opts auth.RouteOptions) (other *leaseHolder, rej *auth.Rejection, lifted bool) {
+// generation and records the presence. For POST /clients/me/connect
+// (WhileDisconnected), the disconnection is lifted here, in the same step
+// that validated the generation (a newer disconnection bumped it, so it is
+// never cleared by an older request); lifted reports whether there was one.
+func (a *access) accept(ad admission, opts auth.RouteOptions) (rej *auth.Rejection, lifted bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if rej := a.checkGenLocked(ad, opts.WhileDisconnected); rej != nil {
-		return nil, rej, false
-	}
-	held := a.currentLocked()
-	switch {
-	case opts.TakesLease && !held:
-		a.setLocked(ad.id, true)
-	case opts.TakesLease && a.holder != ad.id:
-		h := a.holderLocked()
-		return &h, nil, false
-	case held && a.holder == ad.id && (opts.TakesLease || a.confirmed):
-		a.expires, a.confirmed = a.now().Add(WriteLeaseTTL), true
+		return rej, false
 	}
 	if opts.WhileDisconnected {
 		lifted = a.disconnected[ad.id]
@@ -225,7 +156,7 @@ func (a *access) accept(ad admission, opts auth.RouteOptions) (other *leaseHolde
 			a.presenceChangedLocked()
 		}
 	}
-	return nil, nil, lifted
+	return nil, lifted
 }
 
 // streamOpened records an open event stream (M14) for a request accepted
@@ -255,61 +186,6 @@ func (a *access) streamClosed(ad admission) {
 		return
 	}
 	a.presence.streamClosed(ad.id, a.now())
-}
-
-// rollback gives back the reservation of a rejected request, if nothing
-// confirmed or replaced it since.
-func (a *access) rollback(ad admission) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if ad.ticket != 0 && a.holder == ad.id && a.token == ad.ticket && !a.confirmed {
-		a.holder, a.expires = "", time.Time{}
-	}
-}
-
-// take is PUT /writer for an accepted request: take, renew or force.
-// It returns the holder after the call, the previous holder (if another
-// one), and whether the caller holds the lease.
-func (a *access) take(ad admission, force bool) (h leaseHolder, previous string, ok bool, rej *auth.Rejection) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if rej := a.checkGenLocked(ad, false); rej != nil {
-		return leaseHolder{}, "", false, rej
-	}
-	held := a.currentLocked()
-	switch {
-	case held && a.holder == ad.id:
-		a.expires, a.confirmed = a.now().Add(WriteLeaseTTL), true
-	case held && !force:
-		return a.holderLocked(), "", false, nil
-	default:
-		if held {
-			previous = a.holder
-		}
-		a.setLocked(ad.id, true)
-	}
-	return a.holderLocked(), previous, true, nil
-}
-
-// release is DELETE /writer: frees the lease if id holds it.
-func (a *access) release(id string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.currentLocked() || a.holder != id {
-		return false
-	}
-	a.dropLeaseLocked(id)
-	return true
-}
-
-// current returns the holder, if any.
-func (a *access) current() (leaseHolder, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if !a.currentLocked() {
-		return leaseHolder{}, false
-	}
-	return a.holderLocked(), true
 }
 
 // disconnect disconnects a paired client.
@@ -356,7 +232,7 @@ func (a *access) forgetAll() (int, error) {
 }
 
 // pair stores a newly paired client. Pairing again with the same id
-// replaces the key: requests admitted with the old pairing are revoked,
+// replaces the public key: requests admitted with the old pairing are revoked,
 // and a disconnection is lifted (a deliberate action on the console).
 func (a *access) pair(c auth.Client) error {
 	a.mu.Lock()
@@ -376,15 +252,14 @@ func (a *access) devices(connectedSince time.Time) []DeviceStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	seen := a.presence.seenSince(connectedSince, a.now())
-	held := a.currentLocked()
 	list := a.clients.List()
 	out := make([]DeviceStatus, 0, len(list))
 	for _, c := range list {
 		_, connected := seen[c.ID]
 		out = append(out, DeviceStatus{
 			ID: c.ID, Name: c.Name, PairedAt: c.PairedAt,
+			Platform: c.Platform, Platforms: c.Platforms,
 			Connected:    connected,
-			Writer:       held && a.holder == c.ID,
 			Disconnected: a.disconnected[c.ID],
 		})
 	}

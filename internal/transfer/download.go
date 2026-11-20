@@ -274,15 +274,21 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 	}
 	d.file = nil
 
-	// Resolve and install under the install lock (see CompleteUpload).
+	// Resolve and install under the write lock (M13: a job waits for its
+	// turn without a time limit) and the install lock (see CompleteUpload).
+	if err := s.opts.Writes.Acquire(ctx); err != nil {
+		return nil, newError(http.StatusServiceUnavailable, CodeShuttingDown, "Cancelled")
+	}
 	s.installMu.Lock()
 	if ctx.Err() != nil {
 		// Cancelled while waiting for the lock: nothing installed.
 		s.installMu.Unlock()
+		s.opts.Writes.Release()
 		return nil, newError(http.StatusServiceUnavailable, CodeShuttingDown, "Cancelled")
 	}
 	result, apiErr, err := s.installDownload(target, d.name, d.path, onConflict)
 	s.installMu.Unlock()
+	s.opts.Writes.Release()
 	if errors.Is(err, store.ErrReplaceFailed) {
 		installed = true // the file is named by a pending replacement: kept
 	}

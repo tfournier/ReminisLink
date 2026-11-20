@@ -56,6 +56,9 @@ func TestRoots(t *testing.T) {
 	}
 }
 
+// testPin is a certificate pin (b64u of 32 bytes).
+const testPin = "dx55JGi5v9aA8sTa_6qpXzS1I0iDjz86z8UfYi-fGIw"
+
 func TestPairingDisplay(t *testing.T) {
 	now := time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
@@ -72,8 +75,8 @@ func TestPairingDisplay(t *testing.T) {
 		snap, err := s.Snapshot()
 		return app.Status{
 			Name: name, IP: "192.168.1.42", Port: 47821, PairingOpen: snap.Open,
-			PairingLink: auth.PairingURL(id, name, snap.Secret, "192.168.1.42", 47821),
-			PIN:         snap.PIN, ExpiresAt: snap.ExpiresAt, Generation: snap.Generation,
+			PairingLink: auth.PairingLink(id, name, snap.Secret, "192.168.1.42", 47821, testPin),
+			ExpiresAt:   snap.ExpiresAt, Generation: snap.Generation,
 		}, err
 	}
 	var out bytes.Buffer
@@ -86,8 +89,8 @@ func TestPairingDisplay(t *testing.T) {
 	d.refresh()
 	snap, _ := s.Snapshot()
 	text := out.String()
-	link := auth.PairingURL(id, "Brick test", snap.Secret, "192.168.1.42", 47821)
-	if !strings.Contains(text, link) || !strings.Contains(text, snap.PIN[:3]+" "+snap.PIN[3:]) || !strings.Contains(text, "█") {
+	link := auth.PairingLink(id, "Brick test", snap.Secret, "192.168.1.42", 47821, testPin)
+	if !strings.Contains(text, link) || strings.Contains(text, "PIN:") || !strings.Contains(text, "█") {
 		t.Fatalf("display:\n%s", text)
 	}
 	// Nothing new until the secret or the name changes.

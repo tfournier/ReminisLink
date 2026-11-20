@@ -340,7 +340,7 @@ func signingVectors() (signingFile, error) {
 		if cq != in.canonicalQuery {
 			return f, fmt.Errorf("%s: canonical query %q, expected %q", in.name, cq, in.canonicalQuery)
 		}
-		canonical, err := auth.CanonicalRequestRL2(auth.RequestParts{
+		canonical, err := auth.CanonicalRequest(auth.RequestParts{
 			Method: in.method, Path: in.path, RawQuery: in.query,
 			Time: in.time, Nonce: nonce, ContentSHA256: content,
 		})
@@ -350,9 +350,9 @@ func signingVectors() (signingFile, error) {
 		if want := strings.Join([]string{"RL2-ED25519", strings.ToUpper(in.method), in.path, in.canonicalQuery, in.time, nonce, content}, "\n"); canonical != want {
 			return f, fmt.Errorf("%s: canonical request %q, expected %q", in.name, canonical, want)
 		}
-		sig := auth.SignRL2(in.key, canonical)
+		sig := auth.Sign(in.key, canonical)
 		pub := in.key.Public().(ed25519.PublicKey)
-		if !auth.VerifyRL2(pub, canonical, sig) {
+		if !auth.Verify(pub, canonical, sig) {
 			return f, fmt.Errorf("%s: signature does not verify", in.name)
 		}
 		f.Cases = append(f.Cases, signingCase{

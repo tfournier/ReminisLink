@@ -33,19 +33,17 @@ type Status struct {
 	WiFi  bool // false: no Wi-Fi address, the pairing link is empty
 
 	// Pairing: the link of the QR code holds the secret; it goes to the
-	// screen only, never to the log. PairingLink and PIN are empty while
-	// pairing is closed (M8: pairing on demand).
+	// screen only, never to the log. PairingLink is empty while pairing is
+	// closed (M8: pairing on demand). No PIN since M13.
 	PairingOpen  bool
 	Paired       bool // at least one device is paired
 	PairingLink  string
-	PIN          string
 	ExpiresAt    time.Time
 	BlockedUntil time.Time // zero when pairing is not blocked
 	Generation   uint64    // changes with the secret
 
 	Battery    *osadapter.Battery // nil when unknown (desktop)
 	Connected  []string           // names of the connected clients, most recent first
-	Writer     string             // name of the client with write access (M10), "" when none
 	Activities []transfer.Activity
 	Notice     *Notice // the banner, nil when none
 }
@@ -67,16 +65,15 @@ func (a *App) Status() (Status, error) {
 		Battery:    a.battery(),
 	}
 	if snap.Open {
-		st.PIN, st.ExpiresAt = snap.PIN, snap.ExpiresAt
+		st.ExpiresAt = snap.ExpiresAt
 		if wifi {
-			st.PairingLink = auth.PairingURL(a.deviceID, name, snap.Secret, ip, a.port)
+			st.PairingLink = auth.PairingLink(a.deviceID, name, snap.Secret, ip, a.port, a.tls.Pin)
 		}
 	}
 	if a.srv != nil {
 		for _, c := range a.srv.ConnectedClients() {
 			st.Connected = append(st.Connected, c.ClientName)
 		}
-		st.Writer, _ = a.srv.WriterName()
 	}
 	switch {
 	case !wifi:

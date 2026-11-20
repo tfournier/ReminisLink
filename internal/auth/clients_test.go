@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,11 +25,11 @@ func TestClientStoreLifecycle(t *testing.T) {
 		t.Fatal("new store not empty")
 	}
 	paired := time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)
-	keyA := bytes.Repeat([]byte{1}, KeySize)
-	if err := s.Put(Client{ID: testClientA, Name: "iPhone de Thomas", Key: keyA, PairedAt: paired}); err != nil {
+	keyA := bytes.Repeat([]byte{1}, PublicKeySize)
+	if err := s.Put(Client{ID: testClientA, Name: "iPhone de Thomas", Platform: PlatformApple, PublicKey: keyA, PairedAt: paired}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Put(Client{ID: testClientB, Name: "iPad", Key: bytes.Repeat([]byte{2}, KeySize), PairedAt: paired}); err != nil {
+	if err := s.Put(Client{ID: testClientB, Name: "iPad", Platform: PlatformApple, PublicKey: bytes.Repeat([]byte{2}, PublicKeySize), PairedAt: paired}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -38,7 +39,7 @@ func TestClientStoreLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, ok := s2.Lookup(testClientA)
-	if !ok || c.Name != "iPhone de Thomas" || !bytes.Equal(c.Key, keyA) || !c.PairedAt.Equal(paired) {
+	if !ok || c.Name != "iPhone de Thomas" || !bytes.Equal(c.PublicKey, keyA) || !c.PairedAt.Equal(paired) {
 		t.Fatalf("reloaded client = %+v, %v", c, ok)
 	}
 	if got := s2.List(); len(got) != 2 || got[0].ID != testClientA {
@@ -46,11 +47,11 @@ func TestClientStoreLifecycle(t *testing.T) {
 	}
 
 	// Re-pairing replaces the key.
-	keyA2 := bytes.Repeat([]byte{3}, KeySize)
-	if err := s2.Put(Client{ID: testClientA, Name: "iPhone", Key: keyA2, PairedAt: paired.Add(time.Hour)}); err != nil {
+	keyA2 := bytes.Repeat([]byte{3}, PublicKeySize)
+	if err := s2.Put(Client{ID: testClientA, Name: "iPhone", Platform: PlatformApple, PublicKey: keyA2, PairedAt: paired.Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	if c, _ := s2.Lookup(testClientA); !bytes.Equal(c.Key, keyA2) || c.Name != "iPhone" {
+	if c, _ := s2.Lookup(testClientA); !bytes.Equal(c.PublicKey, keyA2) || c.Name != "iPhone" {
 		t.Fatalf("client not replaced: %+v", c)
 	}
 	if len(s2.List()) != 2 {
@@ -80,8 +81,8 @@ func TestClientStoreLifecycle(t *testing.T) {
 func TestClientStoreFileFormat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "clients.json")
 	s, _ := OpenClientStore(path)
-	key := bytes.Repeat([]byte{0xff}, KeySize)
-	if err := s.Put(Client{ID: testClientA, Name: "iPhone", Key: key, PairedAt: time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)}); err != nil {
+	key := bytes.Repeat([]byte{0xff}, PublicKeySize)
+	if err := s.Put(Client{ID: testClientA, Name: "iPhone", Platform: PlatformApple, PublicKey: key, PairedAt: time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -94,39 +95,47 @@ func TestClientStoreFileFormat(t *testing.T) {
 	}
 	clients := raw["clients"].([]any)
 	c := clients[0].(map[string]any)
-	if raw["version"] != float64(1) || c["clientId"] != testClientA || c["key"] != EncodeB64U(key) || c["pairedAt"] != "2026-11-18T17:00:00Z" {
+	if raw["version"] != float64(2) || c["clientId"] != testClientA || c["publicKey"] != EncodeB64U(key) ||
+		c["platform"] != "apple" || c["pairedAt"] != "2026-11-18T17:00:00Z" || c["key"] != nil {
 		t.Fatalf("unexpected file:\n%s", data)
 	}
 }
 
 func TestClientStoreLookupReturnsCopy(t *testing.T) {
 	s, _ := OpenClientStore(filepath.Join(t.TempDir(), "clients.json"))
-	if err := s.Put(Client{ID: testClientA, Key: bytes.Repeat([]byte{1}, KeySize)}); err != nil {
+	if err := s.Put(Client{ID: testClientA, Platform: PlatformApple, PublicKey: bytes.Repeat([]byte{1}, PublicKeySize)}); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := s.Lookup(testClientA)
-	c.Key[0] = 0
-	if c2, _ := s.Lookup(testClientA); c2.Key[0] != 1 {
+	c.PublicKey[0] = 0
+	if c2, _ := s.Lookup(testClientA); c2.PublicKey[0] != 1 {
 		t.Fatal("Lookup exposes the internal key slice")
 	}
 }
 
 func TestClientStoreRejectsBadInput(t *testing.T) {
 	s, _ := OpenClientStore(filepath.Join(t.TempDir(), "clients.json"))
-	if err := s.Put(Client{ID: "not-a-uuid", Key: make([]byte, KeySize)}); err == nil {
+	if err := s.Put(Client{ID: "not-a-uuid", Platform: PlatformApple, PublicKey: make([]byte, PublicKeySize)}); err == nil {
 		t.Error("invalid id accepted")
 	}
-	if err := s.Put(Client{ID: testClientA, Key: make([]byte, 16)}); err == nil {
+	if err := s.Put(Client{ID: testClientA, Platform: PlatformApple, PublicKey: make([]byte, 16)}); err == nil {
 		t.Error("short key accepted")
+	}
+	if err := s.Put(Client{ID: testClientA, Platform: "ios", PublicKey: make([]byte, PublicKeySize)}); err == nil {
+		t.Error("invalid platform accepted")
+	}
+	if err := s.Put(Client{ID: testClientA, Platform: PlatformApple, PublicKey: make([]byte, PublicKeySize), Platforms: []string{"watch"}}); err == nil {
+		t.Error("invalid device platform accepted")
 	}
 }
 
 func TestClientStoreRejectsCorruptFile(t *testing.T) {
 	for name, content := range map[string]string{
 		"not-json":    "{",
-		"bad-version": `{"version":2,"clients":[]}`,
-		"bad-key":     `{"version":1,"clients":[{"clientId":"` + testClientA + `","clientName":"x","key":"AAAA","pairedAt":"2026-11-18T17:00:00Z"}]}`,
-		"bad-id":      `{"version":1,"clients":[{"clientId":"x","clientName":"x","key":"` + EncodeB64U(make([]byte, 32)) + `","pairedAt":"2026-11-18T17:00:00Z"}]}`,
+		"bad-version": `{"version":3,"clients":[]}`,
+		"bad-key":     `{"version":2,"clients":[{"clientId":"` + testClientA + `","clientName":"x","platform":"apple","publicKey":"AAAA","pairedAt":"2026-11-18T17:00:00Z"}]}`,
+		"no-key":      `{"version":2,"clients":[{"clientId":"` + testClientA + `","clientName":"x","platform":"apple","key":"` + EncodeB64U(make([]byte, 32)) + `","pairedAt":"2026-11-18T17:00:00Z"}]}`,
+		"bad-id":      `{"version":2,"clients":[{"clientId":"x","clientName":"x","platform":"apple","publicKey":"` + EncodeB64U(make([]byte, 32)) + `","pairedAt":"2026-11-18T17:00:00Z"}]}`,
 	} {
 		path := filepath.Join(t.TempDir(), "clients.json")
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -142,14 +151,14 @@ func TestClientStoreFailedWriteKeepsState(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "clients.json")
 	s, _ := OpenClientStore(path)
-	if err := s.Put(Client{ID: testClientA, Key: make([]byte, KeySize)}); err != nil {
+	if err := s.Put(Client{ID: testClientA, Platform: PlatformApple, PublicKey: make([]byte, PublicKeySize)}); err != nil {
 		t.Fatal(err)
 	}
 	// Block the temporary file so the next write fails.
 	if err := os.Mkdir(path+".tmp", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Put(Client{ID: testClientB, Key: make([]byte, KeySize)}); err == nil {
+	if err := s.Put(Client{ID: testClientB, Platform: PlatformApple, PublicKey: make([]byte, PublicKeySize)}); err == nil {
 		t.Fatal("write error not reported")
 	}
 	if _, ok := s.Lookup(testClientB); ok {
@@ -174,7 +183,7 @@ func TestClientStoreRemoveAll(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 18, 17, 0, 0, 0, time.UTC)
 	for _, id := range []string{testClientA, testClientB} {
-		if err := s.Put(Client{ID: id, Name: "Phone", Key: bytes.Repeat([]byte{2}, KeySize), PairedAt: now}); err != nil {
+		if err := s.Put(Client{ID: id, Name: "Phone", Platform: PlatformApple, PublicKey: bytes.Repeat([]byte{2}, PublicKeySize), PairedAt: now}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -187,5 +196,58 @@ func TestClientStoreRemoveAll(t *testing.T) {
 	again, err := OpenClientStore(path)
 	if err != nil || len(again.List()) != 0 {
 		t.Fatalf("clients left on disk: %v", err)
+	}
+}
+
+// M13 migration: an RL1 clients.json (version 1, shared HMAC keys) is
+// replaced by an empty M13 file; only the count is reported.
+func TestClientStoreWipesRL1Clients(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clients.json")
+	key := EncodeB64U(bytes.Repeat([]byte{7}, 32))
+	rl1 := `{"version":1,"clients":[` +
+		`{"clientId":"` + testClientA + `","clientName":"iPhone","key":"` + key + `","pairedAt":"2026-11-18T17:00:00Z"},` +
+		`{"clientId":"` + testClientB + `","clientName":"iPad","key":"` + key + `","pairedAt":"2026-11-18T17:00:00Z"}]}`
+	if err := os.WriteFile(path, []byte(rl1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := OpenClientStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.WipedRL1() != 2 || len(s.List()) != 0 {
+		t.Fatalf("wiped %d, left %d", s.WipedRL1(), len(s.List()))
+	}
+	data, _ := os.ReadFile(path)
+	if bytes.Contains(data, []byte(key)) || !bytes.Contains(data, []byte(`"version": 2`)) {
+		t.Fatalf("RL1 keys left on the card:\n%s", data)
+	}
+	again, err := OpenClientStore(path)
+	if err != nil || again.WipedRL1() != 0 || len(again.List()) != 0 {
+		t.Fatalf("second open: %v %d", err, again.WipedRL1())
+	}
+}
+
+func TestClientStoreNotePlatform(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clients.json")
+	s, _ := OpenClientStore(path)
+	if err := s.Put(Client{ID: testClientA, Name: "Thomas", Platform: PlatformApple, PublicKey: make([]byte, PublicKeySize), Platforms: []string{"ipad"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		p    string
+		want bool
+	}{{"iphone", true}, {"iphone", false}, {"ipad", false}, {"toaster", false}, {"mac", true}} {
+		got, err := s.NotePlatform(testClientA, tc.p)
+		if err != nil || got != tc.want {
+			t.Errorf("NotePlatform(%q) = %v %v", tc.p, got, err)
+		}
+	}
+	if added, err := s.NotePlatform(testClientB, "iphone"); added || err != nil {
+		t.Errorf("unknown client: %v %v", added, err)
+	}
+	again, _ := OpenClientStore(path)
+	c, _ := again.Lookup(testClientA)
+	if strings.Join(c.Platforms, ",") != "iphone,ipad,mac" {
+		t.Fatalf("platforms = %v", c.Platforms)
 	}
 }

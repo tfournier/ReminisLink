@@ -54,10 +54,6 @@ type RouteOptions struct {
 	// AllowUnsigned accepts X-RL-Content-SHA256: UNSIGNED; the body is then
 	// left unread for the handler (upload chunks only).
 	AllowUnsigned bool
-	// TakesLease marks a route that changes the SD card: the Verifier's
-	// Gate takes the write lease (M10) before the body is read, or refuses
-	// the request.
-	TakesLease bool
 	// WhileDisconnected lets a client disconnected by the console through
 	// (POST /api/v1/clients/me/connect only, M10).
 	WhileDisconnected bool
@@ -123,7 +119,7 @@ type Verifier struct {
 	BodyBudget int64            // 0: DefaultBodyBudget
 	Logger     *slog.Logger     // nil: slog.Default()
 	// Gate, when set, is the last check before the body is read (the
-	// disconnection and the write lease of M10). Set it before serving.
+	// disconnection of M10). Set it before serving.
 	Gate Gate
 
 	budgetOnce sync.Once
@@ -173,7 +169,8 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 //     then any missing or malformed signature header → 401 bad_signature;
 //  2. clock skew > 300 s → 401 clock_skew;
 //  3. nonce already seen → 401 replayed_request;
-//  4. signature mismatch (constant time) → 401 bad_signature;
+//  4. Ed25519 signature invalid for the client's public key →
+//     401 bad_signature;
 //     UNSIGNED on a route without AllowUnsigned → 401 bad_signature;
 //  5. the nonce is reserved atomically: a concurrent copy of the request
 //     gets 401 replayed_request, a full cache 429 too_many_attempts;
@@ -308,7 +305,7 @@ func (v *Verifier) verify(w http.ResponseWriter, r *http.Request, opts RouteOpti
 		return fail(http.StatusUnauthorized, CodeReplayedRequest, "Nonce already used")
 	}
 
-	if !Verify(client.Key, canonical, r.Header.Get(HeaderSignature)) {
+	if !Verify(client.PublicKey, canonical, r.Header.Get(HeaderSignature)) {
 		return fail(http.StatusUnauthorized, CodeBadSignature, "Bad signature")
 	}
 	unsigned := parts.ContentSHA256 == UnsignedPayload

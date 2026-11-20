@@ -162,7 +162,7 @@ func TestSigningVectors(t *testing.T) {
 			if cq != c.CanonicalQuery {
 				t.Fatalf("canonical query = %q, want %q", cq, c.CanonicalQuery)
 			}
-			canonical, err := CanonicalRequestRL2(RequestParts{
+			canonical, err := CanonicalRequest(RequestParts{
 				Method: c.Method, Path: c.Path, RawQuery: c.Query,
 				Time: c.Time, Nonce: c.Nonce, ContentSHA256: c.ContentSHA256,
 			})
@@ -173,11 +173,11 @@ func TestSigningVectors(t *testing.T) {
 				t.Fatalf("canonical request =\n%s\nwant\n%s", canonical, c.CanonicalRequest)
 			}
 			// Ed25519 is deterministic: the same signature.
-			if got := SignRL2(priv, canonical); got != c.Signature {
+			if got := Sign(priv, canonical); got != c.Signature {
 				t.Fatalf("signature = %s, want %s", got, c.Signature)
 			}
-			if !VerifyRL2(pub, canonical, c.Signature) {
-				t.Fatal("VerifyRL2 rejected the vector")
+			if !Verify(pub, canonical, c.Signature) {
+				t.Fatal("Verify rejected the vector")
 			}
 			if len(mustB64U(t, c.Signature)) != SignatureSize {
 				t.Fatal("signature is not 64 bytes")

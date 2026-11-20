@@ -13,7 +13,7 @@ import "errors"
 //     after a SIGKILL;
 //   - elsewhere (the --desktop mode on macOS), no such file exists and a
 //     temporary file could outlive a SIGKILL: the QR code is not drawn
-//     and the screen shows the PIN only.
+//     and the screen shows no QR code (no PIN since M13).
 
 // errNoMemoryFile means no memory-only file can hold the image.
 var errNoMemoryFile = errors.New("no memory file for the QR code image")

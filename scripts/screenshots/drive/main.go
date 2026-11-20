@@ -7,8 +7,10 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -25,7 +27,12 @@ import (
 // The fake client (its key is a constant: test data only).
 const id = "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
 
-var key = bytes.Repeat([]byte{7}, auth.KeySize)
+var key = ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+
+// client talks to the local pak over TLS (M13). This screenshot tool only
+// drives a pak on localhost: it does not check the certificate (the app
+// and the smoke tests pin it).
+var client = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
 
 func sign(req *http.Request, content string) {
 	nonce := make([]byte, auth.RequestNonceSize)
@@ -41,7 +48,7 @@ func sign(req *http.Request, content string) {
 }
 
 func do(method, path string, body []byte, unsigned bool, hdr map[string]string) []byte {
-	req, _ := http.NewRequest(method, "http://127.0.0.1:47821"+path, bytes.NewReader(body))
+	req, _ := http.NewRequest(method, "https://127.0.0.1:47821"+path, bytes.NewReader(body))
 	if unsigned {
 		sign(req, auth.UnsignedPayload)
 	} else {
@@ -53,7 +60,7 @@ func do(method, path string, body []byte, unsigned bool, hdr map[string]string) 
 	if body != nil && !unsigned {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		panic(err)
 	}
@@ -72,7 +79,8 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		if err := s.Put(auth.Client{ID: id, Name: "iPhone", Key: key, PairedAt: time.Now()}); err != nil {
+		if err := s.Put(auth.Client{ID: id, Name: "iPhone", Platform: auth.PlatformApple,
+			PublicKey: key.Public().(ed25519.PublicKey), PairedAt: time.Now()}); err != nil {
 			panic(err)
 		}
 	case "start":

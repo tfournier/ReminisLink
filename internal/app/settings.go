@@ -116,8 +116,8 @@ func (a *App) PairedClients() []auth.Client {
 // Device is a paired device on the Devices screen (05 §7.2).
 type Device = server.DeviceStatus
 
-// Devices returns the paired devices with their state (connected, write
-// access, disconnected), the most recently paired first. Before Start
+// Devices returns the paired devices with their platform and state
+// (connected, disconnected), the most recently paired first. Before Start
 // every device is idle.
 func (a *App) Devices() []Device {
 	if a.srv != nil {
@@ -126,13 +126,13 @@ func (a *App) Devices() []Device {
 	list := a.PairedClients()
 	out := make([]Device, len(list))
 	for i, c := range list {
-		out[i] = Device{ID: c.ID, Name: c.Name, PairedAt: c.PairedAt}
+		out[i] = Device{ID: c.ID, Name: c.Name, PairedAt: c.PairedAt, Platform: c.Platform, Platforms: c.Platforms}
 	}
 	return out
 }
 
-// DisconnectClient disconnects a paired device (M10): its write lease is
-// dropped and its requests are refused until it reconnects from the app.
+// DisconnectClient disconnects a paired device (M10): its requests are
+// refused until it reconnects from the app.
 func (a *App) DisconnectClient(id string) error {
 	if a.srv == nil {
 		return errors.New("the server is not running")
@@ -140,8 +140,7 @@ func (a *App) DisconnectClient(id string) error {
 	return a.srv.Disconnect(id)
 }
 
-// ForgetClient removes a paired client: its next requests are refused and
-// its write lease is dropped.
+// ForgetClient removes a paired client: its next requests are refused.
 func (a *App) ForgetClient(id string) error {
 	var ok bool
 	var err error

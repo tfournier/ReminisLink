@@ -381,14 +381,21 @@ func (s *Service) runPatch(ctx context.Context, j patchJob, report func(int64, *
 		return nil, cancelled()
 	}
 
+	// The write lock first (M13: a job waits for its turn without a time
+	// limit), then the install lock.
+	if err := s.opts.Writes.Acquire(ctx); err != nil {
+		return nil, cancelled()
+	}
 	s.installMu.Lock()
 	if ctx.Err() != nil {
 		// Cancelled while waiting for the lock: nothing installed yet.
 		s.installMu.Unlock()
+		s.opts.Writes.Release()
 		return nil, cancelled()
 	}
 	result, apiErr, keep, err := s.installPatch(j, srcInfo, tmp, info)
 	s.installMu.Unlock()
+	s.opts.Writes.Release()
 	if err != nil {
 		s.log.Error("patch: install", "game", g.Path, "error", err)
 		return nil, internal("Cannot install the patched ROM")

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/testutil"
+	"github.com/tfournier/ReminisLink/internal/tlsid"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
@@ -117,10 +119,10 @@ func TestLifecycle(t *testing.T) {
 	if bj.infos[0].DeviceID != a.DeviceID() || bj.infos[0].PakVersion != "1.0.0-test" {
 		t.Fatalf("TXT info %+v", bj.infos[0])
 	}
-	base := "http://127.0.0.1:" + itoa(a.Port())
+	base := httpsBase(a)
 	hello := func() map[string]any {
 		t.Helper()
-		resp, err := http.Get(base + "/api/v1/hello")
+		resp, err := pinnedHTTP(a).Get(base + "/api/v1/hello")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,13 +140,13 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if st.State != StateReady || st.Name != "Brick de test" || st.IP != "127.0.0.1" || st.Port != a.Port() ||
-		len(st.PIN) != 6 || !strings.HasPrefix(st.PairingLink, auth.PairingURLScheme+"://pair?") ||
+		!strings.HasPrefix(st.PairingLink, auth.PairingURLScheme+"://pair?v=2&") || !strings.HasSuffix(st.PairingLink, "&k="+a.Pin()) ||
 		!strings.Contains(st.PairingLink, "n=Brick%20de%20test") || st.Notice != nil || len(st.Connected) != 0 {
 		t.Fatalf("status %+v", st)
 	}
 
 	// A signed request makes the state Connected.
-	c := testutil.PairClient(t, a.clients, base)
+	c := pairTLS(t, a)
 	r := c.Do(t, "GET", "/api/v1/systems", nil)
 	if r.Status != 200 {
 		t.Fatalf("systems %d", r.Status)
@@ -194,8 +196,8 @@ func TestLifecycle(t *testing.T) {
 	if r := c.Do(t, "GET", "/api/v1/systems", nil); r.Status != http.StatusUnauthorized {
 		t.Fatalf("forgotten client still accepted: %d", r.Status)
 	}
-	testutil.PairClient(t, a.clients, base)
-	testutil.PairClient(t, a.clients, base)
+	pairTLS(t, a)
+	pairTLS(t, a)
 	if n, err := a.ForgetAllClients(); n != 2 || err != nil {
 		t.Fatalf("forget all: %d %v", n, err)
 	}
@@ -217,7 +219,7 @@ func TestLifecycle(t *testing.T) {
 	if active, _ := bj.state(); len(active) != 0 {
 		t.Fatalf("still announced: %v", active)
 	}
-	if _, err := http.Get(base + "/api/v1/hello"); err == nil {
+	if _, err := pinnedHTTP(a).Get(base + "/api/v1/hello"); err == nil {
 		t.Fatal("server still listening")
 	}
 }
@@ -535,21 +537,21 @@ func TestCheckNetworkRetriesTheAnnouncement(t *testing.T) {
 }
 
 func TestPairingModes(t *testing.T) {
-	// The UI opens pairing while it shows the QR code and the PIN.
+	// The UI opens pairing while it shows the QR code.
 	a, _ := openTest(t, Options{Port: freePort(t)})
 	a.announce = (&fakeBonjour{}).announce
 	if err := a.Start("127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	st, _ := a.Status()
-	if st.PairingOpen || st.PairingLink != "" || st.PIN != "" || st.Paired {
+	if st.PairingOpen || st.PairingLink != "" || st.Paired {
 		t.Fatalf("manual mode opened pairing: %+v", st)
 	}
 	if err := a.SetPairingVisible(true); err != nil {
 		t.Fatal(err)
 	}
 	st, _ = a.Status()
-	if !st.PairingOpen || st.PairingLink == "" || len(st.PIN) != 6 {
+	if !st.PairingOpen || st.PairingLink == "" {
 		t.Fatalf("visible pairing screen: %+v", st)
 	}
 	shown := st.PairingLink
@@ -576,7 +578,7 @@ func TestPairingModes(t *testing.T) {
 	if err := b.SetPairingVisible(false); err != nil || !b.pairing.IsOpen() {
 		t.Fatal("SetPairingVisible applies to the UI only")
 	}
-	c := testutil.PairClient(t, b.clients, "http://127.0.0.1:"+itoa(b.Port()))
+	c := pairTLS(t, b)
 	b.paired(auth.Client{ID: c.ClientID, Name: "iPhone"})
 	if b.pairing.IsOpen() {
 		t.Fatal("still open with a paired client")
@@ -594,15 +596,15 @@ func TestPairingModes(t *testing.T) {
 	if err := d.Start("127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	testutil.PairClient(t, d.clients, "http://127.0.0.1:"+itoa(d.Port()))
+	pairTLS(t, d)
 	d.checkNetwork()
 	if !d.pairing.IsOpen() {
 		t.Fatal("--pairing-open closed pairing")
 	}
 }
 
-// TestDevicesScreen: the logic behind Settings > Devices (M10), with two
-// signed clients against the running server.
+// TestDevicesScreen: the logic behind Settings > Devices (M10, M13:
+// platforms), with two signed clients against the running server.
 func TestDevicesScreen(t *testing.T) {
 	a, _ := openTest(t, Options{Mode: "test", Port: freePort(t), Name: "Brick de test", Pairing: PairingAlways})
 	a.announce = (&fakeBonjour{}).announce
@@ -612,17 +614,16 @@ func TestDevicesScreen(t *testing.T) {
 	if err := a.Start("127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	base := "http://127.0.0.1:" + itoa(a.Port())
-	c1 := testutil.PairClient(t, a.clients, base)
-	c2 := testutil.PairClient(t, a.clients, base)
-	if r := c1.Do(t, "PUT", "/api/v1/writer", nil); r.Status != 200 {
-		t.Fatalf("take: %d %s", r.Status, r.Body)
-	}
-	if r := c2.Do(t, "GET", "/api/v1/systems", nil); r.Status != 200 {
-		t.Fatal(r.Status)
+	c1 := pairTLS(t, a)
+	c2 := pairTLS(t, a)
+	c1.Platform, c2.Platform = "iphone", "ipad"
+	for _, c := range []*testutil.Client{c1, c2} {
+		if r := c.Do(t, "GET", "/api/v1/systems", nil); r.Status != 200 {
+			t.Fatal(r.Status)
+		}
 	}
 	st, _ := a.Status()
-	if st.Writer != "Test iPhone" || len(st.Connected) != 2 {
+	if len(st.Connected) != 2 {
 		t.Fatalf("status %+v", st)
 	}
 	devs := a.Devices()
@@ -630,23 +631,24 @@ func TestDevicesScreen(t *testing.T) {
 		t.Fatalf("devices %+v", devs)
 	}
 	for _, d := range devs {
-		if !d.Connected || d.Disconnected || d.Writer != (d.ID == c1.ClientID) {
+		want := map[string]string{c1.ClientID: "iphone", c2.ClientID: "ipad"}[d.ID]
+		if !d.Connected || d.Disconnected || d.Platform != "apple" || len(d.Platforms) != 1 || d.Platforms[0] != want {
 			t.Errorf("device %+v", d)
 		}
 	}
 
-	// Disconnect: lease dropped, 401 disconnected, gone from the status.
+	// Disconnect: 401 disconnected, gone from the status.
 	if err := a.DisconnectClient(c1.ClientID); err != nil {
 		t.Fatal(err)
 	}
 	if r := c1.Do(t, "GET", "/api/v1/systems", nil); r.Status != 401 || r.ErrorCode() != "disconnected" {
 		t.Fatalf("disconnected: %d %s", r.Status, r.Body)
 	}
-	if st, _ := a.Status(); st.Writer != "" || len(st.Connected) != 1 {
+	if st, _ := a.Status(); len(st.Connected) != 1 {
 		t.Fatalf("status after disconnect %+v", st)
 	}
 	for _, d := range a.Devices() {
-		if d.ID == c1.ClientID && (!d.Disconnected || d.Connected || d.Writer) {
+		if d.ID == c1.ClientID && (!d.Disconnected || d.Connected) {
 			t.Errorf("disconnected device %+v", d)
 		}
 	}
@@ -654,18 +656,12 @@ func TestDevicesScreen(t *testing.T) {
 		t.Fatalf("connect: %d %s", r.Status, r.Body)
 	}
 
-	// Forget: removed, 401 unknown_client, lease dropped.
-	if r := c2.Do(t, "PUT", "/api/v1/writer", nil); r.Status != 200 {
-		t.Fatalf("take: %d %s", r.Status, r.Body)
-	}
+	// Forget: removed, 401 unknown_client.
 	if err := a.ForgetClient(c2.ClientID); err != nil {
 		t.Fatal(err)
 	}
 	if r := c2.Do(t, "GET", "/api/v1/systems", nil); r.Status != 401 || r.ErrorCode() != "unknown_client" {
 		t.Fatalf("forgotten: %d %s", r.Status, r.Body)
-	}
-	if st, _ := a.Status(); st.Writer != "" {
-		t.Fatalf("lease kept: %+v", st)
 	}
 	if devs := a.Devices(); len(devs) != 1 || devs[0].ID != c1.ClientID {
 		t.Fatalf("devices after forget %+v", devs)
@@ -697,7 +693,7 @@ func TestShutdownEvent(t *testing.T) {
 			if err := a.Start("127.0.0.1"); err != nil {
 				t.Fatal(err)
 			}
-			c := testutil.PairClient(t, a.clients, "http://127.0.0.1:"+itoa(a.Port()))
+			c := pairTLS(t, a)
 			s := testutil.OpenSSE(t, c)
 			if s.Resp.StatusCode != http.StatusOK {
 				t.Fatalf("GET /events: %d", s.Resp.StatusCode)
@@ -742,11 +738,11 @@ func TestShutdownWithdrawsBeforeTheServerStops(t *testing.T) {
 		t.Fatal(err)
 	}
 	addr := "127.0.0.1:" + itoa(a.Port())
-	c := testutil.PairClient(t, a.clients, "http://"+addr)
+	c := pairTLS(t, a)
 	body := make([]byte, 1<<20)
 	target := "/api/v1/games/" + library.EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba") + "/save"
 	req := c.Request(t, "PUT", target, body)
-	conn, err := net.Dial("tcp", addr)
+	conn, err := tls.Dial("tcp", addr, tlsid.ClientConfig(a.Pin()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -781,5 +777,87 @@ func TestShutdownWithdrawsBeforeTheServerStops(t *testing.T) {
 	conn.Close() // the request fails, the shutdown ends
 	if err := <-stopped; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// M13: the certificate is created at the first launch, kept on the card
+// and reused (same pin) at the next launches; RL1 pairings are erased at
+// the first M13 launch (the count is logged, never the keys); the pak
+// answers over TLS only.
+func TestTLSIdentityAndRL1Migration(t *testing.T) {
+	sd := testutil.CopySDCard(t)
+	roots := nextui.RootsForSD(sd, "tg5040")
+	env := func(k string) string { return map[string]string{"PLATFORM": "tg5040"}[k] }
+	// An RL1 clients.json, as left by a pak before M13.
+	key := auth.EncodeB64U([]byte("0123456789abcdef0123456789abcdef"))
+	rl1 := `{"version":1,"clients":[{"clientId":"3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d","clientName":"iPhone","key":"` + key + `","pairedAt":"2026-11-18T17:00:00Z"}]}`
+	clients := filepath.Join(roots.Data, "clients.json")
+	if err := os.MkdirAll(roots.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clients, []byte(rl1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prev := slogDefault()
+	t.Cleanup(func() { restoreSlog(prev) })
+	open := func() *App {
+		t.Helper()
+		a, err := Open(Options{Roots: roots, Env: env, Version: "1.0.0-test", Port: freePort(t), Pairing: PairingAlways})
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.checkEvery = time.Hour
+		a.announce = (&fakeBonjour{}).announce
+		return a
+	}
+	a := open()
+	pin := a.Pin()
+	if pin == "" || len(a.PairedClients()) != 0 {
+		t.Fatalf("pin %q, clients %d", pin, len(a.PairedClients()))
+	}
+	if data, _ := os.ReadFile(clients); strings.Contains(string(data), key) {
+		t.Fatal("RL1 key left on the card")
+	}
+	for _, f := range []string{tlsid.CertFile, tlsid.KeyFile} {
+		if _, err := os.Stat(filepath.Join(roots.Data, "tls", f)); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+	}
+	if err := a.Start("127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := a.Status()
+	if !strings.Contains(st.PairingLink, "?v=2&") || !strings.HasSuffix(st.PairingLink, "&k="+pin) {
+		t.Fatalf("pairing link %q", st.PairingLink)
+	}
+	resp, err := pinnedHTTP(a).Get(httpsBase(a) + "/api/v1/hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var h map[string]any
+	json.NewDecoder(resp.Body).Decode(&h)
+	resp.Body.Close()
+	if h["apiVersion"] != float64(2) || resp.TLS == nil {
+		t.Fatalf("hello %v", h)
+	}
+	if resp, err := http.Get("http://127.0.0.1:" + itoa(a.Port()) + "/api/v1/hello"); err == nil {
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			t.Fatal("plain HTTP served")
+		}
+	}
+	logPath := a.LogPath()
+	if err := a.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	logs, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(logs), "RL1 clients erased") || strings.Contains(string(logs), key) {
+		t.Fatalf("migration log:\n%s", logs)
+	}
+	// Restart: same certificate, nothing erased again.
+	b := open()
+	defer b.Shutdown()
+	if b.Pin() != pin {
+		t.Fatal("the pin changed across restarts")
 	}
 }

@@ -63,7 +63,6 @@ type helloResponse struct {
 	MinClientVersion string    `json:"minClientVersion"`
 	ServerTime       time.Time `json:"serverTime"`
 	PairingOpen      bool      `json:"pairingOpen"`
-	WriterHeld       bool      `json:"writerHeld"`
 }
 
 func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
@@ -77,9 +76,6 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	// Only whether the lease is held: the holder's name is for paired
-	// clients (M10).
-	_, held := s.access.current()
 	writeJSON(w, http.StatusOK, helloResponse{
 		DeviceID:         s.opts.Identity.DeviceID,
 		DeviceName:       s.DeviceName(),
@@ -92,16 +88,18 @@ func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
 		MinClientVersion: MinClientVersion,
 		ServerTime:       timestamp(s.now()),
 		PairingOpen:      snap.Open && snap.BlockedUntil.IsZero(),
-		WriterHeld:       held,
 	})
 }
 
+// pairRequest is the body of POST /pair v2 (M13). Unknown fields (the
+// "method" of RL1) are ignored.
 type pairRequest struct {
-	Method      *string `json:"method"`
-	ClientID    *string `json:"clientId"`
-	ClientName  *string `json:"clientName"`
-	ClientNonce *string `json:"clientNonce"`
-	Proof       *string `json:"proof"`
+	ClientID        *string `json:"clientId"`
+	ClientName      *string `json:"clientName"`
+	Platform        *string `json:"platform"`
+	ClientPublicKey *string `json:"clientPublicKey"`
+	ClientNonce     *string `json:"clientNonce"`
+	Proof           *string `json:"proof"`
 }
 
 type pairResponse struct {
@@ -142,7 +140,8 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Data after the JSON object", nil)
 		return
 	}
-	if req.Method == nil || req.ClientID == nil || req.ClientName == nil || req.ClientNonce == nil || req.Proof == nil {
+	if req.ClientID == nil || req.ClientName == nil || req.Platform == nil || req.ClientPublicKey == nil ||
+		req.ClientNonce == nil || req.Proof == nil {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Missing field", nil)
 		return
 	}
@@ -150,9 +149,13 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "clientName must be 1 to 64 characters", nil)
 		return
 	}
+	if !auth.ValidPlatform(*req.Platform) {
+		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "platform must be apple, android, web or other", nil)
+		return
+	}
 	res, retryAfter, err := s.opts.Pairing.Attempt(auth.PairRequest{
-		Method:      auth.PairingMethod(*req.Method),
 		ClientID:    *req.ClientID,
+		PublicKey:   *req.ClientPublicKey,
 		ClientNonce: *req.ClientNonce,
 		Proof:       *req.Proof,
 	})
@@ -161,7 +164,7 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, err.Error(), nil)
 		return
 	case errors.Is(err, auth.ErrPairingFailed):
-		s.rejectLog.Info("pairing failed", "method", auth.LogString(*req.Method, auth.MaxLoggedMethod), "remote", remoteIP(r))
+		s.rejectLog.Info("pairing failed", "remote", remoteIP(r))
 		auth.WriteError(w, http.StatusUnauthorized, CodePairingFailed, "Pairing failed", nil)
 		return
 	case errors.Is(err, auth.ErrTooManyAttempts):
@@ -173,15 +176,21 @@ func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, err)
 		return
 	}
-	client := auth.Client{ID: res.ClientID, Name: *req.ClientName, Key: res.Key, PairedAt: s.now()}
-	// Pairing again with the same id replaces the key: requests admitted
-	// with the old pairing are revoked, and a disconnection is lifted.
+	client := auth.Client{ID: res.ClientID, Name: *req.ClientName, Platform: *req.Platform,
+		PublicKey: res.PublicKey, PairedAt: s.now()}
+	if p := r.Header.Get(auth.HeaderPlatform); auth.ValidDevicePlatform(p) {
+		client.Platforms = []string{p}
+	}
+	// Pairing again with the same id replaces the public key: requests
+	// admitted with the old pairing are revoked, and a disconnection is
+	// lifted.
 	if err := s.access.pair(client); err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	// Never log the key, the nonces or the proofs.
-	s.log.Info("client paired", "client", client.ID, "name", client.Name, "method", *req.Method)
+	// Never log the secret, the nonces or the proofs (the public key is
+	// not secret, but not useful in the log either).
+	s.log.Info("client paired", "client", client.ID, "name", client.Name, "platform", client.Platform)
 	if s.opts.OnPaired != nil {
 		s.opts.OnPaired(client)
 	}
@@ -220,7 +229,6 @@ type deviceResponse struct {
 	Storage          []storageVolume   `json:"storage"`
 	UptimeSeconds    int64             `json:"uptimeSeconds"`
 	ConnectedClients []ConnectedClient `json:"connectedClients"`
-	Writer           *writerJSON       `json:"writer"`
 }
 
 type networkInfo struct {
@@ -258,9 +266,6 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 		Storage:          []storageVolume{},
 		UptimeSeconds:    max(int64(s.now().Sub(s.started)/time.Second), 0),
 		ConnectedClients: s.ConnectedClients(),
-	}
-	if c, ok := auth.ClientFromContext(r.Context()); ok {
-		resp.Writer = s.writerFor(c.ID)
 	}
 	if ip, ok := s.opts.IPv4(info.WirelessInterface); ok {
 		resp.Network.IPv4 = ip
