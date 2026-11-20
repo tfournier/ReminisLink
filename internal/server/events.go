@@ -186,8 +186,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	defer stopDeviceTimer()
 	sendDevice := func() error {
 		stopDeviceTimer() // a change marked meanwhile goes with this event
+		if err := sw.event(s.deviceEvent(), idle); err != nil {
+			return err
+		}
+		// The interval runs from the write itself (building the event may
+		// wait for the access lock).
 		lastDevice = time.Now()
-		return sw.event(s.deviceEvent(), idle)
+		return nil
 	}
 	for {
 		var err error
@@ -399,6 +404,21 @@ func (s *Server) sampleDevice(stop <-chan struct{}, gen uint64, every time.Durat
 	}
 }
 
+// presenceChanged is the onPresence hook of access (called with the
+// access lock held): a client became connected or was revoked. The
+// reference of the sampler takes the new connected clients (so that a
+// later change back is detected), and every stream is marked: its next
+// device event, within its rate, shows the clients of that moment.
+func (s *Server) presenceChanged() {
+	clients := s.ConnectedClients()
+	s.sampler.mu.Lock()
+	if s.sampler.have {
+		s.sampler.last.ConnectedClients = clients
+	}
+	s.sampler.mu.Unlock()
+	s.events.MarkDevice()
+}
+
 // readDevice reads the battery, the space of the SD card and the
 // connected clients.
 func (s *Server) readDevice() eventDevice {
@@ -417,11 +437,16 @@ func (s *Server) readDevice() eventDevice {
 // (read under the access lock, like GET /device), so a client removed by
 // a revocation before is never shown again.
 func (s *Server) deviceEvent() events.Event {
+	if hook := s.deviceHook.Load(); hook != nil {
+		(*hook)()
+	}
 	s.sampler.mu.Lock()
 	d := eventDevice{Battery: s.sampler.last.Battery, Storage: s.sampler.last.Storage}
+	have := s.sampler.have
 	s.sampler.mu.Unlock()
-	if d.Storage == nil {
-		d.Storage = []storageVolume{}
+	if !have { // before the first sample of this run
+		cur := s.readDevice()
+		d.Battery, d.Storage = cur.Battery, cur.Storage
 	}
 	s.access.mu.Lock()
 	d.ConnectedClients = s.ConnectedClients()

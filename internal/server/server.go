@@ -124,6 +124,9 @@ type Server struct {
 	// sampleHook, when set (tests), is called after each device sample
 	// (changed: the streams were marked).
 	sampleHook atomic.Pointer[func(changed bool)]
+	// deviceHook, when set (tests), is called when a stream starts
+	// building a device event.
+	deviceHook atomic.Pointer[func()]
 }
 
 // timeouts are the durations of the server, changed by tests only.
@@ -187,6 +190,7 @@ func New(opts Options) (*Server, error) {
 	// A revoked client (disconnected, forgotten, unpaired, paired again)
 	// loses its event streams at once.
 	s.access.onRevoke = func(id string) { s.events.CloseClient(id) }
+	s.access.onPresence = s.presenceChanged
 	opts.Transfers.Jobs().OnUpdate(s.jobUpdated)
 	name := opts.Identity.DeviceName
 	s.deviceName.Store(&name)

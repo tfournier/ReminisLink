@@ -36,10 +36,22 @@ func newPresence() *presence {
 }
 
 // streamOpened counts an open event stream of id.
-func (p *presence) streamOpened(id string) {
+// It reports whether id was not connected before (at: now).
+func (p *presence) streamOpened(id string, at time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	was := p.presentLocked(id, at)
 	p.streams[id]++
+	return !was
+}
+
+// presentLocked reports whether id counts as connected at this time.
+func (p *presence) presentLocked(id string, at time.Time) bool {
+	if p.streams[id] > 0 {
+		return true
+	}
+	seen, ok := p.seen[id]
+	return ok && !seen.Before(at.Add(-ConnectedWindow))
 }
 
 // streamClosed uncounts a stream of id; when it was the last one, the
@@ -56,10 +68,14 @@ func (p *presence) streamClosed(id string, at time.Time) {
 	}
 }
 
-func (p *presence) touch(id string, at time.Time) {
+// touch records an accepted request of id at this time; it reports
+// whether id was not connected before.
+func (p *presence) touch(id string, at time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	was := p.presentLocked(id, at)
 	p.seen[id] = at
+	return !was
 }
 
 func (p *presence) forget(id string) {

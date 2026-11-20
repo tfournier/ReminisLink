@@ -55,6 +55,16 @@ type access struct {
 	// the event streams of the client (M14). It must not block nor call
 	// access.
 	onRevoke func(id string)
+	// onPresence is called, with mu held, when a client becomes connected
+	// or is revoked: the device events follow (M14). It must not block
+	// nor call access.
+	onPresence func()
+}
+
+func (a *access) presenceChangedLocked() {
+	if a.onPresence != nil {
+		a.onPresence()
+	}
 }
 
 // Lookup is the auth.ClientLookup of the verifier: the client and its
@@ -129,6 +139,7 @@ func (a *access) revokeLocked(id, code string) {
 	if a.onRevoke != nil {
 		a.onRevoke(id)
 	}
+	a.presenceChangedLocked()
 }
 
 // checkLocked refuses a disconnected client (unless allowed) or one no
@@ -210,7 +221,9 @@ func (a *access) accept(ad admission, opts auth.RouteOptions) (other *leaseHolde
 		delete(a.disconnected, ad.id)
 	}
 	if !a.disconnected[ad.id] {
-		a.presence.touch(ad.id, a.now())
+		if a.presence.touch(ad.id, a.now()) {
+			a.presenceChangedLocked()
+		}
 	}
 	return nil, nil, lifted
 }
@@ -225,7 +238,9 @@ func (a *access) streamOpened(ad admission) *auth.Rejection {
 	if rej := a.checkGenLocked(ad, false); rej != nil {
 		return rej
 	}
-	a.presence.streamOpened(ad.id)
+	if a.presence.streamOpened(ad.id, a.now()) {
+		a.presenceChangedLocked()
+	}
 	return nil
 }
 

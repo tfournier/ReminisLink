@@ -54,14 +54,21 @@ func (f *fixture) openEvents(c *testutil.Client) *testutil.SSE {
 
 // nextEvent returns the next event (comments skipped) and validates its
 // data against the contract.
+// Device events (a client connecting marks every stream) are skipped,
+// unless the test is about them (fastDevice).
 func (f *fixture) nextEvent(s *testutil.SSE) testutil.SSEEvent {
 	f.t.Helper()
-	ev, err := s.NextEvent(5 * time.Second)
-	if err != nil {
-		f.t.Fatalf("next event: %v", err)
+	for {
+		ev, err := s.NextEvent(5 * time.Second)
+		if err != nil {
+			f.t.Fatalf("next event: %v", err)
+		}
+		checkEventData(f.t, ev)
+		if ev.Type == events.TypeDevice && !f.devices {
+			continue
+		}
+		return ev
 	}
-	checkEventData(f.t, ev)
-	return ev
 }
 
 var eventSchemas = map[string]string{
@@ -97,7 +104,7 @@ func wantEnd(t *testing.T, s *testutil.SSE) {
 			return
 		case err != nil:
 			t.Fatalf("stream did not end: %v", err)
-		case ev.Comment == "":
+		case ev.Comment == "" && ev.Type != events.TypeDevice:
 			t.Fatalf("event before the end: %+v", ev)
 		}
 	}
@@ -115,7 +122,7 @@ func wantCut(t *testing.T, s *testutil.SSE) {
 			return
 		case err != nil:
 			t.Fatalf("stream not cut: %v", err)
-		case ev.Comment == "":
+		case ev.Comment == "" && ev.Type != events.TypeDevice:
 			t.Fatalf("event after the revocation: %+v", ev)
 		}
 	}
@@ -188,7 +195,7 @@ func TestEventsLibraryAfterAnotherClientWrites(t *testing.T) {
 	game := gbaFolder + "/Starlight Courier.gba"
 	f.do("DELETE", "/api/v1/games/"+id(game), "/games/{gameId}", nil, http.StatusOK)
 	ev := f.nextEvent(s)
-	if ev.ID != 2 || ev.Type != "library" || ev.Data != `{"systemIds":["`+id(gbaFolder)+`"]}` {
+	if ev.ID < 2 || ev.Type != "library" || ev.Data != `{"systemIds":["`+id(gbaFolder)+`"]}` {
 		t.Fatalf("library event %+v", ev)
 	}
 	// The trash names no system: every system is refreshed.
@@ -199,7 +206,7 @@ func TestEventsLibraryAfterAnotherClientWrites(t *testing.T) {
 		t.Fatalf("empty trash: %d %s", r.Status, r.Body)
 	}
 	ev = f.nextEvent(s)
-	if ev.ID != 3 || ev.Data != `{"systemIds":[]}` {
+	if ev.Data != `{"systemIds":[]}` {
 		t.Fatalf("trash event %+v", ev)
 	}
 }
@@ -263,7 +270,7 @@ func TestEventsDuringAPatchJob(t *testing.T) {
 	lastID := 1
 	for {
 		ev := f.nextEvent(s)
-		if ev.ID != lastID+1 {
+		if ev.ID <= lastID {
 			t.Fatalf("id %d after %d", ev.ID, lastID)
 		}
 		lastID = ev.ID
@@ -347,7 +354,7 @@ func TestEventsShutdown(t *testing.T) {
 			cancel()
 			for _, s := range []*testutil.SSE{s1, s2} {
 				ev := f.nextEvent(s)
-				if ev.Type != "shutdown" || ev.ID != 2 || ev.Data != `{"reason":"`+want+`"}` {
+				if ev.Type != "shutdown" || ev.Data != `{"reason":"`+want+`"}` {
 					t.Fatalf("shutdown event %+v", ev)
 				}
 				wantEnd(t, s)
@@ -475,6 +482,7 @@ func TestEventsReadOnlyClient(t *testing.T) {
 func (f *fixture) fastDevice(rate time.Duration) chan bool {
 	f.server.timeouts.deviceSample = 20 * time.Millisecond
 	f.server.timeouts.deviceRate = rate
+	f.devices = true
 	samples := make(chan bool, 10000)
 	hook := func(changed bool) {
 		select {
@@ -927,5 +935,58 @@ func TestEventsShutdownWithASlowClient(t *testing.T) {
 	}
 	if !<-gotShutdown {
 		t.Fatal("the reader did not get the shutdown event")
+	}
+}
+
+// A client that becomes connected, then is revoked, without any sample in
+// between: each presence change marks the streams, so the device events
+// follow it.
+func TestEventsDeviceFollowsPresence(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{})
+	samples := f.fastDevice(0)
+	f.server.timeouts.deviceSample = time.Hour // the reference only
+	s := f.openEvents(f.client)
+	waitSample(t, samples, false)
+	b := f.pairNamed("iPad")
+	f.as(b, "GET", "/api/v1/systems", "/systems", nil, http.StatusOK)
+	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"clientName":"iPad"`) {
+		t.Fatalf("after B connected: %+v", ev)
+	}
+	if err := f.server.Disconnect(b.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	if ev := f.nextEvent(s); ev.Type != "device" || strings.Contains(ev.Data, `"iPad"`) {
+		t.Fatalf("after B was disconnected: %+v", ev)
+	}
+}
+
+// The interval between two device events of a stream runs from the
+// write: building the first one may wait (for the access lock).
+func TestEventsDeviceRateFromTheWrite(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{})
+	const rate = 300 * time.Millisecond
+	samples := f.fastDevice(rate)
+	f.server.timeouts.deviceSample = time.Hour
+	var once sync.Once
+	slow := func() { once.Do(func() { time.Sleep(250 * time.Millisecond) }) }
+	f.server.deviceHook.Store(&slow)
+	s := f.openEvents(f.client)
+	waitSample(t, samples, false)
+	b := f.pairNamed("iPad")
+	f.as(b, "GET", "/api/v1/systems", "/systems", nil, http.StatusOK)
+	if ev := f.nextEvent(s); ev.Type != "device" {
+		t.Fatalf("%+v", ev)
+	}
+	first := time.Now()
+	if err := f.server.Disconnect(b.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	if ev := f.nextEvent(s); ev.Type != "device" {
+		t.Fatalf("%+v", ev)
+	}
+	if gap := time.Since(first); gap < rate-50*time.Millisecond {
+		t.Fatalf("device events %v apart, want at least %v", gap, rate)
 	}
 }
