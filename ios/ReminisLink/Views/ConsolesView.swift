@@ -19,9 +19,15 @@ struct ConsolesView: View {
                     }
                     Section {
                         ForEach(app.store.devices) { device in
-                            // Opens the console with its tabs (M11).
+                            // Opens the console with its tabs (M11); a
+                            // console paired before M13 is paired again
+                            // first (scan its QR code).
                             Button {
-                                app.openConsole(device.id)
+                                if device.needsRepair {
+                                    app.showRepair(deviceId: device.id)
+                                } else {
+                                    app.openConsole(device.id)
+                                }
                             } label: {
                                 HStack {
                                     ConsoleRow(device: device, isOnline: DiscoveryLogic.find(id: device.id, in: app.discovery.devices) != nil)
@@ -34,6 +40,15 @@ struct ConsolesView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("console.\(device.id)")
+                            .swipeActions {
+                                if device.needsRepair {
+                                    Button("Forget", role: .destructive) { try? app.forget(deviceId: device.id) }
+                                }
+                            }
+                        }
+                    } footer: {
+                        if app.store.devices.contains(where: \.needsRepair) {
+                            Text("This version of ReminisLink pairs differently: update ReminisLink on the console, then scan its QR code again.")
                         }
                     }
                 }
@@ -115,14 +130,22 @@ struct ConsoleRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(isOnline ? Color.green : Color.secondary)
-                    .frame(width: 8, height: 8)
-                    .accessibilityHidden(true)
-                Text(isOnline ? "Online" : "Offline")
+            if device.needsRepair {
+                // M13: paired before the new pairing; scan its QR code.
+                Label("Pair Again", systemImage: "qrcode.viewfinder")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("console.needsRepair")
+            } else {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(isOnline ? Color.green : Color.secondary)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                    Text(isOnline ? "Online" : "Offline")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .accessibilityElement(children: .combine)

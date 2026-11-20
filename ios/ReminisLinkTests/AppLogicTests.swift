@@ -12,10 +12,17 @@ import Testing
 struct AppLogicTests {
     let secure = InMemorySecureStore()
 
-    func makePak() -> FakePak {
-        let pak = FakePak(host: "app-\(UUID().uuidString.lowercased()).test")
+    /// A fake pak on an IPv4 address of its own (never reached: the fake
+    /// answers through URLProtocol), so the address of its pairing link is
+    /// valid (M13: `h` must be an IPv4 address).
+    func makePak(pin: String = FakePak.demoPin) -> FakePak {
+        let pak = FakePak(pin: pin, host: Self.randomHost())
         pak.register()
         return pak
+    }
+
+    static func randomHost() -> String {
+        "10.\(Int.random(in: 1...254)).\(Int.random(in: 1...254)).\(Int.random(in: 1...254))"
     }
 
     func makeApp(_ pak: FakePak, discovered: Bool = true, lookup: Duration = .milliseconds(300)) -> AppModel {
@@ -29,15 +36,15 @@ struct AppLogicTests {
         )
     }
 
-    func link(_ pak: FakePak) -> PairingLink {
-        PairingLink(deviceId: pak.deviceId, deviceName: pak.deviceName, secret: pak.secret)
+    /// The link of the QR code (pairing v2): the pak's address and pin.
+    func link(_ pak: FakePak) -> PairingLink { pak.pairingLink }
+
+    /// The same link without `h` and `p`.
+    func linkWithoutAddress(_ pak: FakePak) -> PairingLink {
+        PairingLink(deviceId: pak.deviceId, deviceName: pak.deviceName, secret: pak.secret, endpoint: nil, pin: pak.pin)
     }
 
-    /// The link as the pak prints it, with the (ignored) `h` and `p` of the
-    /// pak's real address.
-    func urlWithAddress(_ pak: FakePak) -> URL {
-        URL(string: link(pak).url.absoluteString + "&h=\(pak.host)&p=\(pak.port)")!
-    }
+    let otherPin = Base64URL.encode(Data(repeating: 0x5A, count: 32))
 
     func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async {
         let deadline = ContinuousClock.now + timeout
@@ -48,10 +55,7 @@ struct AppLogicTests {
 
     func pairedApp(_ pak: FakePak, discovered: Bool = true, lookup: Duration = .milliseconds(300)) async throws -> AppModel {
         let app = makeApp(pak, discovered: discovered, lookup: lookup)
-        let clientId = try app.store.installationClientId()
-        let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "Test")
-        let key = try await APIClient(endpoint: pak.endpoint, session: pak.makeSession()).pair(attempt)
-        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: clientId, key: key)
+        try await app.pairDirectly(with: pak)
         return app
     }
 
@@ -76,7 +80,7 @@ struct AppLogicTests {
     @Test func cancelDuringSearchSendsNothing() async throws {
         let pak = makePak()
         let app = makeApp(pak, discovered: false, lookup: .seconds(5))
-        let flow = app.startPairing(.link(try #require(PairingLink(url: urlWithAddress(pak)))))
+        let flow = app.startPairing(.link(linkWithoutAddress(pak)))
         try await Task.sleep(for: .milliseconds(100))
         flow.cancel()
         await flow.wait()
@@ -86,13 +90,26 @@ struct AppLogicTests {
         #expect(flow.error == nil)
     }
 
-    /// The address of the QR code is never used (docs/specs/03-protocole.md
-    /// §3.1): without Bonjour, a new console is not found.
-    @Test func newConsoleWithoutBonjourIsNotFound() async throws {
+    /// M13 (docs/specs/03-protocole.md §3.1): without Bonjour, the
+    /// address of the QR code is used; the pin of the link authenticates
+    /// the console.
+    @Test func newConsoleWithoutBonjourUsesTheLinkAddress() async throws {
         let pak = makePak()
         let app = makeApp(pak, discovered: false)
-        app.handle(url: urlWithAddress(pak))
+        app.handle(url: link(pak).url)
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
+        await flow.wait()
+        #expect(flow.step == .done, "\(String(describing: flow.error))")
+        #expect(try app.store.credentials(for: pak.deviceId)?.pin == pak.pin)
+        #expect(pak.log.first?.path == "/api/v1/hello")
+    }
+
+    /// A link without an address (never printed by the pak) still needs
+    /// Bonjour.
+    @Test func newConsoleWithoutBonjourNorAddressIsNotFound() async throws {
+        let pak = makePak()
+        let app = makeApp(pak, discovered: false)
+        let flow = app.startPairing(.link(linkWithoutAddress(pak)))
         await flow.wait()
         #expect(flow.error == .consoleNotFound)
         #expect(flow.error?.action == .retry)
@@ -100,14 +117,101 @@ struct AppLogicTests {
         #expect(app.store.devices.isEmpty)
     }
 
-    @Test func newConsoleWithBonjourIgnoresTheLinkAddress() async throws {
+    /// Bonjour comes first: an address of the link that answers nothing
+    /// is not used when Bonjour finds the console.
+    @Test func newConsoleWithBonjourPrefersBonjour() async throws {
         let pak = makePak()
         let app = makeApp(pak)
-        app.handle(url: urlWithAddress(pak))
+        let stale = PairingLink(
+            deviceId: pak.deviceId, deviceName: pak.deviceName, secret: pak.secret,
+            endpoint: Endpoint(host: Self.randomHost(), port: 47821), pin: pak.pin
+        )
+        app.handle(url: stale.url)
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
         #expect(flow.step == .done)
         #expect(app.store.device(id: pak.deviceId) != nil)
+    }
+
+    /// The pairing v2 request: the identity of the store, platform
+    /// `apple`, the name typed for the identity (else the device model),
+    /// and `X-RL-Platform` on the requests.
+    @Test func pairingSendsTheSharedIdentity() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        try app.store.setPairingName("Thomas's Apple devices")
+        let flow = app.startPairing(.link(link(pak)))
+        await flow.wait()
+        #expect(flow.step == .done)
+        let identity = try app.store.identity()
+        #expect(pak.clientIds == [identity.clientId])
+        #expect(pak.platforms(clientId: identity.clientId).paired == "apple")
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        #expect(session.status?.connectedClients.map(\.clientName) == ["Thomas's Apple devices"])
+        #expect(["iphone", "ipad", "mac"].contains(pak.platforms(clientId: identity.clientId).lastSeen ?? ""))
+    }
+
+    @Test func clientNameFallsBackOnTheDeviceModel() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        #expect(app.clientName == AppModel.defaultClientName)
+        try app.store.setPairingName("   ")
+        #expect(app.clientName == AppModel.defaultClientName)
+        try app.store.setPairingName("Mes appareils")
+        #expect(app.clientName == "Mes appareils")
+    }
+
+    /// M13: the link of a pak older than M13 asks to update the pak.
+    @Test func anRL1LinkAsksToUpdateThePak() async throws {
+        let pak = makePak()
+        let app = makeApp(pak)
+        let rl1 = "reminislink://pair?v=1&id=\(pak.deviceId)&s=\(Base64URL.encode(pak.secret))&h=192.168.1.42&p=47821"
+        app.handle(url: try #require(URL(string: rl1)))
+        #expect(app.linkError == .outdatedPak)
+        #expect(app.sheet == nil)
+        #expect(AppError.outdatedPak.message.contains("Update ReminisLink on the console")
+            || AppError.outdatedPak.message.contains("Mets à jour ReminisLink sur la console"))
+        app.handle(url: try #require(URL(string: "reminislink://pair?v=2&id=x")))
+        #expect(app.linkError == .invalidPairingLink)
+    }
+
+    /// M13: a console paired before M13 stays listed, marked; its link is
+    /// paired at once (nothing to replace, no confirmation), and the mark
+    /// goes away.
+    @Test func anRL1ConsoleIsPairedAgainFromItsQRCode() async throws {
+        let pak = makePak()
+        let suite = "ReminisLinkTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let legacy = [PairedDevice(id: pak.deviceId, name: "Old Brick", model: .brick, pairedAt: Date(), needsRepair: true)]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: "pairedDevices")
+        let app = AppModel(
+            store: DeviceStore(secureStore: secure, defaults: defaults, legacySecureStore: InMemorySecureStore()),
+            discovery: Discovery(fixedDevices: [pak.discoveredDevice]),
+            artCache: ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: suite)),
+            lookupTimeout: .milliseconds(300),
+            makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
+        )
+        #expect(app.store.device(id: pak.deviceId)?.needsRepair == true)
+        // Opening it is refused: it is not paired with this identity.
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        #expect(session.error == .api(.notPaired))
+        #expect(session.error?.action == .repair)
+        app.handle(url: link(pak).url)
+        #expect(app.pendingRepair == nil)
+        guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
+        await flow.wait()
+        #expect(flow.step == .done)
+        #expect(app.store.device(id: pak.deviceId)?.needsRepair == false)
+        #expect(app.store.devices.count == 1)
+    }
+
+    /// M13: a console presenting another certificate than the pinned one.
+    @Test func anIdentityChangeOffersToPairAgain() {
+        let error = AppError.api(.identityChanged)
+        #expect(error.action == .repair)
+        #expect(error.message.contains("QR code"))
     }
 
     // MARK: 2. Re-pairing a paired console
@@ -123,30 +227,31 @@ struct AppLogicTests {
         #expect(app.sheet == nil)
     }
 
-    @Test func confirmedRepairRequiresBonjour() async throws {
+    @Test func confirmedRepairWithoutBonjourNorAddressIsNotFound() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak, discovered: false)
-        let before = try #require(try app.store.credentials(for: pak.deviceId)).key
+        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, pin: otherPin)
         let requests = pak.log.count
-        app.pendingRepair = .link(try #require(PairingLink(url: urlWithAddress(pak))))
+        app.pendingRepair = .link(linkWithoutAddress(pak))
         app.confirmRepair()
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
         #expect(flow.error == .consoleNotFound)
         #expect(pak.log.count == requests)
-        #expect(try app.store.credentials(for: pak.deviceId)?.key == before)
+        #expect(try app.store.credentials(for: pak.deviceId)?.pin == otherPin)
     }
 
-    @Test func confirmedRepairWithBonjourReplacesTheKey() async throws {
+    @Test func confirmedRepairReplacesThePin() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        let before = try #require(try app.store.credentials(for: pak.deviceId)).key
+        // As if the console's certificate had changed (SD card reformatted).
+        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, pin: otherPin)
         app.pendingRepair = .link(link(pak))
         app.confirmRepair()
         guard case .pairing(let flow) = app.sheet else { Issue.record("no pairing sheet"); return }
         await flow.wait()
         #expect(flow.step == .done)
-        #expect(try app.store.credentials(for: pak.deviceId)?.key != before)
+        #expect(try app.store.credentials(for: pak.deviceId)?.pin == pak.pin)
     }
 
     // MARK: 4. Cancelled connection
@@ -168,10 +273,10 @@ struct AppLogicTests {
 
     // MARK: 5. No key
 
-    @Test func missingKeyOffersRepairAndForgetsLocally() async throws {
+    @Test func missingIdentityOffersRepairAndForgetsLocally() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        try secure.remove(account: "device." + pak.deviceId)
+        try secure.remove(account: "identity")
         let requests = pak.log.count
         let session = app.session(for: pak.deviceId)
         await session.connect()
@@ -198,10 +303,10 @@ struct AppLogicTests {
 
     // MARK: Round 2
 
-    @Test func cancelDuringPairStillStoresTheNewKey() async throws {
+    @Test func cancelDuringPairStillStoresTheNewPairing() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        let before = try #require(try app.store.credentials(for: pak.deviceId)).key
+        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, pin: otherPin)
         pak.pairDelay = 1
         let pairs = pak.log.filter { $0.path == "/api/v1/pair" }.count
         app.pendingRepair = .link(link(pak))
@@ -214,16 +319,15 @@ struct AppLogicTests {
         flow.cancel()
         #expect(app.sheet == nil)
         await flow.wait()
-        let after = try #require(try app.store.credentials(for: pak.deviceId)).key
-        #expect(after != before)
+        #expect(try app.store.credentials(for: pak.deviceId)?.pin == pak.pin)
         let systems = try await app.session(for: pak.deviceId).perform { try await $0.systems() }
         #expect(systems.count == 3)
     }
 
     /// A first exchange whose answer is slow, then a second pairing of the
-    /// same console: the second /pair waits for the first key to be stored,
-    /// so the iPhone ends with the key the pak kept.
-    @Test func twoPairingsOfTheSameConsoleEndWithTheSameKey() async throws {
+    /// same console: the second /pair waits for the first pairing to be
+    /// stored, so the app ends with the pairing the pak kept.
+    @Test func twoPairingsOfTheSameConsoleEndPaired() async throws {
         let pak = makePak()
         let app = makeApp(pak)
         pak.delayNextPairs([1])
@@ -258,25 +362,17 @@ struct AppLogicTests {
         #expect(systems.count == 3)
     }
 
-    /// "Pair Again" offers the console of the current screen for the PIN.
-    @Test func pairAgainOffersTheConsoleOfTheScreen() async throws {
+    /// "Pair Again" opens the scanner for the console of the current screen.
+    @Test func pairAgainOpensTheScannerForTheConsoleOfTheScreen() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
         app.path = [.console(pak.deviceId), .library(pak.deviceId)]
         app.showRepair()
         guard case .addConsole(let repairing) = app.sheet else { Issue.record("no sheet"); return }
         #expect(repairing == pak.deviceId)
-        // The PIN of a paired console still asks to confirm the replacement.
-        app.sheet = nil
-        app.requestPairing(.pin(pak.pin, pak.discoveredDevice))
-        #expect(app.pendingRepair?.deviceId == pak.deviceId)
     }
 
-    @Test func pinSearchSaysNotFoundAfterTheTimeout() {
-        #expect(PINSearch.state(status: .searching, found: false, timedOut: false) == .searching)
-        #expect(PINSearch.state(status: .searching, found: false, timedOut: true) == .notFound)
-        #expect(PINSearch.state(status: .searching, found: true, timedOut: true) == .found)
-        #expect(PINSearch.state(status: .localNetworkDenied, found: false, timedOut: true) == .denied)
+    @Test func lookupErrorsOfferTheirActions() {
         #expect(AppError.consoleNotFound.action == .retry)
         #expect(AppError.localNetworkDenied.action == .openSettings)
     }
@@ -376,14 +472,6 @@ struct AppLogicTests {
         #expect(pak.log.filter { $0.path == "/api/v1/pair" }.count == 1)
     }
 
-    @Test func pinForAPairedConsoleAsksFirst() async throws {
-        let pak = makePak()
-        let app = try await pairedApp(pak)
-        app.requestPairing(.pin(pak.pin, pak.discoveredDevice))
-        #expect(app.pendingRepair?.deviceId == pak.deviceId)
-        #expect(app.sheet == nil)
-    }
-
     @Test func confirmationWaitsForTheSheetToClose() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
@@ -398,7 +486,7 @@ struct AppLogicTests {
     @Test func keychainReadErrorIsNotTakenForNoKey() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        try secure.set(Data("garbage".utf8), for: "device." + pak.deviceId)
+        try secure.set(Data("garbage".utf8), for: "console." + pak.deviceId)
         await #expect(throws: (any Error).self) { try await app.session(for: pak.deviceId).unpair() }
         #expect(app.store.device(id: pak.deviceId) != nil)
     }

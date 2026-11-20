@@ -158,6 +158,57 @@ struct CheatEditorTests {
         }, etag: "\"e1\""))
     }
 
+    @Test func aChangeOnTheConsoleNeverClobbersLocalEdits() {
+        let newer = CheatList(cheats: [Cheat(index: 0, description: "New", code: "9", enabled: true, extra: [:])], etag: "\"e2\"")
+        // No local edits, no sheet: the new list is shown.
+        var clean = editor()
+        let r1 = clean.consoleChanged(newer, canApply: true)
+        #expect(r1 == .applied)
+        #expect(clean.cheats.map(\.description) == ["New"])
+        #expect(clean.etag == "\"e2\"")
+        // Local edits: kept, the change is reported; Discard shows the
+        // console's list, as the message promises.
+        var edited = editor()
+        edited.move(fromOffsets: [0], toOffset: 4)
+        let r2 = edited.consoleChanged(newer, canApply: true)
+        #expect(r2 == .conflict)
+        #expect(edited.cheats.map(\.description) == ["B", "C", "D", "A"])
+        #expect(edited.etag == "\"e1\"")
+        edited.discardChanges()
+        #expect(edited.cheats.map(\.description) == ["New"])
+        #expect(edited.etag == "\"e2\"")
+        #expect(!edited.hasChanges)
+    }
+
+    @Test func theSameListKeepsTheIdsOfAnOpenSheet() {
+        var e = editor()
+        let ids = e.cheats.map(\.id)
+        // The same etag (this iPhone's own save, a merged event): nothing.
+        let same = CheatList(cheats: e.original.map {
+            Cheat(index: $0.index, description: $0.description, code: $0.code, enabled: $0.enabled, extra: $0.extra)
+        }, etag: e.etag)
+        let r3 = e.consoleChanged(same, canApply: true)
+        #expect(r3 == .unchanged)
+        #expect(e.cheats.map(\.id) == ids)
+        // A sheet edits a cheat: a newer list waits until it closes.
+        let newer = CheatList(cheats: [Cheat(index: 0, description: "New", code: "9", enabled: true, extra: [:])], etag: "\"e2\"")
+        let r4 = e.consoleChanged(newer, canApply: false)
+        #expect(r4 == .deferred)
+        #expect(e.cheats.map(\.id) == ids)
+        let r5 = e.update(id: ids[1], description: "Edited", code: "1", enabled: true)
+        #expect(r5)
+        // The sheet saved an edit: never clobbered by the held list.
+        let r6 = e.applyConsoleList()
+        #expect(!r6)
+        #expect(e.cheats[1].description == "Edited")
+        // Without edits, the held list is shown when the sheet closes.
+        var f = editor()
+        _ = f.consoleChanged(newer, canApply: false)
+        let r7 = f.applyConsoleList()
+        #expect(r7)
+        #expect(f.cheats.map(\.description) == ["New"])
+    }
+
     @Test func movesLikeAListDoes() {
         var e = editor()
         e.move(fromOffsets: [0], toOffset: 4)
@@ -532,7 +583,7 @@ struct GameDataReviewTests {
         // (the app then offers to pair again).
         let stranger = APIClient(
             endpoint: pak.endpoint,
-            credentials: DeviceCredentials(deviceId: pak.deviceId, clientId: Pairing.makeClientId(), key: .init(size: .bits256)),
+            credentials: DeviceCredentials.random(deviceId: pak.deviceId),
             session: pak.makeSession()
         )
         await #expect(throws: APIError.server(ServerError(status: 401, code: .unknownClient, message: "Unknown client"))) {

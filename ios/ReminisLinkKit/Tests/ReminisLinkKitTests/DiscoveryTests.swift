@@ -68,17 +68,6 @@ struct DiscoveryTests {
         let devices = [device(id, "Brick")]
         #expect(DiscoveryLogic.find(id: id, in: devices)?.name == "Brick")
         #expect(DiscoveryLogic.find(id: "Brick", in: devices) == nil)
-        #expect(DiscoveryLogic.unpaired(devices, pairedIds: [id]).isEmpty)
-        #expect(DiscoveryLogic.unpaired(devices, pairedIds: []).count == 1)
-    }
-
-    /// "Pair Again" keeps the PIN fallback for the console to repair only.
-    @Test func pinCandidatesIncludeTheConsoleToRepair() {
-        let other = "00000000-0000-4000-8000-000000000001"
-        let devices = [device(id, "Brick"), device(other, "Other")]
-        #expect(DiscoveryLogic.pinCandidates(devices, pairedIds: [id, other], repairing: nil).isEmpty)
-        #expect(DiscoveryLogic.pinCandidates(devices, pairedIds: [id, other], repairing: id).map(\.id) == [id])
-        #expect(DiscoveryLogic.pinCandidates(devices, pairedIds: [other], repairing: nil).map(\.id) == [id])
     }
 
     @Test func policyDeniedIsNotNothingFound() {

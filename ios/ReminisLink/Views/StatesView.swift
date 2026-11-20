@@ -38,6 +38,8 @@ struct StatesView: View {
     @State private var confirmation: Confirmation?
     /// A download in progress, cancelled when the screen goes away.
     @State private var downloadTask: Task<Void, Never>?
+    /// Only the last load shows its answer (M14: loads may overlap).
+    @State private var loads = LoadGeneration()
 
     private var session: ConsoleSession { app.session(for: route.deviceId) }
 
@@ -68,6 +70,9 @@ struct StatesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if slots == nil { await load() } }
         .refreshable { await load() }
+        // M14: a change made on the console by any device (a lock, a
+        // deletion, a restore); the game's system is not known here.
+        .onChange(of: session.libraryRevision) { Task { await load() } }
         .exportSheet($exported)
         .confirmationDialog(
             selected.map(title) ?? "",
@@ -158,7 +163,6 @@ struct StatesView: View {
                         .accessibilityHint(Text("Restores this version of the resume state"))
                     }
                     .foregroundStyle(.primary)
-                    .disabled(session.isReadOnly)
                     .accessibilityIdentifier("resume.entry")
                 }
             } header: {
@@ -174,15 +178,12 @@ struct StatesView: View {
 
     @ViewBuilder
     private func actions(for slot: StateSlot) -> some View {
-        // Writes are hidden while another device has write access (M10).
-        if !session.isReadOnly {
-            writeActions(for: slot)
-        }
+        writeActions(for: slot)
         if slot.canDownload {
             Button("Download") { downloadTask = Task { await download(slot) } }
                 .accessibilityIdentifier("state.download")
         }
-        if slot.canDelete && !session.isReadOnly {
+        if slot.canDelete {
             Button("Delete…", role: .destructive) { confirmation = .delete(slot) }
                 .accessibilityIdentifier("state.delete")
         }
@@ -252,15 +253,18 @@ struct StatesView: View {
 
     private func load() async {
         let gameId = route.gameId
+        let generation = loads.begin()
         do {
             async let states = session.perform { try await $0.states(gameId: gameId) }
             async let resume = session.perform { try await $0.resumeHistory(gameId: gameId) }
             let (list, entries) = try await (states, resume)
+            guard loads.isCurrent(generation) else { return }
             restoredSlots.formUnion(list.slots.filter(\.wasRestored).map(\.slot))
             slots = list
             history = entries
             error = nil
         } catch {
+            guard loads.isCurrent(generation) else { return }
             show(error)
         }
     }
@@ -283,6 +287,8 @@ struct StatesView: View {
     }
 
     private func updated(_ slot: StateSlot) {
+        // Newer than any load in flight: those are dropped (M14).
+        _ = loads.begin()
         restoredSlots.remove(slot.slot)
         slots = slots?.replacing(slot)
         session.contentChanged()
@@ -348,7 +354,10 @@ struct StatesView: View {
         let gameId = route.gameId
         let entryId = entry.id
         await run {
-            history = try await session.perform { try await $0.restoreResumeHistory(gameId: gameId, entryId: entryId) }
+            let restored = try await session.perform { try await $0.restoreResumeHistory(gameId: gameId, entryId: entryId) }
+            // Newer than any load in flight: those are dropped (M14).
+            _ = loads.begin()
+            history = restored
             notice = String(localized: "Resume state restored.")
             session.contentChanged()
             await load()

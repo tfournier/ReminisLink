@@ -22,17 +22,21 @@ public struct Endpoint: Hashable, Sendable, Codable, CustomStringConvertible {
     public var description: String { authority }
 }
 
-/// What the app keeps in the Keychain for one paired device.
+/// What a signed client needs for one paired device (M13): the identity
+/// of the app, which signs, and the console's certificate pin.
 public struct DeviceCredentials: Sendable {
     public let deviceId: String
-    public let clientId: String
-    public let key: SymmetricKey
+    public let identity: ClientIdentity
+    /// b64u(SHA-256(SPKI)) of the console's certificate.
+    public let pin: String
 
-    public init(deviceId: String, clientId: String, key: SymmetricKey) {
+    public init(deviceId: String, identity: ClientIdentity, pin: String) {
         self.deviceId = deviceId
-        self.clientId = clientId
-        self.key = key
+        self.identity = identity
+        self.pin = pin
     }
+
+    public var clientId: String { identity.clientId }
 }
 
 /// Result of `GET /games/{gameId}/art`.
@@ -44,41 +48,77 @@ public enum ArtResponse: Sendable, Equatable {
 
 /// Client of the pak API (protocol/openapi.yaml).
 ///
-/// Every route but `/hello` and `/pair` is signed. A new nonce is drawn for
-/// every attempt: after `401 clock_skew`, the client asks `/hello` for the
-/// device time, corrects its offset and signs the request again, once.
+/// Every request goes over HTTPS, and the console must present the
+/// certificate pinned at pairing (M13, ``PinnedTrust``): never system trust.
+/// Every route but `/hello` and `/pair` is signed (RL2-ED25519). A new nonce
+/// is drawn for every attempt: after `401 clock_skew`, the client asks
+/// `/hello` for the device time, corrects its offset and signs the request
+/// again, once.
 public actor APIClient {
     public static let apiPrefix = "/api/v1"
+    /// `apiVersion` of the paks this app speaks to (M13).
+    public static let apiVersion = 2
 
     public nonisolated let endpoint: Endpoint
     /// The device this client expects to talk to (checked on `/hello`).
     public nonisolated let expectedDeviceId: String?
     private let credentials: DeviceCredentials?
+    /// The certificate pin the console must present; nil refuses every
+    /// TLS server.
+    public nonisolated let pin: String?
+    /// `X-RL-Platform`, informative.
+    private let platform: RequestPlatform?
     private let session: URLSession
     private let now: @Sendable () -> Date
     private let appVersion: String
     /// Sees every error answer of the pak to a signed request, with the
-    /// moment that request was sent (M10: the session learns of
-    /// `423 read_only` and `401 disconnected` whatever the screen or
-    /// transfer that sent the request, and drops answers to requests sent
-    /// before a take-over).
+    /// moment that request was sent (the session learns of
+    /// `401 disconnected` and `503 shutting_down` whatever the screen or
+    /// transfer that sent the request).
     private let errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)?
 
     /// Device time minus local time, measured on the last `/hello`.
     public private(set) var clockOffset: TimeInterval = 0
 
+    /// `https`. Only the package's tests use `http`, against a local test
+    /// server (TLS needs a certificate they cannot install).
+    nonisolated let scheme: String
+
     public init(
         endpoint: Endpoint,
         expectedDeviceId: String? = nil,
         credentials: DeviceCredentials? = nil,
+        pin: String? = nil,
+        platform: RequestPlatform? = nil,
         appVersion: String = "1.0.0",
         session: URLSession = APIClient.makeSession(),
         now: @escaping @Sendable () -> Date = { Date() },
         errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
     ) {
+        self.init(
+            scheme: "https", endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials, pin: pin,
+            platform: platform, appVersion: appVersion, session: session, now: now, errorObserver: errorObserver
+        )
+    }
+
+    init(
+        scheme: String,
+        endpoint: Endpoint,
+        expectedDeviceId: String? = nil,
+        credentials: DeviceCredentials? = nil,
+        pin: String? = nil,
+        platform: RequestPlatform? = nil,
+        appVersion: String = "1.0.0",
+        session: URLSession = APIClient.makeSession(),
+        now: @escaping @Sendable () -> Date = { Date() },
+        errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
+    ) {
+        self.scheme = scheme
         self.endpoint = endpoint
         self.expectedDeviceId = expectedDeviceId ?? credentials?.deviceId
         self.credentials = credentials
+        self.pin = pin ?? credentials?.pin
+        self.platform = platform
         self.appVersion = appVersion
         self.session = session
         self.now = now
@@ -118,15 +158,16 @@ public actor APIClient {
         if let expected = expectedDeviceId, hello.deviceId != expected {
             throw APIError.deviceMismatch(expected: expected, actual: hello.deviceId)
         }
-        guard hello.apiVersion == 1, AppVersion.isSupported(appVersion, minimum: hello.minClientVersion) else {
+        guard hello.apiVersion == Self.apiVersion, AppVersion.isSupported(appVersion, minimum: hello.minClientVersion) else {
             throw APIError.incompatible(apiVersion: hello.apiVersion, minClientVersion: hello.minClientVersion)
         }
         return hello
     }
 
-    /// `POST /pair`, then checks the device proof. Returns the shared key,
-    /// to store in the Keychain.
-    public func pair(_ attempt: PairingAttempt) async throws -> SymmetricKey {
+    /// `POST /pair` (pairing v2), then checks the device proof. Returns the
+    /// verified answer: store the pairing only then.
+    @discardableResult
+    public func pair(_ attempt: PairingAttempt) async throws -> PairResponse {
         var request = try makeRequest(method: "POST", segments: ["pair"])
         request.httpBody = try ProtocolJSON.encoder().encode(attempt.request)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -134,7 +175,8 @@ public actor APIClient {
         try check(response, data: data, accept: [200])
         let pairResponse: PairResponse = try decode(data)
         do {
-            return try attempt.finish(pairResponse)
+            try attempt.finish(pairResponse)
+            return pairResponse
         } catch let error as PairingError {
             throw APIError.pairing(error)
         }
@@ -144,6 +186,52 @@ public actor APIClient {
 
     public func device() async throws -> DeviceStatus {
         try await signedJSON(method: "GET", segments: ["device"])
+    }
+
+    /// The longest silence of `GET /events` before URLSession gives up:
+    /// beyond the liveness timeout (35 s), which ``EventStream`` watches.
+    public static let eventsTimeout: TimeInterval = 60
+
+    /// `GET /events` (M14): opens the signed event stream and returns its
+    /// bytes. An error answer throws (`404` from a pak older than M14,
+    /// `429` with `Retry-After`, `401`, `503`), and is seen by the error
+    /// observer like any other. Cancelling the returned stream (or the
+    /// task reading it) closes the connection.
+    public func openEvents() async throws -> any EventByteSource {
+        let ((bytes, errorBody), response) = try await withSignedRequests(
+            method: "GET", segments: ["events"], query: [], headers: ["Accept": "text/event-stream"],
+            body: nil, bodyFile: nil, bodyFileSHA256: nil, timeout: Self.eventsTimeout
+        ) { request -> ((EventBytes?, Data), HTTPURLResponse, Data) in
+            let (bytes, response): (URLSession.AsyncBytes, URLResponse)
+            let delegate = PakTaskDelegate(pin: self.pin)
+            do {
+                (bytes, response) = try await self.session.bytes(for: request, delegate: delegate)
+            } catch let error as URLError {
+                throw delegate.failure(error)
+            }
+            guard let http = response as? HTTPURLResponse else {
+                bytes.task.cancel()
+                throw APIError.invalidResponse("not an HTTP response")
+            }
+            guard http.statusCode == 200 else {
+                // An error body, small: read it, then close.
+                var body = Data()
+                do {
+                    for try await byte in bytes {
+                        body.append(byte)
+                        if body.count >= 64 << 10 { break }
+                    }
+                } catch {}
+                bytes.task.cancel()
+                return ((nil, body), http, body)
+            }
+            return ((EventBytes(bytes: bytes), Data()), http, Data())
+        }
+        guard response.statusCode == 200, let bytes else {
+            try check(response, data: errorBody, accept: [200])
+            throw APIError.unexpectedStatus(response.statusCode)
+        }
+        return bytes
     }
 
     /// `DELETE /clients/me`. The caller then deletes the key.
@@ -157,30 +245,6 @@ public actor APIClient {
     /// the console from the list), never from an automatic reconnection.
     public func connectClient() async throws {
         let (data, response) = try await performSigned(method: "POST", segments: ["clients", "me", "connect"])
-        try check(response, data: data, accept: [200, 204])
-    }
-
-    // MARK: - Write lease (M10)
-
-    /// `GET /writer`: who holds the write lease.
-    public func writer() async throws -> WriterState {
-        try await signedJSON(method: "GET", segments: ["writer"])
-    }
-
-    /// `PUT /writer`: takes the lease if it is free, or renews it. With
-    /// `force` ("Take over", after the user confirmed), takes it from
-    /// another client; without, a lease held by another client gives
-    /// `423 read_only`.
-    public func takeWriter(force: Bool = false) async throws -> WriterState {
-        try await signedJSON(
-            method: "PUT", segments: ["writer"], body: ProtocolJSON.encoder().encode(TakeWriterRequest(force: force))
-        )
-    }
-
-    /// `DELETE /writer`: releases the lease (no effect if another client
-    /// holds it).
-    public func releaseWriter() async throws {
-        let (data, response) = try await performSigned(method: "DELETE", segments: ["writer"])
         try check(response, data: data, accept: [200, 204])
     }
 
@@ -537,7 +601,7 @@ public actor APIClient {
     ) throws -> URLRequest {
         let names = query.map(\.name)
         precondition(Set(names).count == names.count, "duplicate query key")
-        var string = "http://\(endpoint.authority)\(Self.apiPrefix)/"
+        var string = "\(scheme)://\(endpoint.authority)\(Self.apiPrefix)/"
             + segments.map { Signer.encodeRFC3986($0) }.joined(separator: "/")
         if !query.isEmpty {
             string += "?" + Signer.encodeQuery(query)
@@ -546,6 +610,7 @@ public actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let platform { request.setValue(platform.rawValue, forHTTPHeaderField: RequestPlatform.header) }
         return request
     }
 
@@ -609,7 +674,7 @@ public actor APIClient {
         send: (URLRequest) async throws -> (R, HTTPURLResponse, Data)
     ) async throws -> (R, HTTPURLResponse) {
         guard let credentials else { throw APIError.notPaired }
-        let signer = Signer(clientId: credentials.clientId, key: credentials.key)
+        let signer = Signer(identity: credentials.identity)
         var corrected = false
         while true {
             var request = try makeRequest(method: method, segments: segments, query: query)
@@ -690,11 +755,12 @@ public actor APIClient {
     private func transportDownload(
         _ request: URLRequest, progress: (@Sendable (Int64, Int64?) -> Void)? = nil
     ) async throws -> (URL, HTTPURLResponse) {
+        let trust = PinnedTrust(pin: pin)
         do {
             let (location, response) = if let progress {
-                try await PakDownloadDelegate.download(request, session: session, onReceived: progress)
+                try await PakDownloadDelegate.download(request, session: session, trust: trust, onReceived: progress)
             } else {
-                try await session.download(for: request, delegate: PakTaskDelegate())
+                try await session.download(for: request, delegate: PakTaskDelegate(trust: trust))
             }
             guard let http = response as? HTTPURLResponse else {
                 try? FileManager.default.removeItem(at: location)
@@ -705,8 +771,7 @@ public actor APIClient {
             try FileManager.default.moveItem(at: location, to: kept)
             return (kept, http)
         } catch let error as URLError {
-            if error.code == .cancelled { throw CancellationError() }
-            throw APIError.network(error.code)
+            throw PakTaskDelegate.failure(error, trust: trust)
         }
     }
 
@@ -715,7 +780,7 @@ public actor APIClient {
     private func transport(
         _ request: URLRequest, bodyFile: URL? = nil, onSent: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> (Data, HTTPURLResponse) {
-        let delegate = PakTaskDelegate(onSent: onSent)
+        let delegate = PakTaskDelegate(pin: pin, onSent: onSent)
         do {
             let (data, response) = if let bodyFile {
                 try await session.upload(for: request, fromFile: bodyFile, delegate: delegate)
@@ -738,8 +803,7 @@ public actor APIClient {
             return (data, http)
         } catch let error as URLError {
             delegate.finish(totalBytesSent: nil)
-            if error.code == .cancelled { throw CancellationError() }
-            throw APIError.network(error.code)
+            throw delegate.failure(error)
         } catch {
             delegate.finish(totalBytesSent: nil)
             throw error
@@ -750,8 +814,9 @@ public actor APIClient {
     /// body (announced or not) stops the request.
     private func transportLimited(_ request: URLRequest, maxBytes: Int) async throws -> (Data, HTTPURLResponse) {
         let tooLarge = APIError.invalidResponse("body larger than \(maxBytes) bytes")
+        let delegate = PakTaskDelegate(pin: pin)
         do {
-            let (bytes, response) = try await session.bytes(for: request, delegate: PakTaskDelegate())
+            let (bytes, response) = try await session.bytes(for: request, delegate: delegate)
             guard let http = response as? HTTPURLResponse else {
                 bytes.task.cancel()
                 throw APIError.invalidResponse("not an HTTP response")
@@ -779,8 +844,7 @@ public actor APIClient {
             data.append(contentsOf: buffer)
             return (data, http)
         } catch let error as URLError {
-            if error.code == .cancelled { throw CancellationError() }
-            throw APIError.network(error.code)
+            throw delegate.failure(error)
         }
     }
 
@@ -822,14 +886,45 @@ public actor APIClient {
 ///   local network.
 /// - `onSent` reports the body bytes sent so far (upload chunks): growing
 ///   only, and never after ``finish(totalBytesSent:)``.
+/// - Server trust (M13): only the pinned certificate key is accepted
+///   (``PinnedTrust``), never the system trust. The session has no
+///   delegate of its own, so URLSession hands its session-level challenges
+///   (server trust included) to this task delegate.
 class PakTaskDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    let trust: PinnedTrust
     private let onSent: (@Sendable (Int64) -> Void)?
     private let lock = NSLock()
     private var reported: Int64 = 0
     private var finished = false
 
-    init(onSent: (@Sendable (Int64) -> Void)? = nil) {
+    init(trust: PinnedTrust, onSent: (@Sendable (Int64) -> Void)? = nil) {
+        self.trust = trust
         self.onSent = onSent
+    }
+
+    convenience init(pin: String?, onSent: (@Sendable (Int64) -> Void)? = nil) {
+        self.init(trust: PinnedTrust(pin: pin), onSent: onSent)
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let (disposition, credential) = trust.evaluate(challenge)
+        completionHandler(disposition, credential)
+    }
+
+    /// The error a failed request throws: ``APIError/identityChanged`` when
+    /// the console's certificate was refused, a cancellation, or a network
+    /// error.
+    func failure(_ error: URLError) -> Error {
+        Self.failure(error, trust: trust)
+    }
+
+    static func failure(_ error: URLError, trust: PinnedTrust) -> Error {
+        if trust.refused { return APIError.identityChanged }
+        if error.code == .cancelled { return CancellationError() }
+        return APIError.network(error.code)
     }
 
     /// Closes the reports of the request: a last one with `totalBytesSent`
@@ -877,16 +972,17 @@ final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @u
     /// The file, moved out of the session's temporary location.
     private var kept: URL?
 
-    private init(onReceived: @escaping @Sendable (Int64, Int64?) -> Void) {
+    private init(trust: PinnedTrust, onReceived: @escaping @Sendable (Int64, Int64?) -> Void) {
         self.onReceived = onReceived
-        super.init(onSent: nil)
+        super.init(trust: trust, onSent: nil)
     }
 
     /// Downloads `request` to a file of the app's temporary directory.
     static func download(
-        _ request: URLRequest, session: URLSession, onReceived: @escaping @Sendable (Int64, Int64?) -> Void
+        _ request: URLRequest, session: URLSession, trust: PinnedTrust,
+        onReceived: @escaping @Sendable (Int64, Int64?) -> Void
     ) async throws -> (URL, URLResponse) {
-        let delegate = PakDownloadDelegate(onReceived: onReceived)
+        let delegate = PakDownloadDelegate(trust: trust, onReceived: onReceived)
         let task = session.downloadTask(with: request)
         task.delegate = delegate
         return try await withTaskCancellationHandler {
@@ -958,4 +1054,26 @@ public enum AppVersion {
         let core = version.split(separator: "-", maxSplits: 1).first.map(String.init) ?? ""
         return core.split(separator: ".").map { Int($0) ?? 0 }
     }
+}
+
+/// The bytes of an open event stream, read straight from URLSession
+/// (pulled by the parser, never buffered here).
+final class EventBytes: EventByteSource, @unchecked Sendable {
+    private var iterator: URLSession.AsyncBytes.AsyncIterator
+    private let task: URLSessionDataTask
+
+    init(bytes: URLSession.AsyncBytes) {
+        iterator = bytes.makeAsyncIterator()
+        task = bytes.task
+    }
+
+    func next() async throws -> UInt8? {
+        do {
+            return try await iterator.next()
+        } catch let error as URLError {
+            throw error.code == .cancelled ? CancellationError() : APIError.network(error.code)
+        }
+    }
+
+    func cancel() { task.cancel() }
 }

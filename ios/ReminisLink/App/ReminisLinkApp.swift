@@ -59,7 +59,7 @@ struct RootView: View {
                 .accessibilityIdentifier("repair.confirm")
             Button("Cancel", role: .cancel) { app.pendingRepair = nil }
         } message: {
-            Text("Its key on this iPhone will be replaced. The console must be found on the network under the same identity.")
+            Text("Its pairing will be replaced on all your Apple devices. The console must present the same identity as its QR code.")
         }
         .onOpenURL { app.handle(url: $0) }
         .onChange(of: scenePhase, initial: true) { _, phase in
@@ -74,17 +74,12 @@ struct RootView: View {
     }
 }
 
-/// The screen of a navigation destination, with the read-only banner of
-/// its console (M10).
+/// The screen of a navigation destination.
 struct RouteDestination: View {
     let route: Route
 
-    var body: some View {
-        content.readOnlyBanner(deviceId: route.deviceId)
-    }
-
     @ViewBuilder
-    private var content: some View {
+    var body: some View {
         switch route {
         case .console(let id): ConsoleView(deviceId: id)
         case .library(let id): LibraryView(deviceId: id)
@@ -155,7 +150,6 @@ struct ConsoleTabsView: View {
             set: { app.tabPaths[tab] = $0 }
         )) {
             root()
-                .readOnlyBanner(deviceId: deviceId)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {

@@ -109,8 +109,8 @@ struct AddContext: Identifiable, Equatable {
 
 /// The sheet shown above the navigation.
 enum Sheet: Identifiable {
-    /// Scan or PIN. `repairing`: the paired console to pair again (after
-    /// `401 unknown_client`), offered for the PIN like the new ones.
+    /// The QR code scanner. `repairing`: the console to pair again (after
+    /// `401 unknown_client`, or paired before M13): only the title changes.
     case addConsole(repairing: String? = nil)
     case pairing(PairingFlow)
     case add(AddContext)
@@ -176,7 +176,13 @@ final class AppModel {
     /// saves), while no console is open.
     var listPath: [Route] = []
     /// The console shown with its tabs (milestone M11), nil for the list.
-    private(set) var openConsoleId: String?
+    private(set) var openConsoleId: String? {
+        didSet {
+            guard openConsoleId != oldValue else { return }
+            // M14: only the console shown keeps an event stream open.
+            for id in [oldValue, openConsoleId].compactMap({ $0 }) { sessions[id]?.updateEventStream() }
+        }
+    }
     var consoleTab: ConsoleTab = .console
     /// The screens pushed in each tab of the open console.
     var tabPaths: [ConsoleTab: [Route]] = [:]
@@ -185,6 +191,10 @@ final class AppModel {
     /// How long Bonjour must have been browsing before the absence of a
     /// console means it closed ReminisLink (tests shorten it).
     @ObservationIgnored var closureMinimumBrowsing = PakClosure.minimumBrowsing
+    /// The delays of the event streams (M14; tests shorten them).
+    @ObservationIgnored var eventTiming = EventStreamTiming.live
+    /// `library` events closer than this are merged into one refresh.
+    @ObservationIgnored var libraryEventDebounce: Duration = .milliseconds(300)
 
     /// The navigation as one path: the list's screens, or `.console(id)`,
     /// the route of the selected tab (`.library`, `.transfers`, `.trash`;
@@ -249,7 +259,7 @@ final class AppModel {
     }
 
     var sheet: Sheet?
-    /// The app is active (M10: the write lease is renewed while it is).
+    /// The app is active.
     @ObservationIgnored private(set) var isForeground = false
     var linkError: AppError?
     /// A pairing with a console that is already paired, waiting for the
@@ -303,8 +313,22 @@ final class AppModel {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
 
-    /// The name sent at pairing: 1 to 64 Unicode scalars.
-    var clientName: String { Pairing.clientName(from: UIDevice.current.name) }
+    /// The name of this app's identity on the consoles (`clientName` of
+    /// `POST /pair`, 1 to 64 Unicode scalars): the name typed on the Add a
+    /// Console screen, shared by the Apple devices of the account; the
+    /// model of this device ("iPhone", "iPad") until one is typed. iOS
+    /// gives neither the iCloud account nor the real name of the device.
+    var clientName: String {
+        Pairing.clientName(from: store.pairingName() ?? "", fallback: Self.defaultClientName)
+    }
+
+    static var defaultClientName: String { UIDevice.current.model }
+
+    /// `X-RL-Platform` (informative): the kind of this device.
+    static var requestPlatform: RequestPlatform {
+        if ProcessInfo.processInfo.isiOSAppOnMac || ProcessInfo.processInfo.isMacCatalystApp { return .mac }
+        return UIDevice.current.userInterfaceIdiom == .pad ? .ipad : .iphone
+    }
 
     // MARK: - Pairing
 
@@ -318,11 +342,11 @@ final class AppModel {
             }
             return
         }
-        guard let link = PairingLink(url: url) else {
-            linkError = .invalidPairingLink
-            return
+        do {
+            requestPairing(try PairingLink.parse(url))
+        } catch {
+            linkError = AppError(pairingLink: error)
         }
-        requestPairing(link)
     }
 
     func requestPairing(_ link: PairingLink) {
@@ -333,7 +357,8 @@ final class AppModel {
     /// key would be replaced). The confirmation waits for the current sheet
     /// to be dismissed.
     func requestPairing(_ source: PairingSource) {
-        guard store.device(id: source.deviceId) != nil else {
+        // A console paired before M13 has nothing left to replace.
+        guard let device = store.device(id: source.deviceId), !device.needsRepair else {
             startPairing(source)
             return
         }
@@ -418,6 +443,9 @@ final class AppModel {
     /// The app is active again: uploads go on or resume.
     func becomeActive() {
         isForeground = true
+        // M13: another device of the Apple account may have paired or
+        // forgotten a console (iCloud Keychain).
+        store.reload()
         for session in sessions.values {
             session.transfers.resumeAfterSuspension()
             session.setForeground(true)
@@ -462,36 +490,44 @@ final class AppModel {
         return task
     }
 
-    /// "Pair Again": the Add a Console sheet, with the console of the
-    /// current screen offered for the PIN too (the camera may be
-    /// unavailable). Pairing it asks the replacement confirmation first.
+    /// "Pair Again": the Add a Console sheet (scan the console's QR code)
+    /// for the console of the current screen. Pairing it asks the
+    /// replacement confirmation first.
     func showRepair(deviceId: String? = nil) {
         sheet = .addConsole(repairing: deviceId ?? path.last.flatMap(\.deviceId))
     }
 
-    /// A new key was stored: connections signed with the old one are dropped.
+    /// A new pairing was stored: connections made before are dropped.
     func didReplaceKey(for deviceId: String) {
-        sessions[deviceId] = nil
+        dropSession(deviceId)
     }
 
     func finishPairing(deviceId: String?) {
         sheet = nil
         if let deviceId {
-            sessions[deviceId] = nil
+            dropSession(deviceId)
             path = [.console(deviceId)]
         }
     }
 
     // MARK: - Connections
 
+    /// A client of one console, over TLS pinned on `pin` (or on the pin of
+    /// `credentials`).
     func makeClient(
-        endpoint: Endpoint, expectedDeviceId: String, credentials: DeviceCredentials? = nil,
+        endpoint: Endpoint, expectedDeviceId: String, credentials: DeviceCredentials? = nil, pin: String? = nil,
         errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
     ) -> APIClient {
         APIClient(
-            endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials,
-            appVersion: Self.appVersion, session: makeSession(), errorObserver: errorObserver
+            endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials, pin: pin,
+            platform: Self.requestPlatform, appVersion: Self.appVersion, session: makeSession(),
+            errorObserver: errorObserver
         )
+    }
+
+    /// Drops a session; its event stream closes (M14).
+    private func dropSession(_ deviceId: String) {
+        sessions.removeValue(forKey: deviceId)?.stopEventStream()
     }
 
     func session(for deviceId: String) -> ConsoleSession {
@@ -501,9 +537,7 @@ final class AppModel {
         return session
     }
 
-    /// Finds a console with Bonjour by its id, for a paired console as for a
-    /// pairing link: the `h`/`p` of a QR code are never used
-    /// (docs/specs/03-protocole.md §3.1).
+    /// Finds a paired console with Bonjour by its id.
     func endpoint(for deviceId: String) async throws -> Endpoint {
         let discovery = discovery
         return try await DeviceLocator.locate(
@@ -511,6 +545,27 @@ final class AppModel {
             find: { await discovery.waitForDevice(id: deviceId, timeout: $0) },
             resolve: { try await EndpointResolver.resolve($0) },
             isLocalNetworkDenied: { discovery.status == .localNetworkDenied }
+        )
+    }
+
+    /// How long pairing waits for Bonjour before trying the address of the
+    /// QR code.
+    static let pairingBonjourTimeout: Duration = .seconds(3)
+
+    /// Finds the console of a pairing link: Bonjour by its id first, then,
+    /// if Bonjour does not find it quickly, the address of the QR code
+    /// (`h`:`p`). M13: the certificate pin of the link authenticates the
+    /// console, so a fake pak at that address cannot be paired
+    /// (docs/specs/03-protocole.md §3.1).
+    func pairingEndpoint(for link: PairingLink) async throws -> Endpoint {
+        let discovery = discovery
+        let deviceId = link.deviceId
+        return try await DeviceLocator.locate(
+            timeout: link.endpoint == nil ? lookupTimeout : min(lookupTimeout, Self.pairingBonjourTimeout),
+            find: { await discovery.waitForDevice(id: deviceId, timeout: $0) },
+            resolve: { try await EndpointResolver.resolve($0) },
+            isLocalNetworkDenied: { discovery.status == .localNetworkDenied },
+            fallback: link.endpoint
         )
     }
 
@@ -554,7 +609,7 @@ final class AppModel {
 
     /// Forgets a device on this iPhone (after unpairing).
     func forget(deviceId: String) throws {
-        sessions[deviceId] = nil
+        dropSession(deviceId)
         try store.remove(deviceId)
         path.removeAll()
     }
@@ -574,10 +629,18 @@ extension AppModel {
         #endif
         let group = Bundle.main.object(forInfoDictionaryKey: "RLAppGroup") as? String
         let defaults = group.flatMap { UserDefaults(suiteName: $0) } ?? .standard
-        let store = DeviceStore(secureStore: KeychainStore(service: "ReminisLink.devices"), defaults: defaults)
+        // M13: the identity and the paired consoles are synchronized
+        // through the iCloud Keychain; the RL1 keys (this device only) are
+        // deleted at the first launch.
+        let store = DeviceStore(
+            secureStore: KeychainStore(service: "ReminisLink.pairing", synchronizable: true),
+            defaults: defaults,
+            legacySecureStore: KeychainStore(service: "ReminisLink.devices")
+        )
         #if DEBUG
         if environment["RL_RESET_STORE"] == "1" {
             for device in store.devices { try? store.remove(device.id) }
+            try? store.setPairingName("")
         }
         #endif
         let app = AppModel(
@@ -614,9 +677,14 @@ extension AppModel {
         try? FileManager.default.removeItem(at: artDirectory)
         let demoSaves = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoSaves")
         try? FileManager.default.removeItem(at: demoSaves)
-        // UI tests (M10): another paired iPhone holds the write lease.
-        if let name = ProcessInfo.processInfo.environment["RL_UITEST_OTHER_WRITER"], !name.isEmpty {
-            pak.simulateOtherWriter(name: name)
+        // UI tests (M13): the next writes find the console busy.
+        if let n = ProcessInfo.processInfo.environment["RL_UITEST_BUSY_WRITES"].flatMap(Int.init) {
+            pak.busyNextWrites(n, retryAfter: 1)
+        }
+        // UI tests (M13): the demo console was paired before M13 (RL1).
+        if ProcessInfo.processInfo.environment["RL_UITEST_RL1_CONSOLE"] == "1" {
+            let legacy = [PairedDevice(id: pak.deviceId, name: pak.deviceName, model: pak.model, pairedAt: Date(), needsRepair: true)]
+            UserDefaults(suiteName: suite)?.set(try? JSONEncoder().encode(legacy), forKey: "pairedDevices")
         }
         // UI tests (M9): the second listing of the saves finds one changed.
         if let n = ProcessInfo.processInfo.environment["RL_UITEST_SAVE_CHANGES_ON_LISTING"].flatMap(Int.init) {

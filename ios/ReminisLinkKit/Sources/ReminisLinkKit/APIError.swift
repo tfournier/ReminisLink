@@ -21,8 +21,6 @@ public enum ErrorCode: Hashable, Sendable {
     case `internal`
     case shuttingDown
     case insufficientStorage
-    /// M10: another client holds the write lease (`423`, `details.writer`).
-    case readOnly
     /// M10: the console disconnected this client (`401`), until
     /// `POST /clients/me/connect`.
     case disconnected
@@ -49,7 +47,6 @@ public enum ErrorCode: Hashable, Sendable {
         (.internal, "internal"),
         (.shuttingDown, "shutting_down"),
         (.insufficientStorage, "insufficient_storage"),
-        (.readOnly, "read_only"),
         (.disconnected, "disconnected"),
     ]
 
@@ -92,11 +89,12 @@ public struct ServerError: Error, Sendable, Equatable {
         return max(0, required - available)
     }
 
-    /// For `423 read_only` (M10): `details.writer`, the name of the client
-    /// holding the write lease.
-    public var writerName: String? {
-        guard code == .readOnly, case .string(let name)? = details["writer"], !name.isEmpty else { return nil }
-        return name
+    /// M13: a write that waited 10 s for the write in progress on the
+    /// console (`429 too_many_attempts`, message `Device busy`, with
+    /// `Retry-After`). Nothing was changed: the same request can be sent
+    /// again. The contract tells it from the other `429`s by its message.
+    public var isDeviceBusy: Bool {
+        status == 429 && code == .tooManyAttempts && message == "Device busy"
     }
 }
 
@@ -120,6 +118,9 @@ public enum APIError: Error, Sendable, Equatable {
     case signing(SignerError)
     /// The pairing exchange failed on the app side (bad device proof...).
     case pairing(PairingError)
+    /// M13: the console presented another certificate than the one pinned
+    /// at pairing (or the pin is unknown). Nothing was sent: pair again.
+    case identityChanged
 
     /// The server error code, if this is a server error.
     public var code: ErrorCode? {
@@ -127,13 +128,10 @@ public enum APIError: Error, Sendable, Equatable {
         return nil
     }
 
-    /// `423 read_only` (M10): another client holds the write lease.
-    public var isReadOnly: Bool { code == .readOnly }
-
-    /// The holder named by a `423 read_only`, if any.
-    public var readOnlyWriter: String? {
-        if case .server(let e) = self { return e.writerName }
-        return nil
+    /// `429 Device busy` (M13): another write was running on the console.
+    public var isDeviceBusy: Bool {
+        if case .server(let e) = self { return e.isDeviceBusy }
+        return false
     }
 
     /// `401 disconnected` (M10): the console disconnected this client.

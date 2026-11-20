@@ -21,8 +21,9 @@ struct ChunkProgressTests {
 
     func client(port: UInt16) -> APIClient {
         APIClient(
+            scheme: "http", // A plain local test server: no TLS.
             endpoint: Endpoint(host: "127.0.0.1", port: port),
-            credentials: DeviceCredentials(deviceId: FakePak.demoDeviceId, clientId: Pairing.makeClientId(), key: SymmetricKey(size: .bits256)),
+            credentials: DeviceCredentials.random(deviceId: FakePak.demoDeviceId),
             session: APIClient.makeSession()
         )
     }
@@ -54,7 +55,7 @@ struct ChunkProgressTests {
     /// late or out-of-order callbacks.
     @Test func theDelegateClosesTheReportsWhenTheRequestEnds() {
         let reports = Reports()
-        let delegate = PakTaskDelegate(onSent: { reports.addSent($0) })
+        let delegate = PakTaskDelegate(pin: nil, onSent: { reports.addSent($0) })
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
         let task = session.dataTask(with: URL(string: "http://127.0.0.1:9/")!)

@@ -146,8 +146,7 @@ struct DeleteGameView: View {
                     }
                 }
             }
-            // Another device has write access (M10).
-            .disabled(isWorking || preview == nil || app.session(for: target.deviceId).isReadOnly)
+            .disabled(isWorking || preview == nil)
             .accessibilityIdentifier("delete.confirm")
         } footer: {
             Text("Everything stays in the trash of the console for at least 30 days. The space is only freed when the trash is emptied.")
@@ -182,7 +181,7 @@ struct DeleteGameView: View {
                         confirmEmpty = true
                     }
                 }
-                    .disabled(isWorking || app.session(for: target.deviceId).isReadOnly)
+                    .disabled(isWorking)
                     .accessibilityIdentifier("delete.emptyNow")
             }
         } footer: {

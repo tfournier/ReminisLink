@@ -1,20 +1,21 @@
-import CryptoKit
 import Foundation
 import ReminisLinkDemo
 import ReminisLinkKit
 import Testing
 @testable import ReminisLink
 
-/// Milestone M10 in the app: the read-only state, "Take Over", the lease
-/// released in the background, and the disconnection by the console
-/// (`POST /clients/me/connect` only on an explicit action).
+/// The access of the app to a console: the disconnection by the console
+/// (M10, `POST /clients/me/connect` only on an explicit action), Forget,
+/// and the writes run one at a time by the pak (M13: `429 Device busy`,
+/// retried by itself for the end of an upload, said for a user action).
+/// M13 removed the write lease, the read-only state and "Take Over".
 @MainActor
-@Suite("Write access (M10)", .serialized)
-struct WriteAccessAppTests {
+@Suite("Console access (M10, M13)", .serialized)
+struct ClientAccessAppTests {
     let secure = InMemorySecureStore()
 
     func makePak() -> FakePak {
-        let pak = FakePak(host: "m10-\(UUID().uuidString.lowercased()).test")
+        let pak = FakePak(host: "m13-\(UUID().uuidString.lowercased()).test")
         pak.register()
         return pak
     }
@@ -28,11 +29,8 @@ struct WriteAccessAppTests {
             lookupTimeout: .milliseconds(300),
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
-        let clientId = try app.store.installationClientId()
-        let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "This iPhone")
-        let key = try await APIClient(endpoint: pak.endpoint, session: pak.makeSession()).pair(attempt)
-        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: clientId, key: key)
-        return (app, clientId)
+        try await app.pairDirectly(with: pak, clientName: "This iPhone")
+        return (app, try app.store.identity().clientId)
     }
 
     func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async {
@@ -44,97 +42,6 @@ struct WriteAccessAppTests {
 
     func count(_ pak: FakePak, _ method: String, _ path: String) -> Int {
         pak.log.filter { $0.method == method && $0.path == "/api/v1" + path }.count
-    }
-
-    @Test func inTheForegroundTheFreeLeaseIsTaken() async throws {
-        let pak = makePak()
-        let (app, clientId) = try await pairedApp(pak)
-        app.becomeActive()
-        let session = app.session(for: pak.deviceId)
-        await session.connect()
-        await waitUntil { session.lease.access == .writer }
-        #expect(session.lease.access == .writer)
-        #expect(pak.writerClient == clientId)
-        #expect(session.canWrite)
-
-        // To the background, nothing running: released.
-        app.enterBackground()
-        await waitUntil { pak.writerClient == nil }
-        #expect(count(pak, "DELETE", "/writer") == 1)
-        session.lease.stop()
-    }
-
-    @Test func anotherWriterMakesTheAppReadOnlyUntilItTakesOver() async throws {
-        let pak = makePak()
-        pak.simulateOtherWriter(name: "Thomas’s iPhone")
-        let (app, clientId) = try await pairedApp(pak)
-        app.becomeActive()
-        let session = app.session(for: pak.deviceId)
-        await session.connect()
-        #expect(session.isReadOnly)
-        #expect(session.lease.access == .readOnly(holder: "Thomas’s iPhone", tookOver: false))
-        // Opening the app never takes the lease from another client.
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(pak.writerClient != clientId)
-
-        // A write anyway: 423, explained, nothing changed.
-        let trash = try #require(session.trash?.entries.first)
-        do {
-            try await session.deleteTrashEntry(trash.id)
-            Issue.record("a read-only write went through")
-        } catch let error as AppError {
-            #expect(error.isReadOnly)
-            #expect(error.message.contains("Thomas’s iPhone"))
-            #expect(error.action == nil)
-        }
-        #expect(session.state == .connected)
-
-        try await session.takeOver()
-        #expect(!session.isReadOnly)
-        #expect(pak.writerClient == clientId)
-        try await session.deleteTrashEntry(trash.id)
-        session.lease.stop()
-    }
-
-    @Test func a423SeenOnAWriteSwitchesToReadOnly() async throws {
-        let pak = makePak()
-        let (app, _) = try await pairedApp(pak)
-        let session = app.session(for: pak.deviceId)
-        await session.connect()
-        #expect(!session.isReadOnly)
-        pak.simulateOtherWriter(name: "Other iPhone")
-        _ = try? await session.emptyTrash()
-        await waitUntil { session.isReadOnly }
-        #expect(session.lease.access == .readOnly(holder: "Other iPhone", tookOver: false))
-    }
-
-    @Test func theFormerWriterSeesWhoTookOverAndItsUploadsPause() async throws {
-        let pak = makePak()
-        pak.chunkSize = 16 * 1024
-        let (app, clientId) = try await pairedApp(pak)
-        app.becomeActive()
-        let session = app.session(for: pak.deviceId)
-        await session.connect()
-        await waitUntil { session.lease.access == .writer }
-        // Another iPhone takes over.
-        pak.takeOver(by: pak.simulateOtherWriter(name: "Other iPhone"))
-        let file = FileManager.default.temporaryDirectory.appending(path: "m10-\(UUID().uuidString).gba")
-        try Data(repeating: 7, count: 40_000).write(to: file)
-        let system = try #require(try await session.perform { try await $0.systems() }.first)
-        let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "M10.gba"), destination: "GBA", ownsFile: false
-        )
-        await session.transfers.waitUntilIdle()
-        #expect(item.phase == .paused)
-        await waitUntil { session.isReadOnly }
-        #expect(session.lease.access == .readOnly(holder: "Other iPhone", tookOver: true))
-
-        // Taken back: the upload resumes by itself.
-        try await session.takeOver()
-        #expect(pak.writerClient == clientId)
-        await waitUntil { item.phase == .done }
-        #expect(item.phase == .done)
-        session.lease.stop()
     }
 
     @Test func aDisconnectionIsShownAndOnlyAnExplicitActionReconnects() async throws {
@@ -231,78 +138,56 @@ struct WriteAccessAppTests {
         #expect(pak.isDisconnected(clientId: clientId))
     }
 
-    /// #2: a write refused before the take-over and answered after it
-    /// does not make the app read-only again.
-    @Test func aLate423DoesNotUndoATakeOver() async throws {
+    /// An upload refused by `401 disconnected` pauses (nothing lost) and
+    /// goes on by itself once the user reconnects.
+    @Test func anUploadPausedByADisconnectionResumesAfterReconnecting() async throws {
         let pak = makePak()
-        pak.simulateOtherWriter(name: "Other iPhone")
         let (app, clientId) = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
         await session.connect()
-        #expect(session.isReadOnly)
-        pak.delayNextAnswer(method: "DELETE", path: "/api/v1/trash", by: 0.5)
-        let write = Task { try? await session.emptyTrash() }
-        await waitUntil { count(pak, "DELETE", "/trash") == 1 } // refused, answer in flight
-        try await session.takeOver()
-        #expect(session.lease.access == .writer)
-        await write.value // the late 423 arrives
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(session.lease.access == .writer)
-        #expect(!session.isReadOnly)
-        #expect(pak.writerClient == clientId)
-    }
-
-    /// #2: an upload refused before the take-over, whose pause is recorded
-    /// after it, resumes by itself.
-    @Test func anUploadPausedAfterTheTakeOverResumes() async throws {
-        let pak = makePak()
-        pak.simulateOtherWriter(name: "Other iPhone")
-        let (app, clientId) = try await pairedApp(pak)
-        let session = app.session(for: pak.deviceId)
-        await session.connect()
-        #expect(session.isReadOnly)
         let system = try #require(try await session.perform { try await $0.systems() }.first)
-        pak.delayNextAnswer(method: "POST", path: "/api/v1/uploads", by: 0.5)
-        let file = FileManager.default.temporaryDirectory.appending(path: "m10-\(UUID().uuidString).gba")
+        pak.disconnect(clientId: clientId)
+        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).gba")
         try Data(repeating: 3, count: 20_000).write(to: file)
         let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "Late.gba"), destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Paused.gba"), destination: "GBA", ownsFile: false
         )
-        await waitUntil { count(pak, "POST", "/uploads") == 1 }
-        try await session.takeOver()
-        #expect(pak.writerClient == clientId)
+        await waitUntil { item.phase == .paused }
+        #expect(item.phase == .paused)
+        #expect((item.failure as? APIError)?.isDisconnected == true)
+        await waitUntil { session.isDisconnected }
+        await session.reconnect()
         await waitUntil { item.phase == .done }
         #expect(item.phase == .done, "\(String(describing: item.failure))")
-        session.lease.stop()
     }
 
-    /// #3: a cheat file refused while read-only waits, keeps its copy, and
-    /// is imported once this iPhone takes over.
-    @Test func aCheatFileWaitsForWriteAccess() async throws {
+    /// A cheat file refused by a disconnection waits, keeps its copy, and
+    /// is imported once the user reconnects.
+    @Test func aCheatFileWaitsForReconnection() async throws {
         let pak = makePak()
-        pak.simulateOtherWriter(name: "Other iPhone")
-        let (app, _) = try await pairedApp(pak)
+        let (app, clientId) = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
         await session.connect()
+        pak.disconnect(clientId: clientId)
         let file = try await picked(app, name: "pack.cht", contents: Data("cheat0_desc = \"Wait\"\ncheat0_code = \"3\"\n".utf8))
         let game = DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner.gba")
         let task = Task { try await session.importCheats(gameId: game, from: file, mode: .merge) }
-        await waitUntil { session.writeAccessWaits == 1 }
-        #expect(session.writeAccessWaits == 1)
+        await waitUntil { session.reconnectionWaits == 1 }
+        #expect(session.reconnectionWaits == 1)
         #expect(FileManager.default.fileExists(atPath: file.url.path))
-        try await session.takeOver()
+        await session.reconnect()
         let result = try await task.value
         #expect(result.imported == 1)
     }
 
-    /// #3: the patch upload refused while read-only waits and goes on once
-    /// this iPhone takes over (never restarted).
-    @Test func aPatchUploadWaitsForWriteAccess() async throws {
+    /// The patch upload refused by a disconnection waits and goes on once
+    /// the user reconnects (never restarted).
+    @Test func aPatchUploadWaitsForReconnection() async throws {
         let pak = makePak()
-        let (app, _) = try await pairedApp(pak)
+        let (app, clientId) = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
         await session.connect()
-        pak.simulateOtherWriter(name: "Other iPhone")
+        pak.disconnect(clientId: clientId)
         let game = PatchGame(
             id: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
             fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Game Boy Advance"
@@ -311,25 +196,76 @@ struct WriteAccessAppTests {
         flow.file = try await picked(app, name: "fix.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 64)))
         flow.fileName = "Sky Garden Quest (fix).gba"
         flow.start()
-        await waitUntil { flow.isWaitingForWriteAccess }
-        #expect(flow.isWaitingForWriteAccess)
-        try await session.takeOver()
+        await waitUntil { flow.isWaitingForReconnection }
+        #expect(flow.isWaitingForReconnection)
+        await session.reconnect()
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
         #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (fix).gba"), late: false))
-        // Refused once (423, nothing created), then created once.
-        #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status == 423 }.count == 1)
+        // Refused (401, nothing created; or not sent at all, the session
+        // already knowing it was disconnected), then created once.
+        #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status == 401 }.count <= 1)
+        #expect(pak.log.contains { $0.status == 401 })
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
 
-    /// Round 2 #2 / round 3 #1: another iPhone takes over during the patch
-    /// upload, and this iPhone cancels before it learns it. While the
-    /// DELETE waits for the console, the screen cannot be closed and the
-    /// local copy stays (closing does nothing); refused, the upload stays,
-    /// paused, and goes on once this iPhone takes over.
+    // MARK: - Writes one at a time (M13)
+
+    /// The end of an upload that finds another write running gets
+    /// `429 Device busy`: nothing was written, the app sends it again
+    /// after `Retry-After`, by itself.
+    @Test func aBusyUploadEndIsSentAgainByItself() async throws {
+        let pak = makePak()
+        let (app, _) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let system = try #require(try await session.perform { try await $0.systems() }.first)
+        pak.busyNextWrites(1, retryAfter: 1)
+        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).gba")
+        try Data(repeating: 5, count: 20_000).write(to: file)
+        let item = try session.transfers.enqueue(
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Busy.gba"), destination: "GBA", ownsFile: false
+        )
+        await waitUntil(timeout: .seconds(10)) { item.phase == .done || item.phase == .failed }
+        #expect(item.phase == .done, "\(String(describing: item.failure))")
+        #expect(pak.busyRefusals == 1)
+        let completes = pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/complete") }.map(\.status)
+        #expect(completes == [429, 200] || completes == [429, 201])
+        #expect(session.state == .connected)
+    }
+
+    /// A user action that finds the console busy says so (nothing was
+    /// changed, try again in N seconds); the connection stays.
+    @Test func aBusyUserActionSaysSo() async throws {
+        let pak = makePak()
+        let (app, _) = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let game = DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner.gba")
+        pak.busyNextWrites(1, retryAfter: 3)
+        do {
+            _ = try await session.deleteGame(id: game, keepSave: false)
+            Issue.record("expected Device busy")
+        } catch let error as AppError {
+            #expect(error.isDeviceBusy)
+            #expect(error.message == String(localized: "The console is busy with another change. Nothing was changed. Try again in \(3) seconds."))
+            #expect(error.action == .retry)
+        }
+        #expect(session.state == .connected)
+        #expect(pak.library.game(id: game) != nil, "nothing was deleted")
+        // Tried again: done.
+        _ = try await session.deleteGame(id: game, keepSave: false)
+        #expect(pak.library.game(id: game) == nil)
+    }
+
+    /// The console disconnects this app during the patch upload, and the
+    /// user cancels before the app learns it. While the DELETE waits for
+    /// the console, the screen cannot be closed and the local copy stays
+    /// (closing does nothing); refused, the upload stays, paused, and goes
+    /// on once the user reconnects.
     @Test func aRefusedPatchCancelKeepsTheUploadPaused() async throws {
         let pak = makePak()
         pak.chunkSize = 16 * 1024
-        let (app, _) = try await pairedApp(pak)
+        let (app, clientId) = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
         await session.connect()
         let game = PatchGame(
@@ -341,7 +277,7 @@ struct WriteAccessAppTests {
         flow.file = file
         flow.fileName = "Sky Garden Quest (big).gba"
         // The upload is created, then its first chunk waits at the door
-        // while the other iPhone takes over.
+        // while the console disconnects this app.
         let chunkGate = Locked<FakeGate?>(nil)
         let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
         flow.start()
@@ -350,8 +286,8 @@ struct WriteAccessAppTests {
         chunkGate.set(pak.holdNextArrival(method: "PUT", path: "/api/v1/uploads/\(uploadId)"))
         created.open()
         await waitUntil { chunkGate.value?.reached == true }
-        pak.simulateOtherWriter(name: "Other iPhone")
-        #expect(!session.isReadOnly, "this iPhone does not know yet")
+        pak.disconnect(clientId: clientId)
+        #expect(!session.isDisconnected, "this iPhone does not know yet")
 
         let delete = pak.holdNextAnswer(method: "DELETE", path: "/api/v1/uploads/\(uploadId)")
         let cancel = Task { await flow.cancel() }
@@ -363,12 +299,12 @@ struct WriteAccessAppTests {
         delete.open()
         await cancel.value
         chunkGate.value?.open()
-        await waitUntil { flow.isWaitingForWriteAccess }
-        #expect(flow.isWaitingForWriteAccess, "paused, not cancelled: \(flow.step)")
+        await waitUntil { flow.isWaitingForReconnection }
+        #expect(flow.isWaitingForReconnection, "paused, not cancelled: \(flow.step)")
         #expect(FileManager.default.fileExists(atPath: file.url.path), "the local copy is kept")
         #expect(pak.uploadIds.count == 1)
 
-        try await session.takeOver()
+        await session.reconnect()
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
         #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (big).gba"), late: false))
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)

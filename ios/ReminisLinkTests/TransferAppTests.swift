@@ -30,13 +30,10 @@ struct TransferAppTests {
             lookupTimeout: .milliseconds(300),
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
-        let clientId = try app.store.installationClientId()
-        let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "Test")
-        let key = try await APIClient(endpoint: pak.endpoint, session: pak.makeSession()).pair(attempt)
-        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: clientId, key: key)
+        try await app.pairDirectly(with: pak)
         if devices > 1 {
             try app.store.save(deviceId: "00000000-0000-4000-8000-000000000002", name: "Other", model: .brick,
-                               clientId: clientId, key: SymmetricKey(size: .bits256))
+                               pin: pak.pin)
         }
         return app
     }
