@@ -106,6 +106,9 @@ type Server struct {
 	// jobHook, when set (tests), is called by a request that queued a
 	// job, before it checks its client again.
 	jobHook atomic.Pointer[func(id string)]
+	// enqueueHook, when set (tests), is called by a request about to
+	// queue a job, after its acceptance.
+	enqueueHook atomic.Pointer[func()]
 	// routeTable lists the signed routes with their options, as
 	// registered (walked by the tests: every write route takes the write
 	// lock).

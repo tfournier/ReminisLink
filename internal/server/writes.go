@@ -99,6 +99,9 @@ func (s *Server) withWriteCheck(r *http.Request) *http.Request {
 // jobGuard is the guard of a job started by the request (M13): fixed at
 // submission, checked again at the install step.
 func (s *Server) jobGuard(r *http.Request) transfer.JobGuard {
+	if hook := s.enqueueHook.Load(); hook != nil {
+		(*hook)()
+	}
 	ad, _ := auth.AdmissionValue(r.Context()).(admission)
 	return s.access.jobGuard(ad)
 }

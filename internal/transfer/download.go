@@ -116,17 +116,11 @@ func (s *Service) StartDownload(req DownloadRequest, guard JobGuard) (string, *E
 			return "", apiErr, err
 		}
 	}
-	id, err := s.jobs.SubmitGuarded(JobDownload, downloadLabel(u, target), guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	id, apiErr, err := s.submitGuarded(JobDownload, downloadLabel(u, target), guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runDownload(ctx, u, target, want, onConflict, report)
 	})
-	if errors.Is(err, ErrTooManyJobs) {
-		return "", tooMany("Too many jobs"), nil
-	}
-	if errors.Is(err, ErrJobsClosed) {
-		return "", newError(http.StatusServiceUnavailable, CodeShuttingDown, "Shutting down"), nil
-	}
-	if err != nil {
-		return "", nil, err
+	if apiErr != nil || err != nil {
+		return "", apiErr, err
 	}
 	s.log.Info("download queued", "job", id, "url", safeURL(u), "kind", target.Kind)
 	return id, nil, nil

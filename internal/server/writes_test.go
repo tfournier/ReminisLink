@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -370,6 +371,18 @@ func (f *fixture) jobState(id string) string {
 	return j.State
 }
 
+// waitWriteWaiter waits until a caller waits for the write lock.
+func (f *fixture) waitWriteWaiter() {
+	f.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for f.server.writes().Waiting() == 0 {
+		if time.Now().After(deadline) {
+			f.t.Fatal("nobody waits for the write lock")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 // Codex round 2, race 1: the queue starts the job before the request that
 // queued it answers; the client is revoked while the job waits for the
 // write lock: the job, tied to its client at submission, ends cancelled
@@ -377,16 +390,15 @@ func (f *fixture) jobState(id string) string {
 func TestJobTiedToItsClientFromTheStart(t *testing.T) {
 	f := newFixture(t)
 	b := f.pairNamed("iPhone B")
-	_, body := downloadOrigin(t)
+	origin, _ := downloadOrigin(t)
+	body := mustJSON(t, map[string]any{"url": origin + "/hack.gba", "onConflict": "fail",
+		"target": map[string]any{"kind": "rom", "systemId": library.EncodeID(gbaFolder), "fileName": "Revoked Download.gba"}})
 	f.holdWrites(20 * time.Millisecond)
 	reached, release := f.holdJobHandler()
 	answer := make(chan testutil.Response, 1)
 	go func() { answer <- b.Do(t, http.MethodPost, "/api/v1/downloads", body) }()
 	id := <-reached
-	time.Sleep(150 * time.Millisecond) // the job downloaded and waits for its install
-	if st := f.jobState(id); st != "running" {
-		t.Fatalf("job %s", st)
-	}
+	f.waitWriteWaiter() // the job downloaded and waits for its install
 	if err := f.server.Disconnect(b.ClientID); err != nil {
 		t.Fatal(err)
 	}
@@ -394,10 +406,50 @@ func TestJobTiedToItsClientFromTheStart(t *testing.T) {
 	if j := f.waitJob(id); j.State != "cancelled" || j.Result != nil {
 		t.Fatalf("job of a revoked client: %+v", j)
 	}
+	if f.exists("Roms/" + gbaFolder + "/Revoked Download.gba") {
+		t.Fatal("the job of a revoked client installed its file")
+	}
 	release()
 	r := <-answer
 	f.check(http.MethodPost, "/downloads", r)
 	wantCode(t, r, CodeDisconnected)
+}
+
+// Codex round 3: a client revoked after its request was accepted but
+// before the job is queued gets 401, no job, and no outbound request.
+func TestRevokedBeforeTheJobIsQueued(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	var requests atomic.Int32
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Write([]byte("x"))
+	}))
+	defer src.Close()
+	game := gbaFolder + "/Starlight Courier.gba"
+	stagingID := f.stageFile("hack.bps", testutil.EncodeBPS([]byte("abcdef"), []byte("abXdef")))
+	hook := func() { f.server.Disconnect(b.ClientID) }
+	f.server.enqueueHook.Store(&hook)
+	for _, tc := range []struct {
+		target, route string
+		body          []byte
+	}{
+		{"/api/v1/downloads", "/downloads", mustJSON(t, map[string]any{"url": src.URL + "/x.bps", "target": map[string]any{"kind": "staging"}})},
+		{"/api/v1/games/" + library.EncodeID(game) + "/patch", "/games/{gameId}/patch",
+			mustJSON(t, map[string]any{"patch": map[string]any{"type": "staging", "stagingId": stagingID}, "output": map[string]any{"mode": "new-file"}})},
+	} {
+		f.as(b, http.MethodPost, "/api/v1/clients/me/connect", "/clients/me/connect", nil, http.StatusNoContent)
+		r := b.Do(t, http.MethodPost, tc.target, tc.body)
+		f.check(http.MethodPost, tc.route, r)
+		wantCode(t, r, CodeDisconnected)
+	}
+	f.server.enqueueHook.Store(nil)
+	if jobs := f.server.opts.Transfers.Jobs().List(); len(jobs) != 0 {
+		t.Fatalf("jobs created for a revoked client: %+v", jobs)
+	}
+	if n := requests.Load(); n != 0 {
+		t.Fatalf("%d outbound requests for a revoked client", n)
+	}
 }
 
 // Codex round 2, race 2: an old request that queued a job is revoked; the

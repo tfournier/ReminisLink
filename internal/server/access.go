@@ -175,7 +175,18 @@ func (a *access) recheck(ad admission) *auth.Rejection {
 // step checks that this admission is still current, under the same lock
 // as the revocations.
 func (a *access) jobGuard(ad admission) transfer.JobGuard {
-	return transfer.JobGuard{Owner: ad.id, Gen: ad.gen, Valid: func() bool { return a.recheck(ad) == nil }}
+	return transfer.JobGuard{Owner: ad.id, Gen: ad.gen,
+		Valid: func() bool { return a.recheck(ad) == nil },
+		// The job is queued under the lock of the revocations: a client
+		// revoked before never gets it (no outbound request either).
+		Admit: func() (func(), *transfer.Error) {
+			a.mu.Lock()
+			if rej := a.checkGenLocked(ad, false); rej != nil {
+				a.mu.Unlock()
+				return nil, &transfer.Error{Status: rej.Status, Code: rej.Code, Message: rej.Message, Details: rej.Details}
+			}
+			return a.mu.Unlock, nil
+		}}
 }
 
 // cancelStaleJobs cancels the jobs of a client started under an older

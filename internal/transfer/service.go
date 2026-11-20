@@ -647,3 +647,25 @@ func (s *Service) acquireWrites(ctx context.Context) *Error {
 		return newError(http.StatusServiceUnavailable, CodeShuttingDown, "Request cancelled")
 	}
 }
+
+// submitGuarded queues a job under the admission of its guard (M13).
+func (s *Service) submitGuarded(kind, label string, guard JobGuard, run RunFunc) (string, *Error, error) {
+	if guard.Admit != nil {
+		unlock, refused := guard.Admit()
+		if refused != nil {
+			return "", refused, nil
+		}
+		defer unlock()
+	}
+	id, err := s.jobs.SubmitGuarded(kind, label, guard, run)
+	if errors.Is(err, ErrTooManyJobs) {
+		return "", tooMany("Too many jobs"), nil
+	}
+	if errors.Is(err, ErrJobsClosed) {
+		return "", newError(http.StatusServiceUnavailable, CodeShuttingDown, "Shutting down"), nil
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	return id, nil, nil
+}

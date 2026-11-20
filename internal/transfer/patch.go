@@ -151,17 +151,11 @@ func (s *Service) StartPatch(gameID string, req PatchRequest, guard JobGuard) (s
 	if apiErr := detectPatch(j.patchPath); apiErr != nil {
 		return "", apiErr, nil
 	}
-	id, err := s.jobs.SubmitGuarded(JobPatch, g.Name, guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	id, apiErr, err := s.submitGuarded(JobPatch, g.Name, guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runPatch(ctx, j, report)
 	})
-	if errors.Is(err, ErrTooManyJobs) {
-		return "", tooMany("Too many jobs"), nil
-	}
-	if errors.Is(err, ErrJobsClosed) {
-		return "", newError(http.StatusServiceUnavailable, CodeShuttingDown, "Shutting down"), nil
-	}
-	if err != nil {
-		return "", nil, err
+	if apiErr != nil || err != nil {
+		return "", apiErr, err
 	}
 	s.log.Info("patch queued", "job", id, "game", g.Path, "mode", j.mode)
 	return id, nil, nil

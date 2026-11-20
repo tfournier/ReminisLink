@@ -22,9 +22,13 @@ var ErrBusy = errors.New("device busy")
 type Lock struct {
 	ch   chan struct{}
 	wait atomic.Int64 // nanoseconds
-	// held counts the acquisitions, for tests.
-	held atomic.Uint64
+	// held counts the acquisitions, waiting the waiters, for tests.
+	held    atomic.Uint64
+	waiting atomic.Int32
 }
+
+// Waiting returns how many callers wait for the lock (tests).
+func (l *Lock) Waiting() int { return int(l.waiting.Load()) }
 
 // New returns a free lock whose requests wait at most wait (<= 0:
 // DefaultWait).
@@ -56,6 +60,8 @@ func (l *Lock) AcquireRequest(ctx context.Context) error {
 	}
 	t := time.NewTimer(l.Wait())
 	defer t.Stop()
+	l.waiting.Add(1)
+	defer l.waiting.Add(-1)
 	select {
 	case l.ch <- struct{}{}:
 		l.held.Add(1)
@@ -70,6 +76,14 @@ func (l *Lock) AcquireRequest(ctx context.Context) error {
 // Acquire takes the lock without a time limit (a job's install step);
 // it returns ctx.Err() if ctx ends first.
 func (l *Lock) Acquire(ctx context.Context) error {
+	select {
+	case l.ch <- struct{}{}:
+		l.held.Add(1)
+		return nil
+	default:
+	}
+	l.waiting.Add(1)
+	defer l.waiting.Add(-1)
 	select {
 	case l.ch <- struct{}{}:
 		l.held.Add(1)

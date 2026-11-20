@@ -93,6 +93,12 @@ type JobGuard struct {
 	Owner string
 	Gen   uint64
 	Valid func() bool
+	// Admit, when set, is called just before the job is queued: it takes
+	// the lock of the revocations and checks the client again; the job is
+	// queued while it holds it (one atomic step: a revoked client never
+	// gets a job, nor its outbound request), then unlock is called. A
+	// non-nil error refuses the job (unlock is then not called).
+	Admit func() (unlock func(), refused *Error)
 }
 
 type jobGuardKey struct{}
