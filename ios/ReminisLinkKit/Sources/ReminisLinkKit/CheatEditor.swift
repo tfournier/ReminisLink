@@ -34,6 +34,19 @@ public struct CheatEditor: Sendable, Equatable {
         cheats = list.cheats
     }
 
+    /// The list read again after the console reported a change (M14,
+    /// `library` event). Without local edits, it is shown. With local
+    /// edits, they are kept (never clobbered); returns true when the list
+    /// changed on the console, so the screen can say that the edits can no
+    /// longer be saved over it (the save would get `412`).
+    public mutating func consoleChanged(_ list: CheatList) -> Bool {
+        guard hasChanges else {
+            load(list)
+            return false
+        }
+        return list.etag != etag
+    }
+
     /// Drops the local edits.
     public mutating func discardChanges() {
         cheats = original

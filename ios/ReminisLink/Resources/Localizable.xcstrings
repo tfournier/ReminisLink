@@ -4441,6 +4441,16 @@
         }
       }
     },
+    "This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette liste a changé sur la console. Tes modifications ne peuvent plus l’écraser : abandonne-les pour voir la nouvelle liste."
+          }
+        }
+      }
+    },
     "This patch does not match this ROM. Check the ROM version the patch asks for." : {
       "localizations" : {
         "fr" : {

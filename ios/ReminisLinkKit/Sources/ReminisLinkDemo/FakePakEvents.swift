@@ -39,6 +39,18 @@ final class FakeEventHub: @unchecked Sendable {
     var retryAfter = 5
     var battery: Battery? = Battery(percent: 78, charging: false)
     var lastDevice: DeviceSnapshot?
+    /// Cadences of the contract: `library` at most once a second (changes
+    /// merged), `device` at most once every 5 s.
+    var libraryInterval: TimeInterval = 1
+    var deviceInterval: TimeInterval = 5
+    var lastLibraryEmit: Date?
+    var lastDeviceEmit: Date?
+    /// Systems waiting for the next `library` event (nil inside: unknown,
+    /// everything), and whether a send is scheduled.
+    var pendingLibrary: Set<String>??
+    var libraryScheduled = false
+    var devicePending = false
+    var deviceScheduled = false
     var keepAliveTimer: DispatchSourceTimer?
     var jobTimer: DispatchSourceTimer?
     let queue = DispatchQueue(label: "FakePak.events")
@@ -91,6 +103,30 @@ extension FakePak {
     public var eventsRetryAfter: Int {
         get { eventHub.lock.withLock { eventHub.retryAfter } }
         set { eventHub.lock.withLock { eventHub.retryAfter = newValue } }
+    }
+
+    /// The shortest gap between two `library` events (1 s in the contract).
+    public var libraryEventInterval: TimeInterval {
+        get { eventHub.lock.withLock { eventHub.libraryInterval } }
+        set { eventHub.lock.withLock { eventHub.libraryInterval = newValue } }
+    }
+
+    /// The shortest gap between two `device` events (5 s in the contract).
+    public var deviceEventInterval: TimeInterval {
+        get { eventHub.lock.withLock { eventHub.deviceInterval } }
+        set { eventHub.lock.withLock { eventHub.deviceInterval = newValue } }
+    }
+
+    /// Sends now what the cadences hold back, as if their interval had
+    /// passed (tests set long intervals and call this: no timing).
+    public func flushThrottledEvents() {
+        flushLibrary()
+        flushDevice()
+    }
+
+    /// Whether a `library` event waits for its interval.
+    public var libraryEventPending: Bool {
+        eventHub.lock.withLock { eventHub.pendingLibrary != nil }
     }
 
     /// Open streams, of every client or of one.
@@ -228,8 +264,76 @@ extension FakePak {
         emit("job", job.json)
     }
 
+    /// Queues a `library` event: sent at once if the last one is a second
+    /// old, otherwise once the second is over, with every change since
+    /// merged (an unknown change, empty `systemIds`, wins).
     func emitLibrary(_ systemIds: [String]) {
-        emit("library", ["systemIds": systemIds])
+        let hub = eventHub
+        let delay = hub.lock.withLock { () -> TimeInterval? in
+            let added: Set<String>? = systemIds.isEmpty ? nil : Set(systemIds)
+            switch hub.pendingLibrary {
+            case .none: hub.pendingLibrary = .some(added)
+            case .some(let current):
+                if let current, let added { hub.pendingLibrary = .some(current.union(added)) } else { hub.pendingLibrary = .some(nil) }
+            }
+            guard !hub.libraryScheduled else { return nil }
+            hub.libraryScheduled = true
+            let elapsed = hub.lastLibraryEmit.map { Date().timeIntervalSince($0) } ?? .infinity
+            return max(0, hub.libraryInterval - elapsed)
+        }
+        guard let delay else { return }
+        if delay == 0 {
+            flushLibrary()
+        } else {
+            hub.queue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.flushLibrary() }
+        }
+    }
+
+    private func flushLibrary() {
+        let hub = eventHub
+        let pending = hub.lock.withLock { () -> Set<String>?? in
+            defer {
+                hub.pendingLibrary = .none
+                hub.libraryScheduled = false
+                hub.lastLibraryEmit = Date()
+            }
+            return hub.pendingLibrary
+        }
+        guard case .some(let systems) = pending else { return }
+        emit("library", ["systemIds": systems.map { $0.sorted() } ?? []])
+    }
+
+    /// Queues a `device` event, at most one every ``deviceEventInterval``;
+    /// its content is read when it is sent (the latest state).
+    private func emitDevice() {
+        let hub = eventHub
+        let delay = hub.lock.withLock { () -> TimeInterval? in
+            hub.devicePending = true
+            guard !hub.deviceScheduled else { return nil }
+            hub.deviceScheduled = true
+            let elapsed = hub.lastDeviceEmit.map { Date().timeIntervalSince($0) } ?? .infinity
+            return max(0, hub.deviceInterval - elapsed)
+        }
+        guard let delay else { return }
+        if delay == 0 {
+            flushDevice()
+        } else {
+            hub.queue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.flushDevice() }
+        }
+    }
+
+    private func flushDevice() {
+        let hub = eventHub
+        let pending = hub.lock.withLock { () -> Bool in
+            defer {
+                hub.devicePending = false
+                hub.deviceScheduled = false
+                hub.lastDeviceEmit = Date()
+            }
+            return hub.devicePending
+        }
+        guard pending else { return }
+        emit("device", ["battery": batteryJSON, "connectedClients": connectedClientsJSON(), "storage": storageJSON])
     }
 
     /// A `device` event when the battery, the set of connected clients or
@@ -247,7 +351,7 @@ extension FakePak {
             return last != snapshot
         }
         guard changed else { return }
-        emit("device", ["battery": batteryJSON, "connectedClients": connectedClientsJSON(), "storage": storageJSON])
+        emitDevice()
     }
 
     /// The systems whose games a request changed (nil: nothing changed).

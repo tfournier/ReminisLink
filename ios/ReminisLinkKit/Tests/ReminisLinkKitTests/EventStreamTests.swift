@@ -84,7 +84,7 @@ final class TestConnector: @unchecked Sendable {
         lock.withLock { for n in 1...100 { failures[n] = error } }
     }
 
-    func connect() async throws -> AsyncThrowingStream<UInt8, Error> {
+    func connect() async throws -> any EventByteSource {
         let (n, failure) = lock.withLock { () -> (Int, Error?) in
             _connects += 1
             return (_connects, failures[_connects])
@@ -93,7 +93,7 @@ final class TestConnector: @unchecked Sendable {
         if let failure { throw failure }
         let (stream, continuation) = AsyncThrowingStream.makeStream(of: UInt8.self)
         lock.withLock { continuations.append(continuation) }
-        return stream
+        return SequenceByteSource(stream, onCancel: { continuation.finish() })
     }
 
     func send(_ text: String) {
@@ -157,8 +157,9 @@ struct EventStreamTests {
         await until { stream.isLive }
         await time.advance(by: .seconds(30))
         // A keep-alive (a comment) is a byte: the timer starts again.
+        let before = stream.bytesReceived
         connector.send(": keep-alive\n\n")
-        await settle()
+        await until { stream.bytesReceived == before + 14 }
         await time.advance(by: .seconds(30))
         // The watchdog woke at 35 s, saw a byte 30 s ago: sleeps 5 s more.
         await until { time.sleeperCount == 1 }
@@ -283,7 +284,7 @@ struct EventStreamTests {
         let bytes = try await client.openEvents()
         var parser = SSEParser()
         var items: [SSEItem] = []
-        for try await byte in bytes {
+        while let byte = try await bytes.next() {
             if let item = parser.feed(byte) { items.append(item) }
             if items.filter({ $0 == .comment("keep-alive") }).count == 2 { break }
         }
@@ -301,7 +302,7 @@ struct EventStreamTests {
             (error as? APIError).flatMap { if case .server(let e) = $0 { e.status } else { nil } } == 404
         }
         pak.eventsSupported = true
-        var open: [AsyncThrowingStream<UInt8, Error>] = []
+        var open: [any EventByteSource] = []
         for _ in 0..<FakePak.maxEventStreamsPerClient { open.append(try await client.openEvents()) }
         await #expect { try await client.openEvents() } throws: { error in
             guard case .server(let e) = error as? APIError else { return false }
@@ -321,12 +322,77 @@ struct EventStreamTests {
         _ = try await other.deleteGame(id: gameId, keepSave: false)
         var parser = SSEParser()
         var library: SSEEvent?
-        for try await byte in bytes {
+        while let byte = try await bytes.next() {
             if case .event(let event)? = parser.feed(byte), event.type == "library" {
                 library = event
                 break
             }
         }
         #expect(library.flatMap { PakEvent($0) } == .library(EventLibrary(systemIds: [systemId])))
+    }
+
+    /// Reads events of one type from a stream, with the time each arrived.
+    func read(_ type: String, count: Int, from bytes: any EventByteSource) async throws -> [(event: PakEvent, at: ContinuousClock.Instant)] {
+        var parser = SSEParser()
+        var found: [(event: PakEvent, at: ContinuousClock.Instant)] = []
+        while found.count < count, let byte = try await bytes.next() {
+            if case .event(let raw)? = parser.feed(byte), raw.type == type, let event = PakEvent(raw) {
+                found.append((event, .now))
+            }
+        }
+        return found
+    }
+
+    @Test func libraryEventsComeAtMostOncePerIntervalWithChangesMerged() async throws {
+        let pak = makePak()
+        // Long: nothing goes by the clock; the test says when it passed.
+        pak.libraryEventInterval = 3600
+        let watcher = try await pairedClient(pak)
+        let other = try await pairedClient(pak)
+        let bytes = try await watcher.openEvents()
+        func system(_ path: String) throws -> (game: String, system: String) {
+            let id = DemoLibrary.id(path)
+            return (id, try #require(pak.library.game(id: id)?.0.id))
+        }
+        let gba = try system("Game Boy Advance (GBA)/Pixel Runner.gba")
+        let gb = try system("01) Game Boy (GB)/Moonlit Maze 🌙.gb")
+        let gba2 = try system("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+        _ = try await other.deleteGame(id: gba.game, keepSave: false)
+        #expect(!pak.libraryEventPending)
+        _ = try await other.deleteGame(id: gb.game, keepSave: false)
+        _ = try await other.deleteGame(id: gba2.game, keepSave: false)
+        // Held back within the interval.
+        #expect(pak.libraryEventPending)
+        pak.flushThrottledEvents()
+        // One at once, the next two merged into one.
+        let events = try await read("library", count: 2, from: bytes)
+        #expect(events.map(\.event) == [
+            .library(EventLibrary(systemIds: [gba.system])),
+            .library(EventLibrary(systemIds: [gba.system, gb.system].sorted())),
+        ])
+        // An unknown change (the trash) wins over the systems.
+        _ = try await other.deleteGame(id: DemoLibrary.id("Game Boy Advance (GBA)/Homebrew/Tiny Tactics (Demo).gba"), keepSave: false)
+        _ = try await other.emptyTrash()
+        pak.flushThrottledEvents()
+        let merged = try await read("library", count: 1, from: bytes)
+        #expect(merged.map(\.event) == [.library(EventLibrary(systemIds: []))])
+    }
+
+    @Test func deviceEventsComeAtMostOncePerIntervalWithTheLatestState() async throws {
+        let pak = makePak()
+        pak.deviceEventInterval = 3600
+        let watcher = try await pairedClient(pak)
+        let bytes = try await watcher.openEvents()
+        pak.setBattery(percent: 10, charging: false)
+        // The first change goes at once (this one, or the presence of the
+        // new stream).
+        _ = try await read("device", count: 1, from: bytes)
+        pak.setBattery(percent: 20, charging: false)
+        pak.setBattery(percent: 30, charging: true)
+        pak.flushThrottledEvents()
+        let next = try await read("device", count: 1, from: bytes)
+        guard case .device(let device) = next.first?.event else { Issue.record("no device event"); return }
+        // One event, read when sent: the last battery, never 20.
+        #expect(device.battery == .init(percent: 30, charging: true))
     }
 }

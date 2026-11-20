@@ -232,6 +232,7 @@ struct EventsAppTests {
     @Test func aDeviceEventUpdatesTheDashboard() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
+        pak.deviceEventInterval = 0
         let session = await openLive(app, pak)
         // `GET /device` read once after `hello`.
         await waitUntil { count(pak, "GET", "/device") >= 2 }
@@ -272,5 +273,63 @@ struct EventsAppTests {
         #expect(session.isDisconnected)
         #expect(!session.eventsLive)
         #expect(app.closedNotice == nil)
+    }
+
+    // MARK: - Review round 1
+
+    @Test func onlyTheConsoleShownKeepsAStream() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = await openLive(app, pak)
+        #expect(pak.eventStreamCount() == 1)
+        app.closeConsole()
+        await waitUntil { pak.eventStreamCount() == 0 }
+        #expect(pak.eventStreamCount() == 0)
+        #expect(!session.eventsLive)
+        // Back to the foreground on the list: no stream either.
+        app.enterBackground()
+        app.becomeActive()
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(pak.eventStreamCount() == 0)
+        // Opened again: a stream again.
+        app.openConsole(pak.deviceId)
+        await waitUntil { session.eventsLive && pak.eventStreamCount() == 1 }
+        #expect(pak.eventStreamCount() == 1)
+    }
+
+    @Test func changesMissedInTheBackgroundAreCaughtUp() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = await openLive(app, pak)
+        app.enterBackground()
+        await waitUntil { pak.eventStreamCount() == 0 }
+        // No stream: the pak replays nothing of this.
+        _ = try await otherClient(pak).deleteGame(id: Self.skyGarden, keepSave: false)
+        let revision = session.libraryRevision
+        app.becomeActive()
+        await waitUntil { session.libraryRevision > revision }
+        #expect(session.libraryRevision > revision)
+        #expect(session.lastLibraryChange == nil)
+        #expect(session.libraryChangeAffects("any-system"))
+    }
+
+    @Test func aDeviceAnswerOlderThanAnEventKeepsTheEvent() async throws {
+        let pak = makePak()
+        pak.deviceEventInterval = 0
+        // The connection's `GET /device` goes; the one after `hello` waits.
+        pak.holdNextAnswer(method: "GET", path: APIClient.apiPrefix + "/device").open()
+        let held = pak.holdNextAnswer(method: "GET", path: APIClient.apiPrefix + "/device")
+        let app = try await pairedApp(pak)
+        app.openConsole(pak.deviceId)
+        let session = app.session(for: pak.deviceId)
+        await waitUntil { held.reached }
+        #expect(held.reached)
+        pak.setBattery(percent: 42, charging: true)
+        await waitUntil { session.status?.battery?.percent == 42 }
+        // The held answer says 78 %: older than the event.
+        held.open()
+        await waitUntil { session.status?.battery?.percent != 42 }
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(session.status?.battery == DeviceStatus.Battery(percent: 42, charging: true))
     }
 }

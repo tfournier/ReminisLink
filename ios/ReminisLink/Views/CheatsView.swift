@@ -55,6 +55,10 @@ struct CheatsView: View {
         .toolbar { toolbar }
         .task { if editor == nil { await load() } }
         .refreshable { if !hasChanges { await load() } }
+        // M14: the console changed something (any device): the list is
+        // read again; local edits are kept, and the user is told if they
+        // can no longer be saved.
+        .onChange(of: session.libraryRevision) { Task { await consoleMayHaveChanged() } }
         .sheet(item: $editing) { cheat in
             CheatEditView(cheat: cheat) { description, code, enabled in
                 editor?.update(id: cheat.id, description: description, code: code, enabled: enabled) ?? false
@@ -198,6 +202,15 @@ struct CheatsView: View {
             error = nil
         } catch {
             show(error)
+        }
+    }
+
+    private func consoleMayHaveChanged() async {
+        guard editor != nil, !isWorking else { return }
+        let gameId = route.gameId
+        guard let list = try? await session.perform({ try await $0.cheats(gameId: gameId) }) else { return }
+        if editor?.consoleChanged(list) == true {
+            notice = String(localized: "This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list.")
         }
     }
 

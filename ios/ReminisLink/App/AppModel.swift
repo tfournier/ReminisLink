@@ -176,7 +176,13 @@ final class AppModel {
     /// saves), while no console is open.
     var listPath: [Route] = []
     /// The console shown with its tabs (milestone M11), nil for the list.
-    private(set) var openConsoleId: String?
+    private(set) var openConsoleId: String? {
+        didSet {
+            guard openConsoleId != oldValue else { return }
+            // M14: only the console shown keeps an event stream open.
+            for id in [oldValue, openConsoleId].compactMap({ $0 }) { sessions[id]?.updateEventStream() }
+        }
+    }
     var consoleTab: ConsoleTab = .console
     /// The screens pushed in each tab of the open console.
     var tabPaths: [ConsoleTab: [Route]] = [:]
