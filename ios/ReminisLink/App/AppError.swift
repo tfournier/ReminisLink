@@ -19,6 +19,11 @@ enum AppError: Error, Equatable {
     /// `NWBrowser` reports `kDNSServiceErr_PolicyDenied`.
     case localNetworkDenied
     case invalidPairingLink
+    /// M13: the pairing link of a pak older than M13 (`v=1`): update the
+    /// pak on the console.
+    case outdatedPak
+    /// A pairing link of a newer pak than this app knows: update the app.
+    case pairingLinkTooNew
     /// `pairingOpen: false` (or `401 pairing_failed` with pairing closed):
     /// the pairing screen is not shown on the console (M8, on demand).
     case pairingClosed
@@ -73,6 +78,15 @@ enum AppError: Error, Equatable {
     case cancelled
     case unexpected
 
+    /// The error of a refused pairing link.
+    init(pairingLink error: PairingLinkError) {
+        switch error {
+        case .invalid: self = .invalidPairingLink
+        case .outdatedPak: self = .outdatedPak
+        case .newerVersion: self = .pairingLinkTooNew
+        }
+    }
+
     init(_ error: Error) {
         switch error {
         case let error as AppError: self = error
@@ -83,6 +97,7 @@ enum AppError: Error, Equatable {
         case DeviceLookupError.notFound: self = .consoleNotFound
         case is KeychainError, is DeviceStoreError: self = .storage
         case let error as PairingError: self = .api(.pairing(error))
+        case let error as PairingLinkError: self = AppError(pairingLink: error)
         case let error as UploadFailure: self = .upload(error)
         case is ArtImage.Failure: self = .unreadablePicture
         case is CocoaError: self = .file
@@ -98,6 +113,10 @@ enum AppError: Error, Equatable {
             String(localized: "Console not found. Check that ReminisLink is open on the console, that the iPhone and the console are on the same Wi-Fi (not a guest network), and turn off your VPN.")
         case .invalidPairingLink:
             String(localized: "This link is not a valid ReminisLink pairing link.")
+        case .outdatedPak:
+            String(localized: "This QR code comes from an older version of ReminisLink. Update ReminisLink on the console, then scan the new QR code.")
+        case .pairingLinkTooNew:
+            String(localized: "This QR code comes from a newer version of ReminisLink. Update the app.")
         case .pairingClosed:
             String(localized: "On the console, open Settings > Pair a New Device, then scan the QR code shown.")
         case .storage:
@@ -163,12 +182,13 @@ enum AppError: Error, Equatable {
             switch error {
             case .server(let server) where server.code == .unknownClient: .repair
             case .server(let server) where server.code == .disconnected: .reconnect
-            // "Take Over" is offered by the read-only banner.
-            case .server(let server) where server.code == .readOnly: nil
             // The keys of the app and of the pak no longer match.
             case .server(let server) where server.code == .badSignature: .repair
             case .server(let server) where server.code == .pairingFailed: nil
             case .notPaired: .repair
+            // M13: the console's certificate changed (SD card reformatted,
+            // or another device): pair again, scanning its QR code.
+            case .identityChanged: .repair
             case .incompatible, .pairing: nil
             default: .retry
             }
@@ -176,7 +196,7 @@ enum AppError: Error, Equatable {
         case .restoreRefused, .unsupportedGameFormat, .patchMismatch, .unsupportedPatch, .jobLost: nil
         case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
-        case .invalidPairingLink, .storage, .cancelled, .unreadablePicture: nil
+        case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
         case .pairingClosed, .unexpected: .retry
         }
@@ -190,9 +210,10 @@ enum AppError: Error, Equatable {
         return false
     }
 
-    /// `423 read_only` (M10): another device has write access.
-    var isReadOnly: Bool {
-        if case .api(let error) = self { return error.isReadOnly }
+    /// `429 Device busy` (M13): another write was running on the console;
+    /// nothing was changed.
+    var isDeviceBusy: Bool {
+        if case .api(let error) = self { return error.isDeviceBusy }
         return false
     }
 
@@ -286,6 +307,8 @@ enum AppError: Error, Equatable {
             return String(localized: "This version of the app is not compatible with the ReminisLink version on the console. Update both.")
         case .notPaired:
             return String(localized: "This console no longer recognizes your iPhone.")
+        case .identityChanged:
+            return String(localized: "This console's identity changed: it is not the console paired with this app, or it was reset. Nothing was sent. Pair it again by scanning its QR code.")
         case .pairing:
             return String(localized: "The console could not prove its identity. Pairing was cancelled.")
         case .signing, .invalidResponse, .unexpectedStatus:
@@ -296,15 +319,15 @@ enum AppError: Error, Equatable {
                 return String(localized: "This console no longer recognizes your iPhone.")
             case .disconnected:
                 return String(localized: "Disconnected by the console.")
-            case .readOnly:
-                if let writer = server.writerName {
-                    return String(localized: "Read-only — \(writer) has write access. Nothing was changed. Take over to make changes from this iPhone.")
-                }
-                return String(localized: "Read-only — another device has write access. Nothing was changed. Take over to make changes from this iPhone.")
             case .clockSkew:
                 return String(localized: "The clocks of the console and of this iPhone are too far apart.")
             case .pairingFailed:
                 return String(localized: "Pairing failed. The code may have expired: show a new QR code on the console and try again.")
+            case .tooManyAttempts where server.isDeviceBusy:
+                if let seconds = server.retryAfter {
+                    return String(localized: "The console is busy with another change. Nothing was changed. Try again in \(seconds) seconds.")
+                }
+                return String(localized: "The console is busy with another change. Nothing was changed. Try again in a moment.")
             case .tooManyAttempts:
                 if let seconds = server.retryAfter {
                     return String(localized: "Too many attempts. Try again in \(seconds) seconds.")

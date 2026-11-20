@@ -50,8 +50,6 @@ struct LibraryView: View {
                 } label: {
                     Label("Add Files or a Link", systemImage: "plus")
                 }
-                // Another device has write access (M10).
-                .disabled(session.isReadOnly)
                 .accessibilityIdentifier("library.add")
             }
         }
@@ -135,13 +133,14 @@ struct FlatLibraryList: View {
                     }
                     .accessibilityIdentifier("game.\(game.summary.name)")
                     .swipeActions(edge: .trailing) {
-                        // Another device has write access (M10).
-                        if !app.session(for: deviceId).isReadOnly {
-                            Button("Delete", role: .destructive) {
-                                toDelete = DeleteTarget(deviceId: deviceId, gameId: game.id, name: game.summary.name)
-                            }
-                            .accessibilityIdentifier("game.delete")
+                        // Not `role: .destructive`: SwiftUI would remove the
+                        // row at once, before the confirmation (and crash the
+                        // list when the game stays).
+                        Button("Delete") {
+                            toDelete = DeleteTarget(deviceId: deviceId, gameId: game.id, name: game.summary.name)
                         }
+                        .tint(.red)
+                        .accessibilityIdentifier("game.delete")
                     }
                 }
             } header: {
@@ -404,13 +403,14 @@ struct FolderView: View {
                     }
                     .accessibilityIdentifier("game.\(game.name)")
                     .swipeActions(edge: .trailing) {
-                        // Another device has write access (M10).
-                        if !app.session(for: route.deviceId).isReadOnly {
-                            Button("Delete", role: .destructive) {
-                                toDelete = DeleteTarget(deviceId: route.deviceId, gameId: game.id, name: game.name)
-                            }
-                            .accessibilityIdentifier("game.delete")
+                        // Not `role: .destructive`: SwiftUI would remove the
+                        // row at once, before the confirmation (and crash the
+                        // list when the game stays).
+                        Button("Delete") {
+                            toDelete = DeleteTarget(deviceId: route.deviceId, gameId: game.id, name: game.name)
                         }
+                        .tint(.red)
+                        .accessibilityIdentifier("game.delete")
                     }
                 }
             }
@@ -443,7 +443,11 @@ struct FolderView: View {
         }
         .task { if listing == nil { await load() } }
         .refreshable { await load() }
-        .onChange(of: app.session(for: route.deviceId).libraryRevision) { Task { await load() } }
+        // M14: a change of another system leaves this folder as it is.
+        .onChange(of: app.session(for: route.deviceId).libraryRevision) {
+            guard app.session(for: route.deviceId).libraryChangeAffects(route.systemId) else { return }
+            Task { await load() }
+        }
         .sheet(item: $toDelete) { target in
             DeleteGameView(target: target)
         }

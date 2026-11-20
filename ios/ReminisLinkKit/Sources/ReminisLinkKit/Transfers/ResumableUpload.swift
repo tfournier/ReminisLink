@@ -240,6 +240,10 @@ public actor ResumableUpload {
                        server.code != .notFound || !sentBefore {
                         completeSent = false
                     }
+                    // M13: refused before it started (another write ran
+                    // on the console for 10 s): nothing was written, it is
+                    // sent again after `Retry-After`.
+                    if error.isDeviceBusy { completeSent = sentBefore }
                     throw error
                 }
                 completeSent = false
@@ -280,7 +284,7 @@ public actor ResumableUpload {
         /// `complete` had been sent and the device no longer knows the
         /// upload: the file may have been written.
         case outcomeUnknown
-        /// M10: the device refused (`423 read_only`, `401 disconnected`).
+        /// M10: the device refused (`401 disconnected`).
         /// Nothing changed there; the upload is kept and can resume.
         case refused(APIError)
         /// No definite answer (lost connection, timeout, `5xx`...): the
@@ -303,7 +307,7 @@ public actor ResumableUpload {
             // Already gone: before `complete`, nothing was written; after
             // it, the file may have been.
             outcome = completeSent ? .outcomeUnknown : .cancelled
-        } catch let error as APIError where error.isReadOnly || error.isDisconnected {
+        } catch let error as APIError where error.isDisconnected {
             return .refused(error)
         } catch {
             return .notConfirmed(error as? APIError)

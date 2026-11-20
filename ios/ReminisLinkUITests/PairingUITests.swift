@@ -3,9 +3,12 @@ import XCTest
 /// Main path of milestone M3: a `reminislink://pair` link → the console is
 /// added → navigation down to a game sheet.
 final class PairingUITests: XCTestCase {
-    /// Pairing link of the fake pak of the demo mode (ReminisLinkDemo's
-    /// `FakePak`: device id `demoDeviceId`, secret bytes 0x00...0x1f).
-    static let demoLink = "reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1"
+    /// Pairing link v2 of the fake pak of the demo mode (ReminisLinkDemo's
+    /// `FakePak`: device id `demoDeviceId`, secret bytes 0x00...0x1f, pin
+    /// bytes 0xff...0xe0; no address: the demo discovery finds it).
+    static let demoLink = "reminislink://pair?v=2&id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&k=__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA"
+    /// The same console's link before M13 (`v=1`, no pin).
+    static let rl1DemoLink = "reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1"
     static let demoDeviceId = "5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
 
     override func setUp() {
@@ -84,6 +87,68 @@ final class PairingUITests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "no confirmation")
         alert.buttons["repair.confirm"].tap()
         XCTAssertTrue(app.buttons["pairing.done"].waitForExistence(timeout: 15))
+    }
+
+    /// M13: the QR code of a pak older than M13 asks to update the pak.
+    @MainActor
+    func testAnRL1LinkAsksToUpdateThePakInDemoMode() throws {
+        let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launchEnvironment["RL_DEMO"] = "1"
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["welcome"].waitForExistence(timeout: 10))
+        app.open(URL(string: Self.rl1DemoLink)!)
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Update ReminisLink on the console'")).firstMatch.exists)
+        alert.buttons.firstMatch.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["welcome"].exists)
+    }
+
+    /// M13: a console paired before M13 is listed with "Pair Again"; its
+    /// QR code pairs it without asking (nothing to replace), and the
+    /// console opens.
+    @MainActor
+    func testAnRL1ConsoleIsPairedAgainInDemoMode() throws {
+        let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launchEnvironment["RL_DEMO"] = "1"
+        app.launchEnvironment["RL_UITEST_RL1_CONSOLE"] = "1"
+        app.launch()
+        let row = app.buttons["console.\(Self.demoDeviceId)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["console.needsRepair"].firstMatch.exists)
+        attachScreenshot(app, "needs-repair")
+        // Tapping it opens the scanner ("Pair Again").
+        row.tap()
+        XCTAssertTrue(app.navigationBars["Pair Again"].waitForExistence(timeout: 10))
+        // The demo console's QR code, as if scanned.
+        app.buttons["demo.pair"].tapAfterWaiting()
+        XCTAssertFalse(app.alerts.firstMatch.waitForExistence(timeout: 2), "no confirmation for a console to pair again")
+        try pairAndOpenConsole(app, deviceId: Self.demoDeviceId)
+        XCTAssertFalse(app.descendants(matching: .any)["console.needsRepair"].firstMatch.exists)
+    }
+
+    /// A console to pair again is forgotten only after a confirmation
+    /// (no full swipe).
+    @MainActor
+    func testForgettingAnRL1ConsoleAsksFirstInDemoMode() throws {
+        let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launchEnvironment["RL_DEMO"] = "1"
+        app.launchEnvironment["RL_UITEST_RL1_CONSOLE"] = "1"
+        app.launch()
+        let row = app.buttons["console.\(Self.demoDeviceId)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.swipeLeft(velocity: .fast)
+        // A full swipe deletes nothing: the row stays.
+        XCTAssertTrue(row.exists)
+        app.buttons["console.forget"].tapAfterWaiting()
+        let confirm = app.buttons["console.forget.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "no confirmation")
+        XCTAssertTrue(row.exists, "forgotten before the confirmation")
+        confirm.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["welcome"].waitForExistence(timeout: 10))
     }
 
     /// Against a real pak (`make headless` on the Mac). Disabled unless the

@@ -135,9 +135,9 @@ final class PatchFlow {
     private(set) var mismatchDetails: PatchMismatchDetails?
     /// `result.verified` of the patch job: false for IPS.
     private(set) var verified: Bool?
-    /// M10: the upload of the patch is paused until this iPhone has write
-    /// access again (it then goes on by itself).
-    var isWaitingForWriteAccess: Bool { step.isSending && session.writeAccessWaits > 0 }
+    /// M10: the upload of the patch is paused until the user reconnects
+    /// (the console disconnected this app); it then goes on by itself.
+    var isWaitingForReconnection: Bool { step.isSending && session.reconnectionWaits > 0 }
 
     /// The patch already in the staging area, by source.
     @ObservationIgnored private var staged: (key: String, stagingId: String)?
@@ -159,6 +159,13 @@ final class PatchFlow {
         deviceId = session.deviceId
         self.game = game
         fileName = game.map { PatchNaming.suggestedFileName(forROM: $0.fileName) } ?? ""
+        // M14: a `job` event moves the flow on at once (no polling while
+        // the event stream is live).
+        session.transfers.observeJobs { [weak self] item in
+            guard let self else { return false }
+            self.jobUpdated(item)
+            return true
+        }
     }
 
     // MARK: Inputs
@@ -272,11 +279,10 @@ final class PatchFlow {
         let token = background.begin(name: "Patch upload") { flag.set() }
         defer { background.end(token) }
         let size = file.sizeBytes
-        // M10: refused while another device has write access, the upload
-        // waits (kept, never restarted) and goes on once this iPhone has
-        // write access again.
+        // M10: refused while the console disconnected this app, the upload
+        // waits (kept, never restarted) and goes on once reconnected.
         let session = session
-        let result = try await session.pausingForWriteAccess {
+        let result = try await session.pausingForReconnection {
             try await upload.run(client: try await session.connectedClient(), shouldPause: { flag.isSet }, progress: { [weak self] offset in
                 await self?.reportSent(offset, of: size)
             })
@@ -351,6 +357,15 @@ final class PatchFlow {
         }
         // Cancelled elsewhere (the Transfers screen): never go further.
         if job.job?.cancelRequested == true { cancelledJobs.insert(job.id) }
+        advance()
+    }
+
+    /// A job changed (an event, or a poll of another screen): the step
+    /// that follows it moves on as ``tick()`` would.
+    private func jobUpdated(_ item: JobItem) {
+        guard !isCancelling, item === job, step == .downloading || step == .patching else { return }
+        pollError = nil
+        if item.job?.cancelRequested == true { cancelledJobs.insert(item.id) }
         advance()
     }
 
@@ -456,10 +471,9 @@ final class PatchFlow {
             case .confirmed:
                 step = .cancelled
             case .refused:
-                // M10: refused by the console (another device has write
-                // access): nothing was cancelled there. The upload and its
-                // local copy stay, paused until this iPhone has write
-                // access again.
+                // M10: refused by the console (it disconnected this app):
+                // nothing was cancelled there. The upload and its local
+                // copy stay, paused until the user reconnects.
                 cancelRequested = false
                 step = .idle
                 start()
@@ -514,8 +528,8 @@ final class PatchFlow {
     }
 
     /// Cancels the upload on the console (best effort). Refused by the
-    /// console (M10: another device has write access), the upload is kept:
-    /// Apply resumes it.
+    /// console (M10: it disconnected this app), the upload is kept: Apply
+    /// resumes it.
     private enum CancelResult { case confirmed, refused, notConfirmed }
 
     /// Cancels the upload on the console. Unless the console confirmed, the

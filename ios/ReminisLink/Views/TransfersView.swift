@@ -35,7 +35,6 @@ struct TransfersView: View {
                     Text("Files you add to the console appear here.")
                 } actions: {
                     Button("Add") { app.showAdd(deviceId: deviceId) }
-                        .disabled(app.session(for: deviceId).isReadOnly)
                 }
             }
         }
@@ -47,7 +46,6 @@ struct TransfersView: View {
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
-                .disabled(app.session(for: deviceId).isReadOnly)
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button("Clear Finished") { queue.clearFinished() }
@@ -68,7 +66,6 @@ struct TransfersView: View {
 struct UploadRow: View {
     let item: UploadItem
     let queue: TransferQueue
-    @Environment(\.consoleIsReadOnly) private var isReadOnly
     @State private var confirmResend = false
 
     /// What "Send Again" does after an unknown outcome. ROMs and staging
@@ -117,9 +114,6 @@ struct UploadRow: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
-                    // Refused by the console while another device has write
-                    // access (M10).
-                    .disabled(isReadOnly)
                     .accessibilityLabel(Text("Cancel"))
                     .accessibilityIdentifier("upload.cancel")
                 }
@@ -148,7 +142,7 @@ struct UploadRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("upload.\(item.fileName)")
         .swipeActions {
-            if !item.phase.isFinished && !item.isCompleting && item.phase != .cancelling && !isReadOnly {
+            if !item.phase.isFinished && !item.isCompleting && item.phase != .cancelling {
                 Button("Cancel", role: .destructive) { queue.cancel(item) }
             }
         }
@@ -157,9 +151,6 @@ struct UploadRow: View {
     @ViewBuilder
     private var actions: some View {
         switch item.phase {
-        case .paused where isReadOnly:
-            // Resumes by itself once this iPhone has write access again (M10).
-            EmptyView()
         case .paused:
             Button("Resume") { queue.resume(item) }
                 .buttonStyle(.bordered)
@@ -173,7 +164,6 @@ struct UploadRow: View {
                 }
             }
             .buttonStyle(.bordered)
-            .disabled(isReadOnly)
             .accessibilityIdentifier("upload.sendAgain")
             .confirmationDialog(
                 resend == .replaceSave ? "Replace the save on the console?" : "Replace the state on the console?",
@@ -195,14 +185,12 @@ struct UploadRow: View {
                 Button("Replace") { Task { await queue.retry(item, onConflict: .overwrite) } }
             }
             .buttonStyle(.bordered)
-            .disabled(isReadOnly)
             Text("Replace moves the file on the console to its trash.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failed:
             Button("Try Again") { queue.resume(item) }
                 .buttonStyle(.bordered)
-                .disabled(isReadOnly)
         default:
             EmptyView()
         }
@@ -246,12 +234,6 @@ struct UploadRow: View {
     /// A save or state upload refused for its NextUI format gets the text
     /// of the save and state screens.
     static func failureText(_ failure: any Error, target: TransferTarget) -> String {
-        if let error = failure as? APIError, error.isReadOnly {
-            if let writer = error.readOnlyWriter {
-                return String(localized: "Paused: \(writer) has write access. The transfer resumes when this iPhone takes over.")
-            }
-            return String(localized: "Paused: another device has write access. The transfer resumes when this iPhone takes over.")
-        }
         if let error = failure as? APIError, error.isDisconnected {
             return String(localized: "Paused: disconnected by the console. The transfer resumes after reconnecting.")
         }
@@ -270,7 +252,6 @@ struct UploadRow: View {
 struct JobRow: View {
     let item: JobItem
     let queue: TransferQueue
-    @Environment(\.consoleIsReadOnly) private var isReadOnly
     @State private var error: AppError?
 
     var body: some View {
@@ -286,7 +267,6 @@ struct JobRow: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
-                    .disabled(isReadOnly)
                     .accessibilityLabel(Text("Cancel"))
                 }
             }

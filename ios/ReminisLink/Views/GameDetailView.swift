@@ -22,9 +22,6 @@ struct GameDetailView: View {
     @State private var downloadError: AppError?
     @State private var exported: ExportedFile?
 
-    /// Another device has write access (M10).
-    private var isReadOnly: Bool { app.session(for: route.deviceId).isReadOnly }
-
     /// Whether the game has an image now (it may have been changed here).
     private var hasArt: Bool {
         detail.map { $0.files.contains { $0.role == .art } } ?? route.hasArt
@@ -104,7 +101,7 @@ struct GameDetailView: View {
                     } label: {
                         Label("Apply a Patch…", systemImage: "bandage")
                     }
-                    .disabled(PatchNaming.refusal(kind: detail.kind, fileName: detail.fileName) != nil || isReadOnly)
+                    .disabled(PatchNaming.refusal(kind: detail.kind, fileName: detail.fileName) != nil)
                     .accessibilityIdentifier("game.patch")
                 } header: {
                     Text("Patch")
@@ -137,7 +134,6 @@ struct GameDetailView: View {
                     Button("Delete…", role: .destructive) {
                         toDelete = DeleteTarget(deviceId: route.deviceId, gameId: route.gameId, name: detail.name)
                     }
-                    .disabled(isReadOnly)
                     .accessibilityIdentifier("game.deleteButton")
                 }
             }
@@ -152,7 +148,11 @@ struct GameDetailView: View {
         .task { if detail == nil { await load() } }
         .refreshable { await load() }
         // Back from the save, states or cheats screens: counters may have changed.
-        .onChange(of: app.session(for: route.deviceId).libraryRevision) { Task { await load() } }
+        .onChange(of: app.session(for: route.deviceId).libraryRevision) {
+            // M14: a change of another system leaves this game as it is.
+            guard app.session(for: route.deviceId).libraryChangeAffects(detail?.systemId) else { return }
+            Task { await load() }
+        }
         .sheet(item: $patch) { context in
             PatchView(context: context)
         }

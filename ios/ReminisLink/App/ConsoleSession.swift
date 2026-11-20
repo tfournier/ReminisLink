@@ -16,22 +16,23 @@ final class ConsoleSession {
     let deviceId: String
     private(set) var state: State = .idle
     private(set) var hello: Hello?
-    private(set) var status: DeviceStatus?
+    /// Set here and by the `device` events (M14).
+    var status: DeviceStatus?
     private(set) var trash: TrashList?
     private(set) var client: APIClient?
     /// Changes when games were added or deleted: the library screens reload.
-    private(set) var libraryRevision = 0
+    /// Also changed by the `library` events (M14).
+    var libraryRevision = 0
     /// Changes when a game art was set or removed: art views load again.
     var artRevision = 0
 
     /// Uploads and jobs of this console.
     @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()
-    /// The write lease of this iPhone on the console (milestone M10).
-    @ObservationIgnored private(set) lazy var lease: WriterLease = makeLease()
-    /// Waits for the write access to come back (cheat import, patch upload).
-    @ObservationIgnored private var writeAccessWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
-    /// Something waits for the write access to come back (shown as paused).
-    private(set) var writeAccessWaits = 0
+    /// Waits for a reconnection after `401 disconnected` (cheat import,
+    /// patch upload).
+    @ObservationIgnored private var reconnectionWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+    /// Something waits for a reconnection (shown as paused).
+    private(set) var reconnectionWaits = 0
     /// The console closed ReminisLink (M11): no automatic connection until
     /// the user opens the console again.
     private(set) var closedByConsole = false
@@ -42,18 +43,49 @@ final class ConsoleSession {
     /// The check in progress after the console's service disappeared (M11).
     @ObservationIgnored private var closureCheck: Task<Void, Never>?
 
+    // Milestone M14 (ConsoleSession+Events.swift).
+    /// The event stream of the connection, while connected and active.
+    @ObservationIgnored var events: EventStream?
+    /// The client the event stream belongs to.
+    @ObservationIgnored weak var eventsClient: APIClient?
+    /// The catch-up after the last `hello` (M14): a newer `hello` or the
+    /// end of the stream changes the generation, and an older catch-up
+    /// publishes nothing.
+    @ObservationIgnored var catchUpGeneration = 0
+    /// Loads of the trash: only the last one started publishes.
+    @ObservationIgnored var trashLoads = LoadGeneration()
+    @ObservationIgnored var catchUpTask: Task<Void, Never>?
+    /// Catch-ups that went to their end (tests wait on it).
+    @ObservationIgnored var catchUpsDone = 0
+    /// The pak has no `GET /events` (older than M14): the screens poll,
+    /// as before, for the rest of this session.
+    var eventsUnsupported = false
+    /// The event stream is open (`hello` received): jobs follow its events.
+    var eventsLive = false
+    /// The last `device` event and how many arrived: a `GET /device`
+    /// answer older than the last event keeps the event's fields.
+    @ObservationIgnored var lastDeviceEvent: EventDevice?
+    @ObservationIgnored var deviceEvents = 0
+    /// Library changes waiting for the debounce to end.
+    @ObservationIgnored var pendingLibraryChange: LibraryChange?
+    /// The systems the last change of ``libraryRevision`` touched, nil for
+    /// all of them (an action of this app, or an event that says so).
+    var lastLibraryChange: Set<String>?
+
+    /// The app, for the event stream's callbacks (M14), which may come
+    /// after the app is gone (tests): nil then, never a dangling `app`.
+    @ObservationIgnored weak var liveApp: AppModel?
+
     init(deviceId: String, app: AppModel) {
         self.deviceId = deviceId
         self.app = app
+        self.liveApp = app
     }
 
     var error: AppError? {
         if case .failed(let error) = state { return error }
         return nil
     }
-
-    /// Another client has write access (M10): write actions are disabled.
-    var isReadOnly: Bool { lease.isReadOnly }
 
     /// The console disconnected this iPhone (`401 disconnected`).
     var isDisconnected: Bool { error?.isDisconnected ?? false }
@@ -160,13 +192,11 @@ final class ConsoleSession {
             observed.client = client
             hello = try await client.hello()
             let status: DeviceStatus
-            var deviceSentAt = ContinuousClock.now
             do {
                 status = try await client.device()
             } catch let error as APIError where error.isDisconnected && attempt.isExplicit {
                 // Only after an explicit action of the user (M10).
                 try await client.connectClient()
-                deviceSentAt = .now
                 status = try await client.device()
             }
             self.status = status
@@ -174,10 +204,16 @@ final class ConsoleSession {
             guard self.attempt === attempt else { return }
             // M11: renamed on the console; `/hello` already checked the id.
             app.store.noteConsoleName(status.deviceName, for: deviceId)
+            // M13: the address answered with the pinned certificate and
+            // accepted the signature: the fallback when Bonjour is silent.
+            app.store.noteEndpoint(endpoint, for: deviceId)
             self.client = client
             state = .connected
             closedByConsole = false
-            lease.start(device: status, sentAt: deviceSentAt)
+            // Uploads and actions paused by `401 disconnected` go on.
+            reconnected()
+            // M14: the console pushes its changes while the app is active.
+            updateEventStream()
             // Uploads paused when the console closed ReminisLink go on (M11).
             transfers.resumeAfterReconnection()
             // Milestone M9: copy the saves that changed (setting, default on).
@@ -209,6 +245,7 @@ final class ConsoleSession {
             let renamed = self.status.map { $0.deviceName != status.deviceName } ?? false
             self.status = status
             state = .connected
+            updateEventStream()
             if renamed { app.store.noteConsoleName(status.deviceName, for: deviceId) }
             await loadTrash()
         } catch {
@@ -222,9 +259,14 @@ final class ConsoleSession {
 
     /// Reloads the trash. A failure keeps the last known content (it never
     /// fails the dashboard). Returns whether the content is fresh.
+    ///
+    /// M14: every load of the trash (dashboard, a change, a `hello`) goes
+    /// through one generation, checked before publishing: an older answer
+    /// arriving last never shows an entry deleted since.
     @discardableResult
     func loadTrash() async -> Bool {
-        guard let client, let fresh = try? await client.trash() else { return false }
+        let generation = trashLoads.begin()
+        guard let client, let fresh = try? await client.trash(), trashLoads.isCurrent(generation) else { return false }
         trash = fresh
         return true
     }
@@ -256,12 +298,11 @@ final class ConsoleSession {
     func consoleClosed(client failed: APIClient) {
         guard let client, client === failed else { return }
         self.client = nil
-        lease.stop()
+        stopEventStream()
         markClosedByConsole()
     }
 
-    /// The console's Bonjour service disappeared, or a background request
-    /// (a lease renewal) failed to connect (M11): sends `/hello` once, with
+    /// The console's Bonjour service disappeared (M11): sends `/hello` once, with
     /// a short timeout. `503 shutting_down` or no connection: the console
     /// closed ReminisLink (back to the list, uploads paused). An answer: a
     /// Bonjour glitch, the console stays open.
@@ -315,7 +356,7 @@ final class ConsoleSession {
         guard let client, client === failed else { return }
         state = .failed(error)
         self.client = nil
-        lease.stop()
+        stopEventStream()
     }
 
     static func losesConnection(_ error: AppError) -> Bool {
@@ -325,14 +366,11 @@ final class ConsoleSession {
     }
 
     /// Every error answer of the pak to this connection (M10): a
-    /// `423 read_only` makes the session read-only, a `401 disconnected`
-    /// ends the connection, whatever screen or transfer sent the request.
+    /// `401 disconnected` ends the connection, a `503 shutting_down` means
+    /// the console closed ReminisLink, whatever screen or transfer sent
+    /// the request.
     func observe(_ error: ServerError, sentAt: ContinuousClock.Instant, from client: APIClient) {
         switch error.code {
-        case .readOnly:
-            guard self.client === client else { return }
-            // A request sent before the last take-over changes nothing.
-            lease.noteReadOnly(holder: error.writerName, sentAt: sentAt)
         case .disconnected:
             connectionLost(.api(.server(error)), client: client)
         case .shuttingDown:
@@ -343,108 +381,69 @@ final class ConsoleSession {
         }
     }
 
-    /// "Take over", after the user confirmed: this iPhone gets write
-    /// access, the other client becomes read-only.
-    func takeOver() async throws {
-        _ = try await connectedClient()
-        do {
-            try await lease.takeOver()
-        } catch {
-            let appError = AppError(error)
-            if let client, Self.losesConnection(appError) { connectionLost(appError, client: client) }
-            throw appError
-        }
-    }
-
-    /// The app comes to the foreground or goes to the background: the
-    /// lease is renewed in the foreground (or while a transfer runs), and
-    /// released in the background.
+    /// The app comes to the foreground or goes to the background.
     func setForeground(_ foreground: Bool) {
-        guard client != nil else { return }
-        let lease = lease
-        Task { await lease.setForeground(foreground) }
+        // M14: the event stream runs in the foreground only.
+        updateEventStream()
     }
 
-    /// The lease is held again: paused uploads resume, waiters go on.
-    private func writeAccessRegained() {
-        transfers.resumePausedForWriteAccess()
-        let waiters = writeAccessWaiters.values
-        writeAccessWaiters.removeAll()
+    /// Connected again (after "Reconnect", M10): paused uploads resume,
+    /// waiters go on.
+    private func reconnected() {
+        transfers.resumePausedForReconnection()
+        let waiters = reconnectionWaiters.values
+        reconnectionWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
     }
 
-    /// Whether this iPhone holds the lease, confirmed by the pak (a
-    /// renewal) when it believes so: a `423` older than the lease change
-    /// must not leave an upload paused, nor resume one for nothing.
-    func writeAccessConfirmed() async -> Bool {
-        guard client != nil, lease.access == .writer else { return false }
-        await lease.renew()
-        return lease.access == .writer
+    /// Whether the connection works, confirmed by the pak (`GET /device`):
+    /// a `401 disconnected` older than the reconnection must not leave an
+    /// upload paused, nor resume one for nothing.
+    func connectionConfirmed() async -> Bool {
+        guard let client, state == .connected else { return false }
+        do {
+            _ = try await client.device()
+            return self.client === client
+        } catch {
+            return false
+        }
     }
 
-    /// Waits until this iPhone has the write access again (M10). Throws
-    /// `CancellationError` if the caller is cancelled meanwhile.
-    func waitForWriteAccess() async throws {
-        if await writeAccessConfirmed() { return }
+    /// Waits until the user reconnects (M10). Throws `CancellationError`
+    /// if the caller is cancelled meanwhile.
+    func waitForReconnection() async throws {
+        if await connectionConfirmed() { return }
         let id = UUID()
-        writeAccessWaits += 1
-        defer { writeAccessWaits -= 1 }
+        reconnectionWaits += 1
+        defer { reconnectionWaits -= 1 }
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 if Task.isCancelled {
                     continuation.resume(throwing: CancellationError())
                 } else {
-                    writeAccessWaiters[id] = continuation
+                    reconnectionWaiters[id] = continuation
                 }
             }
         } onCancel: {
             Task { @MainActor in
-                self.writeAccessWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
+                self.reconnectionWaiters.removeValue(forKey: id)?.resume(throwing: CancellationError())
             }
         }
     }
 
     /// Runs `operation` (an upload that keeps its progress across calls);
-    /// refused by `423 read_only` or `401 disconnected`, it waits for the
-    /// write access to come back and runs again.
-    func pausingForWriteAccess<T>(_ operation: () async throws -> T) async throws -> T {
+    /// refused by `401 disconnected`, it waits for the user to reconnect
+    /// and runs again.
+    func pausingForReconnection<T>(_ operation: () async throws -> T) async throws -> T {
         while true {
             do {
                 return try await operation()
-            } catch let error as APIError where error.isReadOnly || error.isDisconnected {
-                try await waitForWriteAccess()
-            } catch let error as AppError where error.isReadOnly || error.isDisconnected {
-                try await waitForWriteAccess()
+            } catch let error as APIError where error.isDisconnected {
+                try await waitForReconnection()
+            } catch let error as AppError where error.isDisconnected {
+                try await waitForReconnection()
             }
         }
-    }
-
-    private func makeLease() -> WriterLease {
-        let lease = WriterLease(
-            isForeground: app.isForeground,
-            client: { [weak self] in self?.client },
-            transfersRunning: { [weak self] in self?.transfers.isBusy ?? false }
-        )
-        // The lease is back: uploads paused by `423` go on, and what waits
-        // for it (cheat import, patch upload) resumes.
-        lease.onAcquired = { [weak self] in self?.writeAccessRegained() }
-        lease.onFatalError = { [weak self] error in
-            guard let self, let client = self.client else { return }
-            self.connectionLost(AppError(error), client: client)
-        }
-        // M11: a renewal that cannot reach the console, whose Bonjour
-        // service is gone: it closed ReminisLink.
-        lease.onConnectionFailure = { [weak self] error in
-            guard let self, let client = self.client else { return }
-            if self.app.meansConsoleClosed(error, deviceId: self.deviceId) {
-                self.consoleClosed(client: client)
-            } else {
-                // Maybe too early for Bonjour to tell (the browser has just
-                // started): checked once it has browsed long enough.
-                self.checkStillOpen(waitForBrowsing: true)
-            }
-        }
-        return lease
     }
 
     /// A signed client, connecting first if needed.
@@ -468,10 +467,11 @@ final class ConsoleSession {
         queue.onJobFinished = { [weak self] item in
             if item.job?.state == .succeeded { self?.contentChanged() }
         }
-        // M10: the lease may be back by the time the pause is recorded.
-        queue.onPausedForWriteAccess = { [weak self, weak queue] item in
+        // M10: the user may have reconnected by the time the pause is
+        // recorded.
+        queue.onPausedForReconnection = { [weak self, weak queue] item in
             Task { @MainActor in
-                guard let self, await self.writeAccessConfirmed() else { return }
+                guard let self, await self.connectionConfirmed() else { return }
                 queue?.resume(item)
             }
         }
@@ -480,6 +480,7 @@ final class ConsoleSession {
 
     /// Games were added or deleted: reload the library and the dashboard.
     func contentChanged() {
+        lastLibraryChange = nil
         libraryRevision += 1
         Task { await refresh() }
     }
@@ -501,9 +502,11 @@ final class ConsoleSession {
         await refresh()
     }
 
-    /// `DELETE /clients/me`, then forgets the key. Without a key, or if the
-    /// console no longer knows this iPhone, the entry is only forgotten on
-    /// this iPhone. A Keychain read error is reported, not taken for "no key".
+    /// `DELETE /clients/me`, then forgets the pairing (M13: on every Apple
+    /// device of the account, which share it). Without a pairing (paired
+    /// before M13), or if the console no longer knows this identity, the
+    /// entry is only forgotten here. A Keychain read error is reported, not
+    /// taken for "not paired".
     func unpair() async throws {
         if try app.store.credentials(for: deviceId) != nil {
             do {

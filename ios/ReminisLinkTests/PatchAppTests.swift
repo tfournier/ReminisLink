@@ -47,10 +47,7 @@ struct PatchAppTests {
         )
         keeper.apps.append(app)
         guard pair else { return app }
-        let clientId = try app.store.installationClientId()
-        let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "Test")
-        let key = try await APIClient(endpoint: pak.endpoint, session: pak.makeSession()).pair(attempt)
-        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: clientId, key: key)
+        try await app.pairDirectly(with: pak)
         return app
     }
 
@@ -235,10 +232,9 @@ struct PatchAppTests {
         flow.start()
         await wait(flow) { $0 == .patching }
         // The pak restarts: it forgets its jobs (and this client).
-        let clientId = try #require(try app.store.credentials(for: pak.deviceId)?.clientId)
-        let key = try #require(try app.store.credentials(for: pak.deviceId)?.key)
+        let identity = try #require(try app.store.credentials(for: pak.deviceId)?.identity)
         pak.restart()
-        pak.addClient(id: clientId, key: key)
+        pak.addClient(identity)
         await runToTheEnd(flow)
         #expect(flow.step == .failed(.jobLost))
     }

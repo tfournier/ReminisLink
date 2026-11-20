@@ -15,6 +15,9 @@ public struct FakeResponse: Sendable {
     /// When set, the answer is delivered once the gate opens (the handler
     /// has already run).
     public var gate: FakeGate?
+    /// When set, the body is streamed: the headers go at once, then what
+    /// the stream sends, until it finishes (M14, `GET /events`).
+    public var stream: FakeStream?
 
     public init(status: Int, headers: [String: String] = [:], body: Data = Data(), transportError: URLError.Code? = nil) {
         self.status = status
@@ -73,6 +76,80 @@ public final class FakeGate: @unchecked Sendable {
             return _isOpen
         }
         if runNow { DispatchQueue.global().async(execute: action) }
+    }
+}
+
+/// A response body sent piece by piece, as long as the request stays open
+/// (Server-Sent Events). What is sent before the protocol attaches is
+/// kept and delivered first.
+public final class FakeStream: @unchecked Sendable {
+    private let lock = NSLock()
+    private var sink: ((Data) -> Void)?
+    private var finisher: (() -> Void)?
+    private var pending: [Data] = []
+    private var finished = false
+    private var _onClose: (() -> Void)?
+
+    public init() {}
+
+    /// The stream ended, from either side.
+    public var isFinished: Bool { lock.withLock { finished } }
+
+    /// Called once when the client goes away or the stream finishes.
+    public var onClose: (() -> Void)? {
+        get { lock.withLock { _onClose } }
+        set { lock.withLock { _onClose = newValue } }
+    }
+
+    public func send(_ data: Data) {
+        let sink = lock.withLock { () -> ((Data) -> Void)? in
+            guard !finished else { return nil }
+            if self.sink == nil { pending.append(data) }
+            return self.sink
+        }
+        sink?(data)
+    }
+
+    /// Ends the body (the connection closes normally).
+    public func finish() {
+        let (finisher, onClose) = lock.withLock { () -> ((() -> Void)?, (() -> Void)?) in
+            guard !finished else { return (nil, nil) }
+            finished = true
+            defer {
+                sink = nil
+                self.finisher = nil
+                _onClose = nil
+            }
+            return (self.finisher, _onClose)
+        }
+        finisher?()
+        onClose?()
+    }
+
+    func attach(send: @escaping (Data) -> Void, finish: @escaping () -> Void) {
+        let (backlog, done) = lock.withLock { () -> ([Data], Bool) in
+            sink = send
+            finisher = finish
+            defer { pending = [] }
+            return (pending, finished)
+        }
+        for data in backlog { send(data) }
+        if done { finish() }
+    }
+
+    /// The client closed the connection.
+    func cancel() {
+        let onClose = lock.withLock { () -> (() -> Void)? in
+            guard !finished else { return nil }
+            finished = true
+            defer {
+                sink = nil
+                finisher = nil
+                _onClose = nil
+            }
+            return _onClose
+        }
+        onClose?()
     }
 }
 
@@ -162,11 +239,34 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: http)
         }
         client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
+        if let stream = response.stream {
+            streamLock.withLock { openStream = stream }
+            stream.attach(
+                send: { [weak self] data in
+                    guard let self else { return }
+                    self.client?.urlProtocol(self, didLoad: data)
+                },
+                finish: { [weak self] in
+                    guard let self else { return }
+                    self.client?.urlProtocolDidFinishLoading(self)
+                }
+            )
+            return
+        }
         client?.urlProtocol(self, didLoad: response.body)
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override public func stopLoading() {}
+    private let streamLock = NSLock()
+    private var openStream: FakeStream?
+
+    override public func stopLoading() {
+        let stream = streamLock.withLock { () -> FakeStream? in
+            defer { openStream = nil }
+            return openStream
+        }
+        stream?.cancel()
+    }
 
     /// `URLProtocol` gets the body as a stream.
     static func body(of request: URLRequest) -> Data {

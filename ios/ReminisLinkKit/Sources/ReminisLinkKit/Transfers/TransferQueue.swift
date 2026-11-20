@@ -190,9 +190,20 @@ public final class TransferQueue {
     /// Called on the main actor when a job reaches its end.
     @ObservationIgnored public var onJobFinished: ((JobItem) -> Void)?
     /// Called on the main actor once an upload is recorded paused by
-    /// `423 read_only` or `401 disconnected` (M10): the write access may
-    /// already be back, then it resumes.
-    @ObservationIgnored public var onPausedForWriteAccess: ((UploadItem) -> Void)?
+    /// `401 disconnected` (M10): the connection may already be back, then
+    /// it resumes.
+    @ObservationIgnored public var onPausedForReconnection: ((UploadItem) -> Void)?
+    /// The console's event stream is live (M14): jobs follow its `job`
+    /// events and ``refreshJobs()`` sends nothing (polling is the fallback
+    /// when no stream is open, e.g. a pak older than M14).
+    public var jobsFollowedByEvents = false
+    /// Observers of every job update (event or poll), on the main actor;
+    /// one returning false is removed.
+    @ObservationIgnored private var jobObservers: [UUID: (JobItem) -> Bool] = [:]
+    /// The last `job` events of jobs not tracked yet (the event of a new
+    /// job may arrive before ``track(jobId:title:kind:)``).
+    @ObservationIgnored private var untrackedJobEvents: [String: Job] = [:]
+    @ObservationIgnored private var untrackedOrder: [String] = []
 
     @ObservationIgnored private let client: () async throws -> APIClient
     @ObservationIgnored private let scratchDirectory: URL
@@ -250,7 +261,7 @@ public final class TransferQueue {
     /// device, the upload is `cancelling` until the device answers (kept
     /// in the list, local copy kept), then:
     /// - confirmed: `cancelled`, local copy deleted;
-    /// - refused (`423`, `401 disconnected`): paused for the write access;
+    /// - refused (`401 disconnected`): paused until the user reconnects;
     /// - no definite answer (lost connection...): failed with
     ///   ``UploadFailure/cancelNotConfirmed``, kept to resume or cancel again;
     /// - gone after a `complete` whose answer was lost: the outcome is
@@ -283,7 +294,7 @@ public final class TransferQueue {
                 item.completeSent = false
                 self.cleanUp(item)
             case .refused(let error):
-                self.pauseForWriteAccess(item, error)
+                self.pauseForReconnection(item, error)
             case .notConfirmed:
                 item.phase = .failed
                 item.failure = UploadFailure.cancelNotConfirmed
@@ -316,18 +327,18 @@ public final class TransferQueue {
         resume(item)
     }
 
-    /// Uploads paused because another client has write access (M10).
-    public var pausedForWriteAccess: [UploadItem] {
+    /// Uploads paused because the console disconnected this app (M10).
+    public var pausedForReconnection: [UploadItem] {
         uploads.filter { item in
             guard item.phase == .paused, let error = item.failure as? APIError else { return false }
-            return error.isReadOnly || error.isDisconnected
+            return error.isDisconnected
         }
     }
 
-    /// Resumes the uploads paused by `423 read_only` or `401 disconnected`
-    /// (the write lease is back).
-    public func resumePausedForWriteAccess() {
-        for item in pausedForWriteAccess { resume(item) }
+    /// Resumes the uploads paused by `401 disconnected` (the user
+    /// reconnected).
+    public func resumePausedForReconnection() {
+        for item in pausedForReconnection { resume(item) }
     }
 
     /// Resumes every paused upload.
@@ -490,11 +501,11 @@ public final class TransferQueue {
                 // M11: the console closes ReminisLink; resumes once it is back.
                 item.phase = .paused
                 item.failure = error
-            case let error as APIError where error.isReadOnly || error.isDisconnected:
-                // M10: another client has write access, or the console
-                // disconnected this iPhone. Nothing was lost: the upload
-                // resumes at the confirmed offset once writing is possible.
-                pauseForWriteAccess(item, error)
+            case let error as APIError where error.isDisconnected:
+                // M10: the console disconnected this iPhone. Nothing was
+                // lost: the upload resumes at the confirmed offset once the
+                // user reconnects.
+                pauseForReconnection(item, error)
             default:
                 item.phase = .failed
                 item.failure = error
@@ -502,15 +513,15 @@ public final class TransferQueue {
         }
     }
 
-    /// The single path of an upload refused by `423 read_only` or
-    /// `401 disconnected` (M10), whatever refused it (a chunk, `complete`, a
-    /// cancel): paused, kept, and resumed with the write access
-    /// (``resumePausedForWriteAccess()``, or at once through
-    /// ``onPausedForWriteAccess`` if the access is already back).
-    private func pauseForWriteAccess(_ item: UploadItem, _ error: APIError) {
+    /// The single path of an upload refused by `401 disconnected` (M10),
+    /// whatever refused it (a chunk, `complete`, a cancel): paused, kept,
+    /// and resumed once reconnected (``resumePausedForReconnection()``, or
+    /// at once through ``onPausedForReconnection`` if the connection is
+    /// already back).
+    private func pauseForReconnection(_ item: UploadItem, _ error: APIError) {
         item.phase = .paused
         item.failure = error
-        onPausedForWriteAccess?(item)
+        onPausedForReconnection?(item)
     }
 
     private func cleanUp(_ item: UploadItem) {
@@ -530,33 +541,79 @@ public final class TransferQueue {
         if let existing = jobs.first(where: { $0.id == jobId }) { return existing }
         let item = JobItem(id: jobId, title: title, kind: kind)
         jobs.append(item)
+        if let job = untrackedJobEvents.removeValue(forKey: jobId) {
+            untrackedOrder.removeAll { $0 == jobId }
+            item.job = job
+        }
         return item
     }
 
+    /// A `job` event (M14): updates the job if this app follows it (the
+    /// pak sends the jobs of every client), and calls its observers.
+    public func apply(_ job: Job) {
+        guard let item = jobs.first(where: { $0.id == job.id }) else {
+            if untrackedJobEvents.updateValue(job, forKey: job.id) == nil { untrackedOrder.append(job.id) }
+            while untrackedOrder.count > 32 { untrackedJobEvents[untrackedOrder.removeFirst()] = nil }
+            return
+        }
+        // A late event of a job already ended changes nothing.
+        guard !item.isFinished else { return }
+        item.job = job
+        item.failure = nil
+        if job.state.isFinished { onJobFinished?(item) }
+        notifyJobObservers(item)
+    }
+
+    /// Calls `observer` after each update of a job; it is removed once it
+    /// returns false.
+    public func observeJobs(_ observer: @escaping (JobItem) -> Bool) {
+        jobObservers[UUID()] = observer
+    }
+
+    private func notifyJobObservers(_ item: JobItem) {
+        for (id, observer) in jobObservers where !observer(item) {
+            jobObservers[id] = nil
+        }
+    }
+
     /// `GET /jobs/{id}` for every job not finished. The screens call it every
-    /// second while they are visible (docs/specs/03-protocole.md §8).
-    public func refreshJobs() async {
+    /// second while they are visible (docs/specs/03-protocole.md §8), unless
+    /// the event stream is live (M14). `force`: polls even then (to catch up
+    /// after a reconnection of the stream).
+    /// `isCurrent`: asked after each answer, before it is shown; false
+    /// stops (M14: the catch-up of a stream that ended since).
+    public func refreshJobs(force: Bool = false, isCurrent: (() -> Bool)? = nil) async {
+        guard force || !jobsFollowedByEvents else { return }
         let pending = jobs.filter { !$0.isFinished }
         guard !pending.isEmpty else { return }
+        let current = { isCurrent?() ?? true }
         let api: APIClient
         do {
             api = try await client()
         } catch {
+            guard current() else { return }
             for item in pending { item.failure = error }
             return
         }
         for item in pending {
+            guard current() else { return }
             do {
                 let job = try await api.job(id: item.id)
+                guard current() else { return }
+                // An event may have ended it meanwhile.
+                guard !item.isFinished else { continue }
                 item.job = job
                 item.failure = nil
                 if job.state.isFinished { onJobFinished?(item) }
+                notifyJobObservers(item)
             } catch APIError.server(let error) where error.code == .notFound {
+                guard current() else { return }
                 item.isLost = true
                 item.failure = APIError.server(error)
             } catch is CancellationError {
                 return
             } catch {
+                guard current() else { return }
                 item.failure = error
             }
         }

@@ -7,56 +7,79 @@ struct PairingLinkTests {
     let id = "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10"
     let secret = Base64URL.encode(Data(repeating: 7, count: 32))
 
+    let pin = Base64URL.encode(Data(repeating: 9, count: 32))
+    var tail: String { "s=\(secret)&h=192.168.1.42&p=47821&k=\(pin)" }
+
     @Test func parsesTheQRCodeLink() throws {
-        let link = try #require(PairingLink(string: "reminislink://pair?v=1&id=\(id)&n=Brick%20de%20Thomas&s=\(secret)&h=192.168.1.42&p=47821"))
+        let link = try PairingLink.parse("reminislink://pair?v=2&id=\(id)&n=Brick%20de%20Thomas&\(tail)")
         #expect(link.deviceId == id)
         #expect(link.deviceName == "Brick de Thomas")
         #expect(link.secret == Data(repeating: 7, count: 32))
-        // h and p are accepted but ignored, and never written back.
-        #expect(!link.url.absoluteString.contains("h="))
-        #expect(!link.url.absoluteString.contains("p="))
+        #expect(link.endpoint == Endpoint(host: "192.168.1.42", port: 47821))
+        #expect(link.pin == pin)
     }
 
     @Test func plusIsASpaceInTheName() throws {
-        let link = try #require(PairingLink(string: "reminislink://pair?v=1&id=\(id)&n=Brick+de+Thomas&s=\(secret)"))
+        let link = try PairingLink.parse("reminislink://pair?v=2&id=\(id)&n=Brick+de+Thomas&\(tail)")
         #expect(link.deviceName == "Brick de Thomas")
     }
 
     @Test func roundTrip() throws {
-        let link = PairingLink(deviceId: id, deviceName: "Brick é 🎮", secret: Data(repeating: 1, count: 32))
+        let link = PairingLink(
+            deviceId: id, deviceName: "Brick é 🎮", secret: Data(repeating: 1, count: 32),
+            endpoint: Endpoint(host: "10.0.0.7", port: 47823), pin: pin
+        )
         #expect(PairingLink(url: link.url) == link)
     }
 
-    @Test func anyAddressInTheLinkIsIgnored() throws {
-        let plain = try #require(PairingLink(string: "reminislink://pair?v=1&id=\(id)&s=\(secret)"))
-        for hp in ["h=192.168.1.42&p=47821", "h=8.8.8.8&p=47821", "h=example.com&p=47821", "h=192.168.1.4&p=0", "h=192.168.1.4"] {
-            let link = try #require(PairingLink(string: "reminislink://pair?v=1&id=\(id)&s=\(secret)&\(hp)"), "\(hp)")
-            #expect(link == plain, "\(hp)")
+    @Test func addressIsOptionalButWhole() throws {
+        let link = try PairingLink.parse("reminislink://pair?v=2&id=\(id)&s=\(secret)&k=\(pin)")
+        #expect(link.endpoint == nil)
+        for hp in ["h=192.168.1.4", "p=47821", "h=example.com&p=47821", "h=192.168.1.4&p=0", "h=192.168.1.4&p=65536",
+                   "h=192.168.01.4&p=47821", "h=192.168.1.256&p=47821", "h=::1&p=47821", "h=192.168.1.4&p=+1"] {
+            #expect(throws: PairingLinkError.invalid, "\(hp)") {
+                try PairingLink.parse("reminislink://pair?v=2&id=\(id)&s=\(secret)&k=\(pin)&\(hp)")
+            }
+        }
+    }
+
+    @Test func versionOneAsksToUpdateThePak() {
+        // The link of a pak older than M13 (no pin): "update the pak".
+        #expect(throws: PairingLinkError.outdatedPak) {
+            try PairingLink.parse("reminislink://pair?v=1&id=\(id)&s=\(secret)&h=192.168.1.42&p=47821")
+        }
+        #expect(throws: PairingLinkError.newerVersion) {
+            try PairingLink.parse("reminislink://pair?v=3&id=\(id)&\(tail)")
         }
     }
 
     @Test func rejectsInvalidLinks() {
         let bad = [
-            "https://pair?v=1&id=\(id)&s=\(secret)",
-            "reminislink://other?v=1&id=\(id)&s=\(secret)",
-            "reminislink://pair/x?v=1&id=\(id)&s=\(secret)",
+            "https://pair?v=2&id=\(id)&\(tail)",
+            "reminislink://other?v=2&id=\(id)&\(tail)",
+            "reminislink://pair/x?v=2&id=\(id)&\(tail)",
+            "reminislink://pair?id=\(id)&\(tail)",
+            "reminislink://pair?v=two&id=\(id)&\(tail)",
+            "reminislink://pair?v=2&id=\(id.uppercased())&\(tail)",
+            "reminislink://pair?v=2&id=not-a-uuid&\(tail)",
+            "reminislink://pair?v=2&id=\(id)&s=\(Base64URL.encode(Data(repeating: 7, count: 16)))&k=\(pin)",
+            "reminislink://pair?v=2&id=\(id)&s=\(secret)=&k=\(pin)",
             "reminislink://pair?v=2&id=\(id)&s=\(secret)",
-            "reminislink://pair?id=\(id)&s=\(secret)",
-            "reminislink://pair?v=1&id=\(id.uppercased())&s=\(secret)",
-            "reminislink://pair?v=1&id=not-a-uuid&s=\(secret)",
-            "reminislink://pair?v=1&id=\(id)&s=\(Base64URL.encode(Data(repeating: 7, count: 16)))",
-            "reminislink://pair?v=1&id=\(id)&s=\(secret)=",
-            "reminislink://pair?v=1&id=\(id)",
-            "reminislink://pair?v=1&v=1&id=\(id)&s=\(secret)",
-            "reminislink://pair?v=1&id=\(id)&s=\(secret)&n=%G1",
-            "reminislink://pair?v=1&id=\(id)&s=\(secret)&n=%FF",
+            "reminislink://pair?v=2&id=\(id)&s=\(secret)&k=\(Base64URL.encode(Data(repeating: 9, count: 31)))",
+            "reminislink://pair?v=2&id=\(id)&s=\(secret)&k=\(pin)=",
+            "reminislink://pair?v=2&id=\(id)",
+            "reminislink://pair?v=2&v=2&id=\(id)&\(tail)",
+            "reminislink://pair?v=2&id=\(id)&\(tail)&k=\(pin)",
+            "reminislink://pair?v=2&id=\(id)&\(tail)&n=%G1",
+            "reminislink://pair?v=2&id=\(id)&\(tail)&n=%FF",
             "reminislink://pair",
-            "reminislink://user@pair?v=1&id=\(id)&s=\(secret)",
-            "reminislink://user:pw@pair?v=1&id=\(id)&s=\(secret)",
-            "reminislink://pair:80?v=1&id=\(id)&s=\(secret)",
-            "reminislink://pair?v=1&id=\(id)&s=\(secret)#frag",
+            "reminislink://user@pair?v=2&id=\(id)&\(tail)",
+            "reminislink://user:pw@pair?v=2&id=\(id)&\(tail)",
+            "reminislink://pair:80?v=2&id=\(id)&\(tail)",
+            "reminislink://pair?v=2&id=\(id)&\(tail)#frag",
         ]
         for string in bad {
+            #expect(throws: PairingLinkError.invalid, "\(string)") { try PairingLink.parse(string) }
             #expect(PairingLink(string: string) == nil, "\(string)")
         }
     }

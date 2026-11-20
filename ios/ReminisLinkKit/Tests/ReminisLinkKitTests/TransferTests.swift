@@ -99,12 +99,19 @@ struct TransferTests {
         try handle.close()
         let expected = reference.finalize().map { String(format: "%02x", $0) }.joined()
 
-        let baseline = try #require(physicalFootprint())
-        let peak = PeakMemory(baseline)
-        let digest = try await FileDigest.sha256(of: url, progress: { _ in peak.sample() })
-        #expect(digest == expected)
-        let growth = peak.value - baseline
-        #expect(growth < 50 << 20, "memory grew by \(growth >> 20) MiB")
+        // The footprint is the whole process's: tests running in parallel
+        // allocate too. A spike of theirs can only add to the growth, so
+        // the smallest of three runs is the digest's own (a digest holding
+        // the file would grow by 100 MiB every time).
+        var smallest = Int.max
+        for _ in 0..<3 where smallest >= 50 << 20 {
+            let baseline = try #require(physicalFootprint())
+            let peak = PeakMemory(baseline)
+            let digest = try await FileDigest.sha256(of: url, progress: { _ in peak.sample() })
+            #expect(digest == expected)
+            smallest = min(smallest, Int(peak.value - baseline))
+        }
+        #expect(smallest < 50 << 20, "memory grew by \(smallest >> 20) MiB")
     }
 
     // MARK: Uploads against the fake pak
@@ -360,13 +367,12 @@ struct TransferTests {
     @Test func unsignedIsRefusedOutsideUploadChunks() async throws {
         let pak = makePak()
         // A POST signed as UNSIGNED is refused by the (fake) pak.
-        let key = SymmetricKey(size: .bits256)
-        let clientId = Pairing.makeClientId()
-        pak.addClient(id: clientId, key: key)
-        var request = URLRequest(url: URL(string: "http://\(pak.endpoint.authority)/api/v1/uploads")!)
+        let identity = ClientIdentity.generate()
+        pak.addClient(identity)
+        var request = URLRequest(url: URL(string: "https://\(pak.endpoint.authority)/api/v1/uploads")!)
         request.httpMethod = "POST"
         request.httpBody = Data("{}".utf8)
-        let signed = try Signer(clientId: clientId, key: key).sign(request, time: Int64(Date().timeIntervalSince1970), unsignedBody: true)
+        let signed = try Signer(identity: identity).sign(request, time: Int64(Date().timeIntervalSince1970), unsignedBody: true)
         let (_, response) = try await pak.makeSession().data(for: signed)
         #expect((response as? HTTPURLResponse)?.statusCode == 401)
     }

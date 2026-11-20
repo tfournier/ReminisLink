@@ -121,10 +121,7 @@ struct TrashView: View {
                     }
                     .accessibilityElement(children: .combine)
                     .swipeActions {
-                        // Another device has write access (M10).
-                        if !session.isReadOnly {
-                            Button("Delete", role: .destructive) { entryToDelete = entry }
-                        }
+                        Button("Delete", role: .destructive) { entryToDelete = entry }
                     }
                 }
             } footer: {
@@ -140,7 +137,7 @@ struct TrashView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Empty Trash", role: .destructive) { confirmEmpty = true }
-                    .disabled(entries.isEmpty || session.isReadOnly)
+                    .disabled(entries.isEmpty)
             }
         }
         .task { await session.loadTrash() }

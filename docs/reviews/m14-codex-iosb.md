@@ -1,0 +1,27 @@
+Verdict : à corriger
+
+## Bloquant
+
+- Le rattrapage peut manquer une coupure survenue avant le premier `hello`. Ouvrir la bibliothèque pendant que l’ouverture de `/events` tarde, passer en arrière-plan, faire installer une ROM par un second client, puis revenir. Le premier `hello` reçu au retour trouve `hellosSeen == 0` et saute le rechargement. La ROM reste absente jusqu’au prochain rafraîchissement. Recharger les écrans au premier `hello` également, ou mémoriser qu’un flux a été interrompu avant de recevoir son `hello`. [ConsoleSession+Events.swift:79](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLink/App/ConsoleSession+Events.swift:79)
+- Deux rechargements de **States** peuvent réafficher un emplacement supprimé. Ouvrir l’écran et retarder sa première réponse `GET /states` après que le pak a lu les emplacements. Un second client supprime un emplacement. L’événement `library` déclenche une nouvelle lecture, qui affiche correctement la suppression. Quand la première réponse arrive, elle rétablit l’ancienne liste. Annuler la lecture précédente ou contrôler sa génération avant d’appliquer son résultat. [StatesView.swift:261](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLink/Views/StatesView.swift:261)
+- Dans **Cheats**, un rafraîchissement peut rendre un brouillon impossible à valider. Ouvrir la fiche d’un code existant et modifier sa description, puis faire supprimer un jeu d’un autre système par un second client. Le `library` relit la liste des cheats et régénère ses identifiants locaux, même si son `etag` est identique. La fiche conserve l’ancien identifiant et **Terminé** ne fait plus rien. Ignorer les réponses de même `etag` et différer l’application d’une liste modifiée tant que la fiche contient un brouillon. Autre cas du même écran : après un conflit signalé, **Abandonner** rétablit l’ancienne liste alors que le message promet d’afficher la nouvelle. Appliquer la liste reçue ou la relire à la confirmation. [CheatsView.swift:62](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLink/Views/CheatsView.swift:62) · [CheatsView.swift:92](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLink/Views/CheatsView.swift:92) · [CheatEditor.swift:42](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLinkKit/Sources/ReminisLinkKit/CheatEditor.swift:42)
+- Le FakePak peut envoyer le `device` initial que le contrat exclut. Sur un FakePak neuf, appairer un client puis ouvrir `/events` comme première requête signée. L’appairage a établi un relevé sans client connecté. Après l’ouverture du flux, `respond` refait le relevé, voit le client et émet `device` juste après `hello`. Initialiser le relevé de référence à l’ouverture du premier flux et le réinitialiser à la fermeture du dernier. [FakePak.swift:393](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLinkKit/Sources/ReminisLinkDemo/FakePak.swift:393) · [FakePakEvents.swift:342](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLinkKit/Sources/ReminisLinkDemo/FakePakEvents.swift:342)
+
+## À corriger
+
+- Le compteur protège la réponse de `GET /device` contre un événement reçu pendant la requête, mais deux réponses de rattrapage peuvent encore s’écraser. Retarder la réponse du premier `hello` à 78 %, passer en arrière-plan, changer la batterie à 42 %, puis revenir. Si la nouvelle lecture affiche 42 % sans événement `device` entre les deux réponses, l’ancienne réponse peut ensuite réafficher 78 %. Annuler le rattrapage à la fermeture du flux et vérifier la génération de la lecture avant de publier son résultat. [ConsoleSession+Events.swift:83](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLink/App/ConsoleSession+Events.swift:83) · [ConsoleSession+Events.swift:101](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-ios/ios/ReminisLink/App/ConsoleSession+Events.swift:101)
+
+## Vérification des autres correctifs
+
+- Le retour à **Consoles** et le passage de A à B déclenchent l’arrêt du flux précédent. Le retour au premier plan depuis la liste respecte la même condition d’ouverture.
+- Le FakePak fusionne désormais les écritures `library` rapprochées et lit l’état `device` au moment de l’émission différée. Les nouveaux tests couvrent la fusion et la dernière valeur de batterie. Le test de reprise vérifie l’invalidation de la bibliothèque, tandis que le test de retour à la liste vérifie la fermeture du flux.
+- Le parseur borne les données cumulées d’un événement à 1 Mio et reprend après la ligne vide suivante. La lecture directe de `URLSession.AsyncBytes` supprime le tampon intermédiaire non borné.
+
+## Tests lancés
+
+- `git diff --check main...HEAD` et `git diff --check HEAD~1...HEAD` — aucun problème signalé.
+- `gofmt -l cmd internal protocol scripts` — aucun fichier signalé.
+- `sh scripts/sync-test-vectors.sh --check` — les copies Swift correspondent aux vecteurs du protocole.
+- `make lint test`, `make contract`, `swift test` et `xcodebuild test` — non lancés, car ils écrivent des caches ou des artefacts. Aucun résultat de suite Go ou iOS n’a été vérifié.
+
+Contre-revue iOS du commit `9883e80f`, avec `92f3c698...HEAD` comme contexte. Aucun prompt M14 n’était présent dans `prompts/`. La description de la PR était inaccessible avec `gh`, faute d’authentification. Aucun fichier n’a été modifié et aucun commit n’a été créé.

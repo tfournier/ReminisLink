@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Signer")
 struct SignerTests {
-    let key = SymmetricKey(data: Data(repeating: 0x42, count: 32))
+    let key = try! Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 0x42, count: 32))
     let nonce = Base64URL.encode(Data(repeating: 1, count: 16))
     let emptySHA = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
@@ -66,7 +66,7 @@ struct SignerTests {
     }
 
     @Test func signURLRequest() throws {
-        let signer = Signer(clientId: "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", key: key)
+        let signer = Signer(clientId: "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", privateKey: key)
         var request = URLRequest(url: try #require(URL(string: "http://192.168.1.42:47821/api/v1/games/R2FtZQ?keepSave=true")))
         request.httpMethod = "delete"
         let signed = try signer.sign(request, time: 1_795_539_600, nonce: nonce)
@@ -75,14 +75,16 @@ struct SignerTests {
             method: "DELETE", path: "/api/v1/games/R2FtZQ", rawQuery: "keepSave=true",
             time: "1795539600", nonce: nonce, contentSHA256: emptySHA
         )
-        #expect(signed.value(forHTTPHeaderField: SignedHeaders.signature) == Signer.signature(key: key, canonical: canonical))
+        let signature = try #require(signed.value(forHTTPHeaderField: SignedHeaders.signature))
+        #expect(Signer.isValidSignature(signature, publicKey: key.publicKey, canonical: canonical))
+        #expect(canonical.hasPrefix("RL2-ED25519\n"))
         #expect(signed.value(forHTTPHeaderField: SignedHeaders.client) == signer.clientId)
         #expect(signed.value(forHTTPHeaderField: SignedHeaders.time) == "1795539600")
         #expect(signed.value(forHTTPHeaderField: SignedHeaders.contentSHA256) == emptySHA)
     }
 
     @Test func signUploadChunkUnsigned() throws {
-        let signer = Signer(clientId: "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", key: key)
+        let signer = Signer(clientId: "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", privateKey: key)
         var request = URLRequest(url: try #require(URL(string: "http://h/api/v1/uploads/up_1")))
         request.httpMethod = "PUT"
         request.httpBody = Data("chunk".utf8)
@@ -91,11 +93,20 @@ struct SignerTests {
     }
 
     @Test func signatureCoversBody() throws {
-        let signer = Signer(clientId: "c", key: key)
+        let signer = Signer(clientId: "c", privateKey: key)
         let a = try signer.headers(method: "POST", path: "/api/v1/uploads", body: Data("{}".utf8), time: 1, nonce: nonce)
         let b = try signer.headers(method: "POST", path: "/api/v1/uploads", body: Data("{ }".utf8), time: 1, nonce: nonce)
-        #expect(a.signature != b.signature)
-        #expect(!Signer.isValidSignature(a.signature, key: SymmetricKey(data: Data(repeating: 1, count: 32)), canonical: "x"))
+        let canonicalA = try Signer.canonicalRequest(
+            method: "POST", path: "/api/v1/uploads", rawQuery: "", time: "1", nonce: nonce, contentSHA256: a.contentSHA256
+        )
+        let canonicalB = try Signer.canonicalRequest(
+            method: "POST", path: "/api/v1/uploads", rawQuery: "", time: "1", nonce: nonce, contentSHA256: b.contentSHA256
+        )
+        #expect(Signer.isValidSignature(a.signature, publicKey: key.publicKey, canonical: canonicalA))
+        #expect(!Signer.isValidSignature(a.signature, publicKey: key.publicKey, canonical: canonicalB))
+        // Another key does not verify it.
+        #expect(!Signer.isValidSignature(a.signature, publicKey: Curve25519.Signing.PrivateKey().publicKey, canonical: canonicalA))
+        #expect(!Signer.isValidSignature("", publicKey: key.publicKey, canonical: canonicalA))
     }
 
     @Test func base64URLStrictness() {
@@ -108,7 +119,7 @@ struct SignerTests {
     }
 
     @Test func bodyStreamIsRefusedUnlessUnsigned() throws {
-        let signer = Signer(clientId: "c", key: key)
+        let signer = Signer(clientId: "c", privateKey: key)
         var request = URLRequest(url: try #require(URL(string: "http://h/api/v1/games/R2FtZQ/save")))
         request.httpMethod = "PUT"
         request.httpBodyStream = InputStream(data: Data("save".utf8))
