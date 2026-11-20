@@ -20,6 +20,10 @@
 
 OPENSSL=${OPENSSL:-openssl}
 
+# Never trace: the functions below handle the pairing secret, HMAC keys
+# and signatures (a caller with set -x would print them).
+{ set +x; } 2>/dev/null
+
 rl2_die() { echo "rl2: $*" >&2; exit 1; }
 
 # --- encodings -------------------------------------------------------------

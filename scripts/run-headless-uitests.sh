@@ -32,12 +32,17 @@
 #   SKIP_BUILD=1  reuse the last build-for-testing of DERIVED_DATA
 #   KEEP_LOGS=1   keep the work folder (pak output, xcodebuild logs)
 #
-# Each test prints PASS, FAIL or SKIP (a test that skipped itself, e.g. a
-# link not received, counts as a failure); a test whose runner the
-# simulator could not start is tried once more with a new pak. Exits 1 if
-# any test did not pass. Pairing links only go through files and
-# environment variables, never through process arguments, and are never
-# printed. Works with the bash 3.2 of macOS.
+# Each test prints PASS, FAIL or SKIP. PASS needs the XCTest line saying
+# that this very method passed (an empty run fails, e.g. a renamed method
+# with SKIP_BUILD=1); a test that skipped itself (e.g. a link not
+# received) counts as a failure. A test that never started (no "started"
+# line and the app never paired) is tried once more with a new pak. Exits
+# 1 if any test did not pass. Pairing links only go through files and
+# environment variables, never through process arguments nor a shell
+# trace, and are never printed. Works with the bash 3.2 of macOS.
+# The pairing links, secrets and keys must never reach a shell trace:
+# tracing (bash -x, set -x, SHELLOPTS) is turned off for the whole run.
+{ set +x; } 2>/dev/null
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -57,7 +62,7 @@ EVENTS_QUIT|EventsUITests/testPakQuitReturnsToListAgainstHeadlessPak|RL_UITEST_P
 EVENTS_LIBRARY|EventsUITests/testLibraryRefreshFromAnotherClientAgainstHeadlessPak|RL_UITEST_PAIR_URL_EVENTS_LIBRARY
 PAKS|PaksUITests/testInstallAndDeleteAgainstHeadlessPak|RL_UITEST_PAIR_URL_PAKS"
 
-usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; }
 die() { echo "run-headless-uitests: $*" >&2; exit 1; }
 
 if [ "${1-}" = "--list" ]; then
@@ -143,11 +148,13 @@ wait_links() {
 	return 1
 }
 
-# new_card: a fresh copy of testdata/sdcard; prints its path.
+# new_card: a fresh copy of testdata/sdcard; prints its path. Fails if the
+# copy fails (set -e does not apply inside $(...) in bash 3.2: callers
+# check the status).
 new_card() {
 	local card
-	card=$(mktemp -d "$work/sdcard.XXXXXX")
-	cp -R testdata/sdcard/. "$card/"
+	card=$(mktemp -d "$work/sdcard.XXXXXX") || return 1
+	cp -R testdata/sdcard/. "$card/" || return 1
 	printf '%s\n' "$card"
 }
 
@@ -177,16 +184,20 @@ for name in $ordered; do
 	line=$(printf '%s\n' "$TESTS" | awk -F'|' -v n="$name" '$1 == n')
 	test=$(printf '%s' "$line" | cut -d'|' -f2)
 	variable=$(printf '%s' "$line" | cut -d'|' -f3)
-	# A second attempt (fresh pak and link) only when the simulator could
-	# not start the test runner: the test itself did not run.
+	# The XCTest lines of this very method: a PASS needs its "passed" line,
+	# so an empty run (e.g. a renamed method with SKIP_BUILD=1) fails.
+	case_line="Test Case '-[ReminisLinkUITests.${test%/*} ${test#*/}]'"
+	log=$work/$name.pak.log
+	xlog=$work/$name.xcodebuild.log
+	ready=$work/$name.ready
+	trigger=$work/$name.trigger
+
+	# A second attempt (fresh pak and link) only when the test never
+	# started: no "started" line for the method, and the app never paired
+	# (the pak printed only its first link, still unused).
 	attempt=1
 	while :; do
-		log=$work/$name.pak.log
-		xlog=$work/$name.xcodebuild.log
-		ready=$work/$name.ready
-		trigger=$work/$name.trigger
 		rm -f "$ready" "$trigger"
-
 		if [ "$name" = RESTORED ]; then
 			[ -n "$states_card" ] || die "RESTORED needs the card of STATES"
 			card=$states_card
@@ -194,7 +205,7 @@ for name in $ordered; do
 			# hand while the pak is stopped; the next start restores it.
 			echo changed >"$card/.userdata/shared/GBA-gpsp/Starlight Courier.gba.st1"
 		else
-			card=$(new_card)
+			card=$(new_card) || die "cannot copy testdata/sdcard"
 		fi
 		[ "$name" != STATES ] || states_card=$card
 
@@ -220,10 +231,13 @@ for name in $ordered; do
 			helper_pid=$!
 			;;
 		EVENTS_LIBRARY)
+			# Once the app paired, the subshell becomes the second client
+			# (exec): $helper_pid is then smoke-events.sh itself, whose
+			# INT/TERM traps remove its private keys.
 			(
-				wait_links "$log" 2 120 &&
-					UI_DELETE=1 PAK_LOG=$log READY_FILE=$ready READY_TIMEOUT=120 TRIGGER_FILE=$trigger \
-						CLIENT_NAME="UI tests B" scripts/smoke-events.sh
+				wait_links "$log" 2 120 || exit 1
+				UI_DELETE=1 PAK_LOG=$log READY_FILE=$ready READY_TIMEOUT=120 TRIGGER_FILE=$trigger \
+					CLIENT_NAME="UI tests B" exec scripts/smoke-events.sh
 			) >"$work/$name.helper.log" 2>&1 &
 			helper_pid=$!
 			;;
@@ -232,7 +246,7 @@ for name in $ordered; do
 		echo "running $test (pak PID $pak_pid)"
 		status=0
 		# The link goes to xcodebuild through its environment only (exported
-		# in a subshell), never as an argument.
+		# in a subshell), never as an argument nor in a trace.
 		(
 			link=$(sed -n 's/^Pairing link: //p' "$log" | head -n 1)
 			export "TEST_RUNNER_$variable=$link"
@@ -241,31 +255,35 @@ for name in $ordered; do
 				-derivedDataPath "$DERIVED_DATA" -only-testing:"ReminisLinkUITests/$test"
 		) >"$xlog" 2>&1 || status=$?
 
+		# The second client is awaited only after a successful test; after a
+		# failure it is stopped at once (it may wait for a pairing that will
+		# never come).
 		helper_status=0
-		if [ "$name" = EVENTS_LIBRARY ] && [ -n "$helper_pid" ]; then
+		if [ "$status" -eq 0 ] && [ "$name" = EVENTS_LIBRARY ] && [ -n "$helper_pid" ]; then
 			wait "$helper_pid" 2>/dev/null || helper_status=$?
 			helper_pid=""
 		fi
 		stop_helper
+		pak_links=$(links "$log")
 		stop_pak
 
-		if [ "$status" != 0 ] && [ "$attempt" -lt 2 ] && grep -q "encountered an error" "$xlog" &&
-			! grep -q "^Test Case '" "$xlog"; then
-			echo "retrying $name: the test runner did not start ($(grep -o 'encountered an error.*' "$xlog" | head -c 120))"
+		if [ "$status" -ne 0 ] && [ "$attempt" -lt 2 ] && ! grep -qF "$case_line started" "$xlog" &&
+			[ "${pak_links:-0}" -le 1 ]; then
+			echo "retrying $name: the test did not start ($(grep -o 'encountered an error.*' "$xlog" | head -c 120 || true))"
 			attempt=2
 			continue
 		fi
 		break
 	done
+
 	if [ "$status" = pak ]; then
 		echo "FAIL: $name (the pak printed no pairing link; output: $log)"
 		KEEP_LOGS=1
 		failed=$((failed + 1))
 		continue
 	fi
-
 	delay=$(grep -o 'RL_EVENTS_DELAY [^"]*' "$xlog" | head -n 1 || true)
-	if [ "$status" -eq 0 ] && grep -q "Test Case .* skipped" "$xlog"; then
+	if grep -qF "$case_line skipped" "$xlog"; then
 		echo "SKIP: $name ($(grep -o 'Set TEST_RUNNER_[A-Z_]*' "$xlog" | head -n 1 || true); log: $xlog)"
 		KEEP_LOGS=1
 		skipped=$((skipped + 1))
@@ -273,11 +291,15 @@ for name in $ordered; do
 		echo "FAIL: $name (the second client failed; log: $work/$name.helper.log)"
 		KEEP_LOGS=1
 		failed=$((failed + 1))
-	elif [ "$status" -eq 0 ] && grep -q '\*\* TEST EXECUTE SUCCEEDED \*\*' "$xlog"; then
+	elif [ "$status" -eq 0 ] && grep -qF "$case_line passed" "$xlog"; then
 		echo "PASS: $name${delay:+ ($delay)}"
 		passed=$((passed + 1))
 	else
-		echo "FAIL: $name (xcodebuild exit $status; log: $xlog)"
+		if grep -qF "$case_line started" "$xlog"; then
+			echo "FAIL: $name (xcodebuild exit $status; log: $xlog)"
+		else
+			echo "FAIL: $name (the test did not run, xcodebuild exit $status; log: $xlog)"
+		fi
 		grep -E 'error: |XCTAssert|failed \(' "$xlog" | head -n 5 | sed 's/^/    /' || true
 		KEEP_LOGS=1
 		failed=$((failed + 1))
