@@ -5,16 +5,16 @@ ReminisLink lets you manage the games on your retro handheld from your iPhone: R
 It has two parts:
 
 - **The pak**: the ReminisLink program for the handheld (NextUI on the TrimUI Brick first), shown as "ReminisLink" in the Tools menu. You open it, manage your games from the phone, close it and play.
-- **ReminisLink for iOS**: the iPhone app. It finds the handheld on the local Wi-Fi network (Bonjour), pairs with a QR code and talks to the pak over HTTPS, pinned to the certificate fingerprint carried by the QR code. Everything stays on your local network.
+- **ReminisLink for iOS**: the iPhone app. It finds the handheld on the local Wi-Fi network (Bonjour), pairs with a QR code and talks to the pak over HTTPS, pinned to the fingerprint of the certificate's public key (SPKI) carried by the QR code. The app and the pak only talk over your local network (downloads from a link are made by the pak itself, and save copies can go to your iCloud Drive).
 
-![Main screen of the pak](docs/screenshots/main.png)
+![Pairing screen of the pak (illustrative QR code)](docs/screenshots/pairing.png)
 
 ## Features of the pak
 
-- Pairing with a QR code only (no PIN), valid 10 minutes, open only while the code is on screen: on the main screen until a first device is paired, then from Settings > Pair a New Device. Several devices can be paired. Every request after pairing is signed with the device's Ed25519 key: only paired devices are accepted.
+- Pairing with a QR code only (no PIN), valid 10 minutes, open only while the code is on screen: on the main screen until a first device is paired, then from Settings > Pair a New Device. Several devices can be paired. Every request except `GET /hello` and `POST /pair` (which proves the one-time secret of the QR code) is signed with the device's Ed25519 key: only paired devices are accepted. Pairings made by earlier test builds (before M13) are deleted at the first launch: pair again.
 - Shows its state (Ready, Connected, Transfer in progress), the battery level, the connected devices, the transfers with their progress, and a short banner each time the SD card changes ("Save restored: ...").
 - Send ROMs and game art, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches, all from the app.
-- Nothing is deleted without a copy: a deleted or replaced file goes to a trash kept 30 days.
+- Nothing is deleted without a copy: a deleted or replaced file goes to a trash, purged at launch once an entry reaches 30 days of counted age (the clock of the console is not trusted).
 - Settings: pair a new device, name of the console (as seen by the app), paired devices, language, version and log location.
 - Interface in English and French, chosen on first launch.
 
@@ -41,7 +41,7 @@ Open **Pak Store** on your device and install **ReminisLink**.
 ## Usage
 
 1. Turn on Wi-Fi in the NextUI settings, then open **Tools > ReminisLink** on the handheld. The iPhone must be on the same Wi-Fi network.
-2. In the ReminisLink app, tap **Add a Console** and scan the QR code shown by the pak.
+2. In the ReminisLink app, tap **Add a Console**, scan the QR code shown by the pak, then tap **Open the Console**.
 3. Manage your games from the app. When you are done, press **B** on the handheld to close the pak, and play.
 
 The pak only runs when no game is running: open it from the Tools menu when you need it.
@@ -65,11 +65,11 @@ The pak changes your files where NextUI expects them, and keeps its own data in 
 | Settings (device id, name, language) | `/.userdata/shared/ReminisLink/config.json` |
 | Paired devices | `/.userdata/shared/ReminisLink/clients.json` |
 | Save backups, resume history, state locks | `/.userdata/shared/ReminisLink/backups/` and `locks/` |
-| Trash (deleted or replaced files, kept 30 days) | `/.userdata/shared/ReminisLink/trash/` |
+| Trash (deleted or replaced files, purged at 30 days of counted age) | `/.userdata/shared/ReminisLink/trash/` |
 | Patches you copy to the card | `/.userdata/shared/ReminisLink/patches/` |
 | Logs | `/.userdata/tg5040/logs/ReminisLink.txt`, `ReminisLink.ui.txt` and `ReminisLink.stderr.txt` |
 
-`clients.json` only holds the public keys of the paired devices: a copy of the SD card cannot sign requests for them. The `tls/` folder holds the private key of the pak's certificate: with a copy of the card, someone could pretend to be the handheld on the local network. If you lend or lose the card, use **Settings > Forget all devices**, and delete `tls/` to get a new certificate at the next launch (every device then has to pair again).
+`clients.json` holds, for each paired device, its identifier, name, platform, the types of device seen, its public key and the pairing date; no private key, so a copy of the SD card cannot sign requests for them. The `tls/` folder holds the private key of the pak's certificate: with a copy of the card, someone could pretend to be the handheld on the local network. If you lend or lose the card, use **Settings > Forget all devices**, and delete `tls/` to get a new certificate at the next launch (every device then has to pair again).
 
 ## Development
 

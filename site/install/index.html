@@ -96,7 +96,7 @@
           <ol>
             <li>In the app, tap <strong>Add a Console</strong>. You can type the name that the handheld will show for your devices (by default, “iPhone”).</li>
             <li>Scan the QR code shown by the handheld. Allow the camera when iOS asks; you can also scan the code with the Camera app of the iPhone.</li>
-            <li>The app shows its progress (searching for the console, pairing, done). On the last step you can change the name of the handheld on this iPhone, then tap <strong>Open the Console</strong>. The handheld goes back to its main screen and shows “Paired with” and the name.</li>
+            <li>The app shows its progress (searching for the console, pairing, done). On the last step you can change the name of the handheld on this iPhone, then tap <strong>Open the Console</strong>. When pairing succeeds, the handheld shows “Paired with” and the name; if it still shows the pairing screen, press <strong>B</strong>.</li>
           </ol>
           <p>Pairing is open only while the QR code is shown, and each QR code is valid 10 minutes. Once a device is paired, the main screen no longer shows a QR code: to pair <strong>another</strong> device, open <strong>Settings &gt; Pair a New Device</strong> on the handheld.</p>
           <p>Your iPhone keeps its pairing in iCloud Keychain: your other Apple devices signed in with the same Apple Account share it and do not need to pair again. A device with another Apple Account pairs with its own QR code.</p>
@@ -135,11 +135,11 @@
           <p>ReminisLink keeps its own data in <code>/.userdata/shared/ReminisLink/</code>:</p>
           <ul>
             <li><code>config.json</code>: the identifier, name and language of the handheld;</li>
-            <li><code>clients.json</code>: the paired devices (name, platform and public key only);</li>
+            <li><code>clients.json</code>: the paired devices (identifier, name, platform, types of device seen, public key and pairing date; no private key);</li>
             <li><code>tls/</code>: the certificate of the handheld and its private key;</li>
             <li><code>backups/</code>: the backup copies of your saves and the history of resume states;</li>
             <li><code>locks/</code>: the locked copies of your save states;</li>
-            <li><code>trash/</code>: the files deleted or replaced, until they are 30 days old or you empty the trash;</li>
+            <li><code>trash/</code>: the files deleted or replaced, until they reach 30 days of counted age (purged at launch) or you empty the trash;</li>
             <li><code>patches/</code>: the patches you copied there;</li>
             <li><code>uploads/</code> and <code>staging/</code>: temporary files.</li>
           </ul>

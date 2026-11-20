@@ -96,7 +96,7 @@
           <ol>
             <li>Dans l’app, touche <strong>Ajouter une console</strong>. Tu peux saisir le nom sous lequel la console affichera tes appareils (par défaut « iPhone »).</li>
             <li>Scanne le QR code affiché par la console. Autorise l’appareil photo quand iOS le demande ; tu peux aussi scanner le code avec l’app Appareil photo de l’iPhone.</li>
-            <li>L’app affiche sa progression (recherche de la console, appairage, terminé). À la dernière étape, tu peux changer le nom de la console sur cet iPhone, puis toucher <strong>Ouvrir la console</strong>. La console revient à son écran principal et affiche « Appairé avec » suivi du nom.</li>
+            <li>L’app affiche sa progression (recherche de la console, appairage, terminé). À la dernière étape, tu peux changer le nom de la console sur cet iPhone, puis toucher <strong>Ouvrir la console</strong>. Quand l’appairage réussit, la console affiche « Appairé avec » suivi du nom ; si elle affiche encore l’écran d’appairage, appuie sur <strong>B</strong>.</li>
           </ol>
           <p>L’appairage n’est ouvert que pendant que le QR code est affiché, et chaque QR code est valable 10 minutes. Dès qu’un appareil est appairé, l’écran principal n’affiche plus de QR code : pour appairer un <strong>autre</strong> appareil, ouvre <strong>Réglages &gt; Appairer un nouvel appareil</strong> sur la console.</p>
           <p>Ton iPhone garde son appairage dans le trousseau iCloud : tes autres appareils Apple connectés au même compte Apple le partagent et n’ont pas besoin de s’appairer. Un appareil d’un autre compte Apple s’appaire avec son propre QR code.</p>
@@ -123,7 +123,7 @@
           <ol>
             <li>Lis les notes de la nouvelle version sur la <a href="https://github.com/tfournier/ReminisLink/releases">page des versions</a>.</li>
             <li>La carte SD dans ton ordinateur, supprime le dossier <code>/Tools/tg5040/ReminisLink.pak/</code>, puis décompresse le nouveau <code>ReminisLink.pak.zip</code> dans <code>/Tools/tg5040/</code>, comme pour la première installation. ReminisLink ne peut pas se remplacer lui-même depuis l’app pendant qu’il tourne.</li>
-            <li>Tes réglages, copies de secours, states verrouillés et corbeille sont dans un autre dossier (voir plus bas) : ils sont conservés. Les appareils appairés aussi, sauf si la nouvelle version change la façon de s’appairer : elle efface alors les anciens appairages à son premier lancement, et les notes de version le précisent.</li>
+            <li>Tes réglages, copies de secours, états de jeu verrouillés et corbeille sont dans un autre dossier (voir plus bas) : ils sont conservés. Les appareils appairés aussi, sauf si la nouvelle version change la façon de s’appairer : elle efface alors les anciens appairages à son premier lancement, et les notes de version le précisent.</li>
             <li>Mets aussi l’app iPhone à jour. Si l’app affiche <strong>Refaire l’appairage</strong> à côté de la console, appaire-la de nouveau en scannant un nouveau QR code (<strong>Réglages &gt; Appairer un nouvel appareil</strong> sur la console).</li>
           </ol>
         </section>
@@ -131,19 +131,19 @@
         <section aria-labelledby="uninstall">
           <h2 id="uninstall">Désinstaller</h2>
           <h3>Sur la console</h3>
-          <p>Supprime le dossier <code>/Tools/tg5040/ReminisLink.pak/</code>. Tes jeux, sauvegardes, states et cheats restent là où NextUI les range.</p>
+          <p>Supprime le dossier <code>/Tools/tg5040/ReminisLink.pak/</code>. Tes jeux, sauvegardes, états de jeu et cheats restent là où NextUI les range.</p>
           <p>ReminisLink garde ses propres données dans <code>/.userdata/shared/ReminisLink/</code> :</p>
           <ul>
             <li><code>config.json</code> : l’identifiant, le nom et la langue de la console ;</li>
-            <li><code>clients.json</code> : les appareils appairés (nom, plateforme et clé publique seulement) ;</li>
+            <li><code>clients.json</code> : les appareils appairés (identifiant, nom, plateforme, types d’appareils vus, clé publique et date d’appairage ; aucune clé privée) ;</li>
             <li><code>tls/</code> : le certificat de la console et sa clé privée ;</li>
-            <li><code>backups/</code> : les copies de secours de tes sauvegardes et l’historique des states de reprise ;</li>
-            <li><code>locks/</code> : les copies verrouillées de tes states ;</li>
-            <li><code>trash/</code> : les fichiers supprimés ou remplacés, jusqu’à leurs 30 jours ou jusqu’à ce que tu vides la corbeille ;</li>
+            <li><code>backups/</code> : les copies de secours de tes sauvegardes et l’historique des états de reprise ;</li>
+            <li><code>locks/</code> : les copies verrouillées de tes états de jeu ;</li>
+            <li><code>trash/</code> : les fichiers supprimés ou remplacés, jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu vides la corbeille ;</li>
             <li><code>patches/</code> : les patchs que tu y as copiés ;</li>
             <li><code>uploads/</code> et <code>staging/</code> : des fichiers temporaires.</li>
           </ul>
-          <p>Avant de supprimer ce dossier, regarde dans <code>backups/</code>, <code>locks/</code> et <code>trash/</code> s’il y a quelque chose à garder (une copie verrouillée peut être la seule bonne version d’un state) : supprimer le dossier les efface définitivement. Si tu supprimes seulement le pak et le réinstalles plus tard, tout est encore là. Les journaux sont dans <code>/.userdata/tg5040/logs/</code> (fichiers dont le nom commence par <code>ReminisLink</code>).</p>
+          <p>Avant de supprimer ce dossier, regarde dans <code>backups/</code>, <code>locks/</code> et <code>trash/</code> s’il y a quelque chose à garder (une copie verrouillée peut être la seule bonne version d’un état de jeu) : supprimer le dossier les efface définitivement. Si tu supprimes seulement le pak et le réinstalles plus tard, tout est encore là. Les journaux sont dans <code>/.userdata/tg5040/logs/</code> (fichiers dont le nom commence par <code>ReminisLink</code>).</p>
           <h3>Sur l’iPhone</h3>
           <p>Pour retirer d’abord l’appairage, ouvre la console dans l’app, puis <strong>Console &gt; Se désappairer</strong> (il est retiré sur tous tes appareils Apple qui le partagent). Supprime ensuite l’app comme d’habitude. Les copies de tes sauvegardes dans iCloud Drive ne sont pas supprimées avec l’app : efface le dossier ReminisLink dans Fichiers si tu n’en veux plus.</p>
         </section>

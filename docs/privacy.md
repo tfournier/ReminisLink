@@ -35,10 +35,12 @@ data about you or about how you use the app.
   time.
 - **Files and links you share to ReminisLink** from another app: the share
   extension copies them into storage shared with the app until you send them.
-  The app deletes them once they are used, or when they are more than 7 days
-  old.
-- **Temporary copies of the files you send**, kept until the transfer ends,
-  and deleted at the next launch of the app at the latest.
+  The app deletes them once they are used; unused ones are deleted the next
+  time the app checks its inbox (when it becomes active) once they are older
+  than 7 days.
+- **Temporary copies of the files you send**, kept until the transfer ends.
+  The app does not keep its transfer queue across launches: they are deleted
+  at the next launch at the latest.
 - **Files you download** from your handheld (a file of a game, a file of the
   SD card) or from your save copies: written to a temporary folder of the
   app, then saved only where you choose (Files, AirDrop, another app). The
@@ -54,8 +56,8 @@ you want it removed.
 To pair, the app creates its own identity: an identifier and a private
 signing key. For each paired handheld, it keeps the identifier, name and
 model of the handheld, the name you gave it, the fingerprint of its
-certificate’s public key and its last address on your local network, and the
-name you chose to show on your handhelds.
+certificate’s public key and its last address on your local network and the
+pairing date, and the name you chose to show on your handhelds.
 
 All of this is kept in the iOS Keychain, readable only by ReminisLink and its
 share extension, and synced by **iCloud Keychain** to your other Apple
@@ -75,7 +77,9 @@ your iPhone: with the **Sync Saves** button of a handheld, and automatically
 when it connects (you can turn this off in the settings of the app). Up to 10
 versions of each save are kept. Next to the copies, small files record the
 identifier and name of the handheld, the identifier, name and system of the
-game, and for each version its number, date, size and checksum.
+game, and for each version its number, the names, sizes and checksums of its
+files, the date of the copy and, when known, the date the save last changed
+on the handheld.
 
 The copies go to **your own iCloud Drive**, in the ReminisLink folder of the
 Files app, where you can see, move or delete them. iCloud is Apple’s service,
@@ -113,14 +117,15 @@ public-key fingerprint is in the QR code you scanned.
 - **The log of ReminisLink** (`/.userdata/tg5040/logs/`): what the handheld
   did, with for each request the time, the action, the result, the identifier
   of the device and its address on your local network, plus the names of
-  devices when they pair, and file names. Never a key, a secret or a
-  signature. At launch, a log larger than 5 MB is renamed, replacing the
-  previous old log.
+  devices when they pair, file names, and the scheme and host of download
+  links (never their path). Requests that are not signed or are rejected are
+  only logged in samples. Never a key, a secret or a signature. At launch, a
+  log larger than 5 MB is renamed, replacing the previous old log.
 - **Your files**, where NextUI keeps them, and in the ReminisLink folder
   (`/.userdata/shared/ReminisLink/`): backup copies of saves, locked copies
-  of save states, the trash (deleted or replaced files, removed after 30 days
-  counted by the handheld, or when you empty it), and temporary files of
-  transfers.
+  of save states, the trash (deleted or replaced files, purged at launch once
+  they reach 30 days of counted age, or when you empty it), and temporary
+  files of transfers (an upload left idle for 24 hours is deleted).
 - **The certificate of the handheld** and its private key.
 
 The SD card has no protection of its own: anyone holding it can read these
@@ -131,10 +136,11 @@ files.
 When you type or share a link, the app sends it to your handheld, which
 downloads the file itself (a game, a patch, a cheat file or an app for the
 handheld), from its own connection. The server of the link receives the
-request of the handheld, as for any download: the full address of the link
-(with its path and parameters), the public IP address of your network, and
-“ReminisLink” as the name of the program. The app itself does not contact
-that server.
+request of the handheld, as for any download: the path and parameters of the
+link (not the part after #), the IP address of the connection (usually the
+public address of your network), and “ReminisLink” as the name of the
+program. It may redirect the handheld to another server, which then receives
+the same kind of request. The app itself does not contact these servers.
 
 ### Permissions
 
@@ -191,10 +197,12 @@ sur toi ni sur ton utilisation de l’app.
   vider à tout moment.
 - **Les fichiers et liens que tu partages vers ReminisLink** depuis une autre
   app : l’extension de partage les copie dans un stockage partagé avec l’app
-  jusqu’à leur envoi. L’app les supprime une fois utilisés, ou quand ils ont
-  plus de 7 jours.
+  jusqu’à leur envoi. L’app les supprime une fois utilisés ; ceux qui ne
+  servent pas sont supprimés la prochaine fois que l’app vérifie sa boîte de
+  réception (quand elle devient active), s’ils ont plus de 7 jours.
 - **Des copies temporaires des fichiers que tu envoies**, gardées jusqu’à la
-  fin du transfert, et supprimées au plus tard au lancement suivant de l’app.
+  fin du transfert. L’app ne garde pas sa file de transferts d’un lancement à
+  l’autre : elles sont supprimées au plus tard au lancement suivant.
 - **Les fichiers que tu télécharges** depuis ta console (un fichier d’un jeu,
   un fichier de la carte SD) ou depuis tes copies de sauvegardes : écrits
   dans un dossier temporaire de l’app, puis enregistrés seulement là où tu le
@@ -211,8 +219,9 @@ consoles dans l’app si tu veux qu’il disparaisse.
 Pour s’appairer, l’app crée sa propre identité : un identifiant et une clé
 privée de signature. Pour chaque console appairée, elle garde l’identifiant,
 le nom et le modèle de la console, le nom que tu lui as donné, l’empreinte de
-la clé publique de son certificat et sa dernière adresse sur ton réseau
-local, ainsi que le nom que tu as choisi d’afficher sur tes consoles.
+la clé publique de son certificat et sa dernière adresse sur ton réseau local
+et la date d’appairage, ainsi que le nom que tu as choisi d’afficher sur tes
+consoles.
 
 Tout cela est gardé dans le trousseau iOS, lisible seulement par ReminisLink
 et son extension de partage, et synchronisé par le **trousseau iCloud** avec
@@ -234,7 +243,9 @@ console, et automatiquement à chaque connexion (désactivable dans les
 réglages de l’app). Jusqu’à 10 versions de chaque sauvegarde sont gardées. À
 côté des copies, de petits fichiers notent l’identifiant et le nom de la
 console, l’identifiant, le nom et le système du jeu, et pour chaque version
-son numéro, sa date, sa taille et sa somme de contrôle.
+son numéro, le nom, la taille et la somme de contrôle de ses fichiers, la
+date de la copie et, si elle est connue, la date de dernière modification de
+la sauvegarde sur la console.
 
 Les copies vont dans **ton propre iCloud Drive**, dans le dossier ReminisLink
 de l’app Fichiers, où tu peux les voir, les déplacer ou les supprimer. iCloud
@@ -262,8 +273,8 @@ l’empreinte de la clé publique figure dans le QR code scanné.
   (Apple).
 - **Après l’appairage**, toutes les autres requêtes sont signées avec la clé
   privée de l’app, et indiquent le type d’appareil (iPhone, iPad ou Mac).
-- **Les fichiers que tu choisis d’envoyer** : jeux, sauvegardes, states,
-  patchs, fichiers de cheats, images de jeux et apps pour la console.
+- **Les fichiers que tu choisis d’envoyer** : jeux, sauvegardes, états de
+  jeu, patchs, fichiers de cheats, images de jeux et apps pour la console.
 
 ### Sur la carte SD de ta console
 
@@ -274,14 +285,17 @@ l’empreinte de la clé publique figure dans le QR code scanné.
 - **Le journal de ReminisLink** (`/.userdata/tg5040/logs/`) : ce que la
   console a fait, avec pour chaque requête l’heure, l’action, le résultat,
   l’identifiant de l’appareil et son adresse sur ton réseau local, ainsi que
-  le nom des appareils quand ils s’appairent, et des noms de fichiers. Jamais
-  de clé, de secret ni de signature. Au lancement, un journal de plus de 5 Mo
-  est renommé, en remplaçant l’ancien journal précédent.
+  le nom des appareils quand ils s’appairent, des noms de fichiers, et le
+  protocole et l’hôte des liens de téléchargement (jamais leur chemin). Les
+  requêtes non signées ou refusées ne sont journalisées que par échantillons.
+  Jamais de clé, de secret ni de signature. Au lancement, un journal de plus
+  de 5 Mo est renommé, en remplaçant l’ancien journal précédent.
 - **Tes fichiers**, là où NextUI les range, et dans le dossier de ReminisLink
   (`/.userdata/shared/ReminisLink/`) : copies de secours des sauvegardes,
-  copies verrouillées des states, la corbeille (fichiers supprimés ou
-  remplacés, effacés après 30 jours comptés par la console, ou quand tu la
-  vides), et fichiers temporaires des transferts.
+  copies verrouillées des états de jeu, la corbeille (fichiers supprimés ou
+  remplacés, purgés au lancement une fois 30 jours d’âge comptabilisé
+  atteints, ou quand tu la vides), et fichiers temporaires des transferts (un
+  envoi inactif pendant 24 heures est supprimé).
 - **Le certificat de la console** et sa clé privée.
 
 La carte SD n’a aucune protection propre : quiconque l’a en main peut lire
@@ -292,10 +306,11 @@ ces fichiers.
 Quand tu saisis ou partages un lien, l’app l’envoie à ta console, qui
 télécharge elle-même le fichier (un jeu, un patch, un fichier de cheats ou
 une app pour la console), avec sa propre connexion. Le serveur du lien reçoit
-la requête de la console, comme pour tout téléchargement : l’adresse complète
-du lien (avec son chemin et ses paramètres), l’adresse IP publique de ton
-réseau, et « ReminisLink » comme nom de programme. L’app elle-même ne
-contacte pas ce serveur.
+la requête de la console, comme pour tout téléchargement : le chemin et les
+paramètres du lien (pas la partie après #), l’adresse IP de la connexion (en
+général l’adresse publique de ton réseau), et « ReminisLink » comme nom de
+programme. Il peut rediriger la console vers un autre serveur, qui reçoit
+alors le même genre de requête. L’app elle-même ne contacte pas ces serveurs.
 
 ### Autorisations
 

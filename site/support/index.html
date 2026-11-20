@@ -97,9 +97,9 @@
           <details id="security">
             <summary>Is the connection secure?</summary>
             <ul>
-              <li><strong>Encrypted.</strong> The app and the handheld talk over HTTPS, on your local network only. Nothing goes through the internet.</li>
+              <li><strong>Encrypted.</strong> The app and the handheld talk over HTTPS, on your local network only. Only a download from a link you give (made by the handheld) and iCloud, if you use it, go through the internet.</li>
               <li><strong>The right handheld.</strong> The handheld has its own certificate. The QR code you scan contains the fingerprint of its public key, and the app only accepts a certificate with that key, even when it pairs: another device on the network cannot pretend to be your handheld.</li>
-              <li><strong>Only your devices.</strong> Once paired, each request is signed with a private key that stays in your Keychain. Only two requests are unsigned: checking that the handheld is there, and the pairing itself, which needs the one-time secret of the QR code. The SD card only keeps the public keys of your devices: a copy of the card is not enough to control the handheld.</li>
+              <li><strong>Only your devices.</strong> Each request is signed with a private key that stays in your Keychain. Only two requests are unsigned: checking that the handheld is there, and the pairing itself, which needs the one-time secret of the QR code. Of your devices, the SD card only keeps public keys: a copy of the card is not enough to control the handheld. It does hold the handheld’s own certificate key, so keep the card safe.</li>
             </ul>
           </details>
 
@@ -110,7 +110,7 @@
 
           <details id="back-to-list">
             <summary>Why did the app go back to the list of consoles?</summary>
-            <p>The handheld tells the app as soon as ReminisLink closes on it (with <strong>B</strong>, for example): the app goes back to its list with a short message. Files you were sending from the iPhone are paused and keep their progress on the SD card. A download from a link that the handheld was making is stopped, and its partial file deleted: start it again later. If the handheld goes to sleep or out of Wi-Fi range without closing ReminisLink, the app shows a lost connection instead. While the handheld is open, the app refreshes what it shows by itself when something changes, even from another device.</p>
+            <p>The handheld tells the app as soon as ReminisLink closes on it (with <strong>B</strong>, for example): the app goes back to its list with a short message. Files you were sending from the iPhone are paused: resume them from Transfers while the app is still open. The handheld keeps their progress for 24 hours of inactivity, but the app does not keep its transfer list once it is closed. A download from a link that the handheld was making is stopped, and its partial file deleted: start it again later. If the handheld goes to sleep or out of Wi-Fi range without closing ReminisLink, the app shows a lost connection instead. While the handheld is open, the app refreshes what it shows by itself when something changes, even from another device.</p>
           </details>
 
           <details id="saves-icloud">
@@ -128,8 +128,8 @@
 
           <details id="trash">
             <summary>Where do deleted files go? (the trash)</summary>
-            <p>ReminisLink never erases your files directly. A deleted game, a game patched in place, a replaced save state, an older cheat file, a removed game image or a removed or replaced pak goes to the trash of the handheld, on the SD card, where it stays 30 days unless you empty it. Replacing or restoring a save also makes a backup copy first.</p>
-            <p>The <strong>Trash</strong> tab of the app lists what is in it, with its size and when it will be deleted. The space is freed only when entries are deleted: from that tab (one entry, or <strong>Empty Trash</strong>), which cannot be undone, or automatically. Each time ReminisLink starts, it removes the entries that are 30 days old. The clock of the handheld is not reliable, so it counts the time while ReminisLink runs, plus at most 7 days for each period in between: an entry can stay longer than 30 calendar days, never less.</p>
+            <p>ReminisLink never erases your files directly. A deleted game, a game patched in place, a replaced save state, an older cheat file, a removed game image or a removed or replaced pak goes to the trash of the handheld, on the SD card, where it stays until it reaches 30 days of counted age (purged at launch) or you empty the trash. Replacing or restoring a save also makes a backup copy first.</p>
+            <p>The <strong>Trash</strong> tab of the app lists what is in it, with its size and when it will be deleted. The space is freed only when entries are deleted: from that tab (one entry, or <strong>Empty Trash</strong>), which cannot be undone, or automatically. Entries are purged at launch once they reach 30 days of counted age. The clock of the handheld is not reliable, so it counts the time while ReminisLink runs, plus at most 7 days for each period in between: an entry can stay longer than 30 calendar days.</p>
             <p>The app cannot put a file back yet. To get a file back by hand, look in the folder <code>/.userdata/shared/ReminisLink/trash/</code> of the SD card: each entry keeps the files under their original path.</p>
           </details>
 
@@ -163,9 +163,9 @@
             <li>the version of the iPhone app, and the version of the pak (shown on the handheld in <strong>Settings &gt; Version and log</strong>);</li>
             <li>your handheld and your NextUI version;</li>
             <li>what you did, what you expected and what happened;</li>
-            <li>if possible, the log file of the pak: <code>/.userdata/tg5040/logs/ReminisLink.txt</code> on the SD card. Read it before you share it: it may contain the names of your handheld, of your devices and of your files.</li>
+            <li>if possible, the log file of the pak: <code>/.userdata/tg5040/logs/ReminisLink.txt</code> on the SD card. Read it before you share it: it may contain the names of your handheld, of your devices and of your files, the identifiers of your devices and their addresses on your local network.</li>
           </ul>
-          <p>Never share the folder <code>/.userdata/shared/ReminisLink/tls/</code>: it holds the private key of the certificate of your handheld. (<code>clients.json</code> only holds the public keys of your paired devices, with their names.)</p>
+          <p>Never share the folder <code>/.userdata/shared/ReminisLink/tls/</code>: it holds the private key of the certificate of your handheld. (<code>clients.json</code> holds, for each paired device, its identifier, name, platform, the types of device seen, its public key and the pairing date.)</p>
           <!--
             CONTACT EMAIL (to be provided): replace contact@example.invalid below with the
             real address, then remove these comment markers so the paragraph is shown.
