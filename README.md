@@ -156,6 +156,12 @@ The [CI workflow](.github/workflows/ci.yml) then builds the pak and publishes th
 - [Agent prompts](prompts/README.md)
 - [Conventions for coding agents](CLAUDE.md)
 
+## Built with AI
+
+ReminisLink is developed with the help of AI coding assistants (Claude Code, with independent reviews by other models). The project owner sets the direction, decides, tests on real hardware and is responsible for what is published. Every change goes through automated tests and an independent review before it is merged; the review notes are kept in [docs/reviews/](docs/reviews/) and the working rules for the agents in [CLAUDE.md](CLAUDE.md) and [prompts/](prompts/README.md).
+
 ## License
 
 [MIT](LICENSE). Third-party components of the pak are listed in [pak/THIRD_PARTY.md](pak/THIRD_PARTY.md).
+
+The name ReminisLink and its icon are not covered by the license: forks must use another name and icon.
