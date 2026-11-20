@@ -612,6 +612,12 @@ final class AppModel {
         closedNotice = ClosedConsoleNotice(deviceId: deviceId)
     }
 
+    /// Forgets the entry of a console paired before M13 (this device's
+    /// list only; an M13 pairing synced meanwhile stays).
+    func forgetRepairMarker(deviceId: String) {
+        store.forgetRepairMarker(deviceId)
+    }
+
     /// Forgets a device on this iPhone (after unpairing).
     func forget(deviceId: String) throws {
         dropSession(deviceId)

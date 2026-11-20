@@ -246,10 +246,57 @@ struct StoreTests {
             #expect(try store.identity() == identityB)
         }
 
-        // Forgetting X leaves identity A unused: it is deleted, not B.
+        // Forgetting X never deletes an identity item (another device may
+        // still be receiving a record that refers to it).
         try iPhone.remove(deviceId)
-        #expect(try keychainA.data(for: DeviceStore.account(clientId: identityA.clientId)) == nil)
+        #expect(try keychainA.data(for: DeviceStore.account(clientId: identityA.clientId)) != nil)
         #expect(try iPhone.credentials(for: other)?.identity == identityB)
+    }
+
+    /// The iCloud Keychain delivers items one by one: the iPad receives
+    /// the key of identity A before the record of console X paired with
+    /// it, and pairs another console in between (with its own current
+    /// identity). Once X's record arrives, X works with A.
+    @Test func aKeyDeliveredBeforeItsRecordSurvivesAPairingInBetween() throws {
+        let other = "1f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a11"
+        let keychainA = InMemorySecureStore()
+        let keychainB = InMemorySecureStore()
+        let iPhone = DeviceStore(secureStore: keychainA, defaults: makeDefaults())
+        let iPad = DeviceStore(secureStore: keychainB, defaults: makeDefaults())
+        let identityA = try iPhone.identity()
+        try iPhone.save(deviceId: deviceId, name: "X", model: .brick, clientId: identityA.clientId, pin: pin)
+        // First the key only.
+        let keyAccount = DeviceStore.account(clientId: identityA.clientId)
+        try keychainB.set(try #require(try keychainA.data(for: keyAccount)), for: keyAccount)
+        // The iPad pairs Y meanwhile, with an identity of its own.
+        let identityB = try iPad.identity()
+        try iPad.save(deviceId: other, name: "Y", model: .brick, clientId: identityB.clientId, pin: pin)
+        try iPad.remove(other)
+        // Then X's record.
+        let recordAccount = DeviceStore.account(deviceId: deviceId)
+        try keychainB.set(try #require(try keychainA.data(for: recordAccount)), for: recordAccount)
+        iPad.reload()
+        #expect(try keychainB.data(for: keyAccount) != nil)
+        #expect(try iPad.credentials(for: deviceId)?.identity == identityA)
+    }
+
+    /// Forgetting the RL1 entry of a console only removes that entry: an
+    /// M13 pairing of the same console synced meanwhile stays.
+    @Test func forgettingAnRL1EntryKeepsASyncedPairing() throws {
+        let defaults = makeDefaults()
+        let legacy = [PairedDevice(id: deviceId, name: "Old", model: .brick, pairedAt: Date(timeIntervalSince1970: 0), needsRepair: true)]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: DeviceStore.defaultsKey)
+        let secure = InMemorySecureStore()
+        let iPhone = DeviceStore(secureStore: secure, defaults: defaults)
+        #expect(iPhone.device(id: deviceId)?.needsRepair == true)
+        // The iPad pairs the console; its records reach this iPhone.
+        let iPad = DeviceStore(secureStore: secure, defaults: makeDefaults())
+        try iPad.save(deviceId: deviceId, name: "Brick", model: .brick, pin: pin)
+        // The user confirms "Forget" on the (stale) RL1 entry.
+        iPhone.forgetRepairMarker(deviceId)
+        #expect(defaults.data(forKey: DeviceStore.defaultsKey) == nil)
+        #expect(try iPhone.credentials(for: deviceId)?.pin == pin)
+        #expect(iPhone.device(id: deviceId)?.needsRepair == false)
     }
 
     /// An identity item that has not arrived yet: the console is listed

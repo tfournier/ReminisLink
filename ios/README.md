@@ -496,8 +496,9 @@ console as paired before M13, to pair again (`PairingUITests`).
   another synchronizable item (`deviceId`, the `clientId` it was paired
   with, certificate pin, last validated address, names, model); each console
   signs with its own pairing's identity, so two devices that create an
-  identity each before the Keychain converges keep both pairings working;
-  an identity no console refers to (and not current) is deleted. The list
+  identity each before the Keychain converges keep both pairings working.
+  Identity items are never deleted automatically (a key may arrive before
+  the record that refers to it). The list
   is read again each time the app becomes active.
 - **Last validated address**: the address the pairing reached (the QR
   code's when Bonjour was silent), updated at each successful connection,
@@ -534,9 +535,12 @@ console as paired before M13, to pair again (`PairingUITests`).
   pak, `RL_TEST_PAK_LINK='<link>' swift test --filter PinnedHandshake`
   checks the handshake itself: the pin of the link is accepted, another pin
   or no pin gives `identityChanged` for `/hello`, the event stream, a
-  download with progress, an upload chunk and a JSON request; with
-  `RL_TEST_PAK_LOG=<pak output>` it also checks that the pak logged none of
-  them (nothing is paired, the link stays usable).
+  download with progress, an upload chunk and a JSON request. With
+  `RL_TEST_PAK_LOG=<pak output>` it also checks that none of them reached
+  the pak: each carries a unique marker in its path that must never appear
+  in the log, a control request with the right pin and its own marker must
+  appear, and the pak must log the refused TLS handshakes (nothing is
+  paired, the link stays usable).
 
 ## App ergonomics (milestone M11)
 

@@ -6,7 +6,6 @@ struct ConsolesView: View {
     @Environment(AppModel.self) private var app
     /// A console paired before M13 to forget, waiting for confirmation.
     @State private var toForget: PairedDevice?
-    @State private var forgetError: AppError?
 
     var body: some View {
         Group {
@@ -66,25 +65,12 @@ struct ConsolesView: View {
             isPresented: Binding(get: { toForget != nil }, set: { if !$0 { toForget = nil } }),
             titleVisibility: .visible, presenting: toForget
         ) { device in
-            Button("Forget", role: .destructive) {
-                do {
-                    try app.forget(deviceId: device.id)
-                } catch {
-                    forgetError = AppError(error)
-                }
-            }
+            // Only the RL1 entry of this device: never the synchronized
+            // pairing of the same console that may have arrived meanwhile.
+            Button("Forget", role: .destructive) { app.forgetRepairMarker(deviceId: device.id) }
             .accessibilityIdentifier("console.forget.confirm")
         } message: { device in
             Text("\(device.name) will be removed from this list. To use it again, scan its QR code.")
-        }
-        .alert(
-            "Could Not Forget the Console",
-            isPresented: Binding(get: { forgetError != nil }, set: { if !$0 { forgetError = nil } }),
-            presenting: forgetError
-        ) { _ in
-            Button("OK", role: .cancel) {}
-        } message: { error in
-            Text(error.message)
         }
         .navigationTitle("Consoles")
         .toolbar {

@@ -56,9 +56,11 @@ public enum DeviceStoreError: Error, Equatable, Sendable {
 ///   Each console signs with the identity it was paired with, never "the
 ///   current one": two devices that create an identity each before the
 ///   Keychain syncs end with two identity items and both pairings keep
-///   working; the pointer settles on one of them for the next pairings. An
-///   identity is deleted once no console refers to it and it is not the
-///   current one.
+///   working; the pointer settles on one of them for the next pairings.
+///   Identity items are never deleted automatically (they are tiny): while
+///   the iCloud Keychain syncs, a key may arrive before the console record
+///   that refers to it, and deleting it as "unused" would break that
+///   pairing on every device.
 /// - `UserDefaults` of the app group: only the consoles paired before M13
 ///   (RL1), kept in the list as "needs re-pairing" until they are paired
 ///   again or forgotten. Their keys are deleted (``legacySecureStore``).
@@ -140,22 +142,6 @@ public final class DeviceStore {
         try secureStore.set(try JSONEncoder().encode(pointer), for: Self.identityAccount)
     }
 
-    /// Deletes the identities no console refers to, but the current one.
-    private func dropUnusedIdentities() {
-        guard let accounts = try? secureStore.allAccounts() else { return }
-        var used = Set<String>()
-        for account in accounts where account.hasPrefix(Self.consolePrefix) {
-            if let record = try? consoleRecord(String(account.dropFirst(Self.consolePrefix.count))) {
-                used.insert(record.clientId)
-            }
-        }
-        if let current = try? currentPointer() { used.insert(current.clientId) }
-        for account in accounts where account.hasPrefix(Self.identityPrefix) {
-            let clientId = String(account.dropFirst(Self.identityPrefix.count))
-            if !used.contains(clientId) { try? secureStore.remove(account: account) }
-        }
-    }
-
     // MARK: - Consoles
 
     /// Stores a new pairing, or replaces the pairing of a console paired
@@ -191,8 +177,6 @@ public final class DeviceStore {
         try write(ConsoleRecord(device: device, clientId: clientId, pin: pin, endpoint: endpoint))
         legacy.removeAll { $0.id == deviceId }
         persistLegacy()
-        // A console paired again may leave its former identity unused.
-        dropUnusedIdentities()
         reload()
         return device
     }
@@ -257,7 +241,16 @@ public final class DeviceStore {
         try secureStore.remove(account: Self.account(deviceId: deviceId))
         legacy.removeAll { $0.id == deviceId }
         persistLegacy()
-        dropUnusedIdentities()
+        reload()
+    }
+
+    /// Forgets the "needs re-pairing" entry of a console paired before M13
+    /// (this device's `UserDefaults` only). Never touches the synchronized
+    /// Keychain: an M13 pairing of the same console that arrived meanwhile
+    /// from another device stays.
+    public func forgetRepairMarker(_ deviceId: String) {
+        legacy.removeAll { $0.id == deviceId }
+        persistLegacy()
         reload()
     }
 

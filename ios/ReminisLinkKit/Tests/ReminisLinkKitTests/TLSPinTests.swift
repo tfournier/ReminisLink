@@ -134,20 +134,29 @@ struct PinnedHandshakeTests {
 
     /// Every kind of request (event stream, download with progress, upload
     /// chunk streamed from a file, JSON) fails the same way with a wrong
-    /// pin, and never reaches the pak's HTTP layer: with `RL_TEST_PAK_LOG`
-    /// (the pak's output), its request log gains no line.
+    /// pin. With `RL_TEST_PAK_LOG` (the pak's output), it also proves none
+    /// of them reached the pak's HTTP layer: each request carries a unique
+    /// marker in its path, which must never appear in the log, while a
+    /// control request with the right pin and its own marker must appear
+    /// (the check can see requests), and the pak logs the refused TLS
+    /// handshakes.
     @Test(.enabled(if: link?.endpoint != nil))
     func aWrongPinSendsNoRequestOfAnyKind() async throws {
         let link = try #require(Self.link)
         let endpoint = try #require(link.endpoint)
         let logPath = ProcessInfo.processInfo.environment["RL_TEST_PAK_LOG"]
-        func requestLines() -> Int {
-            guard let logPath, let text = try? String(contentsOfFile: logPath, encoding: .utf8) else { return 0 }
-            // The other test of the suite sends `/hello` meanwhile.
-            return text.components(separatedBy: "\n")
-                .filter { $0.contains("msg=request") && !$0.contains("/api/v1/hello") }.count
+        func log() throws -> String {
+            let text = try String(contentsOfFile: try #require(logPath), encoding: .utf8)
+            try #require(!text.isEmpty, "RL_TEST_PAK_LOG is empty")
+            return text
         }
-        let before = requestLines()
+        func handshakeErrors(_ text: String) -> Int {
+            text.components(separatedBy: "\n").filter { $0.contains("TLS handshake error") }.count
+        }
+        let handshakesBefore = logPath == nil ? 0 : handshakeErrors(try log())
+        let marker = "rlpin" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let markedId = Base64URL.encode(Data(marker.utf8))
+
         let credentials = DeviceCredentials(
             deviceId: link.deviceId, identity: .generate(), pin: Base64URL.encode(Data(repeating: 2, count: 32))
         )
@@ -156,20 +165,34 @@ struct PinnedHandshakeTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "rl-pin-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         await #expect(throws: APIError.identityChanged) {
-            _ = try await client.downloadGameFile(gameId: "R2FtZQ", fileId: "f_rom", into: directory, progress: { _, _ in })
+            _ = try await client.downloadGameFile(gameId: markedId, fileId: "f_rom", into: directory, progress: { _, _ in })
         }
         let chunk = FileManager.default.temporaryDirectory.appending(path: "rl-pin-chunk-\(UUID().uuidString)")
         try Data(repeating: 7, count: 4096).write(to: chunk)
         defer { try? FileManager.default.removeItem(at: chunk) }
         await #expect(throws: APIError.identityChanged) {
-            _ = try await client.sendChunk(uploadId: "up_1", offset: 0, file: chunk, length: 4096)
+            _ = try await client.sendChunk(uploadId: marker, offset: 0, file: chunk, length: 4096)
         }
-        await #expect(throws: APIError.identityChanged) {
-            _ = try await client.createUpload(CreateUploadRequest(
-                target: .staging(fileName: "x.bin"), sizeBytes: 1, sha256: String(repeating: "0", count: 64)
-            ))
+        await #expect(throws: APIError.identityChanged) { _ = try await client.game(id: markedId) }
+
+        guard logPath != nil else { return }
+        // The control: the right pin, an identity the pak does not know
+        // (refused with 401 after the request is read, and logged).
+        let control = "rlctl" + UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        let controlClient = APIClient(
+            endpoint: endpoint, credentials: DeviceCredentials(deviceId: link.deviceId, identity: .generate(), pin: link.pin)
+        )
+        await #expect(throws: APIError.self) { _ = try await controlClient.game(id: Base64URL.encode(Data(control.utf8))) }
+        let markedControl = Base64URL.encode(Data(control.utf8))
+        var text = try log()
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !text.contains(markedControl), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+            text = try log()
         }
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(requestLines() == before, "the pak logged a request sent with a wrong pin")
+        #expect(text.contains(markedControl), "the control request is not in the pak's log: the check cannot see requests")
+        #expect(!text.contains(markedId), "the pak logged a request sent with a wrong pin")
+        #expect(!text.contains(marker), "the pak logged a request sent with a wrong pin")
+        #expect(handshakeErrors(text) > handshakesBefore, "the pak did not log the refused handshakes")
     }
 }

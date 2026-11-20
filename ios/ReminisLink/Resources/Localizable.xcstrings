@@ -1061,16 +1061,6 @@
         }
       }
     },
-    "Could Not Forget the Console" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Impossible d’oublier la console"
-          }
-        }
-      }
-    },
     "Create" : {
       "localizations" : {
         "fr" : {
