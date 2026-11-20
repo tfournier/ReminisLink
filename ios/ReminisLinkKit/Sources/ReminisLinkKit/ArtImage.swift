@@ -36,6 +36,25 @@ public enum ArtImage {
         return try png(from: source, maxSide: maxSide, maxBytes: maxBytes)
     }
 
+    /// The art decoded for display, its longest side at most `maxPixelSize`
+    /// (never enlarged), decoded now rather than when first drawn: call it
+    /// off the main actor. A list row shows a 44 pt art (132 px) of a PNG
+    /// often 300 to 500 px wide: drawing the PNG itself decodes it whole on
+    /// the main thread while the list scrolls. Nil if it is not a picture.
+    public static func displayImage(from data: Data, maxPixelSize: Int) -> CGImage? {
+        guard maxPixelSize > 0,
+              let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              CGImageSourceGetCount(source) > 0
+        else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
     /// Width and height of a PNG, read from its header; nil if it is not one.
     public static func pngSize(_ data: Data) -> (width: Int, height: Int)? {
         let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]

@@ -852,40 +852,19 @@ public actor APIClient {
 
     /// Sends a request and reads at most `maxBytes` of its body; a larger
     /// body (announced or not) stops the request.
+    ///
+    /// The body is gathered by the task delegate, chunk by chunk, off this
+    /// actor: reading it byte by byte here (`URLSession.AsyncBytes`) cost
+    /// about 10 ms of actor time per 300 KB art and serialized every art
+    /// and every other request of the client behind it.
     private func transportLimited(_ request: URLRequest, maxBytes: Int) async throws -> (Data, HTTPURLResponse) {
-        let tooLarge = APIError.invalidResponse("body larger than \(maxBytes) bytes")
-        let delegate = PakTaskDelegate(pin: pin)
-        do {
-            let (bytes, response) = try await session.bytes(for: request, delegate: delegate)
-            guard let http = response as? HTTPURLResponse else {
-                bytes.task.cancel()
-                throw APIError.invalidResponse("not an HTTP response")
-            }
-            if http.expectedContentLength > Int64(maxBytes) {
-                bytes.task.cancel()
-                throw tooLarge
-            }
-            var data = Data()
-            if http.expectedContentLength > 0 { data.reserveCapacity(Int(http.expectedContentLength)) }
-            var buffer: [UInt8] = []
-            buffer.reserveCapacity(64 << 10)
-            for try await byte in bytes {
-                buffer.append(byte)
-                if buffer.count == 64 << 10 {
-                    guard data.count + buffer.count <= maxBytes else {
-                        bytes.task.cancel()
-                        throw tooLarge
-                    }
-                    data.append(contentsOf: buffer)
-                    buffer.removeAll(keepingCapacity: true)
-                }
-            }
-            guard data.count + buffer.count <= maxBytes else { throw tooLarge }
-            data.append(contentsOf: buffer)
-            return (data, http)
-        } catch let error as URLError {
-            throw delegate.failure(error)
+        let (data, response) = try await PakLimitedDataDelegate.fetch(
+            request, session: session, trust: PinnedTrust(pin: pin), maxBytes: maxBytes
+        )
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse("not an HTTP response")
         }
+        return (data, http)
     }
 
     private func check(_ response: HTTPURLResponse, data: Data, accept: Set<Int>) throws {
@@ -1071,6 +1050,94 @@ final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @u
             finish(.success((kept, response)))
         } else {
             finish(.failure(URLError(.cannotCreateFile)))
+        }
+    }
+}
+
+/// Task delegate of a request whose body is read in memory up to a limit:
+/// the chunks are appended as URLSession delivers them; a body larger than
+/// the limit, announced by `Content-Length` or not, cancels the task and
+/// fails with ``APIError/invalidResponse(_:)``. Redirections stay refused.
+final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @unchecked Sendable {
+    private let maxBytes: Int
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+    private var body = Data()
+    private var tooLarge = false
+
+    private init(trust: PinnedTrust, maxBytes: Int) {
+        self.maxBytes = maxBytes
+        super.init(trust: trust, onSent: nil)
+    }
+
+    static func fetch(
+        _ request: URLRequest, session: URLSession, trust: PinnedTrust, maxBytes: Int
+    ) async throws -> (Data, URLResponse) {
+        let delegate = PakLimitedDataDelegate(trust: trust, maxBytes: maxBytes)
+        let task = session.dataTask(with: request)
+        task.delegate = delegate
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.lock.withLock { delegate.continuation = continuation }
+                if Task.isCancelled {
+                    delegate.finish(.failure(CancellationError()))
+                } else {
+                    task.resume()
+                }
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private func finish(_ result: Result<(Data, URLResponse), Error>) {
+        let continuation = lock.withLock { () -> CheckedContinuation<(Data, URLResponse), Error>? in
+            defer { self.continuation = nil }
+            return self.continuation
+        }
+        continuation?.resume(with: result)
+    }
+
+    func urlSession(
+        _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
+        let expected = response.expectedContentLength
+        let allowed = lock.withLock { () -> Bool in
+            if expected > Int64(maxBytes) {
+                tooLarge = true
+                return false
+            }
+            if expected > 0 { body.reserveCapacity(Int(expected)) }
+            return true
+        }
+        completionHandler(allowed ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let fits = lock.withLock { () -> Bool in
+            guard !tooLarge else { return false }
+            guard body.count + data.count <= maxBytes else {
+                tooLarge = true
+                body = Data()
+                return false
+            }
+            body.append(data)
+            return true
+        }
+        if !fits { dataTask.cancel() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let (tooLarge, body) = lock.withLock { (self.tooLarge, self.body) }
+        if tooLarge {
+            finish(.failure(APIError.invalidResponse("body larger than \(maxBytes) bytes")))
+        } else if let error {
+            finish(.failure((error as? URLError).map(failure) ?? error))
+        } else if let response = task.response {
+            finish(.success((body, response)))
+        } else {
+            finish(.failure(APIError.invalidResponse("no response")))
         }
     }
 }

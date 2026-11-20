@@ -161,4 +161,51 @@ struct ArtTests {
         // Over 4 MiB: refused before sending.
         await #expect(throws: APIError.self) { try await client.setArt(gameId: game.id, png: Data(count: ArtImage.maxBytes + 1)) }
     }
+
+    /// A list row decodes the art at the size it shows, never larger than
+    /// the picture.
+    @Test func theArtIsDecodedAtTheSizeShown() throws {
+        let png = try makePicture(width: 400, height: 560, type: .png)
+        let thumbnail = try #require(ArtImage.displayImage(from: png, maxPixelSize: 132))
+        #expect(max(thumbnail.width, thumbnail.height) == 132)
+        #expect(abs(thumbnail.width - 94) <= 1)
+        let small = try #require(ArtImage.displayImage(from: try makePicture(width: 60, height: 40, type: .png), maxPixelSize: 288))
+        #expect(small.width == 60)
+        #expect(small.height == 40)
+        #expect(ArtImage.displayImage(from: Data("not a picture".utf8), maxPixelSize: 132) == nil)
+    }
+
+    /// Over a real connection: the art arrives whole with its ETag, several
+    /// at once; a body larger than the limit is refused.
+    @Test func artsArriveWholeOverARealConnection() async throws {
+        let art = try makePicture(width: 400, height: 560, type: .png, noise: true)
+        let server = try LocalHTTPServer { request in
+            if request.path.contains("/big/") {
+                return .init(status: 200, headers: ["Content-Type": "image/png"], body: Data(count: APIClient.maxArtBytes + 1))
+            }
+            return .init(status: 200, headers: ["Content-Type": "image/png", "ETag": "\"sha256-1\""], body: art)
+        }
+        let port = try await server.start()
+        defer { server.stop() }
+        let client = APIClient(
+            scheme: "http", // A plain local test server: no TLS.
+            endpoint: Endpoint(host: "127.0.0.1", port: port),
+            credentials: DeviceCredentials.random(deviceId: FakePak.demoDeviceId),
+            session: APIClient.makeSession()
+        )
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for i in 0..<8 {
+                group.addTask {
+                    guard case .image(let data, let etag) = try await client.art(gameId: "g\(i)") else {
+                        Issue.record("no image")
+                        return
+                    }
+                    #expect(data == art)
+                    #expect(etag == "\"sha256-1\"")
+                }
+            }
+            try await group.waitForAll()
+        }
+        await #expect(throws: APIError.self) { try await client.art(gameId: "big") }
+    }
 }

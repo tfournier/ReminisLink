@@ -283,6 +283,22 @@ struct APIClientTests {
         #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g") == nil)
     }
 
+    /// A row scrolled away cancels its art: the request stops at once with
+    /// a cancellation, not after the answer.
+    @Test func aCancelledArtStopsAtOnce() async throws {
+        let client = stubClient { _, _ in
+            var response = FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: Data(count: 10))
+            response.delay = 10
+            return response
+        }
+        let start = ContinuousClock.now
+        let load = Task { try await client.art(gameId: "g") }
+        try await Task.sleep(for: .milliseconds(100))
+        load.cancel()
+        await #expect(throws: CancellationError.self) { try await load.value }
+        #expect(ContinuousClock.now - start < .seconds(5))
+    }
+
     @Test func anArtAtTheLimitIsAccepted() async throws {
         let size = APIClient.maxArtBytes
         let client = stubClient { _, _ in
