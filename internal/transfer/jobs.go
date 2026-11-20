@@ -80,6 +80,7 @@ type job struct {
 	cancel context.CancelFunc
 	done   chan struct{} // closed when run returned
 	order  uint64        // finishing order, to drop the oldest
+	owner  string        // client that started the job ("" when unknown)
 }
 
 // Jobs is the job queue.
@@ -372,6 +373,53 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 	}
 	defer q.mu.Unlock()
 	return j.Job, nil
+}
+
+// SetOwner records the client that started a job (M13): CancelOwner
+// cancels its jobs when the console disconnects or forgets it.
+func (q *Jobs) SetOwner(id, owner string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if j, ok := q.jobs[id]; ok {
+		j.owner = owner
+	}
+}
+
+// CancelOwner cancels the queued and running jobs of a client without
+// waiting for them (M13: its access was revoked). A running job stops
+// before its install step; one already installing finishes. It returns
+// how many jobs were cancelled. It never blocks: it may be called with
+// other locks held.
+func (q *Jobs) CancelOwner(owner string) int {
+	if owner == "" {
+		return 0
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	n := 0
+	kept := q.queue[:0]
+	for _, j := range q.queue {
+		if j.owner != owner {
+			kept = append(kept, j)
+			continue
+		}
+		j.State = JobCancelled
+		j.UpdatedAt = q.stamp()
+		q.ended++
+		j.order = q.ended
+		close(j.done)
+		q.updatedLocked(j)
+		n++
+	}
+	q.queue = kept
+	if j := q.running; j != nil && j.owner == owner && !j.CancelRequested {
+		j.CancelRequested = true
+		j.UpdatedAt = q.stamp()
+		q.updatedLocked(j)
+		j.cancel()
+		n++
+	}
+	return n
 }
 
 // Close refuses new jobs, cancels the queued and running ones and waits

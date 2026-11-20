@@ -227,7 +227,7 @@ func (s *Server) handleCancelUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
-	res, apiErr, err := s.opts.Transfers.CompleteUpload(r.Context(), r.PathValue("uploadId"))
+	res, apiErr, err := s.opts.Transfers.CompleteUpload(s.withWriteCheck(r).Context(), r.PathValue("uploadId"))
 	if apiErr != nil || err != nil {
 		s.transferError(w, r, apiErr, err)
 		return
@@ -247,6 +247,10 @@ func (s *Server) handleCreateDownload(w http.ResponseWriter, r *http.Request) {
 		s.transferError(w, r, apiErr, err)
 		return
 	}
+	if rej := s.ownJob(r, id); rej != nil {
+		auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
+		return
+	}
 	writeJSON(w, http.StatusAccepted, struct {
 		JobID string `json:"jobId"`
 	}{id})
@@ -260,6 +264,10 @@ func (s *Server) handlePatchGame(w http.ResponseWriter, r *http.Request) {
 	id, apiErr, err := s.opts.Transfers.StartPatch(r.PathValue("gameId"), req)
 	if apiErr != nil || err != nil {
 		s.transferError(w, r, apiErr, err)
+		return
+	}
+	if rej := s.ownJob(r, id); rej != nil {
+		auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, struct {

@@ -117,6 +117,11 @@ info:
     to finish (after its body was received and verified); if it waited
     10 s without getting its turn, it gets `429 too_many_attempts`
     (message `Device busy`) with `Retry-After`, and nothing was changed.
+    Once it holds its turn, a write checks again that its client was not
+    disconnected, forgotten, unpaired or paired again meanwhile
+    (`401 disconnected` or `401 unknown_client`, nothing changed). The
+    queued and running jobs of a revoked client are cancelled (a job
+    already installing its file finishes).
     The confirmation of a game deletion still shows the preview computed
     by the pak (`GET /games/{gameId}/deletion`); a change made by another
     client between the preview and the deletion is an accepted risk (every

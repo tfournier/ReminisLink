@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/auth"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
@@ -228,5 +229,104 @@ func TestJobWaitsForItsInstall(t *testing.T) {
 	f.server.writes().Release()
 	if j = f.waitJob(accepted.JobID); j.State != "succeeded" {
 		t.Fatalf("job %+v", j)
+	}
+}
+
+// Codex review (M13): a write that waits for the lock is refused if the
+// console revokes its client during the wait, on every write path; and a
+// job of a revoked client is cancelled before its install.
+func TestRevokedWhileWaitingForTheWriteLock(t *testing.T) {
+	g := gamePath(scPath)
+	uploadOf := func(f *fixture, b *testutil.Client, name string) string {
+		data := []byte("waiting upload " + name)
+		target := map[string]any{"kind": "rom", "systemId": library.EncodeID(gbaFolder), "folderId": nil, "fileName": name}
+		var c uploadCreated
+		f.as(b, http.MethodPost, "/api/v1/uploads", "/uploads", mustJSON(t, map[string]any{"target": target, "sizeBytes": len(data), "sha256": sha(data)}), http.StatusCreated).JSON(t, &c)
+		req := b.RequestUnsigned(t, http.MethodPut, "/api/v1/uploads/"+c.UploadID, data)
+		req.Header.Set("Upload-Offset", "0")
+		if r := b.Send(t, req); r.Status != http.StatusNoContent {
+			t.Fatalf("chunk: %d %s", r.Status, r.Body)
+		}
+		return c.UploadID
+	}
+	for _, revoke := range []struct {
+		name string
+		do   func(f *fixture, id string)
+		code string
+	}{
+		{"disconnect", func(f *fixture, id string) { f.server.Disconnect(id) }, CodeDisconnected},
+		{"forget", func(f *fixture, id string) { f.server.Forget(id) }, auth.CodeUnknownClient},
+	} {
+		for _, p := range []string{"handler", "inner", "install"} {
+			t.Run(revoke.name+"/"+p, func(t *testing.T) {
+				f := newFixture(t)
+				b := f.pairNamed("iPhone B")
+				var method, target, route string
+				var body []byte
+				installed := func() bool { return false }
+				switch p {
+				case "handler":
+					method, target, route = "POST", g+"/save/backups", "/games/{gameId}/save/backups"
+					body = []byte(`{"label":"revoked"}`)
+				case "inner":
+					method, target, route = "POST", g+"/cheats/import", "/games/{gameId}/cheats/import"
+					body = []byte(`{"source":{"type":"inline","text":"cheats = 0\n"},"mode":"replace"}`)
+				case "install":
+					id := uploadOf(f, b, "Revoked.gba")
+					method, target, route = "POST", "/api/v1/uploads/"+id+"/complete", "/uploads/{uploadId}/complete"
+					installed = func() bool { return f.exists("Roms/" + gbaFolder + "/Revoked.gba") }
+				}
+				before := f.snapshot()
+				f.holdWrites(5 * time.Second)
+				done := make(chan testutil.Response, 1)
+				go func() { done <- b.Do(t, method, target, body) }()
+				time.Sleep(150 * time.Millisecond) // the write waits for the lock
+				revoke.do(f, b.ClientID)
+				f.server.writes().Release()
+				r := <-done
+				f.check(method, route, r)
+				wantCode(t, r, revoke.code)
+				if installed() || (p != "install" && !slices.Equal(before, f.snapshot())) {
+					t.Fatal("the revoked write changed the card")
+				}
+				if !f.server.writes().TryAcquire() {
+					t.Fatal("the write lock was kept")
+				}
+				f.server.writes().Release()
+			})
+		}
+	}
+}
+
+func TestJobOfARevokedClientIsCancelled(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	data := []byte("downloaded for a revoked client")
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
+	}))
+	defer src.Close()
+	f.holdWrites(20 * time.Millisecond)
+	body := mustJSON(t, map[string]any{"url": src.URL + "/hack.bps", "target": map[string]any{"kind": "staging"}, "sha256": nil, "onConflict": "rename"})
+	var accepted struct {
+		JobID string `json:"jobId"`
+	}
+	f.as(b, http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &accepted)
+	time.Sleep(100 * time.Millisecond) // the job waits for its install
+	if err := f.server.Disconnect(b.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	f.server.writes().Release()
+	if j := f.waitJob(accepted.JobID); j.State != "cancelled" {
+		t.Fatalf("job of a revoked client: %+v", j)
+	}
+	// Another client's job is not affected.
+	var other struct {
+		JobID string `json:"jobId"`
+	}
+	f.do(http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &other)
+	f.server.Disconnect(b.ClientID)
+	if j := f.waitJob(other.JobID); j.State != "succeeded" {
+		t.Fatalf("job of another client: %+v", j)
 	}
 }

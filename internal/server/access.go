@@ -36,8 +36,8 @@ type access struct {
 	// is read, before the verifier goes on.
 	lookupHook atomic.Pointer[func(id string)]
 	// onRevoke is called, with mu held, on every revocation: it closes
-	// the event streams of the client (M14). It must not block nor call
-	// access.
+	// the event streams of the client (M14) and cancels its jobs (M13).
+	// It must not block nor call access.
 	onRevoke func(id string)
 	// onPresence is called, with mu held, when a client becomes connected
 	// or is revoked: the device events follow (M14). It must not block
@@ -157,6 +157,16 @@ func (a *access) accept(ad admission, opts auth.RouteOptions) (rej *auth.Rejecti
 		}
 	}
 	return nil, lifted
+}
+
+// recheck checks, for a request accepted with this admission, that its
+// client was not revoked since (disconnected, forgotten, unpaired, paired
+// again). A write calls it once it holds the write lock, just before it
+// changes the card (M13): a revocation during the wait refuses it.
+func (a *access) recheck(ad admission) *auth.Rejection {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.checkGenLocked(ad, false)
 }
 
 // streamOpened records an open event stream (M14) for a request accepted

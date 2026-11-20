@@ -195,8 +195,12 @@ func New(opts Options) (*Server, error) {
 	s.events = s.newEventHub(events.Options{})
 	s.access = newAccess(opts.Now, opts.Clients, s.presence)
 	// A revoked client (disconnected, forgotten, unpaired, paired again)
-	// loses its event streams at once.
-	s.access.onRevoke = func(id string) { s.events.CloseClient(id) }
+	// loses its event streams and its jobs at once (M13: a job is not
+	// installed for a revoked client).
+	s.access.onRevoke = func(id string) {
+		s.events.CloseClient(id)
+		opts.Transfers.Jobs().CancelOwner(id)
+	}
 	s.access.onPresence = s.presenceChanged
 	opts.Transfers.Jobs().OnUpdate(s.jobUpdated)
 	name := opts.Identity.DeviceName

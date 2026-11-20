@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/transfer"
 	"github.com/tfournier/ReminisLink/internal/writelock"
 )
 
@@ -40,9 +41,16 @@ const (
 
 // acquireWrite takes the write lock for the request, or answers 429
 // Device busy (or 503 when the request is cancelled) and returns false.
+// Once the lock is held, it checks again that the client was not revoked
+// while it waited (401, the lock is released).
 func (s *Server) acquireWrite(w http.ResponseWriter, r *http.Request) bool {
 	switch err := s.writes().AcquireRequest(r.Context()); {
 	case err == nil:
+		if rej := s.writeCheck(r); rej != nil {
+			s.writes().Release()
+			auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
+			return false
+		}
 		return true
 	case errors.Is(err, writelock.ErrBusy):
 		s.log.Info("write refused: device busy", "path", auth.LogString(r.URL.Path, auth.MaxLoggedPath))
@@ -66,3 +74,37 @@ func (s *Server) serialized(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) writes() *writelock.Lock { return s.opts.Transfers.Writes() }
+
+// writeCheck checks that the client of an accepted request was not
+// revoked since its acceptance (the access generation of M10).
+func (s *Server) writeCheck(r *http.Request) *auth.Rejection {
+	ad, ok := auth.AdmissionValue(r.Context()).(admission)
+	if !ok {
+		return &auth.Rejection{Status: http.StatusInternalServerError, Code: auth.CodeInternal, Message: "Internal error"}
+	}
+	return s.access.recheck(ad)
+}
+
+// withWriteCheck gives the transfer service the write check of the
+// request, for the steps that take the write lock themselves.
+func (s *Server) withWriteCheck(r *http.Request) *http.Request {
+	return r.WithContext(transfer.WithWriteCheck(r.Context(), func() *transfer.Error {
+		if rej := s.writeCheck(r); rej != nil {
+			return &transfer.Error{Status: rej.Status, Code: rej.Code, Message: rej.Message, Details: rej.Details}
+		}
+		return nil
+	}))
+}
+
+// ownJob records the client that started a job (cancelled if the console
+// revokes it, M13), and cancels it at once if that already happened.
+func (s *Server) ownJob(r *http.Request, id string) *auth.Rejection {
+	c, _ := auth.ClientFromContext(r.Context())
+	jobs := s.opts.Transfers.Jobs()
+	jobs.SetOwner(id, c.ID)
+	if rej := s.writeCheck(r); rej != nil {
+		jobs.CancelOwner(c.ID)
+		return rej
+	}
+	return nil
+}
