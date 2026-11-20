@@ -151,7 +151,7 @@ struct APIClientTests {
         pak.clockOffset = 3600
         let systems = try await client.systems()
         #expect(systems.count == 3)
-        #expect(systems.map(\.emulatorInstalled) == [true, true, false], "\(systems.map(\.tag))")
+        #expect(systems.map(\.emulatorInstalled) == [false, true, true], "\(systems.map(\.tag))")
         let signed = pak.log.filter { $0.path == "/api/v1/systems" }
         #expect(signed.map(\.status) == [401, 200])
         #expect(signed[0].nonce != signed[1].nonce)

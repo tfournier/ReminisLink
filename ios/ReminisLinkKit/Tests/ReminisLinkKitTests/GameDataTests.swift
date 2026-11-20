@@ -4,9 +4,9 @@ import Testing
 @testable import ReminisLinkKit
 
 /// The demo game with a save, three states (slot 0 locked) and 12 cheats.
-let skyGarden = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
 /// A demo game with no save, no state and no cheat.
-let pixelRunner = DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner.gba")
+let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
 
 func downloadsDirectory() -> URL {
     FileManager.default.temporaryDirectory.appending(path: "rl-dl-tests-\(UUID().uuidString)")
@@ -95,8 +95,6 @@ struct GameDataModelTests {
         func json(_ request: CheatImportRequest) throws -> String {
             String(decoding: try ProtocolJSON.encoder().encode(request), as: UTF8.self)
         }
-        #expect(try json(.init(source: .url("https://host.invalid/a.cht"), mode: .merge))
-            == #"{"mode":"merge","source":{"type":"url","url":"https://host.invalid/a.cht"}}"#)
         #expect(try json(.init(source: .sd(sdFileId: "sd_1"), mode: .replace))
             == #"{"mode":"replace","source":{"sdFileId":"sd_1","type":"sd"}}"#)
         #expect(try json(.init(source: .inline("x"), mode: .merge)) == #"{"mode":"merge","source":{"text":"x","type":"inline"}}"#)
@@ -474,7 +472,9 @@ struct GameDataAPITests {
     @Test func importsFromEverySource() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        var result = try await client.importCheats(gameId: pixelRunner, .init(source: .url("https://host.invalid/game.cht"), mode: .merge))
+        var result = try await client.importCheats(gameId: pixelRunner, .init(
+            source: .inline("cheat0_desc = \"A\"\ncheat0_code = \"1\"\ncheat1_desc = \"B\"\ncheat1_code = \"2\"\n"), mode: .merge
+        ))
         #expect(result == CheatImportResult(imported: 2, total: 2))
 
         let files = try await client.sdFiles(type: .cht)
@@ -512,7 +512,7 @@ struct GameDataAPITests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         await #expect(throws: APIError.server(ServerError(status: 422, code: .unsupportedFormat, message: "No cheat found"))) {
-            try await client.importCheats(gameId: skyGarden, .init(source: .url("https://host.invalid/empty.cht"), mode: .replace))
+            try await client.importCheats(gameId: skyGarden, .init(source: .inline("# nothing\n"), mode: .replace))
         }
         // Nothing replaced.
         #expect(try await client.cheats(gameId: skyGarden).cheats.count == 12)
@@ -529,7 +529,7 @@ struct GameDataAPITests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         func summary() async throws -> GameSummary {
-            let systemId = DemoLibrary.id("Game Boy Advance (GBA)")
+            let systemId = DemoLibrary.id("Handheld Advance (GBA)")
             return try #require(try await client.games(systemId: systemId).games.first { $0.id == skyGarden })
         }
         #expect(try await summary().lockedStateCount == 1)

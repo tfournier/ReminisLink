@@ -5,9 +5,9 @@ import UniformTypeIdentifiers
 /// The apps of a console (milestone M12, docs/specs/06-app-ios.md): its
 /// tool and emulator paks, grouped, with their version and size.
 /// ReminisLink itself is marked and cannot be deleted. Delete moves a pak
-/// to the trash of the console after a confirmation. Install offers three
-/// sources: Files (a zip, or a `.pak` folder zipped here), a link
-/// (downloaded by the console) and the SD card (its browser as a picker).
+/// to the trash of the console after a confirmation. Install offers two
+/// sources: Files (a zip, or a `.pak` folder zipped here) and the SD card
+/// (its browser as a picker).
 struct PaksView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.scenePhase) private var scenePhase
@@ -92,8 +92,6 @@ struct PaksView: View {
                 Menu {
                     Button("From Files…", systemImage: "folder") { showImporter = true }
                         .accessibilityIdentifier("paks.install.files")
-                    Button("From a Link…", systemImage: "link") { draft = PakInstallDraft(source: .link) }
-                        .accessibilityIdentifier("paks.install.link")
                     Button("From the SD Card…", systemImage: "sdcard") { showSdPicker = true }
                         .accessibilityIdentifier("paks.install.sd")
                 } label: {
@@ -303,8 +301,6 @@ struct PakInstallRow: View {
 struct PakInstallDraft: Identifiable {
     enum Source {
         case file(PickedFile)
-        /// Typed on the sheet.
-        case link
         case sdCard(SdEntry)
     }
 
@@ -322,7 +318,6 @@ struct PakInstallOptionsView: View {
     let draft: PakInstallDraft
 
     @State private var kind: PakInstallKind = .auto
-    @State private var linkText = ""
     @State private var isSending = false
     @State private var error: AppError?
     @State private var started = false
@@ -337,27 +332,9 @@ struct PakInstallOptionsView: View {
                         LabeledContent("Size", value: file.sizeBytes.byteString)
                     case .sdCard(let entry):
                         LabeledContent("On the SD card", value: entry.name)
-                    case .link:
-                        TextField(text: $linkText, prompt: Text(verbatim: "https://")) {
-                            Text("Link")
-                        }
-                        .keyboardType(.URL)
-                        .textContentType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("pakInstall.link")
                     }
                 } footer: {
-                    switch draft.source {
-                    case .link:
-                        if !linkText.isEmpty && DownloadURL.validated(linkText) == nil {
-                            Text("Enter a link starting with http:// or https://.").foregroundStyle(.red)
-                        } else {
-                            Text("The console downloads the zip archive itself, on its own Wi-Fi connection.")
-                        }
-                    case .file, .sdCard:
-                        Text("A zip archive holding one Name.pak folder, or a .pak folder.")
-                    }
+                    Text("A zip archive holding one Name.pak folder, or a .pak folder.")
                 }
                 Section {
                     Picker("Install As", selection: $kind) {
@@ -404,7 +381,6 @@ struct PakInstallOptionsView: View {
 
     private var canInstall: Bool {
         switch draft.source {
-        case .link: DownloadURL.validated(linkText) != nil
         // A file refused at once was deleted with its installation.
         case .file: !started
         case .sdCard: true
@@ -422,16 +398,12 @@ struct PakInstallOptionsView: View {
         case .sdCard(let entry):
             source = .sdCard(entry)
             name = entry.name
-        case .link:
-            guard let url = DownloadURL.validated(linkText) else { return }
-            source = .link(url)
-            name = DownloadURL.displayName(url)
         }
         isSending = true
         defer { isSending = false }
         started = true
         let install = await manager.install(source, name: name, kind: kind)
-        // Refused at once (busy, a link the console refuses…): said here.
+        // Refused at once (busy, a source the console refuses…): said here.
         if case .failed(let error) = install.phase {
             self.error = error
             manager.remove(install)

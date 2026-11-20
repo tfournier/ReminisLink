@@ -312,7 +312,7 @@ struct TransferQueueTests {
         await queue.waitUntilIdle()
         #expect(item.phase == .done)
         #expect(item.onConflict == .rename)
-        #expect(item.result?.gameId == DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner (2).gba"))
+        #expect(item.result?.gameId == DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner (2).gba"))
     }
 
     @Test func cancelStopsAndDeletesOnTheDevice() async throws {
@@ -337,16 +337,22 @@ struct TransferQueueTests {
         #expect(queue.uploads.isEmpty)
     }
 
+    /// A patch job (from a patch of the SD card) to follow.
+    private func startPatchJob(_ client: APIClient) async throws -> JobAccepted {
+        let files = try await client.sdFiles(type: .patch)
+        let bps = try #require(files.first { $0.fileName.hasSuffix(".bps") })
+        return try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: bps.id), output: PatchOutput(mode: .newFile)))
+    }
+
     @Test func jobsArePolledUntilTheyEnd() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let queue = makeQueue(client)
         var ended: [String] = []
         queue.onJobFinished = { ended.append($0.id) }
-        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba",
-                                                                       target: .rom(systemId: gbaSystemId, fileName: nil)))
-        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
-        #expect(queue.track(jobId: accepted.jobId, title: "again") === item)
+        let accepted = try await startPatchJob(client)
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba", kind: .patch)
+        #expect(queue.track(jobId: accepted.jobId, title: "again", kind: .patch) === item)
         #expect(queue.isBusy)
         for _ in 0..<10 where !item.isFinished { await queue.refreshJobs() }
         #expect(item.job?.state == .succeeded)
@@ -358,9 +364,8 @@ struct TransferQueueTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let queue = makeQueue(client)
-        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba",
-                                                                       target: .rom(systemId: gbaSystemId, fileName: nil)))
-        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
+        let accepted = try await startPatchJob(client)
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba", kind: .patch)
         // The answer is held; the poll stops being current meanwhile (M14:
         // its stream ended).
         let gate = pak.holdNextAnswer(method: "GET", path: APIClient.apiPrefix + "/jobs/" + accepted.jobId)
@@ -378,8 +383,8 @@ struct TransferQueueTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let queue = makeQueue(client)
-        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba", target: .staging(fileName: nil)))
-        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
+        let accepted = try await startPatchJob(client)
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba", kind: .patch)
         pak.restart()
         // The client re-pairs nothing: restart only forgets jobs and nonces.
         await queue.refreshJobs()
@@ -391,8 +396,8 @@ struct TransferQueueTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let queue = makeQueue(client)
-        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba", target: .staging(fileName: nil)))
-        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
+        let accepted = try await startPatchJob(client)
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba", kind: .patch)
         try await queue.cancel(item)
         #expect(item.job?.state == .cancelled)
         #expect(item.isFinished)
@@ -418,8 +423,8 @@ struct TransferQueueTests {
 @Suite("Add suggestions and share inbox")
 struct AddSuggestionTests {
     let systems = [
-        GameSystem(id: "a", label: "Game Boy Advance", folder: "Game Boy Advance (GBA)", tag: "GBA", gameCount: 0),
-        GameSystem(id: "b", label: "Game Boy", folder: "01) Game Boy (GB)", tag: "GB", gameCount: 0),
+        GameSystem(id: "a", label: "Handheld Advance", folder: "Handheld Advance (GBA)", tag: "GBA", gameCount: 0),
+        GameSystem(id: "b", label: "Pocket Classic", folder: "01) Pocket Classic (GB)", tag: "GB", gameCount: 0),
         GameSystem(id: "c", label: "Super Nintendo", folder: "Super Nintendo (SUPA)", tag: "SUPA", gameCount: 0),
     ]
 
@@ -442,26 +447,13 @@ struct AddSuggestionTests {
         #expect(SystemSuggestion.system(forFileName: "x.nes", in: systems) == nil)
     }
 
-    @Test func downloadURLs() {
-        #expect(DownloadURL.validated("  https://example.org/a.bps \n")?.absoluteString == "https://example.org/a.bps")
-        #expect(DownloadURL.validated("http://192.168.1.10:8000/x") != nil)
-        for bad in ["ftp://example.org/a", "file:///etc/hosts", "example.org/a", "javascript:alert(1)", "https://", ""] {
-            #expect(DownloadURL.validated(bad) == nil, "\(bad)")
-        }
-        #expect(DownloadURL.displayName(URL(string: "https://example.org/dir/a.bps")!) == "a.bps")
-        #expect(DownloadURL.displayName(URL(string: "https://example.org/")!) == "example.org")
-    }
-
     @Test func inboxRoundTrip() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "rl-inbox-\(UUID().uuidString)")
         let inbox = ShareInbox(root: root)
         let a = try makeFile(size: 1000, name: "Game.gba")
         let b = try makeFile(size: 10, name: "Game.gba", seed: 3)
-        let request = try inbox.write(
-            files: [a, b], urls: [URL(string: "https://example.org/x.ips")!, URL(string: "ftp://example.org/y")!]
-        )
+        let request = try inbox.write(files: [a, b])
         #expect(request.files == ["Game.gba", "Game (2).gba"])
-        #expect(request.urls == ["https://example.org/x.ips"])
         #expect(inbox.pending() == [request])
         #expect(try Data(contentsOf: inbox.fileURL("Game (2).gba", in: request)) == Data(contentsOf: b))
         // The link of the request.
@@ -479,7 +471,7 @@ struct AddSuggestionTests {
         let partial = root.appending(path: "partial")
         try FileManager.default.createDirectory(at: partial, withIntermediateDirectories: true)
         #expect(inbox.pending().isEmpty)
-        let old = try inbox.write(files: [], urls: [URL(string: "https://example.org/a")!])
+        let old = try inbox.write(files: [try makeFile(size: 10, name: "a.gba")])
         inbox.purge(olderThan: 60, now: Date().addingTimeInterval(3 * 3600))
         #expect(inbox.request(id: old.id) == nil)
         #expect(!FileManager.default.fileExists(atPath: partial.path))
@@ -488,15 +480,15 @@ struct AddSuggestionTests {
     @Test func inboxRejectsTamperedRequests() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "rl-inbox-\(UUID().uuidString)")
         let inbox = ShareInbox(root: root)
-        let good = try inbox.write(files: [try makeFile(size: 10, name: "a.gba")], urls: [])
+        let good = try inbox.write(files: [try makeFile(size: 10, name: "a.gba")])
         for names in [["../../etc/passwd"], ["sub/a.gba"], ["request.json"], [".."]] {
             let id = UUID()
-            let tampered = ShareRequest(id: id, files: names, urls: [])
+            let tampered = ShareRequest(id: id, files: names)
             try FileManager.default.createDirectory(at: inbox.directory(for: id), withIntermediateDirectories: true)
             try ProtocolJSON.encoder().encode(tampered).write(to: inbox.directory(for: id).appending(path: "request.json"))
         }
         // A request stored under another request's directory.
-        let other = ShareRequest(id: UUID(), files: [], urls: ["https://example.org/a"])
+        let other = ShareRequest(id: UUID(), files: ["a.gba"])
         try ProtocolJSON.encoder().encode(other).write(to: inbox.directory(for: good.id).appending(path: "../x.json"))
         #expect(inbox.pending().map(\.id) == [good.id])
         let destination = root.appending(path: "moved.gba")
@@ -504,7 +496,7 @@ struct AddSuggestionTests {
         #expect(FileManager.default.fileExists(atPath: destination.path))
         #expect(!FileManager.default.fileExists(atPath: inbox.fileURL("a.gba", in: good).path))
         #expect(throws: CocoaError.self) {
-            try inbox.takeFile("../x.json", from: ShareRequest(id: good.id, files: ["../x.json"], urls: []), to: destination)
+            try inbox.takeFile("../x.json", from: ShareRequest(id: good.id, files: ["../x.json"]), to: destination)
         }
     }
 
@@ -516,7 +508,7 @@ struct AddSuggestionTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let inbox = ShareInbox(root: root)
         let request = try inbox.write(
-            files: [try makeFile(size: 10, name: "a.gba"), try makeFile(size: 20, name: "a.gba", seed: 2)], urls: []
+            files: [try makeFile(size: 10, name: "a.gba"), try makeFile(size: 20, name: "a.gba", seed: 2)]
         )
         #expect(request.files == ["a.gba", "a (2).gba"])
         try inbox.takeFile("a.gba", from: request, to: root.appending(path: "moved.gba"))
@@ -533,63 +525,33 @@ struct AddSuggestionTests {
         let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let inbox = ShareInbox(root: root)
-        let request = try inbox.write(files: [try makeFile(size: 10, name: "fix.ips")], urls: [])
-        let links = try inbox.write(files: [], urls: [URL(string: "https://example.org/a.zip")!])
+        let request = try inbox.write(files: [try makeFile(size: 10, name: "fix.ips")])
+        let other = try inbox.write(files: [try makeFile(size: 10, name: "game.gba")])
         try inbox.takeFile("fix.ips", from: request, to: root.appending(path: "moved.ips"))
         #expect(inbox.isUsedUp(request))
-        #expect(inbox.pending().map(\.id) == [links.id])
+        #expect(inbox.pending().map(\.id) == [other.id])
         #expect(inbox.request(id: request.id) == nil)
         inbox.purge()
         #expect(!FileManager.default.fileExists(atPath: inbox.directory(for: request.id).path))
-        #expect(FileManager.default.fileExists(atPath: inbox.directory(for: links.id).path))
+        #expect(FileManager.default.fileExists(atPath: inbox.directory(for: other.id).path))
     }
 
-    /// A share with a ROM and a link: the ROM is queued, then the app is
-    /// stopped before the link is sent. The request stays with its link
-    /// only, until the link is sent.
-    @Test func requestWithALinkLeftStaysUntilTheLinkIsSent() throws {
+    /// A request.json of an older version, with web links: they are
+    /// ignored (the console never downloads a link), and a request with
+    /// links only is finished.
+    @Test func linksOfAnOlderRequestAreIgnored() throws {
+        let data = Data(#"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","createdAt":"2026-11-19T10:00:00Z","files":[],"urls":["https://example.org/a"],"consumedURLs":[]}"#.utf8)
+        let request = try ProtocolJSON.decoder().decode(ShareRequest.self, from: data)
+        #expect(request.files.isEmpty)
         let root = URL(fileURLWithPath: "/tmp/rl-inbox-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let inbox = ShareInbox(root: root)
-        let link = "https://example.org/b.zip"
-        let request = try inbox.write(
-            files: [try makeFile(size: 10, name: "a.gba")], urls: [URL(string: "https://example.org/a.zip")!, URL(string: link)!]
-        )
-        try inbox.takeFile("a.gba", from: request, to: root.appending(path: "moved.gba"))
-        try inbox.consumeLink("https://example.org/a.zip", of: request.id)
-        inbox.purge()
-        let left = try #require(inbox.request(id: request.id))
-        #expect(left.pendingURLs == [link])
-        #expect(!inbox.isUsedUp(left))
-        #expect(throws: CocoaError.self) { try inbox.consumeLink("https://example.org/other", of: request.id) }
-        try inbox.consumeLink(link, of: request.id)
+        let directory = inbox.directory(for: request.id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try data.write(to: directory.appending(path: "request.json"))
         #expect(inbox.pending().isEmpty)
         inbox.purge()
-        #expect(!FileManager.default.fileExists(atPath: inbox.directory(for: request.id).path))
-    }
-
-    /// The user replaced the offered link by another URL: the shared link
-    /// is not sent, so it stays to offer (and is never recorded as sent).
-    @Test func onlyTheSubmittedSharedLinkIsConsumed() {
-        let request = ShareRequest(files: [], urls: ["https://example.org/a.zip", "https://example.org/b.zip"])
-        #expect(request.sharedLink(matching: "https://example.org/b.zip") == "https://example.org/b.zip")
-        #expect(request.sharedLink(matching: "https://example.org/other.zip") == nil)
-        // a.zip offered, other.zip sent: a.zip stays, after b.zip.
-        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: nil)
-            == ["https://example.org/b.zip", "https://example.org/a.zip"])
-        // a.zip offered, b.zip typed and sent: b.zip leaves, a.zip stays.
-        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: "https://example.org/b.zip")
-            == ["https://example.org/a.zip"])
-        // The offered link sent as it is.
-        #expect(ShareRequest.linksLeft(["https://example.org/b.zip"], offered: "https://example.org/a.zip", sent: "https://example.org/a.zip")
-            == ["https://example.org/b.zip"])
-    }
-
-    /// A request.json written before M8 (no `consumedURLs`) is still read.
-    @Test func requestWithoutConsumedLinksIsRead() throws {
-        let data = Data(#"{"id":"6F9619FF-8B86-D011-B42D-00C04FC964FF","createdAt":"2026-11-19T10:00:00Z","files":[],"urls":["https://example.org/a"]}"#.utf8)
-        let request = try ProtocolJSON.decoder().decode(ShareRequest.self, from: data)
-        #expect(request.pendingURLs == ["https://example.org/a"])
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
     }
 
     @Test func plainNamesFromUniqueNameAreAccepted() {
@@ -606,7 +568,7 @@ struct AddSuggestionTests {
         let inbox = ShareInbox(root: root)
         // A real request elsewhere, linked into the inbox under another id.
         let elsewhere = ShareInbox(root: root.appending(path: "elsewhere"))
-        let real = try elsewhere.write(files: [try makeFile(size: 10, name: "a.gba")], urls: [])
+        let real = try elsewhere.write(files: [try makeFile(size: 10, name: "a.gba")])
         let id = real.id
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: inbox.directory(for: id), withDestinationURL: elsewhere.directory(for: id))

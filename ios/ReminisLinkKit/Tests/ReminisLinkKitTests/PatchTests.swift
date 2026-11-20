@@ -4,7 +4,7 @@ import Testing
 @testable import ReminisLinkKit
 
 /// A multi-disc demo game.
-let starlightSaga = DemoLibrary.id("Sony PlayStation (PS)/Starlight Saga")
+let starlightSaga = DemoLibrary.id("Disc Console (PS)/Starlight Saga")
 
 @Suite("Patch models")
 struct PatchModelTests {
@@ -45,11 +45,10 @@ struct PatchModelTests {
         #expect(!PatchNaming.isPatchFileName("game.gba") && !PatchNaming.isPatchFileName("bps"))
         #expect(PatchNaming.sameExtension("a.GBA", "b.gba") && !PatchNaming.sameExtension("a.gba", "a.gb"))
 
-        #expect(ShareRequest(files: ["hack.bps"], urls: []).isSinglePatch)
-        #expect(!ShareRequest(files: ["hack.bps", "other.ips"], urls: []).isSinglePatch)
-        #expect(!ShareRequest(files: ["hack.bps"], urls: ["https://example.org/x"]).isSinglePatch)
-        #expect(!ShareRequest(files: ["game.gba"], urls: []).isSinglePatch)
-        #expect(!ShareRequest(files: [], urls: []).isSinglePatch)
+        #expect(ShareRequest(files: ["hack.bps"]).isSinglePatch)
+        #expect(!ShareRequest(files: ["hack.bps", "other.ips"]).isSinglePatch)
+        #expect(!ShareRequest(files: ["game.gba"]).isSinglePatch)
+        #expect(!ShareRequest(files: []).isSinglePatch)
     }
 
     @Test func onlySingleFileGamesArePatchable() {
@@ -66,12 +65,13 @@ struct PatchModelTests {
         """#.utf8))
         #expect(job.kind == .patch)
         #expect(job.serverError?.code == .patchMismatch)
-        let download = try ProtocolJSON.decoder().decode(Job.self, from: Data(#"""
-        {"id":"job_2","kind":"download","state":"succeeded","progress":{"done":1,"total":null},
+        let other = try ProtocolJSON.decoder().decode(Job.self, from: Data(#"""
+        {"id":"job_2","kind":"future-kind","state":"succeeded","progress":{"done":1,"total":null},
          "createdAt":"2026-11-18T17:00:00Z","updatedAt":"2026-11-18T17:00:04Z","result":{"stagingId":"st_9"},"error":null}
         """#.utf8))
-        #expect(download.resultStagingId == "st_9")
-        #expect(download.resultGameId == nil)
+        #expect(other.kind.rawValue == "future-kind")
+        #expect(other.resultStagingId == "st_9")
+        #expect(other.resultGameId == nil)
     }
 
     @Test func demoPatchesAreWellFormed() {
@@ -127,7 +127,7 @@ struct PatchFakePakTests {
         #expect(job.state == .succeeded)
         #expect(job.progress.done == job.progress.total)
         let gameId = try #require(job.resultGameId)
-        #expect(gameId == DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"))
+        #expect(gameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"))
         #expect(job.resultVerified == true)
         let game = try await client.game(id: gameId)
         #expect(game.name == "Sky Garden Quest (patched)")
@@ -140,7 +140,7 @@ struct PatchFakePakTests {
             patch: .staging(stagingId: stagingId), output: PatchOutput(mode: .newFile)
         ))
         let second = try await finish(again.jobId, client: client)
-        #expect(second.resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched) (2).gba"))
+        #expect(second.resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched) (2).gba"))
     }
 
     @Test func replaceKeepsTheGameAndTrashesTheROM() async throws {
@@ -162,7 +162,7 @@ struct PatchFakePakTests {
         let trash = try await client.trash()
         #expect(trash.entries.count == trashBefore + 1)
         #expect(trash.entries.first?.reason == "replace-rom")
-        #expect(trash.entries.first?.files == ["Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba"])
+        #expect(trash.entries.first?.files == ["Roms/Handheld Advance (GBA)/Sky Garden Quest.gba"])
     }
 
     @Test func aPatchForAnotherROMFailsWithPatchMismatch() async throws {
@@ -236,9 +236,9 @@ struct PatchFakePakTests {
         let ips = try #require(files.first { $0.fileName == "Bonus Levels.ips" })
         // Without extension: the pak adds the ROM's.
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile, fileName: "Sky Bonus")))
-        #expect(try await finish(accepted.jobId, client: client).resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/Sky Bonus.gba"))
+        #expect(try await finish(accepted.jobId, client: client).resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Bonus.gba"))
         let other = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile, fileName: "Sky Bonus.txt")))
-        #expect(try await finish(other.jobId, client: client).resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/Sky Bonus.txt.gba"))
+        #expect(try await finish(other.jobId, client: client).resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Bonus.txt.gba"))
     }
 
     @Test func archivesAndMultiDiscGamesAreNotPatchable() async throws {
@@ -247,7 +247,7 @@ struct PatchFakePakTests {
         #expect(PatchNaming.refusal(kind: .file, fileName: "a.7z") == .archive)
         #expect(PatchNaming.refusal(kind: .m3u, fileName: "a.m3u") == .multiDisc)
 
-        let library = DemoLibrary(systems: [DemoLibrary.System(folder: "Game Boy Advance (GBA)", label: "GBA", tag: "GBA", games: [
+        let library = DemoLibrary(systems: [DemoLibrary.System(folder: "Handheld Advance (GBA)", label: "GBA", tag: "GBA", games: [
             DemoLibrary.Game(path: "Packed.zip", sizeBytes: 100, modifiedAt: Date()),
         ])])
         let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", library: library)
@@ -256,23 +256,12 @@ struct PatchFakePakTests {
         let files = try await client.sdFiles(type: .patch)
         let ips = try #require(files.first { $0.fileName == "Bonus Levels.ips" })
         do {
-            _ = try await client.patchGame(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Packed.zip"),
+            _ = try await client.patchGame(gameId: DemoLibrary.id("Handheld Advance (GBA)/Packed.zip"),
                                            PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile)))
             Issue.record("accepted")
         } catch let error as APIError {
             #expect(error.code == .unsupportedFormat)
         }
-    }
-
-    @Test func aDownloadedPatchIsAppliedByItsStagingId() async throws {
-        let pak = makePak()
-        let client = try await pairedClient(pak)
-        let download = try await client.createDownload(DownloadRequest(url: "https://example.org/files/hack.bps", target: .staging(fileName: nil)))
-        let downloaded = try await finish(download.jobId, client: client)
-        let stagingId = try #require(downloaded.resultStagingId)
-        let accepted = try await client.patchGame(gameId: pixelRunner, PatchRequest(patch: .staging(stagingId: stagingId), output: PatchOutput(mode: .newFile, fileName: "Pixel Runner DX.gba")))
-        let job = try await finish(accepted.jobId, client: client)
-        #expect(job.resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner DX.gba"))
     }
 
     @Test func aPatchJobCanBeCancelled() async throws {

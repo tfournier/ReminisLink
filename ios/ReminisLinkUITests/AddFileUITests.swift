@@ -22,7 +22,7 @@ final class AddFileUITests: XCTestCase {
         app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "UITest Homebrew.gba:6291456"
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)
-        try addSharedFileAndDelete(app, name: "UITest Homebrew", timeout: 20, systemLabel: "Game Boy Advance")
+        try addSharedFileAndDelete(app, name: "UITest Homebrew", timeout: 20, systemLabel: "Handheld Advance")
     }
 
     /// Against a real pak (`make headless` on the Mac), found with Bonjour.

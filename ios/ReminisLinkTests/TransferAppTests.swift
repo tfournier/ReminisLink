@@ -43,7 +43,7 @@ struct TransferAppTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: name)
         try Data((0..<size).map { UInt8(truncatingIfNeeded: $0) }).write(to: file)
-        return try app.shareInbox.write(files: [file], urls: [])
+        return try app.shareInbox.write(files: [file])
     }
 
     // MARK: Share requests
@@ -137,13 +137,13 @@ struct TransferAppTests {
         // Moved out of the inbox, not copied.
         #expect(!FileManager.default.fileExists(atPath: app.shareInbox.fileURL("Shared.gba", in: request).path))
         let item = try session.transfers.enqueue(
-            fileURL: copy, fileName: "Shared.gba", target: .rom(systemId: DemoLibrary.id("Game Boy Advance (GBA)"), fileName: "Shared.gba"),
-            destination: "Game Boy Advance", ownsFile: true
+            fileURL: copy, fileName: "Shared.gba", target: .rom(systemId: DemoLibrary.id("Handheld Advance (GBA)"), fileName: "Shared.gba"),
+            destination: "Handheld Advance", ownsFile: true
         )
         await session.transfers.waitUntilIdle()
         #expect(item.phase == .done)
         #expect(session.libraryRevision == revision + 1)
-        let games = try await session.perform { try await $0.games(systemId: DemoLibrary.id("Game Boy Advance (GBA)")) }
+        let games = try await session.perform { try await $0.games(systemId: DemoLibrary.id("Handheld Advance (GBA)")) }
         #expect(games.games.contains { $0.fileName == "Shared.gba" })
     }
 
@@ -156,7 +156,7 @@ struct TransferAppTests {
         let request = try sharedFile(app, size: 400_000)
         let item = try session.transfers.enqueue(
             fileURL: app.shareInbox.fileURL("Shared.gba", in: request), fileName: "Shared.gba",
-            target: .rom(systemId: DemoLibrary.id("Game Boy Advance (GBA)"), fileName: "Shared.gba"),
+            target: .rom(systemId: DemoLibrary.id("Handheld Advance (GBA)"), fileName: "Shared.gba"),
             destination: "", ownsFile: false
         )
         while item.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
@@ -173,9 +173,9 @@ struct TransferAppTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
-        let gameId = DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
         let result = try await session.deleteGame(id: gameId, keepSave: false)
-        #expect(result.moved == ["Roms/Game Boy Advance (GBA)/Pixel Runner.gba"])
+        #expect(result.moved == ["Roms/Handheld Advance (GBA)/Pixel Runner.gba"])
         try await Task.sleep(for: .milliseconds(200))
         #expect(session.trash?.entries.contains { $0.id == result.trashEntryId } == true)
         try await session.emptyTrash()

@@ -188,34 +188,6 @@ struct PakAPITests {
         await #expect { try await client.createUpload(request) } throws: { ($0 as? APIError)?.code == .invalidRequest }
     }
 
-    @Test func installsADownloadedArchive() async throws {
-        let pak = makePak()
-        pak.downloadSize = 4096
-        let client = try await pairedClient(pak)
-        let accepted = try await client.createDownload(DownloadRequest(
-            url: "https://example.invalid/paks/Notes.pak.zip", target: .pak(kind: .emu, fileName: nil), onConflict: .fail
-        ))
-        let job = try await finished(accepted.jobId, client)
-        #expect(job.kind == .download && job.state == .succeeded && job.resultPakId != nil)
-        #expect(pak.installedPak(named: "Notes")?.kind == "emu")
-        let conflict = try await finished(try await client.createDownload(DownloadRequest(
-            url: "https://example.invalid/paks/Notes.pak.zip", target: .pak(kind: .emu, fileName: nil), onConflict: .fail
-        )).jobId, client)
-        #expect(conflict.serverError?.conflictingPakName == "Notes")
-    }
-
-    @Test func aDownloadedArchiveOverOneGiBIsRefused() async throws {
-        let pak = makePak()
-        pak.downloadSize = FakePak.maxPakArchiveBytes + 1
-        let client = try await pairedClient(pak)
-        let before = pak.installedPakNames
-        let job = try await finished(try await client.createDownload(DownloadRequest(
-            url: "https://example.invalid/paks/Huge.pak.zip", target: .pak(fileName: nil), onConflict: .fail
-        )).jobId, client)
-        #expect(job.state == .failed && job.serverError?.code == .tooLarge)
-        #expect(pak.installedPakNames == before)
-    }
-
     @Test func browsesTheCardWithoutTheDataOfReminisLink() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

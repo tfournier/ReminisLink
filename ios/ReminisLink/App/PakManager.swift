@@ -4,11 +4,11 @@ import ReminisLinkKit
 
 /// One installation of a pak (milestone M12), from its source to its end.
 ///
-/// The three sources use the mechanisms that exist: a file of the iPhone
-/// is uploaded through the transfer queue (target `pak`; its `complete`
-/// starts a `pak-install` job), a link is downloaded by the console (a
-/// `download` job, target `pak`), a zip or `.pak` folder of the SD card is
-/// installed by `POST /paks/install` (a `pak-install` job). A job that
+/// The two sources use the mechanisms that exist: a file of the iPhone is
+/// uploaded through the transfer queue (target `pak`; its `complete` starts
+/// a `pak-install` job), a zip or `.pak` folder of the SD card is installed
+/// by `POST /paks/install` (a `pak-install` job). The console never
+/// downloads a pak from a link (removed from v1). A job that
 /// fails with `409 conflict` and `details.existing` waits for the user:
 /// "Replace" starts the same source again with `overwrite`/`replace`.
 @MainActor
@@ -19,7 +19,6 @@ final class PakInstall: Identifiable {
         /// once the installation ends): kept until then, so that a
         /// replacement can send it again.
         case file(PickedFile)
-        case link(URL)
         case sdCard(SdEntry)
     }
 
@@ -43,7 +42,7 @@ final class PakInstall: Identifiable {
     }
 
     let id = UUID()
-    /// What is shown: the file name, the link's file name, the SD entry.
+    /// What is shown: the file name or the SD entry.
     let name: String
     let source: Source
     let kind: PakInstallKind
@@ -227,14 +226,6 @@ final class PakManager {
                 )
                 install.upload = item
                 watchUpload(install, item)
-            case .link(let url):
-                install.phase = .installing
-                let request = DownloadRequest(
-                    url: url.absoluteString, target: .pak(kind: install.kind, fileName: nil),
-                    onConflict: replace ? .overwrite : .fail
-                )
-                let accepted = try await session.perform { try await $0.createDownload(request) }
-                track(install, jobId: accepted.jobId, kind: .download)
             case .sdCard(let entry):
                 install.phase = .installing
                 let request = PakInstallRequest(sdEntryId: entry.sdEntryId, kind: install.kind, onConflict: replace ? .replace : .fail)
@@ -317,8 +308,8 @@ final class PakManager {
         installs.first { $0.jobId == jobId }
     }
 
-    /// A replacement installs what the source holds when it runs: a link or
-    /// SD file changed since the conflict may install (and replace) another
+    /// A replacement installs what the source holds when it runs: an SD
+    /// file changed since the conflict may install (and replace) another
     /// pak than the one confirmed. The pak keeps the replaced one in its
     /// trash; the app says which one it was.
     ///

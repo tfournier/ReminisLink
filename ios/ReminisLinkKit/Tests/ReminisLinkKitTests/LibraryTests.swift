@@ -85,8 +85,8 @@ struct LibraryAPITests {
         #expect(all.games.first?.summary.name == "Moonlit Maze 🌙")
         let tiny = try #require(all.games.first { $0.summary.name == "Tiny Tactics (Demo)" })
         #expect(tiny.folderPath == "Homebrew")
-        #expect(tiny.folderId == DemoLibrary.id("Game Boy Advance (GBA)/Homebrew"))
-        #expect(tiny.systemId == DemoLibrary.id("Game Boy Advance (GBA)"))
+        #expect(tiny.folderId == DemoLibrary.id("Handheld Advance (GBA)/Homebrew"))
+        #expect(tiny.systemId == DemoLibrary.id("Handheld Advance (GBA)"))
         let sky = try #require(all.games.first { $0.id == skyGarden })
         #expect(sky.folderId == nil && sky.folderPath == nil)
         #expect(pak.log.last?.path == "/api/v1/games")
@@ -218,7 +218,7 @@ struct LibraryAPITests {
         await #expect {
             _ = try await client.allGames()
         } throws: { LibraryMode.meansUnsupported($0) }
-        let listing = try await client.games(systemId: DemoLibrary.id("Game Boy Advance (GBA)"))
+        let listing = try await client.games(systemId: DemoLibrary.id("Handheld Advance (GBA)"))
         #expect(listing.games.contains { $0.id == skyGarden })
         let detail = try await client.game(id: skyGarden)
         #expect(!detail.files.isEmpty)

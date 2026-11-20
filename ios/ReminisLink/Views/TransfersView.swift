@@ -334,7 +334,7 @@ struct JobRow: View {
         if item.isLost {
             return item.kind == .patch
                 ? String(localized: "The console was restarted: this patch was stopped.")
-                : String(localized: "The console was restarted: this download was stopped.")
+                : String(localized: "The console was restarted: this installation was stopped.")
         }
         return nil
     }
@@ -361,7 +361,7 @@ struct JobRow: View {
         case .succeeded where isPak:
             return String(localized: "Installed")
         case .succeeded:
-            return String(localized: "Downloaded")
+            return String(localized: "Done")
         case .failed:
             return String(localized: "Failed")
         case .cancelled:

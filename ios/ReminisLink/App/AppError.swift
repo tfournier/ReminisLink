@@ -45,8 +45,6 @@ enum AppError: Error, Equatable {
     /// `422 unsupported_format` on a patch: not an IPS, BPS or UPS patch
     /// the console can apply.
     case unsupportedPatch
-    /// The console could not download the patch of a link.
-    case patchDownloadFailed
     /// `422 patch_mismatch` with `details.reason = already-patched`.
     case alreadyPatched
     /// `409 conflict` of a patch job: the ROM changed while it ran.
@@ -157,8 +155,6 @@ enum AppError: Error, Equatable {
             String(localized: "This patch or the patched ROM is too large for the console.")
         case .unsupportedPatch:
             String(localized: "This file is not a patch the console can apply. Choose an IPS, BPS or UPS patch.")
-        case .patchDownloadFailed:
-            String(localized: "The console could not download the patch. Check the link and the Wi-Fi connection of the console.")
         case .jobLost:
             String(localized: "The console was restarted and stopped this task. Check the library before trying again.")
         case .unreadablePicture:
@@ -212,7 +208,7 @@ enum AppError: Error, Equatable {
             }
         case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .upload(.cancelNotConfirmed), .file: nil
         case .restoreRefused, .unsupportedGameFormat, .patchMismatch, .unsupportedPatch, .jobLost: nil
-        case .patchDownloadFailed, .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
+        case .alreadyPatched, .romChangedDuringPatch, .patchTooLarge: nil
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
@@ -335,19 +331,13 @@ enum AppError: Error, Equatable {
         }
     }
 
-    /// The `error` of a failed job of the Patch screen: the patch job as
-    /// above; the download of the patch to the staging area says the
-    /// console could not download it, unless the SD card is full.
-    static func patchJob(_ server: ServerError, kind: JobKind) -> AppError {
-        if kind == .patch {
-            switch server.code {
-            case .conflict: return .romChangedDuringPatch
-            case .tooLarge: return .patchTooLarge
-            default: return patch(APIError.server(server))
-            }
+    /// The `error` of a failed patch job of the Patch screen.
+    static func patchJob(_ server: ServerError) -> AppError {
+        switch server.code {
+        case .conflict: return .romChangedDuringPatch
+        case .tooLarge: return .patchTooLarge
+        default: return patch(APIError.server(server))
         }
-        if server.code == .insufficientStorage { return .api(.server(server)) }
-        return .patchDownloadFailed
     }
 
     /// A save refused because the resource changed on the console

@@ -461,12 +461,12 @@
         }
       }
     },
-    "Add Files or a Link" : {
+    "Add Files" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajouter des fichiers ou un lien"
+            "value" : "Ajouter des fichiers"
           }
         }
       }
@@ -1441,16 +1441,6 @@
         }
       }
     },
-    "Downloaded" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Téléchargé"
-          }
-        }
-      }
-    },
     "Downloading %@" : {
       "localizations" : {
         "fr" : {
@@ -1567,16 +1557,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Saisis un nom de fichier sans / ni \\, qui ne commence pas par un point."
-          }
-        }
-      }
-    },
-    "Enter a link starting with http:// or https://." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saisis un lien qui commence par http:// ou https://."
           }
         }
       }
@@ -1767,16 +1747,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Depuis Fichiers…"
-          }
-        }
-      }
-    },
-    "From a Link…" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Depuis un lien…"
           }
         }
       }
@@ -2181,16 +2151,6 @@
         }
       }
     },
-    "Link" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lien"
-          }
-        }
-      }
-    },
     "Lock" : {
       "localizations" : {
         "fr" : {
@@ -2407,16 +2367,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nouvelles versions : %1$lld · saves vérifiées : %2$lld"
-          }
-        }
-      }
-    },
-    "Next Shared Links" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Liens partagés suivants"
           }
         }
       }
@@ -2647,16 +2597,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
-          }
-        }
-      }
-    },
-    "Offered one after the other once this one is downloaded." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Proposés l’un après l’autre une fois celui-ci téléchargé."
           }
         }
       }
@@ -4011,16 +3951,6 @@
         }
       }
     },
-    "The console could not download the patch. Check the link and the Wi-Fi connection of the console." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console n’a pas pu télécharger le patch. Vérifie le lien et la connexion Wi-Fi de la console."
-          }
-        }
-      }
-    },
     "The console could not name this pak. Rename the archive Name.pak.zip and try again." : {
       "localizations" : {
         "fr" : {
@@ -4037,56 +3967,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console n’a pas pu prouver son identité. L’appairage a été annulé."
-          }
-        }
-      }
-    },
-    "The console downloaded the patch before the cancellation arrived. Nothing was applied: tap Apply to use it." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console a téléchargé le patch avant l’arrivée de l’annulation. Rien n’a été appliqué : touche Appliquer pour l’utiliser."
-          }
-        }
-      }
-    },
-    "The console downloads the .cht file itself (5 MB at most)." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console télécharge elle-même le fichier .cht (5 Mo au maximum)."
-          }
-        }
-      }
-    },
-    "The console downloads the file itself, on its own Wi-Fi connection." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console télécharge le fichier elle-même, avec sa propre connexion Wi-Fi."
-          }
-        }
-      }
-    },
-    "The console downloads the patch itself, on its own Wi-Fi connection." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console télécharge le patch elle-même, avec sa propre connexion Wi-Fi."
-          }
-        }
-      }
-    },
-    "The console downloads the zip archive itself, on its own Wi-Fi connection." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console télécharge elle-même l’archive zip, avec sa propre connexion Wi-Fi."
           }
         }
       }
@@ -4167,16 +4047,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console est occupée par une autre modification. Rien n’a été modifié. Réessaie dans un instant."
-          }
-        }
-      }
-    },
-    "The console is downloading the patch…" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console télécharge le patch…"
           }
         }
       }
@@ -4291,12 +4161,12 @@
         }
       }
     },
-    "The console was restarted: this download was stopped." : {
+    "The console was restarted: this installation was stopped." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console a redémarré : ce téléchargement a été arrêté."
+            "value" : "La console a redémarré : cette installation a été arrêtée."
           }
         }
       }
@@ -4607,16 +4477,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le scanner n’est pas disponible sur cet appareil. Scanne le QR code avec l’app Appareil photo."
-          }
-        }
-      }
-    },
-    "The shared links are offered in the Link tab once the files are sent." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les liens partagés sont proposés dans l’onglet Lien une fois les fichiers envoyés."
           }
         }
       }

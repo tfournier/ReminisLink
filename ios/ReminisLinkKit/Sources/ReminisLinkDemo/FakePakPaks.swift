@@ -4,14 +4,14 @@ import Foundation
 import ReminisLinkKit
 
 // Milestone M12 of the fake pak: the tool and emulator paks (`GET /paks`,
-// `DELETE /paks/{pakId}`, `POST /paks/install`, the `pak` targets of
-// `/uploads` and `/downloads`, the `pak-install` jobs and the `paks`
+// `DELETE /paks/{pakId}`, `POST /paks/install`, the `pak` target of
+// `/uploads`, the `pak-install` jobs and the `paks`
 // event) and the read-only SD browser (`GET /sd/browse`,
 // `GET /sd/browse/{sdEntryId}/content`).
 //
 // The fake keeps no archive bytes: what an installation does is decided by
-// the name of its source (the `fileName` of an upload, the file name of a
-// download URL, the name of an SD entry), so the demo and the tests can
+// the name of its source (the `fileName` of an upload or the name of an SD
+// entry), so the demo and the tests can
 // reach every outcome:
 // - a name containing `broken` is not a zip (`422 unsupported_format`,
 //   `Invalid pak: not a zip archive`);
@@ -241,8 +241,7 @@ extension FakePak {
         let now = Date()
         var job = FakeJob(
             id: Self.randomId("job_"), kind: "pak-install", state: "queued", done: 0, total: nil,
-            createdAt: now, updatedAt: now, result: nil, error: nil, target: .pak(kind: plan.kind, fileName: plan.sourceName),
-            fails: false
+            createdAt: now, updatedAt: now, result: nil, error: nil, target: .pak(kind: plan.kind, fileName: plan.sourceName)
         )
         job.pakPlan = plan
         lock.withLock { jobs[job.id] = job }

@@ -257,7 +257,7 @@ struct SaveSyncTests {
         let versions = try await sandbox.vault().versions(deviceId: pak.deviceId, gameId: skyGarden)
         #expect(versions.first?.info.save.name == "Sky Garden Quest.gba.sav")
         #expect(versions.first?.info.rtc?.name == "Sky Garden Quest.gba.rtc")
-        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Brick/Game Boy Advance (GBA)/Sky Garden Quest").path))
+        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Brick/Handheld Advance (GBA)/Sky Garden Quest").path))
 
         pak.play(gameId: skyGarden, content: Data("played".utf8))
         let second = try await sync().run()

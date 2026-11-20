@@ -1,7 +1,7 @@
 import Foundation
 
 // Codable models of the transfer routes of protocol/openapi.yaml:
-// `/uploads`, `/downloads`, `/jobs` and `DELETE /games/{gameId}`.
+// `/uploads`, `/jobs` and `DELETE /games/{gameId}`.
 
 /// What to do when the destination exists (`OnConflict`).
 public enum OnConflict: String, Codable, Sendable, CaseIterable {
@@ -13,18 +13,16 @@ public enum OnConflict: String, Codable, Sendable, CaseIterable {
     case overwrite
 }
 
-/// Destination of an upload or a download (`UploadTarget` / `DownloadTarget`).
+/// Destination of an upload (`UploadTarget`).
 ///
-/// `fileName` is required for an upload to `rom` or `staging`, optional for
-/// a download (the pak then takes it from `Content-Disposition` or the URL).
+/// `fileName` is required for an upload to `rom` or `staging`.
 public enum TransferTarget: Sendable, Hashable, Encodable {
     case rom(systemId: String, folderId: String? = nil, fileName: String?)
     case save(gameId: String)
     case state(gameId: String, slot: Int)
     case staging(fileName: String?)
     /// M12: a pak archive (zip) to install. Its upload completes with a
-    /// `pak-install` job (``UploadResult/jobId``); its download job installs
-    /// it. `onConflict` accepts `fail` and `overwrite` only. `fileName`
+    /// `pak-install` job (``UploadResult/jobId``). `onConflict` accepts `fail` and `overwrite` only. `fileName`
     /// names a loose archive without a name in its `pak.json`.
     case pak(kind: PakInstallKind = .auto, fileName: String?)
 
@@ -147,33 +145,17 @@ public struct UploadResult: Codable, Sendable, Equatable {
     }
 }
 
-/// `POST /downloads`.
-public struct DownloadRequest: Encodable, Sendable, Equatable {
-    public let url: String
-    public let target: TransferTarget
-    public let sha256: String?
-    public let onConflict: OnConflict
-
-    public init(url: String, target: TransferTarget, sha256: String? = nil, onConflict: OnConflict = .rename) {
-        self.url = url
-        self.target = target
-        self.sha256 = sha256
-        self.onConflict = onConflict
-    }
-}
-
-/// `202` of `POST /downloads` and `POST /games/{gameId}/patch`.
+/// `202` of `POST /games/{gameId}/patch` and `POST /paks/install`.
 public struct JobAccepted: Codable, Sendable, Equatable {
     public let jobId: String
     public init(jobId: String) { self.jobId = jobId }
 }
 
-/// `download`, `patch` or `pak-install` (open: an unknown kind is kept).
+/// `patch` or `pak-install` (open: an unknown kind is kept).
 public struct JobKind: RawRepresentable, Codable, Hashable, Sendable {
     public let rawValue: String
     public init(rawValue: String) { self.rawValue = rawValue }
 
-    public static let download = JobKind(rawValue: "download")
     public static let patch = JobKind(rawValue: "patch")
     /// M12: `POST /paks/install`, or the completion of a `pak` upload.
     public static let pakInstall = JobKind(rawValue: "pak-install")

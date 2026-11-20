@@ -1,56 +1,20 @@
 import Foundation
 
-/// What the share extension hands to the app (docs/specs/06-app-ios.md §4.8).
+/// What the share extension hands to the app (docs/specs/06-app-ios.md §4.8):
+/// files only. A request written by an older version may also list web
+/// links (`urls`): they are ignored, the console never downloads a link
+/// (removed from v1).
 public struct ShareRequest: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public let createdAt: Date
     /// File names inside the request's directory.
     public let files: [String]
-    /// Web links (`http`/`https`).
-    public let urls: [String]
-    /// Links already sent to the console by the app (written by the app,
-    /// never by the extension).
-    public let consumedURLs: [String]
 
-    /// Links not sent yet, in their order.
-    public var pendingURLs: [String] { urls.filter { !consumedURLs.contains($0) } }
-
-    public init(id: UUID = UUID(), createdAt: Date = Date(), files: [String], urls: [String], consumedURLs: [String] = []) {
+    public init(id: UUID = UUID(), createdAt: Date = Date(), files: [String]) {
         self.id = id
         // Whole seconds, as encoded in request.json.
         self.createdAt = Date(timeIntervalSince1970: createdAt.timeIntervalSince1970.rounded(.down))
         self.files = files
-        self.urls = urls
-        self.consumedURLs = consumedURLs
-    }
-
-    enum CodingKeys: String, CodingKey { case id, createdAt, files, urls, consumedURLs }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        createdAt = try container.decode(Date.self, forKey: .createdAt)
-        files = try container.decode([String].self, forKey: .files)
-        urls = try container.decode([String].self, forKey: .urls)
-        consumedURLs = try container.decodeIfPresent([String].self, forKey: .consumedURLs) ?? []
-    }
-}
-
-extension ShareRequest {
-    /// The shared link the submitted URL is, nil when the user sent another
-    /// URL (links are compared as validated, like the extension stored them).
-    public func sharedLink(matching submitted: String) -> String? {
-        guard let sent = DownloadURL.validated(submitted)?.absoluteString else { return nil }
-        return urls.first { DownloadURL.validated($0)?.absoluteString == sent }
-    }
-
-    /// The shared links still to offer once a URL was sent: `sent` (the
-    /// shared link it was, if any) leaves the list, and the link `offered`
-    /// in the field stays to offer, at the end, when the user replaced it.
-    public static func linksLeft(_ pending: [String], offered: String?, sent: String?) -> [String] {
-        var left = pending.filter { $0 != sent }
-        if let offered, offered != sent, !left.contains(offered) { left.append(offered) }
-        return left
     }
 }
 
@@ -99,9 +63,9 @@ public struct ShareInbox: Sendable {
     }
 
     /// Stores a request: copies `files` (names made unique), then writes
-    /// `request.json`. Links other than `http`/`https` are dropped.
+    /// `request.json`.
     @discardableResult
-    public func write(files: [URL], urls: [URL], id: UUID = UUID()) throws -> ShareRequest {
+    public func write(files: [URL], id: UUID = UUID()) throws -> ShareRequest {
         let manager = FileManager.default
         let directory = directory(for: id)
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -112,8 +76,7 @@ public struct ShareInbox: Sendable {
                 try manager.copyItem(at: file, to: directory.appending(path: name))
                 names.append(name)
             }
-            let links = urls.compactMap { DownloadURL.validated($0.absoluteString)?.absoluteString }
-            let request = ShareRequest(id: id, files: names, urls: links)
+            let request = ShareRequest(id: id, files: names)
             let data = try ProtocolJSON.encoder().encode(request)
             try data.write(to: directory.appending(path: "request.json"), options: .atomic)
             return request
@@ -126,9 +89,9 @@ public struct ShareInbox: Sendable {
     /// Complete and valid requests, oldest first. `request.json` is read
     /// as untrusted: a request whose directory does not match its id, or
     /// with a file name that is not a plain name inside its directory, is
-    /// ignored (and purged later). A request whose files were all taken and
-    /// links all sent is finished (the app may have been stopped before
-    /// removing it): it is ignored and purged too.
+    /// ignored (and purged later). A request whose files were all taken is
+    /// finished (the app may have been stopped before removing it): it is
+    /// ignored and purged too.
     public func pending() -> [ShareRequest] {
         let manager = FileManager.default
         guard let entries = try? manager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [] }
@@ -152,30 +115,10 @@ public struct ShareInbox: Sendable {
         return request.files.allSatisfy(Self.isPlainName)
     }
 
-    /// Every file of the request was taken and every link sent: it is
-    /// finished. `request` is read from the inbox (its sent links).
+    /// Every file of the request was taken: it is finished. A request
+    /// without files (only links, from an older version) is finished too.
     public func isUsedUp(_ request: ShareRequest) -> Bool {
-        (!request.files.isEmpty || !request.urls.isEmpty)
-            && remainingFiles(of: request).isEmpty && request.pendingURLs.isEmpty
-    }
-
-    /// Records that a link of the request was sent to the console, so that
-    /// the app, stopped before the end of the share, does not offer it
-    /// again (and finishes the request once nothing else is left).
-    /// `request.json` is rewritten atomically. Returns the updated request.
-    @discardableResult
-    public func consumeLink(_ link: String, of id: UUID) throws -> ShareRequest {
-        let directory = directory(for: id)
-        let json = directory.appending(path: "request.json")
-        guard Self.isRealDirectory(directory), let data = try? Data(contentsOf: json),
-              let current = try? ProtocolJSON.decoder().decode(ShareRequest.self, from: data),
-              current.id == id, current.urls.contains(link)
-        else { throw CocoaError(.fileReadInvalidFileName) }
-        guard !current.consumedURLs.contains(link) else { return current }
-        let updated = ShareRequest(id: current.id, createdAt: current.createdAt, files: current.files, urls: current.urls,
-                                   consumedURLs: current.consumedURLs + [link])
-        try ProtocolJSON.encoder().encode(updated).write(to: json, options: .atomic)
-        return updated
+        remainingFiles(of: request).isEmpty
     }
 
     /// The files of a request still in the inbox (taken ones are skipped).

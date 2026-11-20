@@ -89,9 +89,8 @@ extension FakePak {
         if segments.first == "clients" { return false }
         if segments.first == "uploads" { return segments.count == 3 && segments[2] == "complete" }
         if segments.first == "jobs" { return false }
-        // A job (device-side download, patch) waits only for the step that
-        // installs its file, and never fails for it.
-        if segments == ["downloads"] { return false }
+        // A job (patch) waits only for the step that installs its file, and
+        // never fails for it.
         // M12: a pak installation is a job too.
         if segments == ["paks", "install"] { return false }
         if segments.count == 3 && segments[0] == "games" && segments[2] == "patch" { return false }
