@@ -194,14 +194,23 @@ func TestEnsureDirSyncsNewFolders(t *testing.T) {
 	if strings.Join(synced, "|") != strings.Join(want, "|") {
 		t.Fatalf("synced %v, want %v", synced, want)
 	}
-	// Existing: nothing to sync.
-	synced = nil
-	if _, err := m.EnsureDir(KindEmu); err != nil || len(synced) != 0 {
-		t.Fatalf("existing: %v %v", synced, err)
-	}
+	// Review 3: an fsync fails, then the retry (folders already there)
+	// syncs the whole chain again before succeeding.
 	failure := errors.New("fsync")
-	syncDir = func(string) error { return failure }
+	syncDir = func(dir string) error {
+		if dir == abs {
+			return failure
+		}
+		return nil
+	}
 	if _, err := m.EnsureDir(KindTool); !errors.Is(err, failure) {
 		t.Fatalf("sync error: %v", err)
+	}
+	synced = nil
+	syncDir = func(dir string) error { synced = append(synced, dir); return nil }
+	tools, err := m.EnsureDir(KindTool)
+	want = []string{tools, filepath.Join(abs, "Tools"), abs}
+	if err != nil || strings.Join(synced, "|") != strings.Join(want, "|") {
+		t.Fatalf("retry synced %v, want %v (%v)", synced, want, err)
 	}
 }

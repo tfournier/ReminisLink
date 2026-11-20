@@ -253,27 +253,19 @@ func (m *Manager) EnsureDir(kind string) (string, error) {
 		return "", err
 	}
 	defer root.Close()
-	// The first missing component: it and everything below are created.
 	parts := strings.Split(rel, string(filepath.Separator))
-	created := -1
-	for i := range parts {
-		if _, err := root.Lstat(filepath.Join(parts[:i+1]...)); err != nil {
-			created = i
-			break
-		}
-	}
 	if err := root.MkdirAll(rel, 0o755); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrUnsafeFolder, err)
 	}
 	if !m.safeParent(dir) {
 		return "", ErrUnsafeFolder
 	}
-	if created >= 0 {
-		// Every new folder is durable in its parent, up to the SD root.
-		for i := len(parts); i >= created; i-- {
-			if err := syncDir(filepath.Join(append([]string{m.sd}, parts[:i]...)...)); err != nil {
-				return "", err
-			}
+	// Every folder of the chain is durable in its parent, up to the SD
+	// root, every time: a first install whose sync failed is synced
+	// again on its retry, when the folders already exist.
+	for i := len(parts); i >= 0; i-- {
+		if err := syncDir(filepath.Join(append([]string{m.sd}, parts[:i]...)...)); err != nil {
+			return "", err
 		}
 	}
 	return dir, nil

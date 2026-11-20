@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/paks"
 )
@@ -232,6 +234,43 @@ func TestPakDownloadCap(t *testing.T) {
 	for _, d := range des {
 		if fi, _ := d.Info(); fi != nil && fi.Size() > 1000 {
 			t.Fatalf("more than the cap written: %s %d", d.Name(), fi.Size())
+		}
+	}
+}
+
+// Review 4: two cancels of a queued job both answer after its cleanup.
+func TestConcurrentCancelsWaitForTheCleanup(t *testing.T) {
+	e := newEnv(t)
+	block := make(chan struct{})
+	e.svc.Jobs().Submit(JobDownload, func(ctx context.Context, _ func(int64, *int64)) (map[string]any, *Error) {
+		<-block
+		return nil, nil
+	})
+	defer close(block)
+	release := make(chan struct{})
+	var cleaned atomic.Bool
+	id, apiErr, err := e.svc.submitWithCleanup(JobPakInstall, "x", JobGuard{}, func(context.Context, func(int64, *int64)) (map[string]any, *Error) {
+		return nil, nil
+	}, func() { <-release; cleaned.Store(true) })
+	if apiErr != nil || err != nil {
+		t.Fatal(apiErr, err)
+	}
+	answered := make(chan bool, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			e.svc.Jobs().Cancel(id)
+			answered <- cleaned.Load()
+		}()
+	}
+	select {
+	case <-answered:
+		t.Fatal("a cancel answered before the cleanup")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		if !<-answered {
+			t.Fatal("answered before the cleanup finished")
 		}
 	}
 }

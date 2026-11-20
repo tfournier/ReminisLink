@@ -82,6 +82,21 @@ func (t *Trash) renameInSD(src, dst string) error {
 	return nil
 }
 
+// checkTrashDir checks that the trash folder is inside the SD card and
+// that no component of its path is a link (a missing one is fine).
+func (t *Trash) checkTrashDir() error {
+	rel, err := t.sdRel(t.dir)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(t.sd)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return checkNoLinks(root, rel)
+}
+
 // mkdirInSD creates dir (and its parents) inside the SD card through an
 // os.Root of the card, refusing links on the way.
 func (t *Trash) mkdirInSD(dir string) error {

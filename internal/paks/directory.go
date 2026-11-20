@@ -36,18 +36,25 @@ func CheckDirectory(r io.ReaderAt, size int64) error {
 	if err != nil {
 		return err
 	}
+	entries := uint64(binary.LittleEndian.Uint16(end[10:]))
 	dirSize := uint64(binary.LittleEndian.Uint32(end[12:]))
 	dirOffset := uint64(binary.LittleEndian.Uint32(end[16:]))
-	if binary.LittleEndian.Uint16(end[10:]) == 0xffff || dirSize == 0xffffffff || dirOffset == 0xffffffff {
+	if entries == 0xffff || dirSize == 0xffffffff || dirOffset == 0xffffffff {
 		if p, ok := findZip64End(r, endAt); ok {
 			rec := make([]byte, zip64EOCDLen)
 			if _, err := r.ReadAt(rec, p); err != nil || binary.LittleEndian.Uint32(rec) != zip64EOCDSig {
 				return refuse("not a zip archive")
 			}
 			endAt = p
+			entries = binary.LittleEndian.Uint64(rec[32:])
 			dirSize = binary.LittleEndian.Uint64(rec[40:])
 			dirOffset = binary.LittleEndian.Uint64(rec[48:])
 		}
+	}
+	// archive/zip preallocates from the declared count (when the file
+	// could hold it): never more than the entries allowed.
+	if entries > MaxEntries && entries != 0xffff {
+		return refuse("more than %d entries", MaxEntries)
 	}
 	if dirSize > 1<<62 || dirOffset > 1<<62 {
 		return refuse("not a zip archive")
@@ -57,12 +64,21 @@ func CheckDirectory(r io.ReaderAt, size int64) error {
 	if start < 0 || start >= size {
 		return refuse("not a zip archive")
 	}
+	// archive/zip reads the directory at the declared offset when a
+	// header parses there, else at the recomputed one: both candidates
+	// are walked, so whichever it reads is bounded.
 	if base > 0 && int64(dirOffset) < size && isDirHeader(r, int64(dirOffset)) {
-		start = int64(dirOffset)
+		if err := walkDirectory(r, size, int64(dirOffset)); err != nil {
+			return err
+		}
 	}
+	return walkDirectory(r, size, start)
+}
 
-	// Walk the headers as archive/zip will, reading at most one header
-	// beyond the bound.
+// walkDirectory counts the central directory headers from start as
+// archive/zip reads them (until a bad one), reading at most one header
+// beyond MaxDirectoryBytes.
+func walkDirectory(r io.ReaderAt, size, start int64) error {
 	limit := min(size-start, int64(MaxDirectoryBytes+dirHeaderLen+1))
 	br := bufio.NewReader(io.NewSectionReader(r, start, limit))
 	var count, total int64

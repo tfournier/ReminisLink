@@ -396,6 +396,21 @@ func TestCheckDirectory(t *testing.T) {
 	if err := CheckDirectory(bytes.NewReader(data), int64(len(data))); !isRefusal(err, "more than 10000 entries") {
 		t.Fatalf("zip64: %v", err)
 	}
+	// Review 3: a declared count above the limit (archive/zip
+	// preallocates from it) is refused even with few real headers.
+	dir = dirHeaders(1, 0)
+	data = append(dir, eocd(20000, uint32(len(dir)), 0)...)
+	if err := CheckDirectory(bytes.NewReader(data), int64(len(data))); !isRefusal(err, "more than 10000 entries") {
+		t.Fatalf("declared count: %v", err)
+	}
+	// Two candidate directories (a header at the declared offset, the
+	// recomputed one after prepended bytes): the larger is bounded too.
+	small := dirHeaders(1, 0)
+	huge := dirHeaders(10001, 0)
+	data = append(append(append(append([]byte{}, small...), "gap!"...), huge...), eocd(1, uint32(len(huge)), 0)...)
+	if err := CheckDirectory(bytes.NewReader(data), int64(len(data))); !isRefusal(err, "more than 10000 entries") {
+		t.Fatalf("two candidates: %v", err)
+	}
 	if err := CheckDirectory(bytes.NewReader([]byte("short")), 5); !isRefusal(err, "not a zip") {
 		t.Fatalf("short: %v", err)
 	}

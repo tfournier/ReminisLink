@@ -363,7 +363,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 	if err != nil {
 		return MoveResult{}, "", entryFile{}, err
 	}
-	if err := os.MkdirAll(t.dir, 0o755); err != nil {
+	if err := t.mkdirInSD(t.dir); err != nil {
 		return MoveResult{}, "", entryFile{}, fmt.Errorf("trash: %w", err)
 	}
 	at := t.now()
@@ -624,6 +624,9 @@ func readEntry(dir string) (entryFile, error) {
 
 // entryDirs returns the names of the entry folders (valid ids only).
 func (t *Trash) entryDirs() ([]string, error) {
+	if err := t.checkTrashDir(); err != nil {
+		return nil, err
+	}
 	des, err := os.ReadDir(t.dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -680,6 +683,9 @@ func (t *Trash) Delete(id string) (int64, error) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if err := t.checkTrashDir(); err != nil {
+		return 0, err
+	}
 	fi, err := os.Lstat(filepath.Join(t.dir, id))
 	if err != nil || !fi.IsDir() || t.pending(id) {
 		// A replacement in progress is not an entry yet (never listed).
@@ -721,6 +727,9 @@ func (t *Trash) pending(id string) bool {
 // erase deletes an entry folder: renamed first, so it is never listed half
 // deleted. Called with t.mu held.
 func (t *Trash) erase(id, why string) (int64, error) {
+	if err := t.checkTrashDir(); err != nil {
+		return 0, err
+	}
 	dir := filepath.Join(t.dir, id)
 	// The size reported is the one of the entry (what GET /trash showed);
 	// an entry without a readable entry.json counts its whole folder.
@@ -782,6 +791,12 @@ func dirSize(dir string) int64 {
 func (t *Trash) Recover() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if err := t.checkTrashDir(); err != nil {
+		// Never follow a link at the trash folder (its journals would
+		// be read and rewritten elsewhere): left as it is, logged.
+		t.log.Error("trash: recovery skipped, the trash folder is reached through a link", "error", err)
+		return nil
+	}
 	names, err := t.entryDirs()
 	if err != nil {
 		return err

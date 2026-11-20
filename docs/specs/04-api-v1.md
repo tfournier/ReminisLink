@@ -552,7 +552,7 @@ Liste les fichiers utilisables de la carte SD : `.cht` sous `Cheats/` pour `type
 | `save` | `gameId` | La save du jeu (l'ancienne est sauvegardée) |
 | `state` | `gameId`, `slot` | Un emplacement de state (refusé si verrouillé) |
 | `staging` | `fileName` | Zone temporaire ReminisLink, pour un patch ou un `.cht` à importer ensuite (supprimée après 24 h) |
-| `pak` | `pakKind` (`tool`, `emu`, `auto` par défaut), `fileName` (informatif) | Archive zip d'un pak, installée par une tâche `pak-install` (M12, voir `POST /paks/install`) ; 1 Gio au plus (`413 too_large`) |
+| `pak` | `pakKind` (`tool`, `emu`, `auto` par défaut), `fileName` (nom de l'archive : affiché sur la console, et nom de repli d'une archive « à plat » sans `name` utilisable dans son `pak.json`) | Archive zip d'un pak, installée par une tâche `pak-install` (M12, voir `POST /paks/install`) ; 1 Gio au plus (`413 too_large`) |
 
 `onConflict` : `fail` (par défaut, `409 conflict`), `rename` (ajoute ` (2)`, ` (3)`...), `overwrite` (l'ancien fichier part dans la corbeille). Ne s'applique qu'aux cibles `rom`, `staging` et `pak` (pour `pak`, `fail` ou `overwrite` seulement ; le nom du pak n'est connu qu'à la lecture de l'archive, le conflit est donc vérifié par la tâche d'installation) : pour `save` et `state`, le fichier existant est toujours remplacé, après avoir été mis à la corbeille (M4 ; M5 y ajoute la copie de sauvegarde `before-replace`).
 

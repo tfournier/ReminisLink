@@ -617,3 +617,37 @@ func TestTrashRecoverRefusesALinkedDestination(t *testing.T) {
 		t.Fatalf("rename outside the card: %v", err)
 	}
 }
+
+// Review 2 (round 3): a trash folder replaced by a link is never
+// followed: the recovery leaves the journal outside untouched, moves and
+// deletions are refused.
+func TestTrashDirLinkIsNotFollowed(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, "Roms/GBA (GBA)/Game.gba", "rom")
+	interrupted(t, tr, sd, map[string]string{"Saves/GBA/Game.gba.sav": "old"}, []installRecord{
+		{Src: ".userdata/shared/ReminisLink/uploads/x.part", Dst: "Saves/GBA/Game.gba.sav", Size: 3}})
+	outside := t.TempDir()
+	if err := os.Rename(tr.Dir(), filepath.Join(outside, "trash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "trash"), tr.Dir()); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	journal := filepath.Join(outside, "trash", "tr_20261118T170000Z_00aa", "entry.json")
+	before, _ := os.ReadFile(journal)
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(journal); string(after) != string(before) {
+		t.Fatal("the journal outside the card was rewritten")
+	}
+	if _, err := tr.Move(ReasonDeleteGame, "Game", []MoveItem{{Path: filepath.Join(sd, "Roms/GBA (GBA)/Game.gba")}}); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("move: %v", err)
+	}
+	if _, err := tr.Delete("tr_20261118T170000Z_00aa"); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("delete: %v", err)
+	}
+	if !exists(filepath.Join(sd, "Roms/GBA (GBA)/Game.gba")) || !exists(journal) {
+		t.Fatal("files lost")
+	}
+}
