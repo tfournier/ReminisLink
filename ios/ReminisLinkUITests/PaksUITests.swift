@@ -27,7 +27,7 @@ final class PaksUITests: XCTestCase {
         let me = app.descendants(matching: .any)["pak.ReminisLink"].firstMatch
         XCTAssertTrue(me.waitForExistence(timeout: 10), "ReminisLink not listed")
         XCTAssertTrue(me.label.contains("This app"), me.label)
-        XCTAssertTrue(app.descendants(matching: .any)["pak.MGBA"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["pak.Advance"].exists)
         XCTAssertTrue(app.staticTexts["Emulators"].exists || app.staticTexts["EMULATORS"].exists)
         attachScreenshot(of: app, named: "paks")
         me.swipeLeft()

@@ -17,6 +17,9 @@ public enum SaveVaultLocation: String, Sendable, Codable {
     case iCloud
     /// The app's Documents folder on this iPhone (iCloud unavailable or off).
     case local
+    /// A temporary folder of the demo mode (milestone M16), erased when
+    /// the demo ends: never iCloud Drive nor the user's Documents.
+    case demo
 }
 
 public enum SaveVaultLimits {

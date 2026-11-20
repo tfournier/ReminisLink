@@ -1,8 +1,6 @@
 import Foundation
 import Observation
-#if DEBUG
 import ReminisLinkDemo
-#endif
 import ReminisLinkKit
 import UIKit
 
@@ -187,6 +185,11 @@ final class AppModel {
     #endif
     /// How long to look for a console with Bonjour.
     let lookupTimeout: Duration
+    /// The demo mode opened from the list of consoles (milestone M16):
+    /// banner with Quit, no Add a Console, saves in a temporary folder.
+    /// False for the Debug launch switch `RL_DEMO`, which behaves as the
+    /// live app against the fake pak.
+    let isDemo: Bool
 
     /// The screens pushed above the list of consoles (settings, synced
     /// saves), while no console is open.
@@ -302,6 +305,8 @@ final class AppModel {
         settings: UserDefaults? = nil,
         vaultProvider: SaveVaultProvider? = nil,
         lookupTimeout: Duration = Discovery.lookupTimeout,
+        syncScratchDirectory: URL? = nil,
+        isDemo: Bool = false,
         makeSession: @escaping () -> URLSession
     ) {
         self.store = store
@@ -316,8 +321,9 @@ final class AppModel {
         self.settings = settings
         self.syncOnConnect = settings.object(forKey: Self.syncOnConnectKey) as? Bool ?? true
         self.vaultProvider = vaultProvider ?? .folder(temporary.appending(path: "Saves"), location: .local)
-        self.syncScratchDirectory = temporary.appending(path: "SyncScratch")
+        self.syncScratchDirectory = syncScratchDirectory ?? temporary.appending(path: "SyncScratch")
         self.lookupTimeout = lookupTimeout
+        self.isDemo = isDemo
         self.makeSession = makeSession
         // M11: the pak withdraws its Bonjour service as it quits.
         discovery.onDevicesRemoved = { [weak self] ids in self?.servicesRemoved(ids) }
@@ -634,6 +640,21 @@ final class AppModel {
         store.forgetRepairMarker(deviceId)
     }
 
+    /// Stops everything this model runs (the end of the demo mode, M16):
+    /// event streams, uploads, save syncs and the discovery. The model is
+    /// not used afterwards.
+    func shutDown() {
+        sheet = nil
+        for session in sessions.values {
+            session.transfers.suspend()
+            session.stopEventStream()
+        }
+        sessions.removeAll()
+        for state in syncStates.values { state.cancel() }
+        discovery.stop()
+        openConsoleId = nil
+    }
+
     /// Forgets a device on this iPhone (after unpairing).
     func forget(deviceId: String) throws {
         dropSession(deviceId)
@@ -691,63 +712,41 @@ extension AppModel {
     }
 
     #if DEBUG
-    /// Everything in memory, against the fake pak: no network, no Keychain.
+    /// The Debug launch switch `RL_DEMO=1` / `-RLDemo YES` (UI tests): the
+    /// whole app runs against the fake pak through M16's ``DemoMode`` (same
+    /// isolation: no network, no Keychain, no iCloud), without its banner
+    /// and not paired yet, as the live app would; the test hooks below
+    /// apply.
     static func makeDemo() -> AppModel {
-        let pak = FakePak()
-        pak.register()
-        // UI tests: the first save of a cheat list meets a change made on
-        // the console (412).
-        pak.conflictOnNextCheatsSave = ProcessInfo.processInfo.environment["RL_UITEST_CHEATS_CONFLICT"] == "1"
-        let suite = "ReminisLink.demo"
-        UserDefaults.standard.removePersistentDomain(forName: suite)
-        let artDirectory = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoArt")
-        try? FileManager.default.removeItem(at: artDirectory)
-        let demoSaves = FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoSaves")
-        try? FileManager.default.removeItem(at: demoSaves)
-        // UI tests (M13): the next writes find the console busy.
-        if let n = ProcessInfo.processInfo.environment["RL_UITEST_BUSY_WRITES"].flatMap(Int.init) {
-            pak.busyNextWrites(n, retryAfter: 1)
+        let environment = ProcessInfo.processInfo.environment
+        DemoMode.removeLeftovers(name: DemoMode.debugName)
+        let demo = DemoMode(name: DemoMode.debugName, host: FakePak.demoHost, deviceName: "Demo Brick", model: .brick, isDemo: false) { pak, defaults in
+            // UI tests: the first save of a cheat list meets a change made
+            // on the console (412).
+            pak.conflictOnNextCheatsSave = environment["RL_UITEST_CHEATS_CONFLICT"] == "1"
+            // UI tests (M13): the next writes find the console busy.
+            if let n = environment["RL_UITEST_BUSY_WRITES"].flatMap(Int.init) {
+                pak.busyNextWrites(n, retryAfter: 1)
+            }
+            // UI tests (M13): the demo console was paired before M13 (RL1).
+            if environment["RL_UITEST_RL1_CONSOLE"] == "1" {
+                let legacy = [PairedDevice(id: pak.deviceId, name: pak.deviceName, model: pak.model, pairedAt: Date(), needsRepair: true)]
+                defaults.set(try? JSONEncoder().encode(legacy), forKey: "pairedDevices")
+            }
+            // UI tests (M9): the second listing of the saves finds one changed.
+            if let n = environment["RL_UITEST_SAVE_CHANGES_ON_LISTING"].flatMap(Int.init) {
+                pak.changeSaveOnListing = n
+            }
+            // UI tests (M11): `RL_UITEST_PAK_CLOSES_ON="GET /games"` makes the
+            // fake pak quit on that request, and open again 5 seconds later.
+            if let spec = environment["RL_UITEST_PAK_CLOSES_ON"] {
+                let parts = spec.split(separator: " ", maxSplits: 1).map(String.init)
+                if parts.count == 2 { pak.closeOnRequest(method: parts[0], path: parts[1], reopenAfter: 5) }
+            }
         }
-        // UI tests (M13): the demo console was paired before M13 (RL1).
-        if ProcessInfo.processInfo.environment["RL_UITEST_RL1_CONSOLE"] == "1" {
-            let legacy = [PairedDevice(id: pak.deviceId, name: pak.deviceName, model: pak.model, pairedAt: Date(), needsRepair: true)]
-            UserDefaults(suiteName: suite)?.set(try? JSONEncoder().encode(legacy), forKey: "pairedDevices")
-        }
-        // UI tests (M9): the second listing of the saves finds one changed.
-        if let n = ProcessInfo.processInfo.environment["RL_UITEST_SAVE_CHANGES_ON_LISTING"].flatMap(Int.init) {
-            pak.changeSaveOnListing = n
-        }
-        let app = AppModel(
-            store: DeviceStore(secureStore: InMemorySecureStore(), defaults: UserDefaults(suiteName: suite)!),
-            discovery: Discovery(fixedDevices: [pak.discoveredDevice]),
-            artCache: ArtCache(directory: artDirectory),
-            // Its own inbox: the demo never consumes real shared files.
-            shareInbox: ShareInbox(root: FileManager.default.temporaryDirectory.appending(path: "ReminisLinkDemoInbox")),
-            transferDirectory: cleanTransferDirectory(), exportDirectory: cleanExportDirectory(),
-            background: UIKitBackgroundActivity(),
-            settings: UserDefaults(suiteName: suite)!,
-            // Its own folder, emptied at each launch: the demo never mixes
-            // with real synced saves. As without iCloud.
-            vaultProvider: .folder(demoSaves, location: .local),
-            makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
-        )
-        app.demoPairingLink = pak.pairingLink
-        // Milestone M11: the fake pak withdraws its Bonjour service when it
-        // quits, and announces it again when it opens.
-        let discovery = app.discovery
-        let device = pak.discoveredDevice
-        pak.onAvailabilityChange = { availability in
-            Task { @MainActor in discovery.setFixedDevice(device, visible: availability == .open) }
-        }
-        // UI tests (M11): `RL_UITEST_PAK_CLOSES_ON="GET /games"` makes the
-        // fake pak quit on that request, and open again 5 seconds later.
-        if let spec = ProcessInfo.processInfo.environment["RL_UITEST_PAK_CLOSES_ON"] {
-            let parts = spec.split(separator: " ", maxSplits: 1).map(String.init)
-            if parts.count == 2 { pak.closeOnRequest(method: parts[0], path: parts[1], reopenAfter: 5) }
-        }
-        // A request left by a previous demo run is not opened again.
-        for request in app.shareInbox.pending() { app.shareInbox.remove(request.id) }
-        app.injectTestShare(ProcessInfo.processInfo.environment)
+        let app = demo.app
+        app.demoPairingLink = demo.pak.pairingLink
+        app.injectTestShare(environment)
         return app
     }
 

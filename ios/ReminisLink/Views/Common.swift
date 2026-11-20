@@ -10,10 +10,14 @@ extension Int64 {
 extension DeviceModel {
     var symbolName: String { self == .desktop ? "desktopcomputer" : "gamecontroller" }
 
-    /// Product names stay as they are; "Desktop" (the pak on a computer) is
-    /// translated.
+    /// Product names stay as they are; "Desktop" (the pak on a computer)
+    /// and the console of the demo mode (M16) are translated.
     var localizedName: String {
-        self == .desktop ? String(localized: "Desktop") : displayName
+        switch self {
+        case .desktop: String(localized: "Desktop")
+        case .demo: String(localized: "Demo Console")
+        default: displayName
+        }
     }
 }
 

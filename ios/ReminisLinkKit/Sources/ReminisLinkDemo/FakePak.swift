@@ -1,5 +1,3 @@
-// Debug builds only: the fake pak never ships in a release build.
-#if DEBUG
 import CryptoKit
 import Foundation
 import ReminisLinkKit
@@ -190,6 +188,14 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public func makeSession() -> URLSession {
         register()
         return APIClient.makeSession(protocolClasses: [FakeURLProtocol.self])
+    }
+
+    /// A session that reaches the fake paks registered on
+    /// ``FakeURLProtocol`` and nothing else: any other request fails
+    /// without touching the network (``OfflineURLProtocol``; the demo mode
+    /// of milestone M16).
+    public static func makeOfflineSession() -> URLSession {
+        APIClient.makeSession(protocolClasses: [FakeURLProtocol.self, OfflineURLProtocol.self])
     }
 
     public var endpoint: Endpoint { Endpoint(host: host, port: port) }
@@ -1286,4 +1292,3 @@ extension FakePak {
         }
     }
 }
-#endif

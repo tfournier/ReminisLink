@@ -19,6 +19,9 @@ public struct DeviceModel: RawRepresentable, Codable, Hashable, Sendable {
     public static let h700 = DeviceModel(rawValue: "h700")
     public static let my355 = DeviceModel(rawValue: "my355")
     public static let desktop = DeviceModel(rawValue: "desktop")
+    /// The fake console of the app's demo mode (milestone M16): never sent
+    /// by a real pak.
+    public static let demo = DeviceModel(rawValue: "demo")
 
     /// A name for display; product names are not translated.
     public var displayName: String {
@@ -30,6 +33,7 @@ public struct DeviceModel: RawRepresentable, Codable, Hashable, Sendable {
         case .h700: "H700"
         case .my355: "MY355"
         case .desktop: "Desktop"
+        case .demo: "Demo"
         default: rawValue
         }
     }

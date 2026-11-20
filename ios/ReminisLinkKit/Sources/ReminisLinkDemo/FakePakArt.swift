@@ -1,5 +1,3 @@
-// Debug builds only: the fake pak never ships in a release build.
-#if DEBUG
 import CryptoKit
 import Foundation
 import ReminisLinkKit
@@ -61,4 +59,3 @@ extension FakePak {
         return .json(200, summaryJSON(system: system, game: game))
     }
 }
-#endif

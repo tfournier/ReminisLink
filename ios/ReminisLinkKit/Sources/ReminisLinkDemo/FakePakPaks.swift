@@ -1,5 +1,3 @@
-// Debug builds only: the fake pak never ships in a release build.
-#if DEBUG
 import Foundation
 import ReminisLinkKit
 
@@ -66,8 +64,8 @@ struct FakePaksState {
             FakeInstalledPak(name: "ReminisLink", kind: "tool", sizeBytes: 9_437_184, modifiedAt: date, version: "v1.0.0", isSelf: true),
             FakeInstalledPak(name: "Clock", kind: "tool", sizeBytes: 2048, modifiedAt: date, version: "1.2"),
             FakeInstalledPak(name: "Files", kind: "tool", sizeBytes: 1_258_291, modifiedAt: date, version: nil),
-            FakeInstalledPak(name: "MGBA", kind: "emu", sizeBytes: 4096, modifiedAt: date, version: nil),
-            FakeInstalledPak(name: "PCSX", kind: "emu", sizeBytes: 3_145_728, modifiedAt: date, version: "2.0"),
+            FakeInstalledPak(name: "Advance", kind: "emu", sizeBytes: 4096, modifiedAt: date, version: nil),
+            FakeInstalledPak(name: "Disc", kind: "emu", sizeBytes: 3_145_728, modifiedAt: date, version: "2.0"),
         ]
     }()
 }
@@ -450,4 +448,3 @@ extension FakePak {
         return response
     }
 }
-#endif

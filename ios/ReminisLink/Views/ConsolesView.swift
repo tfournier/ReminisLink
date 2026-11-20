@@ -57,6 +57,14 @@ struct ConsolesView: View {
                             Text("This version of ReminisLink pairs differently: update ReminisLink on the console, then scan its QR code again.")
                         }
                     }
+                    // M16: the demo stays reachable once consoles are paired.
+                    if !app.isDemo {
+                        Section {
+                            TryDemoButton(style: .row)
+                        } footer: {
+                            Text("A demo console with made-up games, to try every feature. Nothing is sent or kept.")
+                        }
+                    }
                 }
             }
         }
@@ -80,15 +88,96 @@ struct ConsolesView: View {
                 }
                 .accessibilityIdentifier("consoles.settings")
             }
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    app.sheet = .addConsole()
-                } label: {
-                    Label("Add a Console", systemImage: "plus")
+            // The demo (M16) pairs nothing: quit it to add a real console.
+            if !app.isDemo {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        app.sheet = .addConsole()
+                    } label: {
+                        Label("Add a Console", systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("consoles.add")
                 }
-                .accessibilityIdentifier("consoles.add")
             }
         }
+    }
+}
+
+/// "Try Without a Console" (milestone M16): opens the demo mode.
+struct TryDemoButton: View {
+    enum Style {
+        /// The secondary button of the welcome screen.
+        case prominent
+        /// A row of the list of consoles.
+        case row
+    }
+
+    @Environment(AppRoot.self) private var root
+    let style: Style
+
+    var body: some View {
+        switch style {
+        case .prominent:
+            Button {
+                Task { await root.startDemo() }
+            } label: {
+                label.frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .disabled(root.isStartingDemo)
+            .accessibilityIdentifier("welcome.demo")
+        case .row:
+            Button {
+                Task { await root.startDemo() }
+            } label: {
+                label
+            }
+            .disabled(root.isStartingDemo)
+            .accessibilityIdentifier("consoles.demo")
+        }
+    }
+
+    private var label: some View {
+        HStack(spacing: 8) {
+            if root.isStartingDemo {
+                ProgressView()
+            } else {
+                Image(systemName: "play.circle")
+                    .accessibilityHidden(true)
+            }
+            Text("Try Without a Console")
+        }
+    }
+}
+
+/// The banner of the demo mode (M16), always visible, with Quit.
+struct DemoBanner: View {
+    @Environment(AppRoot.self) private var root
+
+    var body: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Demo Mode", systemImage: "play.rectangle.fill")
+                    .font(.subheadline.weight(.semibold))
+                Text("Made-up console and games. Nothing is sent or kept.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("demo.banner")
+            Spacer(minLength: 0)
+            Button("Quit") { root.quitDemo() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityLabel(Text("Quit the Demo"))
+                .accessibilityIdentifier("demo.quit")
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(Color.yellow.opacity(0.25).ignoresSafeArea(edges: .top))
     }
 }
 
@@ -194,14 +283,25 @@ struct WelcomeView: View {
                 if app.discovery.status == .localNetworkDenied {
                     ErrorView(error: .localNetworkDenied)
                 }
-                Button {
-                    app.sheet = .addConsole()
-                } label: {
-                    Text("Add a Console").frame(maxWidth: .infinity)
+                if !app.isDemo {
+                    VStack(spacing: 12) {
+                        Button {
+                            app.sheet = .addConsole()
+                        } label: {
+                            Text("Add a Console").frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .accessibilityIdentifier("welcome.add")
+                        // M16: no console yet? Try the app first.
+                        TryDemoButton(style: .prominent)
+                        Text("The demo uses a made-up console and games, on this iPhone only: nothing is sent or kept.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .accessibilityIdentifier("welcome.add")
             }
             .padding()
         }

@@ -2,38 +2,59 @@ import SwiftUI
 
 @main
 struct ReminisLinkApp: App {
-    @State private var app = AppModel.make()
+    @State private var root = AppRoot(live: AppModel.make())
 
     var body: some Scene {
         WindowGroup {
+            let app = root.current
+            // The demo mode (M16) gets its own tree: nothing of the real
+            // app's screens is kept, and its Library sort goes to its own
+            // defaults.
             RootView()
                 .environment(app)
+                .environment(root)
+                .defaultAppStorage(root.demo?.defaults ?? .standard)
+                .id(ObjectIdentifier(app))
         }
     }
 }
 
 struct RootView: View {
     @Environment(AppModel.self) private var app
+    @Environment(AppRoot.self) private var root
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var app = app
-        Group {
-            // Milestone M11: an open console shows its tabs; the list of
-            // consoles is the root otherwise.
-            if let deviceId = app.openConsoleId {
-                ConsoleTabsView(deviceId: deviceId)
-                    .id(deviceId)
-                    .transition(.move(edge: .trailing))
-            } else {
-                NavigationStack(path: $app.listPath) {
-                    ConsolesView()
-                        .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
+        VStack(spacing: 0) {
+            // M16: always visible during the demo, above every tab.
+            if app.isDemo { DemoBanner() }
+            Group {
+                // Milestone M11: an open console shows its tabs; the list
+                // of consoles is the root otherwise.
+                if let deviceId = app.openConsoleId {
+                    ConsoleTabsView(deviceId: deviceId)
+                        .id(deviceId)
+                        .transition(.move(edge: .trailing))
+                } else {
+                    NavigationStack(path: $app.listPath) {
+                        ConsolesView()
+                            .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
+                    }
+                    .transition(.move(edge: .leading))
                 }
-                .transition(.move(edge: .leading))
             }
+            .animation(.default, value: app.openConsoleId)
         }
-        .animation(.default, value: app.openConsoleId)
+        .alert(
+            "The demo could not open",
+            isPresented: Binding(get: { root.demoError != nil }, set: { if !$0 { root.demoError = nil } }),
+            presenting: root.demoError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text(error.message)
+        }
         .sheet(item: $app.sheet, onDismiss: { app.sheetDismissed() }) { sheet in
             switch sheet {
             case .addConsole(let repairing): AddConsoleView(repairing: repairing)
@@ -61,7 +82,10 @@ struct RootView: View {
         } message: {
             Text("Its pairing will be replaced on all your Apple devices. The console must present the same identity as its QR code.")
         }
-        .onOpenURL { app.handle(url: $0) }
+        .onOpenURL { url in
+            // A link opened during the demo is for the real app (M16).
+            if app.isDemo { root.handle(url: url) } else { app.handle(url: url) }
+        }
         .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active {
                 app.discovery.start()

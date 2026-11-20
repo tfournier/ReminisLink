@@ -1,5 +1,3 @@
-// Debug builds only: the fake pak never ships in a release build.
-#if DEBUG
 import Foundation
 import ReminisLinkKit
 
@@ -182,4 +180,3 @@ extension FakePak {
         return Data(lines.joined(separator: "\n").utf8)
     }
 }
-#endif

@@ -26,6 +26,11 @@ struct VaultLocationNotice: View {
             .font(.footnote)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("sync.location.local")
+        case .demo:
+            Label("Demo mode: saves are copied to a temporary folder of the app, erased when you quit the demo. Nothing goes to iCloud Drive.", systemImage: "play.rectangle")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("sync.location.demo")
         }
     }
 }
@@ -409,6 +414,8 @@ struct AppSettingsView: View {
                         Text("The saves of a console (with their clock files) are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save.")
                     case .local:
                         Text("The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save.")
+                    case .demo:
+                        Text("Demo mode: the saves of the demo console are copied to a temporary folder, erased when you quit the demo. Up to 10 versions are kept per save.")
                     case nil:
                         Text("The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save.")
                     }
