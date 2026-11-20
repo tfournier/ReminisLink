@@ -4,9 +4,9 @@ import Testing
 @testable import ReminisLinkKit
 
 /// The demo game with a save, three states (slot 0 locked) and 12 cheats.
-let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
 /// A demo game with no save, no state and no cheat.
-let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
+let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
 
 func downloadsDirectory() -> URL {
     FileManager.default.temporaryDirectory.appending(path: "rl-dl-tests-\(UUID().uuidString)")
@@ -123,7 +123,7 @@ struct GameDataModelTests {
     }
 
     @Test func contentDispositionGivesASafeFileName() {
-        #expect(ContentDisposition.fileName(#"attachment; filename="Sky Garden Quest.gba.sav""#) == "Sky Garden Quest.gba.sav")
+        #expect(ContentDisposition.fileName(#"attachment; filename="Thistledown Isles.gba.sav""#) == "Thistledown Isles.gba.sav")
         #expect(ContentDisposition.fileName("attachment; filename=game.st1") == "game.st1")
         #expect(ContentDisposition.fileName(#"attachment; filename="a;b.sav""#) == "a;b.sav")
         #expect(ContentDisposition.fileName(#"attachment; filename="x.sav"; filename*=UTF-8''Caf%C3%A9.sav"#) == "Café.sav")
@@ -138,13 +138,13 @@ struct GameDataModelTests {
     @Test func sdFilesOfTheGameComeFirst() {
         let files = [
             SdFile(id: "1", path: "Cheats/GBA/Zeta.cht", sizeBytes: 1),
-            SdFile(id: "2", path: "Cheats/GBA/Sky Garden Quest.gba.cht", sizeBytes: 1),
+            SdFile(id: "2", path: "Cheats/GBA/Thistledown Isles.gba.cht", sizeBytes: 1),
             SdFile(id: "3", path: "Cheats/GB/Alpha.cht", sizeBytes: 1),
-            SdFile(id: "4", path: "Cheats/GBA/sky garden quest (fr).cht", sizeBytes: 1),
+            SdFile(id: "4", path: "Cheats/GBA/thistledown isles (fr).cht", sizeBytes: 1),
         ]
-        let sorted = SdFile.sortedForGame(files, fileName: "Sky Garden Quest.gba", name: "Sky Garden Quest")
+        let sorted = SdFile.sortedForGame(files, fileName: "Thistledown Isles.gba", name: "Thistledown Isles")
         #expect(sorted.map(\.id) == ["4", "2", "3", "1"])
-        #expect(files[1].fileName == "Sky Garden Quest.gba.cht")
+        #expect(files[1].fileName == "Thistledown Isles.gba.cht")
     }
 }
 
@@ -293,7 +293,7 @@ struct GameDataAPITests {
         let client = try await pairedClient(pak)
         let root = downloadsDirectory()
         let file = try await client.downloadSave(gameId: skyGarden, into: root)
-        #expect(file.url.lastPathComponent == "Sky Garden Quest.gba.sav")
+        #expect(file.url.lastPathComponent == "Thistledown Isles.gba.sav")
         #expect(try FileDigest.size(of: file.url) == 131_072)
         #expect(file.directory.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL)
         // The error of the pak comes through, exactly.
@@ -415,7 +415,7 @@ struct GameDataAPITests {
         #expect(moved.movedBytes == 401_408)
         #expect(try await client.states(gameId: skyGarden).slots.map(\.slot) == [1, 2, 9])
         let state = try await client.downloadState(gameId: skyGarden, slot: 1, into: downloadsDirectory())
-        #expect(state.url.lastPathComponent == "Sky Garden Quest.gba.st1")
+        #expect(state.url.lastPathComponent == "Thistledown Isles.gba.st1")
     }
 
     @Test func thumbnailsAreOptional() async throws {
@@ -478,7 +478,7 @@ struct GameDataAPITests {
         #expect(result == CheatImportResult(imported: 2, total: 2))
 
         let files = try await client.sdFiles(type: .cht)
-        let file = try #require(files.first { $0.path.hasSuffix("Sky Garden Quest.gba.cht") })
+        let file = try #require(files.first { $0.path.hasSuffix("Thistledown Isles.gba.cht") })
         result = try await client.importCheats(gameId: pixelRunner, .init(source: .sd(sdFileId: file.id), mode: .merge))
         #expect(result == CheatImportResult(imported: 2, total: 4))
 

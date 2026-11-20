@@ -4,7 +4,7 @@ import Testing
 @testable import ReminisLinkKit
 
 /// A multi-disc demo game.
-let starlightSaga = DemoLibrary.id("Disc Console (PS)/Starlight Saga")
+let starlightSaga = DemoLibrary.id("Disc Console (PS)/Orrery of Nine Tides")
 
 @Suite("Patch models")
 struct PatchModelTests {
@@ -24,14 +24,14 @@ struct PatchModelTests {
     }
 
     @Test func suggestsThePatchedNameOfThePak() {
-        #expect(PatchNaming.suggestedFileName(forROM: "Sky Garden Quest.gba") == "Sky Garden Quest (patched).gba")
-        #expect(PatchNaming.suggestedFileName(forROM: "Moonlit Maze 🌙.GB") == "Moonlit Maze 🌙 (patched).GB")
+        #expect(PatchNaming.suggestedFileName(forROM: "Thistledown Isles.gba") == "Thistledown Isles (patched).gba")
+        #expect(PatchNaming.suggestedFileName(forROM: "Mosslight Maze 🌙.GB") == "Mosslight Maze 🌙 (patched).GB")
         #expect(PatchNaming.suggestedFileName(forROM: "Game v1.1.sfc") == "Game v1.1 (patched).sfc")
         #expect(PatchNaming.suggestedFileName(forROM: "NoExtension") == "NoExtension (patched)")
     }
 
     @Test func refusesNamesThePakRefuses() {
-        #expect(PatchNaming.validatedFileName("  Sky Garden Quest (FR).gba ") == "Sky Garden Quest (FR).gba")
+        #expect(PatchNaming.validatedFileName("  Thistledown Isles (FR).gba ") == "Thistledown Isles (FR).gba")
         for bad in ["", "   ", ".hidden.gba", "a/b.gba", "a\\b.gba", "tab\there.gba", "CON.gba", "lpt1", "nul .gba",
                     "zero\u{200B}width.gba", String(repeating: "é", count: 128) + ".gba"] {
             #expect(PatchNaming.validatedFileName(bad) == nil, "\(bad)")
@@ -119,7 +119,7 @@ struct PatchFakePakTests {
         let stagingId = try await stage(bps, name: "translation.bps", client: client)
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(
             patch: .staging(stagingId: stagingId),
-            output: PatchOutput(mode: .newFile, fileName: PatchNaming.suggestedFileName(forROM: "Sky Garden Quest.gba"))
+            output: PatchOutput(mode: .newFile, fileName: PatchNaming.suggestedFileName(forROM: "Thistledown Isles.gba"))
         ))
         let queued = try await client.job(id: accepted.jobId)
         #expect(queued.kind == .patch)
@@ -127,20 +127,20 @@ struct PatchFakePakTests {
         #expect(job.state == .succeeded)
         #expect(job.progress.done == job.progress.total)
         let gameId = try #require(job.resultGameId)
-        #expect(gameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"))
+        #expect(gameId == DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"))
         #expect(job.resultVerified == true)
         let game = try await client.game(id: gameId)
-        #expect(game.name == "Sky Garden Quest (patched)")
+        #expect(game.name == "Thistledown Isles (patched)")
         #expect(game.totalBytes == 32)
         // The original is still there.
-        #expect(try await client.game(id: skyGarden).fileName == "Sky Garden Quest.gba")
+        #expect(try await client.game(id: skyGarden).fileName == "Thistledown Isles.gba")
 
         // Same name again: the pak adds " (2)".
         let again = try await client.patchGame(gameId: skyGarden, PatchRequest(
             patch: .staging(stagingId: stagingId), output: PatchOutput(mode: .newFile)
         ))
         let second = try await finish(again.jobId, client: client)
-        #expect(second.resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched) (2).gba"))
+        #expect(second.resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched) (2).gba"))
     }
 
     @Test func replaceKeepsTheGameAndTrashesTheROM() async throws {
@@ -162,7 +162,7 @@ struct PatchFakePakTests {
         let trash = try await client.trash()
         #expect(trash.entries.count == trashBefore + 1)
         #expect(trash.entries.first?.reason == "replace-rom")
-        #expect(trash.entries.first?.files == ["Roms/Handheld Advance (GBA)/Sky Garden Quest.gba"])
+        #expect(trash.entries.first?.files == ["Roms/Handheld Advance (GBA)/Thistledown Isles.gba"])
     }
 
     @Test func aPatchForAnotherROMFailsWithPatchMismatch() async throws {
@@ -171,7 +171,7 @@ struct PatchFakePakTests {
         let files = try await client.sdFiles(type: .patch)
         #expect(files.count == 4)
         #expect(files.contains { $0.path.hasPrefix("ReminisLink/patches/") } && files.contains { $0.path.hasPrefix("Roms/") })
-        let ups = try #require(files.first { $0.fileName == "Pixel Runner (Hack).ups" })
+        let ups = try #require(files.first { $0.fileName == "Brambleway Dash (Hack).ups" })
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ups.id), output: PatchOutput(mode: .replace)))
         let job = try await finish(accepted.jobId, client: client)
         #expect(job.state == .failed)
@@ -323,7 +323,7 @@ struct PatchFakePakTests {
         let queue = TransferQueue(scratchDirectory: FileManager.default.temporaryDirectory, client: { client })
         var finished: [String] = []
         queue.onJobFinished = { finished.append($0.id) }
-        let item = queue.track(jobId: jobId, title: "Sky Garden Quest", kind: .patch)
+        let item = queue.track(jobId: jobId, title: "Thistledown Isles", kind: .patch)
         #expect(item.kind == .patch)
         for _ in 0..<10 where !item.isFinished { await queue.refreshJobs() }
         #expect(finished == [jobId])

@@ -6,7 +6,7 @@ enum GameDataUITest {
     /// with a save, states (slots 0, 1 and 9) and cheats.
     static let headlessGame = "Starlight Courier"
     /// The demo game with a save, three states (slot 0 locked) and cheats.
-    static let demoGame = "Sky Garden Quest"
+    static let demoGame = "Thistledown Isles"
     /// The checks read English texts, whatever the simulator language.
     static let englishArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
 

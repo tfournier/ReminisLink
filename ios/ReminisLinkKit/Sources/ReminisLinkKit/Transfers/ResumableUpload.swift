@@ -161,12 +161,19 @@ public actor ResumableUpload {
         // A previous run sent `complete` and the device forgot the upload.
         if completeSent && uploadId == nil { throw UploadFailure.outcomeUnknown }
         if uploadId != nil { needsSync = true }
+        // Cancelled or paused already: nothing is created, on the device or
+        // on disk.
+        try Task.checkCancellation()
+        if shouldPause() { throw UploadFailure.paused }
         try FileManager.default.createDirectory(at: scratchDirectory, withIntermediateDirectories: true)
         let chunkFile = scratchDirectory.appending(path: "chunk-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: chunkFile) }
 
         while true {
             try Task.checkCancellation()
+            // Paused before the upload is created or probed (not only
+            // between chunks).
+            if shouldPause() { throw UploadFailure.paused }
             do {
                 if uploadId == nil {
                     let created = try await client.createUpload(CreateUploadRequest(

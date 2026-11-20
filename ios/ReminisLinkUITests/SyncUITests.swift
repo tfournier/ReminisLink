@@ -15,7 +15,7 @@ final class SyncUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_DEMO"] = "1"
-        // The second listing finds Sky Garden Quest played on the console.
+        // The second listing finds Thistledown Isles played on the console.
         app.launchEnvironment["RL_UITEST_SAVE_CHANGES_ON_LISTING"] = "2"
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)

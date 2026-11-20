@@ -1,7 +1,7 @@
-ReminisLink is a companion app for a retro handheld game console (TrimUI Brick running the NextUI firmware). It only works with a handheld on the same Wi-Fi network that runs the free ReminisLink tool; it has no account, no server and no in-app purchase.
+ReminisLink is a companion app for a retro handheld game console. The app needs a TrimUI Brick (running the NextUI firmware) with the free ReminisLink tool, on the same Wi-Fi network; it has no account, no server and no in-app purchase.
+
+To review without the hardware, tap *Try Without a Console* on the first screen: a simulated console lets you try every screen (library, saves, states, cheats, patches, apps, transfers). It uses made-up games, sends nothing and keeps nothing; *Quit* in its banner returns to the first screen. Pairing with a real handheld (QR code) needs the device.
 
 The app lists the games found on the SD card of the handheld, but provides no game, no catalog and no source of games, and links to none. Users add files they own, from the Files app or the share sheet. Neither the app nor the handheld downloads files from the internet.
-
-Because the app needs the handheld, a video of the whole flow (pairing with the QR code, library, adding a file, saves, states, cheats, patch) is attached: <LINK TO THE VIDEO>.
 
 Permissions: local network (to find the handheld with Bonjour and talk to it over HTTPS on the local network; the app only accepts the handheld's certificate whose fingerprint is in the pairing QR code) and camera (to scan the pairing QR code shown by the handheld).

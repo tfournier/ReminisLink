@@ -204,7 +204,16 @@ final class PatchFlow {
         verified = nil
         // Busy at once: the inputs lock before the task starts.
         step = .starting
-        runTask = Task { await run() }
+        // M16: counted with the app's file work, so the end of a demo
+        // cancels it and waits for it before erasing the files.
+        let work = session.app.work
+        runTask = Task { [weak self] in
+            do {
+                try await work.run { await self?.run() }
+            } catch {
+                self?.fail(error)
+            }
+        }
     }
 
     private func run() async {

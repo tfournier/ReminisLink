@@ -72,7 +72,7 @@ struct ModelsTests {
     @Test func gameListingKeepsUnknownKinds() throws {
         let listing = try decode(GameListing.self, """
         {"folders":[{"id":"Zm9v","name":"Homebrew","gameCount":3}],
-         "games":[{"id":"YmFy","name":"Sky Garden Quest","fileName":"Sky Garden Quest.gba","kind":"zip",
+         "games":[{"id":"YmFy","name":"Thistledown Isles","fileName":"Thistledown Isles.gba","kind":"zip",
                    "sizeBytes":16777216,"modifiedAt":"2026-10-02T09:12:00.250Z","hasSave":true,"stateCount":3,
                    "lockedStateCount":1,"cheatCount":12,"hasArt":true,"unknown":true}]}
         """)
@@ -97,10 +97,10 @@ struct ModelsTests {
 
     @Test func gameDetailCounters() throws {
         let detail = try decode(GameDetail.self, """
-        {"id":"YmFy","systemId":"Zm9v","name":"Sky Garden Quest","fileName":"Sky Garden Quest.gba","kind":"file",
+        {"id":"YmFy","systemId":"Zm9v","name":"Thistledown Isles","fileName":"Thistledown Isles.gba","kind":"file",
          "files":[
-          {"fileId":"f0","role":"rom","path":"Roms/GBA/Sky Garden Quest.gba","sizeBytes":16777216,"modifiedAt":"2026-10-02T09:12:00Z"},
-          {"fileId":"f1","role":"save","path":"Saves/GBA/Sky Garden Quest.gba.sav","sizeBytes":131072,"modifiedAt":"2026-11-18T16:55:00Z"},
+          {"fileId":"f0","role":"rom","path":"Roms/GBA/Thistledown Isles.gba","sizeBytes":16777216,"modifiedAt":"2026-10-02T09:12:00Z"},
+          {"fileId":"f1","role":"save","path":"Saves/GBA/Thistledown Isles.gba.sav","sizeBytes":131072,"modifiedAt":"2026-11-18T16:55:00Z"},
           {"fileId":"f2","role":"state","slot":0,"path":"x.st0","sizeBytes":401408,"modifiedAt":"2026-11-18T16:55:00Z"},
           {"fileId":"f3","role":"state","slot":1,"path":"x.st1","sizeBytes":401408,"modifiedAt":"2026-11-18T16:55:00Z"},
           {"fileId":"f4","role":"thumbnail","path":"x.png","sizeBytes":1,"modifiedAt":"2026-11-18T16:55:00Z"}
@@ -112,7 +112,7 @@ struct ModelsTests {
         #expect(detail.files[2].slot == 0)
         #expect(detail.files.last?.role == GameFileRole(rawValue: "thumbnail"))
         #expect(detail.files.compactMap(\.fileId) == ["f0", "f1", "f2", "f3", "f4"])
-        #expect(detail.files[0].name == "Sky Garden Quest.gba")
+        #expect(detail.files[0].name == "Thistledown Isles.gba")
     }
 
     @Test func badDateFails() {

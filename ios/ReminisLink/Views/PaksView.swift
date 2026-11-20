@@ -166,7 +166,7 @@ struct PaksView: View {
         Task {
             defer { isPreparing = false }
             do {
-                let file = try await PakArchiver.prepare(url, into: root)
+                let file = try await app.work.run { try await PakArchiver.prepare(url, into: root) }
                 draft = PakInstallDraft(source: .file(file))
             } catch {
                 let error = AppError(error)

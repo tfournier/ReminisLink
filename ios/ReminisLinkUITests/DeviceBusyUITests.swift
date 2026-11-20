@@ -25,7 +25,7 @@ final class DeviceBusyUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["readOnly"].exists)
 
         // Delete a game: the console is busy with another write.
-        let game = app.buttons["game.Pixel Runner"]
+        let game = app.buttons["game.Brambleway Dash"]
         XCTAssertTrue(game.waitForExistence(timeout: 15))
         game.swipeLeft()
         app.buttons["game.delete"].tapAfterWaiting()

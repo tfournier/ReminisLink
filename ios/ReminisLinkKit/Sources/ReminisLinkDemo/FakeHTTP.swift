@@ -1,5 +1,3 @@
-// Debug builds only: the fake pak never ships in a release build.
-#if DEBUG
 import Foundation
 
 /// A canned HTTP response.
@@ -297,4 +295,27 @@ public final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 }
-#endif
+
+/// `URLProtocol` that takes every request and fails it as if there were no
+/// network (milestone M16). Placed after ``FakeURLProtocol`` in a session's
+/// protocol classes, it makes sure the session never reaches the network:
+/// a request for a host no fake pak serves (a demo that was quit) fails at
+/// once instead of going out.
+public final class OfflineURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var _failedRequests = 0
+
+    /// Requests failed so far (tests).
+    public static var failedRequests: Int { lock.withLock { _failedRequests } }
+
+    override public class func canInit(with request: URLRequest) -> Bool { true }
+
+    override public class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override public func startLoading() {
+        Self.lock.withLock { Self._failedRequests += 1 }
+        client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+    }
+
+    override public func stopLoading() {}
+}

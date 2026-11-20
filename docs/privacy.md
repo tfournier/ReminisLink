@@ -45,6 +45,14 @@ data about you or about how you use the app.
   SD card) or from your save copies: written to a temporary folder of the
   app, then saved only where you choose (Files, AirDrop, another app). The
   temporary folder is emptied at each launch of the app.
+- **The demo mode** (Try Without a Console) works with a made-up handheld
+  inside the app: it never talks to a handheld or to any server, and puts
+  nothing in the Keychain or iCloud Drive. Files downloaded from the made-up
+  handheld stay in the app (the share sheet is not offered). Files or pictures
+  you choose in Files or Photos to try a feature are copied to a temporary
+  folder of the demo (iOS may first download the original you chose, for
+  example from iCloud); like everything the demo writes, they are erased when
+  you quit it, or at the next launch.
 
 Deleting the app removes all of this. It does not remove the copies of your
 saves in iCloud Drive (see below), and iOS may keep the pairing in the
@@ -199,6 +207,15 @@ sur toi ni sur ton utilisation de l’app.
   dans un dossier temporaire de l’app, puis enregistrés seulement là où tu le
   choisis (Fichiers, AirDrop, une autre app). Le dossier temporaire est vidé
   à chaque lancement de l’app.
+- **Le mode démo** (Essayer sans console) fonctionne avec une console
+  inventée, dans l’app : il ne communique jamais avec une console ni avec
+  aucun serveur, et ne met rien dans le trousseau ni dans iCloud Drive. Les
+  fichiers téléchargés depuis la console inventée restent dans l’app (la
+  feuille de partage n’est pas proposée). Les fichiers ou images que tu
+  choisis dans Fichiers ou Photos pour essayer une fonction sont copiés dans
+  un dossier temporaire de la démo (iOS peut d’abord télécharger l’original
+  choisi, par exemple depuis iCloud) ; comme tout ce que la démo écrit, ils
+  sont effacés quand tu la quittes, ou au lancement suivant.
 
 Supprimer l’app efface tout cela. Cela n’efface pas les copies de tes
 sauvegardes dans iCloud Drive (voir plus bas), et iOS peut garder l’appairage

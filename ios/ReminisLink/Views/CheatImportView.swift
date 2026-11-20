@@ -189,7 +189,7 @@ struct CheatImportView: View {
         case .success(let url):
             do {
                 file?.remove()
-                file = try await PickedFile.copy(url, into: app.transferDirectory)
+                file = try await app.work.run { try await PickedFile.copy(url, into: app.transferDirectory) }
             } catch {
                 self.error = .file
             }

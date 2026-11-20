@@ -31,7 +31,7 @@ final class SaveUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_DEMO"] = "1"
-        app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "Sky Garden Quest.gba.sav:2048"
+        app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "Thistledown Isles.gba.sav:2048"
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)
         app.buttons["pairing.done"].tapAfterWaiting(timeout: 15)

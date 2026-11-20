@@ -1,5 +1,3 @@
-// Debug builds only: the fake pak never ships in a release build.
-#if DEBUG
 import Foundation
 import ReminisLinkKit
 
@@ -66,8 +64,8 @@ struct FakePaksState {
             FakeInstalledPak(name: "ReminisLink", kind: "tool", sizeBytes: 9_437_184, modifiedAt: date, version: "v1.0.0", isSelf: true),
             FakeInstalledPak(name: "Clock", kind: "tool", sizeBytes: 2048, modifiedAt: date, version: "1.2"),
             FakeInstalledPak(name: "Files", kind: "tool", sizeBytes: 1_258_291, modifiedAt: date, version: nil),
-            FakeInstalledPak(name: "MGBA", kind: "emu", sizeBytes: 4096, modifiedAt: date, version: nil),
-            FakeInstalledPak(name: "PCSX", kind: "emu", sizeBytes: 3_145_728, modifiedAt: date, version: "2.0"),
+            FakeInstalledPak(name: "Advance", kind: "emu", sizeBytes: 4096, modifiedAt: date, version: nil),
+            FakeInstalledPak(name: "Disc", kind: "emu", sizeBytes: 3_145_728, modifiedAt: date, version: "2.0"),
         ]
     }()
 }
@@ -115,12 +113,14 @@ extension FakePak {
         "se_" + Base64URL.encode(Data(path.utf8))
     }
 
+    #if DEBUG
     /// The next installation finds another archive than its source named
     /// (a link or SD file replaced between a conflict and its replacement):
     /// it installs the pak `name` names.
     public func changeNextPakSource(to name: String) {
         lock.withLock { paksState.nextSourceName = name }
     }
+    #endif
 
     /// A trash entry made earlier (tests: an old replacement of a pak).
     public func addTrashEntry(reason: String, label: String, trashedAt: Date) {
@@ -450,4 +450,3 @@ extension FakePak {
         return response
     }
 }
-#endif

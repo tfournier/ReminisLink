@@ -185,7 +185,7 @@ struct APIClientTests {
         let system = try #require(try await client.systems().first { $0.tag == "GBA" })
         let root = try await client.games(systemId: system.id)
         #expect(root.folders.map(\.name) == ["Homebrew"])
-        #expect(root.games.map(\.name).sorted() == ["Pixel Runner", "Sky Garden Quest"])
+        #expect(root.games.map(\.name).sorted() == ["Brambleway Dash", "Thistledown Isles"])
         let folder = try await client.games(systemId: system.id, folderId: root.folders[0].id)
         #expect(folder.games.count == 2)
         let last = try #require(pak.log.last)

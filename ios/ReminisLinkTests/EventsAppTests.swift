@@ -11,9 +11,9 @@ import Testing
 @Suite("Event stream in the app (M14)", .serialized)
 struct EventsAppTests {
     let secure = InMemorySecureStore()
-    static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+    static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
     static let skyGardenGame = PatchGame(
-        id: skyGarden, name: "Sky Garden Quest", fileName: "Sky Garden Quest.gba", kind: .file,
+        id: skyGarden, name: "Thistledown Isles", fileName: "Thistledown Isles.gba", kind: .file,
         systemLabel: "Handheld Advance"
     )
 
@@ -183,7 +183,7 @@ struct EventsAppTests {
             if case .failed = flow.step { return true }
             return false
         }
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: false))
         #expect(session.transfers.jobs.map(\.kind) == [.patch])
         #expect(session.transfers.jobs.allSatisfy { $0.job?.state == .succeeded })
         // The screens' polling sends nothing while the stream is live.
@@ -217,7 +217,7 @@ struct EventsAppTests {
             if case .succeeded = flow.step { break }
             if case .failed = flow.step { break }
         }
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: false))
         #expect(pak.log.contains { $0.method == "GET" && $0.path.hasPrefix(APIClient.apiPrefix + "/jobs/") })
         // Tried once for this session, never again.
         app.enterBackground()

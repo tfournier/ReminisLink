@@ -1,5 +1,3 @@
-// Debug builds only: the fake pak never ships in a release build.
-#if DEBUG
 import Foundation
 import ReminisLinkKit
 
@@ -476,4 +474,3 @@ extension FakePak {
         for id in ids { _ = advance(id) }
     }
 }
-#endif

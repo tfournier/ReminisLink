@@ -29,11 +29,38 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 /// Shows the iOS share sheet for a downloaded file, then deletes the file
 /// (and its directory) however the sheet closes.
+///
+/// In the demo mode (M16) the file never reaches the share sheet (iCloud
+/// Drive, other apps, the share extension): the download is confirmed and
+/// the file deleted.
 struct ExportSheetModifier: ViewModifier {
+    @Environment(AppModel.self) private var app
     @Binding var exported: ExportedFile?
     @State private var shown: ExportedFile?
 
+    @ViewBuilder
     func body(content: Content) -> some View {
+        if app.isDemo {
+            content.alert(
+                "Downloaded",
+                isPresented: Binding(get: { exported != nil }, set: { if !$0 { dismissDemoExport() } })
+            ) {
+                Button("OK", role: .cancel) {}
+                    .accessibilityIdentifier("demo.export.ok")
+            } message: {
+                Text("Demo mode: the file was downloaded from the demo console. With a real console, the share sheet opens here to save or send it; in the demo, nothing leaves the app.")
+            }
+        } else {
+            shareSheet(content)
+        }
+    }
+
+    private func dismissDemoExport() {
+        if let exported { ExportedFiles.remove(exported.file) }
+        exported = nil
+    }
+
+    private func shareSheet(_ content: Content) -> some View {
         content.sheet(item: $exported, onDismiss: {
             if let shown { ExportedFiles.remove(shown.file) }
             shown = nil
@@ -140,7 +167,7 @@ extension ConsoleSession {
     /// Downloads a file of the console into the export directory.
     func export(_ operation: @escaping @Sendable (APIClient, URL) async throws -> DownloadedFile) async throws -> ExportedFile {
         let directory = app.exportDirectory
-        let file = try await perform { try await operation($0, directory) }
+        let file = try await app.work.run { try await perform { try await operation($0, directory) } }
         return ExportedFile(file: file)
     }
 }

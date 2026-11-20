@@ -148,9 +148,13 @@ Check that both open over HTTPS before submitting.
 
 ### 6. App Review
 
-The demo mode exists in Debug builds only: a reviewer cannot use the app
-without a console. Attach a video of the whole flow and complete
-`AppStore/review_notes.txt` in *App Review Information > Notes*.
+The reviewer has no console: the published app has a demo mode (milestone
+M16, *Try Without a Console* on the first screen, see "Demo mode" below).
+Paste `AppStore/review_notes.txt` in *App Review Information > Notes*; the
+App Store screenshots and a review video made from the demo are in
+`docs/screenshots/appstore/`. The demo video does not show pairing with a
+real handheld: for that part Apple asks for a video filmed with a physical
+Apple device (to be made with the hardware, not in the repository).
 
 ### App icon and launch screen
 
@@ -169,12 +173,29 @@ removing a file under `ReminisLink/`, `ReminisLinkShare/` or
 `ReminisLinkUITests/` needs no project change. Build settings common to all
 targets are in `Config/Config.xcconfig`.
 
-## Demo mode (no console, no network)
+## Demo mode (no console, no server)
 
-Launch with the environment variable `RL_DEMO=1` (already in the scheme,
+Milestone M16: *Try Without a Console* (welcome screen, or the last row of
+the list of consoles) opens a "Demo Brick" in every build, App Store
+included (`App/DemoMode.swift`, docs/specs/06-app-ios.md §12). It talks to
+the fake pak of `ReminisLinkDemo` through `FakeURLProtocol`, and
+`OfflineURLProtocol` fails any other request without going out; its keys
+stay in memory, its synced saves, art cache and file copies in a temporary
+folder and its settings in a `UserDefaults` suite, both named by a new UUID
+per session. Downloads never reach the share sheet (an alert confirms them).
+*Quit* in its banner returns at once; the session then stops and awaits its
+work (`WorkTracker` counts file copies and downloads), erases its own
+folder and suite and is freed (a crashed session is erased at the next
+launch). While it runs, the real app pauses Bonjour, its uploads and its
+save syncs. The real list of consoles is never touched. Box arts and state
+thumbnails are drawn by `DemoArtwork` (no real art). `DemoModeAppTests`
+and `DemoModeUITests` cover it; the App Store screenshots are taken with
+`-RLScreenshots YES` (Debug only), which hides the banner.
+
+For UI tests, launch with the environment variable `RL_DEMO=1` (already in the scheme,
 disabled: tick it in *Edit Scheme > Run > Arguments*) or the argument
-`-RLDemo YES`. The app then talks to the fake pak of `ReminisLinkDemo`
-through a `URLProtocol`, keeps its keys in memory and sees one "Demo Brick".
+`-RLDemo YES` (Debug builds only). The whole app then runs on the same
+demo, without the banner and not paired yet, and sees one "Demo Brick".
 Pair it with *Add a Console > Pair with the Demo Console*, or open its link:
 
 ```sh
@@ -397,7 +418,7 @@ next start and shown "Restored"):
 
 The fake pak judges a patch by its header and, for BPS and UPS, by the
 source size it declares, compared with the size of the game. Its SD card
-has a matching BPS for Sky Garden Quest, a UPS for another ROM, an IPS and
+has a matching BPS for Thistledown Isles, a UPS for another ROM, an IPS and
 a file that is not a patch. UI tests make a BPS at launch and share it
 (Debug only): `RL_UITEST_SHARE_PATCH=<name>:<source size>:<source CRC32,
 hex>:<target text>`.
@@ -445,7 +466,7 @@ and a BPS made for that new file replaces it.
 The demo keeps its synced saves in a temporary folder emptied at each
 launch, as without iCloud. UI tests (Debug only):
 `RL_UITEST_SAVE_CHANGES_ON_LISTING=<n>` makes the `n`-th `GET /saves` of
-the fake pak find Sky Garden Quest played on the console (a new save).
+the fake pak find Thistledown Isles played on the console (a new save).
 
 `testSyncAndRestoreAgainstHeadlessPak` needs a pak built from the M9 pak
 branch. It syncs on connection, syncs again ("Up to date") and restores the

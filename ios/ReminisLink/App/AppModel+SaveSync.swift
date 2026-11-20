@@ -86,6 +86,34 @@ final class SaveSyncState {
 }
 
 extension AppModel {
+    /// Stops every save sync and returns their tasks (to wait for them).
+    func cancelSaveSyncs() -> [Task<Void, Never>] {
+        let tasks = syncStates.values.compactMap(\.task)
+        for state in syncStates.values { state.cancel() }
+        return tasks
+    }
+
+    /// The demo mode opens (M16): the real app stops as if it went to the
+    /// background (Bonjour, uploads after their current chunk) and its
+    /// running save syncs stop; they start again in ``resumeAfterDemo()``.
+    func pauseForDemo() {
+        isPausedForDemo = true
+        discovery.stop()
+        enterBackground()
+        syncsPausedForDemo = syncStates.filter { $0.value.task != nil }.map(\.key).sorted()
+        _ = cancelSaveSyncs()
+    }
+
+    /// The demo mode ended: Bonjour, uploads and the stopped syncs go on.
+    func resumeAfterDemo() {
+        isPausedForDemo = false
+        discovery.start()
+        becomeActive()
+        let paused = syncsPausedForDemo
+        syncsPausedForDemo = []
+        for deviceId in paused { startSaveSync(deviceId: deviceId, afterCurrent: true) }
+    }
+
     func saveSync(for deviceId: String) -> SaveSyncState {
         if let state = syncStates[deviceId] { return state }
         let state = SaveSyncState()
@@ -98,6 +126,13 @@ extension AppModel {
     /// With `afterCurrent` (a new connection), a running sync is followed
     /// by a new one, with the new client, once it ends.
     func startSaveSync(deviceId: String, afterCurrent: Bool = false) {
+        guard !isShutDown else { return }
+        // M16: asked while the demo runs (a connection that ended then):
+        // run when the demo ends.
+        if isPausedForDemo {
+            if !syncsPausedForDemo.contains(deviceId) { syncsPausedForDemo.append(deviceId) }
+            return
+        }
         let state = saveSync(for: deviceId)
         guard state.task == nil else {
             if afterCurrent { state.pendingRequest = UUID() }
@@ -127,6 +162,9 @@ extension AppModel {
     }
 
     private func runSaveSync(deviceId: String, state: SaveSyncState) async throws -> SaveSyncReport {
+        // Shut down or paused before this task first ran: nothing starts.
+        try Task.checkCancellation()
+        guard !isShutDown, !isPausedForDemo else { throw CancellationError() }
         let session = session(for: deviceId)
         let client = try await session.connectedClient()
         let vault = await vaultProvider.resolve()
@@ -163,7 +201,9 @@ extension ConsoleSession {
     /// the current save first. Only the save is sent: the console keeps
     /// its clock file.
     func restore(_ version: SaveVersion, gameId: String, gameName: String, from vault: any SaveVault) async throws -> SaveReplacement {
-        let files = try await vault.exportVerified(deviceId: deviceId, gameId: gameId, version: version, to: app.exportDirectory)
+        let files = try await app.work.run {
+            try await vault.exportVerified(deviceId: deviceId, gameId: gameId, version: version, to: app.exportDirectory)
+        }
         if let rtc = files.rtc { try? FileManager.default.removeItem(at: rtc) }
         let size: Int64
         do {

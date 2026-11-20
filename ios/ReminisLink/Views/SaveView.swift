@@ -242,7 +242,7 @@ struct SaveView: View {
         switch result {
         case .success(let url):
             await run {
-                replacement = try await PickedFile.copy(url, into: app.transferDirectory)
+                replacement = try await app.work.run { try await PickedFile.copy(url, into: app.transferDirectory) }
             }
         case .failure:
             error = .file

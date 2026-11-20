@@ -60,6 +60,36 @@ struct TransferTests {
         try await client.games(systemId: gbaSystemId).games.map(\.fileName)
     }
 
+    // MARK: Nothing before the first chunk (M16)
+
+    /// A cancelled run creates nothing: no upload on the device, no
+    /// scratch folder on disk (the end of a demo erased it).
+    @Test func aCancelledRunCreatesNothing() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let file = try makeFile(size: 50_000)
+        let upload = try upload(file)
+        let requests = pak.log.count
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await upload.run(client: client)
+        }
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(!FileManager.default.fileExists(atPath: scratch.path))
+        #expect(pak.log.count == requests)
+    }
+
+    /// Paused before it starts: no upload created or probed.
+    @Test func aPausedRunCreatesNothing() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let upload = try upload(try makeFile(size: 50_000))
+        let requests = pak.log.count
+        await #expect(throws: UploadFailure.paused) { try await upload.run(client: client, shouldPause: { true }) }
+        #expect(pak.log.count == requests)
+        #expect(!FileManager.default.fileExists(atPath: scratch.path))
+    }
+
     // MARK: Streaming SHA-256
 
     @Test func streamingDigestMatchesCryptoKit() throws {
@@ -344,7 +374,7 @@ struct TransferTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let file = try makeFile(size: 10_000)
-        let upload = try upload(file, name: "Pixel Runner.gba")
+        let upload = try upload(file, name: "Brambleway Dash.gba")
         do {
             _ = try await upload.run(client: client)
             Issue.record("no error")
@@ -354,17 +384,17 @@ struct TransferTests {
         }
         await upload.restart(onConflict: .rename)
         let result = try await upload.run(client: client)
-        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner (2).gba"))
+        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash (2).gba"))
     }
 
     @Test func overwriteSendsTheOldFileToTheTrash() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let file = try makeFile(size: 10_000)
-        _ = try await upload(file, name: "Pixel Runner.gba", onConflict: .overwrite).run(client: client)
+        _ = try await upload(file, name: "Brambleway Dash.gba", onConflict: .overwrite).run(client: client)
         let trash = try await client.trash()
         #expect(trash.entries.first?.reason == "overwrite")
-        #expect(trash.entries.first?.label == "Pixel Runner")
+        #expect(trash.entries.first?.label == "Brambleway Dash")
     }
 
     @Test func pauseBetweenChunksThenResume() async throws {
@@ -400,8 +430,11 @@ struct TransferTests {
         let client = try await pairedClient(pak)
         let file = try makeFile(size: 256 * 1024)
         let upload = try upload(file)
+        // Paused once the upload exists (before its first chunk): the
+        // checks before creating it (M16) answer no.
+        let checks = CallCounter()
         await #expect(throws: UploadFailure.paused) {
-            try await upload.run(client: client, shouldPause: { true })
+            try await upload.run(client: client, shouldPause: { checks.next() > 2 })
         }
         #expect(pak.uploadIds.count == 1)
         await upload.cancel(client: client)
@@ -439,7 +472,7 @@ struct TransferTests {
     @Test func deleteGameMovesEverythingToTheTrash() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
         let detail = try await client.game(id: gameId)
         let result = try await client.deleteGame(id: gameId, keepSave: false)
         #expect(result.moved == detail.files.map(\.path))
@@ -456,7 +489,7 @@ struct TransferTests {
     @Test func deleteGameKeepingTheSave() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
         let result = try await client.deleteGame(id: gameId, keepSave: true)
         #expect(pak.log.last?.query == "keepSave=true")
         #expect(!result.moved.contains { $0.hasPrefix("Saves/") || $0.contains(".st") })
@@ -467,12 +500,12 @@ struct TransferTests {
     @Test func deletionPreviewIsWhatTheDeletionMoves() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
         let kept = try await client.deletionPreview(gameId: gameId, keepSave: true)
         #expect(pak.log.last?.query == "keepSave=true")
         #expect(kept.kept.contains { $0.role == .save } && kept.kept.contains { $0.role == .state })
         #expect(!kept.moved.contains { $0.role == .save || $0.role == .state })
-        #expect(kept.moved.contains { $0.name == "Sky Garden Quest.gba" && $0.role == .rom })
+        #expect(kept.moved.contains { $0.name == "Thistledown Isles.gba" && $0.role == .rom })
         let preview = try await client.deletionPreview(gameId: gameId, keepSave: false)
         #expect(preview.kept.isEmpty)
         #expect(preview.movedBytes == preview.moved.reduce(0) { $0 + $1.size })
@@ -498,7 +531,7 @@ struct TransferTests {
     }
 
     @Test func deletionPreviewDecodesTheContractExample() throws {
-        let data = Data(#"{"moved":[{"name":"Sky Garden Quest.gba","role":"rom","size":16777216},{"name":"ReminisLink/locks/x","role":"other","size":10}],"kept":[{"name":"Discs/CD1.chd","role":"rom","size":5}],"movedBytes":16777226}"#.utf8)
+        let data = Data(#"{"moved":[{"name":"Thistledown Isles.gba","role":"rom","size":16777216},{"name":"ReminisLink/locks/x","role":"other","size":10}],"kept":[{"name":"Discs/CD1.chd","role":"rom","size":5}],"movedBytes":16777226}"#.utf8)
         let preview = try ProtocolJSON.decoder().decode(DeletionPreview.self, from: data)
         #expect(preview.moved.last?.role == .other)
         #expect(preview.moved.map(DeletionPreview.isPakCopy) == [false, true])
@@ -543,5 +576,18 @@ final class PeakMemory: @unchecked Sendable {
     func sample() {
         guard let now = physicalFootprint() else { return }
         lock.withLock { peak = max(peak, now) }
+    }
+}
+
+/// Counts calls, from any thread.
+final class CallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() -> Int {
+        lock.withLock {
+            count += 1
+            return count
+        }
     }
 }

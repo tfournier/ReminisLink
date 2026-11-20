@@ -391,6 +391,16 @@
         }
       }
     },
+    "A demo console with made-up games, to try every feature. Nothing is sent or kept." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une console de démo avec des jeux inventés, pour essayer chaque fonction. Rien n’est envoyé ni gardé."
+          }
+        }
+      }
+    },
     "A file with this name already exists on the console." : {
       "localizations" : {
         "fr" : {
@@ -1301,12 +1311,72 @@
         }
       }
     },
+    "Demo Brick" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brick de démo"
+          }
+        }
+      }
+    },
+    "Demo Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Console de démo"
+          }
+        }
+      }
+    },
+    "Demo Mode" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode démo"
+          }
+        }
+      }
+    },
     "Demo mode: no real console is used." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mode démo : aucune vraie console n’est utilisée."
+          }
+        }
+      }
+    },
+    "Demo mode: saves are copied to a temporary folder of the app, erased when you quit the demo. Nothing goes to iCloud Drive." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode démo : les saves sont copiées dans un dossier temporaire de l’app, effacé quand tu quittes la démo. Rien ne va dans iCloud Drive."
+          }
+        }
+      }
+    },
+    "Demo mode: the file was downloaded from the demo console. With a real console, the share sheet opens here to save or send it; in the demo, nothing leaves the app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode démo : le fichier a été téléchargé depuis la console de démo. Avec une vraie console, la feuille de partage s’ouvre ici pour l’enregistrer ou l’envoyer ; dans la démo, rien ne sort de l’app."
+          }
+        }
+      }
+    },
+    "Demo mode: the saves of the demo console are copied to a temporary folder, erased when you quit the demo. Up to 10 versions are kept per save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode démo : les saves de la console de démo sont copiées dans un dossier temporaire, effacé quand tu quittes la démo. Jusqu’à 10 versions sont gardées par save."
           }
         }
       }
@@ -1437,6 +1507,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Télécharge un fichier pour en garder une copie sur cet iPhone : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+          }
+        }
+      }
+    },
+    "Downloaded" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargé"
           }
         }
       }
@@ -2201,6 +2281,16 @@
         }
       }
     },
+    "Made-up console and games. Nothing is sent or kept." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Console et jeux inventés. Rien n’est envoyé ni gardé."
+          }
+        }
+      }
+    },
     "Make a Backup Copy…" : {
       "localizations" : {
         "fr" : {
@@ -2927,6 +3017,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scanner de QR code"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter"
+          }
+        }
+      }
+    },
+    "Quit the Demo" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter la démo"
           }
         }
       }
@@ -4281,6 +4391,26 @@
         }
       }
     },
+    "The demo could not open" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La démo n’a pas pu s’ouvrir"
+          }
+        }
+      }
+    },
+    "The demo uses a made-up console and games, on this iPhone only: nothing is sent or kept." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La démo utilise une console et des jeux inventés, sur cet iPhone seulement : rien n’est envoyé ni gardé."
+          }
+        }
+      }
+    },
     "The file arrived damaged on the console and was discarded. Send it again." : {
       "localizations" : {
         "fr" : {
@@ -4987,6 +5117,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Réessayer"
+          }
+        }
+      }
+    },
+    "Try Without a Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Essayer sans console"
           }
         }
       }
