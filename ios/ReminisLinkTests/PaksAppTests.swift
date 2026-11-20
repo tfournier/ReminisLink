@@ -291,6 +291,79 @@ struct PaksAppTests {
         #expect(again.phase == .installed && again.mismatch == nil)
     }
 
+    @Test func aCancelledUploadKeepsItsCopyUntilTheConsoleConfirms() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        let manager = session.paks
+        let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
+        let file = try pickedFile(app, name: "Weather.pak.zip")
+        let install = await manager.install(.file(file), name: file.name, kind: .auto)
+        let item = try #require(install.upload)
+        await waitUntil { created.reached }
+        let uploadId = try #require(pak.uploadIds.first)
+        let chunk = pak.holdNextArrival(method: "PUT", path: "/api/v1/uploads/\(uploadId)")
+        created.open()
+        await waitUntil { chunk.reached }
+        let delete = pak.holdNextAnswer(method: "DELETE", path: "/api/v1/uploads/\(uploadId)")
+        session.transfers.cancel(item)
+        await waitUntil { delete.reached }
+        // Not confirmed yet: the copy stays.
+        #expect(item.phase == .cancelling)
+        #expect(install.phase == .sending)
+        #expect(FileManager.default.fileExists(atPath: file.url.path))
+        delete.open()
+        await waitUntil { install.phase == .cancelled && !FileManager.default.fileExists(atPath: file.directory.path) }
+        #expect(item.phase == .cancelled)
+        #expect(install.phase == .cancelled)
+        #expect(!FileManager.default.fileExists(atPath: file.directory.path))
+        chunk.open()
+    }
+
+    @Test func anOldReplacementInTheTrashIsNotTakenForThisOne() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        let manager = session.paks
+        pak.addTrashEntry(reason: "replace-pak", label: "Weather", trashedAt: Date(timeIntervalSinceNow: -86_400))
+        let clock = SdEntry(sdEntryId: FakePak.sdEntryId("Downloads/Clock.pak.zip"), name: "Clock.pak.zip", kind: .file,
+                            sizeBytes: 2048, modifiedAt: Date())
+        let install = await manager.install(.sdCard(clock), name: clock.name, kind: .auto)
+        await follow(session) { install.phase == .needsReplacement(name: "Clock") }
+        // Now it holds Weather, which is not installed: nothing is replaced.
+        pak.changeNextPakSource(to: "Weather.zip")
+        await manager.replace(install)
+        await follow(session) { install.isFinished }
+        await waitUntil { install.mismatch != nil }
+        #expect(install.mismatch?.installed == "Weather")
+        #expect(install.mismatch?.replacedOne == false)
+    }
+
+    @Test func theReplacementIsCheckedOnAListReadAfterIt() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        let manager = session.paks
+        let clock = SdEntry(sdEntryId: FakePak.sdEntryId("Downloads/Clock.pak.zip"), name: "Clock.pak.zip", kind: .file,
+                            sizeBytes: 2048, modifiedAt: Date())
+        let install = await manager.install(.sdCard(clock), name: clock.name, kind: .auto)
+        await follow(session) { install.phase == .needsReplacement(name: "Clock") }
+        pak.changeNextPakSource(to: "Files.zip")
+        // The list read when the job ends is held, then overtaken by a
+        // newer one (a `paks` event): the check waits for a list it may use.
+        let held = pak.holdNextAnswer(method: "GET", path: "/api/v1/paks")
+        await manager.replace(install)
+        await follow(session) { install.isFinished }
+        await waitUntil { held.reached }
+        #expect(install.mismatch == nil && install.pendingCheck != nil)
+        manager.paksChanged()
+        await waitUntil { install.mismatch != nil }
+        #expect(install.mismatch?.installed == "Files")
+        #expect(install.mismatch?.replacedOne == true)
+        #expect(install.pendingCheck == nil)
+        held.open()
+    }
+
     @Test func installFromALink() async throws {
         let pak = makePak()
         pak.downloadSize = 4096

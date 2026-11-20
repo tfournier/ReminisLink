@@ -122,6 +122,18 @@ extension FakePak {
         lock.withLock { paksState.nextSourceName = name }
     }
 
+    /// A trash entry made earlier (tests: an old replacement of a pak).
+    public func addTrashEntry(reason: String, label: String, trashedAt: Date) {
+        let stamp = ProtocolJSON.formatDate(trashedAt)
+        lock.withLock {
+            trashEntries.append([
+                "id": "tr_old_\(UUID().uuidString.prefix(4).lowercased())", "trashedAt": stamp, "reason": reason,
+                "label": label, "files": [String](), "sizeBytes": 1024,
+                "expiresAt": ProtocolJSON.formatDate(trashedAt.addingTimeInterval(30 * 86_400)),
+            ])
+        }
+    }
+
     /// As if another client had installed a pak (a `paks` event follows).
     public func installPakFromAnotherClient(name: String, kind: String = "tool") {
         lock.withLock {

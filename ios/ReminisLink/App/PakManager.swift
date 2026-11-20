@@ -62,6 +62,12 @@ final class PakInstall: Identifiable {
     /// replacement): what it installed, and whether a pak of that name went
     /// to the trash.
     var mismatch: (installed: String, replacedOne: Bool)?
+    /// When the current attempt started (iPhone clock).
+    var attemptStartedAt = Date()
+    /// A replacement that succeeded and waits for a list read after it to
+    /// check what it installed: its `result.pakId`, and the first load
+    /// generation that may answer.
+    var pendingCheck: (pakId: String, fromGeneration: Int)?
 
     init(name: String, source: Source, kind: PakInstallKind) {
         self.name = name
@@ -133,6 +139,7 @@ final class PakManager {
             guard loads.isCurrent(generation) else { return }
             self.paks = paks
             loadError = nil
+            checkReplacements(listGeneration: generation)
         } catch {
             guard loads.isCurrent(generation) else { return }
             let error = AppError.pak(error, routeMissing: true)
@@ -205,6 +212,8 @@ final class PakManager {
     }
 
     private func start(_ install: PakInstall) async {
+        install.attemptStartedAt = Date()
+        install.pendingCheck = nil
         install.jobId = nil
         install.upload = nil
         let replace = install.replacing
@@ -276,11 +285,14 @@ final class PakManager {
             // The `paks` event may come later (or not at all without a
             // stream): the list is read now; a replacement then checks it
             // replaced the pak the user confirmed.
-            let pakId = job.resultPakId
+            if install.replacing, install.confirmedName != nil, let pakId = job.resultPakId {
+                // Checked on the first list read after this point (a load
+                // started now or later), whichever load applies it.
+                install.pendingCheck = (pakId, loads.current + 1)
+            }
             Task {
                 await load()
                 await session.loadTrash()
-                checkReplacement(install, pakId: pakId)
             }
         case .failed:
             let server = job.serverError
@@ -309,13 +321,31 @@ final class PakManager {
     /// SD file changed since the conflict may install (and replace) another
     /// pak than the one confirmed. The pak keeps the replaced one in its
     /// trash; the app says which one it was.
-    private func checkReplacement(_ install: PakInstall, pakId: String?) {
-        guard install.replacing, let confirmed = install.confirmedName, let pakId,
-              let installed = paks?.first(where: { $0.pakId == pakId })?.name,
-              installed.lowercased() != confirmed.lowercased()
-        else { return }
-        let replacedOne = session.trash?.entries.contains { $0.reason == "replace-pak" && $0.label.lowercased() == installed.lowercased() } ?? false
-        install.mismatch = (installed, replacedOne)
+    ///
+    /// Run when a list is applied, for the replacements whose job ended
+    /// before that load started (an older list, discarded or not, never
+    /// decides). The trash is read again first; only a `replace-pak` entry
+    /// made during this attempt (console clock, corrected by the measured
+    /// offset, 5 s of margin) means a pak was replaced.
+    private func checkReplacements(listGeneration: Int) {
+        for install in installs {
+            guard let check = install.pendingCheck, listGeneration >= check.fromGeneration else { continue }
+            install.pendingCheck = nil
+            guard let confirmed = install.confirmedName,
+                  let installed = paks?.first(where: { $0.pakId == check.pakId })?.name,
+                  installed.lowercased() != confirmed.lowercased()
+            else { continue }
+            let since = install.attemptStartedAt
+            Task {
+                await session.loadTrash()
+                let offset = await session.client?.clockOffset ?? 0
+                let threshold = since.addingTimeInterval(offset - 5)
+                let replacedOne = session.trash?.entries.contains {
+                    $0.reason == "replace-pak" && $0.label.lowercased() == installed.lowercased() && $0.trashedAt >= threshold
+                } ?? false
+                install.mismatch = (installed, replacedOne)
+            }
+        }
     }
 
     /// Follows the upload of an installation: cancelled (from the Transfers
