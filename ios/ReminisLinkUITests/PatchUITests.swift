@@ -1,9 +1,10 @@
 import XCTest
 
 /// Patch screen (milestone M6): a patch of the SD card for another ROM is
-/// refused with a clear message, a matching one replaces the game; a
-/// shared patch opens the Patch screen, the game is chosen, a new file is
-/// made and opened.
+/// refused with a clear message, a matching one replaces the game (the
+/// screen closes by itself on the game, which says so); an IPS keeps the
+/// screen for its warning; a shared patch opens the Patch screen, the
+/// game is chosen, a new file is made and opened by itself.
 ///
 /// XCUITest cannot drive the document picker: a shared patch is made by
 /// the app at launch (`RL_UITEST_SHARE_PATCH=<name>:<source size>:<source
@@ -38,12 +39,20 @@ final class PatchUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["patch.replaceWarning"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["patch.apply"].tapWhenEnabled()
         app.dialogButton("patch.replaceConfirm").tapAfterWaiting()
-        let done = app.buttons["patch.done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 20), "patch not applied")
-        XCTAssertTrue(app.descendants(matching: .any)["notice"].firstMatch.exists)
+        // Applied: the screen closes by itself, the game sheet says so.
+        assertClosedOnGame(app, named: "Thistledown Isles", timeout: 20)
         attachScreenshot(of: app, named: "patch-replaced")
-        done.tap()
-        XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 10))
+
+        // An IPS: applied unverified, the screen stays for its warning.
+        XCTAssertTrue(GameDataUITest.scrollTo(app.buttons["game.patch"], in: app), "no Patch button")
+        app.buttons["game.patch"].tapAfterWaiting()
+        app.segmentedControls["patch.source"].buttons.element(boundBy: 1).tapAfterWaiting()
+        GameDataUITest.button(app, "patch.sdFile", containing: "Bonus Levels.ips").tapAfterWaiting(timeout: 15)
+        app.buttons["patch.apply"].tapWhenEnabled()
+        XCTAssertTrue(app.descendants(matching: .any)["patch.unverified"].firstMatch.waitForExistence(timeout: 20),
+                      "no warning for the IPS")
+        XCTAssertTrue(app.buttons["patch.openGame"].exists, "the screen did not stay")
+        attachScreenshot(of: app, named: "patch-ips-unverified")
     }
 
     /// Against the fake pak: a shared patch opens the Patch screen.
@@ -71,10 +80,8 @@ final class PatchUITests: XCTestCase {
         XCTAssertTrue(finalName.label.contains("Thistledown Isles DX.hab"), finalName.label)
         attachScreenshot(of: app, named: "patch-shared")
         app.buttons["patch.apply"].tapWhenEnabled()
-        app.buttons["patch.openGame"].tapAfterWaiting(timeout: 30)
-        let title = app.staticTexts["game.title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 15))
-        XCTAssertEqual(title.label, "Thistledown Isles DX")
+        // The new game opens by itself.
+        assertClosedOnGame(app, named: "Thistledown Isles DX", timeout: 30)
     }
 
     /// Against a real pak (`make headless`), on Starlight Courier
@@ -113,10 +120,7 @@ final class PatchUITests: XCTestCase {
         XCTAssertTrue(name.waitForExistence(timeout: 10))
         replaceText(of: name, with: "\(newName).gba")
         app.buttons["patch.apply"].tapWhenEnabled(timeout: 20)
-        app.buttons["patch.openGame"].tapAfterWaiting(timeout: 60)
-        let title = app.staticTexts["game.title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 30))
-        XCTAssertEqual(title.label, newName)
+        assertClosedOnGame(app, named: newName, timeout: 60)
         attachScreenshot(of: app, named: "headless-new-file")
         app.terminate()
 
@@ -127,11 +131,26 @@ final class PatchUITests: XCTestCase {
         app.buttons["Replace the Game"].firstMatch.tapAfterWaiting()
         app.buttons["patch.apply"].tapWhenEnabled(timeout: 20)
         app.dialogButton("patch.replaceConfirm").tapAfterWaiting()
-        XCTAssertTrue(app.buttons["patch.done"].waitForExistence(timeout: 60), "replacement not applied")
+        // Shared, in place: the screen closes by itself on the game.
+        assertClosedOnGame(app, named: newName, timeout: 60)
         attachScreenshot(of: app, named: "headless-replaced")
     }
 
     // MARK: Steps
+
+    /// The patch is applied: the Patch screen closed by itself and the
+    /// sheet of the game shows, with its notice.
+    @MainActor
+    private func assertClosedOnGame(_ app: XCUIApplication, named name: String, timeout: TimeInterval,
+                                    file: StaticString = #filePath, line: UInt = #line) {
+        let title = app.staticTexts.matching(NSPredicate(format: "identifier == 'game.title' AND label == %@", name)).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: timeout), "not on the game \(name)", file: file, line: line)
+        XCTAssertTrue(app.buttons["patch.close"].waitForNonExistence(timeout: 10), "Patch screen still shown",
+                      file: file, line: line)
+        let notice = app.descendants(matching: .any)["notice"].firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 3), "no notice", file: file, line: line)
+        XCTAssertTrue(notice.label.contains("Patch applied"), notice.label, file: file, line: line)
+    }
 
     @MainActor
     private func launch(patch: String, reset: Bool) -> XCUIApplication {

@@ -125,6 +125,13 @@ final class PatchFlow {
     private(set) var mismatchDetails: PatchMismatchDetails?
     /// `result.verified` of the patch job: false for IPS.
     private(set) var verified: Bool?
+    /// Applied, with nothing left to read: the Patch screen closes by
+    /// itself. An IPS whose source could not be verified keeps it, for
+    /// its warning.
+    var closesByItself: Bool {
+        guard case .succeeded = step else { return false }
+        return verified != false
+    }
     /// M10: the upload of the patch is paused until the user reconnects
     /// (the console disconnected this app); it then goes on by itself.
     var isWaitingForReconnection: Bool { step.isSending && session.reconnectionWaits > 0 }

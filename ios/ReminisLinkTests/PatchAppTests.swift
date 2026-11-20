@@ -169,10 +169,13 @@ struct PatchAppTests {
         // The name does not matter for a replacement.
         flow.fileName = ""
         #expect(flow.canStart)
+        #expect(!flow.closesByItself)
         flow.start()
         await runToTheEnd(flow)
         #expect(flow.step == .succeeded(gameId: skyGarden, late: false))
         #expect(flow.verified == true)
+        // Verified: the Patch screen closes by itself.
+        #expect(flow.closesByItself)
         #expect(!pak.log.contains { $0.path.hasSuffix("/uploads") })
         let trash = try await session.perform { try await $0.trash() }
         #expect(trash.entries.first?.reason == "replace-rom")
@@ -397,6 +400,8 @@ struct PatchAppTests {
         await runToTheEnd(flow)
         #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Bonus.hab"), late: false))
         #expect(flow.verified == false)
+        // The warning must be read: the Patch screen stays.
+        #expect(!flow.closesByItself)
     }
 
     @Test func aPollingErrorIsShownAndTheJobFollowedAgain() async throws {

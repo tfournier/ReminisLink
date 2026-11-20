@@ -14,10 +14,12 @@ struct PatchContext: Identifiable, Equatable {
 
 /// Patch screen of a game (docs/specs/06-app-ios.md §4.5): choose the
 /// patch (Files, SD card), choose the output (a new file with a
-/// suggested name, or replace the game), follow the job, then open the
-/// new game. Opened from the game sheet, or by a shared `.ips`, `.bps` or
-/// `.ups` (the console, then the game, are chosen first). The app
-/// proposes no source of patches.
+/// suggested name, or replace the game), follow the job. Once applied,
+/// the screen closes by itself on the game (the new one, or the patched
+/// one), which says so; an IPS whose source could not be verified keeps
+/// the screen, for its warning. Opened from the game sheet, or by a
+/// shared `.ips`, `.bps` or `.ups` (the console, then the game, are
+/// chosen first). The app proposes no source of patches.
 struct PatchView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
@@ -255,6 +257,10 @@ private struct PatchFormSections: View {
         .task {
             // A shared patch: ask for the game at once.
             if choosesGame && flow.game == nil { showGamePicker = true }
+        }
+        // Only while this screen is shown: once closed, nothing moves.
+        .onChange(of: flow.step) { _, step in
+            if case .succeeded = step { Task { await finishByItself() } }
         }
     }
 
@@ -601,8 +607,26 @@ private struct PatchFormSections: View {
         }
     }
 
+    /// Applied: the screen closes by itself and the user lands on the
+    /// game (the patched one, or the new file), where a notice says so.
+    /// An IPS whose source could not be verified keeps the screen (Done,
+    /// Open the New Game) so that its warning is read.
+    private func finishByItself() async {
+        guard flow.closesByItself, case .succeeded(let gameId, let late) = flow.step,
+              let game = flow.game else { return }
+        let target = gameId ?? game.id
+        let notice = PatchNotice(deviceId: flow.deviceId, gameId: target, text: successText(late: late))
+        if case .game(let current)? = app.path.last, current.deviceId == flow.deviceId, current.gameId == target {
+            // Patched in place from its sheet: back to it (it reloads).
+            app.patchNotice = notice
+            close()
+        } else {
+            await open(target, notice: notice)
+        }
+    }
+
     /// Opens the sheet of the produced game, above the current one.
-    private func open(_ gameId: String) async {
+    private func open(_ gameId: String, notice: PatchNotice? = nil) async {
         guard let game = flow.game else { return }
         isOpening = true
         defer { isOpening = false }
@@ -612,6 +636,7 @@ private struct PatchFormSections: View {
             let detail = try await flow.session.perform { try await $0.game(id: gameId) }
             let route = GameRoute(deviceId: deviceId, gameId: gameId, systemLabel: game.systemLabel,
                                   name: detail.name, hasArt: false, fileName: detail.fileName)
+            if let notice { app.patchNotice = notice }
             close()
             if case .game(let current)? = app.path.last, current.deviceId == deviceId {
                 app.path.append(.game(route))

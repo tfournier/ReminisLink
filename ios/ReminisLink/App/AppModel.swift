@@ -87,6 +87,15 @@ struct ClosedConsoleNotice: Equatable, Identifiable {
     let deviceId: String
 }
 
+/// "Patch applied", shown for a few seconds on the sheet of the game the
+/// Patch screen leaves the user on once it closes by itself.
+struct PatchNotice: Equatable, Identifiable {
+    let id = UUID()
+    let deviceId: String
+    let gameId: String
+    let text: String
+}
+
 struct SyncedGameRoute: Hashable {
     let deviceId: String
     let gameId: String
@@ -223,6 +232,9 @@ final class AppModel {
     var tabPaths: [ConsoleTab: [Route]] = [:]
     /// The console closed ReminisLink (M11): said once on the list.
     var closedNotice: ClosedConsoleNotice?
+    /// A patch was applied and its screen closed by itself: said on the
+    /// sheet of the game, then cleared.
+    var patchNotice: PatchNotice?
     /// How long Bonjour must have been browsing before the absence of a
     /// console means it closed ReminisLink (tests shorten it).
     @ObservationIgnored var closureMinimumBrowsing = PakClosure.minimumBrowsing

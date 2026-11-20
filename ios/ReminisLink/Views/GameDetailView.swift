@@ -22,6 +22,13 @@ struct GameDetailView: View {
     @State private var downloadError: AppError?
     @State private var exported: ExportedFile?
 
+    /// The Patch screen closed by itself on this game (docs/specs/06-app-ios.md §4.5).
+    private var patchNotice: PatchNotice? {
+        guard let notice = app.patchNotice, notice.deviceId == route.deviceId,
+              notice.gameId == route.gameId else { return nil }
+        return notice
+    }
+
     /// Whether the game has an image now (it may have been changed here).
     private var hasArt: Bool {
         detail.map { $0.files.contains { $0.role == .art } } ?? route.hasArt
@@ -56,6 +63,10 @@ struct GameDetailView: View {
                 }
                 if let artNotice {
                     NoticeView(text: artNotice)
+                }
+                if let patchNotice {
+                    NoticeView(text: patchNotice.text)
+                        .transition(.opacity)
                 }
             }
 
@@ -143,7 +154,17 @@ struct GameDetailView: View {
         }
         .navigationTitle(route.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onDisappear { cancelDownload() }
+        .onDisappear {
+            cancelDownload()
+            if patchNotice != nil { app.patchNotice = nil }
+        }
+        // Said for a few seconds, then gone.
+        .task(id: patchNotice?.id) {
+            guard let id = patchNotice?.id else { return }
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled, app.patchNotice?.id == id else { return }
+            withAnimation { app.patchNotice = nil }
+        }
         .exportSheet($exported)
         .task { if detail == nil { await load() } }
         .refreshable { await load() }
