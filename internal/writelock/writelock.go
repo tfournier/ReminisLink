@@ -1,7 +1,7 @@
 // Package writelock runs the writes of the SD card one at a time (M13,
 // protocol/openapi.yaml "Writes one at a time"): every operation that
 // changes the card holds the lock for its critical section. A request
-// waits at most the lock's wait, then gets "Device busy"; a job waits as
+// waits at most the lock's wait, then gets 429 device_busy; a job waits as
 // long as it takes.
 package writelock
 

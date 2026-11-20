@@ -166,7 +166,7 @@ Chaque événement : `id: <n>` (croissant dans le flux, à partir de 1), `event:
 Décision du 19/11/2026, qui remplace le bail d'écriture de M10 (retirés : bail, renouvellement, `GET` / `PUT` / `DELETE /writer`, `writerHeld`, `Device.writer`, `423 read_only`). Plusieurs clients appairés peuvent agir en même temps ; aucun n'est en lecture seule.
 
 - **Écritures sérialisées** : le pak exécute une à une les opérations qui modifient la carte SD : suppressions, remplacements, restaurations, copies de save, verrous de states, cheats (un import attend son tour une fois sa source lue), jaquette, corbeille, et l'étape finale d'un envoi (`POST /uploads/{uploadId}/complete`). La création et l'annulation d'un envoi, ses morceaux (`PUT /uploads/{uploadId}`) et l'annulation d'une tâche ne touchent que la zone d'attente du pak et n'attendent jamais. Une tâche (téléchargement par la console, patch) n'attend son tour que pour l'étape qui installe son fichier, sans délai maximal ni échec pour cette raison.
-- **Attente** : une écriture qui arrive pendant une autre attend qu'elle finisse ; l'attente commence une fois le corps reçu et vérifié (le pak ne garde jamais le verrou pendant la lecture d'un corps). Après **10 s** d'attente sans obtenir son tour, la requête reçoit **`429 too_many_attempts`** (message `Device busy`) avec `Retry-After`, sans rien avoir modifié ; l'app réessaie.
+- **Attente** : une écriture qui arrive pendant une autre attend qu'elle finisse ; l'attente commence une fois le corps reçu et vérifié (le pak ne garde jamais le verrou pendant la lecture d'un corps). Après **10 s** d'attente sans obtenir son tour, la requête reçoit **`429 device_busy`** (message `Device busy`) avec `Retry-After`, sans rien avoir modifié ; l'app réessaie. Un pak M13 répondait `429 too_many_attempts` avec le même message (code dédié ajouté ensuite) : l'app reconnaît aussi cette réponse.
 - **Révocation pendant l'attente** (revue du 20/11/2026) : une fois le verrou obtenu, juste avant de modifier la carte, le pak vérifie de nouveau que le client n'a pas été déconnecté, oublié, désappairé ou réappairé pendant l'attente ; sinon la requête reçoit `401 disconnected` ou `401 unknown_client` et rien n'est modifié (vaut aussi pour l'étape finale d'un envoi et pour un import de cheats).
 - **Tâches d'un client révoqué** : quand la console déconnecte ou oublie un client (ou qu'il se désappaire ou se réappaire), ses tâches en attente ou en cours sont annulées (`cancelled`) ; une tâche dont l'installation a déjà commencé va jusqu'au bout. Une tâche est liée dès sa création au client et à l'état d'accès de la requête qui l'a lancée : son étape d'installation, une fois le verrou obtenu, vérifie de nouveau cet état et se termine `cancelled` sans rien installer s'il n'est plus valable ; une tâche lancée après une reconnexion n'est jamais annulée par une révocation antérieure.
 - **Lectures** : jamais bloquées par une écriture.
@@ -181,7 +181,7 @@ Décision du 19/11/2026, qui remplace le bail d'écriture de M10 (retirés : bai
 
 | Code | HTTP | Sens |
 |---|---|---|
-| `too_many_attempts` | 429 | `Device busy` : une écriture a attendu 10 s celle en cours (`Retry-After`). Rien n'a été modifié. |
+| `device_busy` | 429 | `Device busy` : une écriture a attendu 10 s celle en cours (`Retry-After`). Rien n'a été modifié. Un pak M13 envoyait `too_many_attempts` avec ce message. |
 | `disconnected` | 401 | Le client a été déconnecté depuis la console ; levé par `POST /clients/me/connect`. |
 
 ---

@@ -541,7 +541,7 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 // reporting a failure.
 //
 // The final step (resolve and install) holds the write lock (M13): it
-// waits for the write in progress, at most its wait, else 429 Device busy
+// waits for the write in progress, at most its wait, else 429 device_busy
 // and the upload stays.
 func (s *Service) CompleteUpload(ctx context.Context, id string) (map[string]any, *Error, error) {
 	u, apiErr := s.lookup(id)

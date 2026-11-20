@@ -14,7 +14,7 @@ import (
 // time"): every route that changes the SD card holds the write lock of
 // the transfer service for its critical section, after its body was
 // received and verified. A request waits at most the lock's wait (10 s),
-// then gets 429 too_many_attempts "Device busy" with Retry-After.
+// then gets 429 device_busy ("Device busy") with Retry-After.
 
 // BusyRetryAfter is the Retry-After (seconds) of a "Device busy" answer.
 const BusyRetryAfter = 2
@@ -40,7 +40,7 @@ const (
 )
 
 // acquireWrite takes the write lock for the request, or answers 429
-// Device busy (or 503 when the request is cancelled) and returns false.
+// device_busy (or 503 when the request is cancelled) and returns false.
 // Once the lock is held, it checks again that the client was not revoked
 // while it waited (401, the lock is released).
 func (s *Server) acquireWrite(w http.ResponseWriter, r *http.Request) bool {
@@ -55,7 +55,7 @@ func (s *Server) acquireWrite(w http.ResponseWriter, r *http.Request) bool {
 	case errors.Is(err, writelock.ErrBusy):
 		s.log.Info("write refused: device busy", "path", auth.LogString(r.URL.Path, auth.MaxLoggedPath))
 		w.Header().Set("Retry-After", strconv.Itoa(BusyRetryAfter))
-		auth.WriteError(w, http.StatusTooManyRequests, auth.CodeTooManyAttempts, "Device busy", nil)
+		auth.WriteError(w, http.StatusTooManyRequests, auth.CodeDeviceBusy, "Device busy", nil)
 	default:
 		auth.WriteError(w, http.StatusServiceUnavailable, auth.CodeShuttingDown, "Request cancelled", nil)
 	}

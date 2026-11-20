@@ -257,6 +257,21 @@ struct ClientAccessAppTests {
         #expect(pak.library.game(id: game) == nil)
     }
 
+    /// A pak from M13 said "busy" with `429 too_many_attempts` and the
+    /// message `Device busy` (no `device_busy` code yet): same text, same
+    /// retry. Another `429 too_many_attempts` keeps its own text.
+    @Test func aBusyAnswerOfAnOlderPakSaysTheSame() {
+        let legacy = AppError(APIError.server(ServerError(status: 429, code: .tooManyAttempts, message: "Device busy", retryAfter: 3)))
+        #expect(legacy.isDeviceBusy)
+        #expect(legacy.message == String(localized: "The console is busy with another change. Nothing was changed. Try again in \(3) seconds."))
+        let current = AppError(APIError.server(ServerError(status: 429, code: .deviceBusy, message: "Device busy")))
+        #expect(current.isDeviceBusy)
+        #expect(current.message == String(localized: "The console is busy with another change. Nothing was changed. Try again in a moment."))
+        let other = AppError(APIError.server(ServerError(status: 429, code: .tooManyAttempts, message: "Too many requests", retryAfter: 3)))
+        #expect(!other.isDeviceBusy)
+        #expect(other.message == String(localized: "Too many attempts. Try again in \(3) seconds."))
+    }
+
     /// The console disconnects this app during the patch upload, and the
     /// user cancels before the app learns it. While the DELETE waits for
     /// the console, the screen cannot be closed and the local copy stays

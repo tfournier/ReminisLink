@@ -283,6 +283,13 @@ A pairing link works **once**: every test against the pak needs a new
 one. Show a new QR code on the pak between tests and pass each link in its
 own variable.
 
+`scripts/run-headless-uitests.sh [NAME...]` does it for you: it runs the
+tests of the table below one at a time, each against its own headless pak
+(fresh copy of `testdata/sdcard`, `--pairing-open`), passes the link in
+the test's variable, and plays the runner's part of `RESTORED`, `CLOSING`,
+`EVENTS_QUIT` and `EVENTS_LIBRARY` (`--list` for the names;
+`DESTINATION`, `DERIVED_DATA`, `SKIP_BUILD=1`, `KEEP_LOGS=1`).
+
 Since M8, pairing is on demand: once a client is paired, restarting the
 pak on the same card shows no link (pairing opens from Settings > Pair a
 new device on the console). Start it with `--pairing-open` to print a new
@@ -452,8 +459,9 @@ the read-only banner, **Take Over**): several paired devices may write; the
 pak runs the writes one at a time.
 
 - **Device busy**: a write that waited 10 s for the one in progress gets
-  `429 too_many_attempts` (message `Device busy`) with `Retry-After`;
-  nothing was changed (`ServerError.isDeviceBusy`). The end of an upload
+  `429 device_busy` with `Retry-After`; nothing was changed
+  (`ServerError.isDeviceBusy`, which also recognizes the answer of an M13
+  pak: `429 too_many_attempts` with the message `Device busy`). The end of an upload
   (`complete`) is sent again by itself after `Retry-After` (and that
   refusal never makes its outcome unknown); a user action shows "The
   console is busy with another change. Nothing was changed. Try again in N

@@ -332,7 +332,7 @@ extension ResumableUpload {
     static func isTransient(_ error: APIError) -> Bool {
         switch error {
         case .network: true
-        case .server(let server): server.code == .tooManyAttempts || server.code == .shuttingDown
+        case .server(let server): server.code == .tooManyAttempts || server.code == .deviceBusy || server.code == .shuttingDown
         default: false
         }
     }

@@ -45,7 +45,7 @@ func (s *Server) transferError(w http.ResponseWriter, r *http.Request, apiErr *t
 	if apiErr != nil {
 		if apiErr.Status == http.StatusTooManyRequests {
 			retry := TransfersRetryAfter
-			if apiErr.Message == transfer.ErrorDeviceBusy().Message {
+			if apiErr.Code == transfer.CodeDeviceBusy {
 				retry = BusyRetryAfter
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(retry))

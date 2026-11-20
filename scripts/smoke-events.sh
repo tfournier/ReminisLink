@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Smoke test of milestone M14 (event stream GET /events) against the real
-# pak, with TWO clients and curl and openssl only (same RL1 signing code as
-# scripts/smoke-writer.sh). Clients A and B pair, then:
+# pak, with TWO clients and curl and openssl only (the RL2 client of
+# scripts/lib/rl2.sh, M13: pairing v2, TLS pinned to the certificate pin of
+# the pairing link, requests signed with RL2-ED25519). Clients A and B
+# pair, then:
 #   - A opens GET /events (signed, curl -N): 200 text/event-stream, the
 #     first event is `hello` (keepAliveSeconds 15), then a `: keep-alive`
 #     comment within 16 s;
@@ -16,6 +18,9 @@
 #   - the pak gets SIGTERM (the console's Quit needs the UI, not
 #     reachable headless): A receives `shutdown` {"reason":"stopped"} as
 #     its last event, then the stream ends (EOF) within 2 s.
+# There is no write lease since M13: both clients write whenever they
+# want, and the pak runs the writes one at a time (a write that waits more
+# than 10 s gets 429 device_busy, covered by internal/server/writes_test.go).
 #
 # Usage:
 #   scripts/smoke-events.sh
@@ -28,19 +33,23 @@
 #       with --pairing-open whose standard output goes to <file>, pairs a
 #       client B with the LATEST link the pak printed (run it once the app
 #       has paired), waits for $READY_FILE (at most $READY_TIMEOUT s,
-#       default 60; without READY_FILE, $DELAY s, default 15), takes the
-#       write lease over (the app holds it while in the foreground, M10),
-#       then deletes "Lantern Keeper [b1]" (GBA, to the trash) and writes
-#       the time of the deletion (epoch seconds) to $TRIGGER_FILE.
+#       default 60; without READY_FILE, $DELAY s, default 15), then
+#       deletes "Lantern Keeper [b1]" (GBA, to the trash) while the app
+#       stays connected, and writes the time of the deletion (epoch
+#       seconds) to $TRIGGER_FILE.
 #
 # The pairing links (single-use secrets) are read from the pak output.
-# Secrets and keys only go through pipes and bash variables, never through
-# process arguments, and are never printed. Exits 1 if any check fails.
+# Secrets only go through pipes and bash variables, the private keys stay
+# in a private temporary folder, and nothing secret is printed. Exits 1 if
+# any check fails. Needs OpenSSL 3 or later.
+# The pairing links, secrets and keys must never reach a shell trace:
+# tracing (bash -x, set -x, SHELLOPTS) is turned off for the whole run.
+{ set +x; } 2>/dev/null
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ $# -gt 0 ]; then
-	sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 fi
 
@@ -70,6 +79,10 @@ cleanup() {
 	rm -rf "$workdir"
 }
 trap cleanup EXIT
+# Without these, SIGINT or SIGTERM would skip the EXIT trap (bash 3.2) and
+# leave the temporary folder with the private keys.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ -n "${PAK_LOG:-}" ]; then
 	log=$PAK_LOG
@@ -106,122 +119,55 @@ next_link() {
 	die "no new pairing link in the pak output (is pairing open? run the pak with --pairing-open)"
 }
 
-# --- encodings (as in scripts/smoke.sh) -------------------------------------
+# shellcheck source=lib/rl2.sh
+. scripts/lib/rl2.sh
+RL2_DIR=$workdir/keys
+mkdir -m 700 "$RL2_DIR"
+rl2_selftest
 
-hex_to_bin() {
-	local hex=$1 out="" i
-	for ((i = 0; i < ${#hex}; i += 2)); do out+="\\x${hex:i:2}"; done
-	printf "$out"
-}
-bin_to_hex() { od -An -v -tx1 | tr -d ' \n'; }
-hex_to_b64u() { hex_to_bin "$1" | openssl base64 -A | tr '+/' '-_' | tr -d '='; }
-b64u_to_hex() {
-	local s
-	s=$(printf '%s' "$1" | tr -- '-_' '+/')
-	while [ $((${#s} % 4)) -ne 0 ]; do s="$s="; done
-	printf '%s' "$s" | openssl base64 -d -A | bin_to_hex
-}
-sha256_hex() { openssl dgst -sha256 -binary | bin_to_hex; }
-# hmac_hex KEY_HEX < message: HMAC-SHA256 (RFC 2104) in hex, the key never
-# in the arguments of a process.
-hmac_hex() {
-	local key=$1 ipad="" opad="" i b x
-	if [ ${#key} -gt 128 ]; then key=$(hex_to_bin "$key" | sha256_hex); fi
-	while [ ${#key} -lt 128 ]; do key="${key}00"; done
-	for ((i = 0; i < 128; i += 2)); do
-		b=$((16#${key:i:2}))
-		printf -v x '%02x' $((b ^ 0x36)); ipad+=$x
-		printf -v x '%02x' $((b ^ 0x5c)); opad+=$x
-	done
-	local inner
-	inner=$({ hex_to_bin "$ipad"; cat; } | sha256_hex)
-	{ hex_to_bin "$opad"; hex_to_bin "$inner"; } | sha256_hex
-}
-[ "$(printf 'what do ya want for nothing?' | hmac_hex 4a656665)" = \
-	5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843 ] || die "HMAC self-test failed"
-json_field() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
-json_num() { printf '%s' "$2" | sed -En "s/.*\"$1\":([0-9]+).*/\1/p"; }
-uuid() {
-	if [ -r /proc/sys/kernel/random/uuid ]; then cat /proc/sys/kernel/random/uuid; else uuidgen; fi | tr 'A-F' 'a-f'
-}
-
-# --- pairing (as in scripts/smoke-writer.sh) ---------------------------------
-
-param() { printf '%s' "$link" | sed -n "s/.*[?&]$1=\([^&]*\).*/\1/p"; }
-
-# pair X NAME: pairs client X (A or B) with the next pairing link; sets
-# X_id and X_key.
+# pair X NAME: pairs client X (A or B) with the next pairing link (pairing
+# v2, TLS pinned to the link's "k"); sets X_id, $base and $api.
 pair() {
-	local who=$1 name=$2 device_id secret_b64u host port secret_hex client_id cn_hex cn proof body response dn dp prk key expected
 	next_link
-	device_id=$(param id)
-	secret_b64u=$(param s)
-	host=$(param h)
-	port=$(param p)
-	[ -n "$device_id" ] && [ -n "$secret_b64u" ] && [ -n "$host" ] && [ -n "$port" ] || die "not a pairing link (masked)"
-	base=http://$host:$port
+	rl2_use_link "$link"
+	base=$RL2_BASE
 	api=$base/api/v1
-	for ((i = 0; i < 50; i++)); do curl -s -o /dev/null "$api/hello" && break; sleep 0.1; done
-	secret_hex=$(b64u_to_hex "$secret_b64u")
-	client_id=$(uuid)
-	cn_hex=$(openssl rand -hex 32)
-	cn=$(hex_to_b64u "$cn_hex")
-	proof=$(printf '%s' "RL1-PAIR-CLIENT|$device_id|$client_id|$cn" | hmac_hex "$secret_hex")
-	body=$(printf '{"method":"qr","clientId":"%s","clientName":"%s","clientNonce":"%s","proof":"%s"}' \
-		"$client_id" "$name" "$cn" "$(hex_to_b64u "$proof")")
-	response=$(curl -sS --fail-with-body -X POST -H 'Content-Type: application/json' --data-binary @- "$api/pair" <<<"$body") ||
-		die "POST /pair ($who): $response"
-	dn=$(json_field deviceNonce "$response")
-	dp=$(json_field proof "$response")
-	prk=$(hex_to_bin "$secret_hex" | hmac_hex "$cn_hex$(b64u_to_hex "$dn")")
-	key=$({ printf '%s' "RL1-KEY|$device_id|$client_id"; printf '\001'; } | hmac_hex "$prk")
-	expected=$(printf '%s' "RL1-PAIR-DEVICE|$device_id|$client_id" | hmac_hex "$key")
-	if [ "$(hex_to_b64u "$expected")" = "$dp" ]; then
-		pass "client $who \"$name\" paired, device proof verified"
-	else
-		die "device proof of the pairing of $who does not match"
-	fi
-	printf -v "${who}_id" '%s' "$client_id"
-	printf -v "${who}_key" '%s' "$key"
+	for ((i = 0; i < 50; i++)); do pcurl -s -o /dev/null "$api/hello" && break; sleep 0.1; done
+	rl2_pair "$1" "$2" apple || die "POST /pair ($1): $RL2_ERROR"
+	pass "client $1 \"$2\" paired (pairing v2), device proof verified"
 }
 
 # --- signed requests -------------------------------------------------------
 
-# sign X METHOD PATH [BODY]: fills the array $sig_headers with the signed
-# headers of a request of client X (no query string).
+# sign X METHOD PATH: fills the array $sig_headers with the RL2-ED25519
+# headers of a request of client X without body nor query string (for the
+# streams, which rl2_req cannot leave open).
 sign() {
-	local who=$1 method=$2 path=$3 data=${4-} id key time nonce content canonical signature
-	id=${who}_id key=${who}_key
-	id=${!id} key=${!key}
+	local who=$1 method=$2 path=$3 id time nonce content signature
+	id=${who}_id
+	id=${!id}
 	time=$(date +%s)
-	nonce=$(hex_to_b64u "$(openssl rand -hex 16)")
-	content=$(printf '%s' "$data" | sha256_hex)
-	canonical=$(printf 'RL1-HMAC-SHA256\n%s\n%s\n\n%s\n%s\n%s' "$method" "$path" "$time" "$nonce" "$content")
-	signature=$(printf '%s' "$canonical" | hmac_hex "$key")
-	sig_headers=(-H "X-RL-Client: $id" -H "X-RL-Time: $time" -H "X-RL-Nonce: $nonce"
-		-H "X-RL-Content-SHA256: $content" -H "X-RL-Signature: $(hex_to_b64u "$signature")")
+	nonce=$(hex_to_b64u "$("$OPENSSL" rand -hex 16)")
+	content=$(printf '' | sha256_hex)
+	signature=$(printf 'RL2-ED25519\n%s\n%s\n\n%s\n%s\n%s' "$method" "$path" "$time" "$nonce" "$content" |
+		ed25519_sign_b64u "$RL2_DIR/$who.pem")
+	sig_headers=(-H "X-RL-Client: $id" -H "X-RL-Time: $time" -H "X-RL-Nonce: $nonce" -H 'X-RL-Platform: mac'
+		-H "X-RL-Content-SHA256: $content" -H "X-RL-Signature: $signature")
 }
 
-# req X METHOD PATH [JSON BODY]: signed request of client X; sets $status
-# and $body.
-req() {
-	local who=$1 method=$2 path=$3 data=${4-} response
-	local -a opts=()
-	sign "$who" "$method" "$path" "$data"
-	if [ -n "$data" ]; then opts=(-H 'Content-Type: application/json' --data-binary @-); fi
-	response=$(printf '%s' "$data" | curl -sS -X "$method" -w '\n%{http_code}' "${opts[@]}" "${sig_headers[@]}" "$base$path")
-	status=${response##*$'\n'}
-	body=${response%$'\n'*}
-	[ "$body" != "$status" ] || body=""
-}
+# req X METHOD PATH [JSON BODY]: signed request of client X (rl2_req); sets
+# $status and $body.
+req() { rl2_req "$@"; }
 
 # --- event streams ------------------------------------------------------------
 
 # open_stream X FILE: opens GET /events for client X in the background;
-# the stream goes to FILE, the response headers to FILE.h; sets $spid.
+# the stream goes to FILE, the response headers to FILE.h; sets $spid, the
+# PID of curl itself (not of a subshell running pcurl), so that killing it
+# closes the stream.
 open_stream() {
 	sign "$1" GET /api/v1/events
-	curl -sS -N -D "$2.h" -o "$2" -w '%{http_code}\n' "${sig_headers[@]}" "$base/api/v1/events" >"$2.code" 2>"$2.err" &
+	curl -k --pinnedpubkey "sha256//$RL2_PIN_STD" -sS -N -D "$2.h" -o "$2" -w '%{http_code}\n' "${sig_headers[@]}" "$base/api/v1/events" >"$2.code" 2>"$2.err" &
 	spid=$!
 	stream_pids+=("$spid")
 }
@@ -278,12 +224,8 @@ if [ "${UI_DELETE:-0}" = 1 ]; then
 	else
 		sleep "${DELAY:-15}"
 	fi
-	# The app holds the write lease while it is in the foreground (M10):
-	# B takes it over first, as a second iPhone would.
-	req B GET /api/v1/writer
-	echo "info: write lease before the deletion: $(printf '%s' "$body" | sed -En 's/.*"writer":(null|\{[^}]*\}).*/\1/p')"
-	req B PUT /api/v1/writer '{"force":true}'
-	check "B takes the write lease over (PUT /writer {\"force\":true})" 200 "$status"
+	# No write lease since M13: B writes as a second iPhone would; the pak
+	# runs the writes one at a time (429 device_busy only after 10 s).
 	at=$(now_ms)
 	req B DELETE "/api/v1/games/$victim"
 	[ -z "${TRIGGER_FILE:-}" ] || printf '%s\n' "$at" >"$TRIGGER_FILE"
@@ -376,11 +318,12 @@ for k in 2 3 4; do
 	if wait_event "$workdir/a$k" 0 hello . 5; then pass "A stream $k accepted (hello)"; else failed "A stream $k: no hello ($(cat "$workdir/a$k.code" 2>/dev/null))"; fi
 done
 sign A GET /api/v1/events
-fifth=$(curl -sS -m 5 -D "$workdir/a5.h" -w '\n%{http_code}' "${sig_headers[@]}" "$base/api/v1/events" || true)
+fifth=$(pcurl -sS -m 5 -D "$workdir/a5.h" -w '\n%{http_code}' "${sig_headers[@]}" "$base/api/v1/events" || true)
 check "5th stream of A" 429 "${fifth##*$'\n'}"
 check "5th stream error code" too_many_attempts "$(json_field code "${fifth%$'\n'*}")"
-ra=$(grep -i '^retry-after:' "$workdir/a5.h" | tr -d '\r' | sed 's/^[^:]*: *//')
-if [ -n "$ra" ]; then pass "5th stream Retry-After: $ra"; else failed "5th stream without Retry-After"; fi
+ra=$(grep -i '^retry-after:' "$workdir/a5.h" | tr -d '\r' | sed 's/^[^:]*: *//' || true)
+# docs/specs/04-api-v1.md (GET /events, limits): Retry-After 5 s.
+check "5th stream Retry-After (seconds)" 5 "$ra"
 # Closing one frees a place.
 kill "${extra[2]}" 2>/dev/null || true
 wait "${extra[2]}" 2>/dev/null || true
@@ -388,7 +331,7 @@ reopened=""
 for ((t = 0; t < 20; t++)); do
 	sleep 0.25
 	sign A GET /api/v1/events
-	code=$(curl -sS -m 1 -o /dev/null -w '%{http_code}' "${sig_headers[@]}" "$base/api/v1/events" 2>/dev/null || true)
+	code=$(pcurl -sS -m 1 -o /dev/null -w '%{http_code}' "${sig_headers[@]}" "$base/api/v1/events" 2>/dev/null || true)
 	# 200 then cut by -m 1 (curl exit 28) prints 200.
 	if [ "$code" = 200 ]; then reopened=$(awk -v t="$t" 'BEGIN { printf "%.2f", (t + 1) * 0.25 }'); break; fi
 done

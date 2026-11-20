@@ -600,7 +600,7 @@ public actor APIClient {
 
     /// `DELETE /paks/{pakId}`: the whole pak folder goes to the trash
     /// (reason `delete-pak`). ReminisLink itself gets `409 conflict`
-    /// (`details.self`). A write: `429 Device busy` when another write ran
+    /// (`details.self`). A write: `429 device_busy` when another write ran
     /// too long.
     public func deletePak(id: String) async throws -> TrashMoveResult {
         try await signedJSON(method: "DELETE", segments: ["paks", id])

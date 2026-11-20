@@ -197,7 +197,8 @@ Toute réponse d'erreur a la forme :
 | 413 | `too_large` | Corps ou fichier trop gros |
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
-| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; trop de flux d'événements (4 par client, 16 en tout, M14) ; envoi en cours de vérification après un redémarrage du pak ; écriture qui a attendu 10 s celle en cours (`Device busy`, M13) (toujours avec `Retry-After` sur une route signée) |
+| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; trop de flux d'événements (4 par client, 16 en tout, M14) ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
+| 429 | `device_busy` | Écriture qui a attendu 10 s celle en cours (message `Device busy`, toujours avec `Retry-After`) ; rien n'a été modifié. Code dédié ajouté après M13 : un pak M13 répondait `429 too_many_attempts` avec le message `Device busy`, que l'app reconnaît encore |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
 | 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
 | 507 | `insufficient_storage` | Espace libre insuffisant (`details.required`, `details.available`) |
