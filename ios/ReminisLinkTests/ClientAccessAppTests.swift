@@ -161,6 +161,34 @@ struct ClientAccessAppTests {
         #expect(item.phase == .done, "\(String(describing: item.failure))")
     }
 
+    /// The connection already ended by a `401 disconnected` answered to
+    /// another request (a sync, a screen) before the upload sent anything:
+    /// the upload pauses as well, never fails, and goes on after the user
+    /// reconnects.
+    @Test func anUploadAfterAnotherRequestWasDisconnectedPausesToo() async throws {
+        let pak = makePak()
+        let (app, clientId) = try await pairedApp(pak)
+        app.syncOnConnect = false
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let system = try #require(try await session.perform { try await $0.systems() }.first)
+        pak.disconnect(clientId: clientId)
+        _ = try? await session.perform { try await $0.systems() }
+        #expect(session.isDisconnected)
+        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).gba")
+        try Data(repeating: 4, count: 20_000).write(to: file)
+        let item = try session.transfers.enqueue(
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Late.gba"), destination: "GBA", ownsFile: false
+        )
+        await waitUntil { item.phase == .paused || item.phase == .failed }
+        #expect(item.phase == .paused)
+        #expect((item.failure as? APIError)?.isDisconnected == true)
+        #expect(count(pak, "POST", "/uploads") == 0)
+        await session.reconnect()
+        await waitUntil { item.phase == .done }
+        #expect(item.phase == .done, "\(String(describing: item.failure))")
+    }
+
     /// A cheat file refused by a disconnection waits, keeps its copy, and
     /// is imported once the user reconnects.
     @Test func aCheatFileWaitsForReconnection() async throws {

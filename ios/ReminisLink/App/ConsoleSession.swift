@@ -462,7 +462,15 @@ final class ConsoleSession {
             background: app.background,
             client: { [weak self] in
                 guard let self else { throw CancellationError() }
-                return try await self.connectedClient()
+                do {
+                    return try await self.connectedClient()
+                } catch let error as AppError {
+                    // The connection was ended by a `401 disconnected` seen on
+                    // another request (a sync...): the queue pauses the upload
+                    // until the user reconnects, as for its own refusal.
+                    if case .api(let api) = error, api.isDisconnected { throw api }
+                    throw error
+                }
             }
         )
         queue.onUploadFinished = { [weak self] item in
