@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ReminisLink — Gère ta console rétro depuis ton iPhone</title>
-  <meta name="description" content="ReminisLink est une app iPhone et un outil gratuit pour ta console rétro : ajoute tes propres jeux, garde des copies de tes saves, verrouille tes states, modifie tes cheats et applique des patchs par ton Wi-Fi local.">
+  <meta name="description" content="ReminisLink est une app iPhone et un outil gratuit pour ta console rétro : ajoute tes propres jeux, copie tes saves dans iCloud Drive, verrouille tes states, modifie tes cheats, applique des patchs et gère tes apps par ton Wi-Fi local.">
   <link rel="canonical" href="https://reminis.link/fr/">
   <link rel="alternate" hreflang="en" href="https://reminis.link/">
   <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/">
@@ -22,6 +22,7 @@
       <nav class="site-nav" aria-label="Menu principal">
         <ul>
           <li><a href="/fr/" aria-current="page">Accueil</a></li>
+          <li><a href="/fr/install/">Installation</a></li>
           <li><a href="/fr/support/">Assistance</a></li>
           <li><a href="/fr/privacy/">Confidentialité</a></li>
           <li class="lang"><a href="/" hreflang="en" lang="en">English</a></li>
@@ -36,15 +37,16 @@
         <div>
           <img class="icon" src="/assets/icon-256.png" alt="Icône de l’app ReminisLink" width="96" height="96">
           <h1 id="hero-title">Ton iPhone, compagnon de ta console rétro</h1>
-          <p>Ouvre ReminisLink sur la console, gère tes jeux, saves, states, cheats et patchs depuis ton téléphone par le Wi-Fi de la maison, ferme-le et joue. Sans câble, sans carte SD à sortir, sans compte.</p>
+          <p>Ouvre ReminisLink sur la console, gère tes jeux, saves, states, cheats, patchs et apps depuis ton téléphone par le Wi-Fi de la maison, ferme-le et joue. Sans câble, sans carte SD à sortir, sans compte.</p>
           <div class="actions">
+            <a class="button" href="/fr/install/">Commencer</a>
             <span class="soon">Bientôt sur l’App Store</span>
             <a class="button" href="https://github.com/tfournier/ReminisLink">Code source sur GitHub</a>
           </div>
         </div>
         <figure>
-          <img src="/assets/pak-main.png" alt="L’écran de ReminisLink sur la console : un QR code à scanner avec l’app, un code à 6 chiffres, le nom et l’adresse de la console, et l’état « Ready » (prêt)." width="1024" height="768">
-          <figcaption>ReminisLink sur la console, en attente de ton iPhone.</figcaption>
+          <img src="/assets/pak-pairing.png" alt="L’écran d’appairage de ReminisLink sur la console : l’état « Ready » (prêt), le niveau de batterie et un QR code à scanner avec l’app." width="1024" height="768">
+          <figcaption>ReminisLink sur la console, prêt à s’appairer avec ton iPhone.</figcaption>
         </figure>
       </div>
     </section>
@@ -81,11 +83,15 @@
         <ul class="cards">
           <li class="card">
             <h3>Bibliothèque</h3>
-            <p>Tous les systèmes et les jeux de la carte SD, y compris ceux copiés à la main, avec taille, save, states, cheats et jaquette. Recherche et tri.</p>
+            <p>Tous les jeux de la carte SD dans une seule liste, y compris ceux copiés à la main, avec recherche et filtres par système. Taille, save, states, cheats et jaquette de chaque jeu : touche la jaquette pour la changer, et télécharge n’importe quel fichier d’un jeu sur ton iPhone.</p>
           </li>
           <li class="card">
             <h3>Saves</h3>
             <p>Télécharge une save sur ton iPhone, remplace-la depuis Fichiers, fais des copies de sauvegarde nommées et restaure-les d’une touche.</p>
+          </li>
+          <li class="card">
+            <h3>Synchronisation des saves</h3>
+            <p>Des copies de tes saves sur ton iPhone ou dans ton propre iCloud Drive, faites à chaque connexion, avec jusqu’à 10 versions de chaque save à restaurer.</p>
           </li>
           <li class="card">
             <h3>States</h3>
@@ -100,12 +106,24 @@
             <p>Applique des patchs IPS, BPS et UPS (traductions, corrections, améliorations) à un jeu que tu possèdes. Le résultat va dans un nouveau fichier par défaut.</p>
           </li>
           <li class="card">
+            <h3>Apps</h3>
+            <p>Installe des paks d’outils et d’émulateurs depuis Fichiers, un lien ou la carte SD, remplace-les ou supprime-les. Parcours la carte SD, en lecture seule.</p>
+          </li>
+          <li class="card">
+            <h3>Toujours à jour</h3>
+            <p>L’app se rafraîchit d’elle-même quand quelque chose change sur la console, même depuis un autre appareil, et revient à sa liste dès que tu fermes ReminisLink.</p>
+          </li>
+          <li class="card">
+            <h3>Toute la famille</h3>
+            <p>Appaire autant d’iPhone que tu veux. Les appareils d’un même compte Apple partagent un seul appairage grâce au trousseau iCloud. Les modifications passent une par une.</p>
+          </li>
+          <li class="card">
             <h3>Rien ne se perd</h3>
             <p>Les fichiers supprimés ou remplacés vont dans la corbeille de la console pendant au moins 30 jours. Une save est toujours copiée avant d’être remplacée ou restaurée.</p>
           </li>
           <li class="card">
-            <h3>Privé</h3>
-            <p>Pas de compte, pas de serveur, pas d’analytics, pas de publicité. Les requêtes sont signées avec une clé gardée dans le Trousseau de l’iPhone.</p>
+            <h3>Privé et sûr</h3>
+            <p>Pas de compte, pas de serveur, pas d’analytics, pas de publicité. Connexion chiffrée avec la console, reconnue grâce au certificat de son QR code. Les requêtes sont signées avec une clé gardée dans ton trousseau ; la carte SD ne garde que des clés publiques.</p>
           </li>
         </ul>
       </div>
@@ -117,7 +135,7 @@
         <ol class="steps">
           <li>
             <h3>Installe le pak</h3>
-            <p>Sur la console, ouvre <strong>Pak Store</strong> et installe <strong>ReminisLink</strong>. Ou décompresse la <a href="https://github.com/tfournier/ReminisLink/releases/latest">dernière version</a> dans <code>/Tools/tg5040/</code> sur la carte SD.</p>
+            <p>Télécharge <code>ReminisLink.pak.zip</code> depuis la <a href="https://github.com/tfournier/ReminisLink/releases">page des versions</a> et décompresse-le dans <code>/Tools/tg5040/</code> sur la carte SD de la console.</p>
           </li>
           <li>
             <h3>Ouvre-le</h3>
@@ -125,9 +143,10 @@
           </li>
           <li>
             <h3>Scanne le QR code</h3>
-            <p>Dans l’app iPhone, scanne le QR code affiché par la console (ou tape son code à 6 chiffres). C’est fait : gère tes jeux, puis appuie sur <strong>B</strong> sur la console et joue.</p>
+            <p>Dans l’app iPhone, touche <strong>Ajouter une console</strong> et scanne le QR code affiché par la console. C’est fait : gère tes jeux, puis appuie sur <strong>B</strong> sur la console et joue.</p>
           </li>
         </ol>
+        <p><a href="/fr/install/">Lis le guide d’installation complet</a> : premier lancement, appairage d’autres appareils, saves dans iCloud Drive, mise à jour et désinstallation.</p>
       </div>
     </section>
 
@@ -136,12 +155,12 @@
         <h2 id="shots-title">Sur la console</h2>
         <div class="gallery">
           <figure>
-            <img src="/assets/pak-main.png" alt="Écran principal : QR code à scanner, code à 6 chiffres valable 10 minutes, nom de la console et appareils connectés." width="1024" height="768" loading="lazy">
-            <figcaption>Appairage : scanne le QR code, ou tape le code.</figcaption>
+            <img src="/assets/pak-pairing.png" alt="Écran « Appairer un nouvel appareil » : état prêt, niveau de batterie et QR code à scanner avec l’app." width="1024" height="768" loading="lazy">
+            <figcaption>Appairage : scanne le QR code avec l’app.</figcaption>
           </figure>
           <figure>
-            <img src="/assets/pak-settings.png" alt="Écran des réglages : nom de la console, appareils appairés, oublier tous les appareils, langue, version et journal." width="1024" height="768" loading="lazy">
-            <figcaption>Réglages : nom de la console, appareils appairés, langue.</figcaption>
+            <img src="/assets/pak-settings.png" alt="Écran des réglages : appairer un nouvel appareil, nom de la console, appareils appairés, oublier tous les appareils, langue, version et journal." width="1024" height="768" loading="lazy">
+            <figcaption>Réglages : appairer un nouvel appareil, nom de la console, appareils appairés, langue.</figcaption>
           </figure>
           <figure>
             <img src="/assets/pak-language.png" alt="Premier lancement : écran d’accueil pour choisir entre l’anglais et le français." width="1024" height="768" loading="lazy">
@@ -156,7 +175,7 @@
       <div class="wrap">
         <h2 id="req-title">Configuration requise</h2>
         <ul>
-          <li>Un iPhone sous iOS 17 ou plus récent.</li>
+          <li>Un iPhone sous iOS 17 ou plus récent (l’iPad et le Mac ne sont pas pris en charge pour l’instant).</li>
           <li>Une TrimUI Brick sous NextUI, avec le pak gratuit ReminisLink. D’autres consoles sont prévues.</li>
           <li>L’iPhone et la console sur le même réseau Wi-Fi.</li>
         </ul>
@@ -168,6 +187,7 @@
   <footer class="site-footer">
     <div class="wrap">
       <ul>
+        <li><a href="/fr/install/">Installation</a></li>
         <li><a href="/fr/support/">Assistance</a></li>
         <li><a href="/fr/privacy/">Politique de confidentialité</a></li>
         <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>
