@@ -45,10 +45,10 @@ extension ConsoleSession {
         )
         let result: UploadResult
         do {
-            // M10: refused while another device has write access, the
+            // M10: refused while the console disconnected this app, the
             // upload waits (its local copy kept) and goes on from the
-            // confirmed offset once this iPhone has write access again.
-            result = try await pausingForWriteAccess {
+            // confirmed offset once reconnected.
+            result = try await pausingForReconnection {
                 try await upload.run(client: try await connectedClient())
             }
         } catch {

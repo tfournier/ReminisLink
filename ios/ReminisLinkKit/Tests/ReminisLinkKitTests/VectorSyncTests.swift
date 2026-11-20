@@ -5,7 +5,7 @@ import Testing
 /// Fix a failure with scripts/sync-test-vectors.sh, never by hand.
 @Suite("Test vector copies")
 struct VectorSyncTests {
-    @Test(arguments: ["pairing", "signing", "ids"])
+    @Test(arguments: ["pairing", "signing", "tls", "ids"])
     func copyMatchesRepository(name: String) throws {
         let bundled = try Data(contentsOf: Vectors.url(name))
         let source = try Data(contentsOf: Vectors.repositoryDirectory.appendingPathComponent("\(name).json"))

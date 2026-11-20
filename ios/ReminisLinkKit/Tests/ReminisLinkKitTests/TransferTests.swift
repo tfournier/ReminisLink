@@ -367,13 +367,12 @@ struct TransferTests {
     @Test func unsignedIsRefusedOutsideUploadChunks() async throws {
         let pak = makePak()
         // A POST signed as UNSIGNED is refused by the (fake) pak.
-        let key = SymmetricKey(size: .bits256)
-        let clientId = Pairing.makeClientId()
-        pak.addClient(id: clientId, key: key)
-        var request = URLRequest(url: URL(string: "http://\(pak.endpoint.authority)/api/v1/uploads")!)
+        let identity = ClientIdentity.generate()
+        pak.addClient(identity)
+        var request = URLRequest(url: URL(string: "https://\(pak.endpoint.authority)/api/v1/uploads")!)
         request.httpMethod = "POST"
         request.httpBody = Data("{}".utf8)
-        let signed = try Signer(clientId: clientId, key: key).sign(request, time: Int64(Date().timeIntervalSince1970), unsignedBody: true)
+        let signed = try Signer(identity: identity).sign(request, time: Int64(Date().timeIntervalSince1970), unsignedBody: true)
         let (_, response) = try await pak.makeSession().data(for: signed)
         #expect((response as? HTTPURLResponse)?.statusCode == 401)
     }

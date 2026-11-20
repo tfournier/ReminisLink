@@ -14,14 +14,14 @@ func makePak(minClientVersion: String = "1.0.0") -> FakePak {
 /// Pairs with the QR secret and returns a signed client.
 func pairedClient(_ pak: FakePak, now: @escaping @Sendable () -> Date = { Date() }) async throws -> APIClient {
     let session = pak.makeSession()
-    let unsigned = APIClient(endpoint: pak.endpoint, expectedDeviceId: pak.deviceId, session: session)
-    let clientId = Pairing.makeClientId()
-    let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "Test iPhone")
-    let key = try await unsigned.pair(attempt)
+    let unsigned = APIClient(endpoint: pak.endpoint, expectedDeviceId: pak.deviceId, pin: pak.pin, session: session)
+    let identity = ClientIdentity.generate()
+    let attempt = try PairingAttempt(secret: pak.secret, deviceId: pak.deviceId, identity: identity, clientName: "Test iPhone")
+    try await unsigned.pair(attempt)
     return APIClient(
         endpoint: pak.endpoint,
-        credentials: DeviceCredentials(deviceId: pak.deviceId, clientId: clientId, key: key),
-        session: session, now: now
+        credentials: DeviceCredentials(deviceId: pak.deviceId, identity: identity, pin: pak.pin),
+        platform: .iphone, session: session, now: now
     )
 }
 
@@ -30,7 +30,7 @@ func stubClient(credentials: Bool = true, _ handler: @escaping @Sendable (URLReq
     let host = "stub-\(UUID().uuidString.lowercased()).test"
     FakeURLProtocol.register(ClosureHandler(handler), host: host)
     let creds = credentials
-        ? DeviceCredentials(deviceId: FakePak.demoDeviceId, clientId: Pairing.makeClientId(), key: SymmetricKey(size: .bits256))
+        ? DeviceCredentials.random(deviceId: FakePak.demoDeviceId)
         : nil
     return APIClient(endpoint: Endpoint(host: host, port: 47821), credentials: creds,
                      session: APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]))
@@ -60,9 +60,32 @@ struct APIClientTests {
     @Test func helloRejectsATooOldApp() async throws {
         let pak = makePak(minClientVersion: "2.0.0")
         let client = APIClient(endpoint: pak.endpoint, appVersion: "1.0.0", session: pak.makeSession())
-        await #expect(throws: APIError.incompatible(apiVersion: 1, minClientVersion: "2.0.0")) {
+        await #expect(throws: APIError.incompatible(apiVersion: 2, minClientVersion: "2.0.0")) {
             try await client.hello()
         }
+    }
+
+    /// M13: a pak older than M13 (apiVersion 1) is refused: its pairing
+    /// and signing are incompatible.
+    @Test func helloRejectsAnRL1Pak() async throws {
+        let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", apiVersion: 1)
+        let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
+        await #expect(throws: APIError.incompatible(apiVersion: 1, minClientVersion: "1.0.0")) {
+            try await client.hello()
+        }
+    }
+
+    /// Every request goes over HTTPS, and says which kind of device sends
+    /// it (`X-RL-Platform`, informative); the fake pak records it.
+    @Test func requestsUseHTTPSAndThePlatformHeader() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let request = try await client.makeRequest(method: "GET", segments: ["device"])
+        #expect(request.url?.scheme == "https")
+        #expect(request.value(forHTTPHeaderField: "X-RL-Platform") == "iphone")
+        _ = try await client.device()
+        let clientId = try #require(pak.clientIds.first)
+        #expect(pak.platforms(clientId: clientId) == ("apple", "iphone"))
     }
 
     @Test func pairsWithTheQRSecretThenSigns() async throws {
@@ -78,18 +101,24 @@ struct APIClientTests {
         #expect(last.status == 200)
     }
 
-    @Test func pairsWithThePIN() async throws {
+    /// The same identity paired again (another device of the Apple
+    /// account) is still one client on the console.
+    @Test func pairingAgainKeepsOneClient() async throws {
         let pak = makePak()
         let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
-        let attempt = try PairingAttempt(secret: .pin(pak.pin), deviceId: pak.deviceId, clientId: Pairing.makeClientId(), clientName: "iPhone")
-        let key = try await client.pair(attempt)
-        #expect(key.bitCount == 256)
+        let identity = ClientIdentity.generate()
+        for _ in 0..<2 {
+            let attempt = try PairingAttempt(secret: pak.secret, deviceId: pak.deviceId, identity: identity, clientName: "iPhone")
+            let response = try await client.pair(attempt)
+            #expect(response.deviceId == pak.deviceId)
+        }
+        #expect(pak.clientIds == [identity.clientId])
     }
 
     @Test func wrongSecretGivesPairingFailed() async throws {
         let pak = makePak()
         let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
-        let attempt = try PairingAttempt(secret: .pin("000000"), deviceId: pak.deviceId, clientId: Pairing.makeClientId(), clientName: "iPhone")
+        let attempt = try PairingAttempt(secret: Pairing.makeNonce(), deviceId: pak.deviceId, identity: .generate(), clientName: "iPhone")
         do {
             _ = try await client.pair(attempt)
             Issue.record("expected an error")
@@ -102,15 +131,17 @@ struct APIClientTests {
     @Test func forgedDeviceProofIsRejected() async throws {
         let client = stubClient(credentials: false) { request, body in
             let pair = try! JSONDecoder().decode(PairRequest.self, from: body)
-            let nonce = Pairing.makeNonce()
-            // A device that does not know the secret derives another key.
-            let key = try! Pairing.deriveKey(ikm: Pairing.makeNonce(), clientNonce: Base64URL.decode(pair.clientNonce)!,
-                                             deviceNonce: nonce, deviceId: FakePak.demoDeviceId, clientId: pair.clientId)
-            return .json(200, ["deviceId": FakePak.demoDeviceId, "deviceName": "x", "deviceNonce": Base64URL.encode(nonce),
-                               "proof": Pairing.deviceProof(key: key, deviceId: FakePak.demoDeviceId, clientId: pair.clientId)])
+            let nonce = Base64URL.encode(Pairing.makeNonce())
+            // A device that does not know the secret.
+            let message = Pairing.deviceProofMessage(
+                deviceId: FakePak.demoDeviceId, clientId: pair.clientId, clientPublicKey: pair.clientPublicKey,
+                clientNonce: pair.clientNonce, deviceNonce: nonce
+            )
+            return .json(200, ["deviceId": FakePak.demoDeviceId, "deviceName": "x", "deviceNonce": nonce,
+                               "proof": Pairing.proof(secret: Pairing.makeNonce(), message: message)])
         }
-        let attempt = try PairingAttempt(secret: .qr(Pairing.makeNonce()), deviceId: FakePak.demoDeviceId,
-                                         clientId: Pairing.makeClientId(), clientName: "iPhone")
+        let attempt = try PairingAttempt(secret: Pairing.makeNonce(), deviceId: FakePak.demoDeviceId,
+                                         identity: .generate(), clientName: "iPhone")
         await #expect(throws: APIError.pairing(.invalidDeviceProof)) { try await client.pair(attempt) }
     }
 
@@ -136,7 +167,7 @@ struct APIClientTests {
         let client = stubClient { request, _ in
             if request.url?.path() == "/api/v1/hello" {
                 return .json(200, ["deviceId": FakePak.demoDeviceId, "deviceName": "x", "model": "brick", "platform": "tg5040",
-                                   "os": "nextui", "osVersion": NSNull(), "pakVersion": "1.0.0", "apiVersion": 1,
+                                   "os": "nextui", "osVersion": NSNull(), "pakVersion": "1.0.0", "apiVersion": 2,
                                    "minClientVersion": "1.0.0", "serverTime": "2026-11-18T17:00:00Z", "pairingOpen": false])
             }
             calls.increment()
@@ -209,8 +240,8 @@ struct APIClientTests {
         await #expect(throws: APIError.unexpectedStatus(status)) { try await client.device() }
         #expect(calls.value == 1)
         // Unsigned routes too (the body of /pair).
-        let attempt = try PairingAttempt(secret: .qr(Pairing.makeNonce()), deviceId: FakePak.demoDeviceId,
-                                         clientId: Pairing.makeClientId(), clientName: "iPhone")
+        let attempt = try PairingAttempt(secret: Pairing.makeNonce(), deviceId: FakePak.demoDeviceId,
+                                         identity: .generate(), clientName: "iPhone")
         let pairCalls = Counter()
         let unsigned = stubClient(credentials: false) { _, _ in
             pairCalls.increment()

@@ -13,6 +13,8 @@ public enum SignerError: Error, Equatable, Sendable {
     /// The body is a stream: its hash cannot be signed. Use `httpBody`, or
     /// `unsignedBody` for upload chunks.
     case bodyStreamNotSignable
+    /// CryptoKit could not sign (never expected with a valid key).
+    case signingFailed
 }
 
 /// The five signature headers of a request.
@@ -41,11 +43,13 @@ public struct SignedHeaders: Equatable, Sendable {
     }
 }
 
-/// Signs requests with the key shared at pairing (docs/specs/03-protocole.md §4).
+/// Signs requests with the Ed25519 private key of the client identity
+/// (docs/specs/03-protocole.md §4, RL2-ED25519 since M13). The pak only
+/// knows the public key.
 ///
 /// Canonical string (lines joined with "\n", no trailing newline):
 ///
-///     RL1-HMAC-SHA256
+///     RL2-ED25519
 ///     <METHOD>
 ///     <path as sent, percent-encoded, without the query>
 ///     <canonical query>
@@ -53,18 +57,22 @@ public struct SignedHeaders: Equatable, Sendable {
 ///     <X-RL-Nonce>
 ///     <X-RL-Content-SHA256>
 public struct Signer: Sendable {
-    public static let algorithm = "RL1-HMAC-SHA256"
+    public static let algorithm = "RL2-ED25519"
     /// Replaces the body hash on `PUT /api/v1/uploads/{uploadId}` only.
     public static let unsignedPayload = "UNSIGNED"
     /// Length of `X-RL-Nonce` once decoded.
     public static let nonceSize = 16
 
     public let clientId: String
-    private let key: SymmetricKey
+    private let privateKey: Curve25519.Signing.PrivateKey
 
-    public init(clientId: String, key: SymmetricKey) {
+    public init(clientId: String, privateKey: Curve25519.Signing.PrivateKey) {
         self.clientId = clientId
-        self.key = key
+        self.privateKey = privateKey
+    }
+
+    public init(identity: ClientIdentity) {
+        self.init(clientId: identity.clientId, privateKey: identity.privateKey)
     }
 
     // MARK: - Signing
@@ -96,7 +104,7 @@ public struct Signer: Sendable {
         )
         return SignedHeaders(
             clientId: clientId, time: timeString, nonce: nonce,
-            contentSHA256: content, signature: Self.signature(key: key, canonical: canonical)
+            contentSHA256: content, signature: try Self.signature(privateKey: privateKey, canonical: canonical)
         )
     }
 
@@ -146,15 +154,23 @@ public struct Signer: Sendable {
         SHA256.hash(data: Data(body)).map { String(format: "%02x", $0) }.joined()
     }
 
-    /// b64u(HMAC-SHA256(key, canonical)).
-    public static func signature(key: SymmetricKey, canonical: String) -> String {
-        Base64URL.encode(Data(HMAC<SHA256>.authenticationCode(for: Data(canonical.utf8), using: key)))
+    /// b64u(Ed25519(privateKey, canonical)), 64 bytes once decoded.
+    /// CryptoKit adds randomness: two signatures of the same string differ,
+    /// and both verify with the public key.
+    public static func signature(privateKey: Curve25519.Signing.PrivateKey, canonical: String) throws -> String {
+        do {
+            return Base64URL.encode(try privateKey.signature(for: Data(canonical.utf8)))
+        } catch {
+            throw SignerError.signingFailed
+        }
     }
 
-    /// Checks a signature in constant time.
-    public static func isValidSignature(_ signature: String, key: SymmetricKey, canonical: String) -> Bool {
-        guard let mac = Base64URL.decode(signature) else { return false }
-        return HMAC<SHA256>.isValidAuthenticationCode(mac, authenticating: Data(canonical.utf8), using: key)
+    /// Checks a signature with the public key of the client.
+    public static func isValidSignature(
+        _ signature: String, publicKey: Curve25519.Signing.PublicKey, canonical: String
+    ) -> Bool {
+        guard let bytes = Base64URL.decode(signature), bytes.count == 64 else { return false }
+        return publicKey.isValidSignature(bytes, for: Data(canonical.utf8))
     }
 
     /// Builds the canonical string. Rejects inputs that could break its

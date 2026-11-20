@@ -126,9 +126,11 @@ xcodebuild archive -scheme ReminisLink -destination 'generic/platform=iOS' \
   -archivePath build/ReminisLink.xcarchive CODE_SIGNING_ALLOWED=NO
 ```
 
-At the first upload, App Store Connect asks about encryption: the app uses
-HMAC-SHA256 and HKDF (CryptoKit) to authenticate its requests to the
-console, and sends them over plain HTTP on the local network. Answer the
+At the first upload, App Store Connect asks about encryption: the app signs
+its requests to the console with Ed25519 and checks the pairing proofs with
+HMAC-SHA256 (CryptoKit), and sends them over HTTPS on the local network
+(TLS of the system's `URLSession`, with the console's self-signed
+certificate pinned, milestone M13). Answer the
 questions (and, once the answer is known, add
 `ITSAppUsesNonExemptEncryption` to `Config/ReminisLink-Info.plist` so they
 are not asked again).
@@ -194,6 +196,15 @@ emulator.
 3. Open the pairing link printed by the pak:
    `xcrun simctl openurl booted '<link>'`.
 
+Since M13 the pak serves HTTPS only and prints a pairing link v2
+(`reminislink://pair?v=2&id=…&n=…&s=…&h=…&p=…&k=<pin>`): `k` is the pin of
+its certificate (b64u of the SHA-256 of its SubjectPublicKeyInfo), which
+the app pins for every request. A link `v=1` (pak older than M13) is
+refused with "update ReminisLink on the console". The identity of the app
+(client id and Ed25519 private key) and the paired consoles are
+synchronizable Keychain items (iCloud Keychain); on the simulator they
+stay on the simulator.
+
 The UI test against the real pak is skipped unless the link is given
 (`TEST_RUNNER_` variables are passed to the test runner):
 
@@ -203,8 +214,11 @@ TEST_RUNNER_RL_UITEST_PAIR_URL='reminislink://pair?...' \
 ```
 
 It launches the app with `RL_RESET_STORE=1`, which forgets the consoles
-paired before. The pak is found with Bonjour only (the `h`/`p` of the link
-are ignored), so it must be announced on the Mac's network.
+paired before (and the name typed for the identity). The pak is found with
+Bonjour, or, when Bonjour does not find it within 3 s, at the `h`/`p` of the
+link (M13: the pin `k` authenticates it). Every request then goes over TLS
+pinned on `k`: these tests are the end-to-end check of the pinning (the
+fake pak of the demo serves no TLS).
 
 The same link also enables the "add a file" test against the pak
 (`AddFileUITests`): the app generates a file at launch
@@ -285,22 +299,16 @@ card.
 | `PatchUITests/testPatchAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_PATCH` |
 | `ArtUITests/testChangeThenRemoveTheImageAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_ART` |
 | `SyncUITests/testSyncAndRestoreAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_SYNC` (pak of milestone M9: `GET /saves`) |
-| `WriteAccessUITests/testReadOnlyThenTakeOverAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_WRITER` (milestone M10; see below) |
 | `ErgonomicsUITests/testLibraryAndDownloadAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_LIBRARY` (milestone M11; see below) |
 | `ErgonomicsUITests/testTheConsoleClosingAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CLOSING` (milestone M11; quit the pak during the test, see below) |
 | `EventsUITests/testPakQuitReturnsToListAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_EVENTS_QUIT` (milestone M14; SIGTERM to the pak during the test, see below) |
 | `EventsUITests/testLibraryRefreshFromAnotherClientAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_EVENTS_LIBRARY` (milestone M14; a second client deletes a game, see below) |
 
-`testReadOnlyThenTakeOverAgainstHeadlessPak` needs another client holding
-the write lease: run `scripts/smoke-writer.sh` in hold mode first
-(`HOLD=1 PAK_LOG=<pak output> scripts/smoke-writer.sh`, pak started with
-`--pairing-open > <pak output>`). It pairs as "smoke-writer B" (the name the
-banner must show; `TEST_RUNNER_RL_UITEST_WRITER_NAME` if `WRITER_NAME` is
-changed) and takes the lease; give the test the next link the pak prints.
-After Take Over, the script checks that its writes get `423` naming the
-simulator. Without hold mode, `scripts/smoke-writer.sh` checks the lease
-with two scripted clients (read-only, take-over, release, 60 s expiry;
-`SKIP_EXPIRY=1` skips the expiry).
+The M10 write lease and its UI test (`WriteAccessUITests`, with
+`scripts/smoke-writer.sh` in hold mode) are gone since M13.
+`scripts/smoke-writes.sh` replaces `scripts/smoke-writer.sh`: it checks the
+pak's side of M13 (TLS pin, pairing v2, RL2-ED25519, two clients writing
+at the same time) with curl and openssl.
 
 The two M14 tests (event stream `GET /events`) need a runner. Start a
 fresh pak per test with `--pairing-open > <pak output>`, and pass, besides
@@ -317,9 +325,8 @@ system. Once the ready file exists:
   console closed ReminisLink" must show with no action.
 - `EVENTS_LIBRARY`: after the app paired, run
   `UI_DELETE=1 PAK_LOG=<pak output> READY_FILE=<path> TRIGGER_FILE=<path> scripts/smoke-events.sh`:
-  it pairs a second client with the latest link, takes the write lease
-  over (the app holds it in the foreground) and deletes "Lantern Keeper
-  [b1]" (GBA); the library must show 9 games without pull-to-refresh.
+  it pairs a second client with the latest link and deletes "Lantern
+  Keeper [b1]" (GBA); the library must show 9 games without pull-to-refresh.
 
 Without the two files, the tests still check the screens but do not
 measure the delay. `scripts/smoke-events.sh` alone checks the stream with
@@ -437,51 +444,88 @@ newest version of Starlight Courier. The synced saves of the simulator stay
 in the app's `Documents` between runs (the first sync of a later run may
 find nothing new).
 
-## Single writer (milestone M10)
+## Several devices, writes one at a time (milestones M10, M13)
 
-- **Lease keeper** (`WriterLease`, ReminisLinkKit): after connecting, the
-  session seeds it with `writer` of `GET /device`. While the app is in the
-  foreground, or one of its uploads or jobs is running, it sends
-  `PUT /writer` without `force` about every 20 s: this renews the lease when
-  this iPhone holds it and takes it when it is free, never from another
-  client (`423 read_only` makes the app read-only). In the background with
-  no transfer running, it sends `DELETE /writer` once and stops. Lease
-  requests go through a serial queue and are never cancelled once queued:
-  the release is sent after every acquisition sent before it has been
-  answered, so the pak always handles them in that order. The newest
-  request wins: an answer to a request older than the one the state comes
-  from (including a `423` seen on any write) changes nothing. A pak
-  without the route (`404`) is treated as having no lease.
-- **Read-only**: every `423 read_only` answer, from any screen or transfer,
-  reaches the session through the `errorObserver` of `APIClient`. A banner
-  ("Read-only — <device> has write access", or "… took over" when this
-  iPhone held it) sits above the screens of the console with **Take
-  Over** (confirmation, then `PUT /writer {"force": true}`). Write actions
-  are disabled or hidden; reads, downloads to the iPhone and the save sync
-  stay available. Uploads refused with `423` are paused (never lost) and
-  resume when the lease comes back.
+M13 removed the M10 write lease (`WriterLease`, `/writer`, `423 read_only`,
+the read-only banner, **Take Over**): several paired devices may write; the
+pak runs the writes one at a time.
+
+- **Device busy**: a write that waited 10 s for the one in progress gets
+  `429 too_many_attempts` (message `Device busy`) with `Retry-After`;
+  nothing was changed (`ServerError.isDeviceBusy`). The end of an upload
+  (`complete`) is sent again by itself after `Retry-After` (and that
+  refusal never makes its outcome unknown); a user action shows "The
+  console is busy with another change. Nothing was changed. Try again in N
+  seconds."
 - **Disconnected by the console** (`401 disconnected`): the dashboard shows
   the message with **Reconnect**. `POST /clients/me/connect` is only sent
   by the connection that follows that tap, or opening the console from the
   list (and only if the pak answers `401 disconnected`); automatic
   reconnections never send it. `401 unknown_client` (forgotten by the
   console) still offers **Pair Again**. The permission belongs to that one
-  connection attempt, whatever its outcome.
-- The cheat file upload (Import > Files) and the patch upload wait, paused
-  with their local copy, while another device has write access, then go on.
-  A cancel is final only once the console confirms it: meanwhile the upload
-  is `cancelling` (kept in the list, not clearable; the Patch sheet cannot
-  close; the local copy stays). Refused (`423`), it pauses and resumes
-  with the lease. Only a `2xx` (or a `404` before `complete`) confirms a cancel;
-  without a definite answer (lost connection, `5xx`) the upload and its copy
-  stay, failed with "cancel not confirmed", to resume or cancel again. A `423`
-  answering a request sent before a take-over is ignored.
+  connection attempt, whatever its outcome. Every `401 disconnected`, from
+  any screen or transfer, reaches the session through the `errorObserver`
+  of `APIClient`.
+- Uploads refused with `401 disconnected` are paused (never lost) and
+  resume after the reconnection; the cheat file upload (Import > Files) and
+  the patch upload wait the same way, with their local copy. A cancel is
+  final only once the console confirms it: meanwhile the upload is
+  `cancelling` (kept in the list, not clearable; the Patch sheet cannot
+  close; the local copy stays). Refused, it pauses. Only a `2xx` (or a
+  `404` before `complete`) confirms a cancel; without a definite answer
+  (lost connection, `5xx`) the upload and its copy stay, failed with
+  "cancel not confirmed", to resume or cancel again.
 
-The fake pak implements the lease (single holder, 60 s expiry with an
-injectable `leaseClock`, renewal by every request of the holder, `force`,
-release, `disconnect(clientId:)`, `forget(clientId:)`). UI tests (Debug
-only): `RL_UITEST_OTHER_WRITER=<name>` makes another paired iPhone hold the
-lease of the demo console (`WriteAccessUITests`).
+The fake pak implements `disconnect(clientId:)`, `forget(clientId:)` and
+`busyNextWrites(_:retryAfter:)`. UI tests (Debug only):
+`RL_UITEST_BUSY_WRITES=<n>` makes the next n writes of the demo console
+busy (`DeviceBusyUITests`), and `RL_UITEST_RL1_CONSOLE=1` lists the demo
+console as paired before M13, to pair again (`PairingUITests`).
+
+## Pairing v2 and TLS pinning (milestone M13)
+
+- **Identity** (`ClientIdentity`, `DeviceStore`): a `clientId` and an
+  Ed25519 key pair (CryptoKit `Curve25519.Signing`), stored with the name
+  shown on the consoles as **one** synchronizable Keychain item
+  (`kSecAttrSynchronizable`, `kSecAttrAccessibleAfterFirstUnlock`, the
+  shared access group `RL_KEYCHAIN_GROUP`, service `ReminisLink.pairing`):
+  the iPhone, iPad and Mac of one Apple account share it and pair once. No
+  Secure Enclave (its keys do not synchronize). Each paired console is
+  another synchronizable item (`deviceId`, certificate pin, names, model);
+  the list is read again each time the app becomes active.
+- **Pairing** (`PairingLink`, `Pairing`, `PairingFlow`): QR code only, no
+  PIN. Bonjour first (3 s), then the `h`:`p` of the link, both over TLS
+  pinned on `k`; `POST /pair` with `platform: apple`, the public key and
+  the HMAC proof made with the QR secret; the device proof is checked
+  before anything is stored. The name shown on the console is typed on the
+  Add a Console screen (default: the device model, "iPhone").
+- **Signing** (`Signer`): the canonical string of RL1 with the first line
+  `RL2-ED25519`, signed with the private key; CryptoKit signatures are
+  randomized, so the tests verify the vectors' signatures and ours with the
+  public key. `X-RL-Platform` (`iphone`, `ipad`, `mac`) on every request.
+- **TLS** (`TLSPin`, `PinnedTrust`, `PakTaskDelegate`): every request is
+  `https://`; the delegate of each task answers the server trust challenge
+  with the SHA-256 of the leaf certificate's SPKI (X9.63 point from
+  `SecKeyCopyExternalRepresentation` behind the fixed P-256 header),
+  compared with the stored pin; the system trust is never evaluated. A
+  mismatch (or no pin) cancels the connection before the request is sent
+  and throws `APIError.identityChanged` ("This console's identity changed
+  … pair it again"). The session has no delegate of its own, so URLSession
+  hands its server trust challenges to the task delegate; downloads with
+  progress and the event stream use the same delegate.
+- **Migration**: at the first M13 launch the RL1 keys (Keychain item of
+  this device only, `ReminisLink.devices`) are deleted; their consoles stay
+  listed with **Pair Again** until paired again or forgotten.
+- Tests: `swift test` runs the shared vectors (`pairing.json` with the
+  pairing links, `signing.json`, `tls.json`: SPKI and pin from the
+  certificate), the Keychain queries through an injected `KeychainAPI`, and
+  the pinning on the certificate of `tls.json` (`TLSPinTests`); the demo
+  and the app tests use the fake pak over `URLProtocol` (no TLS; its link
+  carries a fake pin that is stored but never checked). Against a running
+  pak, `RL_TEST_PAK_LINK='<link>' swift test --filter PinnedHandshake`
+  checks the handshake itself: the pin of the link is accepted, another pin
+  or no pin gives `identityChanged` (nothing is paired, the link stays
+  usable).
 
 ## App ergonomics (milestone M11)
 
@@ -502,16 +546,16 @@ lease of the demo console (`WriteAccessUITests`).
   without the route (`404`/`405`), falls back to browsing per system, also
   reachable from the menu (**Browse by Console**).
 - **Game sheet**: tapping the image changes it (Photos, Files, Remove
-  Image); disabled read-only. Each file of `GET /games/{gameId}` has a
+  Image). Each file of `GET /games/{gameId}` has a
   download button: `GET /games/{gameId}/files/{fileId}` (the opaque
   `fileId`, never a path), streamed to disk by a signed `URLSession`
   download task with progress and cancel, then the share sheet (Save to
   Files, AirDrop…). A `404` reloads the sheet, then says "This file changed
   on the console"; a game that is gone loses its rows ("This game is no
-  longer on the console"). Allowed read-only. A pak older than M11 sends
+  longer on the console"). A pak older than M11 sends
   no `fileId` (decoded as nil): the sheet works, without download buttons.
 - **Console closed**: `503 shutting_down` seen by any request of the
-  connection (screen, transfer, lease renewal), or a connection failure
+  connection (screen, transfer), or a connection failure
   while the console's Bonjour service is gone (the browser has run for at
   least 3 s, `PakClosure`), ends the connection without an error screen:
   back to the list with "The console closed ReminisLink", uploads paused
@@ -528,9 +572,7 @@ lease of the demo console (`WriteAccessUITests`).
   `Discovery.onDevicesRemoved`), the session probes `GET /hello` once (3 s,
   no retry, `ConsoleSession.checkStillOpen`): `503 shutting_down` or no
   connection is the closing above, an answer means a Bonjour glitch and the
-  console stays open. A lease renewal that fails to connect right after the
-  browser started (back from the background) is checked the same way once
-  it has browsed for 3 s, if the console is still not seen.
+  console stays open.
 - **Console name**: the list shows the name the console reports
   (`deviceName` of `/hello` or `/device`, matched by `deviceId`); a console
   paired before M11 takes it at the first report.

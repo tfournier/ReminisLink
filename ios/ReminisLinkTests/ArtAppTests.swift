@@ -31,10 +31,7 @@ struct ArtAppTests {
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )
         keeper.apps.append(app)
-        let clientId = try app.store.installationClientId()
-        let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "Test")
-        let key = try await APIClient(endpoint: pak.endpoint, session: pak.makeSession()).pair(attempt)
-        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: clientId, key: key)
+        try await app.pairDirectly(with: pak)
         return app
     }
 

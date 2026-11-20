@@ -173,8 +173,9 @@ struct LibraryAPITests {
         let port = try await server.start()
         defer { server.stop() }
         let client = APIClient(
+            scheme: "http", // A plain local test server: no TLS.
             endpoint: Endpoint(host: "127.0.0.1", port: port),
-            credentials: DeviceCredentials(deviceId: FakePak.demoDeviceId, clientId: Pairing.makeClientId(), key: SymmetricKey(size: .bits256)),
+            credentials: DeviceCredentials.random(deviceId: FakePak.demoDeviceId),
             session: APIClient.makeSession()
         )
         let root = downloadsDirectory()

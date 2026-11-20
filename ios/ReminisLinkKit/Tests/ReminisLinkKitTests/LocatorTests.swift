@@ -9,7 +9,7 @@ struct LocatorTests {
     var device: DiscoveredDevice { DiscoveredDevice(id: id, name: "Brick", model: .brick, service: BonjourService(name: "Brick")) }
 
     func locate(found: DiscoveredDevice?, resolveFails: Bool = false, denied: Bool = false,
-                waited: Box<Duration?> = Box(nil)) async throws -> Endpoint {
+                waited: Box<Duration?> = Box(nil), fallback: Endpoint? = nil) async throws -> Endpoint {
         try await DeviceLocator.locate(
             timeout: .seconds(8),
             find: { waited.value = $0; return found },
@@ -17,8 +17,20 @@ struct LocatorTests {
                 if resolveFails { throw ResolveError.timeout }
                 return Endpoint(host: "10.0.0.7", port: 1)
             },
-            isLocalNetworkDenied: { denied }
+            isLocalNetworkDenied: { denied },
+            fallback: fallback
         )
+    }
+
+    /// M13: pairing falls back on the address of the QR code (the pin
+    /// authenticates it), but Bonjour comes first and a denied local
+    /// network is still reported.
+    @Test func pairingFallsBackOnTheLinkAddress() async throws {
+        let qr = Endpoint(host: "192.168.1.42", port: 47821)
+        #expect(try await locate(found: nil, fallback: qr) == qr)
+        #expect(try await locate(found: device, resolveFails: true, fallback: qr) == qr)
+        #expect(try await locate(found: device, fallback: qr) == Endpoint(host: "10.0.0.7", port: 1))
+        await #expect(throws: DeviceLookupError.localNetworkDenied) { try await locate(found: nil, denied: true, fallback: qr) }
     }
 
     @Test func bonjourWithTheFullTimeout() async throws {

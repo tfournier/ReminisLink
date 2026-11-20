@@ -22,8 +22,11 @@ import ReminisLinkKit
 /// a chunk is stored, restart of the pak, low free space).
 ///
 /// It checks signatures like the pak (unknown client, clock skew, replayed
-/// nonce, HMAC, body hash, duplicate query keys), so the app and the tests
-/// exercise the real signing path. Its example values come from the
+/// nonce, Ed25519 signature with the public key given at pairing, body
+/// hash, duplicate query keys), so the app and the tests exercise the real
+/// signing path. It serves no TLS (URLProtocol): its certificate pin
+/// (``pin``) is carried by the pairing link and stored like a real one,
+/// but never checked; the pinning is tested on its own (TLSPin). Its example values come from the
 /// examples of openapi.yaml, with made-up game names.
 public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public static let demoHost = "demo.reminislink.invalid"
@@ -31,7 +34,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public static let demoDeviceId = "5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
     /// Fixed so the demo pairing link is stable (bytes 0x00 to 0x1f).
     public static let demoSecret = Data((0..<32).map { UInt8($0) })
-    public static let demoPIN = "246810"
+    /// The certificate pin of the demo console (32 bytes, b64u). Never
+    /// checked: the fake pak serves no TLS.
+    public static let demoPin = Base64URL.encode(Data((0..<32).map { UInt8(255 - $0) }))
     /// `ETag` of every demo art.
     public static let artETag = "\"demo-art-1\""
     /// A 1x1 PNG.
@@ -51,6 +56,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     private var _deviceName: String
     public let model: DeviceModel
     public let secret: Data
+    /// The certificate pin given by the pairing link.
     public let pin: String
     public let host: String
     public let port: UInt16
@@ -65,17 +71,20 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     private var nextPairDelays: [TimeInterval] = []
     private var _pairingOpen = true
     private var closePairingAfterHello = false
-    var clients: [String: SymmetricKey] = [:]
+    /// Public keys of the paired clients (M13: the pak only keeps these).
+    var clients: [String: Curve25519.Signing.PublicKey] = [:]
     var clientNames: [String: String] = [:]
+    /// `platform` given at pairing, and the last `X-RL-Platform` seen.
+    var clientPlatforms: [String: String] = [:]
+    var lastRequestPlatform: [String: String] = [:]
+    /// M13: writes refused as busy (see FakePakClients.swift).
+    var busyWrites = 0
+    var busyRetryAfter = 1
+    var _busyRefusals = 0
     /// Last accepted signed request per client (`connectedClients`).
     var lastSeen: [String: Date] = [:]
-    /// The write lease (milestone M10, see FakePakWriter.swift): its holder
-    /// and expiry, the clients disconnected from the console, and the
-    /// clock of the lease (injectable, to test the expiry).
-    var writerClientId: String?
-    var writerExpiry = Date.distantPast
+    /// Clients disconnected from the console (M10, see FakePakClients.swift).
     var disconnectedClients: Set<String> = []
-    var _leaseClock: @Sendable () -> Date = { Date() }
     /// Answers handled at once but delivered late, by method and path.
     private var lateAnswers: [(method: String, path: String, delay: TimeInterval)] = []
     /// Requests held before they reach the pak, and answers held after it
@@ -139,12 +148,12 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         deviceName: String = "Demo Brick",
         model: DeviceModel = .brick,
         secret: Data = FakePak.demoSecret,
-        pin: String = FakePak.demoPIN,
+        pin: String = FakePak.demoPin,
         host: String = FakePak.demoHost,
         port: UInt16 = FakePak.demoPort,
         library: DemoLibrary = .sample,
         minClientVersion: String = "1.0.0",
-        apiVersion: Int = 1
+        apiVersion: Int = APIClient.apiVersion
     ) {
         self.deviceId = deviceId
         self._deviceName = deviceName
@@ -184,9 +193,14 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
 
     public var endpoint: Endpoint { Endpoint(host: host, port: port) }
 
-    /// The link of the QR code. The demo discovery provides the endpoint.
+    /// The link of the QR code (pairing v2), with the pin, and the
+    /// endpoint when the host is an IPv4 address (as `h` must be; the demo
+    /// host is a name, found through the demo discovery).
     public var pairingLink: PairingLink {
-        PairingLink(deviceId: deviceId, deviceName: deviceName, secret: secret)
+        PairingLink(
+            deviceId: deviceId, deviceName: deviceName, secret: secret,
+            endpoint: PairingLink.isIPv4(host) ? endpoint : nil, pin: pin
+        )
     }
 
     /// What a Bonjour browser would see.
@@ -218,7 +232,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     }
 
     /// Whether the pairing screen is shown on the console (M8: pairing is
-    /// only open while the QR code or the PIN is shown). Closed, `/hello`
+    /// only open while the QR code is shown). Closed, `/hello`
     /// says `pairingOpen: false` and `/pair` answers `401 pairing_failed`.
     public var pairingOpen: Bool {
         get { lock.withLock { _pairingOpen } }
@@ -310,7 +324,6 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             nonces = []
             lastSeen = [:]
             // Kept in memory only (M10).
-            writerClientId = nil
             disconnectedClients = []
         }
         // M14: the streams end (no `shutdown`: as after a crash).
@@ -326,15 +339,21 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public var clientIds: [String] { lock.withLock { clients.keys.sorted() } }
 
     /// Registers a client directly, as if it had paired.
-    public func addClient(id: String, key: SymmetricKey, name: String = "Test iPhone") {
+    public func addClient(id: String, publicKey: Curve25519.Signing.PublicKey, name: String = "Test iPhone", platform: String = "apple") {
         lock.withLock {
-            clients[id] = key
+            clients[id] = publicKey
             clientNames[id] = name
+            clientPlatforms[id] = platform
         }
     }
 
-    /// The next request with this method and path (e.g. `PUT`,
-    /// `/api/v1/writer`) is handled at once (its effect is immediate) but
+    /// Registers an identity directly, as if it had paired.
+    public func addClient(_ identity: ClientIdentity, name: String = "Test iPhone") {
+        addClient(id: identity.clientId, publicKey: identity.privateKey.publicKey, name: name)
+    }
+
+    /// The next request with this method and path (e.g. `DELETE`,
+    /// `/api/v1/games/...`) is handled at once (its effect is immediate) but
     /// its answer is delivered `delay` seconds later, without blocking the
     /// other requests: an answer that arrives after later ones.
     public func delayNextAnswer(method: String, path: String, by delay: TimeInterval) {
@@ -445,12 +464,11 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             lock.withLock {
                 _ = clients.removeValue(forKey: clientId)
                 lastSeen[clientId] = nil
-                if writerClientId == clientId { writerClientId = nil }
             }
             endEventStreams(clientId: clientId)
             return FakeResponse(status: 204)
-        case (_, ["writer"]), ("POST", ["clients", "me", "connect"]):
-            return routeWriter(clientId: clientId, method: method, segments: segments, body: body)
+        case ("POST", ["clients", "me", "connect"]):
+            return connectClient(clientId: clientId)
         case ("GET", ["systems"]):
             return systems()
         case ("GET", ["saves"]):
@@ -536,7 +554,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         _ request: URLRequest, method: String, path: String, query: String, body: Data, segments: [String]
     ) -> FakeResponse? {
         func header(_ name: String) -> String? { request.value(forHTTPHeaderField: name) }
-        guard let clientId = header(SignedHeaders.client), let key = lock.withLock({ clients[clientId] }) else {
+        guard let clientId = header(SignedHeaders.client), let publicKey = lock.withLock({ clients[clientId] }) else {
             return .error(401, code: "unknown_client", message: "Unknown client")
         }
         guard let time = header(SignedHeaders.time), let nonce = header(SignedHeaders.nonce),
@@ -552,16 +570,18 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         }
         guard let canonical = try? Signer.canonicalRequest(
             method: method, path: path, rawQuery: query, time: time, nonce: nonce, contentSHA256: content
-        ), Signer.isValidSignature(signature, key: key, canonical: canonical)
+        ), Signer.isValidSignature(signature, publicKey: publicKey, canonical: canonical)
         else { return .error(401, code: "bad_signature", message: "Bad signature") }
         let seen = now()
+        let platform = header(RequestPlatform.header).flatMap(RequestPlatform.init(rawValue:))
         lock.withLock {
             _ = nonces.insert(clientId + "|" + nonce)
             lastSeen[clientId] = seen
+            if let platform { lastRequestPlatform[clientId] = platform.rawValue }
         }
         // M10, as the contract orders it: right after a valid signature,
-        // `401 disconnected`, then `423 read_only` before the body is read.
-        if let refusal = checkLease(clientId: clientId, method: method, segments: segments) {
+        // `401 disconnected`, before the body is read.
+        if let refusal = checkDisconnected(clientId: clientId, method: method, segments: segments) {
             return refusal
         }
         let keys = Self.decodeQuery(query).map(\.0)
@@ -578,7 +598,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         guard content == Signer.contentSHA256(body) else {
             return .error(401, code: "bad_signature", message: "Body hash mismatch")
         }
-        return nil
+        // M13: once the body is verified, a write waits for its turn.
+        return checkBusy(method: method, segments: segments)
     }
 
     // MARK: - Routes
@@ -599,46 +620,50 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
             "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": pairingOpen,
-            "writerHeld": writerHeld,
         ])
     }
 
     private func pair(body: Data) -> FakeResponse {
         struct Request: Decodable {
-            let method: String
             let clientId: String
             let clientName: String
+            let platform: String
+            let clientPublicKey: String
             let clientNonce: String
             let proof: String
         }
         guard let request = try? JSONDecoder().decode(Request.self, from: body),
               request.clientId.range(of: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", options: .regularExpression) != nil,
-              (1...64).contains(request.clientName.count),
+              (1...64).contains(request.clientName.unicodeScalars.count),
+              ["apple", "android", "web", "other"].contains(request.platform),
+              let keyBytes = Base64URL.decode(request.clientPublicKey), keyBytes.count == 32,
+              let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: keyBytes),
               let clientNonce = Base64URL.decode(request.clientNonce), clientNonce.count == 32
         else { return .error(400, code: "invalid_request", message: "Invalid pairing request") }
         // Closed: refused without counting a failure (docs/specs/05 §7.1).
         guard pairingOpen else { return .error(401, code: "pairing_failed", message: "Pairing failed") }
-        let ikm: Data
-        switch request.method {
-        case "qr": ikm = secret
-        case "pin": ikm = Data(pin.utf8)
-        default: return .error(400, code: "invalid_request", message: "Invalid method")
+        let message = Pairing.clientProofMessage(
+            deviceId: deviceId, clientId: request.clientId, clientPublicKey: request.clientPublicKey,
+            clientNonce: request.clientNonce
+        )
+        guard Pairing.isValidProof(request.proof, secret: secret, message: message) else {
+            return .error(401, code: "pairing_failed", message: "Pairing failed")
         }
-        let expected = Pairing.clientProof(ikm: ikm, deviceId: deviceId, clientId: request.clientId, clientNonce: request.clientNonce)
-        guard expected == request.proof else { return .error(401, code: "pairing_failed", message: "Pairing failed") }
-        let deviceNonce = Pairing.makeNonce()
-        guard let key = try? Pairing.deriveKey(
-            ikm: ikm, clientNonce: clientNonce, deviceNonce: deviceNonce, deviceId: deviceId, clientId: request.clientId
-        ) else { return .error(500, code: "internal", message: "Key derivation failed") }
+        let deviceNonce = Base64URL.encode(Pairing.makeNonce())
         let delay = lock.withLock { () -> TimeInterval in
-            clients[request.clientId] = key
+            clients[request.clientId] = publicKey
             clientNames[request.clientId] = request.clientName
+            clientPlatforms[request.clientId] = request.platform
             return nextPairDelays.isEmpty ? _pairDelay : nextPairDelays.removeFirst()
         }
+        let deviceMessage = Pairing.deviceProofMessage(
+            deviceId: deviceId, clientId: request.clientId, clientPublicKey: request.clientPublicKey,
+            clientNonce: request.clientNonce, deviceNonce: deviceNonce
+        )
         var response = FakeResponse.json(200, [
             "deviceId": deviceId, "deviceName": deviceName,
-            "deviceNonce": Base64URL.encode(deviceNonce),
-            "proof": Pairing.deviceProof(key: key, deviceId: deviceId, clientId: request.clientId),
+            "deviceNonce": deviceNonce,
+            "proof": Pairing.proof(secret: secret, message: deviceMessage),
         ])
         // Delivered later, without blocking the other requests.
         response.delay = delay
@@ -671,7 +696,6 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             "storage": storageJSON,
             "uptimeSeconds": 512,
             "connectedClients": connected,
-            "writer": writerJSON(for: clientId),
         ])
     }
 

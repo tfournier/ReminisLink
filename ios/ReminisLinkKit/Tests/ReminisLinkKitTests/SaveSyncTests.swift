@@ -417,8 +417,9 @@ struct SaveListingTimeoutTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 1
         let client = APIClient(
+            scheme: "http", // A plain local test server: no TLS.
             endpoint: Endpoint(host: "127.0.0.1", port: port),
-            credentials: DeviceCredentials(deviceId: FakePak.demoDeviceId, clientId: Pairing.makeClientId(), key: SymmetricKey(size: .bits256)),
+            credentials: DeviceCredentials.random(deviceId: FakePak.demoDeviceId),
             session: URLSession(configuration: configuration)
         )
         #expect(APIClient.savesTimeout >= 120)
