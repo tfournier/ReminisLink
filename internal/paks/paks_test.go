@@ -10,6 +10,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
+	"github.com/tfournier/ReminisLink/internal/store"
 )
 
 func write(t *testing.T, path, data string) {
@@ -173,5 +174,34 @@ func TestKindFromMetadata(t *testing.T) {
 	}
 	if HasSuffix(".pak") || !HasSuffix("A.PAK") || DisplayName("Clock.Pak") != "Clock" {
 		t.Fatal("suffix")
+	}
+}
+
+// Review 3: the folders created for a first install are synced up to the
+// SD root; an error is returned.
+func TestEnsureDirSyncsNewFolders(t *testing.T) {
+	sd := t.TempDir()
+	m := NewManager(nextui.RootsForSD(sd, "tg5040"), "")
+	var synced []string
+	syncDir = func(dir string) error { synced = append(synced, dir); return nil }
+	defer func() { syncDir = store.SyncDirChecked }()
+	dir, err := m.EnsureDir(KindEmu)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abs, _ := filepath.Abs(sd)
+	want := []string{dir, filepath.Join(abs, "Emus"), abs}
+	if strings.Join(synced, "|") != strings.Join(want, "|") {
+		t.Fatalf("synced %v, want %v", synced, want)
+	}
+	// Existing: nothing to sync.
+	synced = nil
+	if _, err := m.EnsureDir(KindEmu); err != nil || len(synced) != 0 {
+		t.Fatalf("existing: %v %v", synced, err)
+	}
+	failure := errors.New("fsync")
+	syncDir = func(string) error { return failure }
+	if _, err := m.EnsureDir(KindTool); !errors.Is(err, failure) {
+		t.Fatalf("sync error: %v", err)
 	}
 }

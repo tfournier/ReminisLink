@@ -121,7 +121,7 @@ func relUnder(sd, p string) (string, error) {
 func (t *Trash) installOne(sd string, r installRecord) (renamed bool, err error) {
 	src := filepath.Join(sd, filepath.FromSlash(r.Src))
 	dst := filepath.Join(sd, filepath.FromSlash(r.Dst))
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := t.mkdirInSD(filepath.Dir(dst)); err != nil {
 		return false, err
 	}
 	if err := t.rename(src, dst); err != nil {

@@ -586,3 +586,34 @@ func TestTrashReplaceFolderSyncFailure(t *testing.T) {
 		t.Fatalf("old pak not back: %q", data)
 	}
 }
+
+// Review 2: the recovery never installs through a link (the destination
+// folder turned into a link to outside the card): the entry is kept.
+func TestTrashRecoverRefusesALinkedDestination(t *testing.T) {
+	const src = ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak"
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, src+"/launch.sh", "new!")
+	id := interrupted(t, tr, sd, map[string]string{"Tools/tg5040/Clock.pak/launch.sh": "old"},
+		[]installRecord{{Src: src, Dst: "Tools/tg5040/Clock.pak", Size: 4, Dir: true}})
+	outside := t.TempDir()
+	os.RemoveAll(filepath.Join(sd, "Tools"))
+	if err := os.Symlink(outside, filepath.Join(sd, "Tools")); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if des, _ := os.ReadDir(outside); len(des) != 0 {
+		t.Fatalf("installed outside the card: %v", des)
+	}
+	if !exists(filepath.Join(tr.Dir(), id, "Tools", "tg5040", "Clock.pak", "launch.sh")) || !exists(filepath.Join(sd, src, "launch.sh")) {
+		t.Fatal("the old or the new pak was lost")
+	}
+	// A rename through a link is refused, a move into the trash too.
+	if err := tr.renameInSD(filepath.Join(sd, src), filepath.Join(sd, "Tools", "x")); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("rename through a link: %v", err)
+	}
+	if err := tr.renameInSD(filepath.Join(sd, src), filepath.Join(outside, "x")); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("rename outside the card: %v", err)
+	}
+}

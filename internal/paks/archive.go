@@ -308,9 +308,11 @@ type ExtractOptions struct {
 // looseName names the pak of a loose archive: the name of its pak.json
 // when usable, else o.Name, without ".zip", with ".pak".
 func looseName(p plan, o ExtractOptions) (string, error) {
-	clean := func(n string) string {
+	// archive: the name is the file name of the archive (".zip" dropped);
+	// a pak.json name is used as it is.
+	clean := func(n string, archive bool) string {
 		n = strings.TrimSpace(n)
-		if len(n) > 4 && strings.EqualFold(n[len(n)-4:], ".zip") {
+		if archive && len(n) > 4 && strings.EqualFold(n[len(n)-4:], ".zip") {
 			n = n[:len(n)-4]
 		}
 		if !HasSuffix(n) {
@@ -331,13 +333,13 @@ func looseName(p plan, o ExtractOptions) (string, error) {
 	for _, e := range p.entries {
 		if !e.dir && strings.EqualFold(e.rel, MetadataFile) && e.file.UncompressedSize64 <= maxMetadataBytes {
 			if name := metadataName(e.file); name != "" {
-				if n := clean(name); n != "" {
+				if n := clean(name, false); n != "" {
 					return n, nil
 				}
 			}
 		}
 	}
-	if n := clean(o.Name); n != "" {
+	if n := clean(o.Name, true); n != "" {
 		return n, nil
 	}
 	return "", refuse("cannot name the pak (no name in pak.json nor a usable archive name)")

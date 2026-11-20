@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/tfournier/ReminisLink/internal/paks"
 )
@@ -164,13 +163,10 @@ func TestCancelledQueuedPakJobCleansUp(t *testing.T) {
 	if j, _ := e.svc.Jobs().Cancel(id); j.State != JobCancelled {
 		t.Fatalf("state %s", j.State)
 	}
-	for i := 0; i < 200; i++ {
-		if _, err := os.Stat(stage); os.IsNotExist(err) {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
+	// Gone when the cancel answers (review 5), not later.
+	if _, err := os.Stat(stage); !os.IsNotExist(err) {
+		t.Fatalf("staged archive left after the cancel: %v", err)
 	}
-	t.Fatal("staged archive left after the cancel")
 }
 
 // The staging folders of a previous run are deleted at start.

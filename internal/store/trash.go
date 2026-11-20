@@ -197,7 +197,10 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 		log = slog.Default()
 	}
 	t := &Trash{dir: layout.TrashDir(), sd: sdRoot, now: now, log: log, rand: rand.Reader,
-		rename: os.Rename, syncDir: SyncDirChecked}
+		syncDir: SyncDirChecked}
+	// Every rename of the trash stays inside the SD card, through no link
+	// (M12 review).
+	t.rename = t.renameInSD
 	// The journal is durable only once its folder is synced (and checked).
 	t.saveEntry = func(dir string, e entryFile) error {
 		return writeEntryWith(dir, e, func(d string) error { return t.syncDir(d) })
@@ -428,7 +431,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 	}
 	for i, p := range planned {
 		dst := filepath.Join(entryDir, filepath.FromSlash(p.rel))
-		err := os.MkdirAll(filepath.Dir(dst), 0o755)
+		err := t.mkdirInSD(filepath.Dir(dst))
 		if err == nil {
 			// Every folder from the entry down to the destination is
 			// durable before the original leaves its place.
@@ -577,7 +580,7 @@ func (t *Trash) restoreItem(src, dst string) error {
 	if _, err := os.Lstat(dst); err == nil {
 		return fs.ErrExist
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := t.mkdirInSD(filepath.Dir(dst)); err != nil {
 		return err
 	}
 	if err := t.rename(src, dst); err != nil {

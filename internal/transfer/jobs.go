@@ -412,9 +412,12 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 		j.order = q.ended
 		close(j.done)
 		q.updatedLocked(j)
-		j.cleanupAsync()
-		out := j.Job
+		out, cleanup := j.Job, j.cleanup
 		q.mu.Unlock()
+		// An explicit cancel answers once the job's files are gone.
+		if cleanup != nil {
+			cleanup()
+		}
 		return out, nil
 	case JobRunning:
 		// Only requested: the job may still finish (installed).

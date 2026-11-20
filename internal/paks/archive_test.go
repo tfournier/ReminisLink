@@ -317,6 +317,14 @@ func TestExtractLooseArchive(t *testing.T) {
 	if s, err := extractNamed(t, named, "archive.zip"); err != nil || s.Name != "Nice Clock.pak" {
 		t.Fatalf("pak.json name: %+v %v", s, err)
 	}
+	// ".zip" is only dropped from the archive name, never from pak.json.
+	zipped := makeZip(t, zipEntry{name: "launch.sh", data: "x"}, zipEntry{name: "pak.json", data: `{"name":"Clock.zip"}`})
+	if s, err := extractNamed(t, zipped, "Other.zip"); err != nil || s.Name != "Clock.zip.pak" {
+		t.Fatalf("pak.json name with .zip: %+v %v", s, err)
+	}
+	if s, err := extractNamed(t, loose, "Clock.zip.zip"); err != nil || s.Name != "Clock.zip.pak" {
+		t.Fatalf("archive name: %+v %v", s, err)
+	}
 	// An unusable pak.json name falls back to the archive name.
 	bad := makeZip(t, zipEntry{name: "launch.sh", data: "x"}, zipEntry{name: "pak.json", data: `{"name":"../evil"}`})
 	if s, err := extractNamed(t, bad, "Safe.zip"); err != nil || s.Name != "Safe.pak" {
@@ -345,31 +353,54 @@ func eocd(entries uint16, dirSize, dirOffset uint32) []byte {
 	return b
 }
 
-// The central directory is bounded before archive/zip loads it (M12
-// review: millions of empty entries in a small archive).
+// dirHeaders builds n bare central directory headers whose name, extra
+// and comment take extra bytes each.
+func dirHeaders(n, extra int) []byte {
+	h := make([]byte, 46+extra)
+	binary.LittleEndian.PutUint32(h, 0x02014b50)
+	binary.LittleEndian.PutUint16(h[28:], uint16(min(extra, 0xffff)))
+	return bytes.Repeat(h, n)
+}
+
+// The real central directory is walked, within a bounded read, before
+// archive/zip loads it (M12 review: the declared counts are not trusted).
 func TestCheckDirectory(t *testing.T) {
-	if err := CheckDirectory(bytes.NewReader(eocd(20000, 100, 0)), 22); !isRefusal(err, "more than 10000 entries") {
-		t.Fatalf("entries: %v", err)
+	// 65 537 headers declared as 1 (archive/zip compares the count
+	// modulo 65536): refused on the real count.
+	dir := dirHeaders(65537, 0)
+	data := append(dir, eocd(1, uint32(len(dir)), 0)...)
+	if err := CheckDirectory(bytes.NewReader(data), int64(len(data))); !isRefusal(err, "more than 10000 entries") {
+		t.Fatalf("hidden headers: %v", err)
 	}
-	if err := CheckDirectory(bytes.NewReader(eocd(10, 8<<20, 0)), 22); !isRefusal(err, "central directory larger") {
+	if _, _, err := extract(t, data); !isRefusal(err, "more than 10000 entries") {
+		t.Fatalf("extract: %v", err)
+	}
+	// Few headers, but too many bytes.
+	dir = dirHeaders(80, 60000)
+	data = append(dir, eocd(80, uint32(len(dir)), 0)...)
+	if err := CheckDirectory(bytes.NewReader(data), int64(len(data))); !isRefusal(err, "central directory larger") {
 		t.Fatalf("directory size: %v", err)
 	}
-	// zip64: the counts of the zip64 record are used.
+	// zip64 end records point at the directory.
+	dir = dirHeaders(10001, 0)
 	rec := make([]byte, 56)
 	binary.LittleEndian.PutUint32(rec, 0x06064b50)
-	binary.LittleEndian.PutUint64(rec[32:], 3_000_000)
-	binary.LittleEndian.PutUint64(rec[40:], 1000)
+	binary.LittleEndian.PutUint64(rec[32:], 1)
+	binary.LittleEndian.PutUint64(rec[40:], uint64(len(dir)))
+	binary.LittleEndian.PutUint64(rec[48:], 0)
 	loc := make([]byte, 20)
 	binary.LittleEndian.PutUint32(loc, 0x07064b50)
-	binary.LittleEndian.PutUint64(loc[8:], 0)
-	data := append(append(rec, loc...), eocd(0xffff, 0xffffffff, 0xffffffff)...)
+	binary.LittleEndian.PutUint64(loc[8:], uint64(len(dir)))
+	binary.LittleEndian.PutUint32(loc[16:], 1)
+	data = append(append(append(dir, rec...), loc...), eocd(0xffff, 0xffffffff, 0xffffffff)...)
 	if err := CheckDirectory(bytes.NewReader(data), int64(len(data))); !isRefusal(err, "more than 10000 entries") {
 		t.Fatalf("zip64: %v", err)
 	}
 	if err := CheckDirectory(bytes.NewReader([]byte("short")), 5); !isRefusal(err, "not a zip") {
 		t.Fatalf("short: %v", err)
 	}
-	// A real archive with a comment passes.
+	// Real archives pass: with a comment holding the end signature, and
+	// with as many entries as allowed.
 	var buf bytes.Buffer
 	w := zip.NewWriter(&buf)
 	w.SetComment("comment PK\x05\x06 inside")
@@ -378,9 +409,14 @@ func TestCheckDirectory(t *testing.T) {
 	if err := CheckDirectory(bytes.NewReader(buf.Bytes()), int64(buf.Len())); err != nil {
 		t.Fatalf("real archive: %v", err)
 	}
-	// And through ExtractZip, before any read of the directory.
-	if _, _, err := extract(t, eocd(20000, 100, 0)); !isRefusal(err, "more than 10000") {
-		t.Fatalf("extract: %v", err)
+	buf.Reset()
+	w = zip.NewWriter(&buf)
+	for i := 0; i < MaxEntries; i++ {
+		w.Create("d/" + strconv.Itoa(i))
+	}
+	w.Close()
+	if err := CheckDirectory(bytes.NewReader(buf.Bytes()), int64(buf.Len())); err != nil {
+		t.Fatalf("%d entries: %v", MaxEntries, err)
 	}
 }
 

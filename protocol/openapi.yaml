@@ -3184,8 +3184,11 @@ components:
           description: |
             M12: a pak archive (zip) to install, see `POST /paks/install`.
             `complete` answers `{ "jobId": "..." }` (a `pak-install` job).
-            `fileName` is informative (the name of the archive, shown on
-            the console); the installed name comes from the archive.
+            `fileName` is the name of the archive: shown on the console,
+            and the fallback name of a loose archive (`launch.sh` at its
+            top) whose `pak.json` has no usable `name` (`.zip` dropped,
+            `.pak` added, cleaned); otherwise the installed name comes from
+            the archive.
           properties:
             kind: { type: string, const: pak }
             pakKind: { $ref: '#/components/schemas/PakInstallKind' }
@@ -3221,7 +3224,7 @@ components:
             fileName: { $ref: '#/components/schemas/FileName' }
         - type: object
           required: [kind]
-          description: 'M12: a pak archive (zip), installed by the download job; its result is `{ "pakId": "..." }`.'
+          description: 'M12: a pak archive (zip), installed by the download job; its result is `{ "pakId": "..." }`. `fileName` (else the name deduced from the response) is the fallback name of a loose archive, as for the upload target.'
           properties:
             kind: { type: string, const: pak }
             pakKind: { $ref: '#/components/schemas/PakInstallKind' }
