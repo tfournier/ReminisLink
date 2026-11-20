@@ -283,6 +283,13 @@ A pairing link works **once**: every test against the pak needs a new
 one. Show a new QR code on the pak between tests and pass each link in its
 own variable.
 
+`scripts/run-headless-uitests.sh [NAME...]` does it for you: it runs the
+tests of the table below one at a time, each against its own headless pak
+(fresh copy of `testdata/sdcard`, `--pairing-open`), passes the link in
+the test's variable, and plays the runner's part of `RESTORED`, `CLOSING`,
+`EVENTS_QUIT` and `EVENTS_LIBRARY` (`--list` for the names;
+`DESTINATION`, `DERIVED_DATA`, `SKIP_BUILD=1`, `KEEP_LOGS=1`).
+
 Since M8, pairing is on demand: once a client is paired, restarting the
 pak on the same card shows no link (pairing opens from Settings > Pair a
 new device on the console). Start it with `--pairing-open` to print a new
