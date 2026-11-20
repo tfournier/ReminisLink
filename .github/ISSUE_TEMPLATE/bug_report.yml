@@ -1,0 +1,36 @@
+name: Bug report
+description: Something does not work as expected in the pak or the iOS app.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please do not attach files you do not own, and never share the `tls/` folder of the handheld or a pairing link / QR code. Security problems: see SECURITY.md (do not open a public issue).
+  - type: dropdown
+    id: part
+    attributes:
+      label: Where does it happen?
+      options: [Pak (handheld), iOS app, Both, Website]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Pak version (Settings > Version and log), app version, handheld model and NextUI version.
+      placeholder: "pak v1.0.0, app 1.0.0, TrimUI Brick, NextUI-2026…"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (optional)
+      description: The relevant part of `/.userdata/tg5040/logs/ReminisLink.txt`. Read it first — it may contain device names, identifiers and local addresses.
+      render: text

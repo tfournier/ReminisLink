@@ -167,7 +167,8 @@ Any change to this policy will be published on this page, with a new date.
 ### Contact
 
 Open an issue on the GitHub repository of the project:
-<https://github.com/tfournier/ReminisLink/issues>.
+<https://github.com/tfournier/ReminisLink/issues>, or write to
+<contact@reminis.link>.
 
 ---
 
@@ -337,4 +338,5 @@ nouvelle date.
 ### Contact
 
 Ouvre un ticket sur le dépôt GitHub du projet :
-<https://github.com/tfournier/ReminisLink/issues>.
+<https://github.com/tfournier/ReminisLink/issues>, ou écris à
+<contact@reminis.link>.

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/tfournier/ReminisLink/security/advisories/new
+    about: Report a vulnerability privately (see SECURITY.md).
+  - name: Help and installation
+    url: https://reminis.link/support/
+    about: Frequently asked questions and the installation guide.

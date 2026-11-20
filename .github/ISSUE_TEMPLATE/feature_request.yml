@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest an idea for the pak or the iOS app.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: What would you like to do, and why?
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part?
+      options: [Pak (handheld), iOS app, Both, Website]

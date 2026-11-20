@@ -52,11 +52,9 @@ does not serve `404.html` for missing pages, GitHub Pages does.
 
 ### 1. Contact e-mail
 
-Apple asks for a way to contact the developer on the support page. The
-GitHub issues link is there; to add an e-mail address, search for
-`CONTACT EMAIL` in `support/index.html` and `fr/support/index.html`: replace
-`contact@example.invalid` with the address and remove the comment markers
-around the paragraph.
+Apple asks for a way to contact the developer on the support page: the
+GitHub issues link and the address contact@reminis.link are there (support
+pages and privacy policy, English and French).
 
 ### 2. Repository URL
 
