@@ -20,7 +20,7 @@ require (
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/image v0.34.0 // indirect
+	golang.org/x/image v0.41.0 // indirect
 	golang.org/x/net v0.63.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 )
