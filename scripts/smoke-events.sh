@@ -321,7 +321,7 @@ sign A GET /api/v1/events
 fifth=$(pcurl -sS -m 5 -D "$workdir/a5.h" -w '\n%{http_code}' "${sig_headers[@]}" "$base/api/v1/events" || true)
 check "5th stream of A" 429 "${fifth##*$'\n'}"
 check "5th stream error code" too_many_attempts "$(json_field code "${fifth%$'\n'*}")"
-ra=$(grep -i '^retry-after:' "$workdir/a5.h" | tr -d '\r' | sed 's/^[^:]*: *//')
+ra=$(grep -i '^retry-after:' "$workdir/a5.h" | tr -d '\r' | sed 's/^[^:]*: *//' || true)
 # docs/specs/04-api-v1.md (GET /events, limits): Retry-After 5 s.
 check "5th stream Retry-After (seconds)" 5 "$ra"
 # Closing one frees a place.

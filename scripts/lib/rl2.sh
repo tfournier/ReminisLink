@@ -135,8 +135,16 @@ rl2_use_link() {
 	RL2_BASE=https://$h:$p
 }
 
-# pcurl ARGS...: curl over TLS pinned to RL2_PIN.
-pcurl() { curl -k --pinnedpubkey "sha256//$RL2_PIN_STD" "$@"; }
+# pcurl ARGS...: curl over TLS pinned to RL2_PIN, always bounded (connect
+# within $RL2_CONNECT_TIMEOUT s, default 10; whole request within
+# $RL2_MAX_TIME s, default 120): a hung request must not hold a caller
+# whose TERM trap bash 3.2 defers until the command substitution ends.
+# A later -m/--max-time in ARGS wins. Event streams, meant to stay open,
+# run curl directly instead.
+pcurl() {
+	curl -k --pinnedpubkey "sha256//$RL2_PIN_STD" --connect-timeout "${RL2_CONNECT_TIMEOUT:-10}" \
+		--max-time "${RL2_MAX_TIME:-120}" "$@"
+}
 
 # rl2_pin_of_server HOST:PORT: the pin of the certificate the server
 # presents (openssl s_client), base64url.

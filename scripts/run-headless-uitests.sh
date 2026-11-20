@@ -32,14 +32,17 @@
 #   SKIP_BUILD=1  reuse the last build-for-testing of DERIVED_DATA
 #   KEEP_LOGS=1   keep the work folder (pak output, xcodebuild logs)
 #
-# Each test prints PASS, FAIL or SKIP. PASS needs the XCTest line saying
-# that this very method passed (an empty run fails, e.g. a renamed method
-# with SKIP_BUILD=1); a test that skipped itself (e.g. a link not
-# received) counts as a failure. A test that never started (no "started"
-# line and the app never paired) is tried once more with a new pak. Exits
-# 1 if any test did not pass. Pairing links only go through files and
-# environment variables, never through process arguments nor a shell
-# trace, and are never printed. Works with the bash 3.2 of macOS.
+# Each test prints PASS, FAIL or SKIP. PASS needs both xcodebuild's exit
+# status 0 and the XCTest line saying that this very method passed (an
+# empty run fails, e.g. a renamed method with SKIP_BUILD=1); a test that
+# skipped itself (e.g. a link not received) counts as a failure. When
+# xcodebuild fails before the app paired (the pak never printed "Paired
+# with"), the test is tried once more with a new pak, except for exit 70
+# (bad destination or setup). Exits 1 if any test did not pass. Pairing
+# links only go through files and environment variables, never through
+# process arguments nor a shell trace, and are never printed; kept logs
+# (KEEP_LOGS=1, or after a failure) have the links and the pak's QR code
+# removed. Works with the bash 3.2 of macOS.
 # The pairing links, secrets and keys must never reach a shell trace:
 # tracing (bash -x, set -x, SHELLOPTS) is turned off for the whole run.
 { set +x; } 2>/dev/null
@@ -62,7 +65,7 @@ EVENTS_QUIT|EventsUITests/testPakQuitReturnsToListAgainstHeadlessPak|RL_UITEST_P
 EVENTS_LIBRARY|EventsUITests/testLibraryRefreshFromAnotherClientAgainstHeadlessPak|RL_UITEST_PAIR_URL_EVENTS_LIBRARY
 PAKS|PaksUITests/testInstallAndDeleteAgainstHeadlessPak|RL_UITEST_PAIR_URL_PAKS"
 
-usage() { sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; }
 die() { echo "run-headless-uitests: $*" >&2; exit 1; }
 
 if [ "${1-}" = "--list" ]; then
@@ -102,6 +105,7 @@ EOF
 work=$(mktemp -d "${TMPDIR:-/tmp}/rl-uitests.XXXXXX")
 pak_pid=""
 helper_pid=""
+xcode_pid=""
 stop_pak() {
 	if [ -n "$pak_pid" ]; then
 		kill -TERM "$pak_pid" 2>/dev/null || true
@@ -109,17 +113,46 @@ stop_pak() {
 		pak_pid=""
 	fi
 }
+# stop_helper: SIGTERM to the background helper, at most 5 s to end,
+# then SIGKILL. The second client keeps its keys under $work/helper-tmp
+# (its TMPDIR), removed here whatever the way it ended.
 stop_helper() {
+	local i
 	if [ -n "$helper_pid" ]; then
 		kill "$helper_pid" 2>/dev/null || true
+		for ((i = 0; i < 50; i++)); do kill -0 "$helper_pid" 2>/dev/null || break; sleep 0.1; done
+		kill -KILL "$helper_pid" 2>/dev/null || true
 		wait "$helper_pid" 2>/dev/null || true
 		helper_pid=""
 	fi
+	rm -rf "$work/helper-tmp"
+}
+# redact_logs: the pak output holds the pairing link and its QR code, and
+# test logs may show the link the app opened: both are removed from the
+# kept logs (a pairing link is a secret, even a used one).
+redact_logs() {
+	local f
+	for f in "$work"/*.log; do
+		[ -f "$f" ] || continue
+		perl -CSD -i -ne '
+			next if /[\x{2580}-\x{259F}]/ && /^[\x{2580}-\x{259F}\s]+$/;
+			s{reminislink://pair\?[^\s\x27"<>]*}{reminislink://pair?[redacted]}g;
+			print' "$f" 2>/dev/null || rm -f "$f"
+	done
 }
 cleanup() {
+	if [ -n "$xcode_pid" ]; then
+		kill -TERM "$xcode_pid" 2>/dev/null || true
+		wait "$xcode_pid" 2>/dev/null || true
+	fi
 	stop_helper
 	stop_pak
-	if [ "${KEEP_LOGS:-0}" = 1 ]; then echo "work folder kept: $work"; else rm -rf "$work"; fi
+	if [ "${KEEP_LOGS:-0}" = 1 ]; then
+		redact_logs
+		echo "work folder kept (pairing links and QR codes removed): $work"
+	else
+		rm -rf "$work"
+	fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -234,10 +267,11 @@ for name in $ordered; do
 			# Once the app paired, the subshell becomes the second client
 			# (exec): $helper_pid is then smoke-events.sh itself, whose
 			# INT/TERM traps remove its private keys.
+			mkdir -m 700 -p "$work/helper-tmp"
 			(
 				wait_links "$log" 2 120 || exit 1
-				UI_DELETE=1 PAK_LOG=$log READY_FILE=$ready READY_TIMEOUT=120 TRIGGER_FILE=$trigger \
-					CLIENT_NAME="UI tests B" exec scripts/smoke-events.sh
+				TMPDIR=$work/helper-tmp/ UI_DELETE=1 PAK_LOG=$log READY_FILE=$ready READY_TIMEOUT=120 \
+					TRIGGER_FILE=$trigger CLIENT_NAME="UI tests B" exec scripts/smoke-events.sh
 			) >"$work/$name.helper.log" 2>&1 &
 			helper_pid=$!
 			;;
@@ -246,30 +280,39 @@ for name in $ordered; do
 		echo "running $test (pak PID $pak_pid)"
 		status=0
 		# The link goes to xcodebuild through its environment only (exported
-		# in a subshell), never as an argument nor in a trace.
+		# in a subshell), never as an argument nor in a trace. xcodebuild runs
+		# in the background and is awaited with wait, which INT/TERM
+		# interrupt at once (bash 3.2 defers traps during a foreground
+		# command).
 		(
 			link=$(sed -n 's/^Pairing link: //p' "$log" | head -n 1)
 			export "TEST_RUNNER_$variable=$link"
 			export TEST_RUNNER_RL_UITEST_EVENTS_READY_FILE="$ready" TEST_RUNNER_RL_UITEST_EVENTS_TRIGGER_FILE="$trigger"
 			exec xcodebuild test-without-building -project "$PROJECT" -scheme ReminisLink -destination "$DESTINATION" \
 				-derivedDataPath "$DERIVED_DATA" -only-testing:"ReminisLinkUITests/$test"
-		) >"$xlog" 2>&1 || status=$?
+		) >"$xlog" 2>&1 &
+		xcode_pid=$!
+		wait "$xcode_pid" || status=$?
+		xcode_pid=""
 
-		# The second client is awaited only after a successful test; after a
-		# failure it is stopped at once (it may wait for a pairing that will
-		# never come).
+		# The second client is awaited only after a test that passed (exit
+		# 0 and the "passed" line of the method); otherwise it is stopped at
+		# once (it may wait for a pairing or a ready file that never come).
 		helper_status=0
-		if [ "$status" -eq 0 ] && [ "$name" = EVENTS_LIBRARY ] && [ -n "$helper_pid" ]; then
+		if [ "$name" = EVENTS_LIBRARY ] && [ -n "$helper_pid" ] && [ "$status" -eq 0 ] &&
+			grep -qF "$case_line passed" "$xlog"; then
 			wait "$helper_pid" 2>/dev/null || helper_status=$?
 			helper_pid=""
 		fi
 		stop_helper
-		pak_links=$(links "$log")
 		stop_pak
 
-		if [ "$status" -ne 0 ] && [ "$attempt" -lt 2 ] && ! grep -qF "$case_line started" "$xlog" &&
-			[ "${pak_links:-0}" -le 1 ]; then
-			echo "retrying $name: the test did not start ($(grep -o 'encountered an error.*' "$xlog" | head -c 120 || true))"
+		# Retried once only when xcodebuild failed before the app paired
+		# (the pak never printed "Paired with": the simulator did not start
+		# the test), but not for a bad destination or setup (exit 70).
+		if [ "$status" -ne 0 ] && [ "$status" -ne 70 ] && [ "$attempt" -lt 2 ] &&
+			! grep -q '^Paired with ' "$log" && ! grep -q 'Unable to find a destination' "$xlog"; then
+			echo "retrying $name: xcodebuild exit $status before the app paired ($(grep -o 'encountered an error.*' "$xlog" | head -c 120 || true))"
 			attempt=2
 			continue
 		fi
