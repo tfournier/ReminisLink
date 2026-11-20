@@ -131,4 +131,45 @@ struct PinnedHandshakeTests {
             try await APIClient(endpoint: endpoint).hello()
         }
     }
+
+    /// Every kind of request (event stream, download with progress, upload
+    /// chunk streamed from a file, JSON) fails the same way with a wrong
+    /// pin, and never reaches the pak's HTTP layer: with `RL_TEST_PAK_LOG`
+    /// (the pak's output), its request log gains no line.
+    @Test(.enabled(if: link?.endpoint != nil))
+    func aWrongPinSendsNoRequestOfAnyKind() async throws {
+        let link = try #require(Self.link)
+        let endpoint = try #require(link.endpoint)
+        let logPath = ProcessInfo.processInfo.environment["RL_TEST_PAK_LOG"]
+        func requestLines() -> Int {
+            guard let logPath, let text = try? String(contentsOfFile: logPath, encoding: .utf8) else { return 0 }
+            // The other test of the suite sends `/hello` meanwhile.
+            return text.components(separatedBy: "\n")
+                .filter { $0.contains("msg=request") && !$0.contains("/api/v1/hello") }.count
+        }
+        let before = requestLines()
+        let credentials = DeviceCredentials(
+            deviceId: link.deviceId, identity: .generate(), pin: Base64URL.encode(Data(repeating: 2, count: 32))
+        )
+        let client = APIClient(endpoint: endpoint, credentials: credentials)
+        await #expect(throws: APIError.identityChanged) { _ = try await client.openEvents() }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "rl-pin-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(throws: APIError.identityChanged) {
+            _ = try await client.downloadGameFile(gameId: "R2FtZQ", fileId: "f_rom", into: directory, progress: { _, _ in })
+        }
+        let chunk = FileManager.default.temporaryDirectory.appending(path: "rl-pin-chunk-\(UUID().uuidString)")
+        try Data(repeating: 7, count: 4096).write(to: chunk)
+        defer { try? FileManager.default.removeItem(at: chunk) }
+        await #expect(throws: APIError.identityChanged) {
+            _ = try await client.sendChunk(uploadId: "up_1", offset: 0, file: chunk, length: 4096)
+        }
+        await #expect(throws: APIError.identityChanged) {
+            _ = try await client.createUpload(CreateUploadRequest(
+                target: .staging(fileName: "x.bin"), sizeBytes: 1, sha256: String(repeating: "0", count: 64)
+            ))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(requestLines() == before, "the pak logged a request sent with a wrong pin")
+    }
 }

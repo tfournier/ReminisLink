@@ -485,14 +485,23 @@ console as paired before M13, to pair again (`PairingUITests`).
 ## Pairing v2 and TLS pinning (milestone M13)
 
 - **Identity** (`ClientIdentity`, `DeviceStore`): a `clientId` and an
-  Ed25519 key pair (CryptoKit `Curve25519.Signing`), stored with the name
-  shown on the consoles as **one** synchronizable Keychain item
+  Ed25519 key pair (CryptoKit `Curve25519.Signing`), stored as **one**
+  synchronizable Keychain item per `clientId` (`identity.<clientId>`; a
+  pointer item `identity` names the current one, for new pairings, with the
+  name shown on the consoles)
   (`kSecAttrSynchronizable`, `kSecAttrAccessibleAfterFirstUnlock`, the
   shared access group `RL_KEYCHAIN_GROUP`, service `ReminisLink.pairing`):
   the iPhone, iPad and Mac of one Apple account share it and pair once. No
   Secure Enclave (its keys do not synchronize). Each paired console is
-  another synchronizable item (`deviceId`, certificate pin, names, model);
-  the list is read again each time the app becomes active.
+  another synchronizable item (`deviceId`, the `clientId` it was paired
+  with, certificate pin, last validated address, names, model); each console
+  signs with its own pairing's identity, so two devices that create an
+  identity each before the Keychain converges keep both pairings working;
+  an identity no console refers to (and not current) is deleted. The list
+  is read again each time the app becomes active.
+- **Last validated address**: the address the pairing reached (the QR
+  code's when Bonjour was silent), updated at each successful connection,
+  is tried when Bonjour does not find the console within 3 s (pinned TLS).
 - **Pairing** (`PairingLink`, `Pairing`, `PairingFlow`): QR code only, no
   PIN. Bonjour first (3 s), then the `h`:`p` of the link, both over TLS
   pinned on `k`; `POST /pair` with `platform: apple`, the public key and
@@ -524,8 +533,10 @@ console as paired before M13, to pair again (`PairingUITests`).
   carries a fake pin that is stored but never checked). Against a running
   pak, `RL_TEST_PAK_LINK='<link>' swift test --filter PinnedHandshake`
   checks the handshake itself: the pin of the link is accepted, another pin
-  or no pin gives `identityChanged` (nothing is paired, the link stays
-  usable).
+  or no pin gives `identityChanged` for `/hello`, the event stream, a
+  download with progress, an upload chunk and a JSON request; with
+  `RL_TEST_PAK_LOG=<pak output>` it also checks that the pak logged none of
+  them (nothing is paired, the link stays usable).
 
 ## App ergonomics (milestone M11)
 

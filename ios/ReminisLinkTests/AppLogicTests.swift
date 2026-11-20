@@ -102,6 +102,25 @@ struct AppLogicTests {
         #expect(flow.step == .done, "\(String(describing: flow.error))")
         #expect(try app.store.credentials(for: pak.deviceId)?.pin == pak.pin)
         #expect(pak.log.first?.path == "/api/v1/hello")
+        // Still no Bonjour: the console opens at the validated address.
+        #expect(app.store.lastEndpoint(for: pak.deviceId) == pak.endpoint)
+        app.finishPairing(deviceId: pak.deviceId)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        #expect(session.state == .connected, "\(String(describing: session.error))")
+    }
+
+    /// A paired console that Bonjour does not see (multicast filtered) is
+    /// reached at its last validated address; without one, not found.
+    @Test func aPairedConsoleFallsBackOnItsLastAddress() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak, discovered: false)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        #expect(session.error == .consoleNotFound)
+        app.store.noteEndpoint(pak.endpoint, for: pak.deviceId)
+        await session.connect()
+        #expect(session.state == .connected)
     }
 
     /// A link without an address (never printed by the pak) still needs
@@ -276,7 +295,8 @@ struct AppLogicTests {
     @Test func missingIdentityOffersRepairAndForgetsLocally() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
-        try secure.remove(account: "identity")
+        let clientId = try #require(try app.store.credentials(for: pak.deviceId)).clientId
+        try secure.remove(account: "identity." + clientId)
         let requests = pak.log.count
         let session = app.session(for: pak.deviceId)
         await session.connect()

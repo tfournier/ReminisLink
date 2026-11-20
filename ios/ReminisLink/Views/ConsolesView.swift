@@ -4,6 +4,9 @@ import SwiftUI
 /// Paired consoles (docs/specs/06-app-ios.md §4.1).
 struct ConsolesView: View {
     @Environment(AppModel.self) private var app
+    /// A console paired before M13 to forget, waiting for confirmation.
+    @State private var toForget: PairedDevice?
+    @State private var forgetError: AppError?
 
     var body: some View {
         Group {
@@ -40,9 +43,13 @@ struct ConsolesView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("console.\(device.id)")
-                            .swipeActions {
+                            // Never a full swipe: the entry is what is left to
+                            // pair it again; forgetting it is confirmed first.
+                            .swipeActions(allowsFullSwipe: false) {
                                 if device.needsRepair {
-                                    Button("Forget", role: .destructive) { try? app.forget(deviceId: device.id) }
+                                    Button("Forget") { toForget = device }
+                                        .tint(.red)
+                                        .accessibilityIdentifier("console.forget")
                                 }
                             }
                         }
@@ -53,6 +60,31 @@ struct ConsolesView: View {
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Forget this console?",
+            isPresented: Binding(get: { toForget != nil }, set: { if !$0 { toForget = nil } }),
+            titleVisibility: .visible, presenting: toForget
+        ) { device in
+            Button("Forget", role: .destructive) {
+                do {
+                    try app.forget(deviceId: device.id)
+                } catch {
+                    forgetError = AppError(error)
+                }
+            }
+            .accessibilityIdentifier("console.forget.confirm")
+        } message: { device in
+            Text("\(device.name) will be removed from this list. To use it again, scan its QR code.")
+        }
+        .alert(
+            "Could Not Forget the Console",
+            isPresented: Binding(get: { forgetError != nil }, set: { if !$0 { forgetError = nil } }),
+            presenting: forgetError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text(error.message)
         }
         .navigationTitle("Consoles")
         .toolbar {

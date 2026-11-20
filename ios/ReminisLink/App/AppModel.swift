@@ -537,20 +537,25 @@ final class AppModel {
         return session
     }
 
-    /// Finds a paired console with Bonjour by its id.
+    /// Finds a paired console with Bonjour by its id; when Bonjour does not
+    /// find it quickly, the last address where it presented its pinned
+    /// certificate (the address of its QR code right after pairing). M13:
+    /// the pin authenticates the console at that address.
     func endpoint(for deviceId: String) async throws -> Endpoint {
         let discovery = discovery
+        let fallback = store.lastEndpoint(for: deviceId)
         return try await DeviceLocator.locate(
-            timeout: lookupTimeout,
+            timeout: fallback == nil ? lookupTimeout : min(lookupTimeout, Self.bonjourTimeoutWithFallback),
             find: { await discovery.waitForDevice(id: deviceId, timeout: $0) },
             resolve: { try await EndpointResolver.resolve($0) },
-            isLocalNetworkDenied: { discovery.status == .localNetworkDenied }
+            isLocalNetworkDenied: { discovery.status == .localNetworkDenied },
+            fallback: fallback
         )
     }
 
-    /// How long pairing waits for Bonjour before trying the address of the
-    /// QR code.
-    static let pairingBonjourTimeout: Duration = .seconds(3)
+    /// How long Bonjour is waited for before trying a known address (the
+    /// QR code's, or the last validated one).
+    static let bonjourTimeoutWithFallback: Duration = .seconds(3)
 
     /// Finds the console of a pairing link: Bonjour by its id first, then,
     /// if Bonjour does not find it quickly, the address of the QR code
@@ -561,7 +566,7 @@ final class AppModel {
         let discovery = discovery
         let deviceId = link.deviceId
         return try await DeviceLocator.locate(
-            timeout: link.endpoint == nil ? lookupTimeout : min(lookupTimeout, Self.pairingBonjourTimeout),
+            timeout: link.endpoint == nil ? lookupTimeout : min(lookupTimeout, Self.bonjourTimeoutWithFallback),
             find: { await discovery.waitForDevice(id: deviceId, timeout: $0) },
             resolve: { try await EndpointResolver.resolve($0) },
             isLocalNetworkDenied: { discovery.status == .localNetworkDenied },

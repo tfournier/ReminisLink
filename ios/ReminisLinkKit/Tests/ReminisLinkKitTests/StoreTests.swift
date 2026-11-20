@@ -25,8 +25,9 @@ struct StoreTests {
         #expect(try store.identity() == identity)
         // Another device of the Apple account reads the same item.
         #expect(try DeviceStore(secureStore: secure, defaults: makeDefaults()).identity() == identity)
-        // One item: the client id and the private key together.
-        #expect(try secure.allAccounts() == [DeviceStore.identityAccount])
+        // One item for the client id and the private key together, and
+        // the pointer to it.
+        #expect(try secure.allAccounts() == [DeviceStore.identityAccount, DeviceStore.account(clientId: identity.clientId)])
     }
 
     @Test func pairingNameIsKeptWithTheIdentity() throws {
@@ -194,7 +195,7 @@ struct StoreTests {
         try store.remove(deviceId)
         #expect(store.devices.isEmpty)
         #expect(try store.credentials(for: deviceId) == nil)
-        #expect(try secure.allAccounts() == [DeviceStore.identityAccount])
+        #expect(try secure.allAccounts() == [DeviceStore.identityAccount, DeviceStore.account(clientId: identity.clientId)])
     }
 
     @Test func emptyNameFallsBackToTheModel() throws {
@@ -208,6 +209,69 @@ struct StoreTests {
         try secure.set(Data("garbage".utf8), for: DeviceStore.account(deviceId: deviceId))
         let store = DeviceStore(secureStore: secure, defaults: makeDefaults())
         #expect(throws: KeychainError.unexpectedData) { try store.credentials(for: deviceId) }
+    }
+
+    /// Two devices of one Apple account each create an identity and pair
+    /// a console before the iCloud Keychain converges: once merged (the
+    /// pointer of one wins), each console still signs with the identity it
+    /// was paired with, and neither identity item is lost.
+    @Test func divergingIdentitiesConvergeWithoutBreakingPairings() throws {
+        let other = "1f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a11"
+        let keychainA = InMemorySecureStore()
+        let keychainB = InMemorySecureStore()
+        let iPhone = DeviceStore(secureStore: keychainA, defaults: makeDefaults())
+        let iPad = DeviceStore(secureStore: keychainB, defaults: makeDefaults())
+        let identityA = try iPhone.identity()
+        let identityB = try iPad.identity()
+        #expect(identityA != identityB)
+        try iPhone.save(deviceId: deviceId, name: "X", model: .brick, clientId: identityA.clientId, pin: pin)
+        try iPad.save(deviceId: other, name: "Y", model: .brick, clientId: identityB.clientId, pin: pin)
+
+        // The Keychain converges: every item of B reaches A, B's pointer
+        // wins (last writer), and the other way round.
+        for account in try keychainB.allAccounts() {
+            let data = try #require(try keychainB.data(for: account))
+            try keychainA.set(data, for: account)
+        }
+        for account in try keychainA.allAccounts() where try keychainB.data(for: account) == nil {
+            let data = try #require(try keychainA.data(for: account))
+            try keychainB.set(data, for: account)
+        }
+        for store in [iPhone, iPad] {
+            store.reload()
+            #expect(Set(store.devices.map(\.id)) == [deviceId, other])
+            #expect(try store.credentials(for: deviceId)?.identity == identityA)
+            #expect(try store.credentials(for: other)?.identity == identityB)
+            // New pairings use the identity the pointer settled on.
+            #expect(try store.identity() == identityB)
+        }
+
+        // Forgetting X leaves identity A unused: it is deleted, not B.
+        try iPhone.remove(deviceId)
+        #expect(try keychainA.data(for: DeviceStore.account(clientId: identityA.clientId)) == nil)
+        #expect(try iPhone.credentials(for: other)?.identity == identityB)
+    }
+
+    /// An identity item that has not arrived yet: the console is listed
+    /// but has no credentials (no request signed with another identity).
+    @Test func aConsoleWhoseIdentityHasNotArrivedHasNoCredentials() throws {
+        let secure = InMemorySecureStore()
+        let store = DeviceStore(secureStore: secure, defaults: makeDefaults())
+        let identity = try store.identity()
+        try store.save(deviceId: deviceId, name: "X", model: .brick, pin: pin)
+        try secure.remove(account: DeviceStore.account(clientId: identity.clientId))
+        #expect(try store.credentials(for: deviceId) == nil)
+    }
+
+    @Test func theLastValidatedAddressIsKept() throws {
+        let store = DeviceStore(secureStore: InMemorySecureStore(), defaults: makeDefaults())
+        let qr = Endpoint(host: "192.168.1.42", port: 47821)
+        try store.save(deviceId: deviceId, name: "X", model: .brick, pin: pin, endpoint: qr)
+        #expect(store.lastEndpoint(for: deviceId) == qr)
+        let moved = Endpoint(host: "192.168.1.50", port: 47822)
+        store.noteEndpoint(moved, for: deviceId)
+        #expect(store.lastEndpoint(for: deviceId) == moved)
+        #expect(store.lastEndpoint(for: "unknown") == nil)
     }
 
     @Test func legacyKeychainItemsStayOnThisDevice() {
@@ -249,9 +313,10 @@ struct StoreTests {
         for attributes in fake.written {
             #expect(attributes[kSecAttrAccessible as String] as? String == kSecAttrAccessibleAfterFirstUnlock as String)
         }
-        #expect(fake.accounts == [DeviceStore.account(deviceId: deviceId), DeviceStore.identityAccount])
+        let identityItem = DeviceStore.account(clientId: identity.clientId)
+        #expect(fake.accounts == [DeviceStore.account(deviceId: deviceId), DeviceStore.identityAccount, identityItem])
         try store.remove(deviceId)
-        #expect(fake.accounts == [DeviceStore.identityAccount])
+        #expect(fake.accounts == [DeviceStore.identityAccount, identityItem])
     }
 }
 

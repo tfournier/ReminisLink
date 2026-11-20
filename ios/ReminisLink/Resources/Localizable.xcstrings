@@ -71,6 +71,16 @@
         }
       }
     },
+    "%@ will be removed from this list. To use it again, scan its QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sera retirée de cette liste. Pour l’utiliser de nouveau, scanne son QR code."
+          }
+        }
+      }
+    },
     "%@ · %@" : {
       "localizations" : {
         "fr" : {
@@ -1051,6 +1061,16 @@
         }
       }
     },
+    "Could Not Forget the Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible d’oublier la console"
+          }
+        }
+      }
+    },
     "Create" : {
       "localizations" : {
         "fr" : {
@@ -1557,6 +1577,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Oublier"
+          }
+        }
+      }
+    },
+    "Forget this console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oublier cette console ?"
           }
         }
       }

@@ -129,6 +129,28 @@ final class PairingUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["console.needsRepair"].firstMatch.exists)
     }
 
+    /// A console to pair again is forgotten only after a confirmation
+    /// (no full swipe).
+    @MainActor
+    func testForgettingAnRL1ConsoleAsksFirstInDemoMode() throws {
+        let app = XCUIApplication()
+        app.launchArguments += GameDataUITest.englishArguments
+        app.launchEnvironment["RL_DEMO"] = "1"
+        app.launchEnvironment["RL_UITEST_RL1_CONSOLE"] = "1"
+        app.launch()
+        let row = app.buttons["console.\(Self.demoDeviceId)"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.swipeLeft(velocity: .fast)
+        // A full swipe deletes nothing: the row stays.
+        XCTAssertTrue(row.exists)
+        app.buttons["console.forget"].tapAfterWaiting()
+        let confirm = app.buttons["console.forget.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "no confirmation")
+        XCTAssertTrue(row.exists, "forgotten before the confirmation")
+        confirm.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["welcome"].waitForExistence(timeout: 10))
+    }
+
     /// Against a real pak (`make headless` on the Mac). Disabled unless the
     /// pairing link printed by the pak is given:
     ///
