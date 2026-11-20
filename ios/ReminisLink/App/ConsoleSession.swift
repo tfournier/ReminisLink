@@ -204,6 +204,9 @@ final class ConsoleSession {
             guard self.attempt === attempt else { return }
             // M11: renamed on the console; `/hello` already checked the id.
             app.store.noteConsoleName(status.deviceName, for: deviceId)
+            // M13: the address answered with the pinned certificate and
+            // accepted the signature: the fallback when Bonjour is silent.
+            app.store.noteEndpoint(endpoint, for: deviceId)
             self.client = client
             state = .connected
             closedByConsole = false

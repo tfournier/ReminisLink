@@ -46,9 +46,21 @@ public enum DeviceStoreError: Error, Equatable, Sendable {
 /// Paired devices and their credentials (docs/specs/06-app-ios.md §6, M13).
 ///
 /// - Synchronized Keychain (iCloud Keychain, ``secureStore``): the client
-///   identity (`clientId` and Ed25519 private key, one item) and, for each
-///   console, its id, certificate pin, names and model. The iPhone, iPad
-///   and Mac of one Apple account share them: they pair once.
+///   identities (`clientId` and Ed25519 private key, one item each, keyed
+///   by `clientId`), a pointer to the current one (used for new pairings,
+///   with the name shown on the consoles), and, for each console, its id,
+///   the `clientId` it was paired with, its certificate pin, its last
+///   validated address, names and model. The iPhone, iPad and Mac of one
+///   Apple account share them: they pair once.
+///
+///   Each console signs with the identity it was paired with, never "the
+///   current one": two devices that create an identity each before the
+///   Keychain syncs end with two identity items and both pairings keep
+///   working; the pointer settles on one of them for the next pairings.
+///   Identity items are never deleted automatically (they are tiny): while
+///   the iCloud Keychain syncs, a key may arrive before the console record
+///   that refers to it, and deleting it as "unused" would break that
+///   pairing on every device.
 /// - `UserDefaults` of the app group: only the consoles paired before M13
 ///   (RL1), kept in the list as "needs re-pairing" until they are paired
 ///   again or forgotten. Their keys are deleted (``legacySecureStore``).
@@ -58,9 +70,12 @@ public final class DeviceStore {
     /// Longest display name.
     public static let maxNameLength = 64
     static let defaultsKey = "pairedDevices"
+    /// The pointer to the current identity (and the pairing name).
     static let identityAccount = "identity"
+    static let identityPrefix = "identity."
     static let consolePrefix = "console."
     static func account(deviceId: String) -> String { consolePrefix + deviceId }
+    static func account(clientId: String) -> String { identityPrefix + clientId }
 
     public private(set) var devices: [PairedDevice] = []
 
@@ -81,47 +96,65 @@ public final class DeviceStore {
 
     // MARK: - Identity
 
-    /// The identity of this app, shared through the iCloud Keychain;
-    /// created on first use.
+    /// The current identity of this app, for new pairings, shared through
+    /// the iCloud Keychain; created on first use (or when the pointer names
+    /// an identity whose item has not arrived).
     public func identity() throws -> ClientIdentity {
-        if let record = try identityRecord() { return record.identity }
+        let pointer = try currentPointer()
+        if let pointer, let identity = try identity(clientId: pointer.clientId) { return identity }
         let identity = ClientIdentity.generate()
-        try writeIdentity(IdentityRecord(identity: identity, name: nil))
+        try secureStore.set(try JSONEncoder().encode(IdentityRecord(identity: identity)), for: Self.account(clientId: identity.clientId))
+        try writePointer(Pointer(clientId: identity.clientId, name: pointer?.name))
         return identity
     }
 
     /// The name of the identity shown on the consoles (`clientName`), as
     /// last typed; nil before. Shared like the identity.
     public func pairingName() -> String? {
-        (try? identityRecord())?.flatMap(\.name)
+        guard let pointer = try? currentPointer() else { return nil }
+        return pointer.name
     }
 
     /// Records the name typed for the identity (sent at the next pairing).
     public func setPairingName(_ name: String) throws {
         let identity = try identity()
-        try writeIdentity(IdentityRecord(identity: identity, name: Self.clean(name)))
+        try writePointer(Pointer(clientId: identity.clientId, name: Self.clean(name)))
     }
 
-    private func identityRecord() throws -> IdentityRecord? {
+    /// The identity with this `clientId`, nil if its item is absent.
+    func identity(clientId: String) throws -> ClientIdentity? {
+        guard let data = try secureStore.data(for: Self.account(clientId: clientId)) else { return nil }
+        guard let record = try? JSONDecoder().decode(IdentityRecord.self, from: data), record.isValid,
+              record.clientId == clientId
+        else { throw KeychainError.unexpectedData }
+        return record.identity
+    }
+
+    private func currentPointer() throws -> Pointer? {
         guard let data = try secureStore.data(for: Self.identityAccount) else { return nil }
-        guard let record = try? JSONDecoder().decode(IdentityRecord.self, from: data), record.isValid else {
-            throw KeychainError.unexpectedData
-        }
-        return record
+        guard let pointer = try? JSONDecoder().decode(Pointer.self, from: data),
+              PairingLink.isLowercaseUUID(pointer.clientId)
+        else { throw KeychainError.unexpectedData }
+        return pointer
     }
 
-    private func writeIdentity(_ record: IdentityRecord) throws {
-        try secureStore.set(try JSONEncoder().encode(record), for: Self.identityAccount)
+    private func writePointer(_ pointer: Pointer) throws {
+        try secureStore.set(try JSONEncoder().encode(pointer), for: Self.identityAccount)
     }
 
     // MARK: - Consoles
 
-    /// Stores a new pairing, or replaces the pin of a console paired again.
+    /// Stores a new pairing, or replaces the pairing of a console paired
+    /// again. `clientId`: the identity `POST /pair` was sent with (default:
+    /// the current one); `endpoint`: the address the pairing reached,
+    /// authenticated by the pin.
     @discardableResult
     public func save(
-        deviceId: String, name: String, model: DeviceModel, pin: String,
-        consoleName: String? = nil, now: Date = Date()
+        deviceId: String, name: String, model: DeviceModel, clientId: String? = nil, pin: String,
+        endpoint: Endpoint? = nil, consoleName: String? = nil, now: Date = Date()
     ) throws -> PairedDevice {
+        let clientId = try clientId ?? identity().clientId
+        guard try identity(clientId: clientId) != nil else { throw KeychainError.unexpectedData }
         let reported = consoleName.flatMap(Self.clean)
         var device: PairedDevice
         if let existing = devices.first(where: { $0.id == deviceId }) {
@@ -141,20 +174,35 @@ public final class DeviceStore {
                 consoleName: reported, needsRepair: false
             )
         }
-        try write(ConsoleRecord(device: device, pin: pin))
+        try write(ConsoleRecord(device: device, clientId: clientId, pin: pin, endpoint: endpoint))
         legacy.removeAll { $0.id == deviceId }
         persistLegacy()
         reload()
         return device
     }
 
-    /// The credentials of a device: the identity and the console's pin.
-    /// Nil if the console is not paired with this identity (never paired,
-    /// or paired before M13).
+    /// The credentials of a device: the identity it was paired with and
+    /// its pin. Nil if the console is not paired (never paired, or paired
+    /// before M13), or if its identity item has not arrived yet.
     public func credentials(for deviceId: String) throws -> DeviceCredentials? {
         guard let record = try consoleRecord(deviceId) else { return nil }
-        guard let identity = try identityRecord()?.identity else { return nil }
+        guard let identity = try identity(clientId: record.clientId) else { return nil }
         return DeviceCredentials(deviceId: deviceId, identity: identity, pin: record.pin)
+    }
+
+    /// The last address where the console presented its pinned certificate
+    /// (at pairing or a later connection), a fallback when Bonjour does not
+    /// find it.
+    public func lastEndpoint(for deviceId: String) -> Endpoint? {
+        (try? consoleRecord(deviceId))?.endpoint
+    }
+
+    /// Records the address of a working connection (pinned TLS, signed
+    /// requests accepted).
+    public func noteEndpoint(_ endpoint: Endpoint, for deviceId: String) {
+        guard var record = try? consoleRecord(deviceId), record.endpoint != endpoint else { return }
+        record.endpoint = endpoint
+        try? write(record)
     }
 
     public func device(id: String) -> PairedDevice? {
@@ -196,6 +244,16 @@ public final class DeviceStore {
         reload()
     }
 
+    /// Forgets the "needs re-pairing" entry of a console paired before M13
+    /// (this device's `UserDefaults` only). Never touches the synchronized
+    /// Keychain: an M13 pairing of the same console that arrived meanwhile
+    /// from another device stays.
+    public func forgetRepairMarker(_ deviceId: String) {
+        legacy.removeAll { $0.id == deviceId }
+        persistLegacy()
+        reload()
+    }
+
     /// Reads the list again: another device of the Apple account may have
     /// paired or forgotten a console (iCloud Keychain).
     public func reload() {
@@ -226,7 +284,7 @@ public final class DeviceStore {
     private func consoleRecord(_ deviceId: String) throws -> ConsoleRecord? {
         guard let data = try secureStore.data(for: Self.account(deviceId: deviceId)) else { return nil }
         guard let record = try? JSONDecoder().decode(ConsoleRecord.self, from: data), record.device.id == deviceId,
-              Base64URL.decode(record.pin)?.count == TLSPin.size
+              PairingLink.isLowercaseUUID(record.clientId), Base64URL.decode(record.pin)?.count == TLSPin.size
         else { throw KeychainError.unexpectedData }
         return record
     }
@@ -272,17 +330,15 @@ public final class DeviceStore {
         }
     }
 
-    /// The identity item.
+    /// The item of one identity (`identity.<clientId>`).
     private struct IdentityRecord: Codable {
         let clientId: String
         /// The 32-byte Ed25519 private key (raw representation), base64url.
         let privateKey: String
-        let name: String?
 
-        init(identity: ClientIdentity, name: String?) {
+        init(identity: ClientIdentity) {
             clientId = identity.clientId
             privateKey = Base64URL.encode(identity.privateKey.rawRepresentation)
-            self.name = name
         }
 
         var isValid: Bool { PairingLink.isLowercaseUUID(clientId) && key != nil }
@@ -296,10 +352,21 @@ public final class DeviceStore {
         }
     }
 
+    /// The pointer to the current identity (`identity`).
+    private struct Pointer: Codable {
+        let clientId: String
+        /// The name shown on the consoles, as typed.
+        let name: String?
+    }
+
     /// The item of one console.
     private struct ConsoleRecord: Codable {
         var device: PairedDevice
+        /// The identity the console was paired with: it signs its requests.
+        let clientId: String
         /// The certificate pin (`k` of the pairing link).
         let pin: String
+        /// The last address where the console presented that certificate.
+        var endpoint: Endpoint?
     }
 }

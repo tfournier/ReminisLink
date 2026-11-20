@@ -101,8 +101,12 @@ final class PairingFlow: Identifiable {
                 // not sent yet, so nothing changes.
                 if self?.isStopped ?? true { throw CancellationError() }
                 try await client.pair(attempt)
+                // The identity /pair was sent with signs this console's
+                // requests; the address it answered at (pinned) is kept as
+                // a fallback for Bonjour.
                 let device = try app.store.save(
-                    deviceId: deviceId, name: name, model: hello.model, pin: link.pin, consoleName: hello.deviceName
+                    deviceId: deviceId, name: name, model: hello.model, clientId: identity.clientId, pin: link.pin,
+                    endpoint: endpoint, consoleName: hello.deviceName
                 )
                 app.didReplaceKey(for: deviceId)
                 return device
