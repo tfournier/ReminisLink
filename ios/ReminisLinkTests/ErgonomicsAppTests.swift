@@ -13,7 +13,7 @@ import Testing
 struct ErgonomicsAppTests {
     let secure = InMemorySecureStore()
     static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
-    static let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
+    static let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
 
     /// Sessions hold their app unowned, and connections started by opening
     /// a console may outlive a test: its app stays alive.
@@ -126,7 +126,7 @@ struct ErgonomicsAppTests {
         let session = app.session(for: pak.deviceId)
         let detail = try await session.perform { try await $0.game(id: Self.skyGarden) }
         let save = try #require(detail.files.first { $0.role == .save })
-        // Pixel Runner has no save: that file is not in its list.
+        // Brambleway Dash has no save: that file is not in its list.
         await #expect(throws: AppError.gameFileChanged) {
             try await session.downloadGameFile(
                 gameId: Self.pixelRunner, file: save, progress: FileDownload(fileId: "f", expected: nil)

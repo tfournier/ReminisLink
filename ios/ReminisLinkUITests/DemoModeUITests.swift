@@ -12,8 +12,9 @@ final class DemoModeUITests: XCTestCase {
     func testTryWithoutAConsoleThenQuit() throws {
         let app = XCUIApplication()
         app.launchArguments += GameDataUITest.englishArguments
-        // A fresh install: no console paired.
-        app.launchEnvironment["RL_RESET_STORE"] = "1"
+        // A fresh install: no console paired (a store in memory: the
+        // Keychain of the simulator is never touched).
+        app.launchEnvironment["RL_UITEST_MEMORY_STORE"] = "1"
         app.launch()
 
         let tryDemo = app.buttons["welcome.demo"]
@@ -36,6 +37,15 @@ final class DemoModeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["demo.quit"].exists, "the banner is gone on a pushed screen")
         attachScreenshot(of: app, named: "demo-states")
 
+        // A download never reaches the share sheet in the demo.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.buttons["game.save"].tapAfterWaiting(timeout: 15)
+        app.buttons["save.download"].tapAfterWaiting(timeout: 15)
+        let downloaded = app.alerts.firstMatch
+        XCTAssertTrue(downloaded.waitForExistence(timeout: 15), "no confirmation of the demo download")
+        XCTAssertFalse(app.otherElements["ActivityListView"].exists, "the share sheet opened in the demo")
+        downloaded.buttons["demo.export.ok"].tap()
+
         // The console list of the demo: the demo console, no Add a Console.
         app.tabBars.buttons["Console"].tap()
         app.buttons["tab.consoles"].tapAfterWaiting()
@@ -48,9 +58,8 @@ final class DemoModeUITests: XCTestCase {
         XCTAssertFalse(app.buttons["demo.quit"].exists)
         XCTAssertFalse(app.staticTexts["Demo Brick"].exists)
 
-        // Nothing kept: a new launch is a fresh install again.
+        // A new launch does not resume the demo.
         app.terminate()
-        app.launchEnvironment["RL_RESET_STORE"] = nil
         app.launch()
         XCTAssertTrue(app.buttons["welcome.demo"].waitForExistence(timeout: 10), "the demo left a console behind")
         XCTAssertFalse(app.buttons["demo.quit"].exists)

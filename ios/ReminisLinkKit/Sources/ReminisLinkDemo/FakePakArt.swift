@@ -16,8 +16,35 @@ extension FakePak {
     func currentArt(gameId: String, game: DemoLibrary.Game) -> (data: Data, etag: String)? {
         lock.withLock {
             if let data = customArt[gameId] { return (data, Self.etag(of: data)) }
-            if game.hasArt && !removedArt.contains(gameId) { return (Self.artPNG, Self.artETag) }
+            if game.hasArt && !removedArt.contains(gameId) {
+                guard _drawsArtwork else { return (Self.artPNG, Self.artETag) }
+                let data = drawnPicture(key: game.name) { DemoArtwork.cover(for: game.name) }
+                return (data, DemoArtwork.etag(of: data))
+            }
             return nil
+        }
+    }
+
+    /// Draws box arts and state thumbnails per game (milestone M16, the
+    /// app's demo mode and its App Store screenshots).
+    public var drawsArtwork: Bool {
+        get { lock.withLock { _drawsArtwork } }
+        set { lock.withLock { _drawsArtwork = newValue } }
+    }
+
+    /// A drawn picture, made once (called with the lock held).
+    func drawnPicture(key: String, draw: () -> Data) -> Data {
+        if let data = drawnPictures[key] { return data }
+        let data = draw()
+        drawnPictures[key] = data
+        return data
+    }
+
+    /// The thumbnail of a state slot.
+    func stateThumbnail(game: DemoLibrary.Game, slot: Int) -> Data {
+        lock.withLock {
+            guard _drawsArtwork else { return Self.artPNG }
+            return drawnPicture(key: "\(game.name)#\(slot)") { DemoArtwork.screen(for: game.name, slot: slot) }
         }
     }
 

@@ -214,7 +214,7 @@ struct PatchAppTests {
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
         let multiDisc = PatchFlow(session: session, game: PatchGame(
-            id: "g", name: "Starlight Saga", fileName: "Starlight Saga", kind: .folderM3U, systemLabel: "Disc Console"
+            id: "g", name: "Orrery of Nine Tides", fileName: "Orrery of Nine Tides", kind: .folderM3U, systemLabel: "Disc Console"
         ))
         multiDisc.source = .sdCard
         multiDisc.sdFileId = "sd_1"

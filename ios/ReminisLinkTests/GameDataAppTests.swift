@@ -13,7 +13,7 @@ struct GameDataAppTests {
     let secure = InMemorySecureStore()
     let root = FileManager.default.temporaryDirectory.appending(path: "rl-m5-\(UUID().uuidString)")
     let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
-    let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
+    let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
 
     func makePak() -> FakePak {
         let pak = FakePak(host: "m5-\(UUID().uuidString.lowercased()).test")

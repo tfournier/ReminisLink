@@ -9,51 +9,56 @@ import ReminisLinkKit
 /// curious, the App Store screenshots).
 ///
 /// It is isolated from the real app:
-/// - **No network**: its requests go through ``FakeURLProtocol`` to the fake
+/// - **No network**: its requests go through ``FakeURLProtocol`` to its fake
 ///   pak, and ``OfflineURLProtocol`` fails any other one (a request left
 ///   after the demo was quit) without going out. Its discovery is fixed (no
-///   Bonjour browser) and its consoles are reached at the fake pak's
-///   address (no name resolution).
+///   Bonjour browser) and its console is reached at the fake pak's address
+///   (no name resolution).
 /// - **No Keychain**: its identity and pairing are in an
 ///   ``InMemorySecureStore``.
 /// - **No iCloud Drive**: synced saves go to a temporary folder
-///   (``SaveVaultLocation/demo``).
-/// - **No trace**: everything it writes is under ``root`` (temporary
-///   directory) and in its own `UserDefaults` suite (the Library sort
-///   order included, through `defaultAppStorage`); ``tearDown()`` erases
-///   both, and a demo left by a crash is erased at the next launch. It
+///   (``SaveVaultLocation/demo``); downloads never reach the share sheet
+///   (``ExportSheetModifier``).
+/// - **No trace**: each session has its own folder, `UserDefaults` suite
+///   (the Library sort included, through `defaultAppStorage`) and fake pak
+///   host, all named with a new UUID. ``end()`` stops the session's work,
+///   waits for it, then erases its own folder and suite (again a little
+///   later); a session left by a crash is erased at the next launch. It
 ///   never touches the real list of consoles, the share inbox of the share
 ///   extension or the real transfers.
 @MainActor
 final class DemoMode {
-    /// The demo mode of the app.
-    static let name = "ReminisLinkDemo"
+    /// The start of the names of the app's demo sessions (folders, suites).
+    static let prefix = "ReminisLinkDemo-"
     /// The Debug launch switch `RL_DEMO` (UI tests).
     static let debugName = "ReminisLinkDebugDemo"
-    /// The host of the demo's fake pak: never resolved (`.invalid`), and
-    /// apart from the one of the Debug launch switch.
-    static let host = "try.demo.reminislink.invalid"
 
     let app: AppModel
     let pak: FakePak
-    /// Every file the demo writes (art cache, copies of the files sent,
+    /// Every file the session writes (art cache, copies of the files sent,
     /// downloads, synced saves).
     let root: URL
-    /// The `UserDefaults` suite of the demo (settings, Library sort).
+    /// The `UserDefaults` suite of the session (settings, Library sort).
     let suiteName: String
     let defaults: UserDefaults
+    /// How long after ``end()`` the session's files are erased once more.
+    var eraseAgainAfter: Duration = .seconds(2)
 
     /// - Parameters:
+    ///   - name: the folder and suite name; a new one per session by default.
+    ///   - host: the fake pak's host; a new one per session by default.
     ///   - isDemo: false for the Debug launch switch (no banner, saves
     ///     reported as kept on this iPhone, as the live app without iCloud).
     ///   - hooks: changes to the fake pak and the defaults before the app
     ///     starts (UI tests).
     init(
-        name: String = DemoMode.name, host: String = DemoMode.host,
+        name: String? = nil, host: String? = nil,
         deviceName: String = String(localized: "Demo Brick"), model: DeviceModel = .demo, isDemo: Bool = true,
         background: BackgroundActivity? = nil,
         hooks: (FakePak, UserDefaults) -> Void = { _, _ in }
     ) {
+        let session = UUID().uuidString.lowercased()
+        let name = name ?? Self.prefix + session
         let root = Self.root(name: name)
         let suiteName = Self.suiteName(name: name)
         Self.erase(root: root, suiteName: suiteName)
@@ -61,7 +66,11 @@ final class DemoMode {
         self.root = root
         self.suiteName = suiteName
         self.defaults = defaults
-        let pak = FakePak(deviceName: deviceName, model: model, host: host)
+        let pak = FakePak(deviceName: deviceName, model: model, host: host ?? "\(session).try.demo.reminislink.invalid")
+        // Original drawn box arts and state thumbnails; a short request log
+        // (a long session does not grow in memory).
+        pak.drawsArtwork = true
+        if isDemo { pak.logLimit = 100 }
         pak.register()
         hooks(pak, defaults)
         self.pak = pak
@@ -89,8 +98,8 @@ final class DemoMode {
         // quits, and announces it again when it opens.
         let discovery = app.discovery
         let device = pak.discoveredDevice
-        pak.onAvailabilityChange = { availability in
-            Task { @MainActor in discovery.setFixedDevice(device, visible: availability == .open) }
+        pak.onAvailabilityChange = { [weak discovery] availability in
+            Task { @MainActor in discovery?.setFixedDevice(device, visible: availability == .open) }
         }
     }
 
@@ -110,26 +119,43 @@ final class DemoMode {
         )
     }
 
-    /// Ends the demo: stops what runs, forgets the fake pak and erases
-    /// everything the demo wrote. A task that was still running may write
-    /// once more: the erasure is repeated a little later (and at the next
-    /// launch).
-    func tearDown() {
-        app.shutDown()
-        pak.onAvailabilityChange = nil
+    /// Ends the session: stops its work (connections, uploads, pak tasks,
+    /// syncs, file copies, downloads) and waits for it, forgets its fake
+    /// pak, then erases its own folder and suite, and once more a little
+    /// later. Never another session's.
+    func end() async {
         pak.unregister()
-        let root = root
-        let suiteName = suiteName
+        await app.shutDown()
+        pak.onAvailabilityChange = nil
+        erase()
+        try? await Task.sleep(for: eraseAgainAfter)
+        erase()
+    }
+
+    func erase() {
         Self.erase(root: root, suiteName: suiteName)
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            Self.erase(root: root, suiteName: suiteName)
+    }
+
+    /// Erases the demo sessions left by a previous run (the app was stopped
+    /// during a demo): their folders and suites, found by name.
+    static func removeLeftovers() {
+        let fileManager = FileManager.default
+        let temporary = fileManager.temporaryDirectory
+        for name in (try? fileManager.contentsOfDirectory(atPath: temporary.path)) ?? [] where name.hasPrefix(prefix) {
+            erase(root: root(name: name), suiteName: suiteName(name: name))
+        }
+        let preferences = URL.libraryDirectory.appending(path: "Preferences", directoryHint: .isDirectory)
+        let suitePrefix = suiteName(name: prefix)
+        for file in (try? fileManager.contentsOfDirectory(atPath: preferences.path)) ?? []
+        where file.hasPrefix(suitePrefix) && file.hasSuffix(".plist") {
+            let suite = String(file.dropLast(".plist".count))
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            try? fileManager.removeItem(at: preferences.appending(path: file))
         }
     }
 
-    /// Erases a demo left by a previous run (the app was stopped during
-    /// the demo).
-    static func removeLeftovers(name: String = DemoMode.name) {
+    /// Erases one named session (the Debug launch switch's).
+    static func removeLeftovers(name: String) {
         erase(root: root(name: name), suiteName: suiteName(name: name))
     }
 
@@ -163,10 +189,9 @@ final class AppRoot {
     private(set) var isStartingDemo = false
     /// The demo could not open.
     var demoError: AppError?
-    /// Demos that ended, kept alive: their sessions refer to their model
-    /// (`unowned`) and a task of theirs may still be finishing (it fails
-    /// offline). A few objects in memory per demo, nothing on disk.
-    @ObservationIgnored private var endedDemos: [DemoMode] = []
+    /// Sessions being ended (waiting for their work, then erased); each is
+    /// released once ended.
+    @ObservationIgnored private var endings: [UUID: Task<Void, Never>] = [:]
 
     var current: AppModel { demo?.app ?? live }
 
@@ -176,8 +201,7 @@ final class AppRoot {
     }
 
     /// "Try Without a Console": opens the demo console with its tabs. The
-    /// real app stops as if it went to the background (Bonjour, uploads),
-    /// and goes on when the demo ends.
+    /// real app pauses (Bonjour, uploads, save syncs) until the demo ends.
     func startDemo(makeDemo: () -> DemoMode = { DemoMode() }) async {
         guard demo == nil, !isStartingDemo else { return }
         isStartingDemo = true
@@ -186,25 +210,22 @@ final class AppRoot {
         do {
             try await mode.pair()
         } catch {
-            mode.tearDown()
-            endedDemos.append(mode)
+            end(mode)
             demoError = AppError(error)
             return
         }
-        live.discovery.stop()
-        live.enterBackground()
+        live.pauseForDemo()
         demo = mode
         mode.app.openConsole(mode.pak.deviceId)
     }
 
-    /// Quit: back to the list of real consoles, the demo erased. The root
-    /// view of the real app starts its discovery again and resumes its
-    /// uploads as it appears.
+    /// Quit: back to the list of real consoles at once; the session ends
+    /// (its work stopped and awaited, its files erased) in the background.
     func quitDemo() {
         guard let mode = demo else { return }
         demo = nil
-        mode.tearDown()
-        endedDemos.append(mode)
+        live.resumeAfterDemo()
+        end(mode)
     }
 
     /// A link opened during the demo (pairing QR code, share extension) is
@@ -212,5 +233,18 @@ final class AppRoot {
     func handle(url: URL) {
         quitDemo()
         live.handle(url: url)
+    }
+
+    /// Waits for the sessions being ended (tests).
+    func waitForEndedDemos() async {
+        while let task = endings.values.first { await task.value }
+    }
+
+    private func end(_ mode: DemoMode) {
+        let id = UUID()
+        endings[id] = Task { [weak self] in
+            await mode.end()
+            self?.endings[id] = nil
+        }
     }
 }

@@ -233,7 +233,7 @@ struct ClientAccessAppTests {
         await session.connect()
         pak.disconnect(clientId: clientId)
         let file = try await picked(app, name: "pack.cht", contents: Data("cheat0_desc = \"Wait\"\ncheat0_code = \"3\"\n".utf8))
-        let game = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
+        let game = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
         let task = Task { try await session.importCheats(gameId: game, from: file, mode: .merge) }
         await waitUntil { session.reconnectionWaits == 1 }
         #expect(session.reconnectionWaits == 1)
@@ -303,7 +303,7 @@ struct ClientAccessAppTests {
         let (app, _) = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
         await session.connect()
-        let game = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
+        let game = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
         pak.busyNextWrites(1, retryAfter: 3)
         do {
             _ = try await session.deleteGame(id: game, keepSave: false)

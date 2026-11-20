@@ -55,7 +55,7 @@ final class PairingUITests: XCTestCase {
         try pairAndOpenConsole(app, deviceId: Self.demoDeviceId)
 
         XCTAssertTrue(app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS 'NextUI-20261013-039a06de'")).firstMatch
+            .matching(NSPredicate(format: "label CONTAINS 'DemoOS-20261013'")).firstMatch
             .waitForExistence(timeout: 10))
         // The flat library's menu opens the systems (M11).
         GameDataUITest.openLibraryTab(app, timeout: 10)
@@ -67,7 +67,7 @@ final class PairingUITests: XCTestCase {
         XCTAssertFalse(app.buttons["system.GBA"].label.contains("Emulator"), app.buttons["system.GBA"].label)
         attachScreenshot(app, "systems")
         playStation.tapAfterWaiting()
-        XCTAssertTrue(app.buttons["game.Starlight Saga"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["game.Orrery of Nine Tides"].waitForExistence(timeout: 10))
     }
 
     /// Pairing again a console that is already paired asks first, once the

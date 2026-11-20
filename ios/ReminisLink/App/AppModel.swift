@@ -190,6 +190,14 @@ final class AppModel {
     /// False for the Debug launch switch `RL_DEMO`, which behaves as the
     /// live app against the fake pak.
     let isDemo: Bool
+    /// File copies and downloads in progress (M16: the end of a demo waits
+    /// for them before erasing its folder).
+    @ObservationIgnored let work = WorkTracker()
+    /// The consoles whose save sync was stopped while the demo mode runs,
+    /// started again when it ends (M16).
+    @ObservationIgnored var syncsPausedForDemo: [String] = []
+    /// Ended (the demo mode that owned it was quit).
+    @ObservationIgnored private(set) var isShutDown = false
 
     /// The screens pushed above the list of consoles (settings, synced
     /// saves), while no console is open.
@@ -549,7 +557,7 @@ final class AppModel {
 
     /// Drops a session; its event stream closes (M14).
     private func dropSession(_ deviceId: String) {
-        sessions.removeValue(forKey: deviceId)?.stopEventStream()
+        sessions.removeValue(forKey: deviceId)?.detach()
     }
 
     func session(for deviceId: String) -> ConsoleSession {
@@ -640,19 +648,21 @@ final class AppModel {
         store.forgetRepairMarker(deviceId)
     }
 
-    /// Stops everything this model runs (the end of the demo mode, M16):
-    /// event streams, uploads, save syncs and the discovery. The model is
+    /// Stops everything this model runs and waits for it (the end of the
+    /// demo mode, M16): connections, event streams, uploads, pak tasks, save
+    /// syncs, file copies and downloads, and the discovery. The model is
     /// not used afterwards.
-    func shutDown() {
+    func shutDown() async {
+        isShutDown = true
         sheet = nil
-        for session in sessions.values {
-            session.transfers.suspend()
-            session.stopEventStream()
-        }
+        let ended = Array(sessions.values)
         sessions.removeAll()
-        for state in syncStates.values { state.cancel() }
-        discovery.stop()
         openConsoleId = nil
+        discovery.stop()
+        let syncs = cancelSaveSyncs()
+        for session in ended { await session.shutDown() }
+        for task in syncs { await task.value }
+        await work.close()
     }
 
     /// Forgets a device on this iPhone (after unpairing).
@@ -680,11 +690,7 @@ extension AppModel {
         // M13: the identity and the paired consoles are synchronized
         // through the iCloud Keychain; the RL1 keys (this device only) are
         // deleted at the first launch.
-        let store = DeviceStore(
-            secureStore: KeychainStore(service: "ReminisLink.pairing", synchronizable: true),
-            defaults: defaults,
-            legacySecureStore: KeychainStore(service: "ReminisLink.devices")
-        )
+        let store = liveStore(defaults: defaults, environment: environment)
         #if DEBUG
         if environment["RL_RESET_STORE"] == "1" {
             for device in store.devices { try? store.remove(device.id) }
@@ -816,6 +822,24 @@ extension AppModel {
         return true
     }
     #endif
+
+    /// The paired consoles: the iCloud Keychain, or (Debug, UI tests,
+    /// `RL_UITEST_MEMORY_STORE=1`) a fresh store in memory that never
+    /// touches the Keychain.
+    private static func liveStore(defaults: UserDefaults, environment: [String: String]) -> DeviceStore {
+        #if DEBUG
+        if environment["RL_UITEST_MEMORY_STORE"] == "1" {
+            let suite = "ReminisLink.uitest-memory"
+            UserDefaults.standard.removePersistentDomain(forName: suite)
+            return DeviceStore(secureStore: InMemorySecureStore(), defaults: UserDefaults(suiteName: suite)!)
+        }
+        #endif
+        return DeviceStore(
+            secureStore: KeychainStore(service: "ReminisLink.pairing", synchronizable: true),
+            defaults: defaults,
+            legacySecureStore: KeychainStore(service: "ReminisLink.devices")
+        )
+    }
 
     /// The inbox when there is no app group container (never shared with
     /// the extension).

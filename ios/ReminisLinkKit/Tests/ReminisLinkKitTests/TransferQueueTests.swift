@@ -303,7 +303,7 @@ struct TransferQueueTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let queue = makeQueue(client)
-        let item = try queue.enqueue(fileURL: try makeFile(size: 1000), target: .rom(systemId: gbaSystemId, fileName: "Pixel Runner.gba"),
+        let item = try queue.enqueue(fileURL: try makeFile(size: 1000), target: .rom(systemId: gbaSystemId, fileName: "Brambleway Dash.gba"),
                                      destination: "GBA", ownsFile: false)
         await queue.waitUntilIdle()
         #expect(item.phase == .failed)
@@ -312,7 +312,7 @@ struct TransferQueueTests {
         await queue.waitUntilIdle()
         #expect(item.phase == .done)
         #expect(item.onConflict == .rename)
-        #expect(item.result?.gameId == DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner (2).gba"))
+        #expect(item.result?.gameId == DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash (2).gba"))
     }
 
     @Test func cancelStopsAndDeletesOnTheDevice() async throws {

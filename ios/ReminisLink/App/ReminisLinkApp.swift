@@ -28,7 +28,7 @@ struct RootView: View {
         @Bindable var app = app
         VStack(spacing: 0) {
             // M16: always visible during the demo, above every tab.
-            if app.isDemo { DemoBanner() }
+            if app.isDemo && !DemoBanner.isHiddenForScreenshots { DemoBanner() }
             Group {
                 // Milestone M11: an open console shows its tabs; the list
                 // of consoles is the root otherwise.

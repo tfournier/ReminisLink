@@ -29,7 +29,13 @@ final class ConsoleSession {
     /// Uploads and jobs of this console.
     @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()
     /// The tool and emulator paks of this console (milestone M12).
-    @ObservationIgnored private(set) lazy var paks: PakManager = PakManager(session: self)
+    var paks: PakManager {
+        if let paksStorage { return paksStorage }
+        let manager = PakManager(session: self)
+        paksStorage = manager
+        return manager
+    }
+    @ObservationIgnored private var paksStorage: PakManager?
     /// Waits for a reconnection after `401 disconnected` (cheat import,
     /// patch upload).
     @ObservationIgnored private var reconnectionWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
@@ -39,7 +45,10 @@ final class ConsoleSession {
     /// the user opens the console again.
     private(set) var closedByConsole = false
 
-    @ObservationIgnored unowned let app: AppModel
+    /// Strong (M16): a task of this session may outlive the app's list of
+    /// sessions (a demo that ended); the app drops its sessions
+    /// (``AppModel/shutDown()``, ``detach()``), which breaks the cycle.
+    @ObservationIgnored let app: AppModel
     /// The connection in progress, shared by every caller.
     @ObservationIgnored private var attempt: ConnectionAttempt?
     /// The check in progress after the console's service disappeared (M11).
@@ -508,6 +517,28 @@ final class ConsoleSession {
             }
         }
         return queue
+    }
+
+    /// The app dropped this session (forgotten console, new pairing): its
+    /// event stream closes and the pak manager lets it go.
+    func detach() {
+        stopEventStream()
+        paksStorage = nil
+    }
+
+    /// The end of the demo mode (M16): cancels what this session runs
+    /// (connection, closure check, catch-up, event stream, uploads, pak
+    /// tasks) and waits for it, so nothing writes after its files are
+    /// erased.
+    func shutDown() async {
+        let tasks = [attempt?.task, closureCheck, catchUpTask].compactMap { $0 }
+        for task in tasks { task.cancel() }
+        stopEventStream()
+        transfers.suspend()
+        for task in tasks { await task.value }
+        await transfers.waitUntilIdle()
+        await paksStorage?.shutDown()
+        paksStorage = nil
     }
 
     /// Games were added or deleted: reload the library and the dashboard.

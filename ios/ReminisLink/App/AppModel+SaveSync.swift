@@ -86,6 +86,32 @@ final class SaveSyncState {
 }
 
 extension AppModel {
+    /// Stops every save sync and returns their tasks (to wait for them).
+    func cancelSaveSyncs() -> [Task<Void, Never>] {
+        let tasks = syncStates.values.compactMap(\.task)
+        for state in syncStates.values { state.cancel() }
+        return tasks
+    }
+
+    /// The demo mode opens (M16): the real app stops as if it went to the
+    /// background (Bonjour, uploads after their current chunk) and its
+    /// running save syncs stop; they start again in ``resumeAfterDemo()``.
+    func pauseForDemo() {
+        discovery.stop()
+        enterBackground()
+        syncsPausedForDemo = syncStates.filter { $0.value.task != nil }.map(\.key).sorted()
+        _ = cancelSaveSyncs()
+    }
+
+    /// The demo mode ended: Bonjour, uploads and the stopped syncs go on.
+    func resumeAfterDemo() {
+        discovery.start()
+        becomeActive()
+        let paused = syncsPausedForDemo
+        syncsPausedForDemo = []
+        for deviceId in paused { startSaveSync(deviceId: deviceId, afterCurrent: true) }
+    }
+
     func saveSync(for deviceId: String) -> SaveSyncState {
         if let state = syncStates[deviceId] { return state }
         let state = SaveSyncState()
@@ -163,7 +189,9 @@ extension ConsoleSession {
     /// the current save first. Only the save is sent: the console keeps
     /// its clock file.
     func restore(_ version: SaveVersion, gameId: String, gameName: String, from vault: any SaveVault) async throws -> SaveReplacement {
-        let files = try await vault.exportVerified(deviceId: deviceId, gameId: gameId, version: version, to: app.exportDirectory)
+        let files = try await app.work.run {
+            try await vault.exportVerified(deviceId: deviceId, gameId: gameId, version: version, to: app.exportDirectory)
+        }
         if let rtc = files.rtc { try? FileManager.default.removeItem(at: rtc) }
         let size: Int64
         do {

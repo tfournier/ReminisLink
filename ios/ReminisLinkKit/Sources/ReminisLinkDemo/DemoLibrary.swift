@@ -115,19 +115,19 @@ public struct DemoLibrary: Sendable {
         System(folder: "Handheld Advance (GBA)", label: "Handheld Advance", tag: "GBA", games: [
             Game(path: "Sky Garden Quest.gba", sizeBytes: 16_777_216, modifiedAt: base,
                  hasSave: true, stateSlots: [0, 1, 2], lockedStateCount: 1, cheatCount: 12, hasArt: true, hasClock: true),
-            Game(path: "Pixel Runner.gba", sizeBytes: 4_194_304, modifiedAt: base.addingTimeInterval(86_400 * 3)),
-            Game(path: "Homebrew/Tiny Tactics (Demo).gba", sizeBytes: 1_048_576, modifiedAt: base.addingTimeInterval(86_400),
+            Game(path: "Brambleway Dash.gba", sizeBytes: 4_194_304, modifiedAt: base.addingTimeInterval(86_400 * 3)),
+            Game(path: "Homebrew/Quillwork Tactics.gba", sizeBytes: 1_048_576, modifiedAt: base.addingTimeInterval(86_400),
                  hasSave: true, hasArt: true),
             Game(path: "Homebrew/Cartographe Égaré.gba", sizeBytes: 2_097_152, modifiedAt: base.addingTimeInterval(86_400 * 2),
                  stateSlots: [0], cheatCount: 2),
         ]),
         System(folder: "01) Pocket Classic (GB)", label: "Pocket Classic", tag: "GB", games: [
-            Game(path: "Moonlit Maze 🌙.gb", sizeBytes: 262_144, modifiedAt: base, hasSave: true, stateSlots: [0], hasArt: true),
+            Game(path: "Mosslight Maze 🌙.gb", sizeBytes: 262_144, modifiedAt: base, hasSave: true, stateSlots: [0], hasArt: true),
         ]),
         System(folder: "Disc Console (PS)", label: "Disc Console", tag: "PS", emulatorInstalled: false, games: [
             // Small for a disc game: the fake pak serves every file whole,
             // from memory.
-            Game(path: "Starlight Saga", kind: .folderM3U, sizeBytes: 7_340_032, modifiedAt: base,
+            Game(path: "Orrery of Nine Tides", kind: .folderM3U, sizeBytes: 7_340_032, modifiedAt: base,
                  hasSave: true, stateSlots: [0, 1], lockedStateCount: 2),
         ]),
     ])

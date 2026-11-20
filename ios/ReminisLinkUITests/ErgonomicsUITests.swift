@@ -58,15 +58,15 @@ final class ErgonomicsUITests: XCTestCase {
         let app = launchPaired()
         GameDataUITest.openLibraryTab(app, timeout: 15)
         // Every game of every system in one list.
-        for name in ["Sky Garden Quest", "Moonlit Maze 🌙", "Starlight Saga", "Tiny Tactics (Demo)"] {
+        for name in ["Sky Garden Quest", "Mosslight Maze 🌙", "Orrery of Nine Tides", "Quillwork Tactics"] {
             XCTAssertTrue(app.buttons["game.\(name)"].waitForExistence(timeout: 10), "\(name) not listed")
         }
-        XCTAssertTrue(app.buttons["game.Moonlit Maze 🌙"].label.contains("Pocket Classic"))
+        XCTAssertTrue(app.buttons["game.Mosslight Maze 🌙"].label.contains("Pocket Classic"))
         attachScreenshot(of: app, named: "library-flat")
 
         // Search: name or file name.
-        GameDataUITest.search(app, "moon")
-        XCTAssertTrue(app.buttons["game.Moonlit Maze 🌙"].waitForExistence(timeout: 5))
+        GameDataUITest.search(app, "moss")
+        XCTAssertTrue(app.buttons["game.Mosslight Maze 🌙"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["game.Sky Garden Quest"].waitForNonExistence(timeout: 5))
         attachScreenshot(of: app, named: "library-search")
         app.buttons["Cancel"].firstMatch.tap()
@@ -75,7 +75,7 @@ final class ErgonomicsUITests: XCTestCase {
         // Filter: games with cheats.
         app.buttons["library.filter"].tapAfterWaiting()
         app.buttons["Has Cheats"].tapAfterWaiting()
-        XCTAssertTrue(app.buttons["game.Pixel Runner"].waitForNonExistence(timeout: 5), "filter not applied")
+        XCTAssertTrue(app.buttons["game.Brambleway Dash"].waitForNonExistence(timeout: 5), "filter not applied")
         XCTAssertTrue(app.buttons["game.Sky Garden Quest"].exists)
         XCTAssertTrue(app.buttons["game.Cartographe Égaré"].exists)
         attachScreenshot(of: app, named: "library-filter")
@@ -87,7 +87,7 @@ final class ErgonomicsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["game.Sky Garden Quest"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["No games match the filters"].waitForExistence(timeout: 5))
         app.buttons["library.clearFilters"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["game.Pixel Runner"].waitForExistence(timeout: 5), "filters not cleared")
+        XCTAssertTrue(app.buttons["game.Brambleway Dash"].waitForExistence(timeout: 5), "filters not cleared")
     }
 
     @MainActor

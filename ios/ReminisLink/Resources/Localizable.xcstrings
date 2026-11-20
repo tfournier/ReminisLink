@@ -1361,6 +1361,16 @@
         }
       }
     },
+    "Demo mode: the file was downloaded from the demo console. With a real console, the share sheet opens here to save or send it; in the demo, nothing leaves the app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode démo : le fichier a été téléchargé depuis la console de démo. Avec une vraie console, la feuille de partage s’ouvre ici pour l’enregistrer ou l’envoyer ; dans la démo, rien ne sort de l’app."
+          }
+        }
+      }
+    },
     "Demo mode: the saves of the demo console are copied to a temporary folder, erased when you quit the demo. Up to 10 versions are kept per save." : {
       "localizations" : {
         "fr" : {
@@ -1497,6 +1507,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Télécharge un fichier pour en garder une copie sur cet iPhone : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+          }
+        }
+      }
+    },
+    "Downloaded" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Téléchargé"
           }
         }
       }

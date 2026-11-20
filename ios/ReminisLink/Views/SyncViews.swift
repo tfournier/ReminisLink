@@ -359,9 +359,11 @@ struct SyncedGameView: View {
         isWorking = true
         defer { isWorking = false }
         do {
-            let files = try await vault.exportVerified(
-                deviceId: route.deviceId, gameId: route.gameId, version: version, to: app.exportDirectory
-            )
+            let files = try await app.work.run {
+                try await vault.exportVerified(
+                    deviceId: route.deviceId, gameId: route.gameId, version: version, to: app.exportDirectory
+                )
+            }
             exported = ExportedFile(file: DownloadedFile(url: files.save), others: files.rtc.map { [$0] } ?? [])
             error = nil
         } catch {

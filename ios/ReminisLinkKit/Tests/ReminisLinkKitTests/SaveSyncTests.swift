@@ -99,7 +99,7 @@ struct SaveSyncTests {
         let sandbox = try VaultSandbox()
         let source = StubSaveSource([
             .entry("g1", name: "Sky Garden", save: "sky-1", rtc: "clock-1"),
-            .entry("g2", name: "Moonlit Maze", save: "moon-1"),
+            .entry("g2", name: "Mosslight Maze", save: "moon-1"),
         ])
         let clock = TestClock()
         let log = ProgressLog()
@@ -123,7 +123,7 @@ struct SaveSyncTests {
         #expect(source.downloads.count == before)
 
         // The save of g2 changed, and only the clock of g1: both get a version.
-        source.update("g2") { $0 = .entry("g2", name: "Moonlit Maze", save: "moon-2") }
+        source.update("g2") { $0 = .entry("g2", name: "Mosslight Maze", save: "moon-2") }
         source.update("g1") { $0 = .entry("g1", name: "Sky Garden", save: "sky-1", rtc: "clock-2") }
         let third = try await makeSync(source, sandbox, clock: clock).run()
         #expect(Set(third.stored) == ["g1", "g2"])
@@ -160,7 +160,7 @@ struct SaveSyncTests {
         bad.served = Data("corrupted".utf8)
         var missing = StubSaveSource.Entry.entry("g3", name: "Gone", save: "x")
         missing.failure = APIError.server(ServerError(status: 404, code: .notFound, message: "No save"))
-        let source = StubSaveSource([bad, .entry("g2", name: "Moonlit Maze", save: "moon-1"), missing])
+        let source = StubSaveSource([bad, .entry("g2", name: "Mosslight Maze", save: "moon-1"), missing])
         let report = try await makeSync(source, sandbox).run()
         #expect(report.stored == ["g2"])
         #expect(report.failures.map(\.gameId) == ["g1", "g3"])
@@ -173,7 +173,7 @@ struct SaveSyncTests {
 
     @Test func losingTheConsoleStopsTheSyncAndKeepsWhatWasStored() async throws {
         let sandbox = try VaultSandbox()
-        var offline = StubSaveSource.Entry.entry("g2", name: "Moonlit Maze", save: "moon-1")
+        var offline = StubSaveSource.Entry.entry("g2", name: "Mosslight Maze", save: "moon-1")
         offline.failure = .network(.networkConnectionLost)
         let source = StubSaveSource([.entry("g1", name: "Sky Garden", save: "sky-1"), offline, .entry("g3", name: "Third", save: "3")])
         await #expect(throws: APIError.network(.networkConnectionLost)) {

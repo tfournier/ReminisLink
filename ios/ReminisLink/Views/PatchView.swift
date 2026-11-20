@@ -124,13 +124,15 @@ struct PatchView: View {
         let inbox = app.shareInbox
         let root = app.transferDirectory
         do {
-            sharedFile = try await Task.detached(priority: .userInitiated) {
-                let directory = root.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let destination = directory.appending(path: name)
-                try inbox.takeFile(name, from: request, to: destination)
-                return PickedFile(url: destination, name: name, sizeBytes: try FileDigest.size(of: destination))
-            }.value
+            sharedFile = try await app.work.run {
+                try await Task.detached(priority: .userInitiated) {
+                    let directory = root.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    let destination = directory.appending(path: name)
+                    try inbox.takeFile(name, from: request, to: destination)
+                    return PickedFile(url: destination, name: name, sizeBytes: try FileDigest.size(of: destination))
+                }.value
+            }
         } catch {
             loadError = .file
         }
@@ -590,7 +592,7 @@ private struct PatchFormSections: View {
         switch result {
         case .success(let url):
             do {
-                flow.file = try await PickedFile.copy(url, into: app.transferDirectory)
+                flow.file = try await app.work.run { try await PickedFile.copy(url, into: app.transferDirectory) }
             } catch {
                 fileError = .file
             }

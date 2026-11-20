@@ -101,7 +101,12 @@ final class PakManager {
     /// The installation whose replacement the user is asked to confirm.
     var pendingReplacement: PakInstall?
 
-    @ObservationIgnored private unowned let session: ConsoleSession
+    /// Strong (M16): its tasks may outlive the session's place in the app;
+    /// the session lets this manager go when it is dropped.
+    @ObservationIgnored private let session: ConsoleSession
+    /// Tasks started here, cancelled and awaited by ``shutDown()``.
+    @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var isShutDown = false
     @ObservationIgnored private var loads = LoadGeneration()
     @ObservationIgnored private var observing = false
     /// The list was asked for once: a `paks` event reloads it, even while
@@ -110,6 +115,24 @@ final class PakManager {
 
     init(session: ConsoleSession) {
         self.session = session
+    }
+
+    /// Starts a task this manager owns.
+    private func spawn(_ body: @escaping @MainActor () async -> Void) {
+        guard !isShutDown else { return }
+        let id = UUID()
+        tasks[id] = Task { [weak self] in
+            await body()
+            self?.tasks[id] = nil
+        }
+    }
+
+    /// The end of the demo mode (M16): cancels and waits for the tasks.
+    func shutDown() async {
+        isShutDown = true
+        let running = Array(tasks.values)
+        for task in running { task.cancel() }
+        for task in running { await task.value }
     }
 
     /// Follows the jobs of the transfer queue (once).
@@ -151,7 +174,7 @@ final class PakManager {
     /// arrives during the first load starts a newer one, whose answer wins.
     func paksChanged() {
         guard wanted else { return }
-        Task { await load() }
+        spawn { [weak self] in await self?.load() }
     }
 
     /// `DELETE /paks/{pakId}`: the pak goes to the trash of the console.
@@ -281,9 +304,9 @@ final class PakManager {
                 // started now or later), whichever load applies it.
                 install.pendingCheck = (pakId, loads.current + 1)
             }
-            Task {
-                await load()
-                await session.loadTrash()
+            spawn { [weak self] in
+                await self?.load()
+                await self?.session.loadTrash()
             }
         case .failed:
             let server = job.serverError
@@ -327,7 +350,8 @@ final class PakManager {
                   installed.lowercased() != confirmed.lowercased()
             else { continue }
             let since = install.attemptStartedAt
-            Task {
+            let session = session
+            spawn {
                 await session.loadTrash()
                 let offset = await session.client?.clockOffset ?? 0
                 let threshold = since.addingTimeInterval(offset - 5)

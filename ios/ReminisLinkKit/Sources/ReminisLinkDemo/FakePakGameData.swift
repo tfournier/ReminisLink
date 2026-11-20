@@ -248,12 +248,14 @@ extension FakePak {
         return restored.sorted()
     }
 
+    #if DEBUG
     /// The next `PUT /cheats` finds the file changed on the console just
     /// before (`412`): for the demo and the UI tests.
     public var conflictOnNextCheatsSave: Bool {
         get { lock.withLock { _conflictOnNextCheatsSave } }
         set { lock.withLock { _conflictOnNextCheatsSave = newValue } }
     }
+    #endif
 
     /// Forces the lock status reported for a slot (nil: computed again).
     public func setLockStatus(gameId: String, slot: Int, _ status: String?) {
@@ -332,7 +334,7 @@ extension FakePak {
             guard let slot = slotNumber(r[1]), let entry = currentData(system: system, game: game).slots[slot],
                   entry.state != nil, entry.hasThumbnail
             else { return .error(404, code: "not_found", message: "No thumbnail") }
-            return FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: Self.artPNG)
+            return FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: stateThumbnail(game: game, slot: slot))
         case (let m, let r) where r.count == 3 && r[0] == "states" && r[2] == "lock" && (m == "PUT" || m == "DELETE"):
             guard let slot = slotNumber(r[1]) else { return .error(400, code: "invalid_request", message: "Invalid slot") }
             return m == "PUT" ? lockState(system: system, game: game, gameId: gameId, slot: slot)

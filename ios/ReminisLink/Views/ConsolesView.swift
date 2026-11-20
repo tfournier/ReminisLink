@@ -155,6 +155,16 @@ struct TryDemoButton: View {
 struct DemoBanner: View {
     @Environment(AppRoot.self) private var root
 
+    /// Debug builds only: `-RLScreenshots YES` hides the banner for the
+    /// App Store screenshots (raw screens of the demo console).
+    static var isHiddenForScreenshots: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "RLScreenshots")
+        #else
+        false
+        #endif
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {

@@ -344,7 +344,7 @@ struct TransferTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let file = try makeFile(size: 10_000)
-        let upload = try upload(file, name: "Pixel Runner.gba")
+        let upload = try upload(file, name: "Brambleway Dash.gba")
         do {
             _ = try await upload.run(client: client)
             Issue.record("no error")
@@ -354,17 +354,17 @@ struct TransferTests {
         }
         await upload.restart(onConflict: .rename)
         let result = try await upload.run(client: client)
-        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner (2).gba"))
+        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash (2).gba"))
     }
 
     @Test func overwriteSendsTheOldFileToTheTrash() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let file = try makeFile(size: 10_000)
-        _ = try await upload(file, name: "Pixel Runner.gba", onConflict: .overwrite).run(client: client)
+        _ = try await upload(file, name: "Brambleway Dash.gba", onConflict: .overwrite).run(client: client)
         let trash = try await client.trash()
         #expect(trash.entries.first?.reason == "overwrite")
-        #expect(trash.entries.first?.label == "Pixel Runner")
+        #expect(trash.entries.first?.label == "Brambleway Dash")
     }
 
     @Test func pauseBetweenChunksThenResume() async throws {

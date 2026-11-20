@@ -24,7 +24,7 @@ final class PatchUITests: XCTestCase {
         app.segmentedControls["patch.source"].buttons.element(boundBy: 1).tapAfterWaiting()
 
         // A patch for another ROM.
-        GameDataUITest.button(app, "patch.sdFile", containing: "Pixel Runner (Hack).ups").tapAfterWaiting(timeout: 15)
+        GameDataUITest.button(app, "patch.sdFile", containing: "Brambleway Dash (Hack).ups").tapAfterWaiting(timeout: 15)
         app.buttons["patch.apply"].tapWhenEnabled()
         let error = app.descendants(matching: .any)["patch.error"].firstMatch
         XCTAssertTrue(error.waitForExistence(timeout: 20), "no mismatch message")

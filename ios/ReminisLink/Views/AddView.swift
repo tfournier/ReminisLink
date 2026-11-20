@@ -250,7 +250,9 @@ struct AddView: View {
             // Each file leaves the list once queued: after a failure, a new
             // tap only sends the others.
             for file in files {
-                let copy = try await Self.makeLocalCopy(of: file, in: app.transferDirectory, inbox: app.shareInbox)
+                let copy = try await app.work.run {
+                    try await Self.makeLocalCopy(of: file, in: app.transferDirectory, inbox: app.shareInbox)
+                }
                 if file.kind == .pak {
                     // M12: installed by the console once sent; it asks
                     // before replacing a pak of the same name.

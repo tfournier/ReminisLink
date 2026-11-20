@@ -113,12 +113,14 @@ extension FakePak {
         "se_" + Base64URL.encode(Data(path.utf8))
     }
 
+    #if DEBUG
     /// The next installation finds another archive than its source named
     /// (a link or SD file replaced between a conflict and its replacement):
     /// it installs the pak `name` names.
     public func changeNextPakSource(to name: String) {
         lock.withLock { paksState.nextSourceName = name }
     }
+    #endif
 
     /// A trash entry made earlier (tests: an old replacement of a pak).
     public func addTrashEntry(reason: String, label: String, trashedAt: Date) {

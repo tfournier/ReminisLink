@@ -6,7 +6,7 @@ import Testing
 /// The demo game with a save, three states (slot 0 locked) and 12 cheats.
 let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
 /// A demo game with no save, no state and no cheat.
-let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
+let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
 
 func downloadsDirectory() -> URL {
     FileManager.default.temporaryDirectory.appending(path: "rl-dl-tests-\(UUID().uuidString)")

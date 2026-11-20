@@ -50,6 +50,7 @@ extension FakePak {
         set { lock.withLock { _onAvailabilityChange = newValue } }
     }
 
+    #if DEBUG
     /// Demo mode and UI tests: the pak quits when it receives this request
     /// (`method` and the path under `/api/v1`, e.g. `GET /games`), which
     /// gets `503 shutting_down`, then opens again after `reopenAfter`
@@ -60,6 +61,7 @@ extension FakePak {
             _reopenDelay = reopenAfter
         }
     }
+    #endif
 
     /// `503 shutting_down` while quitting, a connection failure once gone.
     func availabilityRefusal(method: String, path: String) -> FakeResponse? {

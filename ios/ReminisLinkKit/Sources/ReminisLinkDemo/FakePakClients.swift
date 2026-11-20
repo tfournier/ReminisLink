@@ -43,6 +43,7 @@ extension FakePak {
         lock.withLock { (clientPlatforms[clientId], lastRequestPlatform[clientId]) }
     }
 
+    #if DEBUG
     /// The next `count` writes (requests that change the SD card) find
     /// another write running for too long: `429 device_busy` with
     /// `Retry-After: retryAfter`, nothing changed.
@@ -52,6 +53,7 @@ extension FakePak {
             busyRetryAfter = retryAfter
         }
     }
+    #endif
 
     /// The writes refused as busy so far.
     public var busyRefusals: Int { lock.withLock { _busyRefusals } }

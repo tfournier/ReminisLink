@@ -4,7 +4,7 @@ import Testing
 @testable import ReminisLinkKit
 
 /// A multi-disc demo game.
-let starlightSaga = DemoLibrary.id("Disc Console (PS)/Starlight Saga")
+let starlightSaga = DemoLibrary.id("Disc Console (PS)/Orrery of Nine Tides")
 
 @Suite("Patch models")
 struct PatchModelTests {
@@ -25,7 +25,7 @@ struct PatchModelTests {
 
     @Test func suggestsThePatchedNameOfThePak() {
         #expect(PatchNaming.suggestedFileName(forROM: "Sky Garden Quest.gba") == "Sky Garden Quest (patched).gba")
-        #expect(PatchNaming.suggestedFileName(forROM: "Moonlit Maze 🌙.GB") == "Moonlit Maze 🌙 (patched).GB")
+        #expect(PatchNaming.suggestedFileName(forROM: "Mosslight Maze 🌙.GB") == "Mosslight Maze 🌙 (patched).GB")
         #expect(PatchNaming.suggestedFileName(forROM: "Game v1.1.sfc") == "Game v1.1 (patched).sfc")
         #expect(PatchNaming.suggestedFileName(forROM: "NoExtension") == "NoExtension (patched)")
     }
@@ -171,7 +171,7 @@ struct PatchFakePakTests {
         let files = try await client.sdFiles(type: .patch)
         #expect(files.count == 4)
         #expect(files.contains { $0.path.hasPrefix("ReminisLink/patches/") } && files.contains { $0.path.hasPrefix("Roms/") })
-        let ups = try #require(files.first { $0.fileName == "Pixel Runner (Hack).ups" })
+        let ups = try #require(files.first { $0.fileName == "Brambleway Dash (Hack).ups" })
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ups.id), output: PatchOutput(mode: .replace)))
         let job = try await finish(accepted.jobId, client: client)
         #expect(job.state == .failed)

@@ -97,6 +97,11 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     /// Saves, states, locks and cheats of the games (milestone M5), made
     /// from the library counters the first time a game is used.
     var gameData: [String: FakeGameData] = [:]
+    /// Box arts and state thumbnails are drawn per game (``DemoArtwork``,
+    /// the app's demo mode) instead of the 1-pixel ``artPNG``.
+    var _drawsArtwork = false
+    /// Drawn pictures, by key (title, or title and slot).
+    var drawnPictures: [String: Data] = [:]
     /// Arts set with `PUT /games/{id}/art` (M8), by game id.
     var customArt: [String: Data] = [:]
     /// Arts removed with `DELETE /games/{id}/art`.
@@ -214,7 +219,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public var discoveredDevice: DiscoveredDevice {
         DiscoveredDevice(
             id: deviceId, name: deviceName, model: model, platform: "tg5040", os: "nextui",
-            osVersion: "NextUI-20261013-039a06de", pakVersion: "1.0.0", apiVersion: apiVersion,
+            osVersion: "DemoOS-20261013", pakVersion: "1.0.0", apiVersion: apiVersion,
             service: BonjourService(name: deviceName), fixedEndpoint: endpoint
         )
     }
@@ -231,12 +236,14 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         set { lock.withLock { _responseDelay = newValue } }
     }
 
+    #if DEBUG
     /// `POST /pair` waits this long after registering the client, as if
     /// the answer were slow (to test a cancellation during `/pair`).
     public var pairDelay: TimeInterval {
         get { lock.withLock { _pairDelay } }
         set { lock.withLock { _pairDelay = newValue } }
     }
+    #endif
 
     /// Whether the pairing screen is shown on the console (M8: pairing is
     /// only open while the QR code is shown). Closed, `/hello`
@@ -246,19 +253,36 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         set { lock.withLock { _pairingOpen = newValue } }
     }
 
+    #if DEBUG
     /// The pairing screen closes right after the next `/hello` (which still
     /// says it is open).
     public func closePairingAfterNextHello() {
         lock.withLock { closePairingAfterHello = true }
     }
+    #endif
 
+    #if DEBUG
     /// The next `POST /pair` requests wait these delays (in their order of
     /// arrival) after registering the client, instead of ``pairDelay``.
     public func delayNextPairs(_ delays: [TimeInterval]) {
         lock.withLock { nextPairDelays.append(contentsOf: delays) }
     }
+    #endif
 
     public var log: [LoggedRequest] { lock.withLock { _log } }
+
+    /// The most requests ``log`` keeps (the oldest go first); nil keeps
+    /// them all (tests). The app's demo mode keeps a few only, so a long
+    /// session does not grow in memory.
+    public var logLimit: Int? {
+        get { lock.withLock { _logLimit } }
+        set { lock.withLock { _logLimit = newValue } }
+    }
+    private var _logLimit: Int?
+    /// Nonces seen, at most: past it the oldest half is forgotten (a real
+    /// pak forgets them after the clock window).
+    static let maxNonces = 20_000
+    private var nonceOrder: [String] = []
 
     // MARK: - Transfer controls
 
@@ -302,18 +326,22 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         lock.withLock { completeFaults += count }
     }
 
+    #if DEBUG
     /// The next `count` `complete` requests are lost before reaching the
     /// pak (nothing is written, the upload stays).
     public func loseCompleteRequests(_ count: Int) {
         lock.withLock { lostCompleteRequests += count }
     }
+    #endif
 
     public var uploadIds: [String] { lock.withLock { uploads.keys.sorted() } }
 
+    #if DEBUG
     /// The next chunk requests meet these faults, in order.
     public func injectChunkFaults(_ faults: [ChunkFault]) {
         lock.withLock { chunkFaults.append(contentsOf: faults) }
     }
+    #endif
 
     /// As if the pak were closed and opened again: uploads in progress,
     /// jobs, the nonce cache and the connected clients are lost.
@@ -323,6 +351,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             stagedUploads = [:]
             jobs = [:]
             nonces = []
+            nonceOrder = []
             lastSeen = [:]
             // Kept in memory only (M10).
             disconnectedClients = []
@@ -353,6 +382,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         addClient(id: identity.clientId, publicKey: identity.privateKey.publicKey, name: name)
     }
 
+    #if DEBUG
     /// The next request with this method and path (e.g. `DELETE`,
     /// `/api/v1/games/...`) is handled at once (its effect is immediate) but
     /// its answer is delivered `delay` seconds later, without blocking the
@@ -360,7 +390,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public func delayNextAnswer(method: String, path: String, by delay: TimeInterval) {
         lock.withLock { lateAnswers.append((method, path, delay)) }
     }
+    #endif
 
+    #if DEBUG
     /// The next request with this method and path waits before it reaches
     /// the pak until the returned gate opens: requests sent after it may be
     /// handled first. `gate.reached` says it is pending.
@@ -370,7 +402,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         lock.withLock { heldArrivals.append((method, path, gate)) }
         return gate
     }
+    #endif
 
+    #if DEBUG
     /// The next request with this method and path is handled at once (its
     /// effect is immediate), but its answer waits until the returned gate
     /// opens. `gate.reached` says it was handled.
@@ -380,6 +414,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         lock.withLock { heldAnswers.append((method, path, gate)) }
         return gate
     }
+    #endif
 
     public func arrivalGate(for request: URLRequest) -> FakeGate? {
         let method = (request.httpMethod ?? "GET").uppercased()
@@ -422,6 +457,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
                 method: method, path: path, query: query,
                 nonce: request.value(forHTTPHeaderField: SignedHeaders.nonce), status: response.status
             ))
+            if let limit = _logLimit, _log.count > limit { _log.removeFirst(_log.count - limit) }
         }
         return response
     }
@@ -577,7 +613,13 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         let seen = now()
         let platform = header(RequestPlatform.header).flatMap(RequestPlatform.init(rawValue:))
         lock.withLock {
-            _ = nonces.insert(clientId + "|" + nonce)
+            let key = clientId + "|" + nonce
+            if nonces.insert(key).inserted { nonceOrder.append(key) }
+            if nonceOrder.count > Self.maxNonces {
+                let dropped = nonceOrder.prefix(Self.maxNonces / 2)
+                nonces.subtract(dropped)
+                nonceOrder.removeFirst(dropped.count)
+            }
             lastSeen[clientId] = seen
             if let platform { lastRequestPlatform[clientId] = platform.rawValue }
         }
@@ -619,7 +661,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         }
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
-            "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
+            "platform": "tg5040", "os": "nextui", "osVersion": "DemoOS-20261013", "pakVersion": "1.0.0",
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
             "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": pairingOpen,
         ])
@@ -692,7 +734,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         let connected = connectedClientsJSON()
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
-            "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
+            "platform": "tg5040", "os": "nextui", "osVersion": "DemoOS-20261013", "pakVersion": "1.0.0",
             "network": ["ipv4": "192.168.1.42", "ssid": "DemoNet"],
             "battery": batteryJSON,
             "storage": storageJSON,

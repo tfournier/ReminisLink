@@ -82,8 +82,8 @@ struct LibraryAPITests {
         let expected = pak.library.systems.reduce(0) { $0 + $1.games.count }
         #expect(all.games.count == expected)
         // Sorted by system folder, then by path.
-        #expect(all.games.first?.summary.name == "Moonlit Maze 🌙")
-        let tiny = try #require(all.games.first { $0.summary.name == "Tiny Tactics (Demo)" })
+        #expect(all.games.first?.summary.name == "Mosslight Maze 🌙")
+        let tiny = try #require(all.games.first { $0.summary.name == "Quillwork Tactics" })
         #expect(tiny.folderPath == "Homebrew")
         #expect(tiny.folderId == DemoLibrary.id("Handheld Advance (GBA)/Homebrew"))
         #expect(tiny.systemId == DemoLibrary.id("Handheld Advance (GBA)"))
@@ -150,7 +150,7 @@ struct LibraryAPITests {
         let client = try await pairedClient(pak)
         let root = downloadsDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        // Pixel Runner has no save: the save's fileId of another game is not in its list.
+        // Brambleway Dash has no save: the save's fileId of another game is not in its list.
         let sky = try await client.game(id: skyGarden)
         let save = try #require(sky.files.first { $0.role == .save })
         await #expect(throws: APIError.server(ServerError(status: 404, code: .notFound, message: "File not found"))) {
@@ -285,9 +285,9 @@ struct LibraryFilterTests {
 
     static let games = [
         game("Sky Garden Quest", system: "gba", size: 16, days: 0, save: true, states: 3, cheats: 12),
-        game("pixel runner", system: "gba", file: "Pixel Runner (Europe).gba", size: 4, days: 3),
+        game("pixel runner", system: "gba", file: "Brambleway Dash (Europe).gba", size: 4, days: 3),
         game("Cartographe Égaré", system: "mgba", size: 2, days: 2, states: 1, cheats: 2),
-        game("Moonlit Maze", system: "gb", size: 1, days: 1, save: true),
+        game("Mosslight Maze", system: "gb", size: 1, days: 1, save: true),
     ]
 
     var groups: [SystemGroup] { LibraryFiltering.groups(systems: Self.systems, games: Self.games) }
@@ -321,9 +321,9 @@ struct LibraryFilterTests {
     }
 
     @Test func sortsByNameDateOrSize() {
-        #expect(names(LibraryQuery()) == ["Cartographe Égaré", "Moonlit Maze", "pixel runner", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(sort: .date)) == ["pixel runner", "Cartographe Égaré", "Moonlit Maze", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(sort: .size)) == ["Sky Garden Quest", "pixel runner", "Cartographe Égaré", "Moonlit Maze"])
+        #expect(names(LibraryQuery()) == ["Cartographe Égaré", "Mosslight Maze", "pixel runner", "Sky Garden Quest"])
+        #expect(names(LibraryQuery(sort: .date)) == ["pixel runner", "Cartographe Égaré", "Mosslight Maze", "Sky Garden Quest"])
+        #expect(names(LibraryQuery(sort: .size)) == ["Sky Garden Quest", "pixel runner", "Cartographe Égaré", "Mosslight Maze"])
     }
 
     @Test func searchesTheNameAndTheFileName() {
@@ -332,14 +332,14 @@ struct LibraryFilterTests {
         #expect(names(LibraryQuery(text: "egare")) == ["Cartographe Égaré"])
         // The file name counts too.
         #expect(names(LibraryQuery(text: "Europe")) == ["pixel runner"])
-        #expect(names(LibraryQuery(text: "  maze ")) == ["Moonlit Maze"])
+        #expect(names(LibraryQuery(text: "  maze ")) == ["Mosslight Maze"])
         #expect(names(LibraryQuery(text: "nothing")).isEmpty)
     }
 
     @Test func filtersByConsoleAndContents() {
         #expect(names(LibraryQuery(systemLabel: "Game Boy Advance")) == ["Cartographe Égaré", "pixel runner", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(systemLabel: "Game Boy")) == ["Moonlit Maze"])
-        #expect(names(LibraryQuery(hasSave: true)) == ["Moonlit Maze", "Sky Garden Quest"])
+        #expect(names(LibraryQuery(systemLabel: "Game Boy")) == ["Mosslight Maze"])
+        #expect(names(LibraryQuery(hasSave: true)) == ["Mosslight Maze", "Sky Garden Quest"])
         #expect(names(LibraryQuery(hasStates: true)) == ["Cartographe Égaré", "Sky Garden Quest"])
         #expect(names(LibraryQuery(hasCheats: true)) == ["Cartographe Égaré", "Sky Garden Quest"])
         #expect(names(LibraryQuery(systemLabel: "Game Boy Advance", hasSave: true, hasStates: true, hasCheats: true)) == ["Sky Garden Quest"])
