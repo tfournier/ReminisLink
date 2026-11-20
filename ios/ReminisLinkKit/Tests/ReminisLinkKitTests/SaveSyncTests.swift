@@ -133,7 +133,9 @@ struct SaveSyncTests {
         #expect(moon[0].info.save.sha256 == sha256Hex(Data("moon-2".utf8)))
     }
 
-    @Test func aSyncFinishesARotationLeftUnfinished() async throws {
+    /// A sync never deletes a version for the limit, except when it
+    /// publishes a new version of that game.
+    @Test func aRotationLeftUnfinishedIsFinishedByTheNextVersionOnly() async throws {
         let sandbox = try VaultSandbox()
         let eleven = sandbox.vault(maxVersions: 11)
         let game = VaultGameInfo(gameId: "g1", systemId: "sys-gba", systemName: "Game Boy Advance (GBA)", name: "Sky Garden")
@@ -143,44 +145,13 @@ struct SaveSyncTests {
         let source = StubSaveSource([.entry("g1", name: "Sky Garden", save: "sky")])
         let report = try await makeSync(source, sandbox).run()
         #expect(report.unchanged == 1)
-        #expect(try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g1").count == 10)
-    }
+        #expect(try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g1").count == 11)
 
-    @Test func aSyncFinishesRotationsOfGamesNoLongerListed() async throws {
-        let sandbox = try VaultSandbox()
-        let eleven = sandbox.vault(maxVersions: 11)
-        let gone = VaultGameInfo(gameId: "g-gone", systemId: "sys-gba", systemName: "Game Boy Advance (GBA)", name: "Gone")
-        for i in 1...11 {
-            _ = try await eleven.addVersion(console: brick, game: gone, save: try sandbox.input("Gone.gba.sav", "v\(i)"), rtc: nil, modifiedAt: nil)
-        }
-        // The console no longer has this save.
-        let source = StubSaveSource([.entry("g1", name: "Sky Garden", save: "sky")])
-        _ = try await makeSync(source, sandbox).run()
-        let left = try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g-gone")
-        #expect(left.map(\.info.sequence) == Array((2...11).reversed()))
-    }
-
-    @Test func aRotationThatFailsDoesNotStopTheOtherGames() async throws {
-        let sandbox = try VaultSandbox()
-        let eleven = sandbox.vault(maxVersions: 11)
-        let games = ["g-a", "g-b", "g-c"].map {
-            VaultGameInfo(gameId: $0, systemId: "sys-gba", systemName: "Game Boy Advance (GBA)", name: $0)
-        }
-        for game in games {
-            for i in 1...11 {
-                _ = try await eleven.addVersion(console: brick, game: game, save: try sandbox.input("x.sav", "\(game.gameId)-\(i)"), rtc: nil, modifiedAt: nil)
-            }
-        }
-        // The versions of the first game cannot be deleted.
-        let locked = sandbox.root.appending(path: "My Brick/Game Boy Advance (GBA)/g-a")
-        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
-
-        let vault = sandbox.vault()
-        await #expect(throws: (any Error).self) { try await vault.finishRotations(deviceId: "dev-1") }
-        // The first game (in order) failed; the next ones were rotated.
-        #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-b").count == 10)
-        #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-c").count == 10)
+        source.update("g1") { $0 = .entry("g1", name: "Sky Garden", save: "sky-2") }
+        let next = try await makeSync(source, sandbox, clock: TestClock(start: Date(timeIntervalSince1970: 1_795_700_000))).run()
+        #expect(next.stored == ["g1"])
+        let left = try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g1")
+        #expect(left.map(\.info.sequence) == Array((3...12).reversed()))
     }
 
     @Test func aChecksumMismatchIsRejectedAndTheOtherGamesGoOn() async throws {
@@ -265,7 +236,7 @@ struct SaveSyncTests {
 
         // Restoring the first version sends its bytes back.
         let exported = try await sandbox.vault().export(
-            deviceId: pak.deviceId, gameId: skyGarden, versionId: try #require(versions.first).id,
+            deviceId: pak.deviceId, gameId: skyGarden, version: try #require(versions.first),
             to: sandbox.base.appending(path: "Out")
         )
         _ = try await client.replaceSave(gameId: skyGarden, file: exported.save, sha256: try await FileDigest.sha256(of: exported.save))

@@ -103,10 +103,6 @@ public struct SaveSync: Sendable {
     public func run(progress: @escaping @Sendable (SaveSyncProgress) -> Void = { _ in }) async throws -> SaveSyncReport {
         let list = try await source.saves()
         try Task.checkCancellation()
-        // Rotations left unfinished (the app stopped between a move and
-        // its deletions), also for games no longer listed. Housekeeping:
-        // a failure here does not stop the sync.
-        try? await vault.finishRotations(deviceId: console.deviceId)
         // Folder names of the systems: label and tag, as two systems can
         // share a label (GBA and MGBA are both "Game Boy Advance"). Without
         // the list (a busy pak), the tag of the saves folder (`Saves/<TAG>/...`).

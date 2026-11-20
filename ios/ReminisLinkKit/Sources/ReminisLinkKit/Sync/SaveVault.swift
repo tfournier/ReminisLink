@@ -172,23 +172,20 @@ public protocol SaveVault: Sendable {
     func games(deviceId: String) async throws -> [VaultGame]
     /// The versions of a game, last published first.
     func versions(deviceId: String, gameId: String) async throws -> [SaveVersion]
-    /// The versions of a game, last published first, after deleting the
-    /// oldest beyond ``SaveVaultLimits/maxVersions`` (a rotation left
-    /// unfinished, e.g. the app was stopped between the move and the
-    /// deletion). The sync calls it before comparing.
-    func retainedVersions(deviceId: String, gameId: String) async throws -> [SaveVersion]
-    /// Finishes the rotations left unfinished in every game of a console,
-    /// also the games the console no longer lists.
-    func finishRotations(deviceId: String) async throws
     /// Stores a new version (the files are moved in) with the next
     /// sequence number, then deletes the oldest versions beyond
-    /// ``SaveVaultLimits/maxVersions`` (never the new one).
+    /// ``SaveVaultLimits/maxVersions`` (never the new one). This is the
+    /// only time versions are deleted: a rotation left unfinished (the app
+    /// stopped between the move and the deletion) is finished at the next
+    /// version of that game.
     func addVersion(
         console: VaultConsoleInfo, game: VaultGameInfo,
         save: NewVersionFile, rtc: NewVersionFile?, modifiedAt: Date?
     ) async throws -> SaveVersion
     /// Copies the files of a version into a new folder under `directory`.
-    func export(deviceId: String, gameId: String, versionId: String, to directory: URL) async throws -> ExportedVersion
+    /// The version is found by its content and metadata, not by its
+    /// folder: it may have moved since it was listed.
+    func export(deviceId: String, gameId: String, version: SaveVersion, to directory: URL) async throws -> ExportedVersion
 }
 
 extension SaveVault {
@@ -202,7 +199,7 @@ extension SaveVault {
     public func exportVerified(
         deviceId: String, gameId: String, version: SaveVersion, to directory: URL
     ) async throws -> ExportedVersion {
-        let exported = try await export(deviceId: deviceId, gameId: gameId, versionId: version.id, to: directory)
+        let exported = try await export(deviceId: deviceId, gameId: gameId, version: version, to: directory)
         do {
             let save = try await FileDigest.sha256(of: exported.save)
             let rtc: String? = if let url = exported.rtc { try await FileDigest.sha256(of: url) } else { nil }
