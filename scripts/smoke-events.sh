@@ -28,9 +28,10 @@
 #       with --pairing-open whose standard output goes to <file>, pairs a
 #       client B with the LATEST link the pak printed (run it once the app
 #       has paired), waits for $READY_FILE (at most $READY_TIMEOUT s,
-#       default 60; without READY_FILE, $DELAY s, default 15), then deletes
-#       "Lantern Keeper [b1]" (GBA, to the trash) and writes the time of the
-#       deletion (epoch seconds, with milliseconds) to $TRIGGER_FILE.
+#       default 60; without READY_FILE, $DELAY s, default 15), takes the
+#       write lease over (the app holds it while in the foreground, M10),
+#       then deletes "Lantern Keeper [b1]" (GBA, to the trash) and writes
+#       the time of the deletion (epoch seconds) to $TRIGGER_FILE.
 #
 # The pairing links (single-use secrets) are read from the pak output.
 # Secrets and keys only go through pipes and bash variables, never through
@@ -39,7 +40,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ $# -gt 0 ]; then
-	sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 fi
 
@@ -277,6 +278,12 @@ if [ "${UI_DELETE:-0}" = 1 ]; then
 	else
 		sleep "${DELAY:-15}"
 	fi
+	# The app holds the write lease while it is in the foreground (M10):
+	# B takes it over first, as a second iPhone would.
+	req B GET /api/v1/writer
+	echo "info: write lease before the deletion: $(printf '%s' "$body" | sed -En 's/.*"writer":(null|\{[^}]*\}).*/\1/p')"
+	req B PUT /api/v1/writer '{"force":true}'
+	check "B takes the write lease over (PUT /writer {\"force\":true})" 200 "$status"
 	at=$(now_ms)
 	req B DELETE "/api/v1/games/$victim"
 	[ -z "${TRIGGER_FILE:-}" ] || printf '%s\n' "$at" >"$TRIGGER_FILE"

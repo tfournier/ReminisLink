@@ -288,6 +288,8 @@ card.
 | `WriteAccessUITests/testReadOnlyThenTakeOverAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_WRITER` (milestone M10; see below) |
 | `ErgonomicsUITests/testLibraryAndDownloadAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_LIBRARY` (milestone M11; see below) |
 | `ErgonomicsUITests/testTheConsoleClosingAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CLOSING` (milestone M11; quit the pak during the test, see below) |
+| `EventsUITests/testPakQuitReturnsToListAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_EVENTS_QUIT` (milestone M14; SIGTERM to the pak during the test, see below) |
+| `EventsUITests/testLibraryRefreshFromAnotherClientAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_EVENTS_LIBRARY` (milestone M14; a second client deletes a game, see below) |
 
 `testReadOnlyThenTakeOverAgainstHeadlessPak` needs another client holding
 the write lease: run `scripts/smoke-writer.sh` in hold mode first
@@ -299,6 +301,30 @@ After Take Over, the script checks that its writes get `423` naming the
 simulator. Without hold mode, `scripts/smoke-writer.sh` checks the lease
 with two scripted clients (read-only, take-over, release, 60 s expiry;
 `SKIP_EXPIRY=1` skips the expiry).
+
+The two M14 tests (event stream `GET /events`) need a runner. Start a
+fresh pak per test with `--pairing-open > <pak output>`, and pass, besides
+the link, `TEST_RUNNER_RL_UITEST_EVENTS_READY_FILE=<path>` (created by the
+test once it waits: idle on the Console tab, or the Library tab showing
+10 games) and `TEST_RUNNER_RL_UITEST_EVENTS_TRIGGER_FILE=<path>` (the
+runner writes the epoch time of its action there, `date +%s` or with
+milliseconds; the test then asserts a delay under 3 s and prints
+`RL_EVENTS_DELAY`). Paths on the Mac work: the simulator shares its file
+system. Once the ready file exists:
+
+- `EVENTS_QUIT`: write the time to the trigger file and `kill -TERM` the
+  pak (the console's Quit needs the UI); the list of consoles with "The
+  console closed ReminisLink" must show with no action.
+- `EVENTS_LIBRARY`: after the app paired, run
+  `UI_DELETE=1 PAK_LOG=<pak output> READY_FILE=<path> TRIGGER_FILE=<path> scripts/smoke-events.sh`:
+  it pairs a second client with the latest link, takes the write lease
+  over (the app holds it in the foreground) and deletes "Lantern Keeper
+  [b1]" (GBA); the library must show 9 games without pull-to-refresh.
+
+Without the two files, the tests still check the screens but do not
+measure the delay. `scripts/smoke-events.sh` alone checks the stream with
+two curl clients (hello, keep-alive, `library`, `job`, the 4-stream limit,
+`shutdown` then EOF on SIGTERM).
 
 They work on "Starlight Courier" (GBA) of `testdata/sdcard`. Run one at a
 time with `-only-testing:ReminisLinkUITests/<Class>/<test>`.
