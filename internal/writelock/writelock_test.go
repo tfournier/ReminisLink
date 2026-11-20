@@ -78,6 +78,38 @@ func TestRequestTimesOutAndJobWaits(t *testing.T) {
 	}
 }
 
+// The generation is odd while the lock is held and changes at every
+// acquisition and release, whatever the way the lock is taken.
+func TestGeneration(t *testing.T) {
+	l := New(time.Second)
+	g := l.Generation()
+	if g%2 != 0 {
+		t.Fatalf("free lock: generation %d", g)
+	}
+	for i, take := range []func() error{
+		func() error { return l.AcquireRequest(context.Background()) },
+		func() error { return l.Acquire(context.Background()) },
+		func() error {
+			if !l.TryAcquire() {
+				return errors.New("busy")
+			}
+			return nil
+		},
+	} {
+		if err := take(); err != nil {
+			t.Fatal(err)
+		}
+		if held := l.Generation(); held != g+1 {
+			t.Fatalf("%d: held, generation %d after %d", i, held, g)
+		}
+		l.Release()
+		if free := l.Generation(); free != g+2 {
+			t.Fatalf("%d: released, generation %d after %d", i, free, g)
+		}
+		g += 2
+	}
+}
+
 func TestDefaultsAndMisuse(t *testing.T) {
 	if New(0).Wait() != DefaultWait {
 		t.Fatal("default wait")

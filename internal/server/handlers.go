@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -392,28 +391,25 @@ func (s *Server) handleGameFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
-	f, err := s.opts.Library.Art(r.PathValue("gameId"))
+	// The write lock generation before anything is read: an ETag computed
+	// while a write ran is never cached (artETags).
+	gen := s.writes().Generation()
+	file, fi, artPath, err := s.opts.Library.OpenArt(r.PathValue("gameId"))
 	if err != nil {
+		if errors.Is(err, confine.ErrOutside) {
+			// A link or a file out of its folder: answered as missing.
+			s.log.Warn("game art refused", "error", err)
+		}
 		s.libraryError(w, r, err)
-		return
-	}
-	file, err := os.Open(f.Path)
-	if err != nil {
-		s.internal(w, r, err)
 		return
 	}
 	defer file.Close()
 	// The size and date of the opened file (not of the lookup): the ETag
 	// and the body always describe the same file, even if the art is
 	// replaced meanwhile.
-	fi, err := file.Stat()
-	if err != nil {
-		s.internal(w, r, err)
-		return
-	}
 	size := fi.Size()
-	key := newArtKey(f.Path, size, fi.ModTime())
-	etag, cached := s.artETags.get(key)
+	key := newArtKey(artPath, size, fi.ModTime())
+	etag, cached := s.artETags.get(key, gen)
 	var data []byte
 	switch {
 	case cached:
@@ -427,7 +423,7 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 		sum := sha256.Sum256(data)
 		etag = `"sha256-` + hex.EncodeToString(sum[:16]) + `"`
 		if int64(len(data)) == size {
-			s.artETags.put(key, etag)
+			s.artETags.put(key, etag, gen, s.writes().Generation())
 		}
 	default:
 		// Too large to read in memory: streamed, with an ETag made of the

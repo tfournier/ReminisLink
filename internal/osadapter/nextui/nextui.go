@@ -1118,18 +1118,15 @@ func (a *Adapter) ArtPath(g osadapter.Game) string {
 	return filepath.Join(a.folderOf(g), ".media", artName(g)+".png")
 }
 
-// ArtFile finds the art of g with the rule of GameFiles (case-insensitive,
-// the exact spelling first). GET /games/{gameId}/art is sent for every row
-// of the app's library: when the art has the expected name, one lstat
-// finds it, instead of reading the .media folder (and GameFiles reading
-// four more folders).
+// ArtFile finds the art of g in the listing of its .media folder, with
+// the rule of every file of a game (pickFold: case-insensitive, NFC and
+// NFD kept apart, the exact spelling first) and the name stored on the
+// card. GameFiles uses it; GET /games/{gameId}/art, sent for every row of
+// the app's library, reads only this folder instead of the five of
+// GameFiles. (A direct lstat would be cheaper, but exFAT and APFS answer
+// it for another case or normalization, under the name asked.)
 func (a *Adapter) ArtFile(g osadapter.Game) *osadapter.File {
-	dir := filepath.Join(a.folderOf(g), ".media")
-	name := artName(g) + ".png"
-	if f, err := a.fileAt(filepath.Join(dir, name)); err == nil {
-		return &f
-	}
-	return a.findFold(dir, name)
+	return a.findFold(filepath.Join(a.folderOf(g), ".media"), artName(g)+".png")
 }
 
 // artName is the name of the art of g, without ".png".
@@ -1181,7 +1178,7 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 		}
 	}
 	files.Cheats = a.findFold(filepath.Join(a.roots.Cheats, g.System.Tag), g.ROMName+".cht")
-	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), artName(g)+".png")
+	files.Art = a.ArtFile(g)
 	statesDir := a.statesDir(g.System.Tag)
 	want := fold(g.ROMName)
 	var stateEntries []fs.DirEntry

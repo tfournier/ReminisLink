@@ -2,14 +2,19 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,13 +214,198 @@ func TestGameArtETagIsCachedPerVersion(t *testing.T) {
 func TestArtETagsAreBounded(t *testing.T) {
 	var c artETags
 	for i := 0; i < maxArtETags+10; i++ {
-		c.put(newArtKey("a", int64(i), time.Time{}), "e")
+		c.put(newArtKey("a", int64(i), time.Time{}), "e", 0, 0)
 	}
 	if n := c.len(); n == 0 || n > maxArtETags {
 		t.Fatalf("%d entries", n)
 	}
-	if _, ok := c.get(newArtKey("a", maxArtETags+9, time.Time{})); !ok {
+	if _, ok := c.get(newArtKey("a", maxArtETags+9, time.Time{}), 0); !ok {
 		t.Fatal("last entry missing")
+	}
+}
+
+// The cache follows the write lock generation: emptied when a write
+// starts, never read nor filled while one runs, never filled with an ETag
+// computed across a write, and left alone by a request that read an
+// older generation.
+func TestArtETagsFollowTheWriteGeneration(t *testing.T) {
+	var c artETags
+	k := newArtKey("a", 1, time.Time{})
+	c.put(k, "e", 2, 2)
+	if _, ok := c.get(k, 2); !ok {
+		t.Fatal("not cached")
+	}
+	if _, ok := c.get(k, 3); ok || c.len() != 0 {
+		t.Fatal("read while a write runs")
+	}
+	c.put(k, "e", 3, 3)
+	c.put(k, "e", 2, 4)
+	if c.len() != 0 {
+		t.Fatal("filled during or across a write")
+	}
+	c.put(k, "e", 4, 4)
+	if _, ok := c.get(k, 2); ok || c.len() != 1 {
+		t.Fatal("an older generation read or emptied the cache")
+	}
+	if _, ok := c.get(k, 6); ok || c.len() != 0 {
+		t.Fatal("kept after a write")
+	}
+}
+
+// A pak-side change of the art gets a new ETag even when the new file has
+// the same size and modification time as the old one (the cache is
+// emptied by the write): through PUT /art, and through any write holding
+// the lock.
+func TestGameArtReplacedWithTheSameSizeAndDateGetsANewETag(t *testing.T) {
+	f := newFixture(t)
+	const path = "/games/{gameId}/art"
+	target := "/api/v1/games/" + id(gba+"/Starlight Courier.gba") + "/art"
+	date := time.Now().Add(-time.Hour).Truncate(time.Second)
+	img := pngOf(t, 4, 4)
+	old := bytes.Clone(img)
+	old[len(old)-1] ^= 0xFF // same size, other bytes
+	art := testutil.WriteFile(t, f.sd, "Roms/"+gba+"/.media/Starlight Courier.png", string(old))
+	if err := os.Chtimes(art, date, date); err != nil {
+		t.Fatal(err)
+	}
+	etag := f.get(target, path, 200).Header.Get("ETag")
+	revalidate := func(etag string) testutil.Response {
+		t.Helper()
+		req := f.client.Request(t, http.MethodGet, target, nil)
+		req.Header.Set("If-None-Match", etag)
+		r := f.client.Send(t, req)
+		f.check(http.MethodGet, path, r)
+		return r
+	}
+	if r := revalidate(etag); r.Status != 304 || f.server.artETags.len() != 1 {
+		t.Fatalf("revalidation: %d, %d cached", r.Status, f.server.artETags.len())
+	}
+
+	// PUT /art, then the new file gets the old size and date.
+	f.send(http.MethodPut, target, path, img, map[string]string{"Content-Type": "image/png"}, 200)
+	if err := os.Chtimes(art, date, date); err != nil {
+		t.Fatal(err)
+	}
+	r := revalidate(etag)
+	if r.Status != 200 || !bytes.Equal(r.Body, img) || r.Header.Get("ETag") == etag {
+		t.Fatalf("after PUT: %d, ETag %s", r.Status, r.Header.Get("ETag"))
+	}
+	etag = r.Header.Get("ETag")
+
+	// Any write of the pak (it holds the lock): same size, same date.
+	if err := f.server.writes().Acquire(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(art, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(art, date, date); err != nil {
+		t.Fatal(err)
+	}
+	// While the write runs, the cache is not used.
+	if r := revalidate(etag); r.Status != 200 || !bytes.Equal(r.Body, old) {
+		t.Errorf("during the write: %d", r.Status)
+	}
+	f.server.writes().Release()
+	if r := revalidate(etag); r.Status != 200 || !bytes.Equal(r.Body, old) || r.Header.Get("ETag") == etag {
+		t.Errorf("after the write: %d, ETag %s", r.Status, r.Header.Get("ETag"))
+	}
+}
+
+// Many concurrent GETs and revalidations while the art is replaced
+// (run with -race): every 200 carries the ETag of its own body, and a 304
+// only answers the ETag of a version that was served.
+func TestGameArtConcurrentRequestsAndReplacements(t *testing.T) {
+	f := newFixture(t)
+	const path = "/games/{gameId}/art"
+	target := "/api/v1/games/" + id(gba+"/Starlight Courier.gba") + "/art"
+	etagOf := func(b []byte) string {
+		sum := sha256.Sum256(b)
+		return `"sha256-` + hex.EncodeToString(sum[:16]) + `"`
+	}
+	versions := make([][]byte, 4)
+	known := map[string]bool{}
+	for i := range versions {
+		versions[i] = pngOf(t, 4+i, 4)
+		known[etagOf(versions[i])] = true
+	}
+	art := testutil.WriteFile(t, f.sd, "Roms/"+gba+"/.media/Starlight Courier.png", "")
+	if err := os.WriteFile(art, versions[0], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	known[etagOf(nil)] = true // an empty file seen between the trash move and the new file
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 1; i <= 20; i++ {
+			req := f.client.Request(t, http.MethodPut, target, versions[i%len(versions)])
+			req.Header.Set("Content-Type", "image/png")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			resp.Body.Close()
+			if resp.StatusCode != 200 && resp.StatusCode != 429 {
+				t.Errorf("PUT: %d", resp.StatusCode)
+			}
+		}
+		close(stop)
+	}()
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			etag := ""
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				req := f.client.Request(t, http.MethodGet, target, nil)
+				if etag != "" {
+					req.Header.Set("If-None-Match", etag)
+				}
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				body, err := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				got := resp.Header.Get("ETag")
+				switch resp.StatusCode {
+				case 200:
+					if got != etagOf(body) {
+						t.Errorf("200 with ETag %s for a body of ETag %s", got, etagOf(body))
+						return
+					}
+					etag = got
+				case 304:
+					if got != etag || !known[got] {
+						t.Errorf("304 with ETag %s, asked %s", got, etag)
+						return
+					}
+				case 404:
+					etag = "" // between the trash move and the new file
+				default:
+					t.Errorf("GET: %d", resp.StatusCode)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	r := f.get(target, path, 200)
+	if r.Header.Get("ETag") != etagOf(r.Body) {
+		t.Errorf("final: ETag %s for %s", r.Header.Get("ETag"), etagOf(r.Body))
 	}
 }
 

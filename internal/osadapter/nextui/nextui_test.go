@@ -510,8 +510,8 @@ func TestGameFiles(t *testing.T) {
 	}
 }
 
-// ArtFile finds the art GameFiles finds, for every game of the card, and
-// follows the same case-insensitive rule.
+// ArtFile finds exactly the art GameFiles finds (same entry, stored name),
+// for every game of the card: case-insensitive, NFC and NFD kept apart.
 func TestArtFileMatchesGameFiles(t *testing.T) {
 	a, sd := newAdapter(t)
 	systems, err := a.Systems()
@@ -525,8 +525,7 @@ func TestArtFileMatchesGameFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 		art := a.ArtFile(g)
-		if (art == nil) != (files.Art == nil) || (art != nil && (!strings.EqualFold(art.Path, files.Art.Path) ||
-			art.Size != files.Art.Size || !art.ModTime.Equal(files.Art.ModTime))) {
+		if !reflect.DeepEqual(art, files.Art) {
 			t.Errorf("%s: ArtFile %+v, GameFiles %+v", g.Path, art, files.Art)
 		}
 	}
@@ -555,10 +554,24 @@ func TestArtFileMatchesGameFiles(t *testing.T) {
 		t.Fatal("Lantern Keeper has an art")
 	}
 	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media/LANTERN KEEPER [B1].png", "png")
-	if art := a.ArtFile(g); art == nil || art.Size != 3 {
-		t.Fatalf("art in another case = %+v", art)
+	if art := a.ArtFile(g); art == nil || art.Size != 3 || filepath.Base(art.Path) != "LANTERN KEEPER [B1].png" ||
+		art.Rel != "Roms/"+gba+"/.media/LANTERN KEEPER [B1].png" {
+		t.Fatalf("art in another case = %+v (want the stored name)", art)
 	}
 	same(g)
+
+	// An NFD art for an NFC ROM is not its art (fold keeps them apart),
+	// even where the volume would open one for the other (APFS).
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/No\u00ebl.gba", "rom")
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media/Noe\u0308l.png", "png")
+	noel, err := a.Game(gba + "/No\u00ebl.gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art := a.ArtFile(noel); art != nil {
+		t.Errorf("NFD art taken for an NFC ROM: %+v", art)
+	}
+	same(noel)
 
 	// A folder is not an art.
 	if err := os.Remove(filepath.Join(sd, "Roms", gba, ".media", "LANTERN KEEPER [B1].png")); err != nil {

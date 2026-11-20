@@ -378,17 +378,38 @@ func (l *Library) OpenFile(gameID, fileID string) (*os.File, fs.FileInfo, string
 // maxFileIDLen bounds a fileId: the identifier of the longest path.
 var maxFileIDLen = base64.RawURLEncoding.EncodedLen(MaxIDPathBytes)
 
-// Art returns the art file of a game (ErrNotFound if it has none).
-func (l *Library) Art(gameID string) (osadapter.File, error) {
+// OpenArt opens the art of a game for reading, like the art of GET
+// /games/{gameId}/files: under Roms/, lexically inside the system folder,
+// with no link at any component (confine). It returns the opened file,
+// its description (fstat) and its absolute path. Errors: ErrNotFound when
+// the game has no art or its art is refused (the refusal also wraps
+// confine.ErrOutside), ErrInvalidID, or an I/O error.
+func (l *Library) OpenArt(gameID string) (*os.File, fs.FileInfo, string, error) {
 	g, err := l.game(gameID)
 	if err != nil {
-		return osadapter.File{}, err
+		return nil, nil, "", err
 	}
 	art := l.adapter.ArtFile(g)
 	if art == nil {
-		return osadapter.File{}, fmt.Errorf("%w: art", ErrNotFound)
+		return nil, nil, "", fmt.Errorf("%w: art", ErrNotFound)
 	}
-	return *art, nil
+	roots := l.adapter.Roots()
+	system := filepath.Join(roots.Roms, filepath.FromSlash(g.System.Folder))
+	var file *os.File
+	var fi fs.FileInfo
+	_, err = confine.RelToRoot(system, art.Path)
+	if err == nil {
+		file, fi, err = confine.OpenUnder(roots.Roms, art.Path)
+	}
+	switch {
+	case errors.Is(err, confine.ErrOutside):
+		return nil, nil, "", fmt.Errorf("%w: %w: art", confine.ErrOutside, ErrNotFound)
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, nil, "", fmt.Errorf("%w: art", ErrNotFound)
+	case err != nil:
+		return nil, nil, "", fmt.Errorf("open art: %w", withoutPath(err))
+	}
+	return file, fi, art.Path, nil
 }
 
 // MaxAllGames is the most games GET /games returns (truncated beyond).

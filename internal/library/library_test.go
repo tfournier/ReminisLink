@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -175,15 +176,77 @@ func TestLibraryGame(t *testing.T) {
 
 func TestLibraryArt(t *testing.T) {
 	l, _ := newLibrary(t)
-	f, err := l.Art(EncodeID(gba + "/Starlight Courier.gba"))
-	if err != nil || f.Size == 0 {
-		t.Fatalf("art = %+v, %v", f, err)
+	f, fi, p, err := l.OpenArt(EncodeID(gba + "/Starlight Courier.gba"))
+	if err != nil || fi.Size() == 0 || filepath.Base(p) != "Starlight Courier.png" {
+		t.Fatalf("art = %v %s, %v", fi, p, err)
 	}
-	if _, err := l.Art(EncodeID(gba + "/Lantern Keeper [b1].gba")); !errors.Is(err, ErrNotFound) {
+	f.Close()
+	if _, _, _, err := l.OpenArt(EncodeID(gba + "/Lantern Keeper [b1].gba")); !errors.Is(err, ErrNotFound) {
 		t.Errorf("no art: %v", err)
 	}
-	if _, err := l.Art("!"); !errors.Is(err, ErrInvalidID) {
+	if _, _, _, err := l.OpenArt("!"); !errors.Is(err, ErrInvalidID) {
 		t.Errorf("bad id: %v", err)
+	}
+}
+
+// An art reached through a link is never read: a .media folder linked
+// outside Roms/, a .media linked to another folder of Roms/, or the art
+// file itself a link. It is answered as missing.
+func TestLibraryArtThroughALinkIsRefused(t *testing.T) {
+	l, sd := newLibrary(t)
+	media := filepath.Join(sd, "Roms", gba, ".media")
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "Starlight Courier.png"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(media); err != nil {
+		t.Fatal(err)
+	}
+	id := EncodeID(gba + "/Starlight Courier.gba")
+	check := func(what string) {
+		t.Helper()
+		f, _, _, err := l.OpenArt(id)
+		if err == nil {
+			f.Close()
+		}
+		if !errors.Is(err, ErrNotFound) || !errors.Is(err, confine.ErrOutside) {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	if err := os.Symlink(outside, media); err != nil {
+		t.Fatal(err)
+	}
+	check(".media linked outside Roms/")
+
+	inside := filepath.Join(sd, "Roms", "Elsewhere")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inside, "Starlight Courier.png"), []byte("other"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(media); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(inside, media); err != nil {
+		t.Fatal(err)
+	}
+	check(".media linked inside Roms/")
+
+	if err := os.Remove(media); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(media, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "Starlight Courier.png"), filepath.Join(media, "Starlight Courier.png")); err != nil {
+		t.Fatal(err)
+	}
+	if f, _, _, err := l.OpenArt(id); !errors.Is(err, ErrNotFound) {
+		if err == nil {
+			f.Close()
+		}
+		t.Errorf("art file linked: %v", err)
 	}
 }
 
