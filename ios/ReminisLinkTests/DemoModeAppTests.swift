@@ -94,19 +94,35 @@ struct DemoModeAppTests {
         #expect(OfflineURLProtocol.failedRequests > afterFirst)
     }
 
+    /// The accounts of a Keychain service, or nil when this build cannot
+    /// reach the Keychain at all: an unsigned build (CI,
+    /// `CODE_SIGNING_ALLOWED=NO`) has no `keychain-access-groups`
+    /// entitlement, and every `SecItem` call fails with
+    /// `errSecMissingEntitlement` (-34018).
+    func keychainAccounts(_ store: KeychainStore) throws -> [String]? {
+        do {
+            return try store.allAccounts()
+        } catch KeychainError.status(errSecMissingEntitlement) {
+            return nil
+        }
+    }
+
     @Test func theDemoKeepsItsKeysInMemoryAndItsSavesOutOfICloud() async throws {
         // The identity and pairing never go to the Keychain of the app.
         let keychains = [
             KeychainStore(service: "ReminisLink.pairing", synchronizable: true),
             KeychainStore(service: "ReminisLink.devices"),
         ]
-        let before = try keychains.map { try $0.allAccounts() }
+        let before = try keychains.map { try keychainAccounts($0) }
         let demo = makeDemo()
+        // Without the Keychain (unsigned build), a demo that wrote its
+        // identity or pairing there would fail right here: storing them is
+        // part of pairing, and the Keychain refuses every write.
         try await demo.pair()
         let identity = try demo.app.store.identity()
-        let after = try keychains.map { try $0.allAccounts() }
+        let after = try keychains.map { try keychainAccounts($0) }
         #expect(after == before)
-        #expect(!after.joined().contains { $0.contains(identity.clientId) || $0.contains(demo.pak.deviceId) })
+        #expect(!after.compactMap { $0 }.joined().contains { $0.contains(identity.clientId) || $0.contains(demo.pak.deviceId) })
         // Synced saves go to the session's temporary folder.
         await demo.app.session(for: demo.pak.deviceId).connect()
         let state = demo.app.saveSync(for: demo.pak.deviceId)

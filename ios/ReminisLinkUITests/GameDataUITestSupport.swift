@@ -110,13 +110,44 @@ enum GameDataUITest {
     static func expectShareSheetThenClose(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let sheet = app.otherElements["ActivityListView"]
         XCTAssertTrue(sheet.waitForExistence(timeout: 20), "no share sheet", file: file, line: line)
-        let close = app.buttons["header.closeButton"]
-        if close.exists {
-            close.tap()
-        } else {
-            app.buttons.matching(NSPredicate(format: "label == 'Close'")).firstMatch.tap()
+        // A tap while the sheet still slides in is lost: wait until its
+        // close button can be tapped, and tap again if the sheet stays.
+        let close = app.buttons.matching(NSPredicate(format: "identifier == 'header.closeButton' OR label == 'Close'")).firstMatch
+        for _ in 0..<3 {
+            if close.waitUntilHittable(timeout: 5) { close.tap() }
+            if sheet.waitForNonExistence(timeout: 5) { return }
         }
-        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "share sheet still shown", file: file, line: line)
+        XCTFail("share sheet still shown", file: file, line: line)
+    }
+
+    /// Dismisses the search of the flat library: its Cancel button on
+    /// iOS 18; iOS 26 has a Close (xmark) button instead: the text is
+    /// cleared, then the search closed.
+    @MainActor
+    static func endSearch(_ app: XCUIApplication) {
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.exists {
+            cancel.tap()
+            return
+        }
+        let field = app.searchFields.firstMatch
+        let clear = field.buttons["Clear text"].firstMatch
+        if clear.exists { clear.tap() }
+        let close = app.buttons["Close"].firstMatch
+        if close.exists { close.tap() }
+    }
+
+    /// Closes a confirmation dialog without choosing an action: its Cancel
+    /// button on iOS 18; on iOS 26 it is a popover without one, closed by
+    /// a tap outside.
+    @MainActor
+    static func dismissDialog(_ app: XCUIApplication) {
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.exists {
+            cancel.tap()
+        } else {
+            app.otherElements["PopoverDismissRegion"].firstMatch.tap()
+        }
     }
 
     /// Scrolls the list until `element` exists (rows are created lazily).

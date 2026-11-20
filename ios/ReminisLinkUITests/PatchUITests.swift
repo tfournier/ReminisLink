@@ -37,7 +37,7 @@ final class PatchUITests: XCTestCase {
         app.buttons["Replace the Game"].firstMatch.tapAfterWaiting()
         XCTAssertTrue(app.descendants(matching: .any)["patch.replaceWarning"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["patch.apply"].tapWhenEnabled()
-        app.buttons["patch.replaceConfirm"].tapAfterWaiting()
+        app.dialogButton("patch.replaceConfirm").tapAfterWaiting()
         let done = app.buttons["patch.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 20), "patch not applied")
         XCTAssertTrue(app.descendants(matching: .any)["notice"].firstMatch.exists)
@@ -126,7 +126,7 @@ final class PatchUITests: XCTestCase {
         chooseGame(app, system: "GBA", game: newName, timeout: 30)
         app.buttons["Replace the Game"].firstMatch.tapAfterWaiting()
         app.buttons["patch.apply"].tapWhenEnabled(timeout: 20)
-        app.buttons["patch.replaceConfirm"].tapAfterWaiting()
+        app.dialogButton("patch.replaceConfirm").tapAfterWaiting()
         XCTAssertTrue(app.buttons["patch.done"].waitForExistence(timeout: 60), "replacement not applied")
         attachScreenshot(of: app, named: "headless-replaced")
     }

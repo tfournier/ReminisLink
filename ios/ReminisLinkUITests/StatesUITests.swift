@@ -31,31 +31,31 @@ final class StatesUITests: XCTestCase {
 
         // Locked: no Delete; unlock, then delete (to the trash).
         slot0.tap()
-        XCTAssertTrue(app.buttons["state.unlock"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.buttons["state.delete"].exists, "a locked state offers Delete")
-        app.buttons["state.unlock"].tap()
-        app.alerts.firstMatch.buttons["confirm.ok"].tapAfterWaiting()
+        XCTAssertTrue(app.dialogButton("state.unlock").waitForExistence(timeout: 10))
+        XCTAssertFalse(app.dialogButton("state.delete").exists, "a locked state offers Delete")
+        app.dialogButton("state.unlock").tap()
+        app.alerts.firstMatch.dialogButton("confirm.ok").tapAfterWaiting()
         GameDataUITest.waitForNotice(app)
         slot0.tapAfterWaiting()
-        app.buttons["state.delete"].tapAfterWaiting()
+        app.dialogButton("state.delete").tapAfterWaiting()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'trash'")).firstMatch.exists)
-        alert.buttons["confirm.ok"].tap()
+        alert.dialogButton("confirm.ok").tap()
         GameDataUITest.waitForNotice(app)
         XCTAssertTrue(slot0.waitForNonExistence(timeout: 10))
 
         // Lock slot 1.
         let slot1 = app.buttons["state.1"]
         slot1.tapAfterWaiting()
-        app.buttons["state.lock"].tapAfterWaiting()
+        app.dialogButton("state.lock").tapAfterWaiting()
         GameDataUITest.waitForNotice(app)
         XCTAssertEqual(slot1.value as? String, "Locked")
 
         // Resume history: restore the newest version.
         app.swipeUp()
         app.buttons.matching(identifier: "resume.entry").firstMatch.tapAfterWaiting()
-        app.alerts.firstMatch.buttons["confirm.ok"].tapAfterWaiting()
+        app.alerts.firstMatch.dialogButton("confirm.ok").tapAfterWaiting()
         GameDataUITest.waitForNotice(app)
         attachScreenshot(of: app, named: "states-after")
     }
@@ -71,18 +71,18 @@ final class StatesUITests: XCTestCase {
         let slot1 = app.buttons["state.1"]
         XCTAssertTrue(slot1.waitForExistence(timeout: 30))
         slot1.tap()
-        if app.buttons["state.lock"].waitForExistence(timeout: 10) {
-            app.buttons["state.lock"].tap()
+        if app.dialogButton("state.lock").waitForExistence(timeout: 10) {
+            app.dialogButton("state.lock").tap()
             GameDataUITest.waitForNotice(app, timeout: 30)
         } else {
             // Already locked by a previous run.
-            app.buttons["Cancel"].firstMatch.tap()
+            GameDataUITest.dismissDialog(app)
         }
         XCTAssertEqual(slot1.value as? String, "Locked")
         // Locked: deleting is not offered; the state stays.
         slot1.tap()
-        XCTAssertFalse(app.buttons["state.delete"].waitForExistence(timeout: 3))
-        app.buttons["Cancel"].firstMatch.tap()
+        XCTAssertFalse(app.dialogButton("state.delete").waitForExistence(timeout: 3))
+        GameDataUITest.dismissDialog(app)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(
             format: "label CONTAINS 'restored the next time ReminisLink is opened on the console'"
         )).firstMatch.exists)

@@ -35,6 +35,11 @@ struct PatchAppTests {
 
     func makeApp(_ pak: FakePak, pair: Bool = true) async throws -> AppModel {
         let suite = "ReminisLinkTests.\(UUID().uuidString)"
+        // No save sync on connect: it would run in the background, and its
+        // requests could take the answers a test queues for the patch flow
+        // (`pak.enqueue`), depending on the speed of the machine.
+        let settings = UserDefaults(suiteName: suite)!
+        settings.set(false, forKey: AppModel.syncOnConnectKey)
         let app = AppModel(
             store: DeviceStore(secureStore: secure, defaults: UserDefaults(suiteName: suite)!),
             discovery: Discovery(fixedDevices: [pak.discoveredDevice]),
@@ -42,6 +47,7 @@ struct PatchAppTests {
             shareInbox: ShareInbox(root: root.appending(path: "inbox")),
             transferDirectory: root.appending(path: "transfers"),
             exportDirectory: root.appending(path: "exports"),
+            settings: settings,
             lookupTimeout: .milliseconds(300),
             makeSession: { APIClient.makeSession(protocolClasses: [FakeURLProtocol.self]) }
         )

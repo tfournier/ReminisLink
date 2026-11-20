@@ -85,7 +85,7 @@ final class PairingUITests: XCTestCase {
         app.buttons["demo.pair"].tapAfterWaiting()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "no confirmation")
-        alert.buttons["repair.confirm"].tap()
+        alert.dialogButton("repair.confirm").tap()
         XCTAssertTrue(app.buttons["pairing.done"].waitForExistence(timeout: 15))
     }
 
@@ -205,6 +205,15 @@ final class PairingUITests: XCTestCase {
 }
 
 extension XCUIElement {
+    /// A button of an alert or a confirmation dialog, by identifier (or
+    /// label). iOS 26 wraps each action of an alert or action sheet in a
+    /// second button with the same identifier and label: two matches there,
+    /// one on iOS 18. They are the same action; the outer one is used.
+    @MainActor
+    func dialogButton(_ identifier: String) -> XCUIElement {
+        buttons.matching(identifier: identifier).firstMatch
+    }
+
     @MainActor
     func tapAfterWaiting(timeout: TimeInterval = 10, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(waitForExistence(timeout: timeout), "\(self) not found", file: file, line: line)
@@ -216,5 +225,13 @@ extension XCUIElement {
         let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND enabled == true"), object: self)
         XCTAssertEqual(XCTWaiter().wait(for: [enabled], timeout: timeout), .completed, "\(self) not enabled", file: file, line: line)
         tap()
+    }
+
+    /// Waits until the element exists and can be tapped (not covered, not
+    /// sliding in).
+    @MainActor
+    func waitUntilHittable(timeout: TimeInterval) -> Bool {
+        let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: self)
+        return XCTWaiter().wait(for: [hittable], timeout: timeout) == .completed
     }
 }

@@ -94,7 +94,7 @@ final class AddFileUITests: XCTestCase {
         attachScreenshot(app, "deleted")
         XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
         app.buttons["delete.emptyNow"].tapAfterWaiting(timeout: 20)
-        app.buttons["delete.emptyConfirm"].tapAfterWaiting(timeout: 10)
+        app.dialogButton("delete.emptyConfirm").tapAfterWaiting(timeout: 10)
         XCTAssertTrue(app.descendants(matching: .any)["delete.emptied"].firstMatch.waitForExistence(timeout: 20))
         app.buttons["delete.done"].tap()
         XCTAssertTrue(game.waitForNonExistence(timeout: 20), "game still listed")

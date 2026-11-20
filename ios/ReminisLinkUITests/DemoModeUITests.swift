@@ -44,7 +44,7 @@ final class DemoModeUITests: XCTestCase {
         let downloaded = app.alerts.firstMatch
         XCTAssertTrue(downloaded.waitForExistence(timeout: 15), "no confirmation of the demo download")
         XCTAssertFalse(app.otherElements["ActivityListView"].exists, "the share sheet opened in the demo")
-        downloaded.buttons["demo.export.ok"].tap()
+        downloaded.dialogButton("demo.export.ok").tap()
 
         // The console list of the demo: the demo console, no Add a Console.
         app.tabBars.buttons["Console"].tap()

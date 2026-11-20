@@ -69,7 +69,7 @@ final class ErgonomicsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["game.Mosslight Maze 🌙"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["game.Thistledown Isles"].waitForNonExistence(timeout: 5))
         attachScreenshot(of: app, named: "library-search")
-        app.buttons["Cancel"].firstMatch.tap()
+        GameDataUITest.endSearch(app)
         XCTAssertTrue(app.buttons["game.Thistledown Isles"].waitForExistence(timeout: 5))
 
         // Filter: games with cheats.

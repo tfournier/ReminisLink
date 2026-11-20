@@ -37,16 +37,16 @@ final class SyncUITests: XCTestCase {
         XCTAssertTrue(app.buttons["synced.version.1"].waitForExistence(timeout: 10), "two versions expected")
         attachScreenshot(of: app, named: "sync-versions")
         app.buttons["synced.version.1"].tap()
-        app.buttons["synced.restore"].tapAfterWaiting()
+        app.dialogButton("synced.restore").tapAfterWaiting()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'clock file on the console is kept'")).firstMatch.exists)
-        alert.buttons["synced.restore.confirm"].tap()
+        alert.dialogButton("synced.restore.confirm").tap()
         GameDataUITest.waitForNotice(app)
 
         // Share the newest version.
         app.buttons["synced.version.0"].tapAfterWaiting()
-        app.buttons["synced.share"].tapAfterWaiting()
+        app.dialogButton("synced.share").tapAfterWaiting()
         GameDataUITest.expectShareSheetThenClose(app)
 
         // Back on the dashboard, the restored save is a change: one new version.
@@ -99,10 +99,10 @@ final class SyncUITests: XCTestCase {
 
         openVersions(app, system: "Game Boy Advance (GBA)", game: GameDataUITest.headlessGame, timeout: 30)
         app.buttons["synced.version.0"].tapAfterWaiting(timeout: 10)
-        app.buttons["synced.restore"].tapAfterWaiting()
+        app.dialogButton("synced.restore").tapAfterWaiting()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
-        alert.buttons["synced.restore.confirm"].tap()
+        alert.dialogButton("synced.restore.confirm").tap()
         GameDataUITest.waitForNotice(app, timeout: 30)
         attachScreenshot(of: app, named: "sync-headless-restored")
     }

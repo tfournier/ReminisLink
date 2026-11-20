@@ -22,7 +22,13 @@ final class PaksUITests: XCTestCase {
         app.buttons["pairing.done"].tapAfterWaiting(timeout: 15)
 
         // Console tab > Apps: tools, then emulators; ReminisLink marked.
-        app.buttons["console.paks"].tapAfterWaiting(timeout: 15)
+        // Below the dashboard's first screen on a tall phone (rows are
+        // created lazily): scrolled to once the console answered.
+        let paks = app.buttons["console.paks"]
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'DemoOS-20261013'")).firstMatch
+            .waitForExistence(timeout: 15), "not connected")
+        XCTAssertTrue(GameDataUITest.scrollTo(paks, in: app), "no Apps row")
+        paks.tap()
         XCTAssertTrue(app.navigationBars["Apps"].waitForExistence(timeout: 10))
         let me = app.descendants(matching: .any)["pak.ReminisLink"].firstMatch
         XCTAssertTrue(me.waitForExistence(timeout: 10), "ReminisLink not listed")
@@ -32,7 +38,9 @@ final class PaksUITests: XCTestCase {
         attachScreenshot(of: app, named: "paks")
         me.swipeLeft()
         XCTAssertFalse(app.buttons["pak.delete"].waitForExistence(timeout: 2), "ReminisLink can be deleted")
-        me.swipeRight()
+        // Nothing was revealed: no swipe back over the row (on iOS 26, a
+        // swipe right anywhere on a pushed screen goes back).
+        XCTAssertTrue(app.navigationBars["Apps"].exists, "left the Apps screen")
 
         // Install from the SD card: Downloads/Clock.pak.zip meets Clock.
         app.buttons["paks.install"].tapAfterWaiting()
@@ -42,8 +50,9 @@ final class PaksUITests: XCTestCase {
         attachScreenshot(of: app, named: "sd-picker")
         app.buttons["sd.Clock.pak.zip"].tapAfterWaiting()
         app.buttons["pakInstall.confirm"].tapWhenEnabled(timeout: 10)
-        let replace = app.buttons["pakReplace.confirm"].exists
-            ? app.buttons["pakReplace.confirm"] : app.buttons.matching(NSPredicate(format: "label == 'Replace'")).firstMatch
+        // The action of the dialog (iOS 26 nests it in a second button
+        // with the same identifier: the first match).
+        let replace = app.buttons.matching(NSPredicate(format: "identifier == 'pakReplace.confirm' OR label == 'Replace'")).firstMatch
         XCTAssertTrue(replace.waitForExistence(timeout: 15), "the replacement is not asked")
         XCTAssertTrue(app.staticTexts["The current version goes to the trash of the console."].exists)
         attachScreenshot(of: app, named: "replace")
@@ -56,7 +65,7 @@ final class PaksUITests: XCTestCase {
         XCTAssertTrue(GameDataUITest.scrollTo(files, in: app))
         files.swipeLeft()
         app.buttons["pak.delete"].tapAfterWaiting()
-        app.buttons["pak.delete.confirm"].tapAfterWaiting()
+        app.dialogButton("pak.delete.confirm").tapAfterWaiting()
         GameDataUITest.waitForNotice(app)
         XCTAssertTrue(files.waitForNonExistence(timeout: 10), "still listed")
         attachScreenshot(of: app, named: "deleted")
@@ -109,14 +118,16 @@ final class PaksUITests: XCTestCase {
 
         // Console tab > Apps: listed; deleted to the trash.
         app.tabBars.buttons["Console"].tap()
-        app.buttons["console.paks"].tapAfterWaiting(timeout: 20)
+        let paks = app.buttons["console.paks"]
+        XCTAssertTrue(GameDataUITest.scrollTo(paks, in: app, attempts: 8), "no Apps row")
+        paks.tap()
         let row = app.descendants(matching: .any)["pak.\(name)"].firstMatch
         XCTAssertTrue(GameDataUITest.scrollTo(row, in: app), "the pak is not listed")
         XCTAssertTrue(row.label.contains("0.0.1"), row.label)
         attachScreenshot(of: app, named: "listed")
         row.swipeLeft()
         app.buttons["pak.delete"].tapAfterWaiting()
-        app.buttons["pak.delete.confirm"].tapAfterWaiting()
+        app.dialogButton("pak.delete.confirm").tapAfterWaiting()
         GameDataUITest.waitForNotice(app, timeout: 20)
         XCTAssertTrue(row.waitForNonExistence(timeout: 10), "still listed")
 

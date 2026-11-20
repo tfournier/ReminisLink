@@ -27,7 +27,7 @@ final class CheatsUITests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 10), "no conflict alert")
         XCTAssertTrue(alert.label.contains("changed on the console"), alert.label)
         attachScreenshot(of: app, named: "cheats-conflict")
-        alert.buttons["cheats.reload"].tap()
+        alert.dialogButton("cheats.reload").tap()
         // The list of the console is shown, with the cheat added there.
         XCTAssertTrue(GameDataUITest.scrollTo(GameDataUITest.button(app, "cheat.edit", containing: "Added on the console"), in: app))
         XCTAssertFalse(app.buttons["cheats.save"].exists, "local changes kept after reload")

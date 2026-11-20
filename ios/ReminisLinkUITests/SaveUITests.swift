@@ -70,11 +70,11 @@ final class SaveUITests: XCTestCase {
 
         // Restore it: the confirmation says the current save is copied first.
         row.tap()
-        app.buttons["backup.restore"].tapAfterWaiting()
+        app.dialogButton("backup.restore").tapAfterWaiting()
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
         XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS 'first copied'")).firstMatch.exists)
-        alert.buttons["backup.restoreConfirm"].tap()
+        alert.dialogButton("backup.restoreConfirm").tap()
         GameDataUITest.waitForNotice(app, timeout: timeout)
         XCTAssertTrue(GameDataUITest.button(app, "backup.row", containing: "Before restoration").waitForExistence(timeout: timeout))
 
@@ -84,9 +84,9 @@ final class SaveUITests: XCTestCase {
 
         // Delete the copy.
         row.tapAfterWaiting(timeout: timeout)
-        app.buttons["backup.delete"].tapAfterWaiting()
+        app.dialogButton("backup.delete").tapAfterWaiting()
         XCTAssertTrue(alert.waitForExistence(timeout: 10))
-        alert.buttons["backup.deleteConfirm"].tap()
+        alert.dialogButton("backup.deleteConfirm").tap()
         GameDataUITest.waitForNotice(app, timeout: timeout)
         XCTAssertTrue(row.waitForNonExistence(timeout: timeout), "copy still listed")
     }
