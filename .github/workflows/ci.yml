@@ -102,7 +102,9 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, ios]
+    # The pak release depends on the pak jobs only: the iOS app has its own
+    # release path (M17).
+    needs: [go, contract, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write

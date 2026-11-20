@@ -1,4 +1,22 @@
-# ReminisLink
+<p align="center">
+  <img src="docs/icon.png" alt="ReminisLink icon" width="128" height="128">
+</p>
+
+<h1 align="center">ReminisLink</h1>
+
+<p align="center">Your iPhone, companion of your retro handheld.</p>
+
+<p align="center">
+  <a href="https://github.com/tfournier/ReminisLink/actions/workflows/ci.yml"><img src="https://github.com/tfournier/ReminisLink/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/tfournier/ReminisLink/releases/latest"><img src="https://img.shields.io/github/v/release/tfournier/ReminisLink?label=pak" alt="Latest pak release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <a href="https://reminis.link">Website</a> ·
+  <a href="https://reminis.link/install/">Installation</a> ·
+  <a href="https://reminis.link/support/">Support</a>
+</p>
 
 ReminisLink lets you manage the games on your retro handheld from your iPhone: ROMs, saves, save states, cheats and ROM patches. Bring your own files: ReminisLink does not provide or find any game.
 

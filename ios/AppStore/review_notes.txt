@@ -5,3 +5,5 @@ To review without the hardware, tap *Try Without a Console* on the first screen:
 The app lists the games found on the SD card of the handheld, but provides no game, no catalog and no source of games, and links to none. Users add files they own, from the Files app or the share sheet. Neither the app nor the handheld downloads files from the internet.
 
 Permissions: local network (to find the handheld with Bonjour and talk to it over HTTPS on the local network; the app only accepts the handheld's certificate whose fingerprint is in the pairing QR code) and camera (to scan the pairing QR code shown by the handheld).
+
+The attached video shows a real pairing with the ReminisLink tool (the same software as on the handheld, running on a computer), then the console, the library, a game and the Apps screen.
