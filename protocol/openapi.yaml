@@ -105,11 +105,13 @@ info:
     Several paired clients may act at the same time; there is no write
     lease and no read-only client (the M10 lease, `/writer` and
     `423 read_only` are gone). The pak runs the operations that change the
-    SD card one at a time: deletions, replacements, restores, cheats, art,
-    trash, state locks, creating and cancelling an upload, cancelling a
-    job, and the final step of an upload (`POST /uploads/{uploadId}/complete`).
-    Upload chunks (`PUT /uploads/{uploadId}`) are written to the staging
-    area without waiting. A device-side download or a patch (a job) waits
+    SD card one at a time: deletions, replacements, restores, save
+    backups, cheats (an import waits once its source is read), art,
+    trash, state locks, and the final step of an upload
+    (`POST /uploads/{uploadId}/complete`). Creating or cancelling an
+    upload, its chunks (`PUT /uploads/{uploadId}`) and cancelling a job
+    only touch the staging area of the pak and never wait. A device-side
+    download or a patch (a job) waits
     for its turn only for the step that installs its file, never failing
     for it. A request that arrives while another write runs waits for it
     to finish (after its body was received and verified); if it waited
