@@ -152,7 +152,11 @@ struct GameDetailView: View {
         .task { if detail == nil { await load() } }
         .refreshable { await load() }
         // Back from the save, states or cheats screens: counters may have changed.
-        .onChange(of: app.session(for: route.deviceId).libraryRevision) { Task { await load() } }
+        .onChange(of: app.session(for: route.deviceId).libraryRevision) {
+            // M14: a change of another system leaves this game as it is.
+            guard app.session(for: route.deviceId).libraryChangeAffects(detail?.systemId) else { return }
+            Task { await load() }
+        }
         .sheet(item: $patch) { context in
             PatchView(context: context)
         }

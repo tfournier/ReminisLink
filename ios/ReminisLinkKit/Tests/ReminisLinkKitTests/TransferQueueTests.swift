@@ -354,6 +354,26 @@ struct TransferQueueTests {
         #expect(!queue.isBusy)
     }
 
+    @Test func aPollThatIsNoLongerCurrentShowsNothing() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let queue = makeQueue(client)
+        let accepted = try await client.createDownload(DownloadRequest(url: "https://example.org/a.gba",
+                                                                       target: .rom(systemId: gbaSystemId, fileName: nil)))
+        let item = queue.track(jobId: accepted.jobId, title: "a.gba")
+        // The answer is held; the poll stops being current meanwhile (M14:
+        // its stream ended).
+        let gate = pak.holdNextAnswer(method: "GET", path: APIClient.apiPrefix + "/jobs/" + accepted.jobId)
+        var current = true
+        let poll = Task { await queue.refreshJobs(force: true, isCurrent: { current }) }
+        while !gate.reached { try await Task.sleep(for: .milliseconds(5)) }
+        current = false
+        gate.open()
+        await poll.value
+        #expect(item.job == nil)
+        #expect(item.failure == nil)
+    }
+
     @Test func jobLostWhenThePakRestarts() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

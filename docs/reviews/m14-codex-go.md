@@ -1,0 +1,20 @@
+Verdict : à corriger
+
+## Bloquant
+
+- [internal/server/events.go:139](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/server/events.go:139) Un flux peut encore émettre après « Déconnecter » ou « Oublier ». Si un événement est en file au moment de la révocation, `sub.C()` et `sub.Done()` sont tous deux prêts. Le `select` peut choisir l’événement et l’envoyer après le retour de l’action. Si une écriture est déjà bloquée, la révocation ne l’interrompt pas et le hub libère immédiatement sa place. Après reconnexion, quatre nouveaux flux peuvent donc être admis pendant que les anciens tournent encore. Donner priorité à la révocation, interrompre l’écriture en cours et libérer le quota à la sortie du handler.
+- [internal/server/events.go:145](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/server/events.go:145) Un abonné lent peut retarder l’arrêt et le retrait Bonjour. Si le tampon TCP est plein et que l’utilisateur quitte le pak pendant une écriture SSE, cette écriture garde son délai normal de 60 s. Le délai d’une seconde ne s’applique qu’une fois dans `endStream`. Le serveur peut alors attendre 10 s avant de forcer la fermeture, sans que `shutdown` soit envoyé. L’application attend ensuite le retour du serveur avant de retirer l’annonce. Borner aussi l’écriture en cours dès le début de l’arrêt et donner à l’envoi final un budget global indépendant du retrait Bonjour. [Arrêt du serveur](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/server/http.go:85) · [Retrait Bonjour](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/app/app.go:508)
+- [internal/server/events.go:300](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/server/events.go:300) Un événement `device` peut republier une présence révoquée. Le relevé capture B dans `connectedClients`, puis lit la batterie et le stockage. Si B est déconnecté entre ces deux étapes et que la batterie a changé, le relevé est publié après la révocation avec B encore présent. A peut ainsi recevoir un état où B est connecté après qu’un `GET /device` l’a déjà retiré. Invalider les relevés en cours ou en attente à la révocation et vérifier leur génération avant publication.
+- [internal/events/hub.go:288](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/events/hub.go:288) L’arrêt contourne la limite d’un événement `library` par seconde. Deux modifications réussissent à moins d’une seconde d’intervalle. La première est publiée et la seconde est mise en attente. Si le pak quitte avant l’échéance, `Shutdown` publie immédiatement la seconde, même pour un abonné qui lit normalement. Conserver la limite à l’arrêt ou définir explicitement cette exception dans le contrat.
+
+## À corriger
+
+- [internal/server/events_test.go:366](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/server/events_test.go:366) Le test de révocation couvre des flux au repos. Ajouter des cas synchronisés avec un événement en file, une écriture bloquée et un relevé `device` interrompu par une révocation. Le test d’arrêt actuel couvre un abonné qui lit normalement. [Test d’arrêt](/Users/tfournier/projets/github.com/tfournier/reminislink-m14-go/internal/app/app_test.go:681)
+
+**Tests lancés**
+
+- `gofmt -l cmd internal protocol scripts` — réussi, aucun fichier signalé.
+- `scripts/sync-test-vectors.sh --check` — réussi, les copies Swift correspondent.
+- `make lint test` et `make contract` — non lancés. Leurs recettes écrivent dans les caches ou répertoires temporaires Go, ou créent un conteneur Docker. Les suites iOS étaient hors périmètre du diff.
+
+Revue effectuée sur `m14-events...HEAD` avec les deux commits de contrat indiqués. Aucun prompt M14 n’était présent dans `prompts/`. La description de la PR est restée inaccessible. `gh` n’était pas authentifié et la page GitHub n’a pas pu être chargée. Aucun fichier modifié.

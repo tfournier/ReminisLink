@@ -19,6 +19,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/cheats"
 	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/discovery"
+	"github.com/tfournier/ReminisLink/internal/events"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
@@ -460,24 +461,36 @@ func (a *App) withdraw() {
 	}
 }
 
-// Shutdown stops the pak (05 §2.6). It is also the SIGTERM path: when
+// Shutdown stops the pak (05 §2.6); the event streams get a shutdown
+// event with the reason "stopped" (see Quit). It is also the SIGTERM path: when
 // NextUI powers off, procd waits about one second before SIGKILL and the
 // network is already down, so what protects the data comes first:
 //
 //  1. a running maintenance is cancelled and waited for (it stops between
 //     two files) and Start is refused (ErrStopped);
-//  2. new requests get 503 shutting_down;
+//  2. new requests get 503 shutting_down, and the event streams get the
+//     shutdown event (it is only queued: the streams write it while the
+//     next steps run, before the HTTP server stops);
 //  3. the trash credit clock is saved and the SD card is synced: what is
 //     written is on the card;
 //  4. then the rest, which a SIGKILL may cut without harm (every write is
-//     atomic and resumed at the next start): the running requests get up
-//     to server.ShutdownTimeout, the network watch and the announcement
-//     stop, the running download is cancelled (its partial file deleted),
-//     and the card is synced again.
+//     atomic and resumed at the next start): the network watch and the
+//     announcement stop (the Bonjour goodbye never waits for the requests
+//     nor the event streams), the running requests get up to
+//     server.ShutdownTimeout, the running download is cancelled (its
+//     partial file deleted), and the card is synced again.
 //
 // It returns the error of the server, if any. Safe to call more than once
 // and from several goroutines: the later calls wait for the first one.
-func (a *App) Shutdown() error {
+func (a *App) Shutdown() error { return a.shutdown(events.ReasonStopped) }
+
+// Quit is Shutdown when the user leaves ReminisLink on the console: the
+// event streams get the shutdown event with the reason "quit".
+func (a *App) Quit() error { return a.shutdown(events.ReasonQuit) }
+
+// shutdown is Shutdown with the reason of the shutdown event; the first
+// call decides it.
+func (a *App) shutdown(reason string) error {
 	a.stopOnce.Do(func() {
 		a.maintCancel()
 		a.maintMu.Lock() // waits for a running maintenance
@@ -488,20 +501,22 @@ func (a *App) Shutdown() error {
 
 		if a.srv != nil {
 			a.srv.BeginShutdown()
+			a.srv.CloseEvents(reason)
 		}
 		a.stopCredit()
 		syscall.Sync()
 
-		if a.cancel != nil {
-			a.cancel()
-			<-a.served
-			a.stopErr = a.serveErr
-		}
+		// The watch first: it could announce again.
 		if a.stopWatch != nil {
 			close(a.stopWatch)
 			<-a.watchDone
 		}
 		a.withdraw()
+		if a.cancel != nil {
+			a.cancel()
+			<-a.served
+			a.stopErr = a.serveErr
+		}
 		a.xfer.Close()
 		syscall.Sync()
 		a.log.Info("ReminisLink stopped")

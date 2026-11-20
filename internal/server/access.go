@@ -51,6 +51,20 @@ type access struct {
 	// lookupHook, when set (tests), is called by Lookup after the client
 	// is read, before the verifier goes on.
 	lookupHook atomic.Pointer[func(id string)]
+	// onRevoke is called, with mu held, on every revocation: it closes
+	// the event streams of the client (M14). It must not block nor call
+	// access.
+	onRevoke func(id string)
+	// onPresence is called, with mu held, when a client becomes connected
+	// or is revoked: the device events follow (M14). It must not block
+	// nor call access.
+	onPresence func()
+}
+
+func (a *access) presenceChangedLocked() {
+	if a.onPresence != nil {
+		a.onPresence()
+	}
 }
 
 // Lookup is the auth.ClientLookup of the verifier: the client and its
@@ -122,6 +136,10 @@ func (a *access) revokeLocked(id, code string) {
 	a.revokedCode[id] = code
 	a.dropLeaseLocked(id)
 	a.presence.forget(id)
+	if a.onRevoke != nil {
+		a.onRevoke(id)
+	}
+	a.presenceChangedLocked()
 }
 
 // checkLocked refuses a disconnected client (unless allowed) or one no
@@ -203,9 +221,40 @@ func (a *access) accept(ad admission, opts auth.RouteOptions) (other *leaseHolde
 		delete(a.disconnected, ad.id)
 	}
 	if !a.disconnected[ad.id] {
-		a.presence.touch(ad.id, a.now())
+		if a.presence.touch(ad.id, a.now()) {
+			a.presenceChangedLocked()
+		}
 	}
 	return nil, nil, lifted
+}
+
+// streamOpened records an open event stream (M14) for a request accepted
+// with this admission: its client counts as connected until the stream
+// closes. It refuses a client revoked since the acceptance (the stream
+// subscribes after it, so the revocation did not close it).
+func (a *access) streamOpened(ad admission) *auth.Rejection {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if rej := a.checkGenLocked(ad, false); rej != nil {
+		return rej
+	}
+	if a.presence.streamOpened(ad.id, a.now()) {
+		a.presenceChangedLocked()
+	}
+	return nil
+}
+
+// streamClosed is the end of a stream recorded by streamOpened: after the
+// last one, the client stays connected for ConnectedWindow. Nothing
+// happens if the client was revoked since (its presence is gone, and a
+// stream opened after a reconnection is counted with the new generation).
+func (a *access) streamClosed(ad admission) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.gen[ad.id] != ad.gen || a.disconnected[ad.id] {
+		return
+	}
+	a.presence.streamClosed(ad.id, a.now())
 }
 
 // rollback gives back the reservation of a rejected request, if nothing
@@ -326,7 +375,7 @@ func (a *access) pair(c auth.Client) error {
 func (a *access) devices(connectedSince time.Time) []DeviceStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	seen := a.presence.seenSince(connectedSince)
+	seen := a.presence.seenSince(connectedSince, a.now())
 	held := a.currentLocked()
 	list := a.clients.List()
 	out := make([]DeviceStatus, 0, len(list))

@@ -110,6 +110,18 @@ Suggestions de la personne du 19/11/2026, après essai de M10 ; lancé le 19/11/
 
 **Fait quand** : chaque point visible dans l'app (démo et pak headless), téléchargement d'une ROM et d'un fichier de cheats vers Fichiers, recherche et filtres dans la bibliothèque à plat, tests des deux côtés, revue croisée.
 
+## M14 — Événements poussés par la console (SSE)
+
+Idée de la personne du 20/11/2026 ; fait avant M13 (ordre : M11 → M14 → M13 → M12). Contrat : `GET /events`, flux Server-Sent Events signé à l'ouverture.
+
+- **Fermeture du pak** : événement `shutdown` puis fin du flux ; l'app revient à la liste des consoles aussitôt (la détection par Bonjour reste en secours).
+- **Signe de vie** toutes les 15 s au plus ; 35 s sans rien reçu = connexion perdue (veille, Wi-Fi coupé) : l'app l'affiche comme aujourd'hui une coupure réseau.
+- **`library`** après toute modification de la carte par un client (envoi installé, suppression, remplacement, restauration, patch, cheats, image, corbeille) : l'app rafraîchit ce qu'elle affiche.
+- **`job`** : avancement des téléchargements par URL et des patchs (remplace l'interrogation chaque seconde) ; **`device`** : batterie, appareils connectés, espace libre.
+- Le pak ferme le flux d'un client déconnecté ou oublié depuis la console, ou désappairé. 4 flux par client, 16 en tout.
+
+**Fait quand** : la fermeture du pak ramène l'app à la liste en moins de 2 s sans action ; un envoi depuis un second client rafraîchit la bibliothèque du premier ; tests des deux côtés et contre `make headless` ; revue croisée.
+
 ## M12 — Gestion des apps (paks) (décidé, après M13)
 
 Demande et décisions de la personne du 19/11/2026.

@@ -11,6 +11,7 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | DELETE | `/clients/me` | Se désappairer |
 | POST | `/clients/me/connect` | Se reconnecter après une déconnexion par la console (M10) |
 | GET | `/device` | État de la console |
+| GET | `/events` | Flux d'événements de la console (Server-Sent Events, M14) |
 | GET / PUT / DELETE | `/writer` | Détenteur du bail d'écriture / le prendre ou le renouveler / le relâcher (M10) |
 | GET | `/systems` | Liste des systèmes |
 | GET | `/systems/{systemId}/games` | Contenu d'un système (dossiers et jeux) |
@@ -113,9 +114,47 @@ Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §
 
 `writer` (M10) : le client qui tient le bail d'écriture (`you` : c'est l'appelant ; `expiresAt` : fin du bail s'il n'est pas renouvelé), ou `null` si le bail est libre. Voir « Un seul appareil en écriture » ci-dessous.
 
-`connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
+`connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes, ou qui ont un flux d'événements ouvert (`GET /events`, M14 : connectés tant que le flux est ouvert, `lastSeenAt` vaut alors l'heure courante ; à la fermeture de leur dernier flux, les 30 s partent de ce moment ; une déconnexion ou un oubli depuis la console les retire aussitôt) (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
 
 `ssid`, `battery` et `osVersion` PEUVENT être `null` si l'information n'est pas disponible. Sources sur NextUI ([05 §6](05-console-pak.md#6-informations-de-la-console)) : `osVersion` = `.system/version.txt` (chaîne de release telle que l'affiche NextUI, ex. `NextUI-20261013-039a06de` : date de build et hash court ; jamais le numéro `v6.x.y` ; décision D4 du 19/11/2026) ; `battery` = `axp2202-battery/capacity` et `axp2202-usb/online` + `time_to_full_now` ; `ssid` = `wpa_supplicant` (`null` si `wpa_state` ≠ `COMPLETED`).
+
+### `GET /events` (M14)
+
+Flux **Server-Sent Events** (`Content-Type: text/event-stream`, UTF-8, `Cache-Control: no-store`). Route signée comme les autres, de lecture : la signature n'est vérifiée qu'à l'ouverture, elle ne prend pas le bail d'écriture (un client en lecture seule l'ouvre aussi), un client déconnecté depuis la console reçoit `401 disconnected`. Le flux reste ouvert tant que le pak tourne.
+
+```text
+id: 1
+event: hello
+data: {"serverTime":"2026-11-20T08:00:00Z","keepAliveSeconds":15}
+
+: keep-alive
+
+id: 2
+event: library
+data: {"systemIds":["R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ"]}
+
+id: 3
+event: shutdown
+data: {"reason":"quit"}
+```
+
+Chaque événement : `id: <n>` (croissant dans le flux, à partir de 1), `event: <type>`, une ligne `data: <JSON>`, puis une ligne vide. `Last-Event-ID` est ignoré : après une reconnexion, l'app recharge ce qu'elle affiche. Les types inconnus doivent être ignorés.
+
+| Type | `data` | Quand |
+|---|---|---|
+| `hello` | `{ serverTime, keepAliveSeconds }` | Premier événement, à l'ouverture |
+| `library` | `{ systemIds }` | Après toute modification de la carte faite par l'API, quel que soit le client : envoi installé (pas un envoi vers la zone d'attente), suppression d'un jeu, jaquette, corbeille, save remplacée, copie de save créée, supprimée ou restaurée, state supprimé, verrouillé, déverrouillé ou restauré, historique de reprise restauré, cheats, et tâche de téléchargement (hors zone d'attente) ou de patch réussie. `systemIds` nomme les systèmes touchés ; **vide** quand ils ne sont pas connus (corbeille) : l'app rafraîchit tout. Au plus un par seconde : les changements entre deux événements sont fusionnés (un « inconnu » l'emporte). |
+| `job` | un `Job` ([03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console)) | À chaque changement d'état d'une tâche (ou de `cancelRequested`), aussitôt ; pendant qu'elle avance, au plus une fois par seconde par tâche (le dernier état l'emporte). Tâches de tous les clients. |
+| `device` | `{ battery, connectedClients, storage }` (mêmes champs que `GET /device`) | Quand la batterie (pourcentage ou charge), l'ensemble des clients connectés (pas leur `lastSeenAt`) ou l'espace libre (d'au moins 1 Mio, le journal le change sans cesse) change ; lu toutes les 5 s, et seulement tant qu'au moins un flux est ouvert ; un client qui devient connecté ou est révoqué (déconnecté, oublié, désappairé) déclenche aussi l'événement, sans attendre le relevé. Au plus un toutes les 5 s par flux, comptées depuis l'écriture du précédent. L'événement est construit au moment où il est écrit : batterie et espace du dernier relevé, `connectedClients` de cet instant (un client retiré par une révocation n'y revient jamais). |
+| `shutdown` | `{ reason }` : `quit` (l'utilisateur quitte ReminisLink sur la console) ou `stopped` (le système arrête le pak : extinction, signal) | Au début de la fermeture du pak, avant l'arrêt du serveur HTTP ; puis le flux se termine. L'adieu Bonjour n'attend ni les flux ni les requêtes en cours. |
+
+- **Signe de vie** : un commentaire `: keep-alive` au moins toutes les 15 s. L'app considère 35 s sans aucun octet comme une connexion perdue.
+- **Client lent** : chaque écriture (événement ou signe de vie) a un délai de 60 s, comme les téléchargements de fichiers ; un client qui ne lit plus est coupé sans gêner les autres. Les événements sont mis en file par flux (bornée) : un flux trop en retard est fermé, l'app se reconnecte et recharge.
+- **Fin du flux** : à la fermeture du pak (après `shutdown`), et sans événement quand le client est déconnecté ou oublié depuis la console, se désappaire (`DELETE /clients/me`) ou est appairé de nouveau : plus rien n'est écrit dès que l'action est faite, et une écriture en cours est interrompue (connexion coupée). Le flux garde sa place dans les limites jusqu'à ce qu'il soit vraiment fermé ; une révocation pendant la fermeture du pak l'emporte sur l'envoi des derniers événements et de `shutdown`.
+- **Fermeture du pak** : les événements en attente de la fin de leur intervalle (un `library` fusionné, l'avancement d'une tâche) sont envoyés aussitôt, avant `shutdown`, sans attendre la fin de leur seconde. Les dernières écritures de tous les flux (événements restants et `shutdown`) doivent finir dans la seconde qui suit le début de la fermeture ; un client qui ne lit plus est coupé sans retarder l'arrêt.
+- **Limites** : 4 flux ouverts par client, 16 en tout ; au-delà, `429 too_many_attempts` avec `Retry-After` (5 s). Pendant la fermeture : `503 shutting_down`.
+- **Présence** : un client qui a au moins un flux ouvert compte comme connecté (`connectedClients` de `GET /device` et des événements `device`, état « Connecté » de la console), quel que soit le temps écoulé depuis sa dernière requête ; à la fermeture de son dernier flux, la règle des 30 s s'applique à partir de ce moment. Une révocation (déconnexion, oubli, désappairage) le retire aussitôt.
+- **Pas d'événement `device` initial** : le premier relevé après l'ouverture sert de référence ; l'app lit `GET /device` après `hello` pour avoir l'état de départ, puis suit les événements `device`.
 
 ---
 

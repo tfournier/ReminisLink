@@ -220,11 +220,11 @@ func TestAccessPresence(t *testing.T) {
 	ad := f.admit(t, idA, readOpts)
 	f.acc.disconnect(idA)
 	f.acc.accept(ad, readOpts)
-	if seen := f.acc.presence.seenSince(time.Time{}); len(seen) != 0 {
+	if seen := f.acc.presence.seenSince(time.Time{}, time.Time{}); len(seen) != 0 {
 		t.Fatalf("presence %v", seen)
 	}
 	f.acc.accept(f.admit(t, idB, readOpts), readOpts)
-	if seen := f.acc.presence.seenSince(time.Time{}); len(seen) != 1 {
+	if seen := f.acc.presence.seenSince(time.Time{}, time.Time{}); len(seen) != 1 {
 		t.Fatalf("presence %v", seen)
 	}
 }
@@ -299,7 +299,7 @@ func TestAccessConnectDoesNotLiftANewerDisconnection(t *testing.T) {
 	if rej == nil || rej.Code != CodeDisconnected || lifted || !f.acc.disconnected[idA] {
 		t.Fatalf("stale connect: %+v lifted=%v disconnected=%v", rej, lifted, f.acc.disconnected[idA])
 	}
-	if seen := f.acc.presence.seenSince(time.Time{}); len(seen) != 0 {
+	if seen := f.acc.presence.seenSince(time.Time{}, time.Time{}); len(seen) != 0 {
 		t.Fatalf("presence %v", seen)
 	}
 	// A connect admitted now lifts it and records presence.
@@ -307,7 +307,7 @@ func TestAccessConnectDoesNotLiftANewerDisconnection(t *testing.T) {
 	if _, rej, lifted := f.acc.accept(ad, opts); rej != nil || !lifted || f.acc.disconnected[idA] {
 		t.Fatalf("connect: %+v %v", rej, lifted)
 	}
-	if seen := f.acc.presence.seenSince(time.Time{}); len(seen) != 1 {
+	if seen := f.acc.presence.seenSince(time.Time{}, time.Time{}); len(seen) != 1 {
 		t.Fatalf("presence %v", seen)
 	}
 }

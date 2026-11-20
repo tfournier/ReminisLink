@@ -18,7 +18,7 @@
    - purge de la corbeille (entrées de plus de 30 jours d'âge crédité, voir §4), des envois expirés et des fichiers `staging` (> 24 h).
 4. **Serveur** : écoute sur `0.0.0.0:47821` (ou le premier port libre parmi les 9 suivants), puis annonce Bonjour.
 5. **Écran principal** (§7).
-6. **Fermeture** (B, ou signal SIGTERM/SIGINT) : refus des nouvelles requêtes (`503 shutting_down`), attente des écritures en cours (10 s maximum), retrait de l'annonce, `sync`, sortie.
+6. **Fermeture** (B, ou signal SIGTERM/SIGINT) : refus des nouvelles requêtes (`503 shutting_down`), événement `shutdown` aux flux d'événements (M14, 1 s au plus pour les écrire), `sync`, retrait de l'annonce (sans attendre les requêtes ni les flux), attente des écritures en cours (10 s maximum), `sync`, sortie.
 
 Le pak NE DOIT PAS laisser de processus en arrière-plan après sa fermeture.
 
@@ -205,7 +205,7 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 ```
 
 - **Appairage seulement à la demande** (M8, décision du 19/11/2026) : tant qu'aucun appareil n'est appairé, l'écran principal affiche le QR code et le PIN (comme ci-dessus). Dès qu'au moins un appareil est appairé, l'écran principal ne montre plus ni QR code ni PIN (nom, IP, état, appareils connectés, transferts) ; un nouvel appareil s'appaire depuis **Réglages > Appairer un nouvel appareil**, qui affiche le QR code et le PIN. L'appairage n'est **ouvert que pendant que le QR code ou le PIN est affiché** : sinon `POST /pair` répond `401 pairing_failed` sans compter d'échec, et `GET /hello` renvoie `pairingOpen: false`. Le secret et le PIN sont régénérés à chaque ouverture de l'écran d'appairage et invalidés à sa fermeture.
-- L'état **en haut à gauche** : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s), `Transfert en cours` ; la pastille ne chevauche jamais le titre.
+- L'état **en haut à gauche** : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s, ou un flux d'événements ouvert, M14), `Transfert en cours` ; la pastille ne chevauche jamais le titre.
 - Sous les appareils connectés, la ligne **Accès en écriture : <appareil>** quand un appareil tient le bail d'écriture (M10) ; absente quand le bail est libre.
 - **En haut à droite, le niveau de batterie** (pourcentage et indicateur de charge, source 05 §6), rafraîchi régulièrement ; sous 15 % et sans charge, affichage d'alerte et, pendant un transfert, bandeau « Batterie faible : branche la console » (M8, demande de la personne).
 - La liste des transferts et tâches en cours avec leur progression.
@@ -215,7 +215,7 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 
 - **Appairer un nouvel appareil** : affiche le QR code et le PIN et ouvre l'appairage jusqu'au retour (M8).
 - **Nom de la console** (clavier gabagool), utilisé dans Bonjour.
-- **Appareils** (M10, décision du 19/11/2026) : la liste des appareils appairés avec leur état : *connecté* (une requête signée acceptée depuis moins de 30 s), *a la main* (il tient le bail d'écriture, [04](04-api-v1.md#un-seul-appareil-en-écriture-m10)), *déconnecté* ; un appareil sans état affiche sa date d'appairage. A sur un appareil ouvre ses actions :
+- **Appareils** (M10, décision du 19/11/2026) : la liste des appareils appairés avec leur état : *connecté* (une requête signée acceptée depuis moins de 30 s, ou un flux d'événements ouvert, M14), *a la main* (il tient le bail d'écriture, [04](04-api-v1.md#un-seul-appareil-en-écriture-m10)), *déconnecté* ; un appareil sans état affiche sa date d'appairage. A sur un appareil ouvre ses actions :
   - **Déconnecter** : retire son bail d'écriture et refuse ses requêtes (`401 disconnected`) jusqu'à ce qu'il se reconnecte volontairement depuis l'app (`POST /clients/me/connect`). Tenu en mémoire : la fermeture du pak lève la déconnexion.
   - **Oublier** (avec confirmation) : supprime son appairage ; l'appareil devra se réappairer.
 - **Oublier tous les appareils** (confirmation).

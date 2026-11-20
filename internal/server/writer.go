@@ -184,7 +184,8 @@ type DeviceStatus struct {
 	ID       string
 	Name     string
 	PairedAt time.Time
-	// Connected: a signed request accepted in the last ConnectedWindow.
+	// Connected: a signed request accepted in the last ConnectedWindow, or
+	// an open event stream (M14).
 	Connected bool
 	// Writer: it holds the write lease.
 	Writer bool

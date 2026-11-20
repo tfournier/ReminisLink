@@ -18,7 +18,7 @@ type State int
 // States, by priority.
 const (
 	StateReady     State = iota // nothing going on
-	StateConnected              // a signed request in the last 30 s
+	StateConnected              // a signed request in the last 30 s, or an open event stream
 	StateTransfer               // a transfer or a job in progress
 	StateNoWiFi                 // the Wi-Fi address was lost (sleep, Wi-Fi off)
 )

@@ -307,3 +307,75 @@ components:
 		}
 	}
 }
+
+// The example of the event stream (GET /events, M14) is not JSON: each of
+// its events must name a declared type, have an increasing id, and carry
+// data matching the schema of its type.
+func TestEventStreamExampleIsValid(t *testing.T) {
+	s := contract(t)
+	media := lookup(s.root, "paths", "/events", "get", "responses", "200", "content", "text/event-stream")
+	example, ok := lookup(media, "example").(string)
+	if !ok || example == "" {
+		t.Fatal("no example for GET /events")
+	}
+	schemas := map[string]string{"hello": "EventHello", "shutdown": "EventShutdown", "device": "EventDevice", "library": "EventLibrary", "job": "Job"}
+	// The schemas listed in contentSchema are those of the event types.
+	var listed []string
+	for _, ref := range lookup(media, "schema", "contentSchema", "oneOf").([]any) {
+		r, _ := ref.(map[string]any)["$ref"].(string)
+		listed = append(listed, strings.TrimPrefix(r, "#/components/schemas/"))
+	}
+	var want []string
+	for _, name := range schemas {
+		want = append(want, name)
+	}
+	sort.Strings(listed)
+	sort.Strings(want)
+	if !reflect.DeepEqual(listed, want) {
+		t.Errorf("contentSchema lists %v, want %v", listed, want)
+	}
+	lastID, events := 0, 0
+	var types []string
+	for _, block := range strings.Split(strings.TrimSpace(example), "\n\n") {
+		var id, typ, data string
+		for _, line := range strings.Split(block, "\n") {
+			if strings.HasPrefix(line, ":") {
+				continue // comment (keep-alive)
+			}
+			field, value, ok := strings.Cut(line, ": ")
+			if !ok {
+				t.Fatalf("bad line %q", line)
+			}
+			switch field {
+			case "id":
+				id = value
+			case "event":
+				typ = value
+			case "data":
+				data = value
+			default:
+				t.Fatalf("unknown field %q", field)
+			}
+		}
+		if typ == "" {
+			continue
+		}
+		n, err := strconv.Atoi(id)
+		if err != nil || n <= lastID {
+			t.Errorf("event %s: id %q after %d", typ, id, lastID)
+		}
+		lastID = n
+		var v any
+		if err := json.Unmarshal([]byte(data), &v); err != nil {
+			t.Fatalf("event %s: %v", typ, err)
+		}
+		if err := s.ValidateSchema(schemas[typ], v); err != nil {
+			t.Errorf("event %s: %v", typ, err)
+		}
+		types = append(types, typ)
+		events++
+	}
+	if events < 3 || types[0] != "hello" {
+		t.Errorf("events %v", types)
+	}
+}

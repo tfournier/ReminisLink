@@ -443,7 +443,11 @@ struct FolderView: View {
         }
         .task { if listing == nil { await load() } }
         .refreshable { await load() }
-        .onChange(of: app.session(for: route.deviceId).libraryRevision) { Task { await load() } }
+        // M14: a change of another system leaves this folder as it is.
+        .onChange(of: app.session(for: route.deviceId).libraryRevision) {
+            guard app.session(for: route.deviceId).libraryChangeAffects(route.systemId) else { return }
+            Task { await load() }
+        }
         .sheet(item: $toDelete) { target in
             DeleteGameView(target: target)
         }

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/tfournier/ReminisLink/internal/events"
 )
 
 // HTTP server settings (docs/specs/03-protocole.md §1, 05-console-pak.md §2,
@@ -78,6 +80,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	s.log.Info("shutting down")
 	s.BeginShutdown()
+	// The streams get the shutdown event (unless the pak already sent it
+	// with its reason) and end, before the server waits for the requests.
+	s.CloseEvents(events.ReasonStopped)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.timeouts.shutdown)
 	err := srv.Shutdown(shutdownCtx)
 	cancel()
@@ -101,9 +106,10 @@ func (s *Server) httpServer(baseCtx context.Context) *http.Server {
 		ReadHeaderTimeout: ReadHeaderTimeout,
 		IdleTimeout:       IdleTimeout,
 		MaxHeaderBytes:    MaxHeaderBytes,
-		// No ReadTimeout nor WriteTimeout: transfers can be long. The body
-		// has an inactivity deadline instead (BodyIdleTimeout), and so do
-		// the file downloads (SendIdleTimeout).
+		// No ReadTimeout nor WriteTimeout: transfers can be long and the
+		// event streams stay open. The body has an inactivity deadline
+		// instead (BodyIdleTimeout), and so do the file downloads and the
+		// event streams (SendIdleTimeout, per write).
 		BaseContext: func(net.Listener) context.Context { return baseCtx },
 		// net/http's own messages (bad requests, TLS attempts...) can be
 		// caused by anyone: sampled like the rejected requests.

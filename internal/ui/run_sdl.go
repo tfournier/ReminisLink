@@ -109,7 +109,7 @@ func Run(o Options) error {
 	a.SetPairingVisible(false)
 
 	_, err := gaba.ProcessMessage(l10n.T(l10n.MsgClosing), gaba.ProcessMessageOptions{ShowThemeBackground: true},
-		func() (struct{}, error) { return struct{}{}, a.Shutdown() })
+		func() (struct{}, error) { return struct{}{}, a.Quit() })
 	close(stopSignals)
 	return err
 }

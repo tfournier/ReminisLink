@@ -97,6 +97,8 @@ type fixture struct {
 	states  *states.Service
 	storage *atomic.Int64 // free bytes reported by Storage
 	free    *atomic.Int64 // free space seen by the transfers
+	// devices: nextEvent returns the device events too (else skipped).
+	devices bool
 }
 
 // newFixture serves the API on a copy of the fake SD card. The clock

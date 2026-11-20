@@ -238,11 +238,16 @@ struct ErgonomicsAppTests {
         app.openConsole(id)
         let session = app.session(for: id)
         await waitUntil { session.state == .connected }
+        // Back from the background: the browser restarts and has not seen
+        // the console yet. Hidden while stopped, so no removal is reported
+        // (a removal seen by a running browser is probed at once, and the
+        // probe would rightly find the pak gone: that raced this check).
         app.discovery.stop()
-        app.discovery.start()
         app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
+        app.discovery.start()
         pak.availability = .gone
         await #expect(throws: AppError.self) { try await session.perform { try await $0.systems() } }
+        try? await Task.sleep(for: .milliseconds(100))
         #expect(app.openConsoleId == id)
         #expect(app.closedNotice == nil)
     }
