@@ -72,15 +72,17 @@ extension FileSaveVault {
     // MARK: - Tidying
 
     /// Tidies the folders of one console (its folders, canonical first).
-    /// Best effort: an error leaves things where they are.
-    func tidy(consoles: [URL]) {
-        guard let canonical = consoles.first else { return }
+    /// Best effort: an error leaves things where they are. Returns whether
+    /// anything moved or was removed.
+    func tidy(consoles: [URL], infos: GameInfoCache) -> Bool {
+        guard let canonical = consoles.first else { return false }
+        var changed = false
         let rootUnknown = ((try? subfolders(of: root)) ?? []).filter {
             (readJSON($0.appending(path: Self.consoleFile)) as VaultConsoleInfo?) == nil
         }
         let consolesKnown = consoles.count < 2 || !Self.mayBelong(rootUnknown, to: consoles)
 
-        var games = (try? gameFolders(in: consolesKnown ? consoles : [canonical])) ?? [:]
+        var games = (try? gameFolders(in: consolesKnown ? consoles : [canonical], infos: infos)) ?? [:]
 
         // Console folders: a system folder whose name is free moves into
         // the canonical console folder; else its games with no other
@@ -88,23 +90,25 @@ extension FileSaveVault {
         if consolesKnown {
             for duplicate in consoles.dropFirst() {
                 for system in (try? subfolders(of: duplicate)) ?? [] {
-                    if (try? moveIfReady(system, into: canonical)) == true { continue }
+                    if (try? moveIfReady(system, into: canonical)) == true { changed = true; continue }
                     guard let existing = try? existingChild(system.lastPathComponent, in: canonical) else { continue }
                     for game in (try? subfolders(of: system)) ?? [] {
-                        guard let info: VaultGameInfo = readJSON(game.appending(path: Self.gameFile)),
-                              games[info.gameId]?.count == 1 else { continue }
-                        _ = try? moveIfReady(game, into: existing)
+                        guard let info = gameInfo(game, infos), games[info.gameId]?.count == 1 else { continue }
+                        if (try? moveIfReady(game, into: existing)) == true { changed = true }
                     }
                 }
             }
-            games = (try? gameFolders(in: consoles)) ?? games
+            if changed {
+                infos.infos = [:]
+                games = (try? gameFolders(in: consoles, infos: infos)) ?? games
+            }
         }
 
         // System folders of the canonical console holding the same system.
         var systems: [String: [URL]] = [:]
         var unknownSystems: [URL] = []
         for system in Self.ranked((try? subfolders(of: canonical)) ?? []) {
-            if let identity = systemIdentity(system) {
+            if let identity = systemIdentity(system, infos) {
                 systems[identity, default: []].append(system)
             } else {
                 unknownSystems.append(system)
@@ -116,9 +120,8 @@ extension FileSaveVault {
             for duplicate in folders.dropFirst() {
                 // A game with no other folder moves whole.
                 for game in (try? subfolders(of: duplicate)) ?? [] {
-                    guard let info: VaultGameInfo = readJSON(game.appending(path: Self.gameFile)),
-                          games[info.gameId]?.count == 1 else { continue }
-                    _ = try? moveIfReady(game, into: folders[0])
+                    guard let info = gameInfo(game, infos), games[info.gameId]?.count == 1 else { continue }
+                    if (try? moveIfReady(game, into: folders[0])) == true { changed = true }
                 }
                 emptied.append(duplicate)
             }
@@ -131,9 +134,7 @@ extension FileSaveVault {
         if !duplicated.isEmpty {
             for console in consolesKnown ? consoles : [canonical] {
                 for system in (try? subfolders(of: console)) ?? [] {
-                    unknownGames += ((try? subfolders(of: system)) ?? []).filter {
-                        (readJSON($0.appending(path: Self.gameFile)) as VaultGameInfo?) == nil
-                    }
+                    unknownGames += ((try? subfolders(of: system)) ?? []).filter { gameInfo($0, infos) == nil }
                 }
             }
         }
@@ -143,20 +144,23 @@ extension FileSaveVault {
                 for raw in (try? entries(of: duplicate)) ?? [] {
                     if let name = Self.placeholderName(raw) { Self.startDownloading(duplicate.appending(path: name)) }
                     guard !raw.hasPrefix(".") else { continue }
-                    _ = try? moveIfReady(duplicate.appending(path: raw), into: folders[0])
+                    if (try? moveIfReady(duplicate.appending(path: raw), into: folders[0])) == true { changed = true }
                 }
-                try? removeIfEmpty(duplicate, metadata: Self.gameFile)
+                if (try? removeIfEmpty(duplicate, metadata: Self.gameFile)) == true { changed = true }
             }
         }
 
         // Duplicate system folders, then console folders, left empty.
-        for system in emptied { try? removeIfEmpty(system, metadata: nil) }
+        for system in emptied where (try? removeIfEmpty(system, metadata: nil)) == true { changed = true }
         if consolesKnown {
             for duplicate in consoles.dropFirst() {
-                for system in (try? subfolders(of: duplicate)) ?? [] { try? removeIfEmpty(system, metadata: nil) }
-                try? removeIfEmpty(duplicate, metadata: Self.consoleFile)
+                for system in (try? subfolders(of: duplicate)) ?? [] where (try? removeIfEmpty(system, metadata: nil)) == true {
+                    changed = true
+                }
+                if (try? removeIfEmpty(duplicate, metadata: Self.consoleFile)) == true { changed = true }
             }
         }
+        return changed
     }
 
     /// The folder named `name` in `folder` (whatever its case), if it is
@@ -170,27 +174,25 @@ extension FileSaveVault {
     /// The system a system folder holds: the folder name of the
     /// `systemName` of its games, when every game folder in it is readable
     /// and they agree (nil otherwise: unknown).
-    func systemIdentity(_ system: URL) -> String? {
+    func systemIdentity(_ system: URL, _ infos: GameInfoCache) -> String? {
         var names = Set<String>()
         for game in (try? subfolders(of: system)) ?? [] {
-            guard let info: VaultGameInfo = readJSON(game.appending(path: Self.gameFile)) else { return nil }
+            guard let info = gameInfo(game, infos) else { return nil }
             names.insert(Self.folderName(info.systemName))
         }
         return names.count == 1 ? names.first : nil
     }
 
     /// The system folder for a new game (`name`: the folder name of its
-    /// system): the canonical folder holding that system if there is one
-    /// (it may carry an iCloud suffix), else the folder with that name
-    /// (also a placeholder still downloading), else a new one.
+    /// system): the folder with that name (also a placeholder still
+    /// downloading: the canonical name), else the canonical folder holding
+    /// that system under another name (an iCloud suffix), else a new one.
     func systemFolder(_ name: String, in console: URL) throws -> URL {
-        var byIdentity: [URL] = []
-        var byName: URL?
-        for system in Self.ranked(try subfolders(of: console)) {
-            if system.lastPathComponent.lowercased() == name.lowercased() { byName = system }
-            if systemIdentity(system) == name { byIdentity.append(system) }
-        }
-        let folder = byIdentity.first ?? byName ?? console.appending(path: name, directoryHint: .isDirectory)
+        let systems = Self.ranked(try subfolders(of: console))
+        let infos = GameInfoCache()
+        let folder = systems.first { $0.lastPathComponent.lowercased() == name.lowercased() }
+            ?? systems.first { systemIdentity($0, infos) == name }
+            ?? console.appending(path: name, directoryHint: .isDirectory)
         try coordinateWriting(folder) { try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true) }
         return folder
     }
@@ -239,9 +241,11 @@ extension FileSaveVault {
     /// those are removed, then the folder with `rmdir`, which fails if
     /// anything arrived meanwhile (the metadata file is then put back).
     /// Never removes a folder with content.
-    func removeIfEmpty(_ folder: URL, metadata: String?) throws {
+    @discardableResult
+    func removeIfEmpty(_ folder: URL, metadata: String?) throws -> Bool {
         let allowed = Set([metadata, Self.finderFile].compactMap { $0 })
-        guard try entries(of: folder).allSatisfy({ allowed.contains($0) }) else { return }
+        guard try entries(of: folder).allSatisfy({ allowed.contains($0) }) else { return false }
+        var removed = false
         var coordinationError: NSError?
         var bodyError: Error?
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: folder, options: .forDeleting, error: &coordinationError) { url in
@@ -256,6 +260,7 @@ extension FileSaveVault {
                     if let metadataURL, let saved { try? Self.writeSynced(saved, to: metadataURL) }
                     return
                 }
+                removed = true
             } catch {
                 if let metadataURL, let saved, !manager.fileExists(atPath: metadataURL.path(percentEncoded: false)) {
                     try? Self.writeSynced(saved, to: metadataURL)
@@ -265,6 +270,7 @@ extension FileSaveVault {
         }
         if let bodyError { throw bodyError }
         if let coordinationError { throw coordinationError }
+        return removed
     }
 
     /// Deletes a version beyond the limit (publication only). Inside the

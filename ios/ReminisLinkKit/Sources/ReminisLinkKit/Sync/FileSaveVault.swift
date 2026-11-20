@@ -219,12 +219,13 @@ public actor FileSaveVault: SaveVault {
     }
 
     /// Tidies the folders of the console first (moves only, see
-    /// ``tidy(consoles:)``).
+    /// ``tidy(consoles:infos:)``).
     private func loadGameIndex(deviceId: String) throws -> [String: [URL]] {
         if let games = gameIndex[deviceId] { return games }
         let consoles = try loadConsoleIndex()[deviceId] ?? []
-        tidy(consoles: consoles)
-        let index = try gameFolders(in: consoles)
+        var infos = GameInfoCache()
+        if tidy(consoles: consoles, infos: infos) { infos = GameInfoCache() }
+        let index = try gameFolders(in: consoles, infos: infos)
         gameIndex[deviceId] = index
         return index
     }
@@ -241,17 +242,29 @@ public actor FileSaveVault: SaveVault {
 
     /// The game folders of console folders by game id, canonical first
     /// (by console, then system, then game folder, each by ``precedes(_:_:)``).
-    func gameFolders(in consoles: [URL]) throws -> [String: [URL]] {
+    func gameFolders(in consoles: [URL], infos: GameInfoCache) throws -> [String: [URL]] {
         var index: [String: [URL]] = [:]
         for console in consoles {
             for system in Self.ranked(try subfolders(of: console)) {
                 for folder in Self.ranked(try subfolders(of: system)) {
-                    guard let info: VaultGameInfo = readJSON(folder.appending(path: Self.gameFile)) else { continue }
+                    guard let info = gameInfo(folder, infos) else { continue }
                     index[info.gameId, default: []].append(folder)
                 }
             }
         }
         return index
+    }
+
+    /// The `.game.json` of game folders, read once per load.
+    final class GameInfoCache {
+        var infos: [URL: VaultGameInfo?] = [:]
+    }
+
+    func gameInfo(_ folder: URL, _ cache: GameInfoCache) -> VaultGameInfo? {
+        if let cached = cache.infos[folder] { return cached }
+        let info: VaultGameInfo? = readJSON(folder.appending(path: Self.gameFile))
+        cache.infos[folder] = info
+        return info
     }
 
     private func storedVersions(deviceId: String, gameId: String) throws -> [StoredVersion] {
