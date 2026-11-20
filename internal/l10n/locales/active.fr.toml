@@ -9,6 +9,12 @@ other = "Téléchargement : {{.Name}}"
 [activity_download_file]
 other = "Téléchargement d'un fichier"
 
+[activity_pak]
+other = "Installation : {{.Name}}"
+
+[activity_pak_file]
+other = "Installation d'une app"
+
 [activity_patch]
 other = "Patch : {{.Name}}"
 
@@ -202,6 +208,15 @@ other = "Jeu mis à la corbeille"
 
 [notice_paired]
 other = "Appairé avec {{.Name}}"
+
+[notice_pak_deleted]
+other = "App mise à la corbeille"
+
+[notice_pak_install_failed]
+other = "Échec de l'installation de l'app"
+
+[notice_pak_installed]
+other = "App installée"
 
 [notice_patch_failed]
 other = "Échec du patch"

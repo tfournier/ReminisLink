@@ -18,9 +18,9 @@ import (
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
 
-// formerLeaseRoutes are the 23 routes that took the M10 write lease, with
-// how each one takes the M13 write lock. Written by hand: a new write
-// route must be added here on purpose.
+// formerLeaseRoutes are the 23 routes that took the M10 write lease, and
+// the 2 write routes of M12 (paks), with how each one takes the M13 write
+// lock. Written by hand: a new write route must be added here on purpose.
 var formerLeaseRoutes = map[string]writeMode{
 	"PUT /games/{gameId}/art":                               writeHandler,
 	"DELETE /games/{gameId}/art":                            writeHandler,
@@ -45,6 +45,8 @@ var formerLeaseRoutes = map[string]writeMode{
 	"PUT /uploads/{uploadId}":                               writeStaging,
 	"DELETE /uploads/{uploadId}":                            writeStaging,
 	"DELETE /jobs/{jobId}":                                  writeStaging,
+	"DELETE /paks/{pakId}":                                  writeHandler,
+	"POST /paks/install":                                    writeInstall,
 }
 
 // TestWriteRoutesTakeTheWriteLock walks the route table: every signed
@@ -77,8 +79,8 @@ func TestWriteRoutesTakeTheWriteLock(t *testing.T) {
 		}
 	}
 	sort.Strings(seen)
-	if len(seen) != len(formerLeaseRoutes) || len(seen) != 23 {
-		t.Errorf("%d former lease routes registered, want 23: %v", len(seen), seen)
+	if len(seen) != len(formerLeaseRoutes) || len(seen) != 25 {
+		t.Errorf("%d write routes registered, want 25: %v", len(seen), seen)
 	}
 	if ops := contract(t).OperationsWithStatus("423"); len(ops) != 0 {
 		t.Errorf("the contract still declares 423: %v", ops)

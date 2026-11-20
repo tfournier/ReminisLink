@@ -39,6 +39,8 @@ Pas d'entitlement multicast : Bonjour via `NWBrowser` n'en a pas besoin.
 Consoles ─┬─ Ajouter une console (scan QR)
           └─ Console ouverte : barre d'onglets (M11)
              ├─ Console : tableau de bord (état), sync des saves ─ Saves sur cet iPhone ─ Système ─ Jeu ─ Versions (M9)
+             │   ├─ Apps (M12) ─ Installer (Fichiers / lien / carte SD ─ sélecteur)
+             │   └─ Stockage ─ Carte SD (M12, lecture seule) ─ Dossier ─ …
              ├─ Bibliothèque : tous les jeux (recherche, filtres) ─ Jeu ─┬─ Save
              │   └─ (Parcourir par console) ─ Système ─ (Dossier) ─ Jeu  ├─ States
              │                                                          ├─ Cheats
@@ -95,7 +97,8 @@ Onglet **Console** (M11). Aucun ajout de fichier depuis cet onglet : l'ajout res
 ### 4.6 Ajouter
 
 - **Depuis Fichiers** : sélection multiple, choix du système (proposé d'après l'extension), puis envoi.
-- **Depuis une URL** : champ URL (collage automatique proposé si le presse-papiers contient un lien), type (ROM, patch, cheats), système, puis tâche côté console.
+- **Depuis une URL** : champ URL (collage automatique proposé si le presse-papiers contient un lien), type (ROM, patch, cheats, app), système, puis tâche côté console.
+- **Type App (pak)** (M12) : un zip (fichier ou lien) peut être envoyé comme app ; il suit alors le parcours d'installation de §11 (type automatique, demande avant de remplacer un pak du même nom). Jamais proposé d'office : la plupart des zips sont des jeux.
 - L'app NE DOIT proposer aucune source de ROMs.
 
 ### 4.7 Transferts
@@ -104,7 +107,8 @@ Liste des envois et des tâches : progression, vitesse, temps restant, annulatio
 
 ### 4.8 Extension de partage
 
-- Accepte : fichiers (ROMs, `.sav`, `.ips`, `.bps`, `.ups`, `.cht`) et URL.
+- Accepte : fichiers (ROMs, `.sav`, `.ips`, `.bps`, `.ups`, `.cht`, zips de paks) et URL.
+- M12 : un zip partagé arrive sur Ajouter comme les autres fichiers ; le type **App (pak)** l'installe (§4.6, §11). L'extension elle-même ne change pas.
 - Enregistre la demande dans le groupe d'apps, puis ouvre l'app sur l'écran **Ajouter**, préremplie. L'extension n'envoie rien elle-même (limites de mémoire et de durée des extensions).
 
 ### 4.9 Réglages de l'app
@@ -183,3 +187,15 @@ Décisions : [09, M14](09-feuille-de-route.md). Contrat : `GET /events` de `prot
 - **`job`** : met à jour les tâches suivies (écran Transferts, écran Patch, qui avance aussitôt) ; l'interrogation chaque seconde est suspendue tant que le flux est ouvert. Un événement d'une tâche pas encore suivie est gardé pour le moment où elle l'est.
 - **`device`** : le tableau de bord (batterie, appareils connectés, stockage) se met à jour sans requête.
 - **Pak antérieur à M14** (`404`) : plus d'essai pour cette session, comportement d'avant (interrogation des tâches, rechargements après les actions de l'app).
+
+## 11. Apps (paks) et navigateur de la carte SD (M12)
+
+Décisions : [09, M12](09-feuille-de-route.md). Contrat : `/paks`, `/paks/install`, `/sd/browse` et les cibles `pak` de `/uploads` et `/downloads` dans `protocol/openapi.yaml` ([04](04-api-v1.md)).
+
+- **Écran Apps** : ouvert depuis l'onglet **Console** (rang **Apps**). `GET /paks`, groupé **Outils** puis **Émulateurs** (un type inconnu d'un pak plus récent forme son propre groupe), avec nom, version (`pak.json`) et taille. ReminisLink (`self`) porte la mention « Cette app » et n'a pas d'action de suppression (une note le dit). Balayer ou menu contextuel **Supprimer…** → confirmation « Supprimer cette app ? » (« … va dans la corbeille de la console : récupérable pendant au moins 30 jours ») → `DELETE /paks/{pakId}`, puis la liste et la corbeille sont relues. `429 Device busy` : le message habituel (rien n'a changé, réessayer), comme pour les autres écritures (§9). Un pak antérieur à M12 (`404`) : « Mets à jour ReminisLink sur la console… », bouton **Installer** désactivé. Rechargement à l'événement `paks` (M14) si la liste a déjà été affichée, et à chaque `hello` du flux ; sans flux, les tâches sont interrogées chaque seconde tant que l'écran est visible.
+- **Installer** (menu **+**) : **Depuis Fichiers…** (sélecteur de documents : un zip, ou un dossier dont le nom finit par `.pak`, zippé sur l'iPhone par `NSFileCoordinator` option `.forUploading` sous le nom `<Nom>.pak.zip` ; tout autre choix : « Choisis une archive zip ou un dossier dont le nom finit par .pak. »), **Depuis un lien…**, **Depuis la carte SD…** (le navigateur en mode sélecteur). Puis une feuille d'options : la source, **Installer comme** (**Automatique** par défaut, **Outil**, **Émulateur**), un rappel que ReminisLink ne juge pas le contenu d'un pak, et **Installer**. Le type n'est donc demandé que si l'utilisateur veut forcer la place.
+- **Parcours** : fichier → envoi reprenable de la file des transferts (cible `pak`, `onConflict: fail`) dont le `complete` rend un `jobId` (tâche `pak-install`) ; lien → `POST /downloads` cible `pak` (tâche `download`) ; carte SD → `POST /paks/install` (tâche `pak-install`). Les tâches apparaissent aussi dans l'onglet Transferts (« Installation sur la console… », « Installé »). La copie locale d'un fichier est gardée jusqu'à la fin de l'installation (pour un éventuel remplacement), puis supprimée.
+- **Conflit** : une tâche qui échoue en `409 conflict` avec `details.existing` demande « Remplacer <nom> ? La version actuelle va dans la corbeille de la console. » (feuille de confirmation sur l'écran Apps et sur l'onglet Transferts ; le rang de l'installation garde **Remplacer…** et **Garder celui installé** si la feuille est fermée). **Remplacer** relance la même source avec `overwrite` (envoi, téléchargement) ou `replace` (carte SD) ; un nouveau conflit est alors une erreur, jamais redemandé. Risque résiduel accepté (le contrat ne change pas) : un lien ou un fichier de la carte remplacé entre le `409` et la nouvelle tentative peut installer, et remplacer, un autre pak que celui confirmé ; le pak remplacé reste dans la corbeille de la console (30 jours) et, après la tentative, l'app compare le pak installé (`result.pakId`, relu dans `GET /paks`) au nom confirmé et l'indique (« X a été remplacé au lieu de Y. L'ancien X est dans la corbeille de la console. »). `details.self` : « ReminisLink ne peut ni se supprimer ni se remplacer pendant qu'il tourne sur la console. », sans proposition de remplacement.
+- **Refus** (`422 unsupported_format`) : la raison anglaise du pak (« Invalid pak: … ») est reconnue et traduite : pas un zip ou archive abîmée, aucun pak, pas de `launch.sh`, plusieurs paks, entrée refusée pour protéger la carte (lien, chemin hors du dossier…), trop volumineuse, chiffrée ou compression inconnue, impossible à nommer ; une raison inconnue est affichée telle quelle après « La console a refusé ce pak : ». `507` : le message d'espace insuffisant habituel.
+- **Navigateur de la carte SD** : toucher la section **Stockage** de l'onglet Console. `GET /sd/browse` (racine sans `folderId`, puis le `sdEntryId` de chaque dossier ; identifiants opaques, jamais un chemin construit par l'app) : dossiers puis fichiers, icône, taille (fichiers) et date ; un dossier `.pak` a sa propre icône. Lecture seule. Un fichier se télécharge vers l'iPhone avec progression et annulation (`GET /sd/browse/{sdEntryId}/content`, écrit sur disque au fil de l'eau) puis la feuille de partage, comme les fichiers d'un jeu (M11) ; un `404` recharge le dossier et l'indique. `truncated` : « Ce dossier contient plus de 5 000 éléments : seuls les 5 000 premiers sont affichés. » Les données de ReminisLink ne sont jamais listées par le pak.
+- **Sélecteur** : le même navigateur, dans sa propre feuille, où seuls les zips et les dossiers `.pak` sont choisissables (toucher un dossier `.pak` le choisit au lieu de l'ouvrir), les autres fichiers étant grisés.

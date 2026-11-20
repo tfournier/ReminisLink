@@ -92,6 +92,8 @@ extension FakePak {
         // A job (device-side download, patch) waits only for the step that
         // installs its file, and never fails for it.
         if segments == ["downloads"] { return false }
+        // M12: a pak installation is a job too.
+        if segments == ["paks", "install"] { return false }
         if segments.count == 3 && segments[0] == "games" && segments[2] == "patch" { return false }
         return true
     }

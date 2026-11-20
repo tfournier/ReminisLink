@@ -367,6 +367,17 @@ func (s *Server) routes() http.Handler {
 	// Patches (a job, like the downloads).
 	reg("POST "+Prefix+"/games/{gameId}/patch", auth.RouteJSON, writeInstall, false, s.handlePatchGame)
 
+	// Paks (M12). The deletion runs under the write lock; an installation
+	// is a job that waits for it at its install step. Both publish a paks
+	// event, never a library one.
+	signed("GET "+Prefix+"/paks", auth.RouteJSON, s.handleListPaks)
+	reg("DELETE "+Prefix+"/paks/{pakId}", auth.RouteJSON, writeHandler, false, s.paksChanged(s.notify(ChangePakDeleted, s.pakName, s.handleDeletePak)))
+	reg("POST "+Prefix+"/paks/install", auth.RouteJSON, writeInstall, false, s.handleInstallPak)
+
+	// Read-only SD browser (M12): reads, never wait for a write.
+	signed("GET "+Prefix+"/sd/browse", auth.RouteJSON, s.handleBrowseSD)
+	signed("GET "+Prefix+"/sd/browse/{sdEntryId}/content", auth.RouteJSON, s.handleSDContent)
+
 	// Every signed route besides PUT /save, PUT /art and the upload chunks
 	// uses auth.RouteJSON.
 

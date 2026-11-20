@@ -65,6 +65,9 @@ public enum PakEvent: Sendable, Equatable {
     case device(EventDevice)
     case library(EventLibrary)
     case job(Job)
+    /// M12: the installed paks changed (installed or deleted by any
+    /// client); reload `GET /paks`.
+    case paks(EventPaks)
     /// A type this app does not know (a newer pak): ignored.
     case unknown(String)
 
@@ -80,6 +83,7 @@ public enum PakEvent: Sendable, Equatable {
             case "device": self = .device(try decoder.decode(EventDevice.self, from: data))
             case "library": self = .library(try decoder.decode(EventLibrary.self, from: data))
             case "job": self = .job(try decoder.decode(Job.self, from: data))
+            case "paks": self = .paks(try decoder.decode(EventPaks.self, from: data))
             default: self = .unknown(event.type)
             }
         } catch {

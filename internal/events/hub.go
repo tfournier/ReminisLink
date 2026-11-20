@@ -11,6 +11,8 @@
 //   - library: at most one per LibraryInterval; the systemIds of the
 //     changes in between are merged (an empty list, "unknown", wins: the
 //     app refreshes everything);
+//   - paks (M12): at most one per LibraryInterval, the changes in
+//     between merged (the event carries no data);
 //   - job: at most one per JobInterval for each job, the latest state
 //     winning, except that a change of state (or of cancelRequested) is
 //     sent at once;
@@ -44,6 +46,8 @@ const (
 	TypeDevice   = "device"
 	TypeLibrary  = "library"
 	TypeJob      = "job"
+	// TypePaks (M12): the installed paks changed (data: {}).
+	TypePaks = "paks"
 )
 
 // Reasons of the shutdown event.
@@ -115,6 +119,7 @@ type Hub struct {
 	library throttle
 	libAll  bool                // a pending library change of unknown systems
 	libIDs  map[string]struct{} // pending systemIds
+	paks    throttle            // paks events (M12)
 	jobs    map[string]*jobThrottle
 }
 
@@ -263,6 +268,7 @@ func (h *Hub) removeLocked(s *Subscription, reason CloseReason) {
 // idleLocked drops the pending events once nobody listens.
 func (h *Hub) idleLocked() {
 	h.library.stop()
+	h.paks.stop()
 	h.libAll = false
 	clear(h.libIDs)
 	for id, j := range h.jobs {
@@ -347,6 +353,7 @@ func (h *Hub) Shutdown(reason string) bool {
 	// What was waiting for the end of an interval goes first, without
 	// waiting for it (documented in 04).
 	h.flushLibraryLocked()
+	h.flushPaksLocked()
 	for _, j := range h.jobs {
 		h.flushJobLocked(j)
 	}
@@ -449,6 +456,31 @@ func (h *Hub) sendLibraryLocked() {
 		SystemIDs []string `json:"systemIds"`
 	}{ids})
 	h.broadcastLocked(Event{Type: TypeLibrary, Data: data})
+}
+
+// Paks publishes a change of the installed paks (M12): installed or
+// deleted.
+func (h *Hub) Paks() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || len(h.subs) == 0 {
+		return
+	}
+	if h.ready(&h.paks, h.opts.LibraryInterval, h.flushPaksLocked) {
+		h.sendPaksLocked()
+	}
+}
+
+func (h *Hub) flushPaksLocked() {
+	if h.paks.pending {
+		h.paks.stop()
+		h.paks.last = time.Now()
+		h.sendPaksLocked()
+	}
+}
+
+func (h *Hub) sendPaksLocked() {
+	h.broadcastLocked(Event{Type: TypePaks, Data: []byte("{}")})
 }
 
 // Job publishes the state of a job (a Job of the contract, marshalled

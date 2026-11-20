@@ -178,6 +178,12 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 	if !validConflict(onConflict) {
 		return UploadCreated{}, badRequest("Invalid onConflict"), nil
 	}
+	if apiErr := checkPakTarget(*req.Target, onConflict); apiErr != nil {
+		return UploadCreated{}, apiErr, nil
+	}
+	if req.Target.Kind == KindPak && *req.SizeBytes > pakArchiveLimit {
+		return UploadCreated{}, newError(http.StatusRequestEntityTooLarge, CodeTooLarge, "Pak archive too large"), nil
+	}
 	d, apiErr, err := s.resolve(*req.Target, true)
 	if apiErr != nil || err != nil {
 		return UploadCreated{}, apiErr, err
@@ -572,7 +578,12 @@ func (s *Service) CompleteUpload(ctx context.Context, id string) (map[string]any
 	s.installMu.Lock()
 	d, apiErr, err := s.resolve(u.meta.Target, true)
 	var result map[string]any
-	if apiErr == nil && err == nil {
+	switch {
+	case apiErr != nil || err != nil:
+	case d.kind == KindPak:
+		// M12: the archive goes to the staging area and a job installs it.
+		result, apiErr, err = s.queuePakUpload(ctx, u.meta.Target, partPath, u.meta.OnConflict)
+	default:
 		result, apiErr, err = s.installLocked(d, partPath, u.meta.OnConflict)
 	}
 	s.installMu.Unlock()

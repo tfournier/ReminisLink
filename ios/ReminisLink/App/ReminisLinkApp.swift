@@ -95,6 +95,8 @@ struct RouteDestination: View {
         case .syncedConsoles: SyncedConsolesView()
         case .syncedSaves(let id): SyncedSavesView(deviceId: id)
         case .syncedGame(let game): SyncedGameView(route: game)
+        case .paks(let id): PaksView(deviceId: id)
+        case .sdFolder(let folder): SdFolderView(route: folder)
         }
     }
 }

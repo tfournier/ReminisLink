@@ -180,6 +180,8 @@ func ActivityText(a transfer.Activity) string {
 		text = named(a.Name, l10n.ActDownload, l10n.ActDownloadFile)
 	case transfer.JobPatch:
 		text = named(a.Name, l10n.ActPatch, l10n.ActPatchFile)
+	case transfer.JobPakInstall:
+		text = named(a.Name, l10n.ActPak, l10n.ActPakFile)
 	default:
 		text = named(a.Name, l10n.ActUpload, l10n.ActUploadFile)
 	}
@@ -225,6 +227,9 @@ var noticeMessages = map[string]*l10n.Message{
 	server.ChangeTrashEntryDeleted: l10n.NoticeTrashEntryDeleted,
 	server.ChangeArtSet:            l10n.NoticeArtSet,
 	server.ChangeArtDeleted:        l10n.NoticeArtDeleted,
+	server.ChangePakDeleted:        l10n.NoticePakDeleted,
+	app.NoticePakInstalled:         l10n.NoticePakInstalled,
+	app.NoticePakInstallFailed:     l10n.NoticePakInstallFailed,
 	app.NoticeDownloaded:           l10n.NoticeDownloaded,
 	app.NoticeDownloadFailed:       l10n.NoticeDownloadFailed,
 	app.NoticePatched:              l10n.NoticePatched,

@@ -10,8 +10,8 @@
 | `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
-| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync, tabs, flat library, file download, console closing) |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Events/`: the event stream of milestone M14 (SSE parser, typed events, liveness and reconnection), `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M14 routes included: `GET /events` with keep-alives, `library`/`job`/`device`/`shutdown` events and a mode without the route) |
+| `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync, tabs, flat library, file download, console closing, apps and SD browser) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Events/`: the event stream of milestone M14 (SSE parser, typed events, liveness and reconnection), `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M14 routes included, M12 paks and SD browser: `GET /events` with keep-alives, `library`/`job`/`device`/`shutdown` events and a mode without the route) |
 
 ## Build and test
 
@@ -303,6 +303,7 @@ card.
 | `ErgonomicsUITests/testTheConsoleClosingAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_CLOSING` (milestone M11; quit the pak during the test, see below) |
 | `EventsUITests/testPakQuitReturnsToListAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_EVENTS_QUIT` (milestone M14; SIGTERM to the pak during the test, see below) |
 | `EventsUITests/testLibraryRefreshFromAnotherClientAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_EVENTS_LIBRARY` (milestone M14; a second client deletes a game, see below) |
+| `PaksUITests/testInstallAndDeleteAgainstHeadlessPak` | `TEST_RUNNER_RL_UITEST_PAIR_URL_PAKS` (milestone M12; see "Apps and SD browser") |
 
 The M10 write lease and its UI test (`WriteAccessUITests`, with
 `scripts/smoke-writer.sh` in hold mode) are gone since M13.
@@ -613,3 +614,64 @@ console closed ReminisLink": end the pak meanwhile with `kill -TERM <pid>`
 (SIGTERM or Ctrl-C), a few seconds after the pairing. On the API side,
 `scripts/smoke-library.sh` checks `GET /games`, the `fileId`s and the
 downloads with curl (SHA-256 against the SD card).
+
+## Apps and SD browser (milestone M12)
+
+- **Apps** (Console tab > Apps, `PaksView`, `PakManager`): `GET /paks`
+  grouped Tools / Emulators (`PakList.grouped`), name, version, size;
+  ReminisLink (`self`) is tagged "This app" and has no delete action.
+  Delete (swipe or context menu) asks first, then `DELETE /paks/{pakId}`
+  (to the trash), and the list and the trash are read again. A `paks`
+  event (M14) or a stream `hello` reloads the list once it was shown; a
+  pak older than M12 (`404`) shows "Update ReminisLink on the console".
+- **Install** (`+`): Files (a `.zip`, or a `.pak` folder zipped by
+  `PakArchiver` with `NSFileCoordinator` `.forUploading` into
+  `<Name>.pak.zip`), a link, or the SD card (the browser as a picker:
+  only zips and `.pak` folders can be chosen). An options sheet keeps
+  `auto` unless the user picks Tool or Emulator. A file goes through the
+  transfer queue (target `pak`, `ownsFile: false`: `PakManager` keeps the
+  copy until the end, to send it again on a replacement); its `complete`
+  returns a `jobId`, followed like the download job (link) and the
+  `pak-install` job of `POST /paks/install` (SD), by events or polling
+  (the Apps screen polls every second while visible, as Transfers).
+- **Conflict**: a job failed with `409 conflict` and `details.existing`
+  asks "Replace <name>? The current version goes to the trash." (on Apps
+  and on Transfers); Replace starts the same source again with
+  `overwrite` (upload, download) or `replace` (SD). `details.self` and
+  `422 unsupported_format` get their own texts: the pak's English reason
+  is mapped by `PakRefusal` (ReminisLinkKit) to a translated message, an
+  unknown reason is shown as it is after "The console refused this pak:".
+- **Share extension**: unchanged; a shared zip can be sent from Add with
+  the type "App (pak)" (files and links), which uses the same path.
+- **SD browser** (tap Storage on the Console tab, `SdFolderView`):
+  `GET /sd/browse` folder by folder (opaque `sdEntryId`s only), size and
+  date, `truncated` notice; a file downloads with progress and cancel
+  (`GET /sd/browse/{id}/content`, streamed to disk) to the share sheet; a
+  `404` reloads the folder.
+
+The fake pak decides an installation from the name of its source
+(`FakePakPaks.swift`): `broken` → not a zip, `nolaunch` → no `launch.sh`,
+`twopaks` → two paks (`422`), `ReminisLink` → `409 details.self`, an
+installed name (`Clock.pak.zip`) → `409 details.existing` unless
+replacing. Its card holds `Downloads/` (`Clock.pak.zip`, `Weather.pak.zip`,
+`broken.zip`, `NoLaunch.zip`, `README.txt`, the `Timer.pak` folder), the
+paks under `Tools/tg5040` and `Emus/tg5040`, the library under `Roms/`,
+and `.userdata/shared/` without ReminisLink's folder. `paksSupported =
+false` is a pak older than M12.
+
+Against the real pak: start a fresh `make headless HEADLESS_ARGS=--pairing-open`
+and run
+
+```sh
+TEST_RUNNER_RL_UITEST_PAIR_URL_PAKS='reminislink://pair?...' \
+  xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -only-testing:ReminisLinkUITests/PaksUITests/testInstallAndDeleteAgainstHeadlessPak
+```
+
+The app generates a tiny pak at launch (`RL_UITEST_SHARE_PAK=<name>`,
+Debug only: a `<name>.pak` folder with `launch.sh` and `pak.json`, zipped
+by `PakArchiver` as a folder chosen in Files is) and receives it as the
+share extension would; the test sends it as "App (pak)", waits for
+"Installed" in Transfers, finds it (version 0.0.1) on Apps, deletes it,
+then browses the root of the card (and checks `.userdata/shared/` has no
+ReminisLink folder). `scripts/smoke-paks.sh` checks the pak side with curl.

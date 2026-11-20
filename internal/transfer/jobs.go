@@ -81,7 +81,29 @@ type job struct {
 	done   chan struct{} // closed when run returned
 	order  uint64        // finishing order, to drop the oldest
 	guard  JobGuard      // the client that started the job (M13)
+	// cleanup, when set, deletes what the job owns (a staged archive,
+	// M12) once it ends, whatever the way: run, cancelled while queued,
+	// revoked, closed.
+	cleanup     func()
+	cleanupOnce sync.Once
+	cleaned     chan struct{} // closed once the cleanup ran (or with none)
 }
+
+// runCleanup runs the cleanup of the job once; every caller returns only
+// when it is done.
+func (j *job) runCleanup() {
+	j.cleanupOnce.Do(func() {
+		if j.cleanup != nil {
+			j.cleanup()
+		}
+		close(j.cleaned)
+	})
+	<-j.cleaned
+}
+
+// cleanupAsync runs the cleanup of a job that ended without running
+// (called with the queue lock held: never blocks).
+func (j *job) cleanupAsync() { go j.runCleanup() }
 
 // JobGuard ties a job to the client that started it (M13), fixed when the
 // job is submitted, before it can start: its install step, once it holds
@@ -180,6 +202,13 @@ func (q *Jobs) SubmitLabeled(kind, label string, run RunFunc) (string, error) {
 // SubmitGuarded queues a job with its label and its guard (set before the
 // job can start).
 func (q *Jobs) SubmitGuarded(kind, label string, guard JobGuard, run RunFunc) (string, error) {
+	return q.SubmitWithCleanup(kind, label, guard, run, nil)
+}
+
+// SubmitWithCleanup is SubmitGuarded with a cleanup called once the job
+// ended, however it ends (nil: none). It is not called when the job is
+// refused (the caller still owns its files).
+func (q *Jobs) SubmitWithCleanup(kind, label string, guard JobGuard, run RunFunc, cleanup func()) (string, error) {
 	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
@@ -200,7 +229,7 @@ func (q *Jobs) SubmitGuarded(kind, label string, guard JobGuard, run RunFunc) (s
 	now := q.stamp()
 	j := &job{
 		Job: Job{ID: "job_" + hex.EncodeToString(b[:]), Kind: kind, State: JobQueued, CreatedAt: now, UpdatedAt: now, Label: label},
-		run: run, done: make(chan struct{}), guard: guard,
+		run: run, done: make(chan struct{}), guard: guard, cleanup: cleanup, cleaned: make(chan struct{}),
 	}
 	q.jobs[j.ID] = j
 	q.queue = append(q.queue, j)
@@ -236,6 +265,7 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 		q.updatedLocked(j)
 	}
 	result, apiErr := runSafely(ctx, j.run, report)
+	j.runCleanup() // before the end is announced
 	q.mu.Lock()
 	cancelled := ctx.Err() != nil || apiErr == errJobRevoked
 	j.cancel()
@@ -392,6 +422,8 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 		q.updatedLocked(j)
 		out := j.Job
 		q.mu.Unlock()
+		// An explicit cancel answers once the job's files are gone.
+		j.runCleanup()
 		return out, nil
 	case JobRunning:
 		// Only requested: the job may still finish (installed).
@@ -408,8 +440,14 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 		defer q.mu.Unlock()
 		return j.Job, nil
 	}
-	defer q.mu.Unlock()
-	return j.Job, nil
+	out := j.Job
+	q.mu.Unlock()
+	if out.State == JobCancelled {
+		// Cancelled by another request (or a revocation) whose cleanup
+		// may still run: answer once it is done, like that request.
+		j.runCleanup()
+	}
+	return out, nil
 }
 
 // CancelStale cancels, without waiting, the queued and running jobs of
@@ -439,6 +477,7 @@ func (q *Jobs) CancelStale(owner string, current uint64) int {
 		j.order = q.ended
 		close(j.done)
 		q.updatedLocked(j)
+		j.cleanupAsync()
 		n++
 	}
 	q.queue = kept
@@ -457,16 +496,21 @@ func (q *Jobs) CancelStale(owner string, current uint64) int {
 func (q *Jobs) Close() {
 	q.mu.Lock()
 	q.closed = true
+	var cleanups []*job
 	for _, j := range q.queue {
 		j.State = JobCancelled
 		j.UpdatedAt = q.stamp()
 		close(j.done)
 		q.updatedLocked(j)
+		cleanups = append(cleanups, j)
 	}
 	q.queue = nil
 	if q.running != nil {
 		q.running.cancel()
 	}
 	q.mu.Unlock()
+	for _, j := range cleanups {
+		j.runCleanup()
+	}
 	q.wg.Wait()
 }

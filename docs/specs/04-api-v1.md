@@ -45,6 +45,11 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | POST | `/games/{gameId}/patch` | Appliquer un patch (crée une tâche) |
 | GET | `/jobs` | Tâches récentes |
 | GET / DELETE | `/jobs/{jobId}` | État / annulation |
+| GET | `/paks` | Paks d'outils et d'émulateurs installés (M12) |
+| DELETE | `/paks/{pakId}` | Supprimer un pak (vers la corbeille, M12) |
+| POST | `/paks/install` | Installer un pak depuis la carte SD (crée une tâche, M12) |
+| GET | `/sd/browse` | Contenu d'un dossier de la carte SD, en lecture (M12) |
+| GET | `/sd/browse/{sdEntryId}/content` | Télécharger un fichier de la carte SD (M12) |
 
 ---
 
@@ -141,6 +146,7 @@ Chaque événement : `id: <n>` (croissant dans le flux, à partir de 1), `event:
 |---|---|---|
 | `hello` | `{ serverTime, keepAliveSeconds }` | Premier événement, à l'ouverture |
 | `library` | `{ systemIds }` | Après toute modification de la carte faite par l'API, quel que soit le client : envoi installé (pas un envoi vers la zone d'attente), suppression d'un jeu, jaquette, corbeille, save remplacée, copie de save créée, supprimée ou restaurée, state supprimé, verrouillé, déverrouillé ou restauré, historique de reprise restauré, cheats, et tâche de téléchargement (hors zone d'attente) ou de patch réussie. `systemIds` nomme les systèmes touchés ; **vide** quand ils ne sont pas connus (corbeille) : l'app rafraîchit tout. Au plus un par seconde : les changements entre deux événements sont fusionnés (un « inconnu » l'emporte). |
+| `paks` | `{}` (M12) | Après l'installation (tâche `pak-install`, ou tâche `download` de cible `pak`, réussie) ou la suppression d'un pak, quel que soit le client : l'app relit `GET /paks`. Au plus un par seconde (fusionnés). Un changement de pak n'envoie pas `library`. |
 | `job` | un `Job` ([03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console)) | À chaque changement d'état d'une tâche (ou de `cancelRequested`), aussitôt ; pendant qu'elle avance, au plus une fois par seconde par tâche (le dernier état l'emporte). Tâches de tous les clients. |
 | `device` | `{ battery, connectedClients, storage }` (mêmes champs que `GET /device`) | Quand la batterie (pourcentage ou charge), l'ensemble des clients connectés (pas leur `lastSeenAt`) ou l'espace libre (d'au moins 1 Mio, le journal le change sans cesse) change ; lu toutes les 5 s, et seulement tant qu'au moins un flux est ouvert ; un client qui devient connecté ou est révoqué (déconnecté, oublié, désappairé) déclenche aussi l'événement, sans attendre le relevé. Au plus un toutes les 5 s par flux, comptées depuis l'écriture du précédent. L'événement est construit au moment où il est écrit : batterie et espace du dernier relevé, `connectedClients` de cet instant (un client retiré par une révocation n'y revient jamais). |
 | `shutdown` | `{ reason }` : `quit` (l'utilisateur quitte ReminisLink sur la console) ou `stopped` (le système arrête le pak : extinction, signal) | Au début de la fermeture du pak, avant l'arrêt du serveur HTTP ; puis le flux se termine. L'adieu Bonjour n'attend ni les flux ni les requêtes en cours. |
@@ -546,8 +552,9 @@ Liste les fichiers utilisables de la carte SD : `.cht` sous `Cheats/` pour `type
 | `save` | `gameId` | La save du jeu (l'ancienne est sauvegardée) |
 | `state` | `gameId`, `slot` | Un emplacement de state (refusé si verrouillé) |
 | `staging` | `fileName` | Zone temporaire ReminisLink, pour un patch ou un `.cht` à importer ensuite (supprimée après 24 h) |
+| `pak` | `pakKind` (`tool`, `emu`, `auto` par défaut), `fileName` (nom de l'archive : affiché sur la console, et nom de repli d'une archive « à plat » sans `name` utilisable dans son `pak.json`) | Archive zip d'un pak, installée par une tâche `pak-install` (M12, voir `POST /paks/install`) ; 1 Gio au plus (`413 too_large`) |
 
-`onConflict` : `fail` (par défaut, `409 conflict`), `rename` (ajoute ` (2)`, ` (3)`...), `overwrite` (l'ancien fichier part dans la corbeille). Ne s'applique qu'aux cibles `rom` et `staging` : pour `save` et `state`, le fichier existant est toujours remplacé, après avoir été mis à la corbeille (M4 ; M5 y ajoute la copie de sauvegarde `before-replace`).
+`onConflict` : `fail` (par défaut, `409 conflict`), `rename` (ajoute ` (2)`, ` (3)`...), `overwrite` (l'ancien fichier part dans la corbeille). Ne s'applique qu'aux cibles `rom`, `staging` et `pak` (pour `pak`, `fail` ou `overwrite` seulement ; le nom du pak n'est connu qu'à la lecture de l'archive, le conflit est donc vérifié par la tâche d'installation) : pour `save` et `state`, le fichier existant est toujours remplacé, après avoir été mis à la corbeille (M4 ; M5 y ajoute la copie de sauvegarde `before-replace`).
 
 Limites (M4) : au plus 32 envois ouverts et 100 tâches en file ou en cours par console ; au-delà, `429 too_many_attempts` avec `Retry-After`. Une ROM (`target.kind = "rom"`) doit porter un nom que la bibliothèque liste comme jeu, sinon `400 invalid_name` dès la création. Les noms commençant par `.`, contenant des caractères de mise en forme Unicode ou réservés sous Windows (`CON`, `NUL`, `COM1`…) sont refusés (`invalid_name`).
 
@@ -567,7 +574,7 @@ En-têtes : `Upload-Offset`, `Content-Length`, `X-RL-Content-SHA256: UNSIGNED`. 
 
 ### `POST /uploads/{uploadId}/complete`
 
-Réponse `200` selon la cible : `{ "gameId": "..." }` (`rom`), `{ "backup": {...} }` (`save`), `{ "slot": {...} }` (`state`) ou `{ "stagingId": "..." }` (`staging`).
+Réponse `200` selon la cible : `{ "gameId": "..." }` (`rom`), `{ "backup": {...} }` (`save`), `{ "slot": {...} }` (`state`), `{ "stagingId": "..." }` (`staging`) ou `{ "jobId": "..." }` (`pak`, M12 : l'archive passe dans la zone d'attente, l'envoi est terminé, et une tâche `pak-install` l'installe ; extraire jusqu'à 1 Gio peut durer plus longtemps qu'une requête). Le résultat de la tâche est `{ "pakId": "..." }`.
 
 ### `POST /downloads`
 
@@ -580,7 +587,7 @@ Réponse `200` selon la cible : `{ "gameId": "..." }` (`rom`), `{ "backup": {...
 }
 ```
 
-Même `target` que pour `/uploads` (le nom de fichier est déduit de `Content-Disposition` ou de l'URL s'il est absent). Schémas `http` et `https` uniquement, 5 redirections maximum, 4 Gio maximum. Réponse `202` : `{ "jobId": "job_..." }`.
+Même `target` que pour `/uploads` (le nom de fichier est déduit de `Content-Disposition` ou de l'URL s'il est absent). Schémas `http` et `https` uniquement, 5 redirections maximum, 4 Gio maximum. Réponse `202` : `{ "jobId": "job_..." }`. Cible `pak` (M12) : la tâche (`download`) télécharge l'archive (1 Gio au plus) puis l'installe comme `POST /paks/install` ; résultat `{ "pakId": "..." }`.
 
 ### `POST /games/{gameId}/patch`
 
@@ -599,3 +606,58 @@ Même `target` que pour `/uploads` (le nom de fichier est déduit de `Content-Di
 ### `GET /jobs`, `GET /jobs/{jobId}`, `DELETE /jobs/{jobId}`
 
 Format décrit en [03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console). `DELETE` annule une tâche en attente ou en cours (le fichier partiel est supprimé) ; réponse `200` avec la tâche dans son nouvel état. Une tâche annulée pendant l'installation de son fichier peut finir `succeeded` (le fichier est en place, `result` l'indique).
+
+---
+
+## Paks (M12)
+
+Paks d'outils (`Tools/<plateforme>/*.pak`) et d'émulateurs (`Emus/<plateforme>/*.pak`) de la plateforme de la console. Les paks système de `.system/` ne sont pas concernés. Tout appareil appairé peut installer un pak (07 §3) : ReminisLink ne juge pas son contenu, seules restent les protections de la carte.
+
+### `GET /paks`
+
+```json
+{ "paks": [ { "pakId": "pk_...", "name": "ReminisLink", "kind": "tool", "path": "Tools/tg5040/ReminisLink.pak",
+  "sizeBytes": 9437184, "modifiedAt": "2026-11-20T08:00:00Z", "version": "v1.0.0", "self": true } ] }
+```
+
+- Dossiers dont le nom finit par `.pak` (casse ignorée), hors dossiers cachés et liens. `name` : nom du dossier sans `.pak`. `sizeBytes` : somme des fichiers du dossier. `modifiedAt` : date du dossier. `version` : champ `version` de son `pak.json`, `null` sinon.
+- `self` : le pak de ReminisLink lui-même (dossier de l'exécutable qui tourne), qui ne peut être ni supprimé ni remplacé pendant qu'il tourne.
+- Tri : outils d'abord, puis nom sans tenir compte de la casse.
+
+### `DELETE /paks/{pakId}`
+
+Déplace le dossier entier du pak vers la corbeille (raison `delete-pak`, libellé : nom du pak), après confirmation dans l'app. Réponse `200` : `TrashMoveResult`, comme `DELETE /games/{gameId}`. ReminisLink lui-même : `409 conflict` (`details.self: true`). Écriture sous le verrou par action (M13) ; événement `paks` ensuite.
+
+### `POST /paks/install`
+
+```json
+{ "sdEntryId": "se_...", "kind": "auto", "onConflict": "replace" }
+```
+
+- **Source** : une entrée du navigateur SD, fichier zip ou dossier dont le nom finit par `.pak` (copié tel quel). Les autres sources passent par le même circuit : cible `pak` de `POST /uploads` (fichier de l'iPhone ; un dossier `.pak` choisi sur l'iPhone est zippé par l'app avant l'envoi, `NSFileCoordinator` option `forUploading`) et de `POST /downloads` (URL).
+- **`kind`** : `tool` (`Tools/<plateforme>/`), `emu` (`Emus/<plateforme>/`) ou `auto` (par défaut) : dossier de l'archive (`Tools/` ou `Emus/`), sinon emplacement du dossier source sur la carte, sinon `type` de son `pak.json` (`TOOL`, `EMU`), sinon `tool`.
+- **`onConflict`** : `fail` (par défaut : la tâche échoue en `409 conflict`, `details.existing`) ou `replace` (l'ancien pak part à la corbeille, raison `replace-pak`). L'app envoie `replace` après confirmation. Dans les cibles `pak` d'envoi et de téléchargement, la même règle s'écrit `onConflict: overwrite` (énumération commune des envois).
+- Réponse `202` : `{ "jobId": "..." }` (tâche `pak-install`, résultat `{ "pakId": "..." }`). Refus immédiats : `400`, `404` (entrée absente), `422 unsupported_format` (ni fichier ni dossier `.pak`). Échecs de la tâche : `422 unsupported_format` (avec un message en anglais), `409 conflict` (pak existant avec `fail`, ou ReminisLink lui-même avec `details.self: true`), `507 insufficient_storage`.
+- **Archives acceptées** (zip) : `<Nom>.pak/…`, ou `Tools|Emus/<plateforme>/<Nom>.pak/…` (type déduit ; les entrées d'une autre plateforme sont ignorées). Un seul pak par archive, avec `launch.sh` directement dans son dossier (casse ignorée, comme sur la carte exFAT). Les fichiers à la racine de l'archive et le dossier `__MACOSX/` sont ignorés ; toute autre entrée hors du dossier du pak refuse l'archive. **Archive « à plat »** (style Pak Store) : si un fichier `launch.sh` est à la racine de l'archive, toutes ses entrées (sauf `__MACOSX/`) forment le pak, nommé d'après le `name` de son `pak.json` s'il est utilisable, sinon d'après le nom du fichier de l'archive (`fileName` de l'envoi, nom déduit ou donné du téléchargement, nom de l'entrée de la carte) sans `.zip` ; `.pak` est ajouté s'il manque et le nom est nettoyé comme tout nom de fichier (`422` s'il ne reste rien d'utilisable).
+- **Protections** : refus de l'archive pour un chemin absolu, un composant `..` ou `.`, un composant vide, `\`, un caractère nul ou de contrôle, de l'UTF-8 invalide, un composant de plus de 255 octets ou un chemin de plus de 1024 octets ; un lien symbolique ou toute entrée qui n'est ni un fichier ni un dossier ; deux entrées qui ne diffèrent que par la casse (dossiers compris) ; plus de 10 000 entrées ou un répertoire central de plus de 4 Mio (lus dans les enregistrements de fin avant le répertoire lui-même) ; plus de 1 Gio décompressé (annoncé ou réel) ; une entrée de plus de 1 Mio compressée plus de 200 fois. Rien n'est écrit hors de la zone d'attente avant que tout soit vérifié. Un dossier `.pak` de la carte est copié avec les mêmes limites (aucun lien). Une archive envoyée ou téléchargée comme pak fait 1 Gio au plus (vérifié sur la longueur annoncée et à chaque écriture).
+- **Installation** : extraction (ou copie) dans la zone d'attente, vérification, puis sous le verrou d'écriture (la tâche revérifie que son client n'a pas été révoqué) : l'ancien pak du même nom (casse ignorée) part à la corbeille et le dossier préparé est renommé à sa place, en un remplacement journalisé (comme une ROM écrasée, M8) : chaque dossier est synchronisé, tout échec remet l'ancien pak et fait échouer la tâche, et une coupure de courant est terminée (nouveau pak en place) ou annulée (ancien pak remis) au lancement suivant, jamais ni l'un ni l'autre. Le dossier des paks n'est jamais atteint par un lien. Événement `paks` ensuite.
+
+## Navigateur de la carte SD (M12)
+
+Consultation seule en M12. Identifiants `sdEntryId` opaques, résolus par le pak à chaque requête : rien hors de la carte, aucun lien suivi (les liens ne sont pas listés ; un identifiant qui passe par un lien est refusé), données de ReminisLink cachées et inaccessibles (`404`) : son dossier (`.userdata/shared/ReminisLink/` : clés des clients, clé TLS, corbeille, zone d'attente, copies) et ses journaux. Les fichiers cachés (`.` en tête) sont listés.
+
+### `GET /sd/browse?folderId=<sdEntryId>`
+
+```json
+{ "folderId": "se_...", "path": "Tools", "parentId": null,
+  "entries": [ { "sdEntryId": "se_...", "name": "tg5040", "kind": "folder", "sizeBytes": null, "modifiedAt": "2026-11-18T17:00:00Z" } ],
+  "truncated": false }
+```
+
+- Sans `folderId` : la racine de la carte (`folderId` et `parentId` à `null`). `parentId` est le `folderId` qui ouvre le dossier parent, `null` quand c'est la racine.
+- Dossiers d'abord, puis fichiers, par nom sans tenir compte de la casse ; 5000 entrées au plus (`truncated: true` au-delà).
+- `404` : identifiant qui n'est pas (ou plus) un dossier, ou données de ReminisLink ; `400 invalid_id` : identifiant illisible ou hors de la carte.
+
+### `GET /sd/browse/{sdEntryId}/content`
+
+Le fichier entier, comme `GET /games/{gameId}/files/{fileId}` (`Content-Disposition`, `Content-Length`, pas de `Range`). Dossier, lien, chemin passant par un lien, fichier absent ou données de ReminisLink : `404 not_found`.

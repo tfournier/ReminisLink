@@ -9,6 +9,12 @@ other = "Downloading: {{.Name}}"
 [activity_download_file]
 other = "Downloading a file"
 
+[activity_pak]
+other = "Installing: {{.Name}}"
+
+[activity_pak_file]
+other = "Installing an app"
+
 [activity_patch]
 other = "Patching: {{.Name}}"
 
@@ -202,6 +208,15 @@ other = "Game moved to the trash"
 
 [notice_paired]
 other = "Paired with {{.Name}}"
+
+[notice_pak_deleted]
+other = "App moved to the trash"
+
+[notice_pak_install_failed]
+other = "App installation failed"
+
+[notice_pak_installed]
+other = "App installed"
 
 [notice_patch_failed]
 other = "Patch failed"

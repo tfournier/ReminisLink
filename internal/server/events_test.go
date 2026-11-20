@@ -78,6 +78,7 @@ var eventSchemas = map[string]string{
 	events.TypeDevice:   "EventDevice",
 	events.TypeLibrary:  "EventLibrary",
 	events.TypeJob:      "Job",
+	events.TypePaks:     "EventPaks",
 }
 
 func checkEventData(t *testing.T, ev testutil.SSEEvent) {
@@ -221,6 +222,9 @@ var changeExempt = map[string]bool{
 	"POST " + Prefix + "/downloads":            true, // the job publishes on success
 	"DELETE " + Prefix + "/jobs/{jobId}":       true,
 	"POST " + Prefix + "/games/{gameId}/patch": true, // the job publishes on success
+	// M12: a pak change publishes a paks event, never a library one.
+	"DELETE " + Prefix + "/paks/{pakId}": true,
+	"POST " + Prefix + "/paks/install":   true, // the job publishes on success
 }
 
 // Every write route (M13: every former M10 write route) publishes a library
@@ -548,9 +552,26 @@ func TestEventsDevice(t *testing.T) {
 	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"clientName":"iPad"`) {
 		t.Fatalf("clients %+v", ev)
 	}
+	// Several marks (the request, its presence, a sample) may each give
+	// an event with the iPad, built and written before the clock moves:
+	// they are skipped. An event is built when it is written, so once the
+	// clock moved no event lists the iPad, and the sampler, which sees it
+	// leave, marks the stream for the event that must come (no timing).
 	f.clock.Advance(ConnectedWindow + time.Second)
-	if ev := f.nextEvent(s); ev.Type != "device" || strings.Contains(ev.Data, `"iPad"`) || !strings.Contains(ev.Data, `"clientName":"Test iPhone"`) {
-		t.Fatalf("clients %+v", ev)
+	for n := 0; ; n++ {
+		ev := f.nextEvent(s)
+		if ev.Type != "device" {
+			t.Fatalf("event %+v", ev)
+		}
+		if !strings.Contains(ev.Data, `"iPad"`) {
+			if !strings.Contains(ev.Data, `"clientName":"Test iPhone"`) {
+				t.Fatalf("clients %+v", ev)
+			}
+			break
+		}
+		if n == 10 {
+			t.Fatalf("the iPad is still connected: %+v", ev)
+		}
 	}
 	// No sampling once nobody listens.
 	s.Resp.Body.Close()

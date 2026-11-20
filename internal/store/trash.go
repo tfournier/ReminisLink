@@ -51,11 +51,16 @@ const (
 	// ReasonDeleteBackup: a save backup or a resume history entry deleted
 	// by the app or pushed out by the automatic limits.
 	ReasonDeleteBackup = "delete-backup"
+	// ReasonDeletePak and ReasonReplacePak (M12): a pak folder deleted
+	// or replaced by an installation.
+	ReasonDeletePak  = "delete-pak"
+	ReasonReplacePak = "replace-pak"
 )
 
 var validReasons = map[string]bool{
 	ReasonDeleteGame: true, ReasonDeleteState: true, ReasonOverwrite: true,
 	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true, ReasonDeleteBackup: true,
+	ReasonDeletePak: true, ReasonReplacePak: true,
 }
 
 // Errors of the trash.
@@ -126,6 +131,7 @@ type installRecord struct {
 	Dst    string `json:"dst"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256,omitempty"`
+	Dir    bool   `json:"dir,omitempty"`
 }
 
 // public returns the API form of an entry. expiresAt is the earliest time
@@ -191,7 +197,10 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 		log = slog.Default()
 	}
 	t := &Trash{dir: layout.TrashDir(), sd: sdRoot, now: now, log: log, rand: rand.Reader,
-		rename: os.Rename, syncDir: SyncDirChecked}
+		syncDir: SyncDirChecked}
+	// Every rename of the trash stays inside the SD card, through no link
+	// (M12 review).
+	t.rename = t.renameInSD
 	// The journal is durable only once its folder is synced (and checked).
 	t.saveEntry = func(dir string, e entryFile) error {
 		return writeEntryWith(dir, e, func(d string) error { return t.syncDir(d) })
@@ -354,7 +363,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 	if err != nil {
 		return MoveResult{}, "", entryFile{}, err
 	}
-	if err := os.MkdirAll(t.dir, 0o755); err != nil {
+	if err := t.mkdirInSD(t.dir); err != nil {
 		return MoveResult{}, "", entryFile{}, fmt.Errorf("trash: %w", err)
 	}
 	at := t.now()
@@ -422,7 +431,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 	}
 	for i, p := range planned {
 		dst := filepath.Join(entryDir, filepath.FromSlash(p.rel))
-		err := os.MkdirAll(filepath.Dir(dst), 0o755)
+		err := t.mkdirInSD(filepath.Dir(dst))
 		if err == nil {
 			// Every folder from the entry down to the destination is
 			// durable before the original leaves its place.
@@ -571,7 +580,7 @@ func (t *Trash) restoreItem(src, dst string) error {
 	if _, err := os.Lstat(dst); err == nil {
 		return fs.ErrExist
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := t.mkdirInSD(filepath.Dir(dst)); err != nil {
 		return err
 	}
 	if err := t.rename(src, dst); err != nil {
@@ -615,6 +624,9 @@ func readEntry(dir string) (entryFile, error) {
 
 // entryDirs returns the names of the entry folders (valid ids only).
 func (t *Trash) entryDirs() ([]string, error) {
+	if err := t.checkTrashDir(); err != nil {
+		return nil, err
+	}
 	des, err := os.ReadDir(t.dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -671,6 +683,9 @@ func (t *Trash) Delete(id string) (int64, error) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if err := t.checkTrashDir(); err != nil {
+		return 0, err
+	}
 	fi, err := os.Lstat(filepath.Join(t.dir, id))
 	if err != nil || !fi.IsDir() || t.pending(id) {
 		// A replacement in progress is not an entry yet (never listed).
@@ -712,6 +727,9 @@ func (t *Trash) pending(id string) bool {
 // erase deletes an entry folder: renamed first, so it is never listed half
 // deleted. Called with t.mu held.
 func (t *Trash) erase(id, why string) (int64, error) {
+	if err := t.checkTrashDir(); err != nil {
+		return 0, err
+	}
 	dir := filepath.Join(t.dir, id)
 	// The size reported is the one of the entry (what GET /trash showed);
 	// an entry without a readable entry.json counts its whole folder.
@@ -773,6 +791,12 @@ func dirSize(dir string) int64 {
 func (t *Trash) Recover() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if err := t.checkTrashDir(); err != nil {
+		// Never follow a link at the trash folder (its journals would
+		// be read and rewritten elsewhere): left as it is, logged.
+		t.log.Error("trash: recovery skipped, the trash folder is reached through a link", "error", err)
+		return nil
+	}
 	names, err := t.entryDirs()
 	if err != nil {
 		return err

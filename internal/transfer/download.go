@@ -107,6 +107,9 @@ func (s *Service) StartDownload(req DownloadRequest, guard JobGuard) (string, *E
 	if !validConflict(onConflict) {
 		return "", badRequest("Invalid onConflict"), nil
 	}
+	if apiErr := checkPakTarget(*req.Target, onConflict); apiErr != nil {
+		return "", apiErr, nil
+	}
 	target := *req.Target
 	if _, apiErr, err := s.resolve(target, false); apiErr != nil || err != nil {
 		if apiErr != nil && apiErr.Code == CodeStateLocked {
@@ -196,6 +199,7 @@ type download struct {
 	file    *os.File
 	hash    hash.Hash
 	written int64
+	limit   int64  // largest file: MaxDownloadBytes, or the pak archive cap
 	total   int64  // -1: unknown
 	name    string // deduced from the first response
 	tag     string // validator for If-Range
@@ -216,7 +220,10 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 		return nil, internal("Cannot create the temporary file")
 	}
 	d := &download{s: s, u: u, path: filepath.Join(dir, "dl_"+s.randomHex(12)+partExt), hash: sha256.New(), total: -1,
-		checked: want != "", report: report}
+		checked: want != "", report: report, limit: MaxDownloadBytes}
+	if target.Kind == KindPak {
+		d.limit = pakArchiveLimit // M12: checked before every write, resumes included
+	}
 	if d.file, err = os.OpenFile(d.path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644); err != nil {
 		return nil, internal("Cannot create the temporary file")
 	}
@@ -268,6 +275,20 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 		return nil, internal("Cannot write the file")
 	}
 	d.file = nil
+
+	if target.Kind == KindPak {
+		// M12: the archive is extracted and installed as a pak; the
+		// downloaded file is deleted afterwards (installed stays false).
+		name := d.name // deduced from Content-Disposition or the URL
+		if target.FileName != nil {
+			name = *target.FileName
+		}
+		result, apiErr := s.runPakArchive(ctx, d.path, pakKindOf(target), pakConflict(onConflict), name, report)
+		if apiErr == nil {
+			s.log.Info("download finished", "url", safeURL(u), "bytes", d.written)
+		}
+		return result, apiErr
+	}
 
 	// Resolve and install under the write lock (M13: a job waits for its
 	// turn without a time limit) and the install lock (see CompleteUpload).
@@ -437,7 +458,7 @@ func (d *download) fetch(ctx context.Context, client *http.Client) (*Error, erro
 	default:
 		return internal("Download failed: HTTP " + strconv.Itoa(resp.StatusCode)), nil
 	}
-	if d.total > MaxDownloadBytes {
+	if d.total > d.limit {
 		return newError(http.StatusRequestEntityTooLarge, CodeTooLarge, "File too large"), nil
 	}
 	if d.total >= 0 {
@@ -502,7 +523,7 @@ func (d *download) copyBody(ctx context.Context, cancel context.CancelFunc, body
 		n, rerr := body.Read(buf)
 		if n > 0 {
 			timer.Reset(idle)
-			if d.written+int64(n) > MaxDownloadBytes {
+			if d.written+int64(n) > d.limit {
 				return newError(http.StatusRequestEntityTooLarge, CodeTooLarge, "File too large"), nil
 			}
 			if _, err := d.file.Write(buf[:n]); err != nil {

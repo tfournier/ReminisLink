@@ -74,6 +74,16 @@ enum AppError: Error, Equatable {
     /// The console closed ReminisLink (M11): nothing connects until the
     /// user opens the console again.
     case consoleClosed
+    /// M12: the console refused a pak (`422 unsupported_format`), and why.
+    case pakRefused(PakRefusal)
+    /// M12: ReminisLink cannot delete or replace itself while it runs
+    /// (`409 conflict` with `details.self`).
+    case pakSelf
+    /// M12: what was chosen on the iPhone is neither a zip archive nor a
+    /// `.pak` folder.
+    case notAPak
+    /// M12: the pak is older than M12 (`404` on `/paks` or `/sd/browse`).
+    case needsNewerPak
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -165,6 +175,14 @@ enum AppError: Error, Equatable {
             String(localized: "This game is no longer on the console.")
         case .consoleClosed:
             String(localized: "The console closed ReminisLink.")
+        case .pakRefused(let refusal):
+            Self.message(for: refusal)
+        case .pakSelf:
+            String(localized: "ReminisLink cannot delete or replace itself while it runs on the console.")
+        case .notAPak:
+            String(localized: "Choose a zip archive or a folder whose name ends with .pak.")
+        case .needsNewerPak:
+            String(localized: "Update ReminisLink on the console to manage its apps and browse its SD card.")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -198,6 +216,7 @@ enum AppError: Error, Equatable {
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
+        case .pakRefused, .pakSelf, .notAPak, .needsNewerPak: nil
         case .pairingClosed, .unexpected: .retry
         }
     }
@@ -239,6 +258,46 @@ enum AppError: Error, Equatable {
         let error = AppError(error)
         if case .api(.server(let server)) = error, server.code == .notFound { return .gameFileChanged }
         return error
+    }
+
+    /// The error of a pak action (M12): a refused archive gets its reason,
+    /// ReminisLink itself its own text; a `404` on the paks list or the SD
+    /// browser means an older pak (``needsNewerPak``) only where the
+    /// caller says so (`routeMissing`).
+    static func pak(_ error: Error, routeMissing: Bool = false) -> AppError {
+        let error = AppError(error)
+        guard case .api(let api) = error else { return error }
+        let server: ServerError? = if case .server(let s) = api { s } else { nil }
+        if let server, let refusal = server.pakRefusal { return .pakRefused(refusal) }
+        if let server, server.isPakSelfConflict { return .pakSelf }
+        if routeMissing {
+            let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
+            if status == 404 || status == 405 { return .needsNewerPak }
+        }
+        return error
+    }
+
+    private static func message(for refusal: PakRefusal) -> String {
+        switch refusal {
+        case .notAnArchive:
+            String(localized: "This file is not a zip archive the console can read.")
+        case .noPak:
+            String(localized: "No pak in this archive: it must hold one folder named Name.pak, or a launch.sh file at its top.")
+        case .noLaunchScript:
+            String(localized: "This pak has no launch.sh file: NextUI could not start it.")
+        case .severalPaks:
+            String(localized: "This archive holds more than one pak. Install them one at a time.")
+        case .unsafeEntry:
+            String(localized: "The console refused this archive to protect the SD card (a link, or a file outside the pak folder).")
+        case .tooLarge:
+            String(localized: "This archive is too large for the console once unpacked.")
+        case .unsupportedCompression:
+            String(localized: "This archive is encrypted or compressed in a way the console cannot read.")
+        case .noName:
+            String(localized: "The console could not name this pak. Rename the archive Name.pak.zip and try again.")
+        case .other(let reason):
+            String(localized: "The console refused this pak: \(reason)")
+        }
     }
 
     /// The error of a save sync, or of one game of it: a checksum mismatch

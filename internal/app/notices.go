@@ -19,6 +19,10 @@ const (
 	NoticePatched        = "patched"
 	NoticePatchFailed    = "patch-failed"
 	NoticePaired         = "paired"
+	// NoticePakInstalled and NoticePakInstallFailed: the end of a pak
+	// installation job (M12).
+	NoticePakInstalled     = "pak-installed"
+	NoticePakInstallFailed = "pak-install-failed"
 )
 
 // Notice is the subject of the banner.
@@ -60,6 +64,10 @@ func (n *notices) jobFinished(j transfer.Job) {
 		kind = NoticePatched
 	case j.Kind == transfer.JobPatch && j.State == transfer.JobFailed:
 		kind = NoticePatchFailed
+	case j.Kind == transfer.JobPakInstall && j.State == transfer.JobSucceeded:
+		kind = NoticePakInstalled
+	case j.Kind == transfer.JobPakInstall && j.State == transfer.JobFailed:
+		kind = NoticePakInstallFailed
 	default:
 		return // cancelled: asked by the user, nothing to say
 	}

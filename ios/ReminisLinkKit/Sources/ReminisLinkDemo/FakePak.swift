@@ -142,6 +142,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     var _onAvailabilityChange: (@Sendable (Availability) -> Void)?
     /// The event streams of milestone M14 (FakePakEvents.swift).
     let eventHub = FakeEventHub()
+    /// The paks and the SD browser of milestone M12 (FakePakPaks.swift).
+    var paksState = FakePaksState()
 
     public init(
         deviceId: String = FakePak.demoDeviceId,
@@ -545,6 +547,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             if let response = routeGameData(request, method: method, segments: segments, params: params, body: body) {
                 return response
             }
+            if let response = routePaks(request, method: method, segments: segments, params: params, body: body) {
+                return response
+            }
             return .error(404, code: "not_found", message: "No route")
         }
     }
@@ -863,6 +868,10 @@ struct FakeJob {
     /// `DELETE` arrived while running: the job ends `cancelled` at its
     /// next step (M6), unless it was already done.
     var cancelRequested = false
+    /// What a `pak-install` job installs (milestone M12).
+    var pakPlan: FakePakPlan? = nil
+    /// `onConflict` of a download job.
+    var onConflict: String = "rename"
 
     var json: [String: Any] {
         [
@@ -882,6 +891,8 @@ extension FakePak {
         case save(gameId: String)
         case state(gameId: String, slot: Int)
         case staging(fileName: String?)
+        /// Milestone M12: a pak archive (`pakKind`: auto, tool or emu).
+        case pak(kind: String, fileName: String?)
     }
 
     fileprivate enum ParsedTarget {
@@ -946,6 +957,12 @@ extension FakePak {
                 return .refused(.error(400, code: "invalid_request", message: "Missing fileName"))
             }
             return .ok(.staging(fileName: fileName))
+        case "pak":
+            let pakKind = t["pakKind"] as? String ?? "auto"
+            guard ["auto", "tool", "emu"].contains(pakKind) else {
+                return .refused(.error(400, code: "invalid_request", message: "Invalid pakKind"))
+            }
+            return .ok(.pak(kind: pakKind, fileName: fileName))
         default:
             return .refused(.error(400, code: "invalid_request", message: "Unknown target kind"))
         }
@@ -968,6 +985,14 @@ extension FakePak {
         switch parseTarget(object["target"], fileNameRequired: true) {
         case .ok(let t): target = t
         case .refused(let response): return response
+        }
+        if case .pak = target {
+            guard onConflict != "rename" else {
+                return .error(400, code: "invalid_request", message: "rename is not allowed for a pak")
+            }
+            guard size <= Self.maxPakArchiveBytes else {
+                return .error(413, code: "too_large", message: "Pak archive larger than 1 GiB")
+            }
         }
         if case .rom(let system, let folder, let name?) = target, onConflict == "fail" {
             let path = gamePath(system, folder: folder, name: name)
@@ -1054,7 +1079,14 @@ extension FakePak {
             lock.withLock { _ = uploads.removeValue(forKey: id) }
             return .error(409, code: "checksum_mismatch", message: "SHA-256 mismatch")
         }
-        let response = store(target: upload.target, sizeBytes: upload.sizeBytes, onConflict: upload.onConflict)
+        let response: FakeResponse
+        if case .pak(let kind, let name) = upload.target {
+            // M12: the archive goes to the staging area and a job installs it.
+            let job = queuePakJob(FakePakPlan(sourceName: name ?? "upload.zip", kind: kind, onConflict: upload.onConflict))
+            response = .json(200, ["jobId": job.id])
+        } else {
+            response = store(target: upload.target, sizeBytes: upload.sizeBytes, onConflict: upload.onConflict)
+        }
         if response.status == 200 {
             let drop = lock.withLock { () -> Bool in
                 _ = uploads.removeValue(forKey: id)
@@ -1125,6 +1157,9 @@ extension FakePak {
             return .json(200, ["slot": json])
         case .staging:
             return .json(200, ["stagingId": Self.randomId("st_")])
+        case .pak(let kind, let name):
+            // A downloaded archive (M12): installed by its download job.
+            return installPak(FakePakPlan(sourceName: name ?? fallbackName, kind: kind, onConflict: onConflict))
         }
     }
 
@@ -1220,13 +1255,21 @@ extension FakePak {
         case .ok(let t): target = t
         case .refused(let response): return response
         }
+        let onConflict = object["onConflict"] as? String ?? "fail"
+        guard ["fail", "rename", "overwrite"].contains(onConflict) else {
+            return .error(400, code: "invalid_request", message: "Invalid onConflict")
+        }
+        if case .pak = target, onConflict == "rename" {
+            return .error(400, code: "invalid_request", message: "rename is not allowed for a pak")
+        }
         let now = Date()
-        let job = FakeJob(
+        var job = FakeJob(
             id: Self.randomId("job_"), kind: "download", state: "queued", done: 0, total: nil,
             createdAt: now, updatedAt: now, result: nil, error: nil, target: target,
             // A URL whose last path component is "missing" fails (demo and tests).
             fails: url.lastPathComponent == "missing", url: string
         )
+        job.onConflict = onConflict
         lock.withLock { jobs[job.id] = job }
         _ = string
         emitJob(job)
@@ -1245,6 +1288,7 @@ extension FakePak {
             if after.state == "succeeded" && before.state != "succeeded", let systemIds = librarySystems(of: after) {
                 emitLibrary(systemIds)
             }
+            // A pak installed: `paks` was sent by the installation (M12).
         }
         return json
     }
@@ -1258,6 +1302,11 @@ extension FakePak {
             job.state = "cancelled"
         } else if job.patch != nil {
             advancePatch(&job)
+            job.updatedAt = now
+            lock.withLock { jobs[id] = job }
+            return job.json
+        } else if job.pakPlan != nil {
+            advancePakInstall(&job)
             job.updatedAt = now
             lock.withLock { jobs[id] = job }
             return job.json
@@ -1275,8 +1324,20 @@ extension FakePak {
                 var name: String?
                 if case .rom(_, _, let n) = job.target { name = n }
                 if case .staging(let n) = job.target { name = n }
+                if case .pak(_, let n) = job.target { name = n }
                 let fromURL = job.url.flatMap(URL.init(string:)).map(\.lastPathComponent).flatMap(Self.cleanFileName)
                 let fileName = name ?? fromURL ?? "download.bin"
+                if case .pak = job.target {
+                    // M12: the download job installs the archive, at most
+                    // 1 GiB (nothing is installed beyond).
+                    let response = total > Self.maxPakArchiveBytes
+                        ? FakeResponse.error(413, code: "too_large", message: "Pak archive larger than 1 GiB")
+                        : store(target: job.target, sizeBytes: total, onConflict: job.onConflict, fallbackName: fileName)
+                    finish(&job, with: response)
+                    job.updatedAt = now
+                    lock.withLock { jobs[id] = job }
+                    return job.json
+                }
                 let response = store(target: job.target, sizeBytes: total, onConflict: "rename", fallbackName: fileName)
                 if let result = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any], response.status == 200 {
                     job.state = "succeeded"

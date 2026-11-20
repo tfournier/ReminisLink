@@ -50,6 +50,7 @@ func RootsFromEnv(env Env) osadapter.Roots {
 		Minui:    filepath.Join(shared, MinuiDirName),
 		System:   or("SYSTEM_PATH", filepath.Join(sd, ".system", platform)),
 		Emus:     filepath.Join(sd, "Emus", platform),
+		Tools:    filepath.Join(sd, "Tools", platform),
 		Cheats:   or("CHEATS_PATH", filepath.Join(sd, "Cheats")),
 		Userdata: userdata,
 		Shared:   shared,

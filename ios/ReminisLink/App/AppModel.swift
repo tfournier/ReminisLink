@@ -12,6 +12,8 @@ enum Route: Hashable {
     var deviceId: String? {
         switch self {
         case .console(let id), .library(let id), .systems(let id), .trash(let id), .transfers(let id), .syncedSaves(let id): id
+        case .paks(let id): id
+        case .sdFolder(let folder): folder.deviceId
         case .folder(let folder): folder.deviceId
         case .game(let game), .save(let game), .states(let game), .cheats(let game): game.deviceId
         case .syncedGame(let game): game.deviceId
@@ -41,6 +43,20 @@ enum Route: Hashable {
     case syncedSaves(String)
     /// The versions of one synced save.
     case syncedGame(SyncedGameRoute)
+    /// The tool and emulator paks of a console (milestone M12), pushed
+    /// in its Console tab.
+    case paks(String)
+    /// A folder of the SD card, read only (milestone M12), pushed in the
+    /// Console tab from its Storage section.
+    case sdFolder(SdFolderRoute)
+}
+
+/// A folder of the SD browser (milestone M12).
+struct SdFolderRoute: Hashable {
+    let deviceId: String
+    /// Nil for the root of the card.
+    let folderId: String?
+    let title: String
 }
 
 /// The tabs shown while a console is open (milestone M11).
@@ -741,6 +757,7 @@ extension AppModel {
     /// be driven by XCUITest; this path covers the rest of "add a file".
     func injectTestShare(_ environment: [String: String]) {
         if injectTestPatch(environment) { return }
+        if injectTestPak(environment) { return }
         guard let spec = environment["RL_UITEST_SHARE_FILE"], let colon = spec.lastIndex(of: ":"),
               let size = Int(spec[spec.index(after: colon)...]), size >= 0
         else { return }
@@ -758,6 +775,28 @@ extension AppModel {
         try? Data(bytes).write(to: file)
         _ = try? shareInbox.write(files: [file], urls: [])
         try? FileManager.default.removeItem(at: directory)
+    }
+
+    /// UI tests (milestone M12): `RL_UITEST_SHARE_PAK=<name>` stores a share
+    /// request holding a tiny pak, `<name>.pak.zip` (a `<name>.pak` folder
+    /// with a `launch.sh` and a `pak.json`, zipped by ``PakArchiver`` as a
+    /// `.pak` folder chosen in Files is), as the share extension would.
+    func injectTestPak(_ environment: [String: String]) -> Bool {
+        guard let name = environment["RL_UITEST_SHARE_PAK"], !name.isEmpty, !name.contains("/") else { return false }
+        for request in shareInbox.pending() { shareInbox.remove(request.id) }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "rl-uitest-\(UUID().uuidString)")
+        let folder = directory.appending(path: "\(name).pak", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("#!/bin/sh\necho \"\(name)\"\n".utf8).write(to: folder.appending(path: "launch.sh"))
+            try Data("{\"name\":\"\(name)\",\"type\":\"TOOL\",\"version\":\"0.0.1\"}".utf8).write(to: folder.appending(path: "pak.json"))
+            let zipped = try PakArchiver.zip(folder: folder, into: directory.appending(path: "out"))
+            _ = try shareInbox.write(files: [zipped.url], urls: [])
+        } catch {
+            return false
+        }
+        return true
     }
 
     /// UI tests (milestone M6): `RL_UITEST_SHARE_PATCH=<name>:<source

@@ -510,3 +510,144 @@ func TestRestoringTransitionIsDurableBeforeTheRollback(t *testing.T) {
 		t.Fatalf("entry left %v", names)
 	}
 }
+
+// M12: a pak folder replaced with the journal, then recovered after a
+// power cut in either direction.
+func TestTrashReplaceFolder(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	old := filepath.Join(sd, "Tools/tg5040/Clock.pak")
+	write(t, sd, "Tools/tg5040/Clock.pak/launch.sh", "old")
+	staged := filepath.Join(sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak")
+	write(t, sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak/launch.sh", "new!")
+	write(t, sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak/res/a", "xy")
+	if _, err := tr.Replace(ReasonReplacePak, "Clock", []MoveItem{{Path: old}}, []Install{{Src: staged, Dst: old, Size: 6, Dir: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(old, "launch.sh")); string(data) != "new!" || exists(staged) {
+		t.Fatalf("not installed: %q", data)
+	}
+	entries, _, _ := tr.List()
+	if len(entries) != 1 || entries[0].Reason != ReasonReplacePak {
+		t.Fatalf("entries %+v", entries)
+	}
+}
+
+func TestTrashRecoverFolderReplacement(t *testing.T) {
+	const src = ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak"
+	const dst = "Tools/tg5040/Clock.pak"
+	// Cut after the old pak moved: the complete staged folder is installed.
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, src+"/launch.sh", "new!")
+	interrupted(t, tr, sd, map[string]string{dst + "/launch.sh": "old"}, []installRecord{{Src: src, Dst: dst, Size: 4, Dir: true}})
+	os.Remove(filepath.Join(sd, dst))
+	if !tr.PendingSources()[filepath.Join(sd, src)] {
+		t.Fatal("staged folder not pending")
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(sd, dst, "launch.sh")); string(data) != "new!" {
+		t.Fatalf("not finished: %q", data)
+	}
+	// Cut with an incomplete staged folder: the old pak comes back.
+	tr, sd, _, _ = newTestTrash(t)
+	write(t, sd, src+"/launch.sh", "ne")
+	interrupted(t, tr, sd, map[string]string{dst + "/launch.sh": "old"}, []installRecord{{Src: src, Dst: dst, Size: 4, Dir: true}})
+	os.Remove(filepath.Join(sd, dst))
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(sd, dst, "launch.sh")); string(data) != "old" {
+		t.Fatalf("not rolled back: %q", data)
+	}
+}
+
+// A sync failure after the rename puts the old pak back.
+func TestTrashReplaceFolderSyncFailure(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	old := filepath.Join(sd, "Tools/tg5040/Clock.pak")
+	write(t, sd, "Tools/tg5040/Clock.pak/launch.sh", "old")
+	staged := filepath.Join(sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak")
+	write(t, sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak/launch.sh", "new")
+	fail := true
+	tr.syncDir = func(dir string) error {
+		if fail && dir == filepath.Dir(old) && exists(filepath.Join(old, "launch.sh")) {
+			if data, _ := os.ReadFile(filepath.Join(old, "launch.sh")); string(data) == "new" {
+				fail = false
+				return errors.New("simulated sync failure")
+			}
+		}
+		return nil
+	}
+	if _, err := tr.Replace(ReasonReplacePak, "Clock", []MoveItem{{Path: old}}, []Install{{Src: staged, Dst: old, Size: 3, Dir: true}}); err == nil {
+		t.Fatal("sync failure ignored")
+	}
+	if data, _ := os.ReadFile(filepath.Join(old, "launch.sh")); string(data) != "old" {
+		t.Fatalf("old pak not back: %q", data)
+	}
+}
+
+// Review 2: the recovery never installs through a link (the destination
+// folder turned into a link to outside the card): the entry is kept.
+func TestTrashRecoverRefusesALinkedDestination(t *testing.T) {
+	const src = ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak"
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, src+"/launch.sh", "new!")
+	id := interrupted(t, tr, sd, map[string]string{"Tools/tg5040/Clock.pak/launch.sh": "old"},
+		[]installRecord{{Src: src, Dst: "Tools/tg5040/Clock.pak", Size: 4, Dir: true}})
+	outside := t.TempDir()
+	os.RemoveAll(filepath.Join(sd, "Tools"))
+	if err := os.Symlink(outside, filepath.Join(sd, "Tools")); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if des, _ := os.ReadDir(outside); len(des) != 0 {
+		t.Fatalf("installed outside the card: %v", des)
+	}
+	if !exists(filepath.Join(tr.Dir(), id, "Tools", "tg5040", "Clock.pak", "launch.sh")) || !exists(filepath.Join(sd, src, "launch.sh")) {
+		t.Fatal("the old or the new pak was lost")
+	}
+	// A rename through a link is refused, a move into the trash too.
+	if err := tr.renameInSD(filepath.Join(sd, src), filepath.Join(sd, "Tools", "x")); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("rename through a link: %v", err)
+	}
+	if err := tr.renameInSD(filepath.Join(sd, src), filepath.Join(outside, "x")); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("rename outside the card: %v", err)
+	}
+}
+
+// Review 2 (round 3): a trash folder replaced by a link is never
+// followed: the recovery leaves the journal outside untouched, moves and
+// deletions are refused.
+func TestTrashDirLinkIsNotFollowed(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, "Roms/GBA (GBA)/Game.gba", "rom")
+	interrupted(t, tr, sd, map[string]string{"Saves/GBA/Game.gba.sav": "old"}, []installRecord{
+		{Src: ".userdata/shared/ReminisLink/uploads/x.part", Dst: "Saves/GBA/Game.gba.sav", Size: 3}})
+	outside := t.TempDir()
+	if err := os.Rename(tr.Dir(), filepath.Join(outside, "trash")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "trash"), tr.Dir()); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	journal := filepath.Join(outside, "trash", "tr_20261118T170000Z_00aa", "entry.json")
+	before, _ := os.ReadFile(journal)
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := os.ReadFile(journal); string(after) != string(before) {
+		t.Fatal("the journal outside the card was rewritten")
+	}
+	if _, err := tr.Move(ReasonDeleteGame, "Game", []MoveItem{{Path: filepath.Join(sd, "Roms/GBA (GBA)/Game.gba")}}); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("move: %v", err)
+	}
+	if _, err := tr.Delete("tr_20261118T170000Z_00aa"); !errors.Is(err, ErrLinkInPath) {
+		t.Fatalf("delete: %v", err)
+	}
+	if !exists(filepath.Join(sd, "Roms/GBA (GBA)/Game.gba")) || !exists(journal) {
+		t.Fatal("files lost")
+	}
+}
