@@ -60,15 +60,15 @@ final class PatchUITests: XCTestCase {
         XCTAssertTrue(pairingDone.waitForExistence(timeout: 15), "pairing did not finish")
         pairingDone.tap()
 
-        chooseGame(app, game: "Thistledown Isles", timeout: 15)
+        chooseGame(app, system: "HA", game: "Thistledown Isles", timeout: 15)
         XCTAssertTrue(app.descendants(matching: .any)["patch.file"].firstMatch.waitForExistence(timeout: 10), "shared file not shown")
         let name = app.textFields["patch.fileName"]
-        XCTAssertEqual(name.value as? String, "Thistledown Isles (patched).gba")
+        XCTAssertEqual(name.value as? String, "Thistledown Isles (patched).hab")
         // Without extension: the ROM's is added (shown, then sent).
         replaceText(of: name, with: "Thistledown Isles DX")
         let finalName = app.staticTexts["patch.finalName"]
         XCTAssertTrue(finalName.waitForExistence(timeout: 5))
-        XCTAssertTrue(finalName.label.contains("Thistledown Isles DX.gba"), finalName.label)
+        XCTAssertTrue(finalName.label.contains("Thistledown Isles DX.hab"), finalName.label)
         attachScreenshot(of: app, named: "patch-shared")
         app.buttons["patch.apply"].tapWhenEnabled()
         app.buttons["patch.openGame"].tapAfterWaiting(timeout: 30)
@@ -98,7 +98,7 @@ final class PatchUITests: XCTestCase {
         let pairingDone = app.buttons["pairing.done"]
         XCTAssertTrue(pairingDone.waitForExistence(timeout: 30), "pairing did not finish")
         pairingDone.tap()
-        chooseGame(app, game: GameDataUITest.headlessGame, timeout: 30)
+        chooseGame(app, system: "GBA", game: GameDataUITest.headlessGame, timeout: 30)
         app.buttons["patch.apply"].tapWhenEnabled(timeout: 20)
         let error = app.descendants(matching: .any)["patch.error"].firstMatch
         XCTAssertTrue(error.waitForExistence(timeout: 30), "no mismatch message")
@@ -108,7 +108,7 @@ final class PatchUITests: XCTestCase {
 
         // 2. The right source: a new file, opened.
         app = launch(patch: "UITest Hack.bps:10:4afa16bd:\(String(decoding: first, as: UTF8.self))", reset: false)
-        chooseGame(app, game: GameDataUITest.headlessGame, timeout: 30)
+        chooseGame(app, system: "GBA", game: GameDataUITest.headlessGame, timeout: 30)
         let name = app.textFields["patch.fileName"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))
         replaceText(of: name, with: "\(newName).gba")
@@ -123,7 +123,7 @@ final class PatchUITests: XCTestCase {
         // 3. A patch for the new file: it replaces it.
         let crc = String(format: "%08x", Self.crc32(first))
         app = launch(patch: "UITest Hack 2.bps:\(first.count):\(crc):\(String(decoding: second, as: UTF8.self))", reset: false)
-        chooseGame(app, game: newName, timeout: 30)
+        chooseGame(app, system: "GBA", game: newName, timeout: 30)
         app.buttons["Replace the Game"].firstMatch.tapAfterWaiting()
         app.buttons["patch.apply"].tapWhenEnabled(timeout: 20)
         app.buttons["patch.replaceConfirm"].tapAfterWaiting()
@@ -146,8 +146,8 @@ final class PatchUITests: XCTestCase {
     /// The Patch screen of a shared patch: the game picker opens (or is
     /// opened), then the game is chosen.
     @MainActor
-    private func chooseGame(_ app: XCUIApplication, game: String, timeout: TimeInterval) {
-        let system = app.buttons["picker.system.GBA"]
+    private func chooseGame(_ app: XCUIApplication, system tag: String, game: String, timeout: TimeInterval) {
+        let system = app.buttons["picker.system.\(tag)"]
         if !system.waitForExistence(timeout: 5) {
             app.buttons["patch.game"].tapAfterWaiting(timeout: timeout)
         }

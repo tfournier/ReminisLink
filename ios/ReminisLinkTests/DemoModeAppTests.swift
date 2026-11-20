@@ -169,7 +169,7 @@ struct DemoModeAppTests {
             try await demo.app.work.run {
                 try await Task.sleep(for: .milliseconds(300))
                 try FileManager.default.createDirectory(at: directory.appending(path: "late"), withIntermediateDirectories: true)
-                try Data("copy".utf8).write(to: directory.appending(path: "late/file.gba"))
+                try Data("copy".utf8).write(to: directory.appending(path: "late/file.hab"))
             }
         }
         try await Task.sleep(for: .milliseconds(20))
@@ -260,12 +260,12 @@ struct DemoModeAppTests {
         await liveSession.connect()
         // Real work in flight: a save sync and an upload of 40 chunks.
         live.startSaveSync(deviceId: livePak.deviceId)
-        let system = try #require(try await liveSession.perform { try await $0.systems() }.first { $0.tag == "GBA" })
-        let file = scratch.appending(path: "src/Upload.gba")
+        let system = try #require(try await liveSession.perform { try await $0.systems() }.first { $0.tag == "HA" })
+        let file = scratch.appending(path: "src/Upload.hab")
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data((0..<(640 << 10)).map { UInt8(truncatingIfNeeded: $0) }).write(to: file)
         let item = try liveSession.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "Upload.gba"), destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Upload.hab"), destination: "HA", ownsFile: false
         )
         await waitUntil { item.phase == .uploading }
 
@@ -375,7 +375,7 @@ struct DemoModeAppTests {
         let liveSession = live.session(for: livePak.deviceId)
         live.syncOnConnect = false
         await liveSession.connect()
-        let system = try #require(try await liveSession.perform { try await $0.systems() }.first { $0.tag == "GBA" })
+        let system = try #require(try await liveSession.perform { try await $0.systems() }.first { $0.tag == "HA" })
         let root = AppRoot(live: live)
         let demo = makeDemo()
         await root.startDemo { demo }
@@ -386,11 +386,11 @@ struct DemoModeAppTests {
         #expect(!live.saveSync(for: livePak.deviceId).isRunning)
         #expect(live.syncsPausedForDemo == [livePak.deviceId])
         #expect(await liveSession.loadTrash() == false)
-        let file = scratch.appending(path: "src/Later.gba")
+        let file = scratch.appending(path: "src/Later.hab")
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: 2, count: 30_000).write(to: file)
         let item = try liveSession.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "Later.gba"), destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Later.hab"), destination: "HA", ownsFile: false
         )
         try await Task.sleep(for: .milliseconds(300))
         #expect(livePak.log.count == requests, "\(livePak.log.suffix(from: requests).map { "\($0.method) \($0.path)" })")

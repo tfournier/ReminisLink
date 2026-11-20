@@ -4,7 +4,7 @@ import Testing
 @testable import ReminisLinkKit
 
 /// A multi-disc demo game.
-let starlightSaga = DemoLibrary.id("Disc Console (PS)/Orrery of Nine Tides")
+let starlightSaga = DemoLibrary.id("Disc Console (DCN)/Orrery of Nine Tides")
 
 @Suite("Patch models")
 struct PatchModelTests {
@@ -24,14 +24,14 @@ struct PatchModelTests {
     }
 
     @Test func suggestsThePatchedNameOfThePak() {
-        #expect(PatchNaming.suggestedFileName(forROM: "Thistledown Isles.gba") == "Thistledown Isles (patched).gba")
+        #expect(PatchNaming.suggestedFileName(forROM: "Thistledown Isles.hab") == "Thistledown Isles (patched).hab")
         #expect(PatchNaming.suggestedFileName(forROM: "Mosslight Maze 🌙.GB") == "Mosslight Maze 🌙 (patched).GB")
         #expect(PatchNaming.suggestedFileName(forROM: "Game v1.1.sfc") == "Game v1.1 (patched).sfc")
         #expect(PatchNaming.suggestedFileName(forROM: "NoExtension") == "NoExtension (patched)")
     }
 
     @Test func refusesNamesThePakRefuses() {
-        #expect(PatchNaming.validatedFileName("  Thistledown Isles (FR).gba ") == "Thistledown Isles (FR).gba")
+        #expect(PatchNaming.validatedFileName("  Thistledown Isles (FR).hab ") == "Thistledown Isles (FR).hab")
         for bad in ["", "   ", ".hidden.gba", "a/b.gba", "a\\b.gba", "tab\there.gba", "CON.gba", "lpt1", "nul .gba",
                     "zero\u{200B}width.gba", String(repeating: "é", count: 128) + ".gba"] {
             #expect(PatchNaming.validatedFileName(bad) == nil, "\(bad)")
@@ -119,7 +119,7 @@ struct PatchFakePakTests {
         let stagingId = try await stage(bps, name: "translation.bps", client: client)
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(
             patch: .staging(stagingId: stagingId),
-            output: PatchOutput(mode: .newFile, fileName: PatchNaming.suggestedFileName(forROM: "Thistledown Isles.gba"))
+            output: PatchOutput(mode: .newFile, fileName: PatchNaming.suggestedFileName(forROM: "Thistledown Isles.hab"))
         ))
         let queued = try await client.job(id: accepted.jobId)
         #expect(queued.kind == .patch)
@@ -127,20 +127,20 @@ struct PatchFakePakTests {
         #expect(job.state == .succeeded)
         #expect(job.progress.done == job.progress.total)
         let gameId = try #require(job.resultGameId)
-        #expect(gameId == DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"))
+        #expect(gameId == DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (patched).hab"))
         #expect(job.resultVerified == true)
         let game = try await client.game(id: gameId)
         #expect(game.name == "Thistledown Isles (patched)")
         #expect(game.totalBytes == 32)
         // The original is still there.
-        #expect(try await client.game(id: skyGarden).fileName == "Thistledown Isles.gba")
+        #expect(try await client.game(id: skyGarden).fileName == "Thistledown Isles.hab")
 
         // Same name again: the pak adds " (2)".
         let again = try await client.patchGame(gameId: skyGarden, PatchRequest(
             patch: .staging(stagingId: stagingId), output: PatchOutput(mode: .newFile)
         ))
         let second = try await finish(again.jobId, client: client)
-        #expect(second.resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched) (2).gba"))
+        #expect(second.resultGameId == DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (patched) (2).hab"))
     }
 
     @Test func replaceKeepsTheGameAndTrashesTheROM() async throws {
@@ -162,7 +162,7 @@ struct PatchFakePakTests {
         let trash = try await client.trash()
         #expect(trash.entries.count == trashBefore + 1)
         #expect(trash.entries.first?.reason == "replace-rom")
-        #expect(trash.entries.first?.files == ["Roms/Handheld Advance (GBA)/Thistledown Isles.gba"])
+        #expect(trash.entries.first?.files == ["Roms/Handheld Advance (HA)/Thistledown Isles.hab"])
     }
 
     @Test func aPatchForAnotherROMFailsWithPatchMismatch() async throws {
@@ -236,9 +236,9 @@ struct PatchFakePakTests {
         let ips = try #require(files.first { $0.fileName == "Bonus Levels.ips" })
         // Without extension: the pak adds the ROM's.
         let accepted = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile, fileName: "Sky Bonus")))
-        #expect(try await finish(accepted.jobId, client: client).resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Bonus.gba"))
+        #expect(try await finish(accepted.jobId, client: client).resultGameId == DemoLibrary.id("Handheld Advance (HA)/Sky Bonus.hab"))
         let other = try await client.patchGame(gameId: skyGarden, PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile, fileName: "Sky Bonus.txt")))
-        #expect(try await finish(other.jobId, client: client).resultGameId == DemoLibrary.id("Handheld Advance (GBA)/Sky Bonus.txt.gba"))
+        #expect(try await finish(other.jobId, client: client).resultGameId == DemoLibrary.id("Handheld Advance (HA)/Sky Bonus.txt.hab"))
     }
 
     @Test func archivesAndMultiDiscGamesAreNotPatchable() async throws {
@@ -247,7 +247,7 @@ struct PatchFakePakTests {
         #expect(PatchNaming.refusal(kind: .file, fileName: "a.7z") == .archive)
         #expect(PatchNaming.refusal(kind: .m3u, fileName: "a.m3u") == .multiDisc)
 
-        let library = DemoLibrary(systems: [DemoLibrary.System(folder: "Handheld Advance (GBA)", label: "GBA", tag: "GBA", games: [
+        let library = DemoLibrary(systems: [DemoLibrary.System(folder: "Handheld Advance (HA)", label: "GBA", tag: "GBA", games: [
             DemoLibrary.Game(path: "Packed.zip", sizeBytes: 100, modifiedAt: Date()),
         ])])
         let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", library: library)
@@ -256,7 +256,7 @@ struct PatchFakePakTests {
         let files = try await client.sdFiles(type: .patch)
         let ips = try #require(files.first { $0.fileName == "Bonus Levels.ips" })
         do {
-            _ = try await client.patchGame(gameId: DemoLibrary.id("Handheld Advance (GBA)/Packed.zip"),
+            _ = try await client.patchGame(gameId: DemoLibrary.id("Handheld Advance (HA)/Packed.zip"),
                                            PatchRequest(patch: .sd(sdFileId: ips.id), output: PatchOutput(mode: .newFile)))
             Issue.record("accepted")
         } catch let error as APIError {

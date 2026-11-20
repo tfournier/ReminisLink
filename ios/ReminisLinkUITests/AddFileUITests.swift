@@ -19,10 +19,10 @@ final class AddFileUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_DEMO"] = "1"
-        app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "UITest Homebrew.gba:6291456"
+        app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "UITest Homebrew.hab:6291456"
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)
-        try addSharedFileAndDelete(app, name: "UITest Homebrew", timeout: 20, systemLabel: "Handheld Advance")
+        try addSharedFileAndDelete(app, name: "UITest Homebrew", ext: "hab", timeout: 20, systemLabel: "Handheld Advance", systemTag: "HA")
     }
 
     /// Against a real pak (`make headless` on the Mac), found with Bonjour.
@@ -47,18 +47,20 @@ final class AddFileUITests: XCTestCase {
         app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "\(name).gba:\(bytes)"
         app.launch()
         app.open(url)
-        try addSharedFileAndDelete(app, name: name, timeout: max(60, Double(bytes) / 1_000_000), systemLabel: nil)
+        try addSharedFileAndDelete(app, name: name, ext: "gba", timeout: max(60, Double(bytes) / 1_000_000), systemLabel: nil, systemTag: "GBA")
     }
 
     @MainActor
-    private func addSharedFileAndDelete(_ app: XCUIApplication, name: String, timeout: TimeInterval, systemLabel: String?) throws {
+    private func addSharedFileAndDelete(
+        _ app: XCUIApplication, name: String, ext: String, timeout: TimeInterval, systemLabel: String?, systemTag: String
+    ) throws {
         // Pairing, then the Add screen opens for the shared file.
         let done = app.buttons["pairing.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 30), "pairing did not finish")
         done.tap()
         let send = app.buttons["add.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 30), "the Add screen did not open")
-        XCTAssertTrue(app.staticTexts["\(name).gba"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["\(name).\(ext)"].waitForExistence(timeout: 10))
         if let systemLabel {
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", systemLabel)).firstMatch
                 .waitForExistence(timeout: 10), "system not suggested")
@@ -75,7 +77,7 @@ final class AddFileUITests: XCTestCase {
         // Library (M11: its tab, every game in one list, searched): the
         // game is there; swipe to delete it.
         GameDataUITest.openLibraryTab(app, timeout: 20)
-        let systemRow = app.buttons["system.GBA"]
+        let systemRow = app.buttons["system.\(systemTag)"]
         if systemRow.waitForExistence(timeout: 3) {
             systemRow.tap()
         } else {

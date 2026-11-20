@@ -31,7 +31,7 @@ final class SaveUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_DEMO"] = "1"
-        app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "Thistledown Isles.gba.sav:2048"
+        app.launchEnvironment["RL_UITEST_SHARE_FILE"] = "Thistledown Isles.hab.sav:2048"
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)
         app.buttons["pairing.done"].tapAfterWaiting(timeout: 15)
@@ -41,7 +41,7 @@ final class SaveUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["The current save is first copied (backup copy)."].waitForExistence(timeout: 10))
         XCTAssertFalse(send.isEnabled, "a save needs its game")
         app.buttons["add.game"].tapAfterWaiting()
-        app.buttons["picker.system.GBA"].tapAfterWaiting(timeout: 15)
+        app.buttons["picker.system.HA"].tapAfterWaiting(timeout: 15)
         app.buttons["picker.game.\(GameDataUITest.demoGame)"].tapAfterWaiting(timeout: 15)
         attachScreenshot(of: app, named: "add-save")
         send.tapWhenEnabled(timeout: 10)

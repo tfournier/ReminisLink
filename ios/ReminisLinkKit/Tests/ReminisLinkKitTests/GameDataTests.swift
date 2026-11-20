@@ -4,9 +4,9 @@ import Testing
 @testable import ReminisLinkKit
 
 /// The demo game with a save, three states (slot 0 locked) and 12 cheats.
-let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
+let skyGarden = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
 /// A demo game with no save, no state and no cheat.
-let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
+let pixelRunner = DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash.hab")
 
 func downloadsDirectory() -> URL {
     FileManager.default.temporaryDirectory.appending(path: "rl-dl-tests-\(UUID().uuidString)")
@@ -123,7 +123,7 @@ struct GameDataModelTests {
     }
 
     @Test func contentDispositionGivesASafeFileName() {
-        #expect(ContentDisposition.fileName(#"attachment; filename="Thistledown Isles.gba.sav""#) == "Thistledown Isles.gba.sav")
+        #expect(ContentDisposition.fileName(#"attachment; filename="Thistledown Isles.hab.sav""#) == "Thistledown Isles.hab.sav")
         #expect(ContentDisposition.fileName("attachment; filename=game.st1") == "game.st1")
         #expect(ContentDisposition.fileName(#"attachment; filename="a;b.sav""#) == "a;b.sav")
         #expect(ContentDisposition.fileName(#"attachment; filename="x.sav"; filename*=UTF-8''Caf%C3%A9.sav"#) == "Café.sav")
@@ -293,7 +293,7 @@ struct GameDataAPITests {
         let client = try await pairedClient(pak)
         let root = downloadsDirectory()
         let file = try await client.downloadSave(gameId: skyGarden, into: root)
-        #expect(file.url.lastPathComponent == "Thistledown Isles.gba.sav")
+        #expect(file.url.lastPathComponent == "Thistledown Isles.hab.sav")
         #expect(try FileDigest.size(of: file.url) == 131_072)
         #expect(file.directory.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL)
         // The error of the pak comes through, exactly.
@@ -415,7 +415,7 @@ struct GameDataAPITests {
         #expect(moved.movedBytes == 401_408)
         #expect(try await client.states(gameId: skyGarden).slots.map(\.slot) == [1, 2, 9])
         let state = try await client.downloadState(gameId: skyGarden, slot: 1, into: downloadsDirectory())
-        #expect(state.url.lastPathComponent == "Thistledown Isles.gba.st1")
+        #expect(state.url.lastPathComponent == "Thistledown Isles.hab.st1")
     }
 
     @Test func thumbnailsAreOptional() async throws {
@@ -478,7 +478,7 @@ struct GameDataAPITests {
         #expect(result == CheatImportResult(imported: 2, total: 2))
 
         let files = try await client.sdFiles(type: .cht)
-        let file = try #require(files.first { $0.path.hasSuffix("Thistledown Isles.gba.cht") })
+        let file = try #require(files.first { $0.path.hasSuffix("Thistledown Isles.hab.cht") })
         result = try await client.importCheats(gameId: pixelRunner, .init(source: .sd(sdFileId: file.id), mode: .merge))
         #expect(result == CheatImportResult(imported: 2, total: 4))
 
@@ -529,7 +529,7 @@ struct GameDataAPITests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         func summary() async throws -> GameSummary {
-            let systemId = DemoLibrary.id("Handheld Advance (GBA)")
+            let systemId = DemoLibrary.id("Handheld Advance (HA)")
             return try #require(try await client.games(systemId: systemId).games.first { $0.id == skyGarden })
         }
         #expect(try await summary().lockedStateCount == 1)

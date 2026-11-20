@@ -190,6 +190,10 @@ final class AppModel {
     /// False for the Debug launch switch `RL_DEMO`, which behaves as the
     /// live app against the fake pak.
     let isDemo: Bool
+    /// Extension → system tags added to `SystemSuggestion.tagsByExtension`
+    /// when a file is added: the made-up systems of the demo console
+    /// (empty for a real one).
+    @ObservationIgnored var extraSystemTagsByExtension: [String: [String]] = [:]
     /// File copies and downloads in progress (M16: the end of a demo waits
     /// for them before erasing its folder).
     @ObservationIgnored let work = WorkTracker()

@@ -12,8 +12,8 @@ import Testing
 struct GameDataAppTests {
     let secure = InMemorySecureStore()
     let root = FileManager.default.temporaryDirectory.appending(path: "rl-m5-\(UUID().uuidString)")
-    let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
-    let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
+    let skyGarden = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
+    let pixelRunner = DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash.hab")
 
     func makePak() -> FakePak {
         let pak = FakePak(host: "m5-\(UUID().uuidString.lowercased()).test")
@@ -56,7 +56,7 @@ struct GameDataAppTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
-        let file = try await picked(app, name: "Thistledown Isles.gba.sav", contents: Data(repeating: 7, count: 10_000))
+        let file = try await picked(app, name: "Thistledown Isles.hab.sav", contents: Data(repeating: 7, count: 10_000))
         let revision = session.libraryRevision
         let outcome = try await session.replaceSave(gameId: skyGarden, gameName: "Thistledown Isles", with: file)
         guard case .replaced(let backup) = outcome else { Issue.record("not replaced directly"); return }
@@ -121,7 +121,7 @@ struct GameDataAppTests {
         let session = app.session(for: pak.deviceId)
         let gameId = skyGarden
         let exported = try await session.export { try await $0.downloadState(gameId: gameId, slot: 1, into: $1) }
-        #expect(exported.file.url.lastPathComponent == "Thistledown Isles.gba.st1")
+        #expect(exported.file.url.lastPathComponent == "Thistledown Isles.hab.st1")
         #expect(exported.file.directory.deletingLastPathComponent().standardizedFileURL == app.exportDirectory.standardizedFileURL)
         ExportedFiles.remove(exported.file)
         await waitUntilGone(exported.file.directory)
@@ -130,7 +130,7 @@ struct GameDataAppTests {
 
     @Test func saveIsOfferedForFiles() {
         #expect(AddKind.sendable.contains(.save))
-        #expect(AddKind.suggested(forFileName: "Thistledown Isles.gba.sav") == .save)
+        #expect(AddKind.suggested(forFileName: "Thistledown Isles.hab.sav") == .save)
     }
 
     @Test func automaticCopiesAreNamedAfterTheirReason() {

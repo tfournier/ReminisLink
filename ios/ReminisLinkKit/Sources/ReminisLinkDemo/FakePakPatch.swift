@@ -16,7 +16,7 @@ import ReminisLinkKit
 // - a BPS or UPS whose declared target size is the game's size while its
 //   source size is not is taken as already applied (`already-patched`);
 // - an output name that does not end with `.<extension of the ROM>`
-//   gets it (`Hack.zip` → `Hack.zip.gba`).
+//   gets it (`Hack.zip` → `Hack.zip.hab`).
 
 /// A file of the staging area.
 struct FakeStagedFile {
@@ -135,9 +135,9 @@ extension FakePak {
     /// `ReminisLink/patches/`. Their bytes are headers only.
     func sdPatchFiles() -> [(id: String, path: String, bytes: Data)] {
         let files: [(String, Data)] = [
-            ("Roms/Handheld Advance (GBA)/Thistledown Isles (Translation).bps",
+            ("Roms/Handheld Advance (HA)/Thistledown Isles (Translation).bps",
              DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 0x1234_5678, target: Data("demo".utf8))),
-            ("Roms/Handheld Advance (GBA)/Brambleway Dash (Hack).ups",
+            ("Roms/Handheld Advance (HA)/Brambleway Dash (Hack).ups",
              DemoPatch.upsHeader(sourceSize: 4_194_304, targetSize: 4_194_304)),
             ("ReminisLink/patches/Bonus Levels.ips", DemoPatch.ips(offset: 0x100, bytes: Data("demo".utf8))),
             ("ReminisLink/patches/Read Me.ips", Data("not a patch\n".utf8)),

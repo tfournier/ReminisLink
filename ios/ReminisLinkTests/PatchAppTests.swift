@@ -12,10 +12,10 @@ import Testing
 struct PatchAppTests {
     let secure = InMemorySecureStore()
     let root = FileManager.default.temporaryDirectory.appending(path: "rl-m6-\(UUID().uuidString)")
-    let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
+    let skyGarden = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
     let skyGardenGame = PatchGame(
-        id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
-        fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
+        id: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab"), name: "Thistledown Isles",
+        fileName: "Thistledown Isles.hab", kind: .file, systemLabel: "Handheld Advance"
     )
     /// The size of Thistledown Isles in the demo library.
     let skyGardenSize = 16_777_216
@@ -92,17 +92,17 @@ struct PatchAppTests {
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
         let flow = PatchFlow(session: session, game: skyGardenGame)
-        #expect(flow.fileName == "Thistledown Isles (patched).gba")
+        #expect(flow.fileName == "Thistledown Isles (patched).hab")
         #expect(!flow.canStart)
         let bps = DemoPatch.bps(sourceSize: skyGardenSize, sourceCRC32: 1, target: Data(count: 64))
         let file = try await picked(app, name: "translation.bps", contents: bps)
         flow.file = file
-        flow.fileName = "Thistledown Isles (FR).gba"
+        flow.fileName = "Thistledown Isles (FR).hab"
         #expect(flow.canStart)
         let revision = session.libraryRevision
         flow.start()
         await runToTheEnd(flow)
-        let produced = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (FR).gba")
+        let produced = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (FR).hab")
         #expect(flow.step == .succeeded(gameId: produced, late: false))
         // Sent to the staging area, then patched by its stagingId.
         #expect(pak.log.contains { $0.method == "POST" && $0.path.hasSuffix("/uploads") })
@@ -154,7 +154,7 @@ struct PatchAppTests {
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
         let files = try await session.perform { try await $0.sdFiles(type: .patch) }
-        let sorted = SdFile.sortedForGame(files, fileName: "Thistledown Isles.gba", name: "Thistledown Isles")
+        let sorted = SdFile.sortedForGame(files, fileName: "Thistledown Isles.hab", name: "Thistledown Isles")
         #expect(sorted.first?.fileName == "Thistledown Isles (Translation).bps")
         let flow = PatchFlow(session: session, game: skyGardenGame)
         flow.source = .sdCard
@@ -223,15 +223,15 @@ struct PatchAppTests {
         let flow = PatchFlow(session: session, game: skyGardenGame)
         flow.source = .sdCard
         flow.sdFileId = "sd_1"
-        flow.fileName = "../x.gba"
+        flow.fileName = "../x.hab"
         #expect(!flow.canStart)
         // Another ending: the ROM's extension is added, as by the pak.
-        flow.fileName = "Thistledown Isles (FR).gb"
-        #expect(flow.canStart && flow.outputName == .valid("Thistledown Isles (FR).gb.gba"))
+        flow.fileName = "Thistledown Isles (FR).pcr"
+        #expect(flow.canStart && flow.outputName == .valid("Thistledown Isles (FR).pcr.hab"))
         // No extension: the ROM's is added.
         flow.fileName = "Thistledown Isles (FR)"
-        #expect(flow.canStart && flow.outputName == .valid("Thistledown Isles (FR).gba"))
-        flow.fileName = "Thistledown Isles (FR).gb"
+        #expect(flow.canStart && flow.outputName == .valid("Thistledown Isles (FR).hab"))
+        flow.fileName = "Thistledown Isles (FR).pcr"
         flow.mode = .replace
         #expect(flow.canStart)
         // An archive ROM is not offered.
@@ -247,7 +247,7 @@ struct PatchAppTests {
         shared.sdFileId = "sd_1"
         #expect(!shared.canStart)
         shared.game = skyGardenGame
-        #expect(shared.fileName == "Thistledown Isles (patched).gba")
+        #expect(shared.fileName == "Thistledown Isles (patched).hab")
         #expect(shared.canStart)
     }
 
@@ -274,7 +274,7 @@ struct PatchAppTests {
         #expect(app.shareInbox.pending().isEmpty)
 
         // A ROM still opens the Add screen.
-        let rom = directory.appending(path: "Homebrew.gba")
+        let rom = directory.appending(path: "Homebrew.hab")
         try Data(count: 4).write(to: rom)
         try app.shareInbox.write(files: [rom])
         app.checkShareInbox()
@@ -312,7 +312,7 @@ struct PatchAppTests {
         await wait(flow) { $0 == .patching }
         try await finishOnTheConsole(try #require(flow.job?.id), session)
         await flow.cancel()
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: true))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (patched).hab"), late: true))
     }
 
     @Test func cancellingWhileTheFileIsSentNeverPatches() async throws {
@@ -389,7 +389,7 @@ struct PatchAppTests {
         flow.fileName = "Bonus"
         flow.start()
         await runToTheEnd(flow)
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Bonus.gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Bonus.hab"), late: false))
         #expect(flow.verified == false)
     }
 
@@ -410,7 +410,7 @@ struct PatchAppTests {
         #expect(flow.step == .patching)
         await runToTheEnd(flow)
         #expect(flow.pollError == nil)
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (patched).hab"), late: false))
     }
 
     /// "Try Again" while the timer polls too: the patch job is seen
@@ -437,7 +437,7 @@ struct PatchAppTests {
         async let second: Void = flow.tick()
         _ = await (first, second)
         pak.responseDelay = 0
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (patched).hab"), late: false))
         #expect(pak.log.filter { $0.path.hasSuffix("/patch") }.count == 1)
     }
 

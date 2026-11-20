@@ -38,7 +38,7 @@ struct TransferAppTests {
         return app
     }
 
-    func sharedFile(_ app: AppModel, name: String = "Shared.gba", size: Int = 50_000) throws -> ShareRequest {
+    func sharedFile(_ app: AppModel, name: String = "Shared.hab", size: Int = 50_000) throws -> ShareRequest {
         let directory = root.appending(path: "src-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: name)
@@ -129,22 +129,22 @@ struct TransferAppTests {
         let revision = session.libraryRevision
         let request = try sharedFile(app)
         let copy = try await AddView.makeLocalCopy(
-            of: AddFile(url: app.shareInbox.fileURL("Shared.gba", in: request), name: "Shared.gba", sizeBytes: 50_000,
+            of: AddFile(url: app.shareInbox.fileURL("Shared.hab", in: request), name: "Shared.hab", sizeBytes: 50_000,
                         isSecurityScoped: false, request: request, kind: .rom),
             in: app.transferDirectory, inbox: app.shareInbox
         )
         #expect(copy.path.hasPrefix(app.transferDirectory.path))
         // Moved out of the inbox, not copied.
-        #expect(!FileManager.default.fileExists(atPath: app.shareInbox.fileURL("Shared.gba", in: request).path))
+        #expect(!FileManager.default.fileExists(atPath: app.shareInbox.fileURL("Shared.hab", in: request).path))
         let item = try session.transfers.enqueue(
-            fileURL: copy, fileName: "Shared.gba", target: .rom(systemId: DemoLibrary.id("Handheld Advance (GBA)"), fileName: "Shared.gba"),
+            fileURL: copy, fileName: "Shared.hab", target: .rom(systemId: DemoLibrary.id("Handheld Advance (HA)"), fileName: "Shared.hab"),
             destination: "Handheld Advance", ownsFile: true
         )
         await session.transfers.waitUntilIdle()
         #expect(item.phase == .done)
         #expect(session.libraryRevision == revision + 1)
-        let games = try await session.perform { try await $0.games(systemId: DemoLibrary.id("Handheld Advance (GBA)")) }
-        #expect(games.games.contains { $0.fileName == "Shared.gba" })
+        let games = try await session.perform { try await $0.games(systemId: DemoLibrary.id("Handheld Advance (HA)")) }
+        #expect(games.games.contains { $0.fileName == "Shared.hab" })
     }
 
     @Test func backgroundPausesAndActiveResumes() async throws {
@@ -155,8 +155,8 @@ struct TransferAppTests {
         let session = app.session(for: pak.deviceId)
         let request = try sharedFile(app, size: 400_000)
         let item = try session.transfers.enqueue(
-            fileURL: app.shareInbox.fileURL("Shared.gba", in: request), fileName: "Shared.gba",
-            target: .rom(systemId: DemoLibrary.id("Handheld Advance (GBA)"), fileName: "Shared.gba"),
+            fileURL: app.shareInbox.fileURL("Shared.hab", in: request), fileName: "Shared.hab",
+            target: .rom(systemId: DemoLibrary.id("Handheld Advance (HA)"), fileName: "Shared.hab"),
             destination: "", ownsFile: false
         )
         while item.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
@@ -173,9 +173,9 @@ struct TransferAppTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash.hab")
         let result = try await session.deleteGame(id: gameId, keepSave: false)
-        #expect(result.moved == ["Roms/Handheld Advance (GBA)/Brambleway Dash.gba"])
+        #expect(result.moved == ["Roms/Handheld Advance (HA)/Brambleway Dash.hab"])
         try await Task.sleep(for: .milliseconds(200))
         #expect(session.trash?.entries.contains { $0.id == result.trashEntryId } == true)
         try await session.emptyTrash()
@@ -186,7 +186,7 @@ struct TransferAppTests {
     /// one on the console: confirmed first, never announced as "both kept".
     @Test func sendingAgainASaveOrAStateReplacesIt() {
         typealias Resend = UploadRow.Resend
-        #expect(Resend(.rom(systemId: "s", fileName: "a.gba")) == .keepBoth)
+        #expect(Resend(.rom(systemId: "s", fileName: "a.hab")) == .keepBoth)
         #expect(Resend(.staging(fileName: "a.ips")) == .keepBoth)
         #expect(Resend(.save(gameId: "g")) == .replaceSave)
         #expect(Resend(.state(gameId: "g", slot: 1)) == .replaceState)
@@ -201,8 +201,8 @@ struct TransferAppTests {
 
     @Test func transferErrorTexts() {
         let conflict = AppError(APIError.server(ServerError(status: 409, code: .conflict, message: "x",
-                                                            details: ["existing": .string("Roms/GBA/a.gba")])))
-        #expect(conflict.message.contains("Roms/GBA/a.gba"))
+                                                            details: ["existing": .string("Roms/HA/a.hab")])))
+        #expect(conflict.message.contains("Roms/HA/a.hab"))
         let storage = AppError(APIError.server(ServerError(status: 507, code: .insufficientStorage, message: "x",
                                                            details: ["required": .integer(3_000_000), "available": .integer(1_000_000)])))
         #expect(storage.message.contains("2"))

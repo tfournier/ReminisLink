@@ -303,7 +303,7 @@ struct TransferQueueTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let queue = makeQueue(client)
-        let item = try queue.enqueue(fileURL: try makeFile(size: 1000), target: .rom(systemId: gbaSystemId, fileName: "Brambleway Dash.gba"),
+        let item = try queue.enqueue(fileURL: try makeFile(size: 1000), target: .rom(systemId: gbaSystemId, fileName: "Brambleway Dash.hab"),
                                      destination: "GBA", ownsFile: false)
         await queue.waitUntilIdle()
         #expect(item.phase == .failed)
@@ -312,7 +312,7 @@ struct TransferQueueTests {
         await queue.waitUntilIdle()
         #expect(item.phase == .done)
         #expect(item.onConflict == .rename)
-        #expect(item.result?.gameId == DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash (2).gba"))
+        #expect(item.result?.gameId == DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash (2).hab"))
     }
 
     @Test func cancelStopsAndDeletesOnTheDevice() async throws {
@@ -445,6 +445,24 @@ struct AddSuggestionTests {
         #expect(SystemSuggestion.system(forFileName: "x.smc", in: systems)?.id == "c")
         #expect(SystemSuggestion.system(forFileName: "x.zip", in: systems) == nil)
         #expect(SystemSuggestion.system(forFileName: "x.nes", in: systems) == nil)
+    }
+
+    /// The demo's made-up systems: invented tags and extensions, known to
+    /// the suggestion only through the extra table of the demo library.
+    @Test func demoSystemsFromTheirExtensions() {
+        let library = DemoLibrary.sample
+        let demo = library.systems.map {
+            GameSystem(id: $0.id, label: $0.label, folder: $0.folder, tag: $0.tag, gameCount: $0.games.count)
+        }
+        let extra = library.tagsByExtension
+        #expect(extra == ["hab": ["HA"], "pcr": ["PCL"], "cue": ["DCN"], "m3u": ["DCN"]])
+        #expect(SystemSuggestion.system(forFileName: "x.hab", in: demo) == nil, "unknown to the real table")
+        #expect(SystemSuggestion.system(forFileName: "x.HAB", in: demo, extraTagsByExtension: extra)?.tag == "HA")
+        #expect(SystemSuggestion.system(forFileName: "x.pcr", in: demo, extraTagsByExtension: extra)?.tag == "PCL")
+        #expect(SystemSuggestion.system(forFileName: "x.cue", in: demo, extraTagsByExtension: extra)?.tag == "DCN")
+        #expect(SystemSuggestion.system(forFileName: "x.gba", in: demo, extraTagsByExtension: extra) == nil)
+        // The real table comes first.
+        #expect(SystemSuggestion.system(forFileName: "x.gba", in: systems, extraTagsByExtension: ["gba": ["GB"]])?.id == "a")
     }
 
     @Test func inboxRoundTrip() throws {

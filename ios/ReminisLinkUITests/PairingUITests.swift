@@ -37,7 +37,7 @@ final class PairingUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 10))
         attachScreenshot(app, "game")
         XCTAssertEqual(app.staticTexts["game.title"].label, "Thistledown Isles")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Thistledown Isles.gba'")).firstMatch
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Thistledown Isles.hab'")).firstMatch
             .waitForExistence(timeout: 10))
     }
 
@@ -61,12 +61,12 @@ final class PairingUITests: XCTestCase {
         GameDataUITest.openLibraryTab(app, timeout: 10)
         app.buttons["library.filter"].tapAfterWaiting()
         app.buttons["library.bySystem"].tapAfterWaiting()
-        let playStation = app.buttons["system.PS"]
-        XCTAssertTrue(playStation.waitForExistence(timeout: 10))
-        XCTAssertTrue(playStation.label.contains("Emulator not installed on the console"), playStation.label)
-        XCTAssertFalse(app.buttons["system.GBA"].label.contains("Emulator"), app.buttons["system.GBA"].label)
+        let discConsole = app.buttons["system.DCN"]
+        XCTAssertTrue(discConsole.waitForExistence(timeout: 10))
+        XCTAssertTrue(discConsole.label.contains("Emulator not installed on the console"), discConsole.label)
+        XCTAssertFalse(app.buttons["system.HA"].label.contains("Emulator"), app.buttons["system.HA"].label)
         attachScreenshot(app, "systems")
-        playStation.tapAfterWaiting()
+        discConsole.tapAfterWaiting()
         XCTAssertTrue(app.buttons["game.Orrery of Nine Tides"].waitForExistence(timeout: 10))
     }
 

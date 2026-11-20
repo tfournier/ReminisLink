@@ -56,13 +56,20 @@ public struct DemoLibrary: Sendable {
         public let folder: String
         public let label: String
         public let tag: String
+        /// The ROM extensions of this made-up system, lowercased, without
+        /// the dot (the demo's add flow suggests the system from them).
+        public let extensions: [String]
         public var games: [Game]
         public let emulatorInstalled: Bool
 
-        public init(folder: String, label: String, tag: String, emulatorInstalled: Bool = true, games: [Game]) {
+        public init(
+            folder: String, label: String, tag: String, extensions: [String] = [], emulatorInstalled: Bool = true,
+            games: [Game]
+        ) {
             self.folder = folder
             self.label = label
             self.tag = tag
+            self.extensions = extensions
             self.emulatorInstalled = emulatorInstalled
             self.games = games
         }
@@ -79,6 +86,20 @@ public struct DemoLibrary: Sendable {
     /// Opaque ids are base64url of the path relative to `Roms/`, like the pak.
     public static func id(_ path: String) -> String {
         Base64URL.encode(Data(path.utf8))
+    }
+
+    /// Extension → tags of the systems that take it, like
+    /// `SystemSuggestion.tagsByExtension` for the made-up systems of the
+    /// demo (their tags and extensions are invented: the real table knows
+    /// none of them).
+    public var tagsByExtension: [String: [String]] {
+        var out: [String: [String]] = [:]
+        for system in systems {
+            for ext in system.extensions where out[ext]?.contains(system.tag) != true {
+                out[ext, default: []].append(system.tag)
+            }
+        }
+        return out
     }
 
     public func system(id: String) -> System? {
@@ -111,20 +132,23 @@ public struct DemoLibrary: Sendable {
 
     private static let base = Date(timeIntervalSince1970: 1_790_000_000)
 
+    /// Made-up systems with invented tags and extensions (no trademark,
+    /// no real format: they appear in the App Store screenshots). The tags
+    /// match no NextUI system.
     public static let sample = DemoLibrary(systems: [
-        System(folder: "Handheld Advance (GBA)", label: "Handheld Advance", tag: "GBA", games: [
-            Game(path: "Thistledown Isles.gba", sizeBytes: 16_777_216, modifiedAt: base,
+        System(folder: "Handheld Advance (HA)", label: "Handheld Advance", tag: "HA", extensions: ["hab"], games: [
+            Game(path: "Thistledown Isles.hab", sizeBytes: 16_777_216, modifiedAt: base,
                  hasSave: true, stateSlots: [0, 1, 2], lockedStateCount: 1, cheatCount: 12, hasArt: true, hasClock: true),
-            Game(path: "Brambleway Dash.gba", sizeBytes: 4_194_304, modifiedAt: base.addingTimeInterval(86_400 * 3)),
-            Game(path: "Homebrew/Quillwork Tactics.gba", sizeBytes: 1_048_576, modifiedAt: base.addingTimeInterval(86_400),
+            Game(path: "Brambleway Dash.hab", sizeBytes: 4_194_304, modifiedAt: base.addingTimeInterval(86_400 * 3)),
+            Game(path: "Homebrew/Quillwork Tactics.hab", sizeBytes: 1_048_576, modifiedAt: base.addingTimeInterval(86_400),
                  hasSave: true, hasArt: true),
-            Game(path: "Homebrew/Cartographe Égaré.gba", sizeBytes: 2_097_152, modifiedAt: base.addingTimeInterval(86_400 * 2),
+            Game(path: "Homebrew/Cartographe Égaré.hab", sizeBytes: 2_097_152, modifiedAt: base.addingTimeInterval(86_400 * 2),
                  stateSlots: [0], cheatCount: 2),
         ]),
-        System(folder: "01) Pocket Classic (GB)", label: "Pocket Classic", tag: "GB", games: [
-            Game(path: "Mosslight Maze 🌙.gb", sizeBytes: 262_144, modifiedAt: base, hasSave: true, stateSlots: [0], hasArt: true),
+        System(folder: "01) Pocket Classic (PCL)", label: "Pocket Classic", tag: "PCL", extensions: ["pcr"], games: [
+            Game(path: "Mosslight Maze 🌙.pcr", sizeBytes: 262_144, modifiedAt: base, hasSave: true, stateSlots: [0], hasArt: true),
         ]),
-        System(folder: "Disc Console (PS)", label: "Disc Console", tag: "PS", emulatorInstalled: false, games: [
+        System(folder: "Disc Console (DCN)", label: "Disc Console", tag: "DCN", extensions: ["cue", "m3u"], emulatorInstalled: false, games: [
             // Small for a disc game: the fake pak serves every file whole,
             // from memory.
             Game(path: "Orrery of Nine Tides", kind: .folderM3U, sizeBytes: 7_340_032, modifiedAt: base,

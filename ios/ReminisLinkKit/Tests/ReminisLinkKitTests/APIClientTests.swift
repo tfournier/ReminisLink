@@ -182,7 +182,7 @@ struct APIClientTests {
     @Test func gamesSendsACanonicalQuery() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let system = try #require(try await client.systems().first { $0.tag == "GBA" })
+        let system = try #require(try await client.systems().first { $0.tag == "HA" })
         let root = try await client.games(systemId: system.id)
         #expect(root.folders.map(\.name) == ["Homebrew"])
         #expect(root.games.map(\.name).sorted() == ["Brambleway Dash", "Thistledown Isles"])
@@ -424,7 +424,7 @@ struct APIClientTests {
         let client = try await pairedClient(pak)
         let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
         defer { try? FileManager.default.removeItem(at: cache.directory) }
-        let system = try #require(try await client.systems().first { $0.tag == "GBA" })
+        let system = try #require(try await client.systems().first { $0.tag == "HA" })
         let games = try await client.games(systemId: system.id).games
         let withArt = try #require(games.first { $0.hasArt })
         let withoutArt = try #require(games.first { !$0.hasArt })

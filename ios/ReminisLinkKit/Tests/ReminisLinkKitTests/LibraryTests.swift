@@ -25,7 +25,7 @@ struct LibraryModelTests {
         let all = try decode(AllGames.self, """
         {"games":[
           {"id":"R2FtZQ","systemId":"R0JB","folderId":null,"folderPath":null,"name":"Thistledown Isles",
-           "fileName":"Thistledown Isles.gba","kind":"file","sizeBytes":16777216,"modifiedAt":"2026-10-02T09:12:00Z",
+           "fileName":"Thistledown Isles.hab","kind":"file","sizeBytes":16777216,"modifiedAt":"2026-10-02T09:12:00Z",
            "hasSave":true,"stateCount":3,"lockedStateCount":1,"cheatCount":12,"hasArt":true},
           {"id":"VGlueQ","systemId":"R0JB","folderId":"SG9tZQ","folderPath":"Homebrew/2026","name":"Tiny",
            "fileName":"Tiny.gba","kind":"file","sizeBytes":1,"modifiedAt":"2026-10-02T09:12:00Z",
@@ -85,8 +85,8 @@ struct LibraryAPITests {
         #expect(all.games.first?.summary.name == "Mosslight Maze 🌙")
         let tiny = try #require(all.games.first { $0.summary.name == "Quillwork Tactics" })
         #expect(tiny.folderPath == "Homebrew")
-        #expect(tiny.folderId == DemoLibrary.id("Handheld Advance (GBA)/Homebrew"))
-        #expect(tiny.systemId == DemoLibrary.id("Handheld Advance (GBA)"))
+        #expect(tiny.folderId == DemoLibrary.id("Handheld Advance (HA)/Homebrew"))
+        #expect(tiny.systemId == DemoLibrary.id("Handheld Advance (HA)"))
         let sky = try #require(all.games.first { $0.id == skyGarden })
         #expect(sky.folderId == nil && sky.folderPath == nil)
         #expect(pak.log.last?.path == "/api/v1/games")
@@ -124,7 +124,7 @@ struct LibraryAPITests {
         let file = try await client.downloadGameFile(gameId: skyGarden, fileId: romId, into: root) {
             progress.add($0, $1)
         }
-        #expect(file.url.lastPathComponent == "Thistledown Isles.gba")
+        #expect(file.url.lastPathComponent == "Thistledown Isles.hab")
         #expect(try FileDigest.size(of: file.url) == rom.sizeBytes)
         #expect(file.directory.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL)
         #expect(pak.log.last?.path == "/api/v1/games/\(skyGarden)/files/\(romId)")
@@ -135,7 +135,7 @@ struct LibraryAPITests {
 
         let cheats = try #require(detail.files.first { $0.role == .cheats })
         let cht = try await client.downloadGameFile(gameId: skyGarden, fileId: try #require(cheats.fileId), into: root)
-        #expect(cht.url.lastPathComponent == "Thistledown Isles.gba.cht")
+        #expect(cht.url.lastPathComponent == "Thistledown Isles.hab.cht")
         #expect(try FileDigest.size(of: cht.url) == cheats.sizeBytes)
         let text = try String(contentsOf: cht.url, encoding: .utf8)
         #expect(text.hasPrefix("cheats = 12"))
@@ -218,7 +218,7 @@ struct LibraryAPITests {
         await #expect {
             _ = try await client.allGames()
         } throws: { LibraryMode.meansUnsupported($0) }
-        let listing = try await client.games(systemId: DemoLibrary.id("Handheld Advance (GBA)"))
+        let listing = try await client.games(systemId: DemoLibrary.id("Handheld Advance (HA)"))
         #expect(listing.games.contains { $0.id == skyGarden })
         let detail = try await client.game(id: skyGarden)
         #expect(!detail.files.isEmpty)
@@ -285,7 +285,7 @@ struct LibraryFilterTests {
 
     static let games = [
         game("Thistledown Isles", system: "gba", size: 16, days: 0, save: true, states: 3, cheats: 12),
-        game("pixel runner", system: "gba", file: "Brambleway Dash (Europe).gba", size: 4, days: 3),
+        game("pixel runner", system: "gba", file: "Brambleway Dash (Europe).hab", size: 4, days: 3),
         game("Cartographe Égaré", system: "mgba", size: 2, days: 2, states: 1, cheats: 2),
         game("Mosslight Maze", system: "gb", size: 1, days: 1, save: true),
     ]

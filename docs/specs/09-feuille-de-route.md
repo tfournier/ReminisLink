@@ -170,7 +170,7 @@ But : essayer toute l'app sans console, pour l'examen App Store (le reviewer n'a
 
 - Le mode démo (pak simulé `FakePak`, aujourd'hui réservé aux builds de développement) devient disponible dans l'app publiée.
 - Écran sans console : bouton secondaire **« Essayer sans console »** à côté de « Ajouter une console ». Pas de fonction cachée (règle App Store 2.3.1).
-- Une console fictive « Brick de démo » avec des jeux aux noms inventés et des libellés de systèmes neutres (aucune marque) ; toutes les actions disponibles, sur des données en mémoire seulement.
+- Une console fictive « Brick de démo » avec des jeux aux noms inventés et des libellés, tags et extensions de systèmes inventés (aucune marque) ; toutes les actions disponibles, sur des données en mémoire seulement.
 - Bandeau « Mode démo » toujours visible, avec **Quitter**. La démo ne touche ni au trousseau, ni à iCloud Drive, ni à la liste des vraies consoles, et n'utilise pas le réseau.
 - Textes en anglais et en français ; notes pour l'examen (`ios/AppStore/review_notes.txt`) : « Tap *Try Without a Console* on the first screen ». Politique de confidentialité vérifiée (rien ne sort de l'iPhone en démo).
 
