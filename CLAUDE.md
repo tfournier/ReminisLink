@@ -30,7 +30,7 @@ ReminisLink is an iPhone companion for Linux retro handhelds (first target: Trim
 | `internal/library/` | systems, games, the files that belong to a game |
 | `internal/saves/`, `internal/states/`, `internal/cheats/`, `internal/patch/` | features |
 | `internal/paks/` | tool and emulator paks: list, archive checks, staged install |
-| `internal/transfer/` | resumable uploads, device-side downloads, jobs |
+| `internal/transfer/` | resumable uploads, jobs |
 | `internal/store/` | ReminisLink data on the SD card (backups, locks, clients, config) |
 | `internal/ui/` | the pak screens (gabagool) |
 | `internal/l10n/` | translations of the pak UI |
