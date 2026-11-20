@@ -73,7 +73,9 @@ func TestRegeneratedOnlyWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The key alone is missing (crash between the two writes): new pair.
+	keyBefore, _ := os.ReadFile(filepath.Join(dir, KeyFile))
+	// The certificate alone is missing (crash between the two writes, or
+	// a lost file): a new certificate for the same key, the pin is kept.
 	if err := os.Remove(filepath.Join(dir, CertFile)); err != nil {
 		t.Fatal(err)
 	}
@@ -81,22 +83,58 @@ func TestRegeneratedOnlyWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !second.Created || second.Pin == first.Pin {
-		t.Fatal("missing certificate not replaced")
+	if second.Created || second.Pin != first.Pin {
+		t.Fatal("a missing certificate changed the pin")
 	}
-	// A damaged key is moved aside, never deleted, then replaced.
-	if err := os.WriteFile(filepath.Join(dir, KeyFile), []byte("garbage"), 0o600); err != nil {
+	if keyAfter, _ := os.ReadFile(filepath.Join(dir, KeyFile)); !bytes.Equal(keyBefore, keyAfter) {
+		t.Fatal("the key was replaced")
+	}
+	// A damaged certificate: moved aside, made again, same pin.
+	if err := os.WriteFile(filepath.Join(dir, CertFile), []byte("garbage"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	third, err := LoadOrCreate(opts(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !third.Created || third.Pin == second.Pin {
+	if third.Created || third.Pin != first.Pin {
+		t.Fatal("a damaged certificate changed the pin")
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, CertFile+".bad")); err != nil || string(b) != "garbage" {
+		t.Fatalf("damaged certificate not kept aside: %q %v", b, err)
+	}
+	// A certificate of another key: made again for our key.
+	other := t.TempDir()
+	if _, err := LoadOrCreate(opts(other)); err != nil {
+		t.Fatal(err)
+	}
+	foreign, _ := os.ReadFile(filepath.Join(other, CertFile))
+	if err := os.WriteFile(filepath.Join(dir, CertFile), foreign, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := LoadOrCreate(opts(dir)); err != nil || again.Pin != first.Pin {
+		t.Fatalf("mismatched certificate: %v", err)
+	}
+	// A damaged key: moved aside, never deleted, then a new identity.
+	if err := os.WriteFile(filepath.Join(dir, KeyFile), []byte("garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fourth, err := LoadOrCreate(opts(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fourth.Created || fourth.Pin == first.Pin {
 		t.Fatal("damaged key not replaced")
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, KeyFile+".bad")); err != nil || string(b) != "garbage" {
 		t.Fatalf("damaged key not kept aside: %q %v", b, err)
+	}
+	// A missing key: a new identity too.
+	if err := os.Remove(filepath.Join(dir, KeyFile)); err != nil {
+		t.Fatal(err)
+	}
+	if fifth, err := LoadOrCreate(opts(dir)); err != nil || !fifth.Created || fifth.Pin == fourth.Pin {
+		t.Fatalf("missing key: %v", err)
 	}
 }
 

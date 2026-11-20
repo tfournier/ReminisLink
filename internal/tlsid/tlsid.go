@@ -40,7 +40,7 @@ type Identity struct {
 	Certificate tls.Certificate
 	// Pin is b64u(SHA-256(SPKI DER)) of the certificate.
 	Pin string
-	// Created reports that the certificate was created by this call.
+	// Created reports that a new key (a new pin) was created by this call.
 	Created bool
 }
 
@@ -53,11 +53,15 @@ type Options struct {
 	Logger   *slog.Logger
 }
 
-// LoadOrCreate returns the identity kept in Dir, or creates one when the
-// key or the certificate is missing. A pair that cannot be read (a damaged
-// card, a key that does not match the certificate) is moved aside with
-// the suffix ".bad" (never deleted) and replaced: the pin changes and the
-// apps must pair again, which is better than a pak that cannot start.
+// LoadOrCreate returns the identity kept in Dir. The private key is the
+// identity (the pin is the hash of its public key):
+//   - key and certificate readable and matching: they are used as is;
+//   - key readable, certificate missing, damaged or not matching: a new
+//     certificate is made for the same key, so the pin does not change;
+//   - key missing or damaged: a new key and certificate (a new pin: the
+//     apps must pair again, which is better than a pak that cannot start).
+//
+// A damaged file is moved aside with the suffix ".bad", never deleted.
 func LoadOrCreate(o Options) (Identity, error) {
 	if o.Now == nil {
 		o.Now = time.Now
@@ -69,33 +73,56 @@ func LoadOrCreate(o Options) (Identity, error) {
 		o.Logger = slog.Default()
 	}
 	certPath, keyPath := filepath.Join(o.Dir, CertFile), filepath.Join(o.Dir, KeyFile)
-	certPEM, certErr := os.ReadFile(certPath)
 	keyPEM, keyErr := os.ReadFile(keyPath)
-	switch {
-	case certErr == nil && keyErr == nil:
-		id, err := parse(certPEM, keyPEM)
-		if err == nil {
-			return id, nil
-		}
-		o.Logger.Warn("TLS certificate unreadable, creating a new one (apps must pair again)", "error", err)
-		for _, p := range []string{certPath, keyPath} {
-			if err := os.Rename(p, p+".bad"); err != nil {
-				return Identity{}, fmt.Errorf("move aside %s: %w", filepath.Base(p), err)
-			}
-		}
-	case certErr != nil && !errors.Is(certErr, os.ErrNotExist):
-		return Identity{}, fmt.Errorf("read certificate: %w", certErr)
-	case keyErr != nil && !errors.Is(keyErr, os.ErrNotExist):
+	if keyErr != nil && !errors.Is(keyErr, os.ErrNotExist) {
 		return Identity{}, fmt.Errorf("read key: %w", keyErr)
 	}
-	certPEM, keyPEM, err := Generate(o.DeviceID, o.Now(), o.Rand)
+	certPEM, certErr := os.ReadFile(certPath)
+	if certErr != nil && !errors.Is(certErr, os.ErrNotExist) {
+		return Identity{}, fmt.Errorf("read certificate: %w", certErr)
+	}
+	var key *ecdsa.PrivateKey
+	if keyErr == nil {
+		var err error
+		if key, err = parseKey(keyPEM); err != nil {
+			o.Logger.Warn("TLS key unreadable, creating a new identity (apps must pair again)", "error", err)
+			if err := moveAside(keyPath); err != nil {
+				return Identity{}, err
+			}
+			key = nil
+		} else if certErr == nil {
+			id, err := parse(certPEM, keyPEM)
+			if err == nil {
+				return id, nil
+			}
+			o.Logger.Warn("TLS certificate unreadable, making a new one for the same key (same pin)", "error", err)
+		}
+	}
+	if certErr == nil {
+		if err := moveAside(certPath); err != nil {
+			return Identity{}, err
+		}
+	}
+	created := key == nil
+	if created {
+		var err error
+		if key, err = ecdsa.GenerateKey(elliptic.P256(), o.Rand); err != nil {
+			return Identity{}, fmt.Errorf("generate key: %w", err)
+		}
+		keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+		if err != nil {
+			return Identity{}, fmt.Errorf("encode key: %w", err)
+		}
+		keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
+		// The key first: a crash before the certificate is written leaves
+		// a key without certificate, completed at the next launch.
+		if err := store.WriteFileAtomic(keyPath, keyPEM, 0o600); err != nil {
+			return Identity{}, fmt.Errorf("save key: %w", err)
+		}
+	}
+	certPEM, err := certificateFor(key, o.DeviceID, o.Now(), o.Rand)
 	if err != nil {
 		return Identity{}, err
-	}
-	// The key first: a crash before the certificate is written leaves a
-	// key without certificate, replaced at the next launch.
-	if err := store.WriteFileAtomic(keyPath, keyPEM, 0o600); err != nil {
-		return Identity{}, fmt.Errorf("save key: %w", err)
 	}
 	if err := store.WriteFileAtomic(certPath, certPEM, 0o644); err != nil {
 		return Identity{}, fmt.Errorf("save certificate: %w", err)
@@ -104,9 +131,37 @@ func LoadOrCreate(o Options) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	id.Created = true
-	o.Logger.Info("TLS certificate created", "pin", id.Pin)
+	id.Created = created
+	if created {
+		o.Logger.Info("TLS identity created", "pin", id.Pin)
+	} else {
+		o.Logger.Info("TLS certificate made again for the same key", "pin", id.Pin)
+	}
 	return id, nil
+}
+
+func moveAside(p string) error {
+	if err := os.Rename(p, p+".bad"); err != nil {
+		return fmt.Errorf("move aside %s: %w", filepath.Base(p), err)
+	}
+	return nil
+}
+
+// parseKey reads a PKCS#8 ECDSA P-256 private key in PEM.
+func parseKey(keyPEM []byte) (*ecdsa.PrivateKey, error) {
+	block, _ := pem.Decode(keyPEM)
+	if block == nil {
+		return nil, errors.New("no PEM block")
+	}
+	k, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	key, ok := k.(*ecdsa.PrivateKey)
+	if !ok || key.Curve != elliptic.P256() {
+		return nil, errors.New("not an ECDSA P-256 key")
+	}
+	return key, nil
 }
 
 // Generate returns a new self-signed certificate (CN = deviceID, valid
@@ -116,9 +171,22 @@ func Generate(deviceID string, now time.Time, random io.Reader) (certPEM, keyPEM
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate key: %w", err)
 	}
+	if certPEM, err = certificateFor(key, deviceID, now, random); err != nil {
+		return nil, nil, err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("encode key: %w", err)
+	}
+	return certPEM, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), nil
+}
+
+// certificateFor returns a self-signed certificate of key (CN = deviceID,
+// valid Validity from a day before now), in PEM.
+func certificateFor(key *ecdsa.PrivateKey, deviceID string, now time.Time, random io.Reader) ([]byte, error) {
 	serial, err := rand.Int(random, new(big.Int).Lsh(big.NewInt(1), 127))
 	if err != nil {
-		return nil, nil, fmt.Errorf("serial: %w", err)
+		return nil, fmt.Errorf("serial: %w", err)
 	}
 	notBefore := now.Add(-24 * time.Hour).UTC().Truncate(time.Second) // a console clock a bit late
 	tmpl := &x509.Certificate{
@@ -132,14 +200,9 @@ func Generate(deviceID string, now time.Time, random io.Reader) (certPEM, keyPEM
 	}
 	der, err := x509.CreateCertificate(random, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create certificate: %w", err)
+		return nil, fmt.Errorf("create certificate: %w", err)
 	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return nil, nil, fmt.Errorf("encode key: %w", err)
-	}
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
-		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), nil
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), nil
 }
 
 func parse(certPEM, keyPEM []byte) (Identity, error) {
