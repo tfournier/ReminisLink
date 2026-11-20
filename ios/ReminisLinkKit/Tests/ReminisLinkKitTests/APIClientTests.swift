@@ -42,10 +42,14 @@ struct APIClientTests {
         let pak = makePak()
         pak.clockOffset = 1000
         let client = APIClient(endpoint: pak.endpoint, expectedDeviceId: pak.deviceId, session: pak.makeSession())
+        let started = Date()
         let hello = try await client.hello()
+        let elapsed = Date().timeIntervalSince(started)
         #expect(hello.deviceId == pak.deviceId)
         let offset = await client.clockOffset
-        #expect(abs(offset - 1000) < 3)
+        // The offset is exact up to the round trip, which can take seconds
+        // on a loaded CI runner.
+        #expect(abs(offset - 1000) <= elapsed + 1)
     }
 
     @Test func helloRejectsAnotherDevice() async throws {
