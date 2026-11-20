@@ -552,6 +552,24 @@ struct AddSuggestionTests {
         #expect(inbox.pending().isEmpty)
         inbox.purge()
         #expect(!FileManager.default.fileExists(atPath: directory.path))
+
+        // A ROM and a link, the link not sent yet: the ROM is still
+        // offered, the link never; once the ROM is taken, the request is
+        // finished and purged.
+        let mixedId = UUID()
+        let mixed = Data(#"{"id":"\#(mixedId.uuidString)","createdAt":"2026-11-19T10:00:00Z","files":["Game.gba"],"urls":["https://example.org/b.zip"],"consumedURLs":[]}"#.utf8)
+        let mixedDirectory = inbox.directory(for: mixedId)
+        try FileManager.default.createDirectory(at: mixedDirectory, withIntermediateDirectories: true)
+        try Data("rom".utf8).write(to: mixedDirectory.appending(path: "Game.gba"))
+        try mixed.write(to: mixedDirectory.appending(path: "request.json"))
+        let offered = try #require(inbox.request(id: mixedId))
+        #expect(offered.files == ["Game.gba"])
+        #expect(!offered.isSinglePatch)
+        try inbox.takeFile("Game.gba", from: offered, to: root.appending(path: "moved.gba"))
+        #expect(inbox.isUsedUp(offered))
+        #expect(inbox.pending().isEmpty)
+        inbox.purge()
+        #expect(!FileManager.default.fileExists(atPath: mixedDirectory.path))
     }
 
     @Test func plainNamesFromUniqueNameAreAccepted() {

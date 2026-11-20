@@ -1,13 +1,13 @@
 import ReminisLinkKit
 import UIKit
-import UniformTypeIdentifiers
 
 /// Share extension (docs/specs/06-app-ios.md §4.8). It copies the shared
 /// files into the app group (`ShareInbox`), then opens the app on the Add
-/// screen, prefilled. Web links are not accepted: the console never
-/// downloads a link (removed from v1). It never talks to a console: uploads need
-/// more memory and time than an extension gets. Files are copied by the
-/// file system, never loaded in memory.
+/// screen, prefilled. Web links are dropped, whatever their representation
+/// (`ShareAttachments`): the console never downloads a link (removed from
+/// v1). It never talks to a console: uploads need more memory and time than
+/// an extension gets. Files are copied by the file system, never loaded in
+/// memory.
 final class ShareViewController: UIViewController {
     private let spinner = UIActivityIndicatorView(style: .large)
     private let label = UILabel()
@@ -58,12 +58,14 @@ final class ShareViewController: UIViewController {
         defer { try? FileManager.default.removeItem(at: scratch) }
         do {
             try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-            var files: [URL] = []
-            for provider in providers {
-                if let url = try await Self.load(provider, into: scratch) { files.append(url) }
-            }
+            // Only real files: links are dropped, and an attachment that
+            // cannot be read does not stop the others.
+            let shared = await ShareAttachments.copyFiles(from: providers, into: scratch)
+            let files = shared.files
             guard !files.isEmpty else {
-                show(String(localized: "Nothing to add: share files."))
+                show(shared.failures > 0
+                    ? String(localized: "The shared items could not be copied.")
+                    : String(localized: "Nothing to add: share files."))
                 return
             }
             let request = try inbox.write(files: files)
@@ -107,45 +109,5 @@ final class ShareViewController: UIViewController {
             responder = current.next
         }
         return false
-    }
-
-    /// A file, copied into `directory` while the provider's copy exists. A
-    /// web link (no data) is skipped.
-    nonisolated static func load(_ provider: NSItemProvider, into directory: URL) async throws -> URL? {
-        let types = provider.registeredTypeIdentifiers.compactMap { UTType($0) }
-        let isWebLink = types.contains { $0.conforms(to: .url) && !$0.conforms(to: .fileURL) }
-            && !types.contains { $0.conforms(to: .data) }
-        if isWebLink { return nil }
-        guard let type = types.first(where: { $0.conforms(to: .data) }) ?? types.first else { return nil }
-        let name = provider.suggestedName
-        let copied: URL? = try await withCheckedThrowingContinuation { continuation in
-            _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
-                // The provider deletes its file when this closure returns.
-                do {
-                    guard let url else { throw error ?? CocoaError(.fileReadUnknown) }
-                    continuation.resume(returning: try copy(url, name: name, into: directory))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-        return copied
-    }
-
-    /// Copies a file under its original name (the suggested name keeps the
-    /// extension of the file when it has none).
-    nonisolated static func copy(_ url: URL, name: String?, into directory: URL) throws -> URL? {
-        var fileName = url.lastPathComponent
-        if let name, !name.isEmpty {
-            let ext = url.pathExtension
-            fileName = ext.isEmpty || name.lowercased().hasSuffix("." + ext.lowercased()) ? name : name + "." + ext
-        }
-        let folder = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let destination = folder.appending(path: fileName.replacingOccurrences(of: "/", with: "_"))
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        try FileManager.default.copyItem(at: url, to: destination)
-        return destination
     }
 }
