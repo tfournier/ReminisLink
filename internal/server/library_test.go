@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
 	"github.com/tfournier/ReminisLink/internal/library"
@@ -162,6 +163,60 @@ func TestGameArt(t *testing.T) {
 		t.Errorf("no art: %s", r.Body)
 	}
 	f.get("/api/v1/games/!/art", path, 400)
+}
+
+// The content ETag is computed once per version of the file: a
+// revalidation or a second download reuses it, and a new version (same
+// size, new modification time) gets its own.
+func TestGameArtETagIsCachedPerVersion(t *testing.T) {
+	f := newFixture(t)
+	const path = "/games/{gameId}/art"
+	target := "/api/v1/games/" + id(gba+"/Starlight Courier.gba") + "/art"
+	art := testutil.WriteFile(t, f.sd, "Roms/"+gba+"/.media/Starlight Courier.png", "version 1")
+	old := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if err := os.Chtimes(art, old, old); err != nil {
+		t.Fatal(err)
+	}
+	r := f.get(target, path, 200)
+	etag := r.Header.Get("ETag")
+	if string(r.Body) != "version 1" || !strings.HasPrefix(etag, `"sha256-`) || f.server.artETags.len() != 1 {
+		t.Fatalf("first GET: %q %s, %d cached", r.Body, etag, f.server.artETags.len())
+	}
+	// Served from the cache: same ETag, same body, nothing added.
+	r = f.get(target, path, 200)
+	if string(r.Body) != "version 1" || r.Header.Get("ETag") != etag || r.Header.Get("Content-Length") != "9" {
+		t.Errorf("cached GET: %q %v", r.Body, r.Header)
+	}
+	req := f.client.Request(t, http.MethodGet, target, nil)
+	req.Header.Set("If-None-Match", etag)
+	if r = f.client.Send(t, req); r.Status != 304 || r.Header.Get("ETag") != etag {
+		t.Errorf("cached revalidation: %d %s", r.Status, r.Header.Get("ETag"))
+	}
+	if f.server.artETags.len() != 1 {
+		t.Errorf("%d cached", f.server.artETags.len())
+	}
+	// Same size, other content, written later: a new ETag.
+	testutil.WriteFile(t, f.sd, "Roms/"+gba+"/.media/Starlight Courier.png", "version 2")
+	req = f.client.Request(t, http.MethodGet, target, nil)
+	req.Header.Set("If-None-Match", etag)
+	r = f.client.Send(t, req)
+	f.check(http.MethodGet, path, r)
+	if r.Status != 200 || string(r.Body) != "version 2" || r.Header.Get("ETag") == etag {
+		t.Errorf("new version: %d %q %s", r.Status, r.Body, r.Header.Get("ETag"))
+	}
+}
+
+func TestArtETagsAreBounded(t *testing.T) {
+	var c artETags
+	for i := 0; i < maxArtETags+10; i++ {
+		c.put(newArtKey("a", int64(i), time.Time{}), "e")
+	}
+	if n := c.len(); n == 0 || n > maxArtETags {
+		t.Fatalf("%d entries", n)
+	}
+	if _, ok := c.get(newArtKey("a", maxArtETags+9, time.Time{})); !ok {
+		t.Fatal("last entry missing")
+	}
 }
 
 func TestGameArtLargerThanTheHashLimit(t *testing.T) {

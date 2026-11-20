@@ -124,6 +124,8 @@ type Server struct {
 	// allGamesLimit is the most games of GET /games (library.MaxAllGames;
 	// changed by tests).
 	allGamesLimit int
+	// artETags caches the content ETags of GET /games/{gameId}/art.
+	artETags artETags
 	// events is the hub of GET /events (M14); sampler reads the device
 	// state while a stream is open.
 	events  *events.Hub

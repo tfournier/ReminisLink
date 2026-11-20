@@ -403,9 +403,22 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	var etag string
+	// The size and date of the opened file (not of the lookup): the ETag
+	// and the body always describe the same file, even if the art is
+	// replaced meanwhile.
+	fi, err := file.Stat()
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	size := fi.Size()
+	key := newArtKey(f.Path, size, fi.ModTime())
+	etag, cached := s.artETags.get(key)
 	var data []byte
-	if f.Size <= MaxArtBytes {
+	switch {
+	case cached:
+		// Hashed before: a revalidation reads nothing, a download streams.
+	case size <= MaxArtBytes:
 		// Small enough to hash: the ETag follows the content.
 		if data, err = io.ReadAll(io.LimitReader(file, MaxArtBytes+1)); err != nil {
 			s.internal(w, r, err)
@@ -413,10 +426,13 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 		}
 		sum := sha256.Sum256(data)
 		etag = `"sha256-` + hex.EncodeToString(sum[:16]) + `"`
-	} else {
+		if int64(len(data)) == size {
+			s.artETags.put(key, etag)
+		}
+	default:
 		// Too large to read in memory: streamed, with an ETag made of the
 		// size and the modification time.
-		etag = `"mt-` + strconv.FormatInt(f.Size, 16) + "-" + strconv.FormatInt(f.ModTime.UnixNano(), 16) + `"`
+		etag = `"mt-` + strconv.FormatInt(size, 16) + "-" + strconv.FormatInt(fi.ModTime().UnixNano(), 16) + `"`
 	}
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", ArtCacheControl)
@@ -431,9 +447,9 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(data)
 		return
 	}
-	w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.WriteHeader(http.StatusOK)
-	if _, err := io.CopyN(w, file, f.Size); err != nil {
+	if _, err := io.CopyN(w, file, size); err != nil {
 		s.log.Warn("art transfer interrupted", "error", err)
 	}
 }

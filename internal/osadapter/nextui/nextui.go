@@ -21,6 +21,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -761,11 +762,15 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 	full := filepath.Join(a.roots.Roms, filepath.FromSlash(rel))
 	base := parts[len(parts)-1]
 	fi, err := os.Lstat(full)
-	if err != nil || !hasExactEntry(filepath.Dir(full), base) {
+	if err != nil {
 		return osadapter.Game{}, osadapter.ErrNotFound
 	}
+	parent := filepath.Dir(full)
 	switch {
 	case fi.IsDir():
+		if !hasExactEntry(parent, base) {
+			return osadapter.Game{}, osadapter.ErrNotFound
+		}
 		romName, kind, ok := folderGame(base, readNames(full))
 		if !ok {
 			return osadapter.Game{}, osadapter.ErrNotFound
@@ -774,7 +779,12 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 			System: sys, Path: rel, FileName: base, Name: base, Kind: kind, ROMName: romName,
 		}, nil
 	case fi.Mode().IsRegular() && isGameFile(base):
-		if m3uSiblings(filepath.Dir(full), readNames(filepath.Dir(full)))[fold(base)] {
+		// One read of the folder: the exact name and the .m3u playlists.
+		siblings := readNames(parent)
+		if !slices.ContainsFunc(siblings, func(e fs.DirEntry) bool { return e.Name() == base }) {
+			return osadapter.Game{}, osadapter.ErrNotFound
+		}
+		if m3uSiblings(parent, siblings)[fold(base)] {
 			return osadapter.Game{}, osadapter.ErrNotFound // a disc of a .m3u game
 		}
 		return osadapter.Game{
@@ -1106,6 +1116,20 @@ func (a *Adapter) CheatPath(g osadapter.Game) string {
 // ("Sky Garden Quest Vol. 3" gives "Sky Garden Quest Vol.png").
 func (a *Adapter) ArtPath(g osadapter.Game) string {
 	return filepath.Join(a.folderOf(g), ".media", artName(g)+".png")
+}
+
+// ArtFile finds the art of g with the rule of GameFiles (case-insensitive,
+// the exact spelling first). GET /games/{gameId}/art is sent for every row
+// of the app's library: when the art has the expected name, one lstat
+// finds it, instead of reading the .media folder (and GameFiles reading
+// four more folders).
+func (a *Adapter) ArtFile(g osadapter.Game) *osadapter.File {
+	dir := filepath.Join(a.folderOf(g), ".media")
+	name := artName(g) + ".png"
+	if f, err := a.fileAt(filepath.Join(dir, name)); err == nil {
+		return &f
+	}
+	return a.findFold(dir, name)
 }
 
 // artName is the name of the art of g, without ".png".

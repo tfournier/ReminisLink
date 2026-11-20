@@ -384,14 +384,11 @@ func (l *Library) Art(gameID string) (osadapter.File, error) {
 	if err != nil {
 		return osadapter.File{}, err
 	}
-	files, err := l.adapter.GameFiles(g)
-	if err != nil {
-		return osadapter.File{}, notFound(err, "game")
-	}
-	if files.Art == nil {
+	art := l.adapter.ArtFile(g)
+	if art == nil {
 		return osadapter.File{}, fmt.Errorf("%w: art", ErrNotFound)
 	}
-	return *files.Art, nil
+	return *art, nil
 }
 
 // MaxAllGames is the most games GET /games returns (truncated beyond).

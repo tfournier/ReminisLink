@@ -510,6 +510,69 @@ func TestGameFiles(t *testing.T) {
 	}
 }
 
+// ArtFile finds the art GameFiles finds, for every game of the card, and
+// follows the same case-insensitive rule.
+func TestArtFileMatchesGameFiles(t *testing.T) {
+	a, sd := newAdapter(t)
+	systems, err := a.Systems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	same := func(g osadapter.Game) {
+		t.Helper()
+		files, err := a.GameFiles(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		art := a.ArtFile(g)
+		if (art == nil) != (files.Art == nil) || (art != nil && (!strings.EqualFold(art.Path, files.Art.Path) ||
+			art.Size != files.Art.Size || !art.ModTime.Equal(files.Art.ModTime))) {
+			t.Errorf("%s: ArtFile %+v, GameFiles %+v", g.Path, art, files.Art)
+		}
+	}
+	withArt := 0
+	for _, sys := range systems {
+		if err := a.WalkGames(context.Background(), sys, func(g osadapter.Game) error {
+			same(g)
+			if a.ArtFile(g) != nil {
+				withArt++
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if withArt < 3 {
+		t.Fatalf("only %d games with art", withArt)
+	}
+
+	// Another case than the ROM: found by the listing of .media.
+	g, err := a.Game(gba + "/Lantern Keeper [b1].gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.ArtFile(g) != nil {
+		t.Fatal("Lantern Keeper has an art")
+	}
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media/LANTERN KEEPER [B1].png", "png")
+	if art := a.ArtFile(g); art == nil || art.Size != 3 {
+		t.Fatalf("art in another case = %+v", art)
+	}
+	same(g)
+
+	// A folder is not an art.
+	if err := os.Remove(filepath.Join(sd, "Roms", gba, ".media", "LANTERN KEEPER [B1].png")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(sd, "Roms", gba, ".media", "Lantern Keeper [b1].png"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if art := a.ArtFile(g); art != nil {
+		t.Fatalf("folder taken as art: %+v", art)
+	}
+	same(g)
+}
+
 func TestGameFilesMultiDisc(t *testing.T) {
 	a, _ := newAdapter(t)
 	g, _ := a.Game(ps + "/Mossy Hollow")
