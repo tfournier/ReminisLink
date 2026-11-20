@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/events"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -988,5 +989,42 @@ func TestEventsDeviceRateFromTheWrite(t *testing.T) {
 	}
 	if gap := time.Since(first); gap < rate-50*time.Millisecond {
 		t.Fatalf("device events %v apart, want at least %v", gap, rate)
+	}
+}
+
+// A device event built before the first sample of the run reads the
+// state itself and sets the reference: a first sample that sees another
+// state marks the streams, so the stream is corrected.
+func TestEventsDeviceBeforeTheFirstSample(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var armed atomic.Bool
+	armed.Store(true)
+	f := newFixture(t, func(o *Options) {
+		inner := o.Storage
+		o.Storage = func(p string) (device.Storage, error) {
+			if armed.CompareAndSwap(true, false) { // the first sample
+				close(entered)
+				<-release
+			}
+			return inner(p)
+		}
+	})
+	f.fastEvents(events.Options{})
+	samples := f.fastDevice(0)
+	f.server.timeouts.deviceSample = time.Hour // the first sample only
+	s := f.openEvents(f.client)
+	<-entered // the first sample waits in its storage read
+	b := f.pairNamed("iPad")
+	f.as(b, "GET", "/api/v1/systems", "/systems", nil, http.StatusOK)
+	before := f.storage.Load()
+	ev := f.nextEvent(s) // built with its own read
+	if ev.Type != "device" || !strings.Contains(ev.Data, `"freeBytes":`+fmt.Sprint(before)) {
+		t.Fatalf("first device event %+v", ev)
+	}
+	f.storage.Add(-2 << 20)
+	close(release) // the first sample sees the new space
+	waitSample(t, samples, true)
+	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"freeBytes":`+fmt.Sprint(f.storage.Load())) {
+		t.Fatalf("corrected device event %+v", ev)
 	}
 }

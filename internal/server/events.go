@@ -444,9 +444,17 @@ func (s *Server) deviceEvent() events.Event {
 	d := eventDevice{Battery: s.sampler.last.Battery, Storage: s.sampler.last.Storage}
 	have := s.sampler.have
 	s.sampler.mu.Unlock()
-	if !have { // before the first sample of this run
+	if !have {
+		// Before the first sample of this run: read now, and make it the
+		// reference, so that the first sample marks the streams if it
+		// sees something else (whoever reads first sets the reference).
 		cur := s.readDevice()
 		d.Battery, d.Storage = cur.Battery, cur.Storage
+		s.sampler.mu.Lock()
+		if !s.sampler.have {
+			s.sampler.last, s.sampler.have = cur, true
+		}
+		s.sampler.mu.Unlock()
 	}
 	s.access.mu.Lock()
 	d.ConnectedClients = s.ConnectedClients()
