@@ -39,6 +39,8 @@ extension FakePak {
                 _availability = newValue
                 return _onAvailabilityChange
             }
+            // M14: `shutdown`, then the streams end, as the pak quits.
+            if newValue != .open { endEventStreams(shutdown: "quit") }
             callback?(newValue)
         }
     }

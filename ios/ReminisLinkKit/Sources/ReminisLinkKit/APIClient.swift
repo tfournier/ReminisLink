@@ -146,6 +146,52 @@ public actor APIClient {
         try await signedJSON(method: "GET", segments: ["device"])
     }
 
+    /// The longest silence of `GET /events` before URLSession gives up:
+    /// beyond the liveness timeout (35 s), which ``EventStream`` watches.
+    public static let eventsTimeout: TimeInterval = 60
+
+    /// `GET /events` (M14): opens the signed event stream and returns its
+    /// bytes. An error answer throws (`404` from a pak older than M14,
+    /// `429` with `Retry-After`, `401`, `503`), and is seen by the error
+    /// observer like any other. Cancelling the returned stream (or the
+    /// task reading it) closes the connection.
+    public func openEvents() async throws -> AsyncThrowingStream<UInt8, Error> {
+        let ((bytes, errorBody), response) = try await withSignedRequests(
+            method: "GET", segments: ["events"], query: [], headers: ["Accept": "text/event-stream"],
+            body: nil, bodyFile: nil, bodyFileSHA256: nil, timeout: Self.eventsTimeout
+        ) { request -> ((EventBytes?, Data), HTTPURLResponse, Data) in
+            let (bytes, response): (URLSession.AsyncBytes, URLResponse)
+            do {
+                (bytes, response) = try await self.session.bytes(for: request, delegate: PakTaskDelegate())
+            } catch let error as URLError {
+                if error.code == .cancelled { throw CancellationError() }
+                throw APIError.network(error.code)
+            }
+            guard let http = response as? HTTPURLResponse else {
+                bytes.task.cancel()
+                throw APIError.invalidResponse("not an HTTP response")
+            }
+            guard http.statusCode == 200 else {
+                // An error body, small: read it, then close.
+                var body = Data()
+                do {
+                    for try await byte in bytes {
+                        body.append(byte)
+                        if body.count >= 64 << 10 { break }
+                    }
+                } catch {}
+                bytes.task.cancel()
+                return ((nil, body), http, body)
+            }
+            return ((EventBytes(bytes: bytes), Data()), http, Data())
+        }
+        guard response.statusCode == 200, let bytes else {
+            try check(response, data: errorBody, accept: [200])
+            throw APIError.unexpectedStatus(response.statusCode)
+        }
+        return bytes.stream()
+    }
+
     /// `DELETE /clients/me`. The caller then deletes the key.
     public func unpair() async throws {
         let (data, response) = try await performSigned(method: "DELETE", segments: ["clients", "me"])
@@ -957,5 +1003,34 @@ public enum AppVersion {
     private static func components(_ version: String) -> [Int] {
         let core = version.split(separator: "-", maxSplits: 1).first.map(String.init) ?? ""
         return core.split(separator: ".").map { Int($0) ?? 0 }
+    }
+}
+
+/// The bytes of an open event stream, handed out of the signing loop.
+struct EventBytes: @unchecked Sendable {
+    let bytes: URLSession.AsyncBytes
+
+    /// The bytes as a stream; a transport failure becomes
+    /// ``APIError/network(_:)``. Ending it early closes the connection.
+    func stream() -> AsyncThrowingStream<UInt8, Error> {
+        let bytes = bytes
+        return AsyncThrowingStream { continuation in
+            let reader = Task {
+                do {
+                    for try await byte in bytes {
+                        continuation.yield(byte)
+                    }
+                    continuation.finish()
+                } catch let error as URLError {
+                    continuation.finish(throwing: error.code == .cancelled ? CancellationError() : APIError.network(error.code))
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                reader.cancel()
+                bytes.task.cancel()
+            }
+        }
     }
 }

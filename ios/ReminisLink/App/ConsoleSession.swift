@@ -16,11 +16,13 @@ final class ConsoleSession {
     let deviceId: String
     private(set) var state: State = .idle
     private(set) var hello: Hello?
-    private(set) var status: DeviceStatus?
+    /// Set here and by the `device` events (M14).
+    var status: DeviceStatus?
     private(set) var trash: TrashList?
     private(set) var client: APIClient?
     /// Changes when games were added or deleted: the library screens reload.
-    private(set) var libraryRevision = 0
+    /// Also changed by the `library` events (M14).
+    var libraryRevision = 0
     /// Changes when a game art was set or removed: art views load again.
     var artRevision = 0
 
@@ -42,9 +44,32 @@ final class ConsoleSession {
     /// The check in progress after the console's service disappeared (M11).
     @ObservationIgnored private var closureCheck: Task<Void, Never>?
 
+    // Milestone M14 (ConsoleSession+Events.swift).
+    /// The event stream of the connection, while connected and active.
+    @ObservationIgnored var events: EventStream?
+    /// The client the event stream belongs to.
+    @ObservationIgnored weak var eventsClient: APIClient?
+    /// `hello` events received by the current stream.
+    @ObservationIgnored var hellosSeen = 0
+    /// The pak has no `GET /events` (older than M14): the screens poll,
+    /// as before, for the rest of this session.
+    var eventsUnsupported = false
+    /// The event stream is open (`hello` received): jobs follow its events.
+    var eventsLive = false
+    /// Library changes waiting for the debounce to end.
+    @ObservationIgnored var pendingLibraryChange: LibraryChange?
+    /// The systems the last change of ``libraryRevision`` touched, nil for
+    /// all of them (an action of this app, or an event that says so).
+    var lastLibraryChange: Set<String>?
+
+    /// The app, for the event stream's callbacks (M14), which may come
+    /// after the app is gone (tests): nil then, never a dangling `app`.
+    @ObservationIgnored weak var liveApp: AppModel?
+
     init(deviceId: String, app: AppModel) {
         self.deviceId = deviceId
         self.app = app
+        self.liveApp = app
     }
 
     var error: AppError? {
@@ -178,6 +203,8 @@ final class ConsoleSession {
             state = .connected
             closedByConsole = false
             lease.start(device: status, sentAt: deviceSentAt)
+            // M14: the console pushes its changes while the app is active.
+            updateEventStream()
             // Uploads paused when the console closed ReminisLink go on (M11).
             transfers.resumeAfterReconnection()
             // Milestone M9: copy the saves that changed (setting, default on).
@@ -209,6 +236,7 @@ final class ConsoleSession {
             let renamed = self.status.map { $0.deviceName != status.deviceName } ?? false
             self.status = status
             state = .connected
+            updateEventStream()
             if renamed { app.store.noteConsoleName(status.deviceName, for: deviceId) }
             await loadTrash()
         } catch {
@@ -257,6 +285,7 @@ final class ConsoleSession {
         guard let client, client === failed else { return }
         self.client = nil
         lease.stop()
+        stopEventStream()
         markClosedByConsole()
     }
 
@@ -316,6 +345,7 @@ final class ConsoleSession {
         state = .failed(error)
         self.client = nil
         lease.stop()
+        stopEventStream()
     }
 
     static func losesConnection(_ error: AppError) -> Bool {
@@ -360,6 +390,8 @@ final class ConsoleSession {
     /// lease is renewed in the foreground (or while a transfer runs), and
     /// released in the background.
     func setForeground(_ foreground: Bool) {
+        // M14: the event stream runs in the foreground only.
+        updateEventStream()
         guard client != nil else { return }
         let lease = lease
         Task { await lease.setForeground(foreground) }
@@ -480,6 +512,7 @@ final class ConsoleSession {
 
     /// Games were added or deleted: reload the library and the dashboard.
     func contentChanged() {
+        lastLibraryChange = nil
         libraryRevision += 1
         Task { await refresh() }
     }

@@ -56,6 +56,8 @@ extension FakePak {
             disconnectedClients.insert(clientId)
             if writerClientId == clientId { writerClientId = nil }
         }
+        // M14: its event streams end, without an event.
+        endEventStreams(clientId: clientId)
     }
 
     /// Settings > Devices > Forget on the console: the pairing is removed
@@ -68,6 +70,7 @@ extension FakePak {
             disconnectedClients.remove(clientId)
             if writerClientId == clientId { writerClientId = nil }
         }
+        endEventStreams(clientId: clientId)
     }
 
     public func isDisconnected(clientId: String) -> Bool {

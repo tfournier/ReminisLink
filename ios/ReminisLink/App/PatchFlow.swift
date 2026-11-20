@@ -159,6 +159,13 @@ final class PatchFlow {
         deviceId = session.deviceId
         self.game = game
         fileName = game.map { PatchNaming.suggestedFileName(forROM: $0.fileName) } ?? ""
+        // M14: a `job` event moves the flow on at once (no polling while
+        // the event stream is live).
+        session.transfers.observeJobs { [weak self] item in
+            guard let self else { return false }
+            self.jobUpdated(item)
+            return true
+        }
     }
 
     // MARK: Inputs
@@ -351,6 +358,15 @@ final class PatchFlow {
         }
         // Cancelled elsewhere (the Transfers screen): never go further.
         if job.job?.cancelRequested == true { cancelledJobs.insert(job.id) }
+        advance()
+    }
+
+    /// A job changed (an event, or a poll of another screen): the step
+    /// that follows it moves on as ``tick()`` would.
+    private func jobUpdated(_ item: JobItem) {
+        guard !isCancelling, item === job, step == .downloading || step == .patching else { return }
+        pollError = nil
+        if item.job?.cancelRequested == true { cancelledJobs.insert(item.id) }
         advance()
     }
 

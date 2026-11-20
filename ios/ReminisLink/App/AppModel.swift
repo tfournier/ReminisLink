@@ -185,6 +185,10 @@ final class AppModel {
     /// How long Bonjour must have been browsing before the absence of a
     /// console means it closed ReminisLink (tests shorten it).
     @ObservationIgnored var closureMinimumBrowsing = PakClosure.minimumBrowsing
+    /// The delays of the event streams (M14; tests shorten them).
+    @ObservationIgnored var eventTiming = EventStreamTiming.live
+    /// `library` events closer than this are merged into one refresh.
+    @ObservationIgnored var libraryEventDebounce: Duration = .milliseconds(300)
 
     /// The navigation as one path: the list's screens, or `.console(id)`,
     /// the route of the selected tab (`.library`, `.transfers`, `.trash`;
@@ -471,13 +475,13 @@ final class AppModel {
 
     /// A new key was stored: connections signed with the old one are dropped.
     func didReplaceKey(for deviceId: String) {
-        sessions[deviceId] = nil
+        dropSession(deviceId)
     }
 
     func finishPairing(deviceId: String?) {
         sheet = nil
         if let deviceId {
-            sessions[deviceId] = nil
+            dropSession(deviceId)
             path = [.console(deviceId)]
         }
     }
@@ -492,6 +496,11 @@ final class AppModel {
             endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials,
             appVersion: Self.appVersion, session: makeSession(), errorObserver: errorObserver
         )
+    }
+
+    /// Drops a session; its event stream closes (M14).
+    private func dropSession(_ deviceId: String) {
+        sessions.removeValue(forKey: deviceId)?.stopEventStream()
     }
 
     func session(for deviceId: String) -> ConsoleSession {
@@ -554,7 +563,7 @@ final class AppModel {
 
     /// Forgets a device on this iPhone (after unpairing).
     func forget(deviceId: String) throws {
-        sessions[deviceId] = nil
+        dropSession(deviceId)
         try store.remove(deviceId)
         path.removeAll()
     }

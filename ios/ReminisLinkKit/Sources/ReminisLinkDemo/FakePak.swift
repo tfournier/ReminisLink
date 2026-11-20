@@ -131,6 +131,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     /// Called when the pak quits (its Bonjour service is withdrawn) and
     /// when it opens again.
     var _onAvailabilityChange: (@Sendable (Availability) -> Void)?
+    /// The event streams of milestone M14 (FakePakEvents.swift).
+    let eventHub = FakeEventHub()
 
     public init(
         deviceId: String = FakePak.demoDeviceId,
@@ -311,6 +313,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             writerClientId = nil
             disconnectedClients = []
         }
+        // M14: the streams end (no `shutdown`: as after a crash).
+        endEventStreams(shutdown: nil)
     }
 
     /// The console is renamed (Settings > Console name): `/hello`,
@@ -380,7 +384,13 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         let url = request.url!
         let path = url.path(percentEncoded: true)
         let query = url.query(percentEncoded: true) ?? ""
+        let touchedSystem = systemTouched(path: path)
         var response = route(request, method: method, path: path, query: query, body: body)
+        // M14: what this request changed, for the event streams.
+        if let systemIds = libraryChange(method: method, path: path, response: response, touchedSystem: touchedSystem) {
+            emitLibrary(systemIds)
+        }
+        checkDeviceChange()
         lock.withLock {
             if let index = lateAnswers.firstIndex(where: { $0.method == method && $0.path == path }) {
                 response.delay = max(response.delay, lateAnswers.remove(at: index).delay)
@@ -418,6 +428,11 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             return failure
         }
         let clientId = request.value(forHTTPHeaderField: SignedHeaders.client) ?? ""
+        // M14: before the queued answers, which are meant for the requests
+        // of the screens (a stream opens whenever the app is active).
+        if method == "GET" && segments == ["events"] {
+            return openEventStream(clientId: clientId)
+        }
         if let next = lock.withLock({ queued.isEmpty ? nil : queued.removeFirst() }) {
             return next
         }
@@ -432,6 +447,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
                 lastSeen[clientId] = nil
                 if writerClientId == clientId { writerClientId = nil }
             }
+            endEventStreams(clientId: clientId)
             return FakeResponse(status: 204)
         case (_, ["writer"]), ("POST", ["clients", "me", "connect"]):
             return routeWriter(clientId: clientId, method: method, segments: segments, body: body)
@@ -629,20 +645,30 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         return response
     }
 
-    private func device(clientId: String) -> FakeResponse {
-        let limit = now().addingTimeInterval(-30)
-        let connected = lock.withLock { () -> [[String: Any]] in
-            return lastSeen.filter { $0.value >= limit && clients[$0.key] != nil }
+    /// `connectedClients`: a signed request in the last 30 s, or an open
+    /// event stream (M14, `lastSeenAt` is then now).
+    func connectedClientsJSON() -> [[String: Any]] {
+        let current = now()
+        let limit = current.addingTimeInterval(-30)
+        let streaming = Set(eventHub.streamingClients)
+        return lock.withLock { () -> [[String: Any]] in
+            var seen = lastSeen.filter { $0.value >= limit && clients[$0.key] != nil }
+            for id in streaming where clients[id] != nil { seen[id] = current }
+            return seen
                 .map { (name: clientNames[$0.key] ?? "", seen: $0.value) }
                 .sorted { $0.name < $1.name }
                 .map { ["clientName": $0.name, "lastSeenAt": ProtocolJSON.formatDate($0.seen)] }
         }
+    }
+
+    private func device(clientId: String) -> FakeResponse {
+        let connected = connectedClientsJSON()
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
             "platform": "tg5040", "os": "nextui", "osVersion": "NextUI-20261013-039a06de", "pakVersion": "1.0.0",
             "network": ["ipv4": "192.168.1.42", "ssid": "DemoNet"],
-            "battery": ["percent": 78, "charging": false],
-            "storage": [["id": "sd", "label": "SD", "totalBytes": 127_865_454_592, "freeBytes": freeBytes]],
+            "battery": batteryJSON,
+            "storage": storageJSON,
             "uptimeSeconds": 512,
             "connectedClients": connected,
             "writer": writerJSON(for: clientId),
@@ -1179,12 +1205,27 @@ extension FakePak {
         )
         lock.withLock { jobs[job.id] = job }
         _ = string
+        emitJob(job)
         return .json(202, ["jobId": job.id])
     }
 
     /// Returns a job, moving it one step forward (queued → running → a
     /// third of the file per call → succeeded or failed).
-    fileprivate func advance(_ id: String) -> [String: Any]? {
+    func advance(_ id: String) -> [String: Any]? {
+        guard let before = lock.withLock({ jobs[id] }) else { return nil }
+        let json = advanceOnce(id)
+        // M14: every change goes to the event streams.
+        if let after = lock.withLock({ jobs[id] }),
+           after.state != before.state || after.done != before.done || after.cancelRequested != before.cancelRequested {
+            emitJob(after)
+            if after.state == "succeeded" && before.state != "succeeded", let systemIds = librarySystems(of: after) {
+                emitLibrary(systemIds)
+            }
+        }
+        return json
+    }
+
+    private func advanceOnce(_ id: String) -> [String: Any]? {
         let total = downloadSize
         guard var job = lock.withLock({ jobs[id] }) else { return nil }
         let now = Date()
@@ -1236,7 +1277,13 @@ extension FakePak {
         return job.json
     }
 
-    fileprivate func cancelJob(_ id: String) -> [String: Any]? {
+    func cancelJob(_ id: String) -> [String: Any]? {
+        let json = cancelJobOnce(id)
+        if let job = lock.withLock({ jobs[id] }) { emitJob(job) }
+        return json
+    }
+
+    private func cancelJobOnce(_ id: String) -> [String: Any]? {
         lock.withLock {
             guard var job = jobs[id] else { return nil }
             // Queued: cancelled at once. Running: it stays running with
