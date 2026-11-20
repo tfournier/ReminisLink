@@ -1106,6 +1106,9 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
             }
         } onCancel: {
             task.cancel()
+            // Answer the caller now: some Foundation versions only complete a
+            // cancelled task once its pending response arrives.
+            delegate.finish(.failure(CancellationError()))
         }
         // A success delivered just before the cancellation reached the
         // task: still a cancellation for the caller.
