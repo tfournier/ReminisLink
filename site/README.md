@@ -17,8 +17,7 @@ no JavaScript, no cookies, no trackers and nothing loaded from another site
 `ios/ReminisLink/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`,
 resized with `sips -z 256 256`) and screenshots of the pak, copied from
 `docs/screenshots/` (`pairing.png`, `settings.png` and `language.png`, as
-`pak-pairing.png`, `pak-settings.png` and `pak-language.png`; `main.png` is
-not used while it still shows the pairing code removed in M13). Copy them
+`pak-pairing.png`, `pak-settings.png` and `pak-language.png`). Copy them
 again after `make screenshots`. `favicon.svg` is `ios/Design/AppIcon/icon.svg`.
 `tools/` and this README are not published.
 
