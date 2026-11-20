@@ -3,11 +3,13 @@ package nextui
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/tfournier/ReminisLink/internal/osadapter"
@@ -507,6 +509,129 @@ func TestGameFiles(t *testing.T) {
 	files, _ = a.GameFiles(g)
 	if files.Save == nil || files.Save.Rel != "Saves/MGBA/Starlight Courier.gba.sav" || len(files.States) != 1 || files.Cheats != nil || files.Art != nil {
 		t.Errorf("MGBA files = %+v", files)
+	}
+}
+
+// ArtFile finds exactly the art GameFiles finds (same entry, stored name),
+// for every game of the card: case-insensitive, NFC and NFD kept apart.
+func TestArtFileMatchesGameFiles(t *testing.T) {
+	a, sd := newAdapter(t)
+	systems, err := a.Systems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	artOf := func(g osadapter.Game) *osadapter.File {
+		t.Helper()
+		art, err := a.ArtFile(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return art
+	}
+	same := func(g osadapter.Game) {
+		t.Helper()
+		files, err := a.GameFiles(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		art := artOf(g)
+		if !reflect.DeepEqual(art, files.Art) {
+			t.Errorf("%s: ArtFile %+v, GameFiles %+v", g.Path, art, files.Art)
+		}
+	}
+	withArt := 0
+	for _, sys := range systems {
+		if err := a.WalkGames(context.Background(), sys, func(g osadapter.Game) error {
+			same(g)
+			if artOf(g) != nil {
+				withArt++
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if withArt < 3 {
+		t.Fatalf("only %d games with art", withArt)
+	}
+
+	// Another case than the ROM: found by the listing of .media.
+	g, err := a.Game(gba + "/Lantern Keeper [b1].gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artOf(g) != nil {
+		t.Fatal("Lantern Keeper has an art")
+	}
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media/LANTERN KEEPER [B1].png", "png")
+	if art := artOf(g); art == nil || art.Size != 3 || filepath.Base(art.Path) != "LANTERN KEEPER [B1].png" ||
+		art.Rel != "Roms/"+gba+"/.media/LANTERN KEEPER [B1].png" {
+		t.Fatalf("art in another case = %+v (want the stored name)", art)
+	}
+	same(g)
+
+	// An NFD art for an NFC ROM is not its art (fold keeps them apart),
+	// even where the volume would open one for the other (APFS).
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/No\u00ebl.gba", "rom")
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media/Noe\u0308l.png", "png")
+	noel, err := a.Game(gba + "/No\u00ebl.gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if art := artOf(noel); art != nil {
+		t.Errorf("NFD art taken for an NFC ROM: %+v", art)
+	}
+	same(noel)
+
+	// A folder is not an art.
+	if err := os.Remove(filepath.Join(sd, "Roms", gba, ".media", "LANTERN KEEPER [B1].png")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(sd, "Roms", gba, ".media", "Lantern Keeper [b1].png"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if art := artOf(g); art != nil {
+		t.Fatalf("folder taken as art: %+v", art)
+	}
+	same(g)
+}
+
+// ArtFile tells an absent art from a card that cannot be read: a missing
+// .media (or a file in its place) has no art, an error reading .media or
+// the art entry is returned.
+func TestArtFileReportsIOErrors(t *testing.T) {
+	a, sd := newAdapter(t)
+	g, err := a.Game(gba + "/Starlight Courier.gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := filepath.Join(sd, "Roms", gba, ".media")
+	orig := readDir
+	t.Cleanup(func() { readDir = orig })
+	readDir = func(dir string) ([]fs.DirEntry, error) {
+		if dir == media {
+			return nil, &fs.PathError{Op: "readdirent", Path: dir, Err: syscall.EIO}
+		}
+		return orig(dir)
+	}
+	if art, err := a.ArtFile(g); art != nil || !errors.Is(err, syscall.EIO) {
+		t.Fatalf("unreadable .media: %+v, %v", art, err)
+	}
+	// GameFiles leaves it out, like any file it cannot read.
+	if files, err := a.GameFiles(g); err != nil || files.Art != nil {
+		t.Fatalf("GameFiles: %+v, %v", files.Art, err)
+	}
+	readDir = orig
+
+	if err := os.RemoveAll(media); err != nil {
+		t.Fatal(err)
+	}
+	if art, err := a.ArtFile(g); art != nil || err != nil {
+		t.Fatalf("no .media: %+v, %v", art, err)
+	}
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media", "not a folder")
+	if art, err := a.ArtFile(g); art != nil || err != nil {
+		t.Fatalf(".media is a file: %+v, %v", art, err)
 	}
 }
 

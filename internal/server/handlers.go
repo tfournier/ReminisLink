@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -392,20 +391,39 @@ func (s *Server) handleGameFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
-	f, err := s.opts.Library.Art(r.PathValue("gameId"))
+	// The write lock generation before anything is read: an ETag computed
+	// while a write ran is never cached (artETags).
+	gen := s.writes().Generation()
+	if hook := s.artLookupHook.Load(); hook != nil {
+		(*hook)()
+	}
+	file, fi, artPath, err := s.opts.Library.OpenArt(r.PathValue("gameId"))
 	if err != nil {
+		if errors.Is(err, confine.ErrOutside) {
+			// A link or a file out of its folder: answered as missing.
+			s.log.Warn("game art refused", "error", err)
+		}
 		s.libraryError(w, r, err)
 		return
 	}
-	file, err := os.Open(f.Path)
-	if err != nil {
-		s.internal(w, r, err)
-		return
-	}
 	defer file.Close()
+	// The size and date of the opened file (not of the lookup): the ETag
+	// and the body always describe the same file, even if the art is
+	// replaced meanwhile. The cache is only read when no write started
+	// between the generation read above and the open: the opened file may
+	// be a new version with the size and date of the old one.
+	size := fi.Size()
+	key := newArtKey(artPath, size, fi.ModTime())
 	var etag string
+	cached := false
+	if s.writes().Generation() == gen {
+		etag, cached = s.artETags.get(key, gen)
+	}
 	var data []byte
-	if f.Size <= MaxArtBytes {
+	switch {
+	case cached:
+		// Hashed before: a revalidation reads nothing, a download streams.
+	case size <= MaxArtBytes:
 		// Small enough to hash: the ETag follows the content.
 		if data, err = io.ReadAll(io.LimitReader(file, MaxArtBytes+1)); err != nil {
 			s.internal(w, r, err)
@@ -413,10 +431,13 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 		}
 		sum := sha256.Sum256(data)
 		etag = `"sha256-` + hex.EncodeToString(sum[:16]) + `"`
-	} else {
+		if int64(len(data)) == size {
+			s.artETags.put(key, etag, gen, s.writes().Generation())
+		}
+	default:
 		// Too large to read in memory: streamed, with an ETag made of the
 		// size and the modification time.
-		etag = `"mt-` + strconv.FormatInt(f.Size, 16) + "-" + strconv.FormatInt(f.ModTime.UnixNano(), 16) + `"`
+		etag = `"mt-` + strconv.FormatInt(size, 16) + "-" + strconv.FormatInt(fi.ModTime().UnixNano(), 16) + `"`
 	}
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", ArtCacheControl)
@@ -431,9 +452,9 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(data)
 		return
 	}
-	w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	w.WriteHeader(http.StatusOK)
-	if _, err := io.CopyN(w, file, f.Size); err != nil {
+	if _, err := io.CopyN(w, file, size); err != nil {
 		s.log.Warn("art transfer interrupted", "error", err)
 	}
 }

@@ -21,9 +21,11 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 )
@@ -761,11 +763,15 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 	full := filepath.Join(a.roots.Roms, filepath.FromSlash(rel))
 	base := parts[len(parts)-1]
 	fi, err := os.Lstat(full)
-	if err != nil || !hasExactEntry(filepath.Dir(full), base) {
+	if err != nil {
 		return osadapter.Game{}, osadapter.ErrNotFound
 	}
+	parent := filepath.Dir(full)
 	switch {
 	case fi.IsDir():
+		if !hasExactEntry(parent, base) {
+			return osadapter.Game{}, osadapter.ErrNotFound
+		}
 		romName, kind, ok := folderGame(base, readNames(full))
 		if !ok {
 			return osadapter.Game{}, osadapter.ErrNotFound
@@ -774,7 +780,12 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 			System: sys, Path: rel, FileName: base, Name: base, Kind: kind, ROMName: romName,
 		}, nil
 	case fi.Mode().IsRegular() && isGameFile(base):
-		if m3uSiblings(filepath.Dir(full), readNames(filepath.Dir(full)))[fold(base)] {
+		// One read of the folder: the exact name and the .m3u playlists.
+		siblings := readNames(parent)
+		if !slices.ContainsFunc(siblings, func(e fs.DirEntry) bool { return e.Name() == base }) {
+			return osadapter.Game{}, osadapter.ErrNotFound
+		}
+		if m3uSiblings(parent, siblings)[fold(base)] {
 			return osadapter.Game{}, osadapter.ErrNotFound // a disc of a .m3u game
 		}
 		return osadapter.Game{
@@ -1108,6 +1119,19 @@ func (a *Adapter) ArtPath(g osadapter.Game) string {
 	return filepath.Join(a.folderOf(g), ".media", artName(g)+".png")
 }
 
+// ArtFile finds the art of g in the listing of its .media folder, with
+// the rule of every file of a game (pickName: case-insensitive, NFC and
+// NFD kept apart, the exact spelling first) and the name stored on the
+// card: nil, nil when it has none, an error when the card cannot be read
+// (GET /games/{gameId}/art answers it 500, not 404, so the app keeps its
+// copy). GameFiles uses it. GET /games/{gameId}/art, sent for every row
+// of the app's library, reads only this folder instead of the five of
+// GameFiles. (A direct lstat would be cheaper, but exFAT and APFS answer
+// it for another case or normalization, under the name asked.)
+func (a *Adapter) ArtFile(g osadapter.Game) (*osadapter.File, error) {
+	return a.findFoldErr(filepath.Join(a.folderOf(g), ".media"), artName(g)+".png")
+}
+
 // artName is the name of the art of g, without ".png".
 func artName(g osadapter.Game) string { return displayName(path.Base(g.Path)) }
 
@@ -1157,7 +1181,9 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 		}
 	}
 	files.Cheats = a.findFold(filepath.Join(a.roots.Cheats, g.System.Tag), g.ROMName+".cht")
-	files.Art = a.findFold(filepath.Join(a.folderOf(g), ".media"), artName(g)+".png")
+	// Like the other files of the game, an art that cannot be read is
+	// left out of the list (GET /games/{gameId}/art reports the error).
+	files.Art, _ = a.ArtFile(g)
 	statesDir := a.statesDir(g.System.Tag)
 	want := fold(g.ROMName)
 	var stateEntries []fs.DirEntry
@@ -1471,6 +1497,14 @@ func (a *Adapter) findFold(dir, name string) *osadapter.File {
 
 // pickFold is findFold on entries, a listing of dir.
 func (a *Adapter) pickFold(dir string, entries []fs.DirEntry, name string) *osadapter.File {
+	f, _ := a.pickFoldErr(dir, entries, name)
+	return f
+}
+
+// pickName is the selection rule of every file of a game: the regular
+// entry whose folded name is fold(name), the exact spelling first, else
+// the first in listing order ("" when none).
+func pickName(entries []fs.DirEntry, name string) string {
 	want := fold(name)
 	var match string
 	for _, e := range entries {
@@ -1481,14 +1515,41 @@ func (a *Adapter) pickFold(dir string, entries []fs.DirEntry, name string) *osad
 			match = e.Name()
 		}
 	}
+	return match
+}
+
+// pickFoldErr is pickFold that tells an absent file (nil, nil: no entry,
+// or the entry gone or no longer a regular file) from an I/O error.
+func (a *Adapter) pickFoldErr(dir string, entries []fs.DirEntry, name string) (*osadapter.File, error) {
+	match := pickName(entries, name)
 	if match == "" {
-		return nil
+		return nil, nil
 	}
-	f, err := a.fileAt(filepath.Join(dir, match))
-	if err != nil {
-		return nil
+	p := filepath.Join(dir, match)
+	fi, err := os.Lstat(p)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	case !fi.Mode().IsRegular():
+		return nil, nil
 	}
-	return &f
+	return &osadapter.File{Path: p, Rel: a.relToSD(p), Size: fi.Size(), ModTime: fi.ModTime().UTC()}, nil
+}
+
+// findFoldErr is findFold that tells an absent file from an I/O error: a
+// missing folder (or a file where the folder should be) has no file, any
+// other error reading it is returned.
+func (a *Adapter) findFoldErr(dir, name string) (*osadapter.File, error) {
+	entries, err := readDir(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	return a.pickFoldErr(dir, entries, name)
 }
 
 // saveDir is one read of Saves/<TAG>: the regular files grouped by folded

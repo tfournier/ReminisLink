@@ -283,6 +283,130 @@ struct APIClientTests {
         #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g") == nil)
     }
 
+    /// A row scrolled away cancels its art: the request stops at once with
+    /// a cancellation, not after the answer.
+    @Test func aCancelledArtStopsAtOnce() async throws {
+        let client = stubClient { _, _ in
+            var response = FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: Data(count: 10))
+            response.delay = 10
+            return response
+        }
+        let start = ContinuousClock.now
+        let load = Task { try await client.art(gameId: "g") }
+        try await Task.sleep(for: .milliseconds(100))
+        load.cancel()
+        await #expect(throws: CancellationError.self) { try await load.value }
+        #expect(ContinuousClock.now - start < .seconds(5))
+    }
+
+    /// Without `Content-Length`, the limit is checked on what arrived so
+    /// far, across chunks: the request stops as soon as it is exceeded.
+    @Test func anUnannouncedArtTooLargeAcrossChunksStopsTheRequest() async throws {
+        let stream = FakeStream()
+        let closed = Counter()
+        stream.onClose = { closed.increment() }
+        let client = stubClient { _, _ in
+            var response = FakeResponse(status: 200, headers: ["Content-Type": "image/png"])
+            response.stream = stream
+            return response
+        }
+        let load = Task { try await client.art(gameId: "g") }
+        let chunk = Data(repeating: 1, count: 1 << 20)
+        for _ in 0..<(APIClient.maxArtBytes / chunk.count + 2) { stream.send(chunk) }
+        await #expect(throws: APIError.invalidResponse("body larger than \(APIClient.maxArtBytes) bytes")) {
+            try await load.value
+        }
+        // The client closed the connection; the stream never finished.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while closed.value == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(closed.value == 1)
+    }
+
+    /// Cancelled once a first chunk was received by the client (not merely
+    /// sent by the fake): the request stops at once.
+    @Test func anArtCancelledAfterAFirstChunkStops() async throws {
+        let stream = FakeStream()
+        let closed = Counter()
+        stream.onClose = { closed.increment() }
+        let client = stubClient { _, _ in
+            var response = FakeResponse(status: 200, headers: ["Content-Type": "image/png", "Content-Length": "1000000"])
+            response.stream = stream
+            return response
+        }
+        let (received, signal) = AsyncStream<Int>.makeStream()
+        await client.observeLimitedReads { event in
+            if case .received(let count) = event { signal.yield(count) }
+        }
+        let load = Task { try await client.art(gameId: "g") }
+        stream.send(Data(repeating: 1, count: 1000))
+        var chunks = received.makeAsyncIterator()
+        #expect(await chunks.next() == 1000)
+        load.cancel()
+        await #expect(throws: CancellationError.self) { try await load.value }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while closed.value == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(closed.value == 1)
+    }
+
+    /// Cancelled while the whole answer is being handed over (the success
+    /// reaches the continuation after the cancellation, before the caller
+    /// resumes): neither returned nor stored.
+    @Test func anArtCancelledAtDeliveryIsNeitherReturnedNorStored() async throws {
+        let gate = FakeGate()
+        let client = stubClient { _, _ in
+            var response = FakeResponse(status: 200, headers: ["Content-Type": "image/png", "ETag": "\"new\""], body: Data([1, 2, 3]))
+            response.gate = gate
+            return response
+        }
+        let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let box = TaskBox()
+        let delivered = Counter()
+        await client.observeLimitedReads { event in
+            guard case .delivering = event else { return }
+            delivered.increment()
+            box.cancel() // before the continuation resumes
+        }
+        let load = Task { try await cache.load(gameId: "g", client: client) }
+        box.set { load.cancel() }
+        gate.open()
+        await #expect(throws: CancellationError.self) { try await load.value }
+        #expect(delivered.value == 1)
+        #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g") == nil)
+    }
+
+    /// Only a real `404` drops the cached art: an error of the pak (`500`,
+    /// a card it cannot read) keeps it.
+    @Test func anArtErrorKeepsTheCachedCopy() async throws {
+        let status = Counter()
+        let client = stubClient { _, _ in
+            if status.value == 0 {
+                return FakeResponse(status: 200, headers: ["Content-Type": "image/png", "ETag": "\"v1\""], body: Data([1]))
+            }
+            return .error(500, code: "internal", message: "Internal error")
+        }
+        let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        #expect(try await cache.load(gameId: "g", client: client) == Data([1]))
+        status.increment()
+        await #expect(throws: APIError.self) { try await cache.load(gameId: "g", client: client) }
+        #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g")?.data == Data([1]))
+    }
+
+    /// A redirection is never followed by the art request: one call.
+    @Test func anArtRedirectionIsNotFollowed() async throws {
+        let calls = Counter()
+        let client = stubClient { request, _ in
+            calls.increment()
+            if request.url?.path().hasSuffix("/art") == true {
+                return FakeResponse(status: 307, headers: ["Location": "/elsewhere.png"])
+            }
+            return FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: Data([9]))
+        }
+        await #expect(throws: APIError.self) { try await client.art(gameId: "g") }
+        #expect(calls.value == 1)
+    }
+
     @Test func anArtAtTheLimitIsAccepted() async throws {
         let size = APIClient.maxArtBytes
         let client = stubClient { _, _ in
@@ -312,6 +436,14 @@ struct APIClientTests {
         #expect(pak.log.last?.status == 304)
         #expect(try await cache.load(gameId: withoutArt.id, client: client) == nil)
     }
+}
+
+/// Holds a cancellation set after the task it cancels was created.
+final class TaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var action: (() -> Void)?
+    func set(_ action: @escaping () -> Void) { lock.withLock { self.action = action } }
+    func cancel() { lock.withLock { action }?() }
 }
 
 final class Counter: @unchecked Sendable {

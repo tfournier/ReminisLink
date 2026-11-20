@@ -132,6 +132,40 @@ struct PinnedHandshakeTests {
         }
     }
 
+    /// `GET /games/{gameId}/art` reads its body through its own task
+    /// delegate: it keeps the pin. The right pin reaches the pak (an
+    /// identity it does not know: `401`), a wrong or missing pin never
+    /// does.
+    @Test(.enabled(if: link?.endpoint != nil))
+    func theArtRouteIsPinned() async throws {
+        let link = try #require(Self.link)
+        let endpoint = try #require(link.endpoint)
+        let gameId = Base64URL.encode(Data("Game Boy Advance (GBA)/Starlight Courier.gba".utf8))
+        let right = APIClient(
+            endpoint: endpoint, credentials: DeviceCredentials(deviceId: link.deviceId, identity: .generate(), pin: link.pin)
+        )
+        await #expect {
+            _ = try await right.art(gameId: gameId)
+        } throws: { error in
+            guard case .server(let server) = error as? APIError else { return false }
+            return server.status == 401
+        }
+        let wrong = APIClient(
+            endpoint: endpoint,
+            credentials: DeviceCredentials(deviceId: link.deviceId, identity: .generate(), pin: Base64URL.encode(Data(repeating: 3, count: 32)))
+        )
+        await #expect(throws: APIError.identityChanged) { _ = try await wrong.art(gameId: gameId) }
+        // No pin at all (the client always has one: the delegate itself).
+        let url = try #require(URL(string: "https://\(endpoint.host):\(endpoint.port)/api/v1/games/\(gameId)/art"))
+        let trust = PinnedTrust(pin: nil)
+        await #expect(throws: APIError.identityChanged) {
+            _ = try await PakLimitedDataDelegate.fetch(
+                URLRequest(url: url), session: APIClient.makeSession(), trust: trust, maxBytes: APIClient.maxArtBytes
+            )
+        }
+        #expect(trust.refused)
+    }
+
     /// Every kind of request (event stream, download with progress, upload
     /// chunk streamed from a file, JSON) fails the same way with a wrong
     /// pin. With `RL_TEST_PAK_LOG` (the pak's output), it also proves none
@@ -174,6 +208,7 @@ struct PinnedHandshakeTests {
             _ = try await client.sendChunk(uploadId: marker, offset: 0, file: chunk, length: 4096)
         }
         await #expect(throws: APIError.identityChanged) { _ = try await client.game(id: markedId) }
+        await #expect(throws: APIError.identityChanged) { _ = try await client.art(gameId: markedId) }
 
         guard logPath != nil else { return }
         // The control: the right pin, an identity the pak does not know

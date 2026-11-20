@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // ErrOutside means a file is a symbolic link, is reached through one, is
@@ -50,17 +51,36 @@ func Open(root *os.Root, rel string) (*os.File, fs.FileInfo, error) {
 	}
 	f, err := root.Open(rel)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) || isIOError(err) {
 			return nil, nil, err
 		}
 		return nil, nil, fmt.Errorf("%w: %w", ErrOutside, err)
 	}
 	fi, err := f.Stat()
-	if err != nil || !os.SameFile(lfi, fi) || !fi.Mode().IsRegular() {
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	if !os.SameFile(lfi, fi) || !fi.Mode().IsRegular() {
 		f.Close()
 		return nil, nil, ErrOutside // replaced while opened
 	}
 	return f, fi, nil
+}
+
+// isIOError reports whether an open failed because of the card or the
+// system (permission, I/O error, no file descriptor left...), not because
+// the path left the folder: os.Root reports an escape with an error of
+// its own, and a link or a file put in place of a folder since the check
+// with ELOOP or ENOTDIR (refusals; EXDEV for a resolution kept beneath
+// the folder by the kernel). An I/O error is never a refusal: the
+// caller reports it instead of answering "not found".
+func isIOError(err error) bool {
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
+		return false
+	}
+	return errno != syscall.ELOOP && errno != syscall.ENOTDIR && errno != syscall.EXDEV
 }
 
 // OpenUnder opens the file p (an absolute path) with Open under the

@@ -124,6 +124,11 @@ type Server struct {
 	// allGamesLimit is the most games of GET /games (library.MaxAllGames;
 	// changed by tests).
 	allGamesLimit int
+	// artETags caches the content ETags of GET /games/{gameId}/art.
+	artETags artETags
+	// artLookupHook, when set (tests), is called by GET /art between the
+	// read of the write lock generation and the lookup of the art.
+	artLookupHook atomic.Pointer[func()]
 	// events is the hub of GET /events (M14); sampler reads the device
 	// state while a stream is open.
 	events  *events.Hub

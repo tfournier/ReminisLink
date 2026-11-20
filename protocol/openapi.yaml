@@ -690,6 +690,24 @@ paths:
       tags: [Library]
       operationId: getGameArt
       summary: Game art (PNG)
+      description: |
+        The art is found like the art of `GET /games/{gameId}` and opened
+        confined to the system folder (no symbolic link); a refused art is
+        answered `404`. An art that cannot be read (I/O error) is answered
+        `500`, never `404`: the app keeps its copy.
+
+        ETag, up to 8 MiB: SHA-256 of the content (`"sha256-..."`). The
+        pak caches it per file version (path, size, date) in memory; any
+        write of the pak (they all hold the write lock) empties that cache,
+        and a request opened across a write does not use it, so a change
+        made by the pak always gets a new `sha256-` ETag, even with the same
+        size and date. A change made by something else while the pak runs,
+        with the same size and date, is seen once the pak restarts.
+
+        Beyond 8 MiB (the app never sends such an art): size and
+        modification time (`"mt-..."`), not the content; a new file with the
+        same size and date keeps the same ETag, whoever wrote it
+        (docs/specs/04-api-v1.md).
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: If-None-Match

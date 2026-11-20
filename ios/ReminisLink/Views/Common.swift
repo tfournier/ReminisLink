@@ -90,6 +90,7 @@ struct Badge: View {
 /// Art of a game, from the disk cache or the console.
 struct GameArtView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.displayScale) private var displayScale
     let deviceId: String
     let gameId: String
     let hasArt: Bool
@@ -136,7 +137,7 @@ struct GameArtView: View {
     }
 
     /// Best effort: an art error never touches the session. The disk cache
-    /// is read off the main actor.
+    /// is read, and the art decoded at the size shown, off the main actor.
     private func load() async {
         guard hasArt else {
             image = nil
@@ -145,15 +146,28 @@ struct GameArtView: View {
         let cache = app.artCache
         let deviceId = deviceId
         let gameId = gameId
-        let cached = await Task.detached(priority: .utility) {
-            cache.entry(deviceId: deviceId, gameId: gameId)?.data
+        let maxPixelSize = Int((size * displayScale).rounded(.up))
+        let cached = await Task.detached(priority: .utility) { () -> (Data, UIImage?)? in
+            guard let data = cache.entry(deviceId: deviceId, gameId: gameId)?.data else { return nil }
+            return (data, Self.decode(data, maxPixelSize: maxPixelSize))
         }.value
-        if let cached { image = UIImage(data: cached) }
+        // A task cancelled meanwhile (the art changed, the row went away)
+        // never shows what it decoded: a newer task owns the image.
+        guard !Task.isCancelled else { return }
+        if let cached { image = cached.1 }
         guard let client = app.session(for: deviceId).client,
               let data = try? await cache.load(gameId: gameId, client: client),
-              data != cached
+              data != cached?.0
         else { return }
-        image = UIImage(data: data)
+        let decoded = await Task.detached(priority: .utility) {
+            Self.decode(data, maxPixelSize: maxPixelSize)
+        }.value
+        guard !Task.isCancelled else { return }
+        image = decoded
+    }
+
+    private nonisolated static func decode(_ data: Data, maxPixelSize: Int) -> UIImage? {
+        ArtImage.displayImage(from: data, maxPixelSize: maxPixelSize).map { UIImage(cgImage: $0) }
     }
 }
 
