@@ -78,7 +78,6 @@ extension FileSaveVault {
     func tidy(consoles: [URL], infos: GameInfoCache) -> Bool {
         guard let canonical = consoles.first else { return false }
         var changed = false
-        cleanHoldingArea()
         let rootUnknown = ((try? subfolders(of: root)) ?? []).filter {
             (readJSON($0.appending(path: Self.consoleFile)) as VaultConsoleInfo?) == nil
         }
@@ -331,18 +330,61 @@ extension FileSaveVault {
     }
 
     /// Folders left in the holding area by a removal that was stopped (the
-    /// app quit): removed if they hold nothing but an identity file.
+    /// app quit between the move in and the removal or the put-back):
+    /// removed if they hold nothing but an identity file; otherwise moved
+    /// back where their identity says (``recoverHeld(_:)``), never left
+    /// hidden.
     func cleanHoldingArea() {
         let holding = root.appending(path: Self.holdingFolder, directoryHint: .isDirectory)
         let allowed: Set<String> = [Self.consoleFile, Self.gameFile, Self.finderFile]
         for name in (try? FileManager.default.contentsOfDirectory(atPath: holding.path(percentEncoded: false))) ?? [] {
             let held = holding.appending(path: name, directoryHint: .isDirectory)
+            var removed = false
             try? coordinateWriting(held) { url in
                 let names = (try? FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))) ?? []
                 let metadata = names.first { $0 == Self.consoleFile || $0 == Self.gameFile }
-                _ = Self.removeHeld(url, allowed: allowed, metadata: metadata)
+                removed = Self.removeHeld(url, allowed: allowed, metadata: metadata)
+            }
+            if !removed, Self.isDirectory(held) { try? recoverHeld(held) }
+        }
+    }
+
+    /// Moves a held folder with content back among its siblings, under a
+    /// free name: a console folder to the vault root; a game folder (or a
+    /// system folder, by its games) under the canonical console folder of
+    /// the console holding that game, in the system folder of its system.
+    /// Without a readable identity: to the vault root as "Recovered <date>".
+    func recoverHeld(_ held: URL) throws {
+        let recovered = "Recovered " + Self.versionName(Date(), timeZone: .current)
+        var destination: (folder: URL, name: String) = (root, recovered)
+        /// The canonical console folder holding one of `gameIds`.
+        func console(holding gameIds: Set<String>) -> URL? {
+            guard let groups = try? consoleFolders() else { return nil }
+            for (_, folders) in groups.sorted(by: { $0.key < $1.key }) {
+                let games = (try? gameFolders(in: folders, infos: GameInfoCache())) ?? [:]
+                if !gameIds.isDisjoint(with: games.keys) { return folders.first }
+            }
+            return nil
+        }
+        if let info: VaultConsoleInfo = readJSON(held.appending(path: Self.consoleFile)) {
+            destination = (root, Self.folderName(info.name))
+        } else if let info: VaultGameInfo = readJSON(held.appending(path: Self.gameFile)) {
+            if let target = console(holding: [info.gameId]) {
+                destination = (try systemFolder(Self.folderName(info.systemName), in: target), Self.folderName(info.name))
+            }
+        } else {
+            let infos = GameInfoCache()
+            var gameIds = Set<String>()
+            for game in (try? subfolders(of: held)) ?? [] {
+                if let info = gameInfo(game, infos) { gameIds.insert(info.gameId) }
+            }
+            if let identity = systemIdentity(held, infos), let target = console(holding: gameIds) {
+                destination = (target, identity)
             }
         }
+        try coordinateWriting(destination.folder) { try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true) }
+        let target = destination.folder.appending(path: try uniqueName(destination.name, in: destination.folder), directoryHint: .isDirectory)
+        try coordinateMove(from: held, to: target)
     }
 
     /// Deletes a version beyond the limit (publication only). Inside the

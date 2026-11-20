@@ -221,6 +221,7 @@ public actor FileSaveVault: SaveVault {
     private func loadConsoleIndex() throws -> [String: [URL]] {
         if let consoleIndex { return consoleIndex }
         gameIndex = [:]
+        cleanHoldingArea()
         let index = try consoleFolders()
         consoleIndex = index
         return index
@@ -230,6 +231,7 @@ public actor FileSaveVault: SaveVault {
     /// device whose console folders changed (one delivered by iCloud since
     /// the last load) is dropped.
     private func refreshConsoles() throws {
+        if consoleIndex == nil { cleanHoldingArea() }
         let fresh = try consoleFolders()
         if let consoleIndex {
             for deviceId in Set(consoleIndex.keys).union(fresh.keys) where consoleIndex[deviceId] != fresh[deviceId] {

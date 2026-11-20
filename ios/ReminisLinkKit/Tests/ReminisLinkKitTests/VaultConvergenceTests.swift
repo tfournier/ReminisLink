@@ -602,4 +602,33 @@ struct VaultConvergenceTests {
         #expect(try names(iPhone.appending(path: "My Brick/\(Self.gba)")) == ["Starlight Courier"])
         #expect(try names(iPhone.appending(path: "My Brick 2/\(Self.gba)")) == ["Moonlit Maze"])
     }
+
+    /// The app stopped while a duplicate that had received a version was
+    /// in the holding area: the next load moves it back among its
+    /// siblings, and its versions are listed again.
+    @Test func aFolderLeftInTheHoldingAreaIsRecoveredAtTheNextLoad() async throws {
+        let sandbox = try VaultSandbox()
+        let iPhone = sandbox.root
+        let mac = sandbox.base.appending(path: "Mac", directoryHint: .isDirectory)
+        let courier = game("g1", "Starlight Courier")
+        _ = try await vault(iPhone, sandbox).addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "a"), rtc: nil, modifiedAt: nil)
+        _ = try await vault(mac, sandbox, clock: TestClock(start: Self.later))
+            .addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "m"), rtc: nil, modifiedAt: nil)
+        // As left by a crash between the move in and the put-back.
+        let holding = iPhone.appending(path: FileSaveVault.holdingFolder)
+        try FileManager.default.createDirectory(at: holding, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: mac.appending(path: "My Brick/\(Self.gba)/Starlight Courier"), to: holding.appending(path: UUID().uuidString))
+        // And a held folder whose identity cannot be read.
+        let unknown = holding.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: unknown, withIntermediateDirectories: true)
+        try Data("mine".utf8).write(to: unknown.appending(path: "notes.txt"))
+
+        let versions = try await vault(iPhone, sandbox).versions(deviceId: "dev-1", gameId: "g1")
+        #expect(versions.map(\.info.save.sha256) == [sha("m"), sha("a")])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: holding.path).isEmpty)
+        let recovered = try names(iPhone).filter { $0.hasPrefix("Recovered ") }
+        #expect(recovered.count == 1)
+        let folder = try #require(recovered.first)
+        #expect(try Data(contentsOf: iPhone.appending(path: "\(folder)/notes.txt")) == Data("mine".utf8))
+    }
 }
