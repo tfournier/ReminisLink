@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Installation — ReminisLink</title>
+  <meta name="description" content="Install ReminisLink step by step: the pak on your TrimUI Brick running NextUI, the iPhone app, pairing with the QR code, save sync to iCloud Drive, updating and uninstalling.">
+  <link rel="canonical" href="https://reminis.link/install/">
+  <link rel="alternate" hreflang="en" href="https://reminis.link/install/">
+  <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/install/">
+  <link rel="alternate" hreflang="x-default" href="https://reminis.link/install/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#2e2a7a">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/assets/icon-256.png" alt="" width="36" height="36">ReminisLink</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="/">Home</a></li>
+          <li><a href="/install/" aria-current="page">Installation</a></li>
+          <li><a href="/support/">Support</a></li>
+          <li><a href="/privacy/">Privacy</a></li>
+          <li class="lang"><a href="/fr/install/" hreflang="fr" lang="fr">Français</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="page-title">
+      <div class="wrap">
+        <h1>Installation</h1>
+        <p>The pak on the handheld, the app on the iPhone, then pairing: about ten minutes.</p>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="prose">
+        <nav aria-labelledby="toc-title">
+          <h2 id="toc-title">On this page</h2>
+          <ul>
+            <li><a href="#requirements">What you need</a></li>
+            <li><a href="#handheld">1. Install the pak on the handheld</a></li>
+            <li><a href="#iphone">2. Install the app on the iPhone</a></li>
+            <li><a href="#pair">3. Pair the iPhone</a></li>
+            <li><a href="#icloud">4. Optional: copies of your saves in iCloud Drive</a></li>
+            <li><a href="#daily">Every day</a></li>
+            <li><a href="#update">Update the pak</a></li>
+            <li><a href="#uninstall">Uninstall</a></li>
+          </ul>
+        </nav>
+
+        <section aria-labelledby="requirements">
+          <h2 id="requirements">What you need</h2>
+          <ul>
+            <li>A <strong>TrimUI Brick running NextUI</strong>, with Wi-Fi set up in the NextUI settings. Other handhelds are planned.</li>
+            <li>An <strong>iPhone with iOS 17 or later</strong>. The app is made for iPhone; iPad and Mac are not supported for now.</li>
+            <li>The iPhone and the handheld on the <strong>same Wi-Fi network</strong> (not a guest network).</li>
+            <li>A way to copy files to the SD card of the handheld (a card reader on a computer, for example).</li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="handheld">
+          <h2 id="handheld">1. Install the pak on the handheld</h2>
+          <ol>
+            <li>Download <code>ReminisLink.pak.zip</code> from the <a href="https://github.com/tfournier/ReminisLink/releases">releases page on GitHub</a> (take the latest one).</li>
+            <li>Put the SD card of the handheld in your computer and unzip the archive into the folder <code>/Tools/tg5040/</code> of the card. You should get <code>/Tools/tg5040/ReminisLink.pak/launch.sh</code>: the folder must be named <code>ReminisLink.pak</code>, directly inside <code>tg5040</code>.</li>
+            <li>Eject the card properly, put it back in the handheld and turn it on.</li>
+            <li>Turn on Wi-Fi in the NextUI settings and join your network.</li>
+            <li>Open <strong>Tools &gt; ReminisLink</strong>.</li>
+          </ol>
+          <p>If ReminisLink appears in the Pak Store of your handheld, you can install it from there instead.</p>
+
+          <h3>First launch</h3>
+          <ol>
+            <li>ReminisLink asks for the language of its screens: English or French (you can change it later in <strong>Settings</strong>).</li>
+            <li>It checks the Wi-Fi. Without a Wi-Fi connection it shows “No Wi-Fi”: press <strong>B</strong>, turn on Wi-Fi in the NextUI settings, and open it again.</li>
+            <li>It shows “Preparing…” for a moment, then its main screen with a <strong>QR code</strong>. Leave this screen open for the next steps.</li>
+          </ol>
+          <p>On the main screen of the handheld, <strong>Y</strong> opens the settings, <strong>A</strong> hides or shows the QR code and <strong>B</strong> quits (it asks first if a transfer is in progress). On the <strong>Pair a New Device</strong> screen, <strong>B</strong> goes back to the settings.</p>
+        </section>
+
+        <section aria-labelledby="iphone">
+          <h2 id="iphone">2. Install the app on the iPhone</h2>
+          <p>The ReminisLink app is <strong>coming soon on the App Store</strong>. This page will link to it once it is published.</p>
+          <p>The first time the app looks for your handheld, iOS asks whether ReminisLink may find and connect to devices on your local network: tap <strong>Allow</strong>. Without it, the app cannot see the handheld. If you declined, open <strong>Settings &gt; Privacy &amp; Security &gt; Local Network</strong> on the iPhone and turn on ReminisLink.</p>
+        </section>
+
+        <section aria-labelledby="pair">
+          <h2 id="pair">3. Pair the iPhone</h2>
+          <ol>
+            <li>In the app, tap <strong>Add a Console</strong>. You can type the name that the handheld will show for your devices (by default, “iPhone”).</li>
+            <li>Scan the QR code shown by the handheld. Allow the camera when iOS asks; you can also scan the code with the Camera app of the iPhone.</li>
+            <li>The app shows its progress (searching for the console, pairing, done). On the last step you can change the name of the handheld on this iPhone, then tap <strong>Open the Console</strong>. When pairing succeeds, the handheld shows “Paired with” and the name; if it still shows the pairing screen, press <strong>B</strong>.</li>
+          </ol>
+          <p>Pairing is open only while the QR code is shown, and each QR code is valid 10 minutes. Once a device is paired, the main screen no longer shows a QR code: to pair <strong>another</strong> device, open <strong>Settings &gt; Pair a New Device</strong> on the handheld.</p>
+          <p>Your iPhone keeps its pairing in iCloud Keychain: your other Apple devices signed in with the same Apple Account share it and do not need to pair again. A device with another Apple Account pairs with its own QR code.</p>
+          <p>Once paired, the app shows four tabs for the handheld: <strong>Console</strong> (state, storage, apps, save sync), <strong>Library</strong>, <strong>Transfers</strong> and <strong>Trash</strong>.</p>
+        </section>
+
+        <section aria-labelledby="icloud">
+          <h2 id="icloud">4. Optional: copies of your saves in iCloud Drive</h2>
+          <p>The app copies the saves of your handheld (with their clock files) to your iPhone: with <strong>Sync Saves</strong> in the Console tab, and automatically each time it connects (turn this off with <strong>Sync Saves When Connecting</strong> in the settings of the app). Up to 10 versions of each save are kept, and you can restore one to the handheld.</p>
+          <p>With iCloud Drive turned on for ReminisLink (in the iOS Settings, under your Apple Account, then iCloud), the copies go to the ReminisLink folder of iCloud Drive, in the Files app. Otherwise they stay on the iPhone, in <strong>Files &gt; On My iPhone &gt; ReminisLink</strong>, and are deleted with the app.</p>
+        </section>
+
+        <section aria-labelledby="daily">
+          <h2 id="daily">Every day</h2>
+          <ol>
+            <li>On the handheld, open <strong>Tools &gt; ReminisLink</strong>. The pak only runs while no game is running.</li>
+            <li>Open the app on the iPhone and tap your handheld.</li>
+            <li>Manage your games. When you are done, press <strong>B</strong> on the handheld: the app goes back to its list of consoles by itself. Play.</li>
+          </ol>
+        </section>
+
+        <section aria-labelledby="update">
+          <h2 id="update">Update the pak</h2>
+          <ol>
+            <li>Read the release notes of the new version on the <a href="https://github.com/tfournier/ReminisLink/releases">releases page</a>.</li>
+            <li>With the SD card in your computer, delete the folder <code>/Tools/tg5040/ReminisLink.pak/</code>, then unzip the new <code>ReminisLink.pak.zip</code> into <code>/Tools/tg5040/</code>, as for the first installation. ReminisLink cannot replace itself from the app while it runs.</li>
+            <li>Your settings, backups, locked states and trash are in another folder (see below): they are kept. Paired devices are kept too, unless the new version changes how pairing works: it then deletes the old pairings at its first launch, and the release notes say so.</li>
+            <li>Update the iPhone app too. If the app shows <strong>Pair Again</strong> next to the handheld, pair again by scanning a new QR code (<strong>Settings &gt; Pair a New Device</strong> on the handheld).</li>
+          </ol>
+        </section>
+
+        <section aria-labelledby="uninstall">
+          <h2 id="uninstall">Uninstall</h2>
+          <h3>On the handheld</h3>
+          <p>Delete the folder <code>/Tools/tg5040/ReminisLink.pak/</code>. Your games, saves, save states and cheats stay where NextUI keeps them.</p>
+          <p>ReminisLink keeps its own data in <code>/.userdata/shared/ReminisLink/</code>:</p>
+          <ul>
+            <li><code>config.json</code>: the identifier, name and language of the handheld;</li>
+            <li><code>clients.json</code>: the paired devices (identifier, name, platform, types of device seen, public key and pairing date; no private key);</li>
+            <li><code>tls/</code>: the certificate of the handheld and its private key;</li>
+            <li><code>backups/</code>: the backup copies of your saves and the history of resume states;</li>
+            <li><code>locks/</code>: the locked copies of your save states;</li>
+            <li><code>trash/</code>: the files deleted or replaced, until they reach 30 days of counted age (purged at launch) or you empty the trash;</li>
+            <li><code>patches/</code>: the patches you copied there;</li>
+            <li><code>uploads/</code> and <code>staging/</code>: temporary files.</li>
+          </ul>
+          <p>Before you delete this folder, look in <code>backups/</code>, <code>locks/</code> and <code>trash/</code> for anything you want to keep (a locked copy may be the only good version of a state): deleting the folder removes them for good. If you only delete the pak and install it again later, everything is still there. The log files are in <code>/.userdata/tg5040/logs/</code> (names starting with <code>ReminisLink</code>).</p>
+          <h3>On the iPhone</h3>
+          <p>To remove the pairing first, open the handheld in the app, then <strong>Console &gt; Unpair</strong> (this removes it on all your Apple devices that share it). Then delete the app as usual. The copies of your saves in iCloud Drive are not deleted with the app: remove the ReminisLink folder in Files if you no longer want them.</p>
+        </section>
+
+        <p>A problem? See the <a href="/support/">support page</a>.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <ul>
+        <li><a href="/install/">Installation</a></li>
+        <li><a href="/support/">Support</a></li>
+        <li><a href="/privacy/">Privacy policy</a></li>
+        <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>
+        <li><a href="/fr/install/" hreflang="fr" lang="fr">Français</a></li>
+      </ul>
+      <p>ReminisLink is an independent, open-source project (MIT license). TrimUI and NextUI are the names of their respective owners, who are not affiliated with ReminisLink.</p>
+      <p>This site uses no cookies, no trackers and no external resources.</p>
+    </div>
+  </footer>
+</body>
+</html>

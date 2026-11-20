@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ReminisLink — Manage your retro handheld from your iPhone</title>
-  <meta name="description" content="ReminisLink is an iPhone app and a free tool for your retro handheld: add your own games, back up saves, lock save states, edit cheats and apply patches over your local Wi-Fi.">
+  <meta name="description" content="ReminisLink is an iPhone app and a free tool for your retro handheld: add your own games, copy your saves to iCloud Drive, lock save states, edit cheats, apply patches and manage apps over your local Wi-Fi.">
   <link rel="canonical" href="https://reminis.link/">
   <link rel="alternate" hreflang="en" href="https://reminis.link/">
   <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/">
@@ -22,6 +22,7 @@
       <nav class="site-nav" aria-label="Main">
         <ul>
           <li><a href="/" aria-current="page">Home</a></li>
+          <li><a href="/install/">Installation</a></li>
           <li><a href="/support/">Support</a></li>
           <li><a href="/privacy/">Privacy</a></li>
           <li class="lang"><a href="/fr/" hreflang="fr" lang="fr">Français</a></li>
@@ -36,15 +37,16 @@
         <div>
           <img class="icon" src="/assets/icon-256.png" alt="ReminisLink app icon" width="96" height="96">
           <h1 id="hero-title">Your iPhone, companion of your retro handheld</h1>
-          <p>Open ReminisLink on the handheld, manage your games, saves, save states, cheats and patches from your phone over your home Wi-Fi, close it and play. No cable, no SD card to take out, no account.</p>
+          <p>Open ReminisLink on the handheld, manage your games, saves, save states, cheats, patches and apps from your phone over your home Wi-Fi, close it and play. No cable, no SD card to take out, no account.</p>
           <div class="actions">
+            <a class="button" href="/install/">Get started</a>
             <span class="soon">Coming soon on the App Store</span>
             <a class="button" href="https://github.com/tfournier/ReminisLink">Source code on GitHub</a>
           </div>
         </div>
         <figure>
-          <img src="/assets/pak-main.png" alt="The ReminisLink screen on the handheld: its state, the battery level, a QR code to scan with the app and a 6-digit code." width="1024" height="768">
-          <figcaption>ReminisLink on the handheld, waiting for your iPhone.</figcaption>
+          <img src="/assets/pak-pairing.png" alt="The ReminisLink pairing screen on the handheld: its state, the battery level and an illustrative QR code." width="1024" height="768">
+          <figcaption>ReminisLink on the handheld, ready to pair with your iPhone (illustration: scan the QR code of your own handheld).</figcaption>
         </figure>
       </div>
     </section>
@@ -52,7 +54,7 @@
     <section class="section" aria-labelledby="what-title">
       <div class="wrap">
         <h2 id="what-title">Two parts that work together</h2>
-        <p class="lead">ReminisLink is an iPhone app and a free tool for the handheld. Everything stays on your local network.</p>
+        <p class="lead">ReminisLink is an iPhone app and a free tool for the handheld. They talk to each other only over your local network.</p>
         <ul class="cards">
           <li class="card">
             <h3>The app for iPhone</h3>
@@ -70,7 +72,7 @@
       <div class="wrap">
         <div class="callout">
           <h2 id="byof-title">Bring your own files</h2>
-          <p>ReminisLink does not provide, list or suggest any game. You add the games, saves, patches and cheat files you already own: from the Files app, from the share sheet of any app, or from a link that the handheld downloads itself.</p>
+          <p>ReminisLink does not provide games, has no catalog to download from and does not suggest where to find any. You add the games, saves, patches and cheat files you already own: from the Files app, from the share sheet of any app, or from a link that the handheld downloads itself.</p>
         </div>
       </div>
     </section>
@@ -81,11 +83,15 @@
         <ul class="cards">
           <li class="card">
             <h3>Library</h3>
-            <p>Every system and game on the SD card, including the ones you copied by hand, with size, save, save states, cheats and box art. Search and sort.</p>
+            <p>The games found on the SD card in one list, including the ones you copied by hand, with search and filters by system. Size, save, save states, cheats and box art for each game: tap the box art to change it, and download any file of a game to your iPhone.</p>
           </li>
           <li class="card">
             <h3>Saves</h3>
             <p>Download a save to your iPhone, replace it from Files, make named backup copies and restore them in one tap.</p>
+          </li>
+          <li class="card">
+            <h3>Save sync</h3>
+            <p>Copies of your saves on your iPhone or in your own iCloud Drive, made each time you connect, with up to 10 versions of each save to restore.</p>
           </li>
           <li class="card">
             <h3>Save states</h3>
@@ -100,12 +106,24 @@
             <p>Apply IPS, BPS and UPS patches (translations, fixes, improvements) to a game you own. The result goes to a new file by default.</p>
           </li>
           <li class="card">
-            <h3>Nothing is lost</h3>
-            <p>Deleted or replaced files go to the trash of the handheld for at least 30 days. A save is always copied before it is replaced or restored.</p>
+            <h3>Apps</h3>
+            <p>Install tool and emulator paks from Files, a link or the SD card, replace or remove them. Browse the SD card, read only.</p>
           </li>
           <li class="card">
-            <h3>Private</h3>
-            <p>No account, no server, no analytics, no ads. Requests are signed with a key kept in the iPhone Keychain.</p>
+            <h3>Always up to date</h3>
+            <p>The app refreshes by itself when something changes on the handheld, even from another device, and goes back to its list as soon as you close ReminisLink.</p>
+          </li>
+          <li class="card">
+            <h3>The whole family</h3>
+            <p>Pair as many iPhones as you like. Devices on the same Apple Account share one pairing through iCloud Keychain. Changes run one at a time.</p>
+          </li>
+          <li class="card">
+            <h3>Nothing is lost</h3>
+            <p>Deleted or replaced files go to the trash of the handheld, until they reach 30 days of counted age (purged at launch) or you empty it. A save is always copied before it is replaced or restored.</p>
+          </li>
+          <li class="card">
+            <h3>Private and secure</h3>
+            <p>No account, no server, no analytics, no ads. Encrypted connection to the handheld on your local network, recognized by the public-key fingerprint in its QR code. Apart from the presence check and pairing, requests are signed with a key kept in your Keychain; of your devices, the SD card only keeps public keys.</p>
           </li>
         </ul>
       </div>
@@ -117,7 +135,7 @@
         <ol class="steps">
           <li>
             <h3>Install the pak</h3>
-            <p>On the handheld, open <strong>Pak Store</strong> and install <strong>ReminisLink</strong>. Or unzip the <a href="https://github.com/tfournier/ReminisLink/releases/latest">latest release</a> into <code>/Tools/tg5040/</code> on the SD card.</p>
+            <p>Download <code>ReminisLink.pak.zip</code> from the <a href="https://github.com/tfournier/ReminisLink/releases">releases page</a> and unzip it into <code>/Tools/tg5040/</code> on the SD card of the handheld.</p>
           </li>
           <li>
             <h3>Open it</h3>
@@ -125,9 +143,10 @@
           </li>
           <li>
             <h3>Scan the QR code</h3>
-            <p>In the iPhone app, scan the QR code shown on the handheld (or type its 6-digit code). Done: manage your games, then press <strong>B</strong> on the handheld and play.</p>
+            <p>In the iPhone app, tap <strong>Add a Console</strong>, scan the QR code shown on the handheld, then tap <strong>Open the Console</strong>. Done: manage your games, then press <strong>B</strong> on the handheld and play.</p>
           </li>
         </ol>
+        <p><a href="/install/">Read the full installation guide</a>: first launch, pairing other devices, saves in iCloud Drive, updating and uninstalling.</p>
       </div>
     </section>
 
@@ -136,12 +155,12 @@
         <h2 id="shots-title">On the handheld</h2>
         <div class="gallery">
           <figure>
-            <img src="/assets/pak-main.png" alt="Main screen: QR code to scan, 6-digit code valid 10 minutes, console name and connected devices." width="1024" height="768" loading="lazy">
-            <figcaption>Pairing: scan the QR code, or type the code.</figcaption>
+            <img src="/assets/pak-pairing.png" alt="Pair a New Device screen: state Ready, battery level and an illustrative QR code." width="1024" height="768" loading="lazy">
+            <figcaption>Pairing: scan the QR code with the app (illustration: use the one shown by your handheld).</figcaption>
           </figure>
           <figure>
             <img src="/assets/pak-settings.png" alt="Settings screen: pair a new device, console name, paired devices, forget all devices, language, version and log." width="1024" height="768" loading="lazy">
-            <figcaption>Settings: console name, paired devices, language.</figcaption>
+            <figcaption>Settings: pair a new device, console name, paired devices, language.</figcaption>
           </figure>
           <figure>
             <img src="/assets/pak-language.png" alt="First launch: welcome screen to choose between English and French." width="1024" height="768" loading="lazy">
@@ -156,7 +175,7 @@
       <div class="wrap">
         <h2 id="req-title">Requirements</h2>
         <ul>
-          <li>An iPhone with iOS 17 or later.</li>
+          <li>An iPhone with iOS 17 or later (iPad and Mac are not supported for now).</li>
           <li>A TrimUI Brick running NextUI, with the free ReminisLink pak. More handhelds are planned.</li>
           <li>The iPhone and the handheld on the same Wi-Fi network.</li>
         </ul>
@@ -168,6 +187,7 @@
   <footer class="site-footer">
     <div class="wrap">
       <ul>
+        <li><a href="/install/">Installation</a></li>
         <li><a href="/support/">Support</a></li>
         <li><a href="/privacy/">Privacy policy</a></li>
         <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>

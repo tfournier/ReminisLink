@@ -10,12 +10,12 @@
     "tg5040"
   ],
   "screenshots": [
-    "docs/screenshots/main.png",
+    "docs/screenshots/pairing.png",
     "docs/screenshots/transfer.png",
     "docs/screenshots/settings.png",
     "docs/screenshots/language.png"
   ],
   "changelog": {
-    "Unreleased": "First release:\n- Pair your iPhone with a QR code or a PIN.\n- Send ROMs, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches from the ReminisLink app.\n- Nothing is deleted without a copy: deleted and replaced files go to a trash kept 30 days.\n- Interface in English and French."
+    "Unreleased": "First release:\n- Pair your iPhone with a QR code (no PIN). The connection is encrypted (HTTPS, pinned to the public-key fingerprint in the QR code); every request except the presence check and the pairing itself is signed.\n- Pairings made with earlier test builds are deleted at the first launch: pair again by scanning the QR code (Settings > Pair a New Device).\n- Send ROMs, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches from the ReminisLink app.\n- Nothing is deleted without a copy: deleted and replaced files go to a trash, purged at launch after 30 days of counted age.\n- Interface in English and French."
   }
 }

@@ -8,14 +8,18 @@ no JavaScript, no cookies, no trackers and nothing loaded from another site
 | URL | File |
 |---|---|
 | `/`, `/fr/` | `index.html`, `fr/index.html` (home) |
+| `/install/`, `/fr/install/` | installation guide: pak, app, pairing, save sync, update, uninstall |
 | `/privacy/`, `/fr/privacy/` | privacy policy (same text as [`docs/privacy.md`](../docs/privacy.md)) |
 | `/support/`, `/fr/support/` | support: FAQ, how to report a problem |
 | any other path | `404.html` |
 
 `assets/` holds the stylesheet, the icon (from
 `ios/ReminisLink/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`,
-resized with `sips -z 256 256`) and screenshots of the pak (from
-`docs/screenshots/`). `favicon.svg` is `ios/Design/AppIcon/icon.svg`.
+resized with `sips -z 256 256`) and screenshots of the pak, copied from
+`docs/screenshots/` (`pairing.png`, `settings.png` and `language.png`, as
+`pak-pairing.png`, `pak-settings.png` and `pak-language.png`; `main.png` is
+not used while it still shows the pairing code removed in M13). Copy them
+again after `make screenshots`. `favicon.svg` is `ios/Design/AppIcon/icon.svg`.
 `tools/` and this README are not published.
 
 ## URLs for App Store Connect
