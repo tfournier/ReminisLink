@@ -74,10 +74,66 @@ struct ShareAttachmentsTests {
         #expect(!ShareAttachments.isLinkText("https://example.org/a b"))
         #expect(!ShareAttachments.isLinkText("file:///etc/hosts"))
         #expect(!ShareAttachments.isLinkText(""))
-        #expect(ShareAttachments.isWebLinkOnly([.url, .plainText]))
-        #expect(!ShareAttachments.isWebLinkOnly([.url, .fileURL, .data]))
-        #expect(!ShareAttachments.isWebLinkOnly([.url, .zip]))
+        #expect(ShareAttachments.isLinkText("https://example.org/" + String(repeating: "a", count: 10_000)))
         #expect(ShareAttachments.fileType([.plainText, .zip]) == .zip)
         #expect(ShareAttachments.fileType([.plainText]) == .plainText)
+        #expect(ShareAttachments.fileType([.url]) == nil)
+        #expect(ShareAttachments.mayStartWithLink(Data("\u{FEFF} https://x".utf8)))
+        #expect(!ShareAttachments.mayStartWithLink(Data("cheat0_desc".utf8)))
+    }
+
+    /// One attachment offering a real `.cht` as `public.plain-text` and also
+    /// `public.url`: the file is kept, with its name.
+    @Test func aTextFileThatAlsoOffersAURLIsKept() async throws {
+        let source = try scratch()
+        let out = try scratch()
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: out)
+        }
+        let cht = try file("export.txt", "cheats = 1\ncheat0_desc = \"See https://example.org\"\ncheat0_code = \"1\"\n", in: source)
+        let provider = NSItemProvider()
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.plainText.identifier, fileOptions: [], visibility: .all) { completion in
+            completion(cht, false, nil)
+            return nil
+        }
+        provider.registerDataRepresentation(forTypeIdentifier: UTType.url.identifier, visibility: .all) { completion in
+            completion(Data("https://example.org/Game.cht".utf8), nil)
+            return nil
+        }
+        provider.suggestedName = "Game.cht"
+        let result = await ShareAttachments.copyFiles(from: [provider], into: out)
+        #expect(result.links == 0 && result.failures == 0)
+        let kept = try #require(result.files.first)
+        #expect(kept.lastPathComponent == "Game.cht", "\(kept.lastPathComponent)")
+        #expect(try Data(contentsOf: kept) == Data(contentsOf: cht))
+    }
+
+    /// A link shared only as text is dropped in UTF-16 (with or without a
+    /// byte order mark) and whatever its length.
+    @Test func linksAsTextAreDroppedInAnyEncodingAndLength() async throws {
+        let out = try scratch()
+        defer { try? FileManager.default.removeItem(at: out) }
+        func textProvider(_ data: Data) -> NSItemProvider {
+            let provider = NSItemProvider()
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.plainText.identifier, visibility: .all) { completion in
+                completion(data, nil)
+                return nil
+            }
+            return provider
+        }
+        let link = "https://example.org/hack.bps"
+        let long = "https://example.org/" + String(repeating: "a", count: 10_000) + ".zip\n"
+        let providers = [
+            textProvider(link.data(using: .utf16)!),                 // with a byte order mark
+            textProvider(link.data(using: .utf16LittleEndian)!),
+            textProvider(link.data(using: .utf16BigEndian)!),
+            textProvider(Data(long.utf8)),
+            textProvider(Data("cheat0_desc = \"A\"\ncheat0_code = \"1\"\n".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })),
+        ]
+        let result = await ShareAttachments.copyFiles(from: providers, into: out)
+        #expect(result.links == 4)
+        #expect(result.files.count == 1)
+        #expect(result.failures == 0)
     }
 }
