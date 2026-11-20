@@ -99,6 +99,9 @@ extension ConsoleSession {
             libraryChanged(library.affectedSystems)
         case .job(let job):
             transfers.apply(job)
+        case .paks:
+            // M12: installed or deleted by any client.
+            paks.paksChanged()
         case .shutdown, .unknown:
             break
         }
@@ -130,6 +133,8 @@ extension ConsoleSession {
         guard isCurrent() else { return }
         lastLibraryChange = nil
         libraryRevision += 1
+        // M12: the paks may have changed meanwhile too.
+        paks.paksChanged()
         await loadTrash()
         if isCurrent() { catchUpsDone += 1 }
     }

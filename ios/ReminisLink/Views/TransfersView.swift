@@ -22,7 +22,8 @@ struct TransfersView: View {
             if !queue.jobs.isEmpty {
                 Section("Tasks on the Console") {
                     ForEach(queue.jobs) { item in
-                        JobRow(item: item, queue: queue)
+                        let paks = app.session(for: deviceId).paks
+                        JobRow(item: item, queue: queue, pakInstall: paks.install(forJob: item.id), paks: paks)
                     }
                 }
             }
@@ -39,6 +40,8 @@ struct TransfersView: View {
             }
         }
         .navigationTitle("Transfers")
+        // M12: a pak installation that meets an installed pak asks here too.
+        .pakReplacementConfirmation(app.session(for: deviceId).paks)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -76,20 +79,31 @@ struct UploadRow: View {
         case keepBoth
         case replaceSave
         case replaceState
+        /// M12: a pak archive is installed by a job, which asks before
+        /// replacing a pak of the same name.
+        case installAgain
 
         init(_ target: TransferTarget) {
             switch target {
             case .save: self = .replaceSave
             case .state: self = .replaceState
             case .rom, .staging: self = .keepBoth
+            case .pak: self = .installAgain
             }
         }
 
-        var onConflict: OnConflict { self == .keepBoth ? .rename : .overwrite }
-        var needsConfirmation: Bool { self != .keepBoth }
+        var onConflict: OnConflict {
+            switch self {
+            case .keepBoth: .rename
+            case .installAgain: .fail
+            case .replaceSave, .replaceState: .overwrite
+            }
+        }
+        var needsConfirmation: Bool { self == .replaceSave || self == .replaceState }
 
         var explanation: LocalizedStringKey {
             switch self {
+            case .installAgain: "Sending it again installs the app again; if it is already installed, you are asked before it is replaced."
             case .keepBoth: "If the file is already on the console, sending it again keeps both copies."
             case .replaceSave: "Sending it again replaces the save on the console, even if it was already received and you played since. The current save is kept as a backup copy first."
             case .replaceState: "Sending it again replaces this state on the console, even if it was already received. The current state goes to the trash first."
@@ -239,6 +253,7 @@ struct UploadRow: View {
         }
         return switch target {
         case .save, .state: AppError.gameData(failure).message
+        case .pak: AppError.pak(failure).message
         default: AppError(failure).message
         }
     }
@@ -252,7 +267,14 @@ struct UploadRow: View {
 struct JobRow: View {
     let item: JobItem
     let queue: TransferQueue
+    /// M12: the pak installation this job belongs to, if this app started
+    /// it, and the manager that can replace the installed pak.
+    var pakInstall: PakInstall?
+    var paks: PakManager?
     @State private var error: AppError?
+
+    /// A pak installation (its own job, or a download of a pak).
+    private var isPak: Bool { item.kind == .pakInstall || pakInstall != nil || item.job?.resultPakId != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -280,10 +302,16 @@ struct JobRow: View {
             Text(statusText)
                 .font(.footnote)
                 .foregroundStyle(item.job?.state == .failed ? .red : .secondary)
+                .accessibilityIdentifier("job.status")
             if let message = failureMessage {
                 Text(message)
                     .font(.footnote)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            if let pakInstall, let paks, case .needsReplacement = pakInstall.phase {
+                Button("Replace…") { paks.pendingReplacement = pakInstall }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("job.replacePak")
             }
         }
         .padding(.vertical, 2)
@@ -295,6 +323,12 @@ struct JobRow: View {
     private var failureMessage: String? {
         if let error { return error.message }
         if let server = item.job?.serverError {
+            if isPak {
+                if let name = server.conflictingPakName, pakInstall?.replacing != true {
+                    return String(localized: "\(name) is already installed on the console.")
+                }
+                return AppError.pak(APIError.server(server)).message
+            }
             return item.kind == .patch ? AppError.patch(APIError.server(server)).message : AppError.api(.server(server)).message
         }
         if item.isLost {
@@ -322,6 +356,10 @@ struct JobRow: View {
             return job.progress.done.byteString
         case .succeeded where item.kind == .patch:
             return String(localized: "Patch applied")
+        case .running where item.kind == .pakInstall:
+            return String(localized: "Installing on the console…")
+        case .succeeded where isPak:
+            return String(localized: "Installed")
         case .succeeded:
             return String(localized: "Downloaded")
         case .failed:

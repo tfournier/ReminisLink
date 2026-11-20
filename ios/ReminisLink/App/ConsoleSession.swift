@@ -28,6 +28,8 @@ final class ConsoleSession {
 
     /// Uploads and jobs of this console.
     @ObservationIgnored private(set) lazy var transfers: TransferQueue = makeTransfers()
+    /// The tool and emulator paks of this console (milestone M12).
+    @ObservationIgnored private(set) lazy var paks: PakManager = PakManager(session: self)
     /// Waits for a reconnection after `401 disconnected` (cheat import,
     /// patch upload).
     @ObservationIgnored private var reconnectionWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
@@ -463,9 +465,20 @@ final class ConsoleSession {
                 return try await self.connectedClient()
             }
         )
-        queue.onUploadFinished = { [weak self] _ in self?.contentChanged() }
+        queue.onUploadFinished = { [weak self] item in
+            // M12: a pak archive only starts its installation job.
+            if case .pak = item.target {
+                self?.paks.uploadFinished(item)
+            } else {
+                self?.contentChanged()
+            }
+        }
         queue.onJobFinished = { [weak self] item in
-            if item.job?.state == .succeeded { self?.contentChanged() }
+            guard item.job?.state == .succeeded else { return }
+            // M12: a pak installation changes no game (its manager reloads
+            // the paks).
+            if item.kind == .pakInstall || item.job?.resultPakId != nil { return }
+            self?.contentChanged()
         }
         // M10: the user may have reconnected by the time the pause is
         // recorded.

@@ -21,6 +21,26 @@
         }
       }
     },
+    "%@ goes to the trash of the console: it can be recovered for at least 30 days." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ va dans la corbeille de la console : récupérable pendant au moins 30 jours."
+          }
+        }
+      }
+    },
+    "%@ is already installed on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ est déjà installé sur la console."
+          }
+        }
+      }
+    },
     "%@ left" : {
       "localizations" : {
         "fr" : {
@@ -57,6 +77,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ utilisés sur %2$@"
+          }
+        }
+      }
+    },
+    "%@ was moved to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ a été mis dans la corbeille de la console."
           }
         }
       }
@@ -371,6 +401,26 @@
         }
       }
     },
+    "A zip archive holding one Name.pak folder, or a .pak folder." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une archive zip contenant un dossier Nom.pak, ou un dossier .pak."
+          }
+        }
+      }
+    },
+    "A zip archive installed on the console as a tool or an emulator. A pak of the same name is never replaced without asking." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une archive zip installée sur la console comme outil ou émulateur. Un pak du même nom n’est jamais remplacé sans demander."
+          }
+        }
+      }
+    },
     "About" : {
       "localizations" : {
         "fr" : {
@@ -481,6 +531,16 @@
         }
       }
     },
+    "App (pak)" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App (pak)"
+          }
+        }
+      }
+    },
     "Apply" : {
       "localizations" : {
         "fr" : {
@@ -527,6 +587,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Application du patch… %@"
+          }
+        }
+      }
+    },
+    "Apps" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps"
           }
         }
       }
@@ -587,6 +657,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Copie automatique"
+          }
+        }
+      }
+    },
+    "Automatic lets the console choose from the archive or its pak.json. A pak of the same name is never replaced without asking." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En automatique, la console choisit d’après l’archive ou son pak.json. Un pak du même nom n’est jamais remplacé sans demander."
           }
         }
       }
@@ -687,6 +767,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Parcourir par console"
+          }
+        }
+      }
+    },
+    "Browse the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parcourir la carte SD"
           }
         }
       }
@@ -847,6 +937,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisir un fichier…"
+          }
+        }
+      }
+    },
+    "Choose a zip archive or a folder whose name ends with .pak." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisis une archive zip ou un dossier dont le nom finit par .pak."
           }
         }
       }
@@ -1101,6 +1201,16 @@
         }
       }
     },
+    "Delete %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer %@"
+          }
+        }
+      }
+    },
     "Delete %@?" : {
       "localizations" : {
         "fr" : {
@@ -1117,6 +1227,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Supprimer définitivement ?"
+          }
+        }
+      }
+    },
+    "Delete this app?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Supprimer cette app ?"
           }
         }
       }
@@ -1381,12 +1501,32 @@
         }
       }
     },
+    "Emulator" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Émulateur"
+          }
+        }
+      }
+    },
     "Emulator not installed on the console" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Émulateur non installé sur la console"
+          }
+        }
+      }
+    },
+    "Emulators" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Émulateurs"
           }
         }
       }
@@ -1477,6 +1617,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Échec"
+          }
+        }
+      }
+    },
+    "File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fichier"
           }
         }
       }
@@ -1587,6 +1737,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Libère l’espace tout de suite. Tout le contenu de la corbeille de la console est supprimé définitivement."
+          }
+        }
+      }
+    },
+    "From Files…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Depuis Fichiers…"
+          }
+        }
+      }
+    },
+    "From a Link…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Depuis un lien…"
+          }
+        }
+      }
+    },
+    "From the SD Card…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Depuis la carte SD…"
           }
         }
       }
@@ -1781,12 +1961,72 @@
         }
       }
     },
+    "Install" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer"
+          }
+        }
+      }
+    },
+    "Install As" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer comme"
+          }
+        }
+      }
+    },
     "Install ReminisLink on the console from the Pak Store." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Installe ReminisLink sur la console depuis le Pak Store."
+          }
+        }
+      }
+    },
+    "Install an App" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer une app"
+          }
+        }
+      }
+    },
+    "Installations" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installations"
+          }
+        }
+      }
+    },
+    "Installed" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installé"
+          }
+        }
+      }
+    },
+    "Installing on the console…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installation sur la console…"
           }
         }
       }
@@ -1817,6 +2057,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Garder les deux"
+          }
+        }
+      }
+    },
+    "Keep the Installed One" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder celui installé"
           }
         }
       }
@@ -2181,6 +2431,16 @@
         }
       }
     },
+    "No apps" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune app"
+          }
+        }
+      }
+    },
     "No backup copy yet." : {
       "localizations" : {
         "fr" : {
@@ -2267,6 +2527,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pas d’image"
+          }
+        }
+      }
+    },
+    "No pak in this archive: it must hold one folder named Name.pak, or a launch.sh file at its top." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun pak dans cette archive : elle doit contenir un dossier Nom.pak, ou un fichier launch.sh à sa racine."
           }
         }
       }
@@ -2377,6 +2647,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hors ligne"
+          }
+        }
+      }
+    },
+    "On the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur la carte SD"
           }
         }
       }
@@ -2651,6 +2931,16 @@
         }
       }
     },
+    "Preparing the file…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation du fichier…"
+          }
+        }
+      }
+    },
     "Preparing the patch…" : {
       "localizations" : {
         "fr" : {
@@ -2691,6 +2981,16 @@
         }
       }
     },
+    "Read only. ReminisLink's own data is not shown." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule. Les données de ReminisLink ne sont pas affichées."
+          }
+        }
+      }
+    },
     "Reading what will be moved…" : {
       "localizations" : {
         "fr" : {
@@ -2727,6 +3027,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Copies ReminisLink (%lld)"
+          }
+        }
+      }
+    },
+    "ReminisLink cannot delete or replace itself while it runs on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink ne peut ni se supprimer ni se remplacer pendant qu’il tourne sur la console."
+          }
+        }
+      }
+    },
+    "ReminisLink cannot delete or replace itself while it runs." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink ne peut ni se supprimer ni se remplacer pendant qu’il tourne."
+          }
+        }
+      }
+    },
+    "ReminisLink does not check what a pak does: install only paks you trust. It runs on the console like any other app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink ne vérifie pas ce que fait un pak : n’installe que des paks de confiance. Il s’exécute sur la console comme toute autre app."
           }
         }
       }
@@ -2797,6 +3127,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer"
+          }
+        }
+      }
+    },
+    "Replace %@?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer %@ ?"
           }
         }
       }
@@ -2887,6 +3227,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer le state de la console ?"
+          }
+        }
+      }
+    },
+    "Replace…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer…"
           }
         }
       }
@@ -3181,6 +3531,16 @@
         }
       }
     },
+    "Sending it again installs the app again; if it is already installed, you are asked before it is replaced." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le renvoyer installe l’app à nouveau ; si elle est déjà installée, l’app te demande avant de la remplacer."
+          }
+        }
+      }
+    },
     "Sending it again replaces the save on the console, even if it was already received and you played since. The current save is kept as a backup copy first." : {
       "localizations" : {
         "fr" : {
@@ -3207,6 +3567,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Envoi du patch… %@"
+          }
+        }
+      }
+    },
+    "Sending to the console…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi vers la console…"
           }
         }
       }
@@ -3481,6 +3851,16 @@
         }
       }
     },
+    "Tap to browse the SD card (read only)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touche pour parcourir la carte SD (lecture seule)."
+          }
+        }
+      }
+    },
     "Tasks on the Console" : {
       "localizations" : {
         "fr" : {
@@ -3621,6 +4001,16 @@
         }
       }
     },
+    "The console could not name this pak. Rename the archive Name.pak.zip and try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console n’a pas pu nommer ce pak. Renomme l’archive Nom.pak.zip et réessaie."
+          }
+        }
+      }
+    },
     "The console could not prove its identity. Pairing was cancelled." : {
       "localizations" : {
         "fr" : {
@@ -3667,6 +4057,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console télécharge le patch elle-même, avec sa propre connexion Wi-Fi."
+          }
+        }
+      }
+    },
+    "The console downloads the zip archive itself, on its own Wi-Fi connection." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console télécharge elle-même l’archive zip, avec sa propre connexion Wi-Fi."
           }
         }
       }
@@ -3811,12 +4211,32 @@
         }
       }
     },
+    "The console refused this archive to protect the SD card (a link, or a file outside the pak folder)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a refusé cette archive pour protéger la carte SD (un lien, ou un fichier hors du dossier du pak)."
+          }
+        }
+      }
+    },
     "The console refused this file name." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console a refusé ce nom de fichier."
+          }
+        }
+      }
+    },
+    "The console refused this pak: %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a refusé ce pak : %@"
           }
         }
       }
@@ -3957,6 +4377,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Le state actuel va dans la corbeille de la console, puis la copie verrouillée le remplace."
+          }
+        }
+      }
+    },
+    "The current version goes to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La version actuelle va dans la corbeille de la console."
           }
         }
       }
@@ -4191,6 +4621,16 @@
         }
       }
     },
+    "The tools and emulators installed on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les outils et émulateurs installés sur la console."
+          }
+        }
+      }
+    },
     "The trash is empty" : {
       "localizations" : {
         "fr" : {
@@ -4227,6 +4667,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce QR code vient d’une ancienne version de ReminisLink. Mets à jour ReminisLink sur la console, puis scanne le nouveau QR code."
+          }
+        }
+      }
+    },
+    "This app" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette app"
+          }
+        }
+      }
+    },
+    "This archive holds more than one pak. Install them one at a time." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette archive contient plusieurs paks. Installe-les un par un."
+          }
+        }
+      }
+    },
+    "This archive is encrypted or compressed in a way the console cannot read." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette archive est chiffrée ou compressée d’une façon que la console ne sait pas lire."
+          }
+        }
+      }
+    },
+    "This archive is too large for the console once unpacked." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette archive est trop volumineuse pour la console une fois décompressée."
           }
         }
       }
@@ -4297,6 +4777,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce fichier n’est pas un patch que la console sait appliquer. Choisis un patch IPS, BPS ou UPS."
+          }
+        }
+      }
+    },
+    "This file is not a zip archive the console can read." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier n’est pas une archive zip lisible par la console."
+          }
+        }
+      }
+    },
+    "This folder holds more than 5,000 items: only the first 5,000 are shown." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce dossier contient plus de 5 000 éléments : seuls les 5 000 premiers sont affichés."
+          }
+        }
+      }
+    },
+    "This folder is empty" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce dossier est vide"
           }
         }
       }
@@ -4397,6 +4907,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce nom identifie tous tes appareils Apple connectés au même compte Apple : ils partagent un seul appairage grâce au trousseau iCloud."
+          }
+        }
+      }
+    },
+    "This pak has no launch.sh file: NextUI could not start it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce pak n’a pas de fichier launch.sh : NextUI ne pourrait pas le lancer."
           }
         }
       }
@@ -4517,6 +5037,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Trop de tentatives. Réessaie dans un instant."
+          }
+        }
+      }
+    },
+    "Tool" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outil"
+          }
+        }
+      }
+    },
+    "Tools" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outils"
           }
         }
       }
@@ -4667,6 +5207,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "À jour · saves vérifiées : %lld"
+          }
+        }
+      }
+    },
+    "Update ReminisLink on the console to manage its apps and browse its SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mets à jour ReminisLink sur la console pour gérer ses apps et parcourir sa carte SD."
           }
         }
       }

@@ -49,10 +49,27 @@ struct ConsoleView: View {
                         }
                     }
                 }
-                Section("Storage") {
-                    ForEach(status.storage) { storage in
-                        StorageBar(storage: storage, trashBytes: session.trash?.totalBytes)
+                // M12: the apps of the console, and its SD card (read only).
+                Section {
+                    NavigationLink(value: Route.paks(deviceId)) {
+                        Label("Apps", systemImage: "square.stack.3d.down.right")
                     }
+                    .accessibilityIdentifier("console.paks")
+                } footer: {
+                    Text("The tools and emulators installed on the console.")
+                }
+                Section {
+                    ForEach(status.storage) { storage in
+                        NavigationLink(value: Route.sdFolder(SdFolderRoute(deviceId: deviceId, folderId: nil, title: storage.label))) {
+                            StorageBar(storage: storage, trashBytes: session.trash?.totalBytes)
+                        }
+                        .accessibilityHint(Text("Browse the SD card"))
+                        .accessibilityIdentifier("console.storage")
+                    }
+                } header: {
+                    Text("Storage")
+                } footer: {
+                    Text("Tap to browse the SD card (read only).")
                 }
                 ConnectedClientsSection(clients: status.connectedClients)
             }

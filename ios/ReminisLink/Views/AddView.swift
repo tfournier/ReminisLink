@@ -273,7 +273,7 @@ struct AddView: View {
             return !files.isEmpty && files.allSatisfy { file in
                 switch file.kind {
                 case .rom: file.systemId != nil
-                case .patch, .cheats: true
+                case .patch, .cheats, .pak: true
                 case .save: file.game != nil
                 }
             }
@@ -368,6 +368,14 @@ struct AddView: View {
                 // new tap only sends the others.
                 for file in files {
                     let copy = try await Self.makeLocalCopy(of: file, in: app.transferDirectory, inbox: app.shareInbox)
+                    if file.kind == .pak {
+                        // M12: installed by the console once sent; it asks
+                        // before replacing a pak of the same name.
+                        let picked = PickedFile(url: copy, name: file.name, sizeBytes: file.sizeBytes)
+                        await session.paks.install(.file(picked), name: file.name, kind: .auto)
+                        files.removeAll { $0.id == file.id }
+                        continue
+                    }
                     try session.transfers.enqueue(
                         fileURL: copy, fileName: file.name, target: target(for: file),
                         destination: destination(for: file), ownsFile: true
@@ -378,6 +386,25 @@ struct AddView: View {
                 if useNextLink() { return }
             case .link:
                 guard let url = DownloadURL.validated(linkText) else { return }
+                if linkKind == .pak {
+                    // M12: downloaded and installed by the console.
+                    let install = await session.paks.install(.link(url), name: DownloadURL.displayName(url), kind: .auto)
+                    if case .failed(let error) = install.phase {
+                        session.paks.remove(install)
+                        throw error
+                    }
+                    if let request = context.request {
+                        let sent = request.sharedLink(matching: url.absoluteString)
+                        if let sent { _ = try? app.shareInbox.consumeLink(sent, of: request.id) }
+                        pendingLinks = ShareRequest.linksLeft(pendingLinks, offered: sharedLink, sent: sent)
+                        sharedLink = nil
+                    }
+                    if useNextLink() { return }
+                    if let request = context.request { app.finishShare(request) }
+                    dismiss()
+                    app.showTransfersAfterAdd(deviceId: deviceId)
+                    return
+                }
                 let target: TransferTarget = linkKind == .rom && linkSystemId != nil
                     ? .rom(systemId: linkSystemId ?? "", fileName: nil)
                     : .staging(fileName: nil)
@@ -414,6 +441,7 @@ struct AddView: View {
         case .rom: .rom(systemId: file.systemId ?? "", fileName: file.name)
         case .save: .save(gameId: file.game?.id ?? "")
         case .patch, .cheats: .staging(fileName: file.name)
+        case .pak: .pak(kind: .auto, fileName: file.name)
         }
     }
 
@@ -422,6 +450,7 @@ struct AddView: View {
         case .rom: systems?.first { $0.id == file.systemId }?.label ?? ""
         case .save: file.game?.name ?? ""
         case .patch, .cheats: String(localized: "Staging area of the console")
+        case .pak: String(localized: "Apps")
         }
     }
 
@@ -458,6 +487,7 @@ extension AddKind {
         case .patch: "Patch"
         case .cheats: "Cheats"
         case .save: "Save"
+        case .pak: "App (pak)"
         }
     }
 
@@ -467,13 +497,14 @@ extension AddKind {
         case .patch: "Kept in the staging area of the console for 24 hours, to apply it to a game."
         case .cheats: "Kept in the staging area of the console for 24 hours, to import it into a game."
         case .save: "The current save is first copied (backup copy)."
+        case .pak: "A zip archive installed on the console as a tool or an emulator. A pak of the same name is never replaced without asking."
         }
     }
 }
 
 extension AddKind {
     /// The types a file from Files can be sent as.
-    static let sendable: [AddKind] = [.rom, .save, .patch, .cheats]
+    static let sendable: [AddKind] = [.rom, .save, .patch, .cheats, .pak]
     /// The types of a link downloaded by the console (docs/specs/06 §4.6).
-    static let linkKinds: [AddKind] = [.rom, .patch, .cheats]
+    static let linkKinds: [AddKind] = [.rom, .patch, .cheats, .pak]
 }
