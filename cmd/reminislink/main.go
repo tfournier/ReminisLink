@@ -117,7 +117,7 @@ func runHeadless(opts options) error {
 }
 
 // runHeadlessTo runs the headless mode; the log also goes to logOut. The
-// pairing link, the PIN and the QR code go to stdout only, never to the
+// pairing link and the QR code go to stdout only, never to the
 // log. A fatal error is written to the log file and returned as an
 // app.LoggedError.
 func runHeadlessTo(opts options, logOut io.Writer) error {

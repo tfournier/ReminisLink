@@ -99,8 +99,6 @@ struct AddView: View {
                 case .link: linkSection
                 }
             }
-            // Another device has write access (M10).
-            .readOnlyBanner(deviceId: deviceId)
             .navigationTitle("Add")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -269,7 +267,7 @@ struct AddView: View {
     // MARK: Logic
 
     private var canSend: Bool {
-        guard let deviceId, !isSending, !app.session(for: deviceId).isReadOnly else { return false }
+        guard deviceId != nil, !isSending else { return false }
         switch mode {
         case .files:
             return !files.isEmpty && files.allSatisfy { file in

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"io"
@@ -19,7 +20,7 @@ import (
 type mwFixture struct {
 	t        *testing.T
 	clock    *fakeClock
-	key      []byte
+	key      ed25519.PrivateKey
 	verifier *Verifier
 	handler  http.Handler
 	server   *httptest.Server
@@ -42,8 +43,8 @@ func newMWFixtureWith(t *testing.T, maxBody int64, nonceCapacity int) *mwFixture
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := bytes.Repeat([]byte{0x42}, KeySize)
-	if err := clients.Put(Client{ID: testClientA, Name: "iPhone", Key: key}); err != nil {
+	key := testKey(0x42)
+	if err := clients.Put(Client{ID: testClientA, Name: "iPhone", Platform: PlatformApple, PublicKey: key.Public().(ed25519.PublicKey)}); err != nil {
 		t.Fatal(err)
 	}
 	clock := newFakeClock()
@@ -77,12 +78,17 @@ func newMWFixtureWith(t *testing.T, maxBody int64, nonceCapacity int) *mwFixture
 	return f
 }
 
+// testKey is a fixed Ed25519 key.
+func testKey(b byte) ed25519.PrivateKey {
+	return ed25519.NewKeyFromSeed(bytes.Repeat([]byte{b}, ed25519.SeedSize))
+}
+
 type signOpts struct {
 	method, target string
 	body           []byte
 	unsigned       bool
 	clientID       string
-	key            []byte
+	key            ed25519.PrivateKey
 	time           time.Time
 	timeRaw        string // overrides time when set
 	nonce          string
@@ -269,7 +275,7 @@ func TestMiddlewareDoesNotReadBodyOfForgedRequest(t *testing.T) {
 	f := newMWFixture(t, 0)
 	// Signed with the wrong key, announcing the hash of a small body.
 	req := f.request(signOpts{method: "PUT", target: "/api/v1/games/R2FtZQ/save", body: []byte("small"),
-		key: bytes.Repeat([]byte{1}, KeySize)})
+		key: testKey(1)})
 	body := &countingReader{size: BodyLimitSave}
 	req.Body = io.NopCloser(body)
 	req.ContentLength = BodyLimitSave
@@ -302,7 +308,7 @@ func TestMiddlewareDefaultBodyLimits(t *testing.T) {
 
 func TestMiddlewareRejections(t *testing.T) {
 	f := newMWFixture(t, 1024)
-	otherKey := bytes.Repeat([]byte{0x43}, KeySize)
+	otherKey := testKey(0x43)
 	cases := []struct {
 		name   string
 		build  func() *http.Request
@@ -416,7 +422,7 @@ func TestMiddlewareReplay(t *testing.T) {
 func TestMiddlewareBadSignatureDoesNotBurnNonce(t *testing.T) {
 	f := newMWFixture(t, 0)
 	nonce := EncodeB64U(bytes.Repeat([]byte{6}, 16))
-	forged := f.request(signOpts{method: "GET", target: "/api/v1/device", nonce: nonce, key: bytes.Repeat([]byte{1}, KeySize)})
+	forged := f.request(signOpts{method: "GET", target: "/api/v1/device", nonce: nonce, key: testKey(1)})
 	if status, code := f.do(forged); code != CodeBadSignature {
 		t.Fatalf("forged: %d %s", status, code)
 	}
@@ -434,7 +440,7 @@ func TestMiddlewareCheckOrder(t *testing.T) {
 		t.Fatalf("got %s, want %s", code, CodeUnknownClient)
 	}
 	// Clock skew wins over a bad signature.
-	r = f.request(signOpts{method: "GET", target: "/api/v1/device", key: bytes.Repeat([]byte{1}, KeySize), time: f.clock.Now().Add(time.Hour)})
+	r = f.request(signOpts{method: "GET", target: "/api/v1/device", key: testKey(1), time: f.clock.Now().Add(time.Hour)})
 	if _, code := f.do(r); code != CodeClockSkew {
 		t.Fatalf("got %s, want %s", code, CodeClockSkew)
 	}
@@ -595,7 +601,7 @@ func TestMiddlewareRefusesSemicolons(t *testing.T) {
 
 func TestMiddlewareDuplicateKeyNeedsValidSignature(t *testing.T) {
 	f := newMWFixture(t, 0)
-	req := f.request(signOpts{method: "GET", target: "/api/v1/x?a=1&a=2", key: bytes.Repeat([]byte{1}, KeySize)})
+	req := f.request(signOpts{method: "GET", target: "/api/v1/x?a=1&a=2", key: testKey(1)})
 	if status, code := f.do(req); status != http.StatusUnauthorized || code != CodeBadSignature {
 		t.Errorf("got %d %s, want 401 %s", status, code, CodeBadSignature)
 	}
@@ -672,7 +678,7 @@ func TestMiddlewareGate(t *testing.T) {
 		t.Fatal("the gate saw a replayed request")
 	}
 	// A forged request never reaches the gate.
-	if status, _ := f.do(f.request(signOpts{method: "GET", target: "/api/v1/systems", key: bytes.Repeat([]byte{1}, KeySize)})); status != 401 || calls != before {
+	if status, _ := f.do(f.request(signOpts{method: "GET", target: "/api/v1/systems", key: testKey(1)})); status != 401 || calls != before {
 		t.Fatalf("forged: %d, gate calls %d", status, calls-before)
 	}
 	// Let through.

@@ -33,3 +33,6 @@ func (l Layout) StagingDir() string { return filepath.Join(l.Root, "staging") }
 
 // PatchesDir holds the patches dropped by the user (listed by /sd/files).
 func (l Layout) PatchesDir() string { return filepath.Join(l.Root, "patches") }
+
+// TLSDir holds the certificate of the pak and its private key (M13).
+func (l Layout) TLSDir() string { return filepath.Join(l.Root, "tls") }

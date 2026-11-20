@@ -94,8 +94,7 @@ extension DeviceStatus {
         DeviceStatus(
             deviceId: deviceId, deviceName: deviceName, model: model, platform: platform, os: os,
             osVersion: osVersion, pakVersion: pakVersion, network: network, battery: event.battery,
-            storage: event.storage, uptimeSeconds: uptimeSeconds, connectedClients: event.connectedClients,
-            writer: writer, hasWriterField: hasWriterField
+            storage: event.storage, uptimeSeconds: uptimeSeconds, connectedClients: event.connectedClients
         )
     }
 }

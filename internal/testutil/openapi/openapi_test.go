@@ -200,7 +200,7 @@ func allGames(extra string) string {
 		extra + `}],"truncated":false,"generatedAt":"2026-11-18T17:00:00Z"}`
 }
 
-const helloExample = `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"brick","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","apiVersion":1,"minClientVersion":"1.0.0","serverTime":"2026-11-18T17:00:00Z","pairingOpen":true,"writerHeld":false}`
+const helloExample = `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"brick","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","apiVersion":2,"minClientVersion":"1.0.0","serverTime":"2026-11-18T17:00:00Z","pairingOpen":true}`
 
 func TestValidateNullable(t *testing.T) {
 	s := contract(t)
@@ -208,7 +208,7 @@ func TestValidateNullable(t *testing.T) {
 	if err := s.ValidateResponse("GET", "/hello", 200, h, []byte(helloExample)); err != nil {
 		t.Fatalf("null osVersion: %v", err)
 	}
-	device := `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"desktop","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","network":{"ipv4":"10.0.0.1","ssid":null},"battery":null,"storage":[],"uptimeSeconds":0,"connectedClients":[],"writer":null}`
+	device := `{"deviceId":"7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10","deviceName":"B","model":"desktop","platform":"tg5040","os":"nextui","osVersion":null,"pakVersion":"1","network":{"ipv4":"10.0.0.1","ssid":null},"battery":null,"storage":[],"uptimeSeconds":0,"connectedClients":[]}`
 	if err := s.ValidateResponse("GET", "/device", 200, h, []byte(device)); err != nil {
 		t.Fatalf("null battery: %v", err)
 	}
@@ -223,21 +223,22 @@ func TestValidateNullable(t *testing.T) {
 }
 
 func TestOperationsWithStatus(t *testing.T) {
-	ops := contract(t).OperationsWithStatus("423")
-	if len(ops) == 0 || !sort.StringsAreSorted(ops) {
+	// M13: the write lease and its 423 answer are gone.
+	if ops := contract(t).OperationsWithStatus("423"); len(ops) != 0 {
 		t.Fatalf("operations with 423: %v", ops)
+	}
+	ops := contract(t).OperationsWithStatus("409")
+	if len(ops) == 0 || !sort.StringsAreSorted(ops) {
+		t.Fatalf("operations with 409: %v", ops)
 	}
 	found := false
 	for _, op := range ops {
-		if op == "PUT /writer" {
+		if op == "POST /uploads/{uploadId}/complete" {
 			found = true
-		}
-		if strings.HasPrefix(op, "GET ") {
-			t.Errorf("a read declares 423: %s", op)
 		}
 	}
 	if !found {
-		t.Errorf("PUT /writer missing from %v", ops)
+		t.Errorf("POST /uploads/{uploadId}/complete missing from %v", ops)
 	}
 }
 

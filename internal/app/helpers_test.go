@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/tfournier/ReminisLink/internal/testutil"
+	"github.com/tfournier/ReminisLink/internal/tlsid"
 )
 
 type contextT = context.Context
@@ -16,6 +20,22 @@ type contextT = context.Context
 func slogDefault() *slog.Logger  { return slog.Default() }
 func restoreSlog(l *slog.Logger) { slog.SetDefault(l) }
 func itoa(n int) string          { return strconv.Itoa(n) }
+
+// httpsBase is the address of the running pak (TLS only, M13).
+func httpsBase(a *App) string { return "https://127.0.0.1:" + itoa(a.Port()) }
+
+// pinnedHTTP is an HTTP client that accepts only the pak's certificate.
+func pinnedHTTP(a *App) *http.Client {
+	return &http.Client{Transport: &http.Transport{TLSClientConfig: tlsid.ClientConfig(a.Pin())}}
+}
+
+// pairTLS pairs a new client and returns it, talking HTTPS with the pin.
+func pairTLS(t *testing.T, a *App) *testutil.Client {
+	t.Helper()
+	c := testutil.PairClient(t, a.clients, httpsBase(a))
+	c.HTTP = pinnedHTTP(a)
+	return c
+}
 
 func TestOpenLog(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logs")

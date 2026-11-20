@@ -45,10 +45,7 @@ struct EventsAppTests {
         )
         app.libraryEventDebounce = .milliseconds(50)
         Self.kept.append(app)
-        let clientId = try app.store.installationClientId()
-        let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "This iPhone")
-        let key = try await APIClient(endpoint: pak.endpoint, session: pak.makeSession()).pair(attempt)
-        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: clientId, key: key)
+        try await app.pairDirectly(with: pak, clientName: "This iPhone")
         app.becomeActive()
         return app
     }
@@ -63,15 +60,13 @@ struct EventsAppTests {
         return session
     }
 
-    /// Another paired device, with its own key, holding the write lease
-    /// (M10).
+    /// Another paired device, with its own identity (M13: several clients
+    /// may write, one write at a time).
     func otherClient(_ pak: FakePak) -> APIClient {
-        let id = Pairing.makeClientId()
-        let key = SymmetricKey(size: .bits256)
-        pak.addClient(id: id, key: key, name: "Other iPhone")
-        pak.takeOver(by: id)
+        let identity = ClientIdentity.generate()
+        pak.addClient(identity, name: "Other iPhone")
         return APIClient(
-            endpoint: pak.endpoint, credentials: DeviceCredentials(deviceId: pak.deviceId, clientId: id, key: key),
+            endpoint: pak.endpoint, credentials: DeviceCredentials(deviceId: pak.deviceId, identity: identity, pin: pak.pin),
             session: pak.makeSession()
         )
     }

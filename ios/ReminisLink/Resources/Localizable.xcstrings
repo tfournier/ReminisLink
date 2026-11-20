@@ -1,16 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@ becomes read-only. Its transfers in progress pause." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ passe en lecture seule. Ses transferts en cours se mettent en pause."
-          }
-        }
-      }
-    },
     "%@ free" : {
       "localizations" : {
         "fr" : {
@@ -77,6 +67,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ sera supprimé définitivement de la carte SD. C’est irréversible."
+          }
+        }
+      }
+    },
+    "%@ will be removed from this list. To use it again, scan its QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sera retirée de cette liste. Pour l’utiliser de nouveau, scanne son QR code."
           }
         }
       }
@@ -327,16 +327,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld/%2$lld · Une copie de la save actuelle est faite sur la console."
-          }
-        }
-      }
-    },
-    "6-digit PIN" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PIN à 6 chiffres"
           }
         }
       }
@@ -1571,6 +1561,26 @@
         }
       }
     },
+    "Forget" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oublier"
+          }
+        }
+      }
+    },
+    "Forget this console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oublier cette console ?"
+          }
+        }
+      }
+    },
     "Frees the space now. Everything in the trash of the console is permanently deleted." : {
       "localizations" : {
         "fr" : {
@@ -1791,12 +1801,12 @@
         }
       }
     },
-    "Its key on this iPhone will be replaced. The console must be found on the network under the same identity." : {
+    "Its pairing will be replaced on all your Apple devices. The console must present the same identity as its QR code." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sa clé sur cet iPhone sera remplacée. La console doit être trouvée sur le réseau sous la même identité."
+            "value" : "Son appairage sera remplacé sur tous tes appareils Apple. La console doit présenter la même identité que son QR code."
           }
         }
       }
@@ -1891,16 +1901,6 @@
         }
       }
     },
-    "Less secure than the QR code. Avoid on public Wi-Fi." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Moins sûr que le QR code. À éviter sur un Wi-Fi public."
-          }
-        }
-      }
-    },
     "Library" : {
       "localizations" : {
         "fr" : {
@@ -1967,16 +1967,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Verrouillé : %@."
-          }
-        }
-      }
-    },
-    "Looking for consoles…" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recherche des consoles…"
           }
         }
       }
@@ -2077,6 +2067,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nom"
+          }
+        }
+      }
+    },
+    "Name Shown on the Console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nom affiché sur la console"
           }
         }
       }
@@ -2471,36 +2471,6 @@
         }
       }
     },
-    "PIN" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PIN"
-          }
-        }
-      }
-    },
-    "PIN shown on %@" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PIN affiché sur %@"
-          }
-        }
-      }
-    },
-    "Pair" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Appairer"
-          }
-        }
-      }
-    },
     "Pair Again" : {
       "localizations" : {
         "fr" : {
@@ -2631,32 +2601,22 @@
         }
       }
     },
-    "Paused: %@ has write access. The transfer resumes when this iPhone takes over." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En pause : %@ a la main. Le transfert reprendra quand cet iPhone reprendra la main."
-          }
-        }
-      }
-    },
-    "Paused: another device has write access. The transfer resumes when this iPhone takes over." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En pause : un autre appareil a la main. Le transfert reprendra quand cet iPhone reprendra la main."
-          }
-        }
-      }
-    },
     "Paused: disconnected by the console. The transfer resumes after reconnecting." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "En pause : déconnecté par la console. Le transfert reprendra après la reconnexion."
+          }
+        }
+      }
+    },
+    "Paused: the console disconnected this app. The transfer resumes when you reconnect." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En pause : la console a déconnecté cette app. Le transfert reprend quand tu te reconnectes."
           }
         }
       }
@@ -2727,66 +2687,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ROM sur la console"
-          }
-        }
-      }
-    },
-    "Read-only — %@ has write access" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lecture seule — %@ a la main"
-          }
-        }
-      }
-    },
-    "Read-only — %@ has write access. Nothing was changed. Take over to make changes from this iPhone." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lecture seule — %@ a la main. Rien n’a été modifié. Prends la main pour faire des modifications depuis cet iPhone."
-          }
-        }
-      }
-    },
-    "Read-only — %@ took over" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lecture seule — %@ a pris la main"
-          }
-        }
-      }
-    },
-    "Read-only — another device has write access" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lecture seule — un autre appareil a la main"
-          }
-        }
-      }
-    },
-    "Read-only — another device has write access. Nothing was changed. Take over to make changes from this iPhone." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lecture seule — un autre appareil a la main. Rien n’a été modifié. Prends la main pour faire des modifications depuis cet iPhone."
-          }
-        }
-      }
-    },
-    "Read-only — another device took over" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lecture seule — un autre appareil a pris la main"
           }
         }
       }
@@ -3581,26 +3481,6 @@
         }
       }
     },
-    "Take Over" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prendre la main"
-          }
-        }
-      }
-    },
-    "Take write access?" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prendre la main ?"
-          }
-        }
-      }
-    },
     "Tasks on the Console" : {
       "localizations" : {
         "fr" : {
@@ -3637,16 +3517,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les fichiers .ips, .bps et .ups du dossier Roms et du dossier ReminisLink/patches de la carte SD."
-          }
-        }
-      }
-    },
-    "The PIN is shown below the QR code, on the console." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le PIN est affiché sous le QR code, sur la console."
           }
         }
       }
@@ -3827,6 +3697,56 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console a trop de jeux pour les lister d’un coup : parcours-les par console."
+          }
+        }
+      }
+    },
+    "The console is busy with another change. Nothing was changed. Try again in %lld seconds." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The console is busy with another change. Nothing was changed. Try again in %lld second."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The console is busy with another change. Nothing was changed. Try again in %lld seconds."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La console est occupée par une autre modification. Rien n’a été modifié. Réessaie dans %lld seconde."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La console est occupée par une autre modification. Rien n’a été modifié. Réessaie dans %lld secondes."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "The console is busy with another change. Nothing was changed. Try again in a moment." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console est occupée par une autre modification. Rien n’a été modifié. Réessaie dans un instant."
           }
         }
       }
@@ -4141,16 +4061,6 @@
         }
       }
     },
-    "The other device becomes read-only. Its transfers in progress pause." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’autre appareil passe en lecture seule. Ses transferts en cours se mettent en pause."
-          }
-        }
-      }
-    },
     "The pairing information could not be read or saved on this iPhone." : {
       "localizations" : {
         "fr" : {
@@ -4241,12 +4151,12 @@
         }
       }
     },
-    "The scanner is not available on this device. Scan the QR code with the Camera app, or use the PIN." : {
+    "The scanner is not available on this device. Scan the QR code with the Camera app." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le scanner n’est pas disponible sur cet appareil. Scanne le QR code avec l’app Appareil photo, ou utilise le PIN."
+            "value" : "Le scanner n’est pas disponible sur cet appareil. Scanne le QR code avec l’app Appareil photo."
           }
         }
       }
@@ -4301,6 +4211,26 @@
         }
       }
     },
+    "This QR code comes from a newer version of ReminisLink. Update the app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce QR code vient d’une version plus récente de ReminisLink. Mets à jour l’app."
+          }
+        }
+      }
+    },
+    "This QR code comes from an older version of ReminisLink. Update ReminisLink on the console, then scan the new QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce QR code vient d’une ancienne version de ReminisLink. Mets à jour ReminisLink sur la console, puis scanne le nouveau QR code."
+          }
+        }
+      }
+    },
     "This cheat has other settings from its file. They are kept as they are." : {
       "localizations" : {
         "fr" : {
@@ -4327,6 +4257,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette console ne reconnaît plus ton iPhone."
+          }
+        }
+      }
+    },
+    "This console's identity changed: it is not the console paired with this app, or it was reset. Nothing was sent. Pair it again by scanning its QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité de cette console a changé : ce n’est pas la console appairée avec cette app, ou elle a été réinitialisée. Rien n’a été envoyé. Appaire-la de nouveau en scannant son QR code."
           }
         }
       }
@@ -4451,6 +4391,16 @@
         }
       }
     },
+    "This name identifies all your Apple devices signed in with the same Apple Account: they share one pairing through iCloud Keychain." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce nom identifie tous tes appareils Apple connectés au même compte Apple : ils partagent un seul appairage grâce au trousseau iCloud."
+          }
+        }
+      }
+    },
     "This patch does not match this ROM. Check the ROM version the patch asks for." : {
       "localizations" : {
         "fr" : {
@@ -4497,6 +4447,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette version a changé sur cet iPhone depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
+          }
+        }
+      }
+    },
+    "This version of ReminisLink pairs differently: update ReminisLink on the console, then scan its QR code again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette version de ReminisLink s’appaire autrement : mets à jour ReminisLink sur la console, puis scanne de nouveau son QR code."
           }
         }
       }
@@ -4731,16 +4691,6 @@
         }
       }
     },
-    "Use the PIN Instead" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Utiliser le PIN à la place"
-          }
-        }
-      }
-    },
     "Version" : {
       "localizations" : {
         "fr" : {
@@ -4767,16 +4717,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Versions : %1$lld · dernière le %2$@"
-          }
-        }
-      }
-    },
-    "Viewing and downloading still work. Changes are disabled on this iPhone." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Consulter et télécharger restent possibles. Les modifications sont désactivées sur cet iPhone."
           }
         }
       }

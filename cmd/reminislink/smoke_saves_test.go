@@ -40,8 +40,8 @@ func TestSmokeSaves(t *testing.T) {
 	}
 	p := &pak{t: t, bin: bin, sd: sd, port: freePort(t)}
 	c := testutil.PairClient(t, clients, p.url())
-	c.HTTP = &http.Client{Timeout: 30 * time.Second}
 	p.start()
+	c.HTTP = p.httpClient(30 * time.Second)
 	defer p.stop()
 
 	game := "/api/v1/games/" + library.EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba")

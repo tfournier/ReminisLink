@@ -104,8 +104,9 @@ func patchMismatch(message string, details map[string]any) *Error {
 	return &Error{Status: http.StatusUnprocessableEntity, Code: CodePatchMismatch, Message: message, Details: details}
 }
 
-// StartPatch checks a patch request and queues its job.
-func (s *Service) StartPatch(gameID string, req PatchRequest) (string, *Error, error) {
+// StartPatch checks a patch request and queues its job, guarded by guard
+// (M13: the client that asked for it).
+func (s *Service) StartPatch(gameID string, req PatchRequest, guard JobGuard) (string, *Error, error) {
 	if req.Patch == nil || req.Patch.Type == nil {
 		return "", badRequest("Missing patch.type"), nil
 	}
@@ -150,17 +151,11 @@ func (s *Service) StartPatch(gameID string, req PatchRequest) (string, *Error, e
 	if apiErr := detectPatch(j.patchPath); apiErr != nil {
 		return "", apiErr, nil
 	}
-	id, err := s.jobs.SubmitLabeled(JobPatch, g.Name, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	id, apiErr, err := s.submitGuarded(JobPatch, g.Name, guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runPatch(ctx, j, report)
 	})
-	if errors.Is(err, ErrTooManyJobs) {
-		return "", tooMany("Too many jobs"), nil
-	}
-	if errors.Is(err, ErrJobsClosed) {
-		return "", newError(http.StatusServiceUnavailable, CodeShuttingDown, "Shutting down"), nil
-	}
-	if err != nil {
-		return "", nil, err
+	if apiErr != nil || err != nil {
+		return "", apiErr, err
 	}
 	s.log.Info("patch queued", "job", id, "game", g.Path, "mode", j.mode)
 	return id, nil, nil
@@ -381,14 +376,26 @@ func (s *Service) runPatch(ctx context.Context, j patchJob, report func(int64, *
 		return nil, cancelled()
 	}
 
+	// The write lock first (M13: a job waits for its turn without a time
+	// limit), then the install lock.
+	if err := s.opts.Writes.Acquire(ctx); err != nil {
+		return nil, cancelled()
+	}
+	if !jobAllowed(ctx) {
+		// Its client was revoked while it ran: nothing installed.
+		s.opts.Writes.Release()
+		return nil, errJobRevoked
+	}
 	s.installMu.Lock()
 	if ctx.Err() != nil {
 		// Cancelled while waiting for the lock: nothing installed yet.
 		s.installMu.Unlock()
+		s.opts.Writes.Release()
 		return nil, cancelled()
 	}
 	result, apiErr, keep, err := s.installPatch(j, srcInfo, tmp, info)
 	s.installMu.Unlock()
+	s.opts.Writes.Release()
 	if err != nil {
 		s.log.Error("patch: install", "game", g.Path, "error", err)
 		return nil, internal("Cannot install the patched ROM")

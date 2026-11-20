@@ -2,45 +2,15 @@ package auth
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"errors"
 	"strings"
 	"testing"
 )
 
-// DeriveKey must be HKDF-SHA256 (RFC 5869) with salt = clientNonce ||
-// deviceNonce: compare with a direct Extract/Expand computation.
-func TestDeriveKeyMatchesHKDFSHA256(t *testing.T) {
-	ikm := bytes.Repeat([]byte{0x0b}, 22)
-	cn := bytes.Repeat([]byte{1}, 32)
-	dn := bytes.Repeat([]byte{2}, 32)
-	got, err := DeriveKey(ikm, cn, dn, "d", "c")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// PRK = HMAC(salt, ikm); OKM = HMAC(PRK, info || 0x01) for L = 32.
-	prk := mac(append(append([]byte{}, cn...), dn...), string(ikm))
-	okm := mac(prk, KeyInfo("d", "c")+"\x01")
-	if !bytes.Equal(got, okm) {
-		t.Fatalf("DeriveKey does not match HKDF-SHA256")
-	}
-}
-
-func TestDeriveKeyRejectsBadInputs(t *testing.T) {
-	n := make([]byte, 32)
-	if _, err := DeriveKey(nil, n, n, "d", "c"); err == nil {
-		t.Error("empty ikm accepted")
-	}
-	if _, err := DeriveKey([]byte("x"), n[:31], n, "d", "c"); err == nil {
-		t.Error("short client nonce accepted")
-	}
-	if _, err := DeriveKey([]byte("x"), n, append(n, 0), "d", "c"); err == nil {
-		t.Error("long device nonce accepted")
-	}
-}
-
-func TestVerifyProofRejects(t *testing.T) {
-	ikm := []byte("secret")
-	proof := ClientProof(ikm, "d", "c", "n")
+func TestVerifyPairProofRejects(t *testing.T) {
+	secret := []byte("secret")
+	proof := PairClientProof(secret, "d", "c", "k", "n")
 	cases := map[string]string{
 		"empty":     "",
 		"padding":   proof + "=",
@@ -48,23 +18,39 @@ func TestVerifyProofRejects(t *testing.T) {
 		"truncated": proof[:len(proof)-2],
 		"newline":   proof[:10] + "\n" + proof[10:],
 		"cr":        "\r" + proof,
-		"other":     ClientProof(ikm, "d", "c", "m"),
+		"other":     PairClientProof(secret, "d", "c", "k", "m"),
+		"other-key": PairClientProof(secret, "d", "c", "j", "n"),
 	}
 	for name, p := range cases {
-		if VerifyClientProof(ikm, "d", "c", "n", p) {
+		if VerifyPairClientProof(secret, "d", "c", "k", "n", p) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if VerifyClientProof([]byte("other"), "d", "c", "n", proof) {
-		t.Error("wrong ikm accepted")
+	if VerifyPairClientProof([]byte("other"), "d", "c", "k", "n", proof) {
+		t.Error("wrong secret accepted")
 	}
-	if !VerifyClientProof(ikm, "d", "c", "n", proof) {
+	if !VerifyPairClientProof(secret, "d", "c", "k", "n", proof) {
 		t.Error("good proof rejected")
 	}
-	key := bytes.Repeat([]byte{7}, 32)
-	dp := DeviceProof(key, "d", "c")
-	if VerifyDeviceProof(key, "d", "x", dp) || !VerifyDeviceProof(key, "d", "c", dp) {
+	dp := PairDeviceProof(secret, "d", "c", "k", "n", "m")
+	if VerifyPairDeviceProof(secret, "d", "c", "k", "n", "x", dp) || !VerifyPairDeviceProof(secret, "d", "c", "k", "n", "m", dp) {
 		t.Error("device proof verification is wrong")
+	}
+	// The client and device messages never collide.
+	if PairClientMessage("d", "c", "k", "n") == PairDeviceMessage("d", "c", "k", "n", "") {
+		t.Error("client and device messages collide")
+	}
+}
+
+func TestDecodePublicKey(t *testing.T) {
+	good := EncodeB64U(bytes.Repeat([]byte{1}, 32))
+	if _, err := DecodePublicKey(good); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", good + "A", EncodeB64U(make([]byte, 31)), EncodeB64U(make([]byte, 33)), good[:40] + "+/A"} {
+		if _, err := DecodePublicKey(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
 	}
 }
 
@@ -149,7 +135,8 @@ func TestCanonicalRequestRejectsMalformed(t *testing.T) {
 }
 
 func TestSignatureCoversEveryField(t *testing.T) {
-	key := bytes.Repeat([]byte{9}, 32)
+	priv := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, 32))
+	pub := priv.Public().(ed25519.PublicKey)
 	base := RequestParts{
 		Method: "POST", Path: "/api/v1/uploads", RawQuery: "a=1", Time: "1795539600",
 		Nonce: EncodeB64U(make([]byte, 16)), ContentSHA256: ContentSHA256([]byte("{}")),
@@ -158,7 +145,13 @@ func TestSignatureCoversEveryField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig := Sign(key, canonical)
+	if !strings.HasPrefix(canonical, "RL2-ED25519\n") {
+		t.Fatalf("canonical = %q", canonical)
+	}
+	sig := Sign(priv, canonical)
+	if !Verify(pub, canonical, sig) {
+		t.Fatal("own signature rejected")
+	}
 	variants := []func(*RequestParts){
 		func(p *RequestParts) { p.Method = "PUT" },
 		func(p *RequestParts) { p.Path = "/api/v1/uploadz" },
@@ -174,13 +167,38 @@ func TestSignatureCoversEveryField(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if Verify(key, c, sig) {
+		if Verify(pub, c, sig) {
 			t.Errorf("variant %d: signature still valid", i)
 		}
 	}
-	if Verify(bytes.Repeat([]byte{8}, 32), canonical, sig) {
+	other := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{8}, 32)).Public().(ed25519.PublicKey)
+	if Verify(other, canonical, sig) {
 		t.Error("wrong key accepted")
 	}
+	raw := mustDecode(t, sig)
+	for name, bad := range map[string]string{
+		"empty":     "",
+		"truncated": EncodeB64U(raw[:63]),
+		"long":      EncodeB64U(append(raw, 0)),
+		"padding":   sig + "==",
+		"flipped":   EncodeB64U(append([]byte{raw[0] ^ 1}, raw[1:]...)),
+	} {
+		if Verify(pub, canonical, bad) {
+			t.Errorf("%s signature accepted", name)
+		}
+	}
+	if Verify(pub[:31], canonical, sig) || Verify(nil, canonical, sig) {
+		t.Error("short public key accepted")
+	}
+}
+
+func mustDecode(t *testing.T, s string) []byte {
+	t.Helper()
+	b, err := DecodeB64U(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 func FuzzCanonicalQuery(f *testing.F) {

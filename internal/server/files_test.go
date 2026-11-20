@@ -248,15 +248,15 @@ func TestGameFileLinks(t *testing.T) {
 	f.download(scPath, rom.FileID, http.StatusOK)
 }
 
-// A client without the write lease (M10) lists and downloads.
-func TestGameFilesReadOnlyClient(t *testing.T) {
+// Another client lists and downloads while a write holds the write lock
+// (M13): reads never wait.
+func TestGameFilesDuringAWrite(t *testing.T) {
 	f := newFixture(t)
-	f.rename(f.client, "iPhone A")
 	b := f.pairNamed("iPhone B")
-	f.as(f.client, "PUT", "/api/v1/writer", "/writer", nil, http.StatusOK)
-	if w := f.writerOf(b); w.Writer == nil || w.Writer.You {
-		t.Fatalf("writer %+v", w.Writer)
+	if !f.server.writes().TryAcquire() {
+		t.Fatal("write lock held")
 	}
+	defer f.server.writes().Release()
 	var d library.GameDetail
 	f.as(b, "GET", gamePath(scPath), "/games/{gameId}", nil, http.StatusOK).JSON(t, &d)
 	r := f.as(b, "GET", gamePath(scPath)+"/files/"+fileOf(t, d, "cheats", 0).FileID, gameFilePath, nil, http.StatusOK)
@@ -264,10 +264,9 @@ func TestGameFilesReadOnlyClient(t *testing.T) {
 		t.Errorf("body %q", r.Body)
 	}
 	f.as(b, "GET", "/api/v1/games", "/games", nil, http.StatusOK)
-	// Neither route takes the lease.
 	for _, rt := range f.server.routeTable {
-		if (rt.pattern == "GET "+Prefix+"/games" || rt.pattern == "GET "+Prefix+gameFilePath) && rt.opts.TakesLease {
-			t.Errorf("%s takes the lease", rt.pattern)
+		if (rt.pattern == "GET "+Prefix+"/games" || rt.pattern == "GET "+Prefix+gameFilePath) && rt.write != writeNone {
+			t.Errorf("%s takes the write lock", rt.pattern)
 		}
 	}
 }

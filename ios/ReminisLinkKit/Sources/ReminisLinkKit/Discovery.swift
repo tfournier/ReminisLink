@@ -113,17 +113,6 @@ public enum DiscoveryLogic {
         devices.first { $0.id == id }
     }
 
-    /// Devices that are not paired yet (for the PIN).
-    public static func unpaired(_ devices: [DiscoveredDevice], pairedIds: Set<String>) -> [DiscoveredDevice] {
-        devices.filter { !pairedIds.contains($0.id) }
-    }
-
-    /// The consoles offered for the PIN: the unpaired ones, plus the paired
-    /// console being paired again (`repairing`), if it is seen.
-    public static func pinCandidates(_ devices: [DiscoveredDevice], pairedIds: Set<String>, repairing: String?) -> [DiscoveredDevice] {
-        devices.filter { !pairedIds.contains($0.id) || $0.id == repairing }
-    }
-
     /// Delay before restarting a failed browser: 1 s, 2 s, 4 s... at most 30 s.
     public static func restartDelay(afterFailures failures: Int) -> Duration {
         .seconds(min(30, 1 << min(failures, 5)))
@@ -307,11 +296,15 @@ public enum DeviceLookupError: Error, Equatable, Sendable {
 /// §3.1). A cancelled lookup throws `CancellationError`.
 @MainActor
 public enum DeviceLocator {
+    /// `fallback` (M13, pairing only): the address of the QR code, used
+    /// when Bonjour does not find or resolve the console in time. The
+    /// certificate pin of the link authenticates whatever answers there.
     public static func locate(
         timeout: Duration,
         find: (Duration) async -> DiscoveredDevice?,
         resolve: (DiscoveredDevice) async throws -> Endpoint,
-        isLocalNetworkDenied: () -> Bool
+        isLocalNetworkDenied: () -> Bool,
+        fallback: Endpoint? = nil
     ) async throws -> Endpoint {
         let device = await find(timeout)
         try Task.checkCancellation()
@@ -325,7 +318,9 @@ public enum DeviceLocator {
             }
         }
         try Task.checkCancellation()
-        throw isLocalNetworkDenied() ? DeviceLookupError.localNetworkDenied : DeviceLookupError.notFound
+        if isLocalNetworkDenied() { throw DeviceLookupError.localNetworkDenied }
+        if let fallback { return fallback }
+        throw DeviceLookupError.notFound
     }
 }
 

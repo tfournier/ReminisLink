@@ -223,23 +223,23 @@ var changeExempt = map[string]bool{
 	"POST " + Prefix + "/games/{gameId}/patch": true, // the job publishes on success
 }
 
-// Every lease-guarded route publishes a library event when it succeeds,
-// besides the exempt ones; no other route does.
+// Every write route (M13: every former M10 write route) publishes a library
+// event when it succeeds, besides the exempt ones; no other route does.
 func TestWriteRoutesPublishLibraryEvents(t *testing.T) {
 	f := newFixture(t)
 	n := 0
 	for _, r := range f.server.routeTable {
-		want := r.opts.TakesLease && !changeExempt[r.pattern]
+		want := r.write != writeNone && !changeExempt[r.pattern]
 		if r.library != want {
 			t.Errorf("%s: library event %v, want %v", r.pattern, r.library, want)
 		}
-		if changeExempt[r.pattern] && !r.opts.TakesLease {
+		if changeExempt[r.pattern] && r.write == writeNone {
 			t.Errorf("%s: exempt but not a write route", r.pattern)
 		}
 		if r.library {
 			n++
 		}
-		if r.pattern == eventsPattern && (r.opts.TakesLease || r.opts.WhileDisconnected) {
+		if r.pattern == eventsPattern && (r.write != writeNone || r.opts.WhileDisconnected) {
 			t.Errorf("%s: options %+v", r.pattern, r.opts)
 		}
 	}
@@ -460,17 +460,17 @@ func TestEventsLimits(t *testing.T) {
 	f.openEvents(f.client)
 }
 
-// A read-only client (another one holds the write lease, M10) opens the
-// stream and gets the changes of the writer.
-func TestEventsReadOnlyClient(t *testing.T) {
+// Another client opens the stream and gets the changes of the first one;
+// opening it never waits for a write in progress (M13).
+func TestEventsOtherClient(t *testing.T) {
 	f := newFixture(t)
 	f.fastEvents(events.Options{})
-	f.do("PUT", "/api/v1/writer", "/writer", nil, http.StatusOK)
 	reader := f.pairNamed("iPad")
-	s := f.openEvents(reader)
-	if w, ok := f.server.WriterName(); !ok || w != "Test iPhone" {
-		t.Fatalf("writer %q %v", w, ok)
+	if !f.server.writes().TryAcquire() {
+		t.Fatal("write lock held")
 	}
+	s := f.openEvents(reader)
+	f.server.writes().Release()
 	f.do("DELETE", "/api/v1/games/"+id(gbaFolder+"/Starlight Courier.gba"), "/games/{gameId}", nil, http.StatusOK)
 	if ev := f.nextEvent(s); ev.Type != "library" {
 		t.Fatalf("%+v", ev)

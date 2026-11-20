@@ -39,7 +39,7 @@ func TestClientSignsLikeTheApp(t *testing.T) {
 	if r := c.Do(t, "POST", "/api/v1/a?b=%20c", []byte(`{}`)); r.Status != 200 || r.ErrorCode() != "x" {
 		t.Fatalf("signed request: %d %s", r.Status, r.Body)
 	}
-	c.Key = make([]byte, auth.KeySize)
+	c.Key = NewKey(t)
 	if r := c.Do(t, "GET", "/api/v1/a", nil); r.Status != 401 || r.ErrorCode() != auth.CodeBadSignature {
 		t.Fatalf("wrong key: %d %s", r.Status, r.Body)
 	}

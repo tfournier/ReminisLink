@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of milestone M11 (flat library and file downloads) against the
-# real pak, with curl and openssl only (same signing code as
-# scripts/smoke-writer.sh). One client pairs, then:
+# real pak, with curl and openssl only (RL2 and TLS pinning of M13, see
+# scripts/lib/rl2.sh). One client pairs, then:
 #   - GET /games: its number of games equals the sum of gameCount of
 #     GET /systems, truncated is false, the games of a subfolder have
 #     folderId and folderPath (Hacks, Hacks/Deeper of GBA), those of the
@@ -23,8 +23,9 @@
 #       (a copy of testdata/sdcard) whose standard output goes to <file>.
 #
 # The pairing link (a single-use secret) is read from the pak output.
-# Secrets and keys only go through pipes and bash variables, never through
-# process arguments, and are never printed. Exits 1 if any check fails.
+# Secrets only go through pipes and bash variables, never through process
+# arguments, the private key stays in a private temporary file, and
+# nothing secret is printed. Exits 1 if any check fails. Needs OpenSSL 3.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -90,127 +91,26 @@ next_link() {
 	die "no new pairing link in the pak output (is pairing open? run the pak with --pairing-open)"
 }
 
-# --- encodings (as in scripts/smoke.sh) -------------------------------------
+# --- RL2 client (scripts/lib/rl2.sh) ---------------------------------------
 
-hex_to_bin() {
-	local hex=$1 out="" i
-	for ((i = 0; i < ${#hex}; i += 2)); do out+="\\x${hex:i:2}"; done
-	printf "$out"
-}
-bin_to_hex() { od -An -v -tx1 | tr -d ' \n'; }
-hex_to_b64u() { hex_to_bin "$1" | openssl base64 -A | tr '+/' '-_' | tr -d '='; }
-b64u_to_hex() {
-	local s
-	s=$(printf '%s' "$1" | tr -- '-_' '+/')
-	while [ $((${#s} % 4)) -ne 0 ]; do s="$s="; done
-	printf '%s' "$s" | openssl base64 -d -A | bin_to_hex
-}
-sha256_hex() { openssl dgst -sha256 -binary | bin_to_hex; }
-# hmac_hex KEY_HEX < message: HMAC-SHA256 (RFC 2104) in hex, the key never
-# in the arguments of a process.
-hmac_hex() {
-	local key=$1 ipad="" opad="" i b x
-	if [ ${#key} -gt 128 ]; then key=$(hex_to_bin "$key" | sha256_hex); fi
-	while [ ${#key} -lt 128 ]; do key="${key}00"; done
-	for ((i = 0; i < 128; i += 2)); do
-		b=$((16#${key:i:2}))
-		printf -v x '%02x' $((b ^ 0x36)); ipad+=$x
-		printf -v x '%02x' $((b ^ 0x5c)); opad+=$x
-	done
-	local inner
-	inner=$({ hex_to_bin "$ipad"; cat; } | sha256_hex)
-	{ hex_to_bin "$opad"; hex_to_bin "$inner"; } | sha256_hex
-}
-[ "$(printf 'what do ya want for nothing?' | hmac_hex 4a656665)" = \
-	5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843 ] || die "HMAC self-test failed"
-json_field() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
-json_bool() { printf '%s' "$2" | sed -En "s/.*\"$1\":(true|false).*/\1/p"; }
-# writer_of JSON: the "writer" object (or "null") of /writer or /device.
-writer_of() { printf '%s' "$1" | sed -En 's/.*"writer":(null|\{[^}]*\}).*/\1/p'; }
-uuid() {
-	if [ -r /proc/sys/kernel/random/uuid ]; then cat /proc/sys/kernel/random/uuid; else uuidgen; fi | tr 'A-F' 'a-f'
-}
+# shellcheck source=lib/rl2.sh
+. scripts/lib/rl2.sh
+RL2_DIR=$workdir/keys
+mkdir -m 700 "$RL2_DIR"
+rl2_selftest
 
-# --- pairing ---------------------------------------------------------------
-
-param() { printf '%s' "$link" | sed -n "s/.*[?&]$1=\([^&]*\).*/\1/p"; }
-
-# pair X NAME: pairs client X (A or B) with the next pairing link; sets
-# X_id, X_key and X_name.
+# pair X NAME: pairs client X with the next pairing link.
 pair() {
-	local who=$1 name=$2 device_id secret_b64u host port secret_hex client_id cn_hex cn proof body response dn dp prk key expected
 	next_link
-	device_id=$(param id)
-	secret_b64u=$(param s)
-	host=$(param h)
-	port=$(param p)
-	[ -n "$device_id" ] && [ -n "$secret_b64u" ] && [ -n "$host" ] && [ -n "$port" ] || die "not a pairing link (masked)"
-	base=http://$host:$port
+	rl2_use_link "$link"
+	base=$RL2_BASE
 	api=$base/api/v1
-	secret_hex=$(b64u_to_hex "$secret_b64u")
-	client_id=$(uuid)
-	cn_hex=$(openssl rand -hex 32)
-	cn=$(hex_to_b64u "$cn_hex")
-	proof=$(printf '%s' "RL1-PAIR-CLIENT|$device_id|$client_id|$cn" | hmac_hex "$secret_hex")
-	body=$(printf '{"method":"qr","clientId":"%s","clientName":"%s","clientNonce":"%s","proof":"%s"}' \
-		"$client_id" "$name" "$cn" "$(hex_to_b64u "$proof")")
-	response=$(curl -sS --fail-with-body -X POST -H 'Content-Type: application/json' --data-binary @- "$api/pair" <<<"$body") ||
-		die "POST /pair ($who): $response"
-	dn=$(json_field deviceNonce "$response")
-	dp=$(json_field proof "$response")
-	prk=$(hex_to_bin "$secret_hex" | hmac_hex "$cn_hex$(b64u_to_hex "$dn")")
-	key=$({ printf '%s' "RL1-KEY|$device_id|$client_id"; printf '\001'; } | hmac_hex "$prk")
-	expected=$(printf '%s' "RL1-PAIR-DEVICE|$device_id|$client_id" | hmac_hex "$key")
-	if [ "$(hex_to_b64u "$expected")" = "$dp" ]; then
-		pass "client $who \"$name\" paired, device proof verified"
-	else
-		die "device proof of the pairing of $who does not match"
-	fi
-	printf -v "${who}_id" '%s' "$client_id"
-	printf -v "${who}_key" '%s' "$key"
-	printf -v "${who}_name" '%s' "$name"
+	rl2_pair "$1" "$2" || die "POST /pair ($1): $RL2_ERROR"
+	pass "client $1 \"$2\" paired, device proof verified"
 }
-
-# --- signed requests -------------------------------------------------------
-
-# req X METHOD PATH [JSON BODY]: signed request of client X; sets $status
-# and $body.
-req() {
-	local who=$1 method=$2 path=$3 data=${4-} id key time nonce content canonical signature response
-	local -a opts=()
-	id=${who}_id key=${who}_key
-	id=${!id} key=${!key}
-	time=$(date +%s)
-	nonce=$(hex_to_b64u "$(openssl rand -hex 16)")
-	content=$(printf '%s' "$data" | sha256_hex)
-	canonical=$(printf 'RL1-HMAC-SHA256\n%s\n%s\n\n%s\n%s\n%s' "$method" "$path" "$time" "$nonce" "$content")
-	signature=$(printf '%s' "$canonical" | hmac_hex "$key")
-	if [ -n "$data" ]; then opts=(-H 'Content-Type: application/json' --data-binary @-); fi
-	response=$(printf '%s' "$data" | curl -sS -X "$method" -w '\n%{http_code}' "${opts[@]}" \
-		-H "X-RL-Client: $id" -H "X-RL-Time: $time" -H "X-RL-Nonce: $nonce" \
-		-H "X-RL-Content-SHA256: $content" -H "X-RL-Signature: $(hex_to_b64u "$signature")" \
-		"$base$path")
-	status=${response##*$'\n'}
-	body=${response%$'\n'*}
-	[ "$body" != "$status" ] || body=""
-}
-
-# fetch X PATH FILE: signed GET of client X, the body written to FILE; sets
-# $status.
-fetch() {
-	local who=$1 path=$2 out=$3 id key time nonce content canonical signature
-	id=${who}_id key=${who}_key
-	id=${!id} key=${!key}
-	time=$(date +%s)
-	nonce=$(hex_to_b64u "$(openssl rand -hex 16)")
-	content=$(printf '' | sha256_hex)
-	canonical=$(printf 'RL1-HMAC-SHA256\n%s\n%s\n\n%s\n%s\n%s' GET "$path" "$time" "$nonce" "$content")
-	signature=$(printf '%s' "$canonical" | hmac_hex "$key")
-	status=$(curl -sS -o "$out" -w '%{http_code}' \
-		-H "X-RL-Client: $id" -H "X-RL-Time: $time" -H "X-RL-Nonce: $nonce" \
-		-H "X-RL-Content-SHA256: $content" -H "X-RL-Signature: $(hex_to_b64u "$signature")" \
-		"$base$path")
-}
+req() { rl2_req "$@"; }
+# fetch X PATH FILE: signed GET of client X, the body written to FILE.
+fetch() { rl2_req "$1" GET "$2" "" "$3"; }
 
 file_sha() { sha256_hex <"$1"; }
 file_size() { wc -c <"$1" | tr -d ' '; }
@@ -219,9 +119,9 @@ file_size() { wc -c <"$1" | tr -d ' '; }
 
 next_link
 last_link="" # the first link is used by the pairing
-api=$(printf '%s' "$link" | sed -n 's/.*[?&]h=\([^&]*\).*[?&]p=\([^&]*\).*/http:\/\/\1:\2\/api\/v1/p')
-[ -n "$api" ] || die "no host/port in the pairing link"
-for ((i = 0; i < 50; i++)); do curl -s -o /dev/null "$api/hello" && break; sleep 0.1; done
+rl2_use_link "$link"
+api=$RL2_BASE/api/v1
+for ((i = 0; i < 50; i++)); do pcurl -s -o /dev/null "$api/hello" && break; sleep 0.1; done
 
 pair A "smoke-library"
 

@@ -533,7 +533,11 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 // cut) sees 404 on GET /uploads/{id} afterwards: the outcome is uncertain
 // and the app checks the destination (e.g. the game list) instead of
 // reporting a failure.
-func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
+//
+// The final step (resolve and install) holds the write lock (M13): it
+// waits for the write in progress, at most its wait, else 429 Device busy
+// and the upload stays.
+func (s *Service) CompleteUpload(ctx context.Context, id string) (map[string]any, *Error, error) {
 	u, apiErr := s.lookup(id)
 	if apiErr != nil {
 		return nil, apiErr, nil
@@ -544,23 +548,27 @@ func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 	if apiErr := s.acquire(u); apiErr != nil {
 		return nil, apiErr, nil
 	}
-	defer u.mu.Unlock()
-	if u.offset != u.meta.SizeBytes {
-		return nil, offsetConflict("Upload is not complete", u.offset), nil
+	partPath, apiErr, err := s.checkCompleteLocked(u)
+	u.mu.Unlock()
+	if apiErr != nil || err != nil {
+		return nil, apiErr, err
 	}
-	if apiErr := s.ensureHash(u); apiErr != nil {
+	// Wait for the write lock WITHOUT holding the upload: a cancel (or a
+	// status request) arriving meanwhile does not wait for the write in
+	// progress (M13). The upload is checked again once the lock is held.
+	if apiErr := s.acquireWrites(ctx); apiErr != nil {
 		return nil, apiErr, nil
 	}
-	if got := hex.EncodeToString(u.hash.Sum(nil)); got != u.meta.SHA256 {
-		s.dropLocked(u, "checksum mismatch")
-		return nil, newError(http.StatusConflict, CodeChecksumMismatch, "SHA-256 mismatch"), nil
+	defer s.opts.Writes.Release()
+	if apiErr := s.acquire(u); apiErr != nil {
+		return nil, apiErr, nil // cancelled or expired while waiting
 	}
-	partPath := s.uploadPath(id, partExt)
-	if err := syncFile(partPath); err != nil {
-		return nil, nil, err
+	defer u.mu.Unlock()
+	if partPath, apiErr, err = s.checkCompleteLocked(u); apiErr != nil || err != nil {
+		return nil, apiErr, err
 	}
-	// Resolve and install under the install lock: a DELETE /games of the
-	// target game cannot slip in between (no orphan save recreated).
+	// Resolve and install under the install lock too: a DELETE /games of
+	// the target game cannot slip in between (no orphan save recreated).
 	s.installMu.Lock()
 	d, apiErr, err := s.resolve(u.meta.Target, true)
 	var result map[string]any
@@ -576,6 +584,27 @@ func (s *Service) CompleteUpload(id string) (map[string]any, *Error, error) {
 	}
 	s.finishLocked(u)
 	return result, nil, nil
+}
+
+// checkCompleteLocked checks that an upload is whole and has the
+// announced SHA-256 (a mismatch deletes it), and syncs its file. Called
+// with u.mu held; it returns the path of the file.
+func (s *Service) checkCompleteLocked(u *upload) (string, *Error, error) {
+	if u.offset != u.meta.SizeBytes {
+		return "", offsetConflict("Upload is not complete", u.offset), nil
+	}
+	if apiErr := s.ensureHash(u); apiErr != nil {
+		return "", apiErr, nil
+	}
+	if got := hex.EncodeToString(u.hash.Sum(nil)); got != u.meta.SHA256 {
+		s.dropLocked(u, "checksum mismatch")
+		return "", newError(http.StatusConflict, CodeChecksumMismatch, "SHA-256 mismatch"), nil
+	}
+	partPath := s.uploadPath(u.meta.ID, partExt)
+	if err := syncFile(partPath); err != nil {
+		return "", nil, err
+	}
+	return partPath, nil, nil
 }
 
 // finishLocked forgets a completed upload (its .part file was renamed).

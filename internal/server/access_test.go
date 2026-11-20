@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/ed25519"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -28,7 +29,7 @@ func newAccessFixture(t *testing.T) *accessFixture {
 		t.Fatal(err)
 	}
 	for _, id := range []string{idA, idB} {
-		if err := clients.Put(auth.Client{ID: id, Name: id, Key: make([]byte, auth.KeySize)}); err != nil {
+		if err := clients.Put(auth.Client{ID: id, Name: id, Platform: auth.PlatformApple, PublicKey: testKey(t)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -36,17 +37,24 @@ func newAccessFixture(t *testing.T) *accessFixture {
 	return &accessFixture{clock: clk, clients: clients, acc: newAccess(clk.Now, clients, newPresence())}
 }
 
-var (
-	writeOpts = auth.RouteOptions{TakesLease: true}
-	readOpts  = auth.RouteOptions{}
-)
+var readOpts = auth.RouteOptions{}
+
+// testKey is a random Ed25519 public key.
+func testKey(t *testing.T) ed25519.PublicKey {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pub
+}
 
 func (f *accessFixture) admit(t *testing.T, id string, opts auth.RouteOptions) admission {
 	t.Helper()
 	c, _ := f.acc.Lookup(id)
-	ad, other, rej := f.acc.admit(c, opts)
-	if rej != nil || other != nil {
-		t.Fatalf("admit %s: %+v %+v", id, other, rej)
+	ad, rej := f.acc.admit(c, opts)
+	if rej != nil {
+		t.Fatalf("admit %s: %+v", id, rej)
 	}
 	return ad
 }
@@ -55,111 +63,8 @@ func (f *accessFixture) admit(t *testing.T, id string, opts auth.RouteOptions) a
 func (f *accessFixture) reconnect(t *testing.T, id string) {
 	t.Helper()
 	opts := auth.RouteOptions{WhileDisconnected: true}
-	if _, rej, _ := f.acc.accept(f.admit(t, id, opts), opts); rej != nil {
+	if rej, _ := f.acc.accept(f.admit(t, id, opts), opts); rej != nil {
 		t.Fatal(rej)
-	}
-}
-
-func (f *accessFixture) holder() string {
-	h, _ := f.acc.current()
-	return h.id
-}
-
-// The holder is confirmed when b is refused by the arbitration of admit.
-func (f *accessFixture) blocksB(t *testing.T) bool {
-	t.Helper()
-	c, _ := f.acc.Lookup(idB)
-	_, other, _ := f.acc.admit(c, writeOpts)
-	return other != nil
-}
-
-// Finding 1: two overlapping writes of the same client; the first one's
-// reservation is rolled back while the second is accepted, in both orders.
-// The accepted write always holds a confirmed lease.
-func TestAccessOverlappingWrites(t *testing.T) {
-	for _, rollbackFirst := range []bool{false, true} {
-		f := newAccessFixture(t)
-		w1 := f.admit(t, idA, writeOpts) // reserves
-		w2 := f.admit(t, idA, writeOpts) // already held by a: no ticket
-		if w1.ticket == 0 || w2.ticket != 0 {
-			t.Fatalf("tickets %d %d", w1.ticket, w2.ticket)
-		}
-		if rollbackFirst {
-			f.acc.rollback(w1)
-		}
-		if other, rej, _ := f.acc.accept(w2, writeOpts); other != nil || rej != nil {
-			t.Fatalf("accept w2: %+v %+v", other, rej)
-		}
-		f.acc.rollback(w1)
-		if f.holder() != idA || !f.acc.confirmed || !f.blocksB(t) {
-			t.Fatalf("rollbackFirst=%v: the accepted write lost its lease (holder %q)", rollbackFirst, f.holder())
-		}
-	}
-}
-
-// Finding 2: a read of the same client never confirms a reservation.
-func TestAccessReadDoesNotConfirmAReservation(t *testing.T) {
-	f := newAccessFixture(t)
-	w := f.admit(t, idA, writeOpts)
-	r := f.admit(t, idA, readOpts)
-	if other, rej, _ := f.acc.accept(r, readOpts); other != nil || rej != nil {
-		t.Fatal(other, rej)
-	}
-	f.acc.rollback(w)
-	if f.holder() != "" {
-		t.Fatal("a read made the reservation permanent")
-	}
-
-	// A read renews a confirmed lease only.
-	f.acc.accept(f.admit(t, idA, writeOpts), writeOpts)
-	f.clock.Advance(50 * time.Second)
-	f.acc.accept(f.admit(t, idA, readOpts), readOpts)
-	f.clock.Advance(59 * time.Second)
-	if f.holder() != idA {
-		t.Fatal("the read did not renew the confirmed lease")
-	}
-	// A read of b renews nothing.
-	f.acc.accept(f.admit(t, idB, readOpts), readOpts)
-	f.clock.Advance(time.Second)
-	if f.holder() != "" {
-		t.Fatal("expiry")
-	}
-}
-
-// Rollback never frees a lease confirmed by PUT /writer, forced away, or
-// reserved again later.
-func TestAccessRollbackTokens(t *testing.T) {
-	f := newAccessFixture(t)
-	w := f.admit(t, idA, writeOpts)
-	if _, _, ok, _ := f.acc.take(f.admit(t, idA, readOpts), false); !ok {
-		t.Fatal("take")
-	}
-	f.acc.rollback(w)
-	if f.holder() != idA {
-		t.Fatal("rollback freed a lease confirmed by PUT /writer")
-	}
-
-	f.acc.release(idA)
-	w = f.admit(t, idA, writeOpts)
-	if _, prev, ok, _ := f.acc.take(f.admit(t, idB, readOpts), true); !ok || prev != idA {
-		t.Fatal("force")
-	}
-	f.acc.rollback(w)
-	if f.holder() != idB {
-		t.Fatal("rollback stole back a forced lease")
-	}
-	// The write admitted before the take-over is refused when accepted.
-	if other, _, _ := f.acc.accept(w, writeOpts); other == nil || other.id != idB {
-		t.Fatalf("accept after take-over: %+v", other)
-	}
-
-	f.acc.release(idB)
-	old := f.admit(t, idA, writeOpts)
-	f.acc.rollback(old)
-	f.admit(t, idA, writeOpts)
-	f.acc.rollback(old)
-	if f.holder() != idA {
-		t.Fatal("a stale ticket freed a newer reservation")
 	}
 }
 
@@ -175,39 +80,27 @@ func TestAccessGeneration(t *testing.T) {
 		{"disconnect", func(t *testing.T, f *accessFixture) { f.acc.disconnect(idA) }, CodeDisconnected},
 		{"forget then pair again", func(t *testing.T, f *accessFixture) {
 			f.acc.forget(idA)
-			f.acc.pair(auth.Client{ID: idA, Name: "new", Key: make([]byte, auth.KeySize)})
+			f.acc.pair(auth.Client{ID: idA, Name: "new", Platform: auth.PlatformApple, PublicKey: testKey(t)})
 		}, auth.CodeUnknownClient},
 		{"pair again (new key)", func(t *testing.T, f *accessFixture) {
-			f.acc.pair(auth.Client{ID: idA, Name: "new", Key: make([]byte, auth.KeySize)})
+			f.acc.pair(auth.Client{ID: idA, Name: "new", Platform: auth.PlatformApple, PublicKey: testKey(t)})
 		}, auth.CodeUnknownClient},
 		{"forget all", func(t *testing.T, f *accessFixture) { f.acc.forgetAll() }, auth.CodeUnknownClient},
 	}
 	for _, tc := range cases {
-		for _, opts := range []auth.RouteOptions{writeOpts, readOpts} {
-			f := newAccessFixture(t)
-			ad := f.admit(t, idA, opts)
-			tc.revoke(t, f)
-			other, rej, _ := f.acc.accept(ad, opts)
-			if other != nil || rej == nil || rej.Code != tc.code {
-				t.Fatalf("%s (write=%v): %+v %+v", tc.name, opts.TakesLease, other, rej)
-			}
-			if f.holder() != "" {
-				t.Fatalf("%s: lease %q", tc.name, f.holder())
-			}
-			// PUT /writer admitted before the revocation is refused too.
-			f2 := newAccessFixture(t)
-			ad = f2.admit(t, idA, readOpts)
-			tc.revoke(t, f2)
-			if _, _, ok, rej := f2.acc.take(ad, true); ok || rej == nil || rej.Code != tc.code {
-				t.Fatalf("%s: take after revocation: %v %+v", tc.name, ok, rej)
-			}
+		f := newAccessFixture(t)
+		ad := f.admit(t, idA, readOpts)
+		tc.revoke(t, f)
+		rej, _ := f.acc.accept(ad, readOpts)
+		if rej == nil || rej.Code != tc.code {
+			t.Fatalf("%s: %+v", tc.name, rej)
 		}
 	}
 	// A request admitted after the reconnection is accepted.
 	f := newAccessFixture(t)
 	f.acc.disconnect(idA)
 	f.reconnect(t, idA)
-	if _, rej, _ := f.acc.accept(f.admit(t, idA, writeOpts), writeOpts); rej != nil {
+	if rej, _ := f.acc.accept(f.admit(t, idA, readOpts), readOpts); rej != nil {
 		t.Fatal(rej)
 	}
 }
@@ -229,9 +122,7 @@ func TestAccessPresence(t *testing.T) {
 	}
 }
 
-// TestAccessRace hammers every operation concurrently (run with -race):
-// at the end, at most one client holds the lease and a revoked client
-// never does.
+// TestAccessRace hammers every operation concurrently (run with -race).
 func TestAccessRace(t *testing.T) {
 	f := newAccessFixture(t)
 	var wg sync.WaitGroup
@@ -245,20 +136,16 @@ func TestAccessRace(t *testing.T) {
 			}
 			for j := 0; j < 200; j++ {
 				c, _ := f.acc.Lookup(id)
-				ad, other, rej := f.acc.admit(c, writeOpts)
-				if rej != nil || other != nil {
+				ad, rej := f.acc.admit(c, readOpts)
+				if rej != nil {
 					continue
 				}
-				if j%3 == 0 {
-					f.acc.rollback(ad)
-				} else if _, rej, _ := f.acc.accept(ad, writeOpts); rej == nil && j%5 == 0 {
-					f.acc.release(id)
-				}
+				f.acc.accept(ad, readOpts)
 				if i == 0 && j%50 == 0 {
 					f.acc.disconnect(idB)
 					opts := auth.RouteOptions{WhileDisconnected: true}
 					if c, ok := f.acc.Lookup(idB); ok {
-						if ad, _, rej := f.acc.admit(c, opts); rej == nil {
+						if ad, rej := f.acc.admit(c, opts); rej == nil {
 							f.acc.accept(ad, opts)
 						}
 					}
@@ -275,13 +162,13 @@ func TestAccessAdmitChecksTheEpochOfTheLookup(t *testing.T) {
 	f := newAccessFixture(t)
 	old, _ := f.acc.Lookup(idA)
 	f.acc.forget(idA)
-	f.acc.pair(auth.Client{ID: idA, Name: "new", Key: make([]byte, auth.KeySize)})
-	_, _, rej := f.acc.admit(old, writeOpts)
-	if rej == nil || rej.Code != auth.CodeUnknownClient || f.holder() != "" {
-		t.Fatalf("admit with a stale lookup: %+v, holder %q", rej, f.holder())
+	f.acc.pair(auth.Client{ID: idA, Name: "new", Platform: auth.PlatformApple, PublicKey: testKey(t)})
+	_, rej := f.acc.admit(old, readOpts)
+	if rej == nil || rej.Code != auth.CodeUnknownClient {
+		t.Fatalf("admit with a stale lookup: %+v", rej)
 	}
 	cur, _ := f.acc.Lookup(idA)
-	if _, _, rej := f.acc.admit(cur, writeOpts); rej != nil {
+	if _, rej := f.acc.admit(cur, readOpts); rej != nil {
 		t.Fatal(rej)
 	}
 }
@@ -295,7 +182,7 @@ func TestAccessConnectDoesNotLiftANewerDisconnection(t *testing.T) {
 	ad := f.admit(t, idA, opts)
 	f.reconnect(t, idA)   // lifted by another connect...
 	f.acc.disconnect(idA) // ...then disconnected again
-	_, rej, lifted := f.acc.accept(ad, opts)
+	rej, lifted := f.acc.accept(ad, opts)
 	if rej == nil || rej.Code != CodeDisconnected || lifted || !f.acc.disconnected[idA] {
 		t.Fatalf("stale connect: %+v lifted=%v disconnected=%v", rej, lifted, f.acc.disconnected[idA])
 	}
@@ -304,7 +191,7 @@ func TestAccessConnectDoesNotLiftANewerDisconnection(t *testing.T) {
 	}
 	// A connect admitted now lifts it and records presence.
 	ad = f.admit(t, idA, opts)
-	if _, rej, lifted := f.acc.accept(ad, opts); rej != nil || !lifted || f.acc.disconnected[idA] {
+	if rej, lifted := f.acc.accept(ad, opts); rej != nil || !lifted || f.acc.disconnected[idA] {
 		t.Fatalf("connect: %+v %v", rej, lifted)
 	}
 	if seen := f.acc.presence.seenSince(time.Time{}, time.Time{}); len(seen) != 1 {
@@ -331,7 +218,7 @@ func TestAccessDevicesConsistent(t *testing.T) {
 			f.acc.disconnect(idA)
 			opts := auth.RouteOptions{WhileDisconnected: true}
 			if c, ok := f.acc.Lookup(idA); ok {
-				if ad, _, rej := f.acc.admit(c, opts); rej == nil {
+				if ad, rej := f.acc.admit(c, opts); rej == nil {
 					f.acc.accept(ad, opts)
 				}
 			}

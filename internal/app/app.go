@@ -27,6 +27,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
+	"github.com/tfournier/ReminisLink/internal/tlsid"
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
@@ -103,6 +104,7 @@ type App struct {
 
 	clients *auth.ClientStore
 	pairing *auth.PairingSession
+	tls     tlsid.Identity // the certificate the app pins (M13)
 	lib     *library.Library
 	trash   *store.Trash
 	saves   *saves.Service
@@ -190,6 +192,14 @@ func Open(opts Options) (a *App, err error) {
 	if a.clients, err = auth.OpenClientStore(a.layout.ClientsFile()); err != nil {
 		return a, err
 	}
+	if n := a.clients.WipedRL1(); n > 0 {
+		// M13 migration: RL1 pairings (shared keys) must pair again.
+		// Never the keys, only the count.
+		logger.Warn("RL1 clients erased: they must pair again", "count", n)
+	}
+	if a.tls, err = tlsid.LoadOrCreate(tlsid.Options{Dir: a.layout.TLSDir(), DeviceID: a.deviceID, Logger: logger}); err != nil {
+		return a, err
+	}
 	if a.pairing, err = auth.NewPairingSession(a.deviceID, nil, nil); err != nil {
 		return a, err
 	}
@@ -252,6 +262,10 @@ func (a *App) LogPath() string { return a.logf.f.Name() }
 
 // Version returns the version of the pak.
 func (a *App) Version() string { return a.opts.Version }
+
+// Pin returns the pin of the TLS certificate of the pak (M13): the "k" of
+// the pairing link, b64u(SHA-256(SPKI DER)). Not a secret.
+func (a *App) Pin() string { return a.tls.Pin }
 
 // DeviceID returns the identifier of the console.
 func (a *App) DeviceID() string { return a.deviceID }
@@ -374,6 +388,8 @@ func (a *App) Start(ip string) error {
 		OnPaired:  a.paired,
 		OnChange:  a.notices.change,
 		LogFull:   a.logf.full,
+		// HTTPS only (M13).
+		TLS: a.tls.ServerConfig(),
 	})
 	if err != nil {
 		ln.Close()
@@ -384,7 +400,7 @@ func (a *App) Start(ip string) error {
 	a.mu.Unlock()
 	a.srv, a.port = srv, port
 	a.syncPairing()
-	a.log.Info("listening", "address", ln.Addr().String(), "ip", ip, "port", port)
+	a.log.Info("listening (HTTPS)", "address", ln.Addr().String(), "ip", ip, "port", port, "pin", a.tls.Pin)
 	if err := a.reannounce(); err != nil {
 		ln.Close()
 		return err

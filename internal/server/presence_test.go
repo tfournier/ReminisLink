@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tfournier/ReminisLink/internal/auth"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
@@ -40,7 +39,7 @@ func TestConnectedClients(t *testing.T) {
 		t.Fatal(r.Status)
 	}
 	// A rejected request does not count.
-	stranger := &testutil.Client{BaseURL: f.http.URL, ClientID: f.client.ClientID, Key: make([]byte, auth.KeySize), Now: f.clock.Now}
+	stranger := &testutil.Client{BaseURL: f.http.URL, ClientID: f.client.ClientID, Key: testutil.NewKey(t), Now: f.clock.Now}
 	f.clock.Advance(5 * time.Second)
 	stranger.Do(t, "GET", "/api/v1/systems", nil)
 	if got := f.server.ConnectedClients(); len(got) != 2 || !got[0].LastSeenAt.Equal(f.clock.Now().Add(-5*time.Second)) || !got[1].LastSeenAt.Equal(f.clock.Now().Add(-15*time.Second)) {

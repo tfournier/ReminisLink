@@ -1,9 +1,10 @@
 {
-  "description": "Request signing (docs/specs/03-protocole.md §4). key and nonce are base64url without padding. query is the raw query as sent (without '?'); body is the UTF-8 request body. method is as given by the caller and is uppercased in the canonical request and the request line. headers lists the signature headers to send.",
+  "description": "Request signing RL2-ED25519 (docs/specs/03-protocole.md §4, M13). seed is the 32-byte Ed25519 private key (seed) of the client and publicKey its 32-byte public key; nonce and signature are base64url without padding. query is the raw query as sent (without '?'); body is the UTF-8 request body. method is as given by the caller and is uppercased in the canonical request and the request line. signature = b64u(Ed25519(seed, canonicalRequest)), 64 bytes: Ed25519 (RFC 8032) is deterministic, but a signer that adds randomness (CryptoKit) produces other valid signatures, so tests compare signatures by verifying them with publicKey. headers lists the signature headers to send.",
   "cases": [
     {
       "name": "get-no-query",
-      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "seed": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "publicKey": "efRBFoXm7AOZqWQrstMx1qKlcahnAu40Qd6ytCs7tcY",
       "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "method": "GET",
       "path": "/api/v1/systems",
@@ -13,19 +14,20 @@
       "body": "",
       "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonicalQuery": "",
-      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/systems\n\n1795539600\nfRcnvGM1KB6G5R8dIJTzVA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "signature": "KyECtxwtnP4qkHUVe7jMpY0pqwqnPw_JLCUhDKN_wyA",
+      "canonicalRequest": "RL2-ED25519\nGET\n/api/v1/systems\n\n1795539600\nfRcnvGM1KB6G5R8dIJTzVA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "J13aK5jZaaeP4nWOCQIYbsyomKMgDKhvu-BR3Sqxg2GK6r1frWzwIdo_-ptox0Es5zDkjbZK5aU8-I_K9BwgBw",
       "headers": {
         "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
         "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "X-RL-Nonce": "fRcnvGM1KB6G5R8dIJTzVA",
-        "X-RL-Signature": "KyECtxwtnP4qkHUVe7jMpY0pqwqnPw_JLCUhDKN_wyA",
+        "X-RL-Signature": "J13aK5jZaaeP4nWOCQIYbsyomKMgDKhvu-BR3Sqxg2GK6r1frWzwIdo_-ptox0Es5zDkjbZK5aU8-I_K9BwgBw",
         "X-RL-Time": "1795539600"
       }
     },
     {
       "name": "get-query-sorted-and-encoded",
-      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "seed": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "publicKey": "efRBFoXm7AOZqWQrstMx1qKlcahnAu40Qd6ytCs7tcY",
       "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "method": "GET",
       "path": "/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games",
@@ -35,19 +37,20 @@
       "body": "",
       "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonicalQuery": "a=10&a=2&flag=&path=a%2Fb&plus=1%2B1&q=Caf%C3%A9%20R%C3%AAverie&z=~~",
-      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games\na=10&a=2&flag=&path=a%2Fb&plus=1%2B1&q=Caf%C3%A9%20R%C3%AAverie&z=~~\n1795539601\nxbrSnvape7-9ysbc5EeGFA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "signature": "f5sRcKMNzgOugEWt19D3rDeK4ohlM69y4cAOBOSB5-A",
+      "canonicalRequest": "RL2-ED25519\nGET\n/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games\na=10&a=2&flag=&path=a%2Fb&plus=1%2B1&q=Caf%C3%A9%20R%C3%AAverie&z=~~\n1795539601\nxbrSnvape7-9ysbc5EeGFA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "omuZkMx-02oKtxsnyGokfUAP8co0-vxbcVfsXAfdtm9eVYMeV6Rl2_aIeH34XgDuIUyvGJ805PB7I_vBd_FpDQ",
       "headers": {
         "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
         "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "X-RL-Nonce": "xbrSnvape7-9ysbc5EeGFA",
-        "X-RL-Signature": "f5sRcKMNzgOugEWt19D3rDeK4ohlM69y4cAOBOSB5-A",
+        "X-RL-Signature": "omuZkMx-02oKtxsnyGokfUAP8co0-vxbcVfsXAfdtm9eVYMeV6Rl2_aIeH34XgDuIUyvGJ805PB7I_vBd_FpDQ",
         "X-RL-Time": "1795539601"
       }
     },
     {
       "name": "get-query-raw-utf8-and-reserved",
-      "key": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "seed": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "publicKey": "0l9dwFCdPNZwK9eXBfxzrxBtTrk3GAqppLQcn0c3de4",
       "clientId": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
       "method": "GET",
       "path": "/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games",
@@ -57,19 +60,20 @@
       "body": "",
       "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonicalQuery": "empty=&folderId=R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw&name=Caf%C3%A9%20%F0%9F%8E%AE&sp%20ace=x%2Fy%2A",
-      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games\nempty=&folderId=R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw&name=Caf%C3%A9%20%F0%9F%8E%AE&sp%20ace=x%2Fy%2A\n1795539602\nzVa8P1_7-Mwc2SLAC90aug\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "signature": "-yKpb36pWgtY1jO2SeyXk2oAMrR95wU7RV7FrvnYedw",
+      "canonicalRequest": "RL2-ED25519\nGET\n/api/v1/systems/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ/games\nempty=&folderId=R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9IYWNrcw&name=Caf%C3%A9%20%F0%9F%8E%AE&sp%20ace=x%2Fy%2A\n1795539602\nzVa8P1_7-Mwc2SLAC90aug\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "K-s8YXM0xhysYgRPOYArWlITZWLqg1l5nU3nECfAD6n0-50KOqPiecgewAEk1CQY2CjG3srg-NTJhcakx-H3AA",
       "headers": {
         "X-RL-Client": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
         "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "X-RL-Nonce": "zVa8P1_7-Mwc2SLAC90aug",
-        "X-RL-Signature": "-yKpb36pWgtY1jO2SeyXk2oAMrR95wU7RV7FrvnYedw",
+        "X-RL-Signature": "K-s8YXM0xhysYgRPOYArWlITZWLqg1l5nU3nECfAD6n0-50KOqPiecgewAEk1CQY2CjG3srg-NTJhcakx-H3AA",
         "X-RL-Time": "1795539602"
       }
     },
     {
       "name": "get-single-param",
-      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "seed": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "publicKey": "efRBFoXm7AOZqWQrstMx1qKlcahnAu40Qd6ytCs7tcY",
       "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "method": "GET",
       "path": "/api/v1/sd/files",
@@ -79,19 +83,20 @@
       "body": "",
       "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonicalQuery": "type=cht",
-      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/sd/files\ntype=cht\n1795539603\nkNcYBuUoS0_igGjWbW-aSA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "signature": "1vcAwVfeBAqMQGt4LHK_ysyZKrZfZrbI1LQ2UnyG-Uk",
+      "canonicalRequest": "RL2-ED25519\nGET\n/api/v1/sd/files\ntype=cht\n1795539603\nkNcYBuUoS0_igGjWbW-aSA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "zXXDAs_gjorVU9iCOE_BAdVKtMLLIc96yb07a0DCjRqYoUISFiJSmYII8Q3CVtPglGvH1ijvIi52agZRPfz-BQ",
       "headers": {
         "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
         "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "X-RL-Nonce": "kNcYBuUoS0_igGjWbW-aSA",
-        "X-RL-Signature": "1vcAwVfeBAqMQGt4LHK_ysyZKrZfZrbI1LQ2UnyG-Uk",
+        "X-RL-Signature": "zXXDAs_gjorVU9iCOE_BAdVKtMLLIc96yb07a0DCjRqYoUISFiJSmYII8Q3CVtPglGvH1ijvIi52agZRPfz-BQ",
         "X-RL-Time": "1795539603"
       }
     },
     {
       "name": "post-json",
-      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "seed": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "publicKey": "efRBFoXm7AOZqWQrstMx1qKlcahnAu40Qd6ytCs7tcY",
       "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "method": "POST",
       "path": "/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ/save/backups",
@@ -101,19 +106,20 @@
       "body": "{\"label\":\"Avant le boss final\"}",
       "contentSha256": "a60648d033fbbd88786bffd808427eea8e2569a820c4fe2cbf406c9fd450795a",
       "canonicalQuery": "",
-      "canonicalRequest": "RL1-HMAC-SHA256\nPOST\n/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ/save/backups\n\n1795539604\nfb4bKOrU1xJAB0mg9I_xwQ\na60648d033fbbd88786bffd808427eea8e2569a820c4fe2cbf406c9fd450795a",
-      "signature": "BfWmj6LpN0NWrtBSBojc-q_rt3LfZ7qv0YwkZtIdBVo",
+      "canonicalRequest": "RL2-ED25519\nPOST\n/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ/save/backups\n\n1795539604\nfb4bKOrU1xJAB0mg9I_xwQ\na60648d033fbbd88786bffd808427eea8e2569a820c4fe2cbf406c9fd450795a",
+      "signature": "ZB56AQn6zYer_cnQcHxHP2SgbvaaCLoVm54SLc82U3LG1mXJKa4cGAyjlvSMrGNYyjPeV0scLcZX6a7xn_5-AQ",
       "headers": {
         "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
         "X-RL-Content-SHA256": "a60648d033fbbd88786bffd808427eea8e2569a820c4fe2cbf406c9fd450795a",
         "X-RL-Nonce": "fb4bKOrU1xJAB0mg9I_xwQ",
-        "X-RL-Signature": "BfWmj6LpN0NWrtBSBojc-q_rt3LfZ7qv0YwkZtIdBVo",
+        "X-RL-Signature": "ZB56AQn6zYer_cnQcHxHP2SgbvaaCLoVm54SLc82U3LG1mXJKa4cGAyjlvSMrGNYyjPeV0scLcZX6a7xn_5-AQ",
         "X-RL-Time": "1795539604"
       }
     },
     {
       "name": "post-json-utf8-body",
-      "key": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "seed": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "publicKey": "0l9dwFCdPNZwK9eXBfxzrxBtTrk3GAqppLQcn0c3de4",
       "clientId": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
       "method": "POST",
       "path": "/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ/cheats/import",
@@ -123,19 +129,20 @@
       "body": "{\"source\":{\"type\":\"inline\",\"text\":\"cheats = 1\\n\\ncheat0_desc = \\\"Argent illimité 💰\\\"\\n\"},\"mode\":\"merge\"}",
       "contentSha256": "3d9fe50d45fa3e1d2db26c33ccdc1a66856679a18bba08d7e8ca0a95f74f658f",
       "canonicalQuery": "",
-      "canonicalRequest": "RL1-HMAC-SHA256\nPOST\n/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ/cheats/import\n\n1795539605\nLTm5z29y2uY05ER7aqbRew\n3d9fe50d45fa3e1d2db26c33ccdc1a66856679a18bba08d7e8ca0a95f74f658f",
-      "signature": "WiIdPojkkC8iHC9BM_urS5ZJOsuvLQH9bDzRhTmNm-c",
+      "canonicalRequest": "RL2-ED25519\nPOST\n/api/v1/games/R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ/cheats/import\n\n1795539605\nLTm5z29y2uY05ER7aqbRew\n3d9fe50d45fa3e1d2db26c33ccdc1a66856679a18bba08d7e8ca0a95f74f658f",
+      "signature": "xT12QJrRQDahAdKLE-dKmOZ38DsOzpMSPra8QOawBFzB5HcvADgPSvYwHoezH7IKBZ8ZESBn8DAriswLwCh7BA",
       "headers": {
         "X-RL-Client": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
         "X-RL-Content-SHA256": "3d9fe50d45fa3e1d2db26c33ccdc1a66856679a18bba08d7e8ca0a95f74f658f",
         "X-RL-Nonce": "LTm5z29y2uY05ER7aqbRew",
-        "X-RL-Signature": "WiIdPojkkC8iHC9BM_urS5ZJOsuvLQH9bDzRhTmNm-c",
+        "X-RL-Signature": "xT12QJrRQDahAdKLE-dKmOZ38DsOzpMSPra8QOawBFzB5HcvADgPSvYwHoezH7IKBZ8ZESBn8DAriswLwCh7BA",
         "X-RL-Time": "1795539605"
       }
     },
     {
       "name": "delete-empty-body",
-      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "seed": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "publicKey": "efRBFoXm7AOZqWQrstMx1qKlcahnAu40Qd6ytCs7tcY",
       "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "method": "DELETE",
       "path": "/api/v1/clients/me",
@@ -145,19 +152,20 @@
       "body": "",
       "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonicalQuery": "",
-      "canonicalRequest": "RL1-HMAC-SHA256\nDELETE\n/api/v1/clients/me\n\n1795539606\nHn60gLNEKEMLLLaFmtCf-g\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "signature": "0oFiRmfqoQD9sMcNkC4zx2edoZjLGlRCTyy8ByHUcjw",
+      "canonicalRequest": "RL2-ED25519\nDELETE\n/api/v1/clients/me\n\n1795539606\nHn60gLNEKEMLLLaFmtCf-g\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "BAZRB1heEv30htnPIKCrtfflCNNTPz_aOWF0fl8fkGFl9N1Yv0mi4E1wLIaEP1P28NUFNIwevJdVMxnxUjS5BQ",
       "headers": {
         "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
         "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "X-RL-Nonce": "Hn60gLNEKEMLLLaFmtCf-g",
-        "X-RL-Signature": "0oFiRmfqoQD9sMcNkC4zx2edoZjLGlRCTyy8ByHUcjw",
+        "X-RL-Signature": "BAZRB1heEv30htnPIKCrtfflCNNTPz_aOWF0fl8fkGFl9N1Yv0mi4E1wLIaEP1P28NUFNIwevJdVMxnxUjS5BQ",
         "X-RL-Time": "1795539606"
       }
     },
     {
       "name": "put-upload-chunk-unsigned",
-      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "seed": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "publicKey": "efRBFoXm7AOZqWQrstMx1qKlcahnAu40Qd6ytCs7tcY",
       "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "method": "PUT",
       "path": "/api/v1/uploads/up_01JD3X5V7Q9W",
@@ -167,19 +175,20 @@
       "body": "raw chunk bytes",
       "contentSha256": "UNSIGNED",
       "canonicalQuery": "",
-      "canonicalRequest": "RL1-HMAC-SHA256\nPUT\n/api/v1/uploads/up_01JD3X5V7Q9W\n\n1795539607\n3iPMdbCc1f-5o09Ny3PPsg\nUNSIGNED",
-      "signature": "FOVSX1lQ4nHnpLFPaWI91DCivtumZgLmBhtuY7LkZGA",
+      "canonicalRequest": "RL2-ED25519\nPUT\n/api/v1/uploads/up_01JD3X5V7Q9W\n\n1795539607\n3iPMdbCc1f-5o09Ny3PPsg\nUNSIGNED",
+      "signature": "JaqLTsxUe6sDcKHll3iyqd-__FnPrqD6nnbJRu_1_MTWB7l-RQtgQJLuPP2lV9uTY19xEHYOE8Wbslah3lewBA",
       "headers": {
         "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
         "X-RL-Content-SHA256": "UNSIGNED",
         "X-RL-Nonce": "3iPMdbCc1f-5o09Ny3PPsg",
-        "X-RL-Signature": "FOVSX1lQ4nHnpLFPaWI91DCivtumZgLmBhtuY7LkZGA",
+        "X-RL-Signature": "JaqLTsxUe6sDcKHll3iyqd-__FnPrqD6nnbJRu_1_MTWB7l-RQtgQJLuPP2lV9uTY19xEHYOE8Wbslah3lewBA",
         "X-RL-Time": "1795539607"
       }
     },
     {
       "name": "get-path-with-b64url-id",
-      "key": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "seed": "unqcAuafoZkkeMLMN71pU9FTJJO8Fkwmc0FTcdH10s8",
+      "publicKey": "0l9dwFCdPNZwK9eXBfxzrxBtTrk3GAqppLQcn0c3de4",
       "clientId": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
       "method": "GET",
       "path": "/api/v1/games/TmludGVuZG8gRFMgKE5EUykvS8O0ZG8gw78gw4t4dHJhIMO_w79-Lm5kcw",
@@ -189,19 +198,20 @@
       "body": "",
       "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonicalQuery": "",
-      "canonicalRequest": "RL1-HMAC-SHA256\nGET\n/api/v1/games/TmludGVuZG8gRFMgKE5EUykvS8O0ZG8gw78gw4t4dHJhIMO_w79-Lm5kcw\n\n1795539608\nSvjofTRVUEYcc26sUhJb-A\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "signature": "8NE6Xd5C5hHzinE8-Byc1Vm4Muq7SpKYnse_IEybKIM",
+      "canonicalRequest": "RL2-ED25519\nGET\n/api/v1/games/TmludGVuZG8gRFMgKE5EUykvS8O0ZG8gw78gw4t4dHJhIMO_w79-Lm5kcw\n\n1795539608\nSvjofTRVUEYcc26sUhJb-A\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "RTihzBifnJrbWdVOLCraIbs3S5t0ip3IQZVQdpzkJxoq6Wcxr--6JzNK6JNRxBGNE2W2rpiMhWs9O17XCu1mDQ",
       "headers": {
         "X-RL-Client": "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a",
         "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "X-RL-Nonce": "SvjofTRVUEYcc26sUhJb-A",
-        "X-RL-Signature": "8NE6Xd5C5hHzinE8-Byc1Vm4Muq7SpKYnse_IEybKIM",
+        "X-RL-Signature": "RTihzBifnJrbWdVOLCraIbs3S5t0ip3IQZVQdpzkJxoq6Wcxr--6JzNK6JNRxBGNE2W2rpiMhWs9O17XCu1mDQ",
         "X-RL-Time": "1795539608"
       }
     },
     {
       "name": "lowercase-method-normalized",
-      "key": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "seed": "L3fx27ZayfYjBVbataayCCiWy-klurmAkgZSRxH58QI",
+      "publicKey": "efRBFoXm7AOZqWQrstMx1qKlcahnAu40Qd6ytCs7tcY",
       "clientId": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
       "method": "delete",
       "path": "/api/v1/trash/tr_20261118T170000Z_a1b2",
@@ -211,13 +221,13 @@
       "body": "",
       "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "canonicalQuery": "",
-      "canonicalRequest": "RL1-HMAC-SHA256\nDELETE\n/api/v1/trash/tr_20261118T170000Z_a1b2\n\n1795539609\nt-0bWYVUPGO-SnSC-QgmXA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "signature": "MXAcBKLKKy2oNSFU0Qu5BbsAkO5z_2YdSs7txCTZ2Kc",
+      "canonicalRequest": "RL2-ED25519\nDELETE\n/api/v1/trash/tr_20261118T170000Z_a1b2\n\n1795539609\nt-0bWYVUPGO-SnSC-QgmXA\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "mdCFdHP5m7qwWebe8BaK5ZDJhMqSLwYbPJI0NRRD8yaQKp_lbkDpf5M6FzhNABD59C5b7VO9lVD39dNwn7ktCQ",
       "headers": {
         "X-RL-Client": "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
         "X-RL-Content-SHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "X-RL-Nonce": "t-0bWYVUPGO-SnSC-QgmXA",
-        "X-RL-Signature": "MXAcBKLKKy2oNSFU0Qu5BbsAkO5z_2YdSs7txCTZ2Kc",
+        "X-RL-Signature": "mdCFdHP5m7qwWebe8BaK5ZDJhMqSLwYbPJI0NRRD8yaQKp_lbkDpf5M6FzhNABD59C5b7VO9lVD39dNwn7ktCQ",
         "X-RL-Time": "1795539609"
       }
     }

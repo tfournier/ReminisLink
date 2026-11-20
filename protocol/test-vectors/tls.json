@@ -1,0 +1,9 @@
+{
+  "description": "Certificate pin (docs/specs/03-protocole.md §1 and §3, M13). The console certificate is self-signed with an ECDSA P-256 key. pin = b64u(SHA-256(DER of the certificate's SubjectPublicKeyInfo)), the \"k\" of the pairing link; pinStdBase64 is the same hash in standard base64 (curl --pinnedpubkey sha256//...). publicKeyX963Hex is the uncompressed point (04 || X || Y), what SecKeyCopyExternalRepresentation returns; spkiDerHex is that point behind the fixed P-256 SubjectPublicKeyInfo header. privateKeyHex is the scalar (tests only).",
+  "privateKeyHex": "0bd03c17509f3248f4f54e62200415f3e60c19f709a89873735129dc62cfca02",
+  "publicKeyX963Hex": "04ccab4daac9705088513d81a9e162591dd1cd326d301c3ddb04f981ad1c35989e04b4c92d49798312df92e0cd1eea8aa25f11edba7dd92a5453801b2911fa4f3d",
+  "spkiDerHex": "3059301306072a8648ce3d020106082a8648ce3d03010703420004ccab4daac9705088513d81a9e162591dd1cd326d301c3ddb04f981ad1c35989e04b4c92d49798312df92e0cd1eea8aa25f11edba7dd92a5453801b2911fa4f3d",
+  "certificatePem": "-----BEGIN CERTIFICATE-----\nMIIBgjCCASigAwIBAgIBATAKBggqhkjOPQQDAjAvMS0wKwYDVQQDEyQ3ZjNhOWMy\nZS0xYjRkLTRjNTUtOWE1MS0yZjBmOWU3ZDNhMTAwHhcNMjYxMTIwMDAwMDAwWhcN\nNDYxMTIwMDAwMDAwWjAvMS0wKwYDVQQDEyQ3ZjNhOWMyZS0xYjRkLTRjNTUtOWE1\nMS0yZjBmOWU3ZDNhMTAwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATMq02qyXBQ\niFE9ganhYlkd0c0ybTAcPdsE+YGtHDWYngS0yS1JeYMS35LgzR7qiqJfEe26fdkq\nVFOAGykR+k89ozUwMzAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUH\nAwEwDAYDVR0TAQH/BAIwADAKBggqhkjOPQQDAgNIADBFAiEAmEhpLZpeBA9iPYEp\nhoBIfhFIcv1Xlk8RZI2Fk4zC3iYCIE9necCx3oipmTaGRdfHBt6Cv73U1pSxTgrw\n3rNIS9IV\n-----END CERTIFICATE-----\n",
+  "pin": "dx55JGi5v9aA8sTa_6qpXzS1I0iDjz86z8UfYi-fGIw",
+  "pinStdBase64": "dx55JGi5v9aA8sTa/6qpXzS1I0iDjz86z8UfYi+fGIw="
+}

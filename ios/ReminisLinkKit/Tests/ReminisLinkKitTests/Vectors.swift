@@ -29,30 +29,40 @@ enum Vectors {
 struct PairingVectors: Decodable {
     struct Case: Decodable {
         let name: String
-        let method: String
-        let secret: String?
-        let pin: String?
-        let ikmHex: String
+        let secret: String
+        let secretHex: String
         let deviceId: String
         let clientId: String
+        let clientSeed: String
+        let clientPublicKey: String
         let clientNonce: String
         let deviceNonce: String
         let clientProofMessage: String
         let clientProof: String
-        let saltHex: String
-        let keyInfo: String
-        let key: String
         let deviceProofMessage: String
         let deviceProof: String
     }
 
+    struct Link: Decodable {
+        let name: String
+        let deviceId: String
+        let deviceName: String
+        let secret: String
+        let host: String
+        let port: UInt16
+        let pin: String
+        let link: String
+    }
+
     let cases: [Case]
+    let links: [Link]
 }
 
 struct SigningVectors: Decodable {
     struct Case: Decodable {
         let name: String
-        let key: String
+        let seed: String
+        let publicKey: String
         let clientId: String
         let method: String
         let path: String
@@ -76,6 +86,15 @@ struct SigningVectors: Decodable {
     let invalidQueries: [InvalidQuery]
 }
 
+struct TLSVectors: Decodable {
+    let privateKeyHex: String
+    let publicKeyX963Hex: String
+    let spkiDerHex: String
+    let certificatePem: String
+    let pin: String
+    let pinStdBase64: String
+}
+
 struct IDVectors: Decodable {
     struct Valid: Decodable {
         let name: String
@@ -96,4 +115,16 @@ struct IDVectors: Decodable {
 
 extension Data {
     var hex: String { map { String(format: "%02x", $0) }.joined() }
+
+    init?(hex: String) {
+        var bytes: [UInt8] = []
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
+            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
+            bytes.append(byte)
+            index = next
+        }
+        self.init(bytes)
+    }
 }

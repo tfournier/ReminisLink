@@ -190,9 +190,9 @@ public final class TransferQueue {
     /// Called on the main actor when a job reaches its end.
     @ObservationIgnored public var onJobFinished: ((JobItem) -> Void)?
     /// Called on the main actor once an upload is recorded paused by
-    /// `423 read_only` or `401 disconnected` (M10): the write access may
-    /// already be back, then it resumes.
-    @ObservationIgnored public var onPausedForWriteAccess: ((UploadItem) -> Void)?
+    /// `401 disconnected` (M10): the connection may already be back, then
+    /// it resumes.
+    @ObservationIgnored public var onPausedForReconnection: ((UploadItem) -> Void)?
     /// The console's event stream is live (M14): jobs follow its `job`
     /// events and ``refreshJobs()`` sends nothing (polling is the fallback
     /// when no stream is open, e.g. a pak older than M14).
@@ -261,7 +261,7 @@ public final class TransferQueue {
     /// device, the upload is `cancelling` until the device answers (kept
     /// in the list, local copy kept), then:
     /// - confirmed: `cancelled`, local copy deleted;
-    /// - refused (`423`, `401 disconnected`): paused for the write access;
+    /// - refused (`401 disconnected`): paused until the user reconnects;
     /// - no definite answer (lost connection...): failed with
     ///   ``UploadFailure/cancelNotConfirmed``, kept to resume or cancel again;
     /// - gone after a `complete` whose answer was lost: the outcome is
@@ -294,7 +294,7 @@ public final class TransferQueue {
                 item.completeSent = false
                 self.cleanUp(item)
             case .refused(let error):
-                self.pauseForWriteAccess(item, error)
+                self.pauseForReconnection(item, error)
             case .notConfirmed:
                 item.phase = .failed
                 item.failure = UploadFailure.cancelNotConfirmed
@@ -327,18 +327,18 @@ public final class TransferQueue {
         resume(item)
     }
 
-    /// Uploads paused because another client has write access (M10).
-    public var pausedForWriteAccess: [UploadItem] {
+    /// Uploads paused because the console disconnected this app (M10).
+    public var pausedForReconnection: [UploadItem] {
         uploads.filter { item in
             guard item.phase == .paused, let error = item.failure as? APIError else { return false }
-            return error.isReadOnly || error.isDisconnected
+            return error.isDisconnected
         }
     }
 
-    /// Resumes the uploads paused by `423 read_only` or `401 disconnected`
-    /// (the write lease is back).
-    public func resumePausedForWriteAccess() {
-        for item in pausedForWriteAccess { resume(item) }
+    /// Resumes the uploads paused by `401 disconnected` (the user
+    /// reconnected).
+    public func resumePausedForReconnection() {
+        for item in pausedForReconnection { resume(item) }
     }
 
     /// Resumes every paused upload.
@@ -501,11 +501,11 @@ public final class TransferQueue {
                 // M11: the console closes ReminisLink; resumes once it is back.
                 item.phase = .paused
                 item.failure = error
-            case let error as APIError where error.isReadOnly || error.isDisconnected:
-                // M10: another client has write access, or the console
-                // disconnected this iPhone. Nothing was lost: the upload
-                // resumes at the confirmed offset once writing is possible.
-                pauseForWriteAccess(item, error)
+            case let error as APIError where error.isDisconnected:
+                // M10: the console disconnected this iPhone. Nothing was
+                // lost: the upload resumes at the confirmed offset once the
+                // user reconnects.
+                pauseForReconnection(item, error)
             default:
                 item.phase = .failed
                 item.failure = error
@@ -513,15 +513,15 @@ public final class TransferQueue {
         }
     }
 
-    /// The single path of an upload refused by `423 read_only` or
-    /// `401 disconnected` (M10), whatever refused it (a chunk, `complete`, a
-    /// cancel): paused, kept, and resumed with the write access
-    /// (``resumePausedForWriteAccess()``, or at once through
-    /// ``onPausedForWriteAccess`` if the access is already back).
-    private func pauseForWriteAccess(_ item: UploadItem, _ error: APIError) {
+    /// The single path of an upload refused by `401 disconnected` (M10),
+    /// whatever refused it (a chunk, `complete`, a cancel): paused, kept,
+    /// and resumed once reconnected (``resumePausedForReconnection()``, or
+    /// at once through ``onPausedForReconnection`` if the connection is
+    /// already back).
+    private func pauseForReconnection(_ item: UploadItem, _ error: APIError) {
         item.phase = .paused
         item.failure = error
-        onPausedForWriteAccess?(item)
+        onPausedForReconnection?(item)
     }
 
     private func cleanUp(_ item: UploadItem) {

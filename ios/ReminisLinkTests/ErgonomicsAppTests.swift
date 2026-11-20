@@ -41,10 +41,7 @@ struct ErgonomicsAppTests {
         )
         app.discovery.start()
         Self.kept.append(app)
-        let clientId = try app.store.installationClientId()
-        let attempt = try PairingAttempt(secret: .qr(pak.secret), deviceId: pak.deviceId, clientId: clientId, clientName: "This iPhone")
-        let key = try await APIClient(endpoint: pak.endpoint, session: pak.makeSession()).pair(attempt)
-        try app.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: clientId, key: key)
+        try await app.pairDirectly(with: pak, clientName: "This iPhone")
         return app
     }
 
@@ -125,8 +122,6 @@ struct ErgonomicsAppTests {
 
     @Test func aFileThatChangedIsReported() async throws {
         let pak = makePak()
-        // Read-only does not matter: a download is a read.
-        pak.simulateOtherWriter(name: "Other iPhone")
         let app = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
         let detail = try await session.perform { try await $0.game(id: Self.skyGarden) }
@@ -190,7 +185,7 @@ struct ErgonomicsAppTests {
         await waitUntil { session.state == .connected }
         let client = try #require(session.client)
         pak.availability = .shuttingDown
-        // Not through `perform` (a transfer, the lease): the error observer.
+        // Not through `perform` (a transfer): the error observer.
         _ = try? await client.systems()
         await waitUntil { app.openConsoleId == nil }
         #expect(app.openConsoleId == nil)
@@ -398,10 +393,9 @@ struct ErgonomicsAppTests {
 
     /// Codex M11 round 2 #1: the image of a game that is gone has no action.
     @Test func theImageOfAGameThatIsGoneCannotBeChanged() {
-        #expect(GameArtButton.isEnabled(isWorking: false, isReadOnly: false, isGameGone: false))
-        #expect(!GameArtButton.isEnabled(isWorking: false, isReadOnly: false, isGameGone: true))
-        #expect(!GameArtButton.isEnabled(isWorking: false, isReadOnly: true, isGameGone: false))
-        #expect(!GameArtButton.isEnabled(isWorking: true, isReadOnly: false, isGameGone: false))
+        #expect(GameArtButton.isEnabled(isWorking: false, isGameGone: false))
+        #expect(!GameArtButton.isEnabled(isWorking: false, isGameGone: true))
+        #expect(!GameArtButton.isEnabled(isWorking: true, isGameGone: false))
     }
 
     /// M11: renamed on the console (Settings > Console name): the list
@@ -481,31 +475,6 @@ struct ErgonomicsAppTests {
         #expect(app.closedNotice == nil)
         #expect(session.state == .connected)
         #expect(!session.closedByConsole)
-    }
-
-    /// Back from the background, the browser has just started and the pak
-    /// quit meanwhile (no removal is ever seen): the lease renewal fails to
-    /// connect before Bonjour could tell. Once it has browsed long enough
-    /// without the console, the app checks and goes back to the list.
-    @Test func aRenewalFailingRightAfterTheBrowserStartedIsCheckedLater() async throws {
-        let pak = makePak()
-        let app = try await pairedApp(pak)
-        app.closureMinimumBrowsing = .milliseconds(500)
-        let id = pak.deviceId
-        app.openConsole(id)
-        let session = app.session(for: id)
-        await waitUntil { session.state == .connected }
-        app.discovery.stop()
-        app.discovery.setFixedDevice(pak.discoveredDevice, visible: false)
-        pak.availability = .gone
-        app.discovery.start()
-        // A renewal (as when the app comes back to the foreground).
-        await session.lease.renew()
-        // Not yet: the browser has just started.
-        #expect(app.openConsoleId == id)
-        await waitUntil { app.openConsoleId == nil }
-        #expect(app.openConsoleId == nil)
-        #expect(app.closedNotice?.deviceId == id)
     }
 
     @Test func aClosedConsoleThatIsNotOpenStaysOnTheList() async throws {

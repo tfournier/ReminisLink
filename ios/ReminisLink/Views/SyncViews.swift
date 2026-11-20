@@ -318,12 +318,8 @@ struct SyncedGameView: View {
             isPresented: Binding(get: { selected != nil }, set: { if !$0 { selected = nil } }),
             titleVisibility: .visible, presenting: selected
         ) { version in
-            // A restore writes to the console: hidden while another device
-            // has write access (M10). Sharing stays available.
-            if !app.session(for: route.deviceId).isReadOnly {
-                Button("Restore to the Console…") { toRestore = version }
-                    .accessibilityIdentifier("synced.restore")
-            }
+            Button("Restore to the Console…") { toRestore = version }
+                .accessibilityIdentifier("synced.restore")
             Button("Share") { Task { await share(version) } }
                 .accessibilityIdentifier("synced.share")
         }

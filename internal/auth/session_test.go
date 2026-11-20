@@ -2,10 +2,10 @@ package auth
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"net/url"
-	"regexp"
 	"testing"
 	"time"
 )
@@ -25,18 +25,24 @@ func newTestSession(t *testing.T) (*PairingSession, *fakeClock) {
 	return s, clock
 }
 
-func clientRequest(t *testing.T, method PairingMethod, ikm []byte, clientID string) PairRequest {
+// clientRequest is a pairing v2 request made with secret, for a new
+// Ed25519 key.
+func clientRequest(t *testing.T, secret []byte, clientID string) PairRequest {
 	t.Helper()
 	nonce := make([]byte, PairingNonceSize)
 	if _, err := rand.Read(nonce); err != nil {
 		t.Fatal(err)
 	}
-	n := EncodeB64U(nonce)
-	return PairRequest{Method: method, ClientID: clientID, ClientNonce: n, Proof: ClientProof(ikm, testDeviceID, clientID, n)}
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, k := EncodeB64U(nonce), EncodeB64U(pub)
+	return PairRequest{ClientID: clientID, PublicKey: k, ClientNonce: n, Proof: PairClientProof(secret, testDeviceID, clientID, k, n)}
 }
 
 func badRequest(t *testing.T) PairRequest {
-	return clientRequest(t, MethodQR, []byte("wrong secret"), testClientA)
+	return clientRequest(t, []byte("wrong secret"), testClientA)
 }
 
 func TestPairingSnapshot(t *testing.T) {
@@ -47,9 +53,6 @@ func TestPairingSnapshot(t *testing.T) {
 	}
 	if len(snap.Secret) != SecretSize {
 		t.Fatalf("secret length %d", len(snap.Secret))
-	}
-	if !regexp.MustCompile(`^[0-9]{6}$`).MatchString(snap.PIN) {
-		t.Fatalf("PIN %q", snap.PIN)
 	}
 	if !snap.ExpiresAt.Equal(clock.Now().Add(PairingTTL)) {
 		t.Fatalf("expires at %v", snap.ExpiresAt)
@@ -68,53 +71,55 @@ func TestPairingSnapshot(t *testing.T) {
 func TestPairingQRSuccessIsSingleUse(t *testing.T) {
 	s, _ := newTestSession(t)
 	snap, _ := s.Snapshot()
-	req := clientRequest(t, MethodQR, snap.Secret, testClientA)
+	req := clientRequest(t, snap.Secret, testClientA)
 
 	res, _, err := s.Attempt(req)
 	if err != nil {
 		t.Fatalf("Attempt: %v", err)
 	}
-	// The client derives the same key and checks the device proof.
-	cn, _ := DecodeB64U(req.ClientNonce)
+	// The pak keeps the client's public key; the client checks the
+	// device proof.
 	dn, err := DecodeB64U(res.DeviceNonce)
 	if err != nil || len(dn) != PairingNonceSize {
 		t.Fatalf("device nonce %q", res.DeviceNonce)
 	}
-	key, err := DeriveKey(snap.Secret, cn, dn, testDeviceID, testClientA)
-	if err != nil {
-		t.Fatal(err)
+	if EncodeB64U(res.PublicKey) != req.PublicKey || res.ClientID != testClientA {
+		t.Fatal("public key or client id not kept")
 	}
-	if !bytes.Equal(key, res.Key) || res.ClientID != testClientA {
-		t.Fatal("client and device keys differ")
-	}
-	if !VerifyDeviceProof(key, testDeviceID, testClientA, res.Proof) {
+	if !VerifyPairDeviceProof(snap.Secret, testDeviceID, testClientA, req.PublicKey, req.ClientNonce, res.DeviceNonce, res.Proof) {
 		t.Fatal("device proof rejected by the client")
+	}
+	// The proof binds the public key: another key does not verify.
+	other := clientRequest(t, snap.Secret, testClientA)
+	if VerifyPairDeviceProof(snap.Secret, testDeviceID, testClientA, other.PublicKey, req.ClientNonce, res.DeviceNonce, res.Proof) {
+		t.Fatal("device proof valid for another key")
 	}
 
 	// Single use: the same secret no longer works.
 	after, _ := s.Snapshot()
-	if bytes.Equal(after.Secret, snap.Secret) || after.PIN == snap.PIN && bytes.Equal(after.Secret, snap.Secret) {
+	if bytes.Equal(after.Secret, snap.Secret) {
 		t.Fatal("secret not regenerated after success")
 	}
-	if _, _, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+	if _, _, err := s.Attempt(clientRequest(t, snap.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
 		t.Fatalf("reused secret: error = %v", err)
 	}
 }
 
-func TestPairingPINSuccess(t *testing.T) {
+// A proof made for one public key does not pair another one (the key
+// sent is the key proven).
+func TestPairingProofBindsThePublicKey(t *testing.T) {
 	s, _ := newTestSession(t)
 	snap, _ := s.Snapshot()
-	res, _, err := s.Attempt(clientRequest(t, MethodPIN, PINIKM(snap.PIN), testClientB))
-	if err != nil {
-		t.Fatalf("Attempt: %v", err)
+	req := clientRequest(t, snap.Secret, testClientB)
+	other := clientRequest(t, snap.Secret, testClientB)
+	req.PublicKey = other.PublicKey
+	if _, _, err := s.Attempt(req); !errors.Is(err, ErrPairingFailed) {
+		t.Fatalf("swapped key: %v", err)
 	}
-	if len(res.Key) != KeySize {
-		t.Fatal("no key")
-	}
-	// The QR secret does not work in PIN mode.
-	snap, _ = s.Snapshot()
-	if _, _, err := s.Attempt(clientRequest(t, MethodPIN, snap.Secret, testClientB)); !errors.Is(err, ErrPairingFailed) {
-		t.Fatalf("error = %v", err)
+	req = clientRequest(t, snap.Secret, testClientB)
+	req.ClientID = testClientA
+	if _, _, err := s.Attempt(req); !errors.Is(err, ErrPairingFailed) {
+		t.Fatalf("swapped client id: %v", err)
 	}
 }
 
@@ -122,14 +127,14 @@ func TestPairingExpiredSecretFails(t *testing.T) {
 	s, clock := newTestSession(t)
 	snap, _ := s.Snapshot()
 	clock.Advance(PairingTTL)
-	if _, _, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+	if _, _, err := s.Attempt(clientRequest(t, snap.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
 		t.Fatalf("error = %v, want ErrPairingFailed", err)
 	}
 	fresh, _ := s.Snapshot()
 	if bytes.Equal(fresh.Secret, snap.Secret) {
 		t.Fatal("expired secret not regenerated")
 	}
-	if _, _, err := s.Attempt(clientRequest(t, MethodQR, fresh.Secret, testClientA)); err != nil {
+	if _, _, err := s.Attempt(clientRequest(t, fresh.Secret, testClientA)); err != nil {
 		t.Fatalf("fresh secret refused: %v", err)
 	}
 }
@@ -151,7 +156,7 @@ func TestPairingBlocksAfterFiveFailures(t *testing.T) {
 	}
 
 	// Blocked, even with the right secret.
-	good := clientRequest(t, MethodQR, snap.Secret, testClientA)
+	good := clientRequest(t, snap.Secret, testClientA)
 	_, retry, err := s.Attempt(good)
 	if !errors.Is(err, ErrTooManyAttempts) || retry != PairingBlock {
 		t.Fatalf("blocked attempt: retry %v, error %v", retry, err)
@@ -176,7 +181,7 @@ func TestPairingFailureCountResetsOnRegeneration(t *testing.T) {
 		_, _, _ = s.Attempt(badRequest(t))
 	}
 	snap, _ := s.Snapshot()
-	if _, _, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); err != nil {
+	if _, _, err := s.Attempt(clientRequest(t, snap.Secret, testClientA)); err != nil {
 		t.Fatal(err)
 	}
 	// A success regenerates the secret and resets the count: 4 more
@@ -192,9 +197,11 @@ func TestPairingFailureCountResetsOnRegeneration(t *testing.T) {
 func TestPairingMalformedRequests(t *testing.T) {
 	s, _ := newTestSession(t)
 	snap, _ := s.Snapshot()
-	good := clientRequest(t, MethodQR, snap.Secret, testClientA)
+	good := clientRequest(t, snap.Secret, testClientA)
 	cases := map[string]func(*PairRequest){
-		"method":          func(r *PairRequest) { r.Method = "password" },
+		"key-missing":     func(r *PairRequest) { r.PublicKey = "" },
+		"key-short":       func(r *PairRequest) { r.PublicKey = EncodeB64U(make([]byte, 31)) },
+		"key-std-b64":     func(r *PairRequest) { r.PublicKey = r.PublicKey[:42] + "+/" },
 		"client-id":       func(r *PairRequest) { r.ClientID = "3B1C8D2A-5E6F-4A7B-8C9D-0E1F2A3B4C5D" },
 		"nonce-short":     func(r *PairRequest) { r.ClientNonce = EncodeB64U(make([]byte, 16)) },
 		"nonce-not-b64":   func(r *PairRequest) { r.ClientNonce = "!!!" },
@@ -220,21 +227,22 @@ func TestPairingRandomFailure(t *testing.T) {
 	}
 }
 
-func TestPairingURL(t *testing.T) {
+func TestPairingLink(t *testing.T) {
 	secret := make([]byte, SecretSize)
 	secret[0] = 0xfb
-	got := PairingURL("7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick de Thomas & co/é", secret, "192.168.1.42", 47821)
-	want := "reminislink://pair?v=1&id=7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10&n=Brick%20de%20Thomas%20%26%20co%2F%C3%A9" +
-		"&s=-wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&h=192.168.1.42&p=47821"
+	pin := EncodeB64U(bytes.Repeat([]byte{0xff}, 32))
+	got := PairingLink("7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick de Thomas & co/é", secret, "192.168.1.42", 47821, pin)
+	want := "reminislink://pair?v=2&id=7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10&n=Brick%20de%20Thomas%20%26%20co%2F%C3%A9" +
+		"&s=-wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&h=192.168.1.42&p=47821&k=" + pin
 	if got != want {
-		t.Fatalf("PairingURL =\n %s\nwant\n %s", got, want)
+		t.Fatalf("PairingLink =\n %s\nwant\n %s", got, want)
 	}
 	u, err := url.Parse(got)
 	if err != nil {
 		t.Fatal(err)
 	}
 	q := u.Query()
-	if u.Scheme != "reminislink" || u.Host != "pair" || q.Get("n") != "Brick de Thomas & co/é" || q.Get("p") != "47821" {
+	if u.Scheme != "reminislink" || u.Host != "pair" || q.Get("v") != "2" || q.Get("n") != "Brick de Thomas & co/é" || q.Get("p") != "47821" || q.Get("k") != pin {
 		t.Fatalf("parsed: %+v %v", u, q)
 	}
 	if s, err := DecodeB64U(q.Get("s")); err != nil || len(s) != SecretSize || s[0] != 0xfb {
@@ -255,7 +263,7 @@ func TestPairingOnDemand(t *testing.T) {
 		t.Fatal("a new session is open")
 	}
 	for i := 0; i < 2*MaxPairingFailures; i++ {
-		if _, _, err := s.Attempt(clientRequest(t, MethodQR, hidden.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+		if _, _, err := s.Attempt(clientRequest(t, hidden.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
 			t.Fatalf("closed session: error = %v", err)
 		}
 	}
@@ -263,13 +271,13 @@ func TestPairingOnDemand(t *testing.T) {
 		t.Fatal("attempts on a closed session were counted")
 	}
 	// Malformed requests are still refused as such.
-	bad := clientRequest(t, MethodQR, hidden.Secret, testClientA)
-	bad.Method = "password"
+	bad := clientRequest(t, hidden.Secret, testClientA)
+	bad.PublicKey = "short"
 	if _, _, err := s.Attempt(bad); !errors.Is(err, ErrInvalidPairRequest) {
 		t.Fatalf("malformed on a closed session: %v", err)
 	}
 
-	// Opening draws a new secret and PIN.
+	// Opening draws a new secret.
 	if err := s.Open(); err != nil {
 		t.Fatal(err)
 	}
@@ -292,21 +300,21 @@ func TestPairingOnDemand(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.Attempt(clientRequest(t, MethodQR, opened.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+	if _, _, err := s.Attempt(clientRequest(t, opened.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
 		t.Fatalf("secret shown before Close: %v", err)
 	}
 	if err := s.SetOpen(true); err != nil {
 		t.Fatal(err)
 	}
 	reopened, _ := s.Snapshot()
-	if bytes.Equal(reopened.Secret, opened.Secret) || reopened.PIN == opened.PIN && bytes.Equal(reopened.Secret, opened.Secret) {
+	if bytes.Equal(reopened.Secret, opened.Secret) {
 		t.Fatal("reopening reused the old secret")
 	}
-	if _, _, err := s.Attempt(clientRequest(t, MethodQR, opened.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
+	if _, _, err := s.Attempt(clientRequest(t, opened.Secret, testClientA)); !errors.Is(err, ErrPairingFailed) {
 		t.Fatalf("old secret after reopening: %v", err)
 	}
-	if _, _, err := s.Attempt(clientRequest(t, MethodPIN, PINIKM(reopened.PIN), testClientA)); err != nil {
-		t.Fatalf("PIN of the open session: %v", err)
+	if _, _, err := s.Attempt(clientRequest(t, reopened.Secret, testClientA)); err != nil {
+		t.Fatalf("secret of the open session: %v", err)
 	}
 }
 
@@ -341,12 +349,12 @@ func TestPairingClosedAnswersFailedDuringABlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap, _ := s.Snapshot()
-	if _, retry, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); !errors.Is(err, ErrTooManyAttempts) || retry <= 0 {
+	if _, retry, err := s.Attempt(clientRequest(t, snap.Secret, testClientA)); !errors.Is(err, ErrTooManyAttempts) || retry <= 0 {
 		t.Fatalf("reopened during the block: %v %v", retry, err)
 	}
 	clock.Advance(PairingBlock)
 	snap, _ = s.Snapshot()
-	if _, _, err := s.Attempt(clientRequest(t, MethodQR, snap.Secret, testClientA)); err != nil {
+	if _, _, err := s.Attempt(clientRequest(t, snap.Secret, testClientA)); err != nil {
 		t.Fatalf("after the block: %v", err)
 	}
 }

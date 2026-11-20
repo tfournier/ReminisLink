@@ -33,22 +33,21 @@ var (
 	StateNoWiFi      = &msg{ID: "state_no_wifi", Other: "No Wi-Fi"}
 	HintNoWiFi       = &msg{ID: "hint_no_wifi", Other: "The Wi-Fi is off: turn it on in the NextUI settings.\nReminisLink resumes as soon as it is back."}
 	ScanHint         = &msg{ID: "scan_hint", Other: "Scan with the ReminisLink app"}
-	QRHidden         = &msg{ID: "qr_hidden", Other: "QR code and PIN hidden: pairing is closed.\nPress A to show them."}
+	QRHidden         = &msg{ID: "qr_hidden", Other: "QR code hidden: pairing is closed.\nPress A to show it."}
 	BatteryLevel     = &msg{ID: "battery_level", Other: "{{.Percent}}%"}
 	BatteryCharging  = &msg{ID: "battery_charging", Other: "{{.Percent}}% (charging)"}
 	BatteryLow       = &msg{ID: "battery_low", Other: "Low: {{.Percent}}%"}
 	BatteryLowBanner = &msg{ID: "battery_low_banner", Other: "Low battery: plug the console in"}
-	QRUnavailable    = &msg{ID: "qr_unavailable", Other: "Pair with the code below (no QR code in this mode)."}
+	QRUnavailable    = &msg{ID: "qr_unavailable", Other: "No QR code on this system: pair from the console."}
 	HintPairMore     = &msg{ID: "hint_pair_more", Other: "To pair another device: Settings (Y) > Pair a New Device."}
-	LabelCode        = &msg{ID: "label_code", Other: "Code"}
-	PINExpires       = &msg{ID: "pin_expires", One: "{{.PIN}}  (expires in {{.Count}} min)", Other: "{{.PIN}}  (expires in {{.Count}} min)"}
-	PINBlocked       = &msg{ID: "pin_blocked", One: "Too many failed attempts: pairing blocked for {{.Count}} min", Other: "Too many failed attempts: pairing blocked for {{.Count}} min"}
+	LabelQR          = &msg{ID: "label_qr", Other: "QR code"}
+	PairingExpires   = &msg{ID: "pairing_expires", One: "Expires in {{.Count}} min", Other: "Expires in {{.Count}} min"}
+	PairingBlocked   = &msg{ID: "pairing_blocked", One: "Too many failed attempts: pairing blocked for {{.Count}} min", Other: "Too many failed attempts: pairing blocked for {{.Count}} min"}
 	LabelConsole     = &msg{ID: "label_console", Other: "Console"}
 	ConsoleValue     = &msg{ID: "console_value", Other: "{{.Name}} · {{.IP}}"}
 	LabelState       = &msg{ID: "label_state", Other: "State"}
 	LabelConnected   = &msg{ID: "label_connected", Other: "Connected devices"}
 	NoneConnected    = &msg{ID: "none_connected", Other: "None"}
-	LabelWriter      = &msg{ID: "label_writer", Other: "Write access"}
 	TitleTransfers   = &msg{ID: "title_transfers", Other: "Transfers"}
 	ActUpload        = &msg{ID: "activity_upload", Other: "Receiving: {{.Name}}"}
 	ActUploadFile    = &msg{ID: "activity_upload_file", Other: "Receiving a file"}
@@ -116,11 +115,15 @@ var (
 	MsgSaveError        = &msg{ID: "msg_save_error", Other: "Cannot save the settings:\n{{.Error}}"}
 )
 
-// Settings > Devices (M10)
+// Settings > Devices (M10, M13: platforms)
 var (
-	DeviceItem              = &msg{ID: "device_item", Other: "{{.Name}} ({{.State}})"}
+	DeviceItem              = &msg{ID: "device_item", Other: "{{.Name}} · {{.Platform}} ({{.State}})"}
+	DeviceIdleItem          = &msg{ID: "device_idle_item", Other: "{{.Name}} · {{.Platform}} (paired {{.Date}})"}
+	PlatformApple           = &msg{ID: "platform_apple", Other: "Apple"}
+	PlatformAndroid         = &msg{ID: "platform_android", Other: "Android"}
+	PlatformWeb             = &msg{ID: "platform_web", Other: "Web"}
+	PlatformOther           = &msg{ID: "platform_other", Other: "Other"}
 	DeviceStateConnected    = &msg{ID: "device_state_connected", Other: "connected"}
-	DeviceStateWriter       = &msg{ID: "device_state_writer", Other: "has write access"}
 	DeviceStateDisconnected = &msg{ID: "device_state_disconnected", Other: "disconnected"}
 	DeviceStateSeparator    = &msg{ID: "device_state_separator", Other: ", "}
 	MsgDisconnected         = &msg{ID: "msg_disconnected", Other: "{{.Name}} is disconnected.\nIt can reconnect from the app."}
@@ -131,7 +134,7 @@ var (
 var All = []*msg{
 	BtnQuit, BtnBack, BtnSelect, BtnCancel, BtnConfirm, BtnOK, BtnForget, BtnSettings, BtnHideQR,
 	BtnShowQR, StateReady, StateConnected, StateTransfer, StateNoWiFi, HintNoWiFi, ScanHint, QRHidden,
-	LabelCode, PINExpires, PINBlocked, LabelConsole, ConsoleValue, LabelState, LabelConnected,
+	LabelQR, PairingExpires, PairingBlocked, LabelConsole, ConsoleValue, LabelState, LabelConnected,
 	NoneConnected, TitleTransfers, ActUpload, ActUploadFile, ActDownload, ActDownloadFile, ActPatch,
 	ActPatchFile, ActQueued, ActProgress, ActBytes, SizeMB, DecimalSeparator, NoticeWithName,
 	NoticeROMAdded, NoticeSaveReplaced, NoticeSaveRestored, NoticeStateReplaced, NoticeStateRestored,
@@ -141,6 +144,6 @@ var All = []*msg{
 	TitleSettings, ItemName, ItemPaired, ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout,
 	TitlePaired, MsgNoPaired, PairedItem, DateLayout, MsgConfirmForget, MsgConfirmForgetAll,
 	MsgForgotAll, MsgNameEmpty, MsgSaveError, BatteryLevel, BatteryCharging, BatteryLow, BatteryLowBanner, QRUnavailable, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
-	BtnDisconnect, LabelWriter, DeviceItem, DeviceStateConnected, DeviceStateWriter,
-	DeviceStateDisconnected, DeviceStateSeparator, MsgDisconnected, MsgDeviceError,
+	BtnDisconnect, DeviceItem, DeviceIdleItem, PlatformApple, PlatformAndroid, PlatformWeb, PlatformOther,
+	DeviceStateConnected, DeviceStateDisconnected, DeviceStateSeparator, MsgDisconnected, MsgDeviceError,
 }

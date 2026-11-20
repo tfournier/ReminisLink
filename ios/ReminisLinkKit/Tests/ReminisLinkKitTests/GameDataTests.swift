@@ -583,7 +583,7 @@ struct GameDataReviewTests {
         // (the app then offers to pair again).
         let stranger = APIClient(
             endpoint: pak.endpoint,
-            credentials: DeviceCredentials(deviceId: pak.deviceId, clientId: Pairing.makeClientId(), key: .init(size: .bits256)),
+            credentials: DeviceCredentials.random(deviceId: pak.deviceId),
             session: pak.makeSession()
         )
         await #expect(throws: APIError.server(ServerError(status: 401, code: .unknownClient, message: "Unknown client"))) {

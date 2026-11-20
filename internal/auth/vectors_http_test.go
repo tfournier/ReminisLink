@@ -3,7 +3,7 @@ package auth
 import (
 	"bufio"
 	"bytes"
-	"crypto/hmac"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -17,12 +17,12 @@ import (
 	"time"
 )
 
-// keyedClients serves fixed keys by client id.
+// keyedClients serves fixed public keys by client id.
 type keyedClients map[string][]byte
 
 func (k keyedClients) Lookup(id string) (Client, bool) {
 	key, ok := k[id]
-	return Client{ID: id, Key: key}, ok
+	return Client{ID: id, PublicKey: key}, ok
 }
 
 // Every signing vector, sent as raw bytes on a TCP connection to a real
@@ -35,7 +35,7 @@ func TestSigningVectorsThroughHTTPServer(t *testing.T) {
 		t.Run(c.Name, func(t *testing.T) {
 			ts, _ := strconv.ParseInt(c.Time, 10, 64)
 			v := &Verifier{
-				Clients: keyedClients{c.ClientID: mustB64U(t, c.Key)},
+				Clients: keyedClients{c.ClientID: mustB64U(t, c.PublicKey)},
 				Nonces:  NewNonceCache(NonceTTL, 10, nil),
 				Now:     func() time.Time { return time.Unix(ts, 0) },
 			}
@@ -95,71 +95,14 @@ func TestSigningVectorsThroughHTTPServer(t *testing.T) {
 	}
 }
 
-// hkdfOracle is a straight RFC 5869 implementation, independent of the
-// code under test.
-func hkdfOracle(ikm, salt, info []byte, length int) []byte {
-	ext := hmac.New(sha256.New, salt)
-	ext.Write(ikm)
-	prk := ext.Sum(nil)
-	var okm, prev []byte
-	for i := byte(1); len(okm) < length; i++ {
-		h := hmac.New(sha256.New, prk)
-		h.Write(prev)
-		h.Write(info)
-		h.Write([]byte{i})
-		prev = h.Sum(nil)
-		okm = append(okm, prev...)
-	}
-	return okm[:length]
-}
-
-func mustHex(t *testing.T, s string) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
-// The oracle reproduces RFC 5869 test case 1, then DeriveKey must agree
-// with it on every pairing vector.
-func TestDeriveKeyAgainstRFC5869Oracle(t *testing.T) {
-	okm := hkdfOracle(
-		mustHex(t, "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"),
-		mustHex(t, "000102030405060708090a0b0c"),
-		mustHex(t, "f0f1f2f3f4f5f6f7f8f9"),
-		42,
-	)
-	want := "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"
-	if hex.EncodeToString(okm) != want {
-		t.Fatalf("oracle does not match RFC 5869 case 1: %x", okm)
-	}
-
-	var f pairingVectorFile
-	readVectors(t, "pairing.json", &f)
-	for _, c := range f.Cases {
-		ikm := mustHex(t, c.IKMHex)
-		cn, dn := mustB64U(t, c.ClientNonce), mustB64U(t, c.DeviceNonce)
-		got, err := DeriveKey(ikm, cn, dn, c.DeviceID, c.ClientID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		oracle := hkdfOracle(ikm, append(append([]byte{}, cn...), dn...), []byte("RL1-KEY|"+c.DeviceID+"|"+c.ClientID), 32)
-		if !bytes.Equal(got, oracle) || EncodeB64U(oracle) != c.Key {
-			t.Fatalf("%s: DeriveKey disagrees with the RFC 5869 oracle", c.Name)
-		}
-	}
-}
-
-// A canonical string written by hand from 03-protocole §4.2, and its HMAC
-// computed directly with crypto/hmac.
+// A canonical string written by hand from 03-protocole §4.2, and its
+// signature checked directly with crypto/ed25519.
 func TestCanonicalRequestHandWritten(t *testing.T) {
 	nonce := EncodeB64U(bytes.Repeat([]byte{0xab}, 16))
 	body := `{"label":"Avant"}`
 	sum := sha256.Sum256([]byte(body))
 	bodyHash := hex.EncodeToString(sum[:])
-	want := "RL1-HMAC-SHA256\n" +
+	want := "RL2-ED25519\n" +
 		"POST\n" +
 		"/api/v1/games/R2FtZQ/save/backups\n" +
 		"a=1&a=2&b=x%20y&c=%2B&d=%C3%A9\n" +
@@ -177,10 +120,9 @@ func TestCanonicalRequestHandWritten(t *testing.T) {
 	if got != want {
 		t.Fatalf("canonical =\n%q\nwant\n%q", got, want)
 	}
-	key := bytes.Repeat([]byte{0x11}, 32)
-	h := hmac.New(sha256.New, key)
-	h.Write([]byte(want))
-	if Sign(key, got) != EncodeB64U(h.Sum(nil)) {
-		t.Fatal("Sign is not HMAC-SHA256 of the canonical string")
+	priv := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{0x11}, 32))
+	sig, err := DecodeB64U(Sign(priv, got))
+	if err != nil || len(sig) != ed25519.SignatureSize || !ed25519.Verify(priv.Public().(ed25519.PublicKey), []byte(want), sig) {
+		t.Fatal("Sign is not Ed25519 of the canonical string")
 	}
 }

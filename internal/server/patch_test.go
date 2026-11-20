@@ -129,3 +129,36 @@ func TestPatchErrorsOverHTTP(t *testing.T) {
 	wantCode(t, r, "invalid_id")
 	wantCode(t, f.do(http.MethodPost, "/api/v1/games/"+library.EncodeID(game)+"/patch", "/games/{gameId}/patch", []byte("{"), http.StatusBadRequest), "invalid_request")
 }
+
+// M13 (Codex round 2): a patch of a client revoked while it waits for its
+// install ends cancelled and installs nothing.
+func TestPatchOfARevokedClient(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	game := gbaFolder + "/Starlight Courier.gba"
+	romPath := filepath.Join(f.sd, "Roms", filepath.FromSlash(game))
+	src := make([]byte, 50_000)
+	rand.Read(src)
+	if err := os.WriteFile(romPath, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tgt := append(bytes.Clone(src[:40_000]), "patched"...)
+	stagingID := f.stageFile("hack.bps", testutil.EncodeBPS(src, tgt))
+	f.holdWrites(20 * time.Millisecond)
+	body := mustJSON(t, map[string]any{"patch": map[string]any{"type": "staging", "stagingId": stagingID}, "output": map[string]any{"mode": "new-file"}})
+	var accepted struct {
+		JobID string `json:"jobId"`
+	}
+	f.as(b, http.MethodPost, "/api/v1/games/"+library.EncodeID(game)+"/patch", "/games/{gameId}/patch", body, http.StatusAccepted).JSON(t, &accepted)
+	time.Sleep(150 * time.Millisecond) // the job waits for its install
+	if _, err := f.server.Forget(b.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	f.server.writes().Release()
+	if j := f.waitJob(accepted.JobID); j.State != "cancelled" {
+		t.Fatalf("patch of a revoked client: %+v", j)
+	}
+	if f.exists("Roms/" + gbaFolder + "/Starlight Courier (patched).gba") {
+		t.Fatal("patched file installed")
+	}
+}

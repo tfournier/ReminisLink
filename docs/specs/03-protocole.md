@@ -4,7 +4,10 @@ Ce document décrit tout ce qui n'est pas une route métier : découverte, appai
 
 ## 1. Transport
 
-- HTTP/1.1 sur TCP, réseau local uniquement. Pas de TLS en v1 (option prévue plus tard, voir [07](07-securite.md)).
+- HTTP/1.1 sur **TLS** (1.2 au minimum, 1.3 de préférence), réseau local uniquement (M13). Tout le trafic, `/hello` compris, passe en HTTPS ; le pak ne sert plus de HTTP en clair. La bibliothèque standard Go choisit ChaCha20-Poly1305 si le processeur n'a pas d'instructions AES.
+- **Certificat** : au premier lancement, le pak crée une clé ECDSA P-256 et un certificat X.509 auto-signé (nom commun : le `deviceId`, validité d'environ 20 ans), gardés dans la zone ReminisLink de la carte SD (écriture atomique) et réutilisés à chaque lancement ; ils ne sont recréés que s'ils manquent.
+- **Empreinte (`pin`)** = `b64u(SHA-256(DER du SubjectPublicKeyInfo du certificat))`. Elle est transmise de façon authentifiée par le QR code (`k`, §3.1) et **épinglée** par l'app : l'app n'accepte que ce certificat, sans confiance système, sans autorité de certification ni vérification du nom d'hôte. Si le certificat est perdu (carte reformatée), l'empreinte change : il faut réappairer. Bonjour ne porte pas l'empreinte.
+- Une app qui garde un appairage RL1 (sans empreinte) peut lire `GET /hello` sans épinglage, uniquement pour y voir `apiVersion: 2` et proposer de réappairer ; elle n'envoie rien d'autre sur cette connexion.
 - Port par défaut : **47821**. S'il est occupé, le pak essaie les 9 suivants. Le port réel est annoncé par Bonjour et inscrit dans le QR code.
 - Préfixe de toutes les routes : `/api/v1`.
 - Corps JSON en UTF-8, `Content-Type: application/json`. Noms de champs en `camelCase`. Dates en RFC 3339 UTC (`2026-11-18T16:57:40Z`). Tailles en octets (entiers 64 bits).
@@ -28,7 +31,7 @@ Enregistrement TXT (clé=valeur, tout en ASCII) :
 |---|---|---|
 | `v` | `1` | Version du format TXT |
 | `id` | `7f3a9c2e-...` | Identifiant unique et stable de la console (UUID v4 généré au premier lancement) |
-| `api` | `1` | Version majeure de l'API |
+| `api` | `2` | Version de l'API (`apiVersion` de `/hello` : `2` depuis M13) |
 | `model` | `brick` | Modèle (`brick`, `brickpro`, `smartpro`, `smartpros`, `h700`, `my355`, `desktop`) |
 | `platform` | `tg5040` | Plateforme NextUI |
 | `os` | `nextui` | OS de la console |
@@ -41,60 +44,60 @@ Si aucune console n'est trouvée au bout de 8 secondes, l'app affiche une erreur
 
 ## 3. Appairage
 
+Appairage v2 (M13), inspiré des accessoires HomeKit sans les suivre à la lettre : chaque client a une paire de clés **Ed25519** ; le pak ne garde que la clé publique. Plus de PIN (il reviendra plus tard, protégé par un PAKE, voir [09](09-feuille-de-route.md)) : appairage par QR code seulement.
+
 ### 3.1 Contenu du QR code
 
-Le pak génère au démarrage un **secret d'appairage** de 32 octets aléatoires (`crypto/rand`), valable 10 minutes et à usage unique. Le QR code encode :
+Quand l'écran d'appairage s'ouvre, le pak génère un **secret d'appairage** de 32 octets aléatoires (`crypto/rand`), valable 10 minutes et à usage unique. Le QR code encode le **lien d'appairage v2** :
 
 ```
-reminislink://pair?v=1&id=<deviceId>&n=<nom URL-encodé>&s=<secret base64url sans padding>&h=<IPv4>&p=<port>
+reminislink://pair?v=2&id=<deviceId>&n=<nom URL-encodé>&s=<secret base64url sans padding>&h=<IPv4>&p=<port>&k=<pin>
 ```
 
-- `h` et `p` sont **informatifs** (affichage, outils de test comme `scripts/smoke.sh`). L'app NE DOIT PAS s'en servir pour se connecter ni les mémoriser : la console est toujours trouvée par Bonjour avec son `id`, sinon l'app affiche « Console introuvable ». *(Décision du 18/11/2026 : un repli sur l'IP permettrait à un faux pak du même réseau, annonçant l'`id` d'une console éteinte, de se faire appairer à sa place.)*
+- `n` est encodé en RFC 3986 (une espace vaut `%20`) ; `k` est l'empreinte du certificat du pak (§1).
+- L'app refuse un lien dont `v` n'est pas `2` avec le message « Mets à jour le pak ReminisLink ».
+- L'app cherche la console par Bonjour avec son `id`. Si Bonjour ne répond pas, elle PEUT se connecter à `h`:`p` : l'empreinte `k` authentifie la console, un faux pak ne peut pas présenter son certificat. *(Décision du 18/11/2026 révisée en M13 : sans TLS, un repli sur l'IP permettait à un faux pak du même réseau, annonçant l'`id` d'une console éteinte, de se faire appairer à sa place ; avec le certificat épinglé ce n'est plus possible.)* Ensuite, l'app retrouve la console par Bonjour et peut garder la dernière adresse connue comme repli, toujours avec l'épinglage.
 - Après chaque appairage réussi, ou à expiration, le pak génère un nouveau secret et un nouveau QR code.
-
-**PIN de secours** : 6 chiffres affichés sous le QR code, valables 10 minutes. Ils servent si l'appareil photo n'est pas utilisable. Ce mode est plus faible (voir [07](07-securite.md)) ; l'app l'indique à l'utilisateur.
 
 ### 3.2 Échange
 
-Notations : `HMAC(k, m)` = HMAC-SHA256 ; `HKDF` = HKDF-SHA256 (RFC 5869) ; `||` = concaténation d'octets ; `b64u` = base64url sans padding ; chaînes en UTF-8.
+Notations : `HMAC(k, m)` = HMAC-SHA256 ; `b64u` = base64url sans padding ; chaînes en UTF-8. `secret` = les 32 octets de `s`.
 
-1. L'app génère `clientId` (UUID v4, stable pour cette installation) et `clientNonce` (32 octets).
-2. `ikm` = les 32 octets du secret (mode QR) ou les octets UTF-8 du PIN (mode PIN).
-3. L'app envoie `POST /api/v1/pair` (route non signée) :
+1. L'app a (ou crée) son identité : `clientId` (UUID v4) et une paire de clés Ed25519. Sur Apple, les deux sont un élément **synchronisé du Trousseau iCloud** (même groupe d'accès, pas la Secure Enclave dont les clés ne se synchronisent pas) : l'iPhone, l'iPad et le Mac d'un même compte partagent la même identité et n'appairent qu'une fois. Elle génère `clientNonce` (32 octets).
+2. Sur une connexion TLS épinglée sur `k`, l'app envoie `POST /api/v1/pair` (route non signée) :
 
 ```json
 {
-  "method": "qr",
   "clientId": "3b1c...",
-  "clientName": "iPhone de Thomas",
+  "clientName": "Thomas",
+  "platform": "apple",
+  "clientPublicKey": "<b64u 32 octets>",
   "clientNonce": "<b64u 32 octets>",
-  "proof": "<b64u HMAC(ikm, 'RL1-PAIR-CLIENT|' + deviceId + '|' + clientId + '|' + clientNonce_b64u)>"
+  "proof": "<b64u HMAC(secret, 'RL2-PAIR-CLIENT|' + deviceId + '|' + clientId + '|' + clientPublicKey + '|' + clientNonce)>"
 }
 ```
 
-4. Le pak vérifie `proof` en temps constant. En cas d'échec : `401 pairing_failed`. Après 5 échecs, le secret et le PIN sont régénérés et l'appairage est bloqué 30 secondes (`429 too_many_attempts`).
-5. Le pak génère `deviceNonce` (32 octets) et dérive la clé :
+`clientPublicKey` et `clientNonce` entrent dans la preuve tels qu'envoyés (chaînes b64u). `platform` : `apple`, `android`, `web` ou `other`. `clientName` : saisi par l'utilisateur (iOS ne donne ni le nom du compte iCloud ni le vrai nom de l'appareil).
 
-```
-key = HKDF(ikm, salt = clientNonce || deviceNonce, info = "RL1-KEY|" + deviceId + "|" + clientId, L = 32)
-```
-
-6. Le pak enregistre le client (`clientId`, `clientName`, `key`, date) puis répond :
+3. Le pak vérifie `proof` en temps constant. En cas d'échec : `401 pairing_failed`. Après 5 échecs, le secret est régénéré et l'appairage est bloqué 30 secondes (`429 too_many_attempts`).
+4. Le pak génère `deviceNonce` (32 octets), enregistre le client (`clientId`, `clientName`, `platform`, `clientPublicKey`, date) dans `clients.json` (écriture atomique), puis répond :
 
 ```json
 {
   "deviceId": "7f3a...",
   "deviceName": "Brick de Thomas",
   "deviceNonce": "<b64u 32 octets>",
-  "proof": "<b64u HMAC(key, 'RL1-PAIR-DEVICE|' + deviceId + '|' + clientId)>"
+  "proof": "<b64u HMAC(secret, 'RL2-PAIR-DEVICE|' + deviceId + '|' + clientId + '|' + clientPublicKey + '|' + clientNonce + '|' + deviceNonce)>"
 }
 ```
 
-7. L'app dérive la même clé, vérifie `proof` (authentification mutuelle), puis enregistre `deviceId`, le nom et la clé dans le Trousseau. Si la vérification échoue, l'app jette la clé et affiche une erreur.
+5. L'app vérifie `proof` (authentification mutuelle : le pak connaissait le secret), puis enregistre `deviceId`, le nom et l'empreinte `k` de la console. Si la vérification échoue, l'app n'enregistre rien et affiche une erreur.
 
-**La clé ne circule jamais sur le réseau.** Un observateur du Wi-Fi voit les nonces et les preuves, mais sans le secret du QR code il ne peut pas reconstruire la clé.
+**Aucune clé partagée** n'est dérivée ni gardée : le pak ne connaît que des clés publiques, inutilisables pour signer. Le canal est chiffré et authentifié par TLS épinglé ; le secret du QR code prouve en plus que l'app a lu l'écran de la console.
 
-Un même `clientId` qui s'appaire à nouveau remplace sa clé précédente.
+Un même `clientId` qui s'appaire à nouveau remplace sa clé publique et sa plateforme. **Plusieurs appairages** : chaque autre appareil (autre compte Apple, plus tard Android, interface web) a sa propre identité et s'appaire par le QR code. Pas de rôles.
+
+**Migration** : au premier lancement du pak M13, les clients RL1 (clé HMAC partagée) sont effacés de `clients.json` (le nombre est journalisé, jamais les clés) ; l'app détecte un pak M13 (`apiVersion: 2` dans `/hello`) et propose de réappairer.
 
 ## 4. Authentification des requêtes
 
@@ -108,14 +111,16 @@ Toutes les routes sauf `GET /api/v1/hello` et `POST /api/v1/pair` DOIVENT être 
 | `X-RL-Time` | Horodatage Unix en secondes (entier) |
 | `X-RL-Nonce` | 16 octets aléatoires en `b64u`, uniques par requête |
 | `X-RL-Content-SHA256` | SHA-256 du corps en hexadécimal minuscule ; corps vide = SHA-256 de la chaîne vide ; `UNSIGNED` uniquement pour `PUT /api/v1/uploads/{id}` |
-| `X-RL-Signature` | `b64u(HMAC(key, chaîne canonique))` |
+| `X-RL-Signature` | `b64u(Ed25519(clé privée du client, chaîne canonique))`, 64 octets une fois décodée |
+
+En-tête informatif, **non signé** et facultatif : `X-RL-Platform: iphone|ipad|mac|android|web`. Le pak s'en sert seulement pour afficher, sur l'écran Appareils, les plateformes vues récemment pour chaque client (une identité Apple partagée par plusieurs appareils) ; une autre valeur est ignorée. Il ne sert à aucune décision.
 
 ### 4.2 Chaîne canonique
 
-Lignes séparées par `\n`, sans `\n` final :
+Lignes séparées par `\n`, sans `\n` final (première ligne `RL2-ED25519` depuis M13 ; le reste est inchangé depuis RL1) :
 
 ```
-RL1-HMAC-SHA256
+RL2-ED25519
 <MÉTHODE en majuscules>
 <chemin tel qu'envoyé, encodé, sans la requête>
 <requête canonique>
@@ -139,9 +144,9 @@ Précisions (fixées au jalon M1, vecteurs dans `signing.json`) :
 1. Client inconnu → `401 unknown_client` (l'app propose de refaire l'appairage).
 2. `|X-RL-Time − heure console| > 300 s` → `401 clock_skew`. L'app corrige l'écart grâce à `serverTime` de `/hello` et réessaie une fois.
 3. Nonce déjà vu pour ce client → `401 replayed_request`. Un nonce est conservé au moins 10 minutes, et au moins jusqu'à `X-RL-Time + 300 s` (heure murale), pour qu'un recul de l'horloge de la console ne rouvre pas de fenêtre de rejeu.
-4. Signature comparée en temps constant ; différente → `401 bad_signature`. Elle porte sur l'en-tête `X-RL-Content-SHA256`, pas sur le corps : elle est donc vérifiée **avant** de lire le corps, et le corps d'une requête forgée n'est jamais lu.
+4. Signature Ed25519 vérifiée avec la clé publique du client ; invalide → `401 bad_signature`. Elle porte sur l'en-tête `X-RL-Content-SHA256`, pas sur le corps : elle est donc vérifiée **avant** de lire le corps, et le corps d'une requête forgée n'est jamais lu.
 5. Le nonce est alors réservé (atomiquement). Si le cache de nonces est plein → `429 too_many_attempts` avec `Retry-After`. Un échec à une étape suivante **consomme** le nonce : l'app réessaie avec un nouveau nonce.
-5 bis. *(M10)* Client déconnecté depuis la console → `401 disconnected` (sauf `POST /clients/me/connect`) ; route d'écriture alors qu'un autre client tient le bail d'écriture → `423 read_only` (`details.writer`). Vérifié avant de lire le corps, sans rien modifier (voir [04, « Un seul appareil en écriture »](04-api-v1.md#un-seul-appareil-en-écriture-m10)).
+5 bis. *(M10)* Client déconnecté depuis la console → `401 disconnected` (sauf `POST /clients/me/connect`). Vérifié avant de lire le corps, sans rien modifier. *(Le bail d'écriture et `423 read_only` sont retirés en M13 ; les écritures attendent leur tour après la lecture du corps, voir [04, « Écritures une à une »](04-api-v1.md#écritures-une-à-une-m13).)*
 6. Si `X-RL-Content-SHA256` n'est pas `UNSIGNED`, le pak lit le corps (limite fixée par route : 1 Mio par défaut, 64 Mio pour `PUT /games/{gameId}/save`, 16 Mio pour `PUT /uploads/{uploadId}`, sinon `413 too_large`), dans un budget mémoire global, puis recalcule son SHA-256 ; différent → `401 bad_signature`. `UNSIGNED` n'est accepté que sur `PUT /uploads/{uploadId}`.
 
 *(Ordre fixé au jalon M1, décision du 18/11/2026 : la version précédente vérifiait le corps avant la signature, ce qui permettait à un tiers de faire lire 64 Mio par requête forgée.)*
@@ -149,8 +154,9 @@ Précisions (fixées au jalon M1, vecteurs dans `signing.json`) :
 ### 4.4 Vecteurs de test
 
 `protocol/test-vectors/` DOIT contenir, en JSON :
-- `pairing.json` : ikm, ids, nonces → proof client, clé dérivée, proof console (mode QR et mode PIN) ;
-- `signing.json` : clé, méthode, chemin, requête, heure, nonce, corps → requête canonique, chaîne canonique, signature ;
+- `pairing.json` : secret, ids, graine et clé publique Ed25519 du client, nonces → messages et preuves client et console ; liens d'appairage v2 ;
+- `signing.json` : graine et clé publique Ed25519, méthode, chemin, requête, heure, nonce, corps (dont un morceau d'envoi `UNSIGNED`) → requête canonique, chaîne canonique RL2, signature (Ed25519 est déterministe ; une signature produite avec de l'aléa, comme celle de CryptoKit, est différente mais valide : les tests la vérifient avec la clé publique) ;
+- `tls.json` : clé P-256 et certificat fixes → SPKI, point X9.63, empreinte (`pin`) ;
 - `ids.json` : chemins relatifs (avec accents, espaces, emojis, parenthèses) → identifiants.
 
 Les suites Go et Swift DOIVENT les lire et les vérifier.
@@ -191,8 +197,7 @@ Toute réponse d'erreur a la forme :
 | 413 | `too_large` | Corps ou fichier trop gros |
 | 422 | `unsupported_format` | Patch ou fichier non reconnu |
 | 422 | `patch_mismatch` | La ROM ne correspond pas au patch (somme de contrôle BPS/UPS) |
-| 423 | `read_only` | Un autre client tient le bail d'écriture (`details.writer` : son nom) ; rien n'a été modifié (M10) |
-| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; trop de flux d'événements (4 par client, 16 en tout, M14) ; envoi en cours de vérification après un redémarrage du pak (toujours avec `Retry-After` sur une route signée) |
+| 429 | `too_many_attempts` | Appairage bloqué temporairement ; limite de débit de `/hello` ; cache de nonces plein sur une route signée ; trop d'envois ouverts ou de tâches ; trop de flux d'événements (4 par client, 16 en tout, M14) ; envoi en cours de vérification après un redémarrage du pak ; écriture qui a attendu 10 s celle en cours (`Device busy`, M13) (toujours avec `Retry-After` sur une route signée) |
 | 500 | `internal` | Erreur inattendue (détails dans le journal) |
 | 503 | `shutting_down` | Le pak se ferme (y compris une requête en attente du budget mémoire, annulée à la fermeture) |
 | 507 | `insufficient_storage` | Espace libre insuffisant (`details.required`, `details.available`) |
@@ -240,6 +245,6 @@ Depuis M14, le flux d'événements `GET /api/v1/events` envoie aussi chaque tâc
 
 ## 9. Versions
 
-- La version majeure de l'API est dans le chemin (`/api/v1`) et dans le TXT (`api=1`).
+- Le chemin reste `/api/v1`. `apiVersion` (dans `/hello` et `api` dans le TXT) vaut `2` depuis M13 : transport TLS, appairage v2 et signature RL2-ED25519, incompatibles avec une app RL1.
 - Ajouter un champ ou une route ne change pas la version. L'app DOIT ignorer les champs inconnus.
 - `GET /api/v1/hello` renvoie `apiVersion` et `minClientVersion`. Si l'app est trop ancienne, elle demande une mise à jour.

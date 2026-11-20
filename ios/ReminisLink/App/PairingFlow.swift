@@ -2,17 +2,16 @@ import Foundation
 import Observation
 import ReminisLinkKit
 
-/// Where the pairing secret comes from.
+/// Where the pairing secret comes from: the QR code link (scanned in the
+/// app, or opened from the Camera app). M13: there is no PIN.
 enum PairingSource {
-    /// The QR code link (scanned in the app, or opened from the Camera app).
     case link(PairingLink)
-    /// The fallback PIN typed for a console found with Bonjour.
-    case pin(String, DiscoveredDevice)
 
-    var deviceId: String {
+    var deviceId: String { link.deviceId }
+
+    var link: PairingLink {
         switch self {
-        case .link(let link): link.deviceId
-        case .pin(_, let device): device.id
+        case .link(let link): link
         }
     }
 }
@@ -71,46 +70,43 @@ final class PairingFlow: Identifiable {
     private func execute() async {
         defer { isRunning = false }
         do {
-            let endpoint: Endpoint
-            let secret: PairingSecret
-            var suggestedName: String?
-            switch source {
-            case .link(let link):
-                endpoint = try await app.endpoint(for: link.deviceId)
-                secret = .qr(link.secret)
-                suggestedName = link.deviceName
-            case .pin(let pin, let device):
-                endpoint = try await EndpointResolver.resolve(device)
-                secret = .pin(pin)
-                suggestedName = device.name
-            }
+            let link = source.link
+            // Bonjour first; the address of the QR code when Bonjour does
+            // not find the console quickly: the certificate pin of the link
+            // authenticates the console either way (M13).
+            let endpoint = try await app.pairingEndpoint(for: link)
             step = .pairing
             let deviceId = source.deviceId
-            let client = app.makeClient(endpoint: endpoint, expectedDeviceId: deviceId)
+            let client = app.makeClient(endpoint: endpoint, expectedDeviceId: deviceId, pin: link.pin)
             let hello = try await client.hello()
             guard hello.pairingOpen else { throw AppError.pairingClosed }
-            let clientId = try app.store.installationClientId()
-            let attempt = try PairingAttempt(secret: secret, deviceId: deviceId, clientId: clientId, clientName: app.clientName)
+            let identity = try app.store.identity()
+            let attempt = try PairingAttempt(
+                secret: link.secret, deviceId: deviceId, identity: identity, clientName: app.clientName, platform: .apple
+            )
             // Last point where cancelling changes anything.
             try Task.checkCancellation()
-            // Once /pair is sent, the pak may already hold the new key (and
-            // have dropped the previous one): the exchange runs to its end in
-            // its own task, not cancelled with the screen, and the key is
-            // stored as soon as the device proof is valid.
+            // Once /pair is sent, the pak may already hold the identity: the
+            // exchange runs to its end in its own task, not cancelled with
+            // the screen, and the pairing (pin) is stored as soon as the
+            // device proof is valid.
             //
             // Exchanges with the same console run one after the other, each
             // up to the Keychain write: a slow first exchange must never
-            // store its key after a newer one (the pak keeps the newer).
+            // store its pin after a newer one.
             let app = app
-            let name = suggestedName ?? hello.deviceName
+            let name = link.deviceName ?? hello.deviceName
             let exchange = app.pairExchange(deviceId: deviceId) { [weak self] in
                 // Closed while an earlier exchange was finishing: /pair was
                 // not sent yet, so nothing changes.
                 if self?.isStopped ?? true { throw CancellationError() }
-                let key = try await client.pair(attempt)
+                try await client.pair(attempt)
+                // The identity /pair was sent with signs this console's
+                // requests; the address it answered at (pinned) is kept as
+                // a fallback for Bonjour.
                 let device = try app.store.save(
-                    deviceId: deviceId, name: name, model: hello.model, clientId: clientId, key: key,
-                    consoleName: hello.deviceName
+                    deviceId: deviceId, name: name, model: hello.model, clientId: identity.clientId, pin: link.pin,
+                    endpoint: endpoint, consoleName: hello.deviceName
                 )
                 app.didReplaceKey(for: deviceId)
                 return device

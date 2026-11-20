@@ -15,10 +15,43 @@ public enum KeychainError: Error, Equatable, Sendable {
     case unexpectedData
 }
 
-/// Generic password items of one service. Items are only readable after the
-/// first unlock, never leave this device and are never synchronized with
-/// iCloud (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not
-/// synchronizable).
+/// The `SecItem` functions, injectable so tests can check the queries.
+public struct KeychainAPI: Sendable {
+    public var copyMatching: @Sendable (_ query: [String: Any], _ result: UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus
+    public var add: @Sendable (_ attributes: [String: Any]) -> OSStatus
+    public var update: @Sendable (_ query: [String: Any], _ attributes: [String: Any]) -> OSStatus
+    public var delete: @Sendable (_ query: [String: Any]) -> OSStatus
+
+    public init(
+        copyMatching: @escaping @Sendable ([String: Any], UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus,
+        add: @escaping @Sendable ([String: Any]) -> OSStatus,
+        update: @escaping @Sendable ([String: Any], [String: Any]) -> OSStatus,
+        delete: @escaping @Sendable ([String: Any]) -> OSStatus
+    ) {
+        self.copyMatching = copyMatching
+        self.add = add
+        self.update = update
+        self.delete = delete
+    }
+
+    /// The real Keychain.
+    public static let system = KeychainAPI(
+        copyMatching: { SecItemCopyMatching($0 as CFDictionary, $1) },
+        add: { SecItemAdd($0 as CFDictionary, nil) },
+        update: { SecItemUpdate($0 as CFDictionary, $1 as CFDictionary) },
+        delete: { SecItemDelete($0 as CFDictionary) }
+    )
+}
+
+/// Generic password items of one service, readable after the first unlock.
+///
+/// - `synchronizable` (M13): the items go to the iCloud Keychain
+///   (`kSecAttrSynchronizable`, `kSecAttrAccessibleAfterFirstUnlock`), so
+///   the iPhone, iPad and Mac of one Apple account share them: the client
+///   identity and the consoles paired with it.
+/// - Otherwise they never leave this device
+///   (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`): the pairings of
+///   RL1, only read to be deleted.
 ///
 /// Without an explicit access group, items go to the first group of the
 /// `keychain-access-groups` entitlement: the group shared with the share
@@ -26,10 +59,14 @@ public enum KeychainError: Error, Equatable, Sendable {
 public struct KeychainStore: SecureStore {
     public let service: String
     public let accessGroup: String?
+    public let synchronizable: Bool
+    private let api: KeychainAPI
 
-    public init(service: String, accessGroup: String? = nil) {
+    public init(service: String, accessGroup: String? = nil, synchronizable: Bool = false, api: KeychainAPI = .system) {
         self.service = service
         self.accessGroup = accessGroup
+        self.synchronizable = synchronizable
+        self.api = api
     }
 
     /// The query that identifies items of this store (one account, or all).
@@ -37,7 +74,7 @@ public struct KeychainStore: SecureStore {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecAttrSynchronizable as String: (synchronizable ? kCFBooleanTrue : kCFBooleanFalse) as Any,
         ]
         if let account { query[kSecAttrAccount as String] = account }
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
@@ -48,7 +85,8 @@ public struct KeychainStore: SecureStore {
     func writeAttributes(data: Data) -> [String: Any] {
         [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecAttrAccessible as String: synchronizable
+                ? kSecAttrAccessibleAfterFirstUnlock : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
     }
 
@@ -57,7 +95,7 @@ public struct KeychainStore: SecureStore {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = api.copyMatching(query, &result)
         switch status {
         case errSecSuccess:
             guard let data = result as? Data else { throw KeychainError.unexpectedData }
@@ -72,15 +110,15 @@ public struct KeychainStore: SecureStore {
     public func set(_ data: Data, for account: String) throws {
         let query = baseQuery(account: account)
         let attributes = writeAttributes(data: data)
-        var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        var status = api.update(query, attributes)
         if status == errSecItemNotFound {
-            status = SecItemAdd(query.merging(attributes) { $1 } as CFDictionary, nil)
+            status = api.add(query.merging(attributes) { $1 })
         }
         guard status == errSecSuccess else { throw KeychainError.status(status) }
     }
 
     public func remove(account: String) throws {
-        let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
+        let status = api.delete(baseQuery(account: account))
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.status(status) }
     }
 
@@ -89,7 +127,7 @@ public struct KeychainStore: SecureStore {
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitAll
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = api.copyMatching(query, &result)
         switch status {
         case errSecSuccess:
             let items = result as? [[String: Any]] ?? []

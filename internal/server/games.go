@@ -755,7 +755,12 @@ func (s *Server) handleImportCheats(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Unknown source.type", nil)
 		return
 	}
+	// The source is read: the import itself waits for its turn (M13).
+	if !s.acquireWrite(w, r) {
+		return
+	}
 	res, err := s.opts.Cheats.Import(g, data, *req.Mode)
+	s.writes().Release()
 	if err != nil {
 		s.cheatError(w, r, err)
 		return

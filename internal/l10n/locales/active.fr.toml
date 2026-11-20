@@ -81,8 +81,11 @@ other = "02/01/2006"
 [decimal_separator]
 other = ","
 
+[device_idle_item]
+other = "{{.Name}} · {{.Platform}} (appairé le {{.Date}})"
+
 [device_item]
-other = "{{.Name}} ({{.State}})"
+other = "{{.Name}} · {{.Platform}} ({{.State}})"
 
 [device_state_connected]
 other = "connecté"
@@ -92,9 +95,6 @@ other = "déconnecté"
 
 [device_state_separator]
 other = ", "
-
-[device_state_writer]
-other = "a la main"
 
 [hint_no_wifi]
 other = "Le Wi-Fi est coupé : active-le dans les réglages de NextUI.\nReminisLink reprend dès son retour."
@@ -121,20 +121,17 @@ other = "Appairer un nouvel appareil"
 one = "Appareils ({{.Count}})"
 other = "Appareils ({{.Count}})"
 
-[label_code]
-other = "Code"
-
 [label_connected]
 other = "Appareils connectés"
 
 [label_console]
 other = "Console"
 
+[label_qr]
+other = "QR code"
+
 [label_state]
 other = "État"
-
-[label_writer]
-other = "Accès en écriture"
 
 [language_prompt]
 other = "Choisis la langue de l'interface."
@@ -242,19 +239,31 @@ other = "{{.Text}} : {{.Name}}"
 [paired_item]
 other = "{{.Name}} (appairé le {{.Date}})"
 
-[pin_blocked]
+[pairing_blocked]
 one = "Trop d'essais ratés : appairage bloqué pendant {{.Count}} min"
 other = "Trop d'essais ratés : appairage bloqué pendant {{.Count}} min"
 
-[pin_expires]
-one = "{{.PIN}}  (expire dans {{.Count}} min)"
-other = "{{.PIN}}  (expire dans {{.Count}} min)"
+[pairing_expires]
+one = "Expire dans {{.Count}} min"
+other = "Expire dans {{.Count}} min"
+
+[platform_android]
+other = "Android"
+
+[platform_apple]
+other = "Apple"
+
+[platform_other]
+other = "Autre"
+
+[platform_web]
+other = "Web"
 
 [qr_hidden]
-other = "QR code et code masqués : l'appairage est fermé.\nAppuie sur A pour les afficher."
+other = "QR code masqué : l'appairage est fermé.\nAppuie sur A pour l'afficher."
 
 [qr_unavailable]
-other = "Appaire avec le code ci-dessous (pas de QR code dans ce mode)."
+other = "Pas de QR code sur ce système : appaire depuis la console."
 
 [scan_hint]
 other = "Scanne avec l'app ReminisLink"

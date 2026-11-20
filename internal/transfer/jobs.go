@@ -80,7 +80,39 @@ type job struct {
 	cancel context.CancelFunc
 	done   chan struct{} // closed when run returned
 	order  uint64        // finishing order, to drop the oldest
+	guard  JobGuard      // the client that started the job (M13)
 }
+
+// JobGuard ties a job to the client that started it (M13), fixed when the
+// job is submitted, before it can start: its install step, once it holds
+// the write lock, calls Valid, and a false answer ends the job cancelled
+// without installing anything (the client was revoked since). Gen is the
+// access generation of the request that started it: CancelStale cancels
+// the jobs of an older generation. The zero value guards nothing.
+type JobGuard struct {
+	Owner string
+	Gen   uint64
+	Valid func() bool
+	// Admit, when set, is called just before the job is queued: it takes
+	// the lock of the revocations and checks the client again; the job is
+	// queued while it holds it (one atomic step: a revoked client never
+	// gets a job, nor its outbound request), then unlock is called. A
+	// non-nil error refuses the job (unlock is then not called).
+	Admit func() (unlock func(), refused *Error)
+}
+
+type jobGuardKey struct{}
+
+// jobAllowed reports whether the job running with ctx may install its
+// file (its JobGuard, when it has one, is still valid).
+func jobAllowed(ctx context.Context) bool {
+	g, ok := ctx.Value(jobGuardKey{}).(JobGuard)
+	return !ok || g.Valid == nil || g.Valid()
+}
+
+// errJobRevoked ends a job whose client was revoked: it is reported as
+// cancelled.
+var errJobRevoked = newError(http.StatusServiceUnavailable, CodeShuttingDown, "Cancelled: client revoked")
 
 // Jobs is the job queue.
 type Jobs struct {
@@ -142,6 +174,12 @@ func (q *Jobs) Submit(kind string, run RunFunc) (string, error) {
 
 // SubmitLabeled queues a job with the label shown on the pak screen.
 func (q *Jobs) SubmitLabeled(kind, label string, run RunFunc) (string, error) {
+	return q.SubmitGuarded(kind, label, JobGuard{}, run)
+}
+
+// SubmitGuarded queues a job with its label and its guard (set before the
+// job can start).
+func (q *Jobs) SubmitGuarded(kind, label string, guard JobGuard, run RunFunc) (string, error) {
 	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
@@ -162,7 +200,7 @@ func (q *Jobs) SubmitLabeled(kind, label string, run RunFunc) (string, error) {
 	now := q.stamp()
 	j := &job{
 		Job: Job{ID: "job_" + hex.EncodeToString(b[:]), Kind: kind, State: JobQueued, CreatedAt: now, UpdatedAt: now, Label: label},
-		run: run, done: make(chan struct{}),
+		run: run, done: make(chan struct{}), guard: guard,
 	}
 	q.jobs[j.ID] = j
 	q.queue = append(q.queue, j)
@@ -178,7 +216,7 @@ func (q *Jobs) startNextLocked() {
 	}
 	j := q.queue[0]
 	q.queue = q.queue[1:]
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), jobGuardKey{}, j.guard))
 	j.cancel = cancel
 	j.State = JobRunning
 	j.UpdatedAt = q.stamp()
@@ -199,7 +237,7 @@ func (q *Jobs) execute(ctx context.Context, j *job) {
 	}
 	result, apiErr := runSafely(ctx, j.run, report)
 	q.mu.Lock()
-	cancelled := ctx.Err() != nil
+	cancelled := ctx.Err() != nil || apiErr == errJobRevoked
 	j.cancel()
 	switch {
 	case apiErr == nil:
@@ -372,6 +410,46 @@ func (q *Jobs) Cancel(id string) (Job, *Error) {
 	}
 	defer q.mu.Unlock()
 	return j.Job, nil
+}
+
+// CancelStale cancels, without waiting, the queued and running jobs of
+// owner whose guard generation is not current (M13: the client was
+// revoked; current is its new access generation). A job submitted under
+// the current generation is never touched. A running job stops before
+// its install step; one already installing finishes. It never blocks: it
+// may be called with other locks held. It returns how many jobs it
+// cancelled.
+func (q *Jobs) CancelStale(owner string, current uint64) int {
+	if owner == "" {
+		return 0
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	stale := func(j *job) bool { return j.guard.Owner == owner && j.guard.Gen != current }
+	n := 0
+	kept := q.queue[:0]
+	for _, j := range q.queue {
+		if !stale(j) {
+			kept = append(kept, j)
+			continue
+		}
+		j.State = JobCancelled
+		j.UpdatedAt = q.stamp()
+		q.ended++
+		j.order = q.ended
+		close(j.done)
+		q.updatedLocked(j)
+		n++
+	}
+	q.queue = kept
+	if j := q.running; j != nil && stale(j) && !j.CancelRequested {
+		j.CancelRequested = true
+		j.UpdatedAt = q.stamp()
+		q.updatedLocked(j)
+		j.cancel()
+		n++
+	}
+	return n
 }
 
 // Close refuses new jobs, cancels the queued and running ones and waits

@@ -4,6 +4,8 @@ import SwiftUI
 /// Paired consoles (docs/specs/06-app-ios.md §4.1).
 struct ConsolesView: View {
     @Environment(AppModel.self) private var app
+    /// A console paired before M13 to forget, waiting for confirmation.
+    @State private var toForget: PairedDevice?
 
     var body: some View {
         Group {
@@ -19,9 +21,15 @@ struct ConsolesView: View {
                     }
                     Section {
                         ForEach(app.store.devices) { device in
-                            // Opens the console with its tabs (M11).
+                            // Opens the console with its tabs (M11); a
+                            // console paired before M13 is paired again
+                            // first (scan its QR code).
                             Button {
-                                app.openConsole(device.id)
+                                if device.needsRepair {
+                                    app.showRepair(deviceId: device.id)
+                                } else {
+                                    app.openConsole(device.id)
+                                }
                             } label: {
                                 HStack {
                                     ConsoleRow(device: device, isOnline: DiscoveryLogic.find(id: device.id, in: app.discovery.devices) != nil)
@@ -34,10 +42,35 @@ struct ConsolesView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("console.\(device.id)")
+                            // Never a full swipe: the entry is what is left to
+                            // pair it again; forgetting it is confirmed first.
+                            .swipeActions(allowsFullSwipe: false) {
+                                if device.needsRepair {
+                                    Button("Forget") { toForget = device }
+                                        .tint(.red)
+                                        .accessibilityIdentifier("console.forget")
+                                }
+                            }
+                        }
+                    } footer: {
+                        if app.store.devices.contains(where: \.needsRepair) {
+                            Text("This version of ReminisLink pairs differently: update ReminisLink on the console, then scan its QR code again.")
                         }
                     }
                 }
             }
+        }
+        .confirmationDialog(
+            "Forget this console?",
+            isPresented: Binding(get: { toForget != nil }, set: { if !$0 { toForget = nil } }),
+            titleVisibility: .visible, presenting: toForget
+        ) { device in
+            // Only the RL1 entry of this device: never the synchronized
+            // pairing of the same console that may have arrived meanwhile.
+            Button("Forget", role: .destructive) { app.forgetRepairMarker(deviceId: device.id) }
+            .accessibilityIdentifier("console.forget.confirm")
+        } message: { device in
+            Text("\(device.name) will be removed from this list. To use it again, scan its QR code.")
         }
         .navigationTitle("Consoles")
         .toolbar {
@@ -115,14 +148,22 @@ struct ConsoleRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(isOnline ? Color.green : Color.secondary)
-                    .frame(width: 8, height: 8)
-                    .accessibilityHidden(true)
-                Text(isOnline ? "Online" : "Offline")
+            if device.needsRepair {
+                // M13: paired before the new pairing; scan its QR code.
+                Label("Pair Again", systemImage: "qrcode.viewfinder")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("console.needsRepair")
+            } else {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(isOnline ? Color.green : Color.secondary)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                    Text(isOnline ? "Online" : "Offline")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .accessibilityElement(children: .combine)
