@@ -618,11 +618,28 @@ func ErrorDeviceBusy() *Error {
 	return newError(http.StatusTooManyRequests, CodeTooManyAttempts, "Device busy")
 }
 
+type writeCheckKey struct{}
+
+// WithWriteCheck returns a context whose write, once it holds the write
+// lock, first calls check: a non-nil error refuses the write (the server
+// checks there that the client was not disconnected or forgotten while
+// it waited, M13).
+func WithWriteCheck(ctx context.Context, check func() *Error) context.Context {
+	return context.WithValue(ctx, writeCheckKey{}, check)
+}
+
 // acquireWrites takes the write lock for a request: busy after its wait,
-// shutting_down when ctx ends first.
+// shutting_down when ctx ends first, or the error of the write check of
+// ctx (the lock is then released).
 func (s *Service) acquireWrites(ctx context.Context) *Error {
 	switch err := s.opts.Writes.AcquireRequest(ctx); {
 	case err == nil:
+		if check, ok := ctx.Value(writeCheckKey{}).(func() *Error); ok {
+			if apiErr := check(); apiErr != nil {
+				s.opts.Writes.Release()
+				return apiErr
+			}
+		}
 		return nil
 	case errors.Is(err, writelock.ErrBusy):
 		return ErrorDeviceBusy()
