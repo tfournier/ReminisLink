@@ -394,6 +394,9 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 	// The write lock generation before anything is read: an ETag computed
 	// while a write ran is never cached (artETags).
 	gen := s.writes().Generation()
+	if hook := s.artLookupHook.Load(); hook != nil {
+		(*hook)()
+	}
 	file, fi, artPath, err := s.opts.Library.OpenArt(r.PathValue("gameId"))
 	if err != nil {
 		if errors.Is(err, confine.ErrOutside) {
@@ -406,10 +409,16 @@ func (s *Server) handleGameArt(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 	// The size and date of the opened file (not of the lookup): the ETag
 	// and the body always describe the same file, even if the art is
-	// replaced meanwhile.
+	// replaced meanwhile. The cache is only read when no write started
+	// between the generation read above and the open: the opened file may
+	// be a new version with the size and date of the old one.
 	size := fi.Size()
 	key := newArtKey(artPath, size, fi.ModTime())
-	etag, cached := s.artETags.get(key, gen)
+	var etag string
+	cached := false
+	if s.writes().Generation() == gen {
+		etag, cached = s.artETags.get(key, gen)
+	}
 	var data []byte
 	switch {
 	case cached:

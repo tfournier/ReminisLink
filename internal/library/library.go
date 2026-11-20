@@ -389,7 +389,11 @@ func (l *Library) OpenArt(gameID string) (*os.File, fs.FileInfo, string, error) 
 	if err != nil {
 		return nil, nil, "", err
 	}
-	art := l.adapter.ArtFile(g)
+	art, err := l.adapter.ArtFile(g)
+	if err != nil {
+		// The card could not be read: not an absent art.
+		return nil, nil, "", fmt.Errorf("find art: %w", withoutPath(err))
+	}
 	if art == nil {
 		return nil, nil, "", fmt.Errorf("%w: art", ErrNotFound)
 	}

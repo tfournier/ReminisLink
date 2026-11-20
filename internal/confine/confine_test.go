@@ -2,8 +2,10 @@ package confine
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -90,5 +92,43 @@ func TestOpenUnder(t *testing.T) {
 	}
 	if _, _, err := OpenUnder(dir, filepath.Join(dir, "a", "missing")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("missing: %v", err)
+	}
+}
+
+// A file the system refuses to open (permission, I/O error) is an error of
+// its own: neither a refusal (ErrOutside) nor a missing file.
+func TestOpenUnreadableIsAnIOError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "x.bin")
+	if err := os.WriteFile(p, []byte("abc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(p, 0o644) })
+	_, _, err := OpenUnder(dir, p)
+	if err == nil || errors.Is(err, ErrOutside) || errors.Is(err, fs.ErrNotExist) || !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("unreadable: %v", err)
+	}
+}
+
+func TestIsIOError(t *testing.T) {
+	pathErr := func(err error) error { return &fs.PathError{Op: "openat", Path: "x", Err: err} }
+	for err, want := range map[error]bool{
+		pathErr(syscall.EIO):                            true,
+		pathErr(syscall.EACCES):                         true,
+		pathErr(syscall.EMFILE):                         true,
+		pathErr(syscall.ELOOP):                          false,
+		pathErr(syscall.ENOTDIR):                        false,
+		pathErr(syscall.EXDEV):                          false,
+		pathErr(errors.New("path escapes from parent")): false,
+	} {
+		if got := isIOError(err); got != want {
+			t.Errorf("isIOError(%v) = %v", err, got)
+		}
 	}
 }

@@ -32,9 +32,12 @@ type artKey struct {
 //   - every write of the pak holds the write lock (M13, "Writes one at a
 //     time"): PUT and DELETE art, game deletion, uploads, patches, jobs,
 //     trash. The cache is tied to the lock's generation: it is emptied as
-//     soon as a write starts, and an ETag is kept only when no write ran
-//     while it was computed. Hence a pak-side change of an art, even with
-//     the same size and date, always gets a new ETag.
+//     soon as a write starts, the handler only reads it when no write
+//     started between the beginning of the request and the opening of the
+//     file, and an ETag is kept only when no write ran while it was
+//     computed. Hence a pak-side change of an art, even with the same size
+//     and date, always gets a new SHA-256 ETag. (Arts over MaxArtBytes are
+//     not hashed: their "mt-" ETag is the size and date, whoever writes.)
 type artETags struct {
 	mu  sync.Mutex
 	gen uint64 // the write lock generation of m

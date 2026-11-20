@@ -3,11 +3,13 @@ package nextui
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/tfournier/ReminisLink/internal/osadapter"
@@ -518,13 +520,21 @@ func TestArtFileMatchesGameFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	artOf := func(g osadapter.Game) *osadapter.File {
+		t.Helper()
+		art, err := a.ArtFile(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return art
+	}
 	same := func(g osadapter.Game) {
 		t.Helper()
 		files, err := a.GameFiles(g)
 		if err != nil {
 			t.Fatal(err)
 		}
-		art := a.ArtFile(g)
+		art := artOf(g)
 		if !reflect.DeepEqual(art, files.Art) {
 			t.Errorf("%s: ArtFile %+v, GameFiles %+v", g.Path, art, files.Art)
 		}
@@ -533,7 +543,7 @@ func TestArtFileMatchesGameFiles(t *testing.T) {
 	for _, sys := range systems {
 		if err := a.WalkGames(context.Background(), sys, func(g osadapter.Game) error {
 			same(g)
-			if a.ArtFile(g) != nil {
+			if artOf(g) != nil {
 				withArt++
 			}
 			return nil
@@ -550,11 +560,11 @@ func TestArtFileMatchesGameFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.ArtFile(g) != nil {
+	if artOf(g) != nil {
 		t.Fatal("Lantern Keeper has an art")
 	}
 	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media/LANTERN KEEPER [B1].png", "png")
-	if art := a.ArtFile(g); art == nil || art.Size != 3 || filepath.Base(art.Path) != "LANTERN KEEPER [B1].png" ||
+	if art := artOf(g); art == nil || art.Size != 3 || filepath.Base(art.Path) != "LANTERN KEEPER [B1].png" ||
 		art.Rel != "Roms/"+gba+"/.media/LANTERN KEEPER [B1].png" {
 		t.Fatalf("art in another case = %+v (want the stored name)", art)
 	}
@@ -568,7 +578,7 @@ func TestArtFileMatchesGameFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art := a.ArtFile(noel); art != nil {
+	if art := artOf(noel); art != nil {
 		t.Errorf("NFD art taken for an NFC ROM: %+v", art)
 	}
 	same(noel)
@@ -580,10 +590,49 @@ func TestArtFileMatchesGameFiles(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(sd, "Roms", gba, ".media", "Lantern Keeper [b1].png"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if art := a.ArtFile(g); art != nil {
+	if art := artOf(g); art != nil {
 		t.Fatalf("folder taken as art: %+v", art)
 	}
 	same(g)
+}
+
+// ArtFile tells an absent art from a card that cannot be read: a missing
+// .media (or a file in its place) has no art, an error reading .media or
+// the art entry is returned.
+func TestArtFileReportsIOErrors(t *testing.T) {
+	a, sd := newAdapter(t)
+	g, err := a.Game(gba + "/Starlight Courier.gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := filepath.Join(sd, "Roms", gba, ".media")
+	orig := readDir
+	t.Cleanup(func() { readDir = orig })
+	readDir = func(dir string) ([]fs.DirEntry, error) {
+		if dir == media {
+			return nil, &fs.PathError{Op: "readdirent", Path: dir, Err: syscall.EIO}
+		}
+		return orig(dir)
+	}
+	if art, err := a.ArtFile(g); art != nil || !errors.Is(err, syscall.EIO) {
+		t.Fatalf("unreadable .media: %+v, %v", art, err)
+	}
+	// GameFiles leaves it out, like any file it cannot read.
+	if files, err := a.GameFiles(g); err != nil || files.Art != nil {
+		t.Fatalf("GameFiles: %+v, %v", files.Art, err)
+	}
+	readDir = orig
+
+	if err := os.RemoveAll(media); err != nil {
+		t.Fatal(err)
+	}
+	if art, err := a.ArtFile(g); art != nil || err != nil {
+		t.Fatalf("no .media: %+v, %v", art, err)
+	}
+	testutil.WriteFile(t, sd, "Roms/"+gba+"/.media", "not a folder")
+	if art, err := a.ArtFile(g); art != nil || err != nil {
+		t.Fatalf(".media is a file: %+v, %v", art, err)
+	}
 }
 
 func TestGameFilesMultiDisc(t *testing.T) {

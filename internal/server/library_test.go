@@ -312,9 +312,87 @@ func TestGameArtReplacedWithTheSameSizeAndDateGetsANewETag(t *testing.T) {
 	}
 }
 
+// A pak write that replaces the art (same size, same date) between the
+// read of the write lock generation and the opening of the art: the
+// request opens the new file, so it must not take the old version's ETag
+// from the cache (the cache was not touched since: no request ran).
+func TestGameArtReplacedBetweenTheGenerationAndTheOpen(t *testing.T) {
+	f := newFixture(t)
+	const path = "/games/{gameId}/art"
+	target := "/api/v1/games/" + id(gba+"/Starlight Courier.gba") + "/art"
+	date := time.Now().Add(-time.Hour).Truncate(time.Second)
+	art := testutil.WriteFile(t, f.sd, "Roms/"+gba+"/.media/Starlight Courier.png", "version A")
+	if err := os.Chtimes(art, date, date); err != nil {
+		t.Fatal(err)
+	}
+	etag := f.get(target, path, 200).Header.Get("ETag")
+	if f.server.artETags.len() != 1 {
+		t.Fatal("not cached")
+	}
+	var once sync.Once
+	replace := func() {
+		once.Do(func() {
+			if err := f.server.writes().Acquire(context.Background()); err != nil {
+				t.Error(err)
+				return
+			}
+			defer f.server.writes().Release()
+			if err := os.WriteFile(art, []byte("version B"), 0o644); err != nil {
+				t.Error(err)
+			}
+			if err := os.Chtimes(art, date, date); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	f.server.artLookupHook.Store(&replace)
+	defer f.server.artLookupHook.Store(nil)
+	req := f.client.Request(t, http.MethodGet, target, nil)
+	req.Header.Set("If-None-Match", etag)
+	r := f.client.Send(t, req)
+	f.check(http.MethodGet, path, r)
+	if r.Status != 200 || string(r.Body) != "version B" || r.Header.Get("ETag") == etag {
+		t.Fatalf("replaced before the open: %d %q, ETag %s (old %s)", r.Status, r.Body, r.Header.Get("ETag"), etag)
+	}
+	sum := sha256.Sum256([]byte("version B"))
+	if want := `"sha256-` + hex.EncodeToString(sum[:16]) + `"`; r.Header.Get("ETag") != want {
+		t.Errorf("ETag %s, want %s", r.Header.Get("ETag"), want)
+	}
+}
+
+// The card cannot be read: GET /art answers 500, never 404 (the app keeps
+// its copy on an error, drops it on a 404).
+func TestGameArtIOErrorIsNotNotFound(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	f := newFixture(t)
+	const path = "/games/{gameId}/art"
+	target := "/api/v1/games/" + id(gba+"/Starlight Courier.gba") + "/art"
+	media := filepath.Join(f.sd, "Roms", gba, ".media")
+	art := filepath.Join(media, "Starlight Courier.png")
+	if err := os.Chmod(art, 0); err != nil {
+		t.Fatal(err)
+	}
+	r := f.get(target, path, 500)
+	if r.ErrorCode() != auth.CodeInternal {
+		t.Errorf("unreadable art: %s", r.Body)
+	}
+	if err := os.Chmod(art, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(media, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(media, 0o755) })
+	if r := f.get(target, path, 500); r.ErrorCode() != auth.CodeInternal {
+		t.Errorf("unreadable .media: %s", r.Body)
+	}
+}
+
 // Many concurrent GETs and revalidations while the art is replaced
 // (run with -race): every 200 carries the ETag of its own body, and a 304
-// only answers the ETag of a version that was served.
+// answers only the ETag of the content current during the request.
 func TestGameArtConcurrentRequestsAndReplacements(t *testing.T) {
 	f := newFixture(t)
 	const path = "/games/{gameId}/art"
@@ -323,36 +401,69 @@ func TestGameArtConcurrentRequestsAndReplacements(t *testing.T) {
 		sum := sha256.Sum256(b)
 		return `"sha256-` + hex.EncodeToString(sum[:16]) + `"`
 	}
-	versions := make([][]byte, 4)
-	known := map[string]bool{}
+	const puts = 20
+	// Distinct versions: version i is written by PUT i (version 0 is
+	// there first). It can be the content from the start of PUT i to the
+	// end of PUT i+1.
+	versions := make([][]byte, puts+1)
 	for i := range versions {
 		versions[i] = pngOf(t, 4+i, 4)
-		known[etagOf(versions[i])] = true
 	}
 	art := testutil.WriteFile(t, f.sd, "Roms/"+gba+"/.media/Starlight Courier.png", "")
 	if err := os.WriteFile(art, versions[0], 0o644); err != nil {
 		t.Fatal(err)
 	}
-	known[etagOf(nil)] = true // an empty file seen between the trash move and the new file
+	var mu sync.Mutex
+	starts := make([]time.Time, puts+2) // starts[i], ends[i]: PUT i
+	ends := make([]time.Time, puts+2)
+	far := time.Now().Add(time.Hour)
+	for i := 1; i < len(ends); i++ {
+		ends[i] = far // not yet ended
+	}
+	current := func(etag string, from, to time.Time) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for i, v := range versions {
+			if etagOf(v) != etag {
+				continue
+			}
+			// Version i is possible from starts[i] to ends[i+1].
+			return !starts[i].After(to) && !ends[i+1].Before(from) && (i == 0 || !starts[i].IsZero())
+		}
+		return false
+	}
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 1; i <= 20; i++ {
-			req := f.client.Request(t, http.MethodPut, target, versions[i%len(versions)])
-			req.Header.Set("Content-Type", "image/png")
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				t.Error(err)
-				return
+		defer close(stop)
+		for i := 1; i <= puts; i++ {
+			mu.Lock()
+			starts[i] = time.Now()
+			mu.Unlock()
+			for {
+				req := f.client.Request(t, http.MethodPut, target, versions[i])
+				req.Header.Set("Content-Type", "image/png")
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				resp.Body.Close()
+				if resp.StatusCode == 429 {
+					continue // device busy: sent again
+				}
+				if resp.StatusCode != 200 {
+					t.Errorf("PUT: %d", resp.StatusCode)
+					return
+				}
+				break
 			}
-			resp.Body.Close()
-			if resp.StatusCode != 200 && resp.StatusCode != 429 {
-				t.Errorf("PUT: %d", resp.StatusCode)
-			}
+			mu.Lock()
+			ends[i] = time.Now()
+			mu.Unlock()
 		}
-		close(stop)
 	}()
 	for g := 0; g < 8; g++ {
 		wg.Add(1)
@@ -369,6 +480,7 @@ func TestGameArtConcurrentRequestsAndReplacements(t *testing.T) {
 				if etag != "" {
 					req.Header.Set("If-None-Match", etag)
 				}
+				from := time.Now()
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
 					t.Error(err)
@@ -376,6 +488,7 @@ func TestGameArtConcurrentRequestsAndReplacements(t *testing.T) {
 				}
 				body, err := io.ReadAll(resp.Body)
 				resp.Body.Close()
+				to := time.Now()
 				if err != nil {
 					t.Error(err)
 					return
@@ -389,8 +502,8 @@ func TestGameArtConcurrentRequestsAndReplacements(t *testing.T) {
 					}
 					etag = got
 				case 304:
-					if got != etag || !known[got] {
-						t.Errorf("304 with ETag %s, asked %s", got, etag)
+					if got != etag || !current(got, from, to) {
+						t.Errorf("304 for ETag %s, not the content during the request", got)
 						return
 					}
 				case 404:
@@ -404,7 +517,7 @@ func TestGameArtConcurrentRequestsAndReplacements(t *testing.T) {
 	}
 	wg.Wait()
 	r := f.get(target, path, 200)
-	if r.Header.Get("ETag") != etagOf(r.Body) {
+	if !bytes.Equal(r.Body, versions[puts]) || r.Header.Get("ETag") != etagOf(r.Body) {
 		t.Errorf("final: ETag %s for %s", r.Header.Get("ETag"), etagOf(r.Body))
 	}
 }

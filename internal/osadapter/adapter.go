@@ -201,9 +201,10 @@ type Adapter interface {
 	Game(rel string) (Game, error)
 	// GameFiles finds every file of a game.
 	GameFiles(g Game) (GameFiles, error)
-	// ArtFile finds the art of a game as GameFiles does (nil when it has
-	// none), without looking for its other files.
-	ArtFile(g Game) *File
+	// ArtFile finds the art of a game as GameFiles does, without looking
+	// for its other files: nil, nil when it has none, an error when the
+	// card cannot be read.
+	ArtFile(g Game) (*File, error)
 	// ROMFiles returns the files the game itself uses (absolute paths): the
 	// ROM, or the playlist (or .cue) of a multi-disc game, the discs it
 	// lists and the tracks of their .cue sheets.
