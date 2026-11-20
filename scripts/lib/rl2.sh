@@ -11,6 +11,9 @@
 # PEM file in a private temporary folder (only its path is an argument).
 # Nothing secret is printed.
 #
+# Bash 3.2 compatible (macOS /bin/bash): no BASHPID, and no expansion of
+# an empty array under set -u.
+#
 # Source it, then set RL2_DIR to a private folder (mktemp -d) and call
 # rl2_selftest once. Needs OpenSSL 3 or later (Ed25519 with -rawin); set
 # OPENSSL to choose the binary.
@@ -79,7 +82,10 @@ ed25519_pub_b64u() { "$OPENSSL" pkey -in "$1" -pubout -outform DER | tail -c 32 
 
 # ed25519_sign_b64u FILE < message: the 64-byte signature, base64url.
 ed25519_sign_b64u() {
-	local msg=$RL2_DIR/msg.$BASHPID sig=$RL2_DIR/sig.$BASHPID
+	local msg sig
+	# mktemp: unique names even for concurrent calls (Bash 3.2 has no
+	# BASHPID, and $$ is the same in every subshell).
+	msg=$(mktemp "$RL2_DIR/msg.XXXXXX") && sig=$(mktemp "$RL2_DIR/sig.XXXXXX") || rl2_die "mktemp failed"
 	cat >"$msg"
 	"$OPENSSL" pkeyutl -sign -inkey "$1" -rawin -in "$msg" -out "$sig" || rl2_die "Ed25519 signature failed"
 	bin_to_b64u <"$sig"
@@ -178,12 +184,12 @@ rl2_req() {
 	signature=$(printf '%s' "$canonical" | ed25519_sign_b64u "$RL2_DIR/$who.pem")
 	if [ -n "$data" ]; then opts=(-H 'Content-Type: application/json' --data-binary @-); fi
 	if [ -n "$out" ]; then
-		status=$(printf '%s' "$data" | pcurl -sS -X "$method" -o "$out" -w '%{http_code}' "${opts[@]}" \
+		status=$(printf '%s' "$data" | pcurl -sS -X "$method" -o "$out" -w '%{http_code}' ${opts[@]+"${opts[@]}"} \
 			-H "X-RL-Client: $id" -H "X-RL-Time: $time" -H "X-RL-Nonce: $nonce" -H 'X-RL-Platform: mac' \
 			-H "X-RL-Content-SHA256: $content" -H "X-RL-Signature: $signature" "$RL2_BASE$path")
 		return
 	fi
-	response=$(printf '%s' "$data" | pcurl -sS -X "$method" -w '\n%{http_code}' "${opts[@]}" \
+	response=$(printf '%s' "$data" | pcurl -sS -X "$method" -w '\n%{http_code}' ${opts[@]+"${opts[@]}"} \
 		-H "X-RL-Client: $id" -H "X-RL-Time: $time" -H "X-RL-Nonce: $nonce" -H 'X-RL-Platform: mac' \
 		-H "X-RL-Content-SHA256: $content" -H "X-RL-Signature: $signature" "$RL2_BASE$path")
 	status=${response##*$'\n'}
