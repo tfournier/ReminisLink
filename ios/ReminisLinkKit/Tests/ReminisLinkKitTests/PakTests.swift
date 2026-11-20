@@ -204,6 +204,18 @@ struct PakAPITests {
         #expect(conflict.serverError?.conflictingPakName == "Notes")
     }
 
+    @Test func aDownloadedArchiveOverOneGiBIsRefused() async throws {
+        let pak = makePak()
+        pak.downloadSize = FakePak.maxPakArchiveBytes + 1
+        let client = try await pairedClient(pak)
+        let before = pak.installedPakNames
+        let job = try await finished(try await client.createDownload(DownloadRequest(
+            url: "https://example.invalid/paks/Huge.pak.zip", target: .pak(fileName: nil), onConflict: .fail
+        )).jobId, client)
+        #expect(job.state == .failed && job.serverError?.code == .tooLarge)
+        #expect(pak.installedPakNames == before)
+    }
+
     @Test func browsesTheCardWithoutTheDataOfReminisLink() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

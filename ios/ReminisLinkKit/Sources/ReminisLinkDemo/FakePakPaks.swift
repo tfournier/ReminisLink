@@ -56,6 +56,9 @@ struct FakePaksState {
     var paks: [FakeInstalledPak] = FakePaksState.sample
     /// `/paks` and `/sd/browse` exist (false: a pak older than M12).
     var supported = true
+    /// The next installation reads this name instead of its source's (the
+    /// source changed between two attempts).
+    var nextSourceName: String?
 
     static let sample: [FakeInstalledPak] = {
         let date = ProtocolJSON.parseDate("2026-11-18T17:00:00Z") ?? Date(timeIntervalSince1970: 1_795_000_000)
@@ -110,6 +113,13 @@ extension FakePak {
     /// as `GET /sd/browse` lists it.
     public static func sdEntryId(_ path: String) -> String {
         "se_" + Base64URL.encode(Data(path.utf8))
+    }
+
+    /// The next installation finds another archive than its source named
+    /// (a link or SD file replaced between a conflict and its replacement):
+    /// it installs the pak `name` names.
+    public func changeNextPakSource(to name: String) {
+        lock.withLock { paksState.nextSourceName = name }
     }
 
     /// As if another client had installed a pak (a `paks` event follows).
@@ -260,6 +270,13 @@ extension FakePak {
 
     /// Installs the pak a plan names: `200 {pakId}` or the error of its job.
     func installPak(_ plan: FakePakPlan) -> FakeResponse {
+        var plan = plan
+        if let changed = lock.withLock({ () -> String? in
+            defer { paksState.nextSourceName = nil }
+            return paksState.nextSourceName
+        }) {
+            plan = FakePakPlan(sourceName: changed, kind: plan.kind, onConflict: plan.onConflict, folderKind: plan.folderKind)
+        }
         let lower = plan.sourceName.lowercased()
         if lower.contains("broken") {
             return .error(422, code: "unsupported_format", message: "Invalid pak: not a zip archive")

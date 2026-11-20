@@ -247,6 +247,18 @@ struct PakInstallRow: View {
                 .foregroundStyle(isFailure(phase) ? .red : .secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("pakInstall.status")
+            if let mismatch = install.mismatch, let confirmed = install.confirmedName {
+                Label {
+                    Text(mismatch.replacedOne
+                        ? "\(mismatch.installed) was replaced instead of \(confirmed). The previous \(mismatch.installed) is in the trash of the console."
+                        : "\(mismatch.installed) was installed instead of \(confirmed), which was not replaced.")
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+                .font(.footnote)
+                .accessibilityIdentifier("pakInstall.mismatch")
+            }
             if case .needsReplacement = phase {
                 HStack {
                     Button("Replace…") { manager.pendingReplacement = install }

@@ -55,6 +55,13 @@ final class PakInstall: Identifiable {
     /// The current attempt replaces the installed pak (after the user
     /// confirmed): a new conflict is an error, never asked again.
     var replacing = false
+    /// The installed pak the user agreed to replace.
+    var confirmedName: String?
+    /// Set when a replacement installed another pak than the one
+    /// confirmed (the source changed between the conflict and the
+    /// replacement): what it installed, and whether a pak of that name went
+    /// to the trash.
+    var mismatch: (installed: String, replacedOne: Bool)?
 
     init(name: String, source: Source, kind: PakInstallKind) {
         self.name = name
@@ -92,6 +99,9 @@ final class PakManager {
     @ObservationIgnored private unowned let session: ConsoleSession
     @ObservationIgnored private var loads = LoadGeneration()
     @ObservationIgnored private var observing = false
+    /// The list was asked for once: a `paks` event reloads it, even while
+    /// the first load is still out.
+    @ObservationIgnored private var wanted = false
 
     init(session: ConsoleSession) {
         self.session = session
@@ -113,6 +123,7 @@ final class PakManager {
     /// `GET /paks`. Only the last load started publishes. A pak older than
     /// M12 is ``AppError/needsNewerPak``.
     func load() async {
+        wanted = true
         prune()
         let generation = loads.begin()
         isLoading = true
@@ -130,9 +141,10 @@ final class PakManager {
     }
 
     /// A `paks` event (M14): another client (or this one) installed or
-    /// deleted a pak. Reloaded if the list was shown once.
+    /// deleted a pak. Reloaded once the list was asked for: an event that
+    /// arrives during the first load starts a newer one, whose answer wins.
     func paksChanged() {
-        guard paks != nil || loadError != nil else { return }
+        guard wanted else { return }
         Task { await load() }
     }
 
@@ -200,10 +212,12 @@ final class PakManager {
             switch install.source {
             case .file(let file):
                 install.phase = .sending
-                install.upload = try session.transfers.enqueue(
+                let item = try session.transfers.enqueue(
                     fileURL: file.url, fileName: file.name, target: .pak(kind: install.kind, fileName: file.name),
                     onConflict: replace ? .overwrite : .fail, destination: String(localized: "Apps"), ownsFile: false
                 )
+                install.upload = item
+                watchUpload(install, item)
             case .link(let url):
                 install.phase = .installing
                 let request = DownloadRequest(
@@ -260,12 +274,18 @@ final class PakManager {
             install.phase = .installed
             cleanUp(install)
             // The `paks` event may come later (or not at all without a
-            // stream): the list is read now.
-            Task { await load() }
-            Task { await session.loadTrash() }
+            // stream): the list is read now; a replacement then checks it
+            // replaced the pak the user confirmed.
+            let pakId = job.resultPakId
+            Task {
+                await load()
+                await session.loadTrash()
+                checkReplacement(install, pakId: pakId)
+            }
         case .failed:
             let server = job.serverError
             if let server, let name = server.conflictingPakName, !install.replacing {
+                install.confirmedName = name
                 install.phase = .needsReplacement(name: name)
                 if pendingReplacement == nil { pendingReplacement = install }
             } else {
@@ -285,8 +305,39 @@ final class PakManager {
         installs.first { $0.jobId == jobId }
     }
 
+    /// A replacement installs what the source holds when it runs: a link or
+    /// SD file changed since the conflict may install (and replace) another
+    /// pak than the one confirmed. The pak keeps the replaced one in its
+    /// trash; the app says which one it was.
+    private func checkReplacement(_ install: PakInstall, pakId: String?) {
+        guard install.replacing, let confirmed = install.confirmedName, let pakId,
+              let installed = paks?.first(where: { $0.pakId == pakId })?.name,
+              installed.lowercased() != confirmed.lowercased()
+        else { return }
+        let replacedOne = session.trash?.entries.contains { $0.reason == "replace-pak" && $0.label.lowercased() == installed.lowercased() } ?? false
+        install.mismatch = (installed, replacedOne)
+    }
+
+    /// Follows the upload of an installation: cancelled (from the Transfers
+    /// tab), the installation ends and its copy is deleted at once.
+    private func watchUpload(_ install: PakInstall, _ item: UploadItem) {
+        withObservationTracking {
+            _ = item.phase
+        } onChange: { [weak self, weak install, weak item] in
+            Task { @MainActor in
+                guard let self, let install, let item, install.upload === item, install.phase == .sending else { return }
+                if item.phase == .cancelled {
+                    install.phase = .cancelled
+                    self.cleanUp(install)
+                } else if !item.phase.isFinished {
+                    self.watchUpload(install, item)
+                }
+            }
+        }
+    }
+
     /// Installations whose upload was cancelled in the Transfers tab end
-    /// here (their copy is deleted).
+    /// here (their copy is deleted), if the watch missed it.
     private func prune() {
         for install in installs where install.phase == .sending && install.upload?.phase == .cancelled {
             install.phase = .cancelled

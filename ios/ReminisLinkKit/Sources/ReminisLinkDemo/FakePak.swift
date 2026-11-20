@@ -1328,8 +1328,12 @@ extension FakePak {
                 let fromURL = job.url.flatMap(URL.init(string:)).map(\.lastPathComponent).flatMap(Self.cleanFileName)
                 let fileName = name ?? fromURL ?? "download.bin"
                 if case .pak = job.target {
-                    // M12: the download job installs the archive.
-                    finish(&job, with: store(target: job.target, sizeBytes: total, onConflict: job.onConflict, fallbackName: fileName))
+                    // M12: the download job installs the archive, at most
+                    // 1 GiB (nothing is installed beyond).
+                    let response = total > Self.maxPakArchiveBytes
+                        ? FakeResponse.error(413, code: "too_large", message: "Pak archive larger than 1 GiB")
+                        : store(target: job.target, sizeBytes: total, onConflict: job.onConflict, fallbackName: fileName)
+                    finish(&job, with: response)
                     job.updatedAt = now
                     lock.withLock { jobs[id] = job }
                     return job.json

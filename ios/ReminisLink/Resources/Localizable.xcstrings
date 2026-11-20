@@ -81,12 +81,32 @@
         }
       }
     },
+    "%@ was installed instead of %@, which was not replaced." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ a été installé au lieu de %2$@, qui n’a pas été remplacé."
+          }
+        }
+      }
+    },
     "%@ was moved to the trash of the console." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ a été mis dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "%@ was replaced instead of %@. The previous %@ is in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ a été remplacé au lieu de %2$@. L’ancien %3$@ est dans la corbeille de la console."
           }
         }
       }

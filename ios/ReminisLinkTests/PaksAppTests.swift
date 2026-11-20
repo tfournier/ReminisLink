@@ -241,6 +241,56 @@ struct PaksAppTests {
         #expect(replaceRequests.count == 3)
     }
 
+    @Test func aCancelledUploadDeletesItsCopyAtOnce() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        let manager = session.paks
+        // The upload waits at its creation: cancelled from the Transfers
+        // tab, without the Apps screen ever loading.
+        let created = pak.holdNextArrival(method: "POST", path: "/api/v1/uploads")
+        let file = try pickedFile(app, name: "Weather.pak.zip")
+        let install = await manager.install(.file(file), name: file.name, kind: .auto)
+        let item = try #require(install.upload)
+        await waitUntil { created.reached }
+        session.transfers.cancel(item)
+        created.open()
+        await waitUntil { install.phase == .cancelled && !FileManager.default.fileExists(atPath: file.directory.path) }
+        #expect(install.phase == .cancelled)
+        #expect(!FileManager.default.fileExists(atPath: file.directory.path))
+        session.transfers.clearFinished()
+        #expect(count(pak, "GET", "/paks") == 0)
+    }
+
+    @Test func aReplacementThatInstalledAnotherPakSaysSo() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        let manager = session.paks
+        let clock = SdEntry(sdEntryId: FakePak.sdEntryId("Downloads/Clock.pak.zip"), name: "Clock.pak.zip", kind: .file,
+                            sizeBytes: 2048, modifiedAt: Date())
+        let install = await manager.install(.sdCard(clock), name: clock.name, kind: .auto)
+        await follow(session) { install.phase == .needsReplacement(name: "Clock") }
+        // The file on the card changed meanwhile: it now holds Files.
+        pak.changeNextPakSource(to: "Files.zip")
+        await manager.replace(install)
+        await follow(session) { install.isFinished }
+        #expect(install.phase == .installed)
+        await waitUntil { install.mismatch != nil }
+        #expect(install.mismatch?.installed == "Files")
+        #expect(install.mismatch?.replacedOne == true)
+        #expect(session.trash?.entries.first?.label == "Files")
+        #expect(pak.installedPak(named: "Clock")?.version == "1.2")
+
+        // The confirmed one replaced: nothing to say.
+        let again = await manager.install(.sdCard(clock), name: clock.name, kind: .auto)
+        await follow(session) { again.phase == .needsReplacement(name: "Clock") }
+        await manager.replace(again)
+        await follow(session) { again.isFinished }
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(again.phase == .installed && again.mismatch == nil)
+    }
+
     @Test func installFromALink() async throws {
         let pak = makePak()
         pak.downloadSize = 4096
@@ -284,6 +334,27 @@ struct PaksAppTests {
     }
 
     // MARK: - Events
+
+    @Test func anEventDuringTheFirstLoadIsNotLost() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let manager = app.session(for: pak.deviceId).paks
+        _ = try await app.session(for: pak.deviceId).connectedClient()
+        // The first answer is computed, then held; the event comes first.
+        let first = pak.holdNextAnswer(method: "GET", path: "/api/v1/paks")
+        let load = Task { await manager.load() }
+        await waitUntil { first.reached }
+        pak.installPakFromAnotherClient(name: "Radio")
+        manager.paksChanged()
+        await waitUntil { count(pak, "GET", "/paks") == 2 }
+        await waitUntil { manager.paks?.contains { $0.name == "Radio" } == true }
+        first.open()
+        await load.value
+        try? await Task.sleep(for: .milliseconds(100))
+        // The older answer (without Radio) never replaces the newer one.
+        #expect(manager.paks?.contains { $0.name == "Radio" } == true)
+        #expect(count(pak, "GET", "/paks") == 2)
+    }
 
     @Test func thePaksEventRefreshesTheList() async throws {
         let pak = makePak()
