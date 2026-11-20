@@ -391,7 +391,11 @@ paths:
           The app treats 35 s without any byte as a lost connection.
         - `shutdown`: `EventShutdown`, sent when the pak starts closing
           (quit from the console, or the system stopping it), just before
-          the stream ends. Then the connection closes.
+          the stream ends. Then the connection closes. Events still waiting
+          for the end of their interval (a merged `library`, a job's
+          progress) are sent at once, before `shutdown`. All final writes
+          must finish within 1 s of the start of the shutdown; a client that
+          no longer reads is cut without delaying it.
         - `device`: `EventDevice`, when the battery (percent or charging),
           the connected clients or the free space change; at most one
           every 5 s.
