@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Installation — ReminisLink</title>
+  <meta name="description" content="Installer ReminisLink pas à pas : le pak sur ta TrimUI Brick sous NextUI, l’app iPhone, l’appairage par QR code, la copie des saves dans iCloud Drive, la mise à jour et la désinstallation.">
+  <link rel="canonical" href="https://reminis.link/fr/install/">
+  <link rel="alternate" hreflang="en" href="https://reminis.link/install/">
+  <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/install/">
+  <link rel="alternate" hreflang="x-default" href="https://reminis.link/install/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#2e2a7a">
+  <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Aller au contenu</a>
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="/fr/"><img src="/assets/icon-256.png" alt="" width="36" height="36">ReminisLink</a>
+      <nav class="site-nav" aria-label="Menu principal">
+        <ul>
+          <li><a href="/fr/">Accueil</a></li>
+          <li><a href="/fr/install/" aria-current="page">Installation</a></li>
+          <li><a href="/fr/support/">Assistance</a></li>
+          <li><a href="/fr/privacy/">Confidentialité</a></li>
+          <li class="lang"><a href="/install/" hreflang="en" lang="en">English</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="page-title">
+      <div class="wrap">
+        <h1>Installation</h1>
+        <p>Le pak sur la console, l’app sur l’iPhone, puis l’appairage : une dizaine de minutes.</p>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="prose">
+        <nav aria-labelledby="toc-title">
+          <h2 id="toc-title">Sur cette page</h2>
+          <ul>
+            <li><a href="#requirements">Ce qu’il te faut</a></li>
+            <li><a href="#handheld">1. Installer le pak sur la console</a></li>
+            <li><a href="#iphone">2. Installer l’app sur l’iPhone</a></li>
+            <li><a href="#pair">3. Appairer l’iPhone</a></li>
+            <li><a href="#icloud">4. Facultatif : copies de tes saves dans iCloud Drive</a></li>
+            <li><a href="#daily">Au quotidien</a></li>
+            <li><a href="#update">Mettre à jour le pak</a></li>
+            <li><a href="#uninstall">Désinstaller</a></li>
+          </ul>
+        </nav>
+
+        <section aria-labelledby="requirements">
+          <h2 id="requirements">Ce qu’il te faut</h2>
+          <ul>
+            <li>Une <strong>TrimUI Brick sous NextUI</strong>, avec le Wi-Fi configuré dans les réglages de NextUI. D’autres consoles sont prévues.</li>
+            <li>Un <strong>iPhone sous iOS 17 ou plus récent</strong>. L’app est faite pour l’iPhone ; l’iPad et le Mac ne sont pas pris en charge pour l’instant.</li>
+            <li>L’iPhone et la console sur le <strong>même réseau Wi-Fi</strong> (pas un réseau invité).</li>
+            <li>Un moyen de copier des fichiers sur la carte SD de la console (un lecteur de cartes sur un ordinateur, par exemple).</li>
+          </ul>
+        </section>
+
+        <section aria-labelledby="handheld">
+          <h2 id="handheld">1. Installer le pak sur la console</h2>
+          <ol>
+            <li>Télécharge <code>ReminisLink.pak.zip</code> depuis la <a href="https://github.com/tfournier/ReminisLink/releases">page des versions sur GitHub</a> (prends la plus récente).</li>
+            <li>Mets la carte SD de la console dans ton ordinateur et décompresse l’archive dans le dossier <code>/Tools/tg5040/</code> de la carte. Tu dois obtenir <code>/Tools/tg5040/ReminisLink.pak/launch.sh</code> : le dossier doit s’appeler <code>ReminisLink.pak</code>, directement dans <code>tg5040</code>.</li>
+            <li>Éjecte proprement la carte, remets-la dans la console et allume-la.</li>
+            <li>Active le Wi-Fi dans les réglages de NextUI et connecte-toi à ton réseau.</li>
+            <li>Ouvre <strong>Tools &gt; ReminisLink</strong>.</li>
+          </ol>
+          <p>Si ReminisLink apparaît dans le Pak Store de ta console, tu peux aussi l’installer depuis celui-ci.</p>
+
+          <h3>Premier lancement</h3>
+          <ol>
+            <li>ReminisLink demande la langue de ses écrans : anglais ou français (modifiable plus tard dans <strong>Réglages</strong>).</li>
+            <li>Il vérifie le Wi-Fi. Sans connexion Wi-Fi, il affiche « Pas de Wi-Fi » : appuie sur <strong>B</strong>, active le Wi-Fi dans les réglages de NextUI, puis rouvre-le.</li>
+            <li>Il affiche « Préparation… » quelques instants, puis son écran principal avec un <strong>QR code</strong>. Laisse cet écran ouvert pour la suite.</li>
+          </ol>
+          <p>Sur la console, <strong>Y</strong> ouvre les réglages, <strong>A</strong> masque ou affiche le QR code et <strong>B</strong> quitte (avec une confirmation si un transfert est en cours).</p>
+        </section>
+
+        <section aria-labelledby="iphone">
+          <h2 id="iphone">2. Installer l’app sur l’iPhone</h2>
+          <p>L’app ReminisLink sera <strong>bientôt disponible sur l’App Store</strong>. Cette page donnera le lien dès sa publication.</p>
+          <p>La première fois que l’app cherche ta console, iOS demande si ReminisLink peut trouver des appareils sur ton réseau local et s’y connecter : touche <strong>Autoriser</strong>. Sans cela, l’app ne voit pas la console. Si tu as refusé, ouvre <strong>Réglages &gt; Confidentialité et sécurité &gt; Réseau local</strong> sur l’iPhone et active ReminisLink.</p>
+        </section>
+
+        <section aria-labelledby="pair">
+          <h2 id="pair">3. Appairer l’iPhone</h2>
+          <ol>
+            <li>Dans l’app, touche <strong>Ajouter une console</strong>. Tu peux saisir le nom sous lequel la console affichera tes appareils (par défaut « iPhone »).</li>
+            <li>Scanne le QR code affiché par la console. Autorise l’appareil photo quand iOS le demande ; tu peux aussi scanner le code avec l’app Appareil photo de l’iPhone.</li>
+            <li>L’app trouve la console, s’appaire et l’ouvre. La console affiche « Appairé avec » suivi du nom.</li>
+          </ol>
+          <p>L’appairage n’est ouvert que pendant que le QR code est affiché, et chaque QR code est valable 10 minutes. Dès qu’un appareil est appairé, l’écran principal n’affiche plus de QR code : pour appairer un <strong>autre</strong> appareil, ouvre <strong>Réglages &gt; Appairer un nouvel appareil</strong> sur la console.</p>
+          <p>Ton iPhone garde son appairage dans le trousseau iCloud : tes autres appareils Apple connectés au même compte Apple le partagent et n’ont pas besoin de s’appairer. Un appareil d’un autre compte Apple s’appaire avec son propre QR code.</p>
+          <p>Une fois appairée, la console s’ouvre dans l’app avec quatre onglets : <strong>Console</strong> (état, stockage, apps, synchronisation des saves), <strong>Bibliothèque</strong>, <strong>Transferts</strong> et <strong>Corbeille</strong>.</p>
+        </section>
+
+        <section aria-labelledby="icloud">
+          <h2 id="icloud">4. Facultatif : copies de tes saves dans iCloud Drive</h2>
+          <p>L’app copie les saves de ta console (avec leurs fichiers d’horloge) sur ton iPhone : avec <strong>Synchroniser les saves</strong> dans l’onglet Console, et automatiquement à chaque connexion (désactivable avec <strong>Synchroniser les saves à la connexion</strong> dans les réglages de l’app). Jusqu’à 10 versions de chaque save sont gardées, et tu peux en restaurer une sur la console.</p>
+          <p>Si iCloud Drive est activé pour ReminisLink (dans les Réglages d’iOS, sous ton compte Apple, puis iCloud), les copies vont dans le dossier ReminisLink d’iCloud Drive, dans l’app Fichiers. Sinon, elles restent sur l’iPhone, dans <strong>Fichiers &gt; Sur mon iPhone &gt; ReminisLink</strong>, et sont supprimées avec l’app.</p>
+        </section>
+
+        <section aria-labelledby="daily">
+          <h2 id="daily">Au quotidien</h2>
+          <ol>
+            <li>Sur la console, ouvre <strong>Tools &gt; ReminisLink</strong>. Le pak ne tourne que lorsqu’aucun jeu n’est lancé.</li>
+            <li>Ouvre l’app sur l’iPhone et touche ta console.</li>
+            <li>Gère tes jeux. Quand tu as fini, appuie sur <strong>B</strong> sur la console : l’app revient d’elle-même à sa liste de consoles. Joue.</li>
+          </ol>
+        </section>
+
+        <section aria-labelledby="update">
+          <h2 id="update">Mettre à jour le pak</h2>
+          <ol>
+            <li>Lis les notes de la nouvelle version sur la <a href="https://github.com/tfournier/ReminisLink/releases">page des versions</a>.</li>
+            <li>La carte SD dans ton ordinateur, supprime le dossier <code>/Tools/tg5040/ReminisLink.pak/</code>, puis décompresse le nouveau <code>ReminisLink.pak.zip</code> dans <code>/Tools/tg5040/</code>, comme pour la première installation. ReminisLink ne peut pas se remplacer lui-même depuis l’app pendant qu’il tourne.</li>
+            <li>Tes réglages, appareils appairés, copies de sauvegarde et corbeille sont dans un autre dossier (voir plus bas) : ils sont conservés.</li>
+            <li>Mets aussi l’app iPhone à jour. Si les notes de version le demandent, ou si l’app affiche <strong>Refaire l’appairage</strong> à côté de la console, appaire-la de nouveau en scannant un nouveau QR code (<strong>Réglages &gt; Appairer un nouvel appareil</strong> sur la console).</li>
+          </ol>
+        </section>
+
+        <section aria-labelledby="uninstall">
+          <h2 id="uninstall">Désinstaller</h2>
+          <h3>Sur la console</h3>
+          <p>Supprime le dossier <code>/Tools/tg5040/ReminisLink.pak/</code>. Tes jeux, saves, states et cheats restent là où NextUI les range.</p>
+          <p>ReminisLink garde ses propres données dans <code>/.userdata/shared/ReminisLink/</code> :</p>
+          <ul>
+            <li><code>config.json</code> : l’identifiant, le nom et la langue de la console ;</li>
+            <li><code>clients.json</code> : les appareils appairés (nom, plateforme et clé publique seulement) ;</li>
+            <li><code>tls/</code> : le certificat de la console et sa clé privée ;</li>
+            <li><code>backups/</code> : les copies de sauvegarde de tes saves et l’historique des states de reprise ;</li>
+            <li><code>locks/</code> : les copies verrouillées de tes states ;</li>
+            <li><code>trash/</code> : les fichiers supprimés ou remplacés depuis 30 jours ;</li>
+            <li><code>patches/</code> : les patchs que tu y as copiés ;</li>
+            <li><code>uploads/</code> et <code>staging/</code> : des fichiers temporaires.</li>
+          </ul>
+          <p>Avant de supprimer ce dossier, regarde dans <code>backups/</code> et <code>trash/</code> s’il y a quelque chose à garder : le supprimer les efface définitivement. Si tu supprimes seulement le pak et le réinstalles plus tard, tout est encore là. Les journaux sont dans <code>/.userdata/tg5040/logs/</code> (fichiers dont le nom commence par <code>ReminisLink</code>).</p>
+          <h3>Sur l’iPhone</h3>
+          <p>Pour retirer d’abord l’appairage, ouvre la console dans l’app, puis <strong>Console &gt; Se désappairer</strong> (il est retiré sur tous tes appareils Apple qui le partagent). Supprime ensuite l’app comme d’habitude. Les copies de tes saves dans iCloud Drive ne sont pas supprimées avec l’app : efface le dossier ReminisLink dans Fichiers si tu n’en veux plus.</p>
+        </section>
+
+        <p>Un problème ? Consulte la <a href="/fr/support/">page d’assistance</a>.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <ul>
+        <li><a href="/fr/install/">Installation</a></li>
+        <li><a href="/fr/support/">Assistance</a></li>
+        <li><a href="/fr/privacy/">Politique de confidentialité</a></li>
+        <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>
+        <li><a href="/install/" hreflang="en" lang="en">English</a></li>
+      </ul>
+      <p>ReminisLink est un projet indépendant et open source (licence MIT). TrimUI et NextUI sont les noms de leurs propriétaires respectifs, qui ne sont pas affiliés à ReminisLink.</p>
+      <p>Ce site n’utilise ni cookie, ni traqueur, ni ressource externe.</p>
+    </div>
+  </footer>
+</body>
+</html>
