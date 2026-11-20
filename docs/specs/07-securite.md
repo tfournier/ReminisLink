@@ -17,7 +17,7 @@
 |---|---|
 | Un appareil inconnu sur le Wi-Fi appelle l'API | Toutes les routes métier sont signées (Ed25519) par la clé privée d'un client appairé ; le pak ne garde que les clés publiques |
 | Écoute du Wi-Fi pendant l'appairage | Tout passe en TLS épinglé sur l'empreinte du certificat lue dans le QR code ; aucune clé secrète n'est échangée (seule la clé publique du client passe), et le secret du QR code ne circule jamais (seule une preuve HMAC) |
-| Faux pak sur le réseau (usurpation de la console) | L'app n'accepte que le certificat dont l'empreinte est dans le QR code (M13) ; un faux pak ne peut ni se faire appairer ni recevoir les requêtes d'un client appairé. Repli sur l'adresse du QR code permis pour la même raison (03 §3.1) |
+| Faux pak sur le réseau (usurpation de la console) | L'app n'accepte que le certificat dont l'empreinte de la clé publique (SPKI) est dans le QR code (M13) ; un faux pak ne peut ni se faire appairer ni recevoir les requêtes d'un client appairé. Repli sur l'adresse du QR code permis pour la même raison (03 §3.1) |
 | Écoute du Wi-Fi ensuite | Tout le trafic est chiffré par TLS (1.2 au minimum, 1.3 de préférence) ; aucune clé privée ne circule |
 | Rejeu d'une requête capturée | Nonce unique (cache d'au moins 10 min, en mémoire) + horodatage (±300 s) dans la signature. **Risque résiduel accepté** : le cache est perdu quand le pak se ferme ; une requête capturée peut être rejouée si le pak est relancé moins de 300 s après elle (décision du 18/11/2026) |
 | Faire lire de gros corps par des requêtes forgées ou rejouées | Signature vérifiée et nonce réservé avant toute lecture du corps ; limite de corps par route ; budget mémoire global (voir [03 §4.3](03-protocole.md#43-vérification-côté-pak)) |

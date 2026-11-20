@@ -5,13 +5,13 @@ ReminisLink lets you manage the games on your retro handheld from your iPhone: R
 It has two parts:
 
 - **The pak**: the ReminisLink program for the handheld (NextUI on the TrimUI Brick first), shown as "ReminisLink" in the Tools menu. You open it, manage your games from the phone, close it and play.
-- **ReminisLink for iOS**: the iPhone app. It finds the handheld on the local Wi-Fi network (Bonjour), pairs with a QR code and talks to the pak over HTTP. Everything stays on your local network.
+- **ReminisLink for iOS**: the iPhone app. It finds the handheld on the local Wi-Fi network (Bonjour), pairs with a QR code and talks to the pak over HTTPS, pinned to the certificate fingerprint carried by the QR code. Everything stays on your local network.
 
 ![Main screen of the pak](docs/screenshots/main.png)
 
 ## Features of the pak
 
-- Pairing with a QR code, or with a 6-digit PIN, valid 10 minutes, open only while the code is on screen: on the main screen until a first device is paired, then from Settings > Pair a New Device. Requests are signed: only paired iPhones are accepted.
+- Pairing with a QR code only (no PIN), valid 10 minutes, open only while the code is on screen: on the main screen until a first device is paired, then from Settings > Pair a New Device. Several devices can be paired. Every request after pairing is signed with the device's Ed25519 key: only paired devices are accepted.
 - Shows its state (Ready, Connected, Transfer in progress), the battery level, the connected devices, the transfers with their progress, and a short banner each time the SD card changes ("Save restored: ...").
 - Send ROMs and game art, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches, all from the app.
 - Nothing is deleted without a copy: a deleted or replaced file goes to a trash kept 30 days.
@@ -41,7 +41,7 @@ Open **Pak Store** on your device and install **ReminisLink**.
 ## Usage
 
 1. Turn on Wi-Fi in the NextUI settings, then open **Tools > ReminisLink** on the handheld. The iPhone must be on the same Wi-Fi network.
-2. In the ReminisLink app, scan the QR code shown by the pak (or type the PIN).
+2. In the ReminisLink app, tap **Add a Console** and scan the QR code shown by the pak.
 3. Manage your games from the app. When you are done, press **B** on the handheld to close the pak, and play.
 
 The pak only runs when no game is running: open it from the Tools menu when you need it.
@@ -69,7 +69,7 @@ The pak changes your files where NextUI expects them, and keeps its own data in 
 | Patches you copy to the card | `/.userdata/shared/ReminisLink/patches/` |
 | Logs | `/.userdata/tg5040/logs/ReminisLink.txt`, `ReminisLink.ui.txt` and `ReminisLink.stderr.txt` |
 
-`clients.json` holds the keys of the paired devices: anyone who has the SD card in hand can read them. Use **Settings > Forget all devices** if you lend or lose the card.
+`clients.json` only holds the public keys of the paired devices: a copy of the SD card cannot sign requests for them. The `tls/` folder holds the private key of the pak's certificate: with a copy of the card, someone could pretend to be the handheld on the local network. If you lend or lose the card, use **Settings > Forget all devices**, and delete `tls/` to get a new certificate at the next launch (every device then has to pair again).
 
 ## Development
 
@@ -99,7 +99,7 @@ dns-sd -B _reminislink._tcp    # the pak is announced on the local network
 echo '<pairing link printed by make headless>' | scripts/smoke.sh   # pair, then a signed GET /systems
 ```
 
-The headless mode prints the pairing link, the PIN and a QR code in the
+The headless mode prints the pairing link and a QR code in the
 terminal (stdout only, never in the log). `HEADLESS_ARGS="--port 48000 --name Test" make headless` changes the
 port and the name for that run.
 
@@ -110,10 +110,10 @@ brew install pkg-config sdl2 sdl2_ttf sdl2_image sdl2_gfx   # once
 make desktop
 ```
 
-On macOS the desktop window shows the pairing PIN without the QR code: the
-QR image holds the pairing secret and is only drawn from memory (Linux
-`memfd`), never from a file that could stay on the disk. Pair with the PIN,
-or use `make headless`, which prints the QR code in the terminal.
+On macOS the desktop window shows no QR code: the QR image holds the
+pairing secret and is only drawn from memory (Linux `memfd`), never from a
+file that could stay on the disk. To pair, use `make headless`, which prints
+the QR code in the terminal.
 
 `make screenshots` regenerates `docs/screenshots/` with the desktop UI under Xvfb in Docker (no SDL needed on the Mac).
 
