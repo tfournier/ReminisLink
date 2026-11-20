@@ -281,7 +281,9 @@ final class ConsoleSession {
         try Task.checkCancellation()
         guard let client else { throw unavailableError }
         do {
-            return try await operation(client)
+            let result = try await operation(client)
+            connectionWorks(client)
+            return result
         } catch {
             let appError = AppError(error)
             if case .api(let api) = appError, app.meansConsoleClosed(api, deviceId: deviceId) {
@@ -398,6 +400,15 @@ final class ConsoleSession {
         for waiter in waiters { waiter.resume() }
     }
 
+    /// A request (or an event) of the current connection succeeded: uploads
+    /// paused by a `401 disconnected` older than it go on (M10). Covers a
+    /// pause recorded after the reconnection whose `GET /device` check
+    /// failed for another reason.
+    func connectionWorks(_ client: APIClient) {
+        guard self.client === client, state == .connected, !transfers.pausedForReconnection.isEmpty else { return }
+        transfers.resumePausedForReconnection()
+    }
+
     /// Whether the connection works, confirmed by the pak (`GET /device`):
     /// a `401 disconnected` older than the reconnection must not leave an
     /// upload paused, nor resume one for nothing.
@@ -462,7 +473,15 @@ final class ConsoleSession {
             background: app.background,
             client: { [weak self] in
                 guard let self else { throw CancellationError() }
-                return try await self.connectedClient()
+                do {
+                    return try await self.connectedClient()
+                } catch let error as AppError {
+                    // The connection was ended by a `401 disconnected` seen on
+                    // another request (a sync...): the queue pauses the upload
+                    // until the user reconnects, as for its own refusal.
+                    if case .api(let api) = error, api.isDisconnected { throw api }
+                    throw error
+                }
             }
         )
         queue.onUploadFinished = { [weak self] item in

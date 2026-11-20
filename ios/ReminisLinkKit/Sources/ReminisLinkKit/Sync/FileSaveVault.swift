@@ -9,7 +9,7 @@ import Foundation
 ///   each file synced to disk, then moved into the game folder in one
 ///   rename: a version is never seen half written.
 /// - Nothing is ever deleted, except the oldest versions beyond
-///   ``SaveVaultLimits/maxVersions`` once a new version is in place. A
+///   ``SaveVaultLimits/maxVersions`` when a new version is published. A
 ///   folder without a readable `.version.json` is not a version: it is
 ///   never counted nor deleted. Versions are ordered by their publication
 ///   `sequence`, never by date (the iPhone clock can go back): the version
@@ -17,6 +17,10 @@ import Foundation
 /// - Console and game folders are found by the identifier in their
 ///   `.console.json` / `.game.json`, never by name: renaming a console or
 ///   two games with the same name do not mix histories.
+/// - Several devices can write the same vault (iCloud Drive), and create
+///   the same folder twice: everything reads the union of the folders of
+///   a console or game, and folders are tidied by moves only (see
+///   `FileSaveVault+Convergence.swift`).
 public actor FileSaveVault: SaveVault {
     public nonisolated let location: SaveVaultLocation
     public nonisolated let root: URL
@@ -26,9 +30,16 @@ public actor FileSaveVault: SaveVault {
     private let timeZone: TimeZone
 
     /// Console folders by device id, and game folders by game id, found
-    /// at the first use (and kept up to date by this instance).
-    private var consoleIndex: [String: URL]?
-    private var gameIndex: [String: [String: URL]] = [:]
+    /// at the first use (and kept up to date by this instance). Several
+    /// folders for one id are duplicates (several devices): the canonical
+    /// one first (see ``precedes(_:_:)``).
+    private var consoleIndex: [String: [URL]]?
+    private var gameIndex: [String: [String: [URL]]] = [:]
+    /// Tests only: runs once a duplicate folder is in the holding area,
+    /// before it is checked (see ``removeIfEmpty(_:metadata:)``).
+    var holdingHook: (@Sendable (URL) -> Void)?
+
+    func setHoldingHook(_ hook: (@Sendable (URL) -> Void)?) { holdingHook = hook }
 
     static let consoleFile = ".console.json"
     static let gameFile = ".game.json"
@@ -52,22 +63,23 @@ public actor FileSaveVault: SaveVault {
 
     public func consoles() throws -> [VaultConsole] {
         consoleIndex = nil
-        return try loadConsoleIndex().compactMap { deviceId, folder in
-            guard let info: VaultConsoleInfo = readJSON(folder.appending(path: Self.consoleFile)) else { return nil }
+        return try loadConsoleIndex().compactMap { deviceId, folders in
+            guard let folder = folders.first, let info: VaultConsoleInfo = readJSON(folder.appending(path: Self.consoleFile)) else { return nil }
             return VaultConsole(info: VaultConsoleInfo(deviceId: deviceId, name: info.name), folderName: folder.lastPathComponent)
         }
         .sorted { $0.folderName.localizedStandardCompare($1.folderName) == .orderedAscending }
     }
 
     public func games(deviceId: String) throws -> [VaultGame] {
-        gameIndex[deviceId] = nil
+        // From disk: console folders delivered since the last load too.
+        consoleIndex = nil
         var games: [VaultGame] = []
-        for (_, folder) in try loadGameIndex(deviceId: deviceId) {
-            guard let info: VaultGameInfo = readJSON(folder.appending(path: Self.gameFile)) else { continue }
-            let versions = try versions(in: folder)
+        for (_, folders) in try loadGameIndex(deviceId: deviceId) {
+            guard let folder = folders.first, let info: VaultGameInfo = readJSON(folder.appending(path: Self.gameFile)) else { continue }
+            let versions = Self.shown(try storedVersions(in: folders))
             guard !versions.isEmpty else { continue }
             let path = folder.deletingLastPathComponent().lastPathComponent + "/" + folder.lastPathComponent
-            games.append(VaultGame(info: info, folderPath: path, latest: versions.first, versionCount: versions.count))
+            games.append(VaultGame(info: info, folderPath: path, latest: versions.first?.version, versionCount: versions.count))
         }
         return games.sorted {
             let system = $0.info.systemName.localizedStandardCompare($1.info.systemName)
@@ -78,24 +90,54 @@ public actor FileSaveVault: SaveVault {
         }
     }
 
+    /// The versions of every folder of the game; a version identical to
+    /// the one published just after it (another device synced the same
+    /// save) is shown once, never deleted for that.
     public func versions(deviceId: String, gameId: String) throws -> [SaveVersion] {
-        guard let folder = try gameFolder(deviceId: deviceId, gameId: gameId) else { return [] }
-        return try versions(in: folder)
+        Self.shown(try storedVersions(in: currentGameFolders(deviceId: deviceId, gameId: gameId, name: nil))).map(\.version)
     }
 
-    public func export(deviceId: String, gameId: String, versionId: String, to directory: URL) throws -> ExportedVersion {
-        guard let game = try gameFolder(deviceId: deviceId, gameId: gameId),
-              let version = try versions(in: game).first(where: { $0.id == versionId })
-        else { throw SaveVaultError.versionNotFound }
-        let source = game.appending(path: version.id, directoryHint: .isDirectory)
+    /// The version is found by what it is (its `.version.json`), wherever
+    /// it is now: a version moved since it was listed is still found. The
+    /// copy is checked (SHA-256) against `version`: when it does not match
+    /// (a file changed by hand), an identical version is tried, then every
+    /// candidate again after reloading the folders from disk. Never
+    /// returns bytes that are not those of `version`.
+    public func export(deviceId: String, gameId: String, version: SaveVersion, to directory: URL) throws -> ExportedVersion {
+        /// A verified copy, or whether a candidate (or a folder with the
+        /// identifier of `version`) was seen.
+        func attempt(_ folders: [URL]) throws -> (copy: ExportedVersion?, seen: Bool) {
+            let stored = try storedVersions(in: folders)
+            let candidates = stored.filter { $0.version.info == version.info }
+                + stored.filter { $0.version.info != version.info && Self.sameContent($0.version.info, version.info) }
+            for candidate in candidates {
+                guard let copy = try? copyFiles(of: candidate, to: directory) else { continue }
+                let save = try? FileDigest.sha256Sync(of: copy.save)
+                let rtc = try? copy.rtc.map { try FileDigest.sha256Sync(of: $0) }
+                if save == version.info.save.sha256, rtc == version.info.rtc?.sha256 { return (copy, true) }
+                try? FileManager.default.removeItem(at: copy.directory)
+            }
+            return (nil, !candidates.isEmpty || stored.contains { $0.version.id == version.id })
+        }
+        let first = try attempt(currentGameFolders(deviceId: deviceId, gameId: gameId, name: nil))
+        if let copy = first.copy { return copy }
+        // Moved by another instance, or a good copy arrived since: reload.
+        consoleIndex = nil
+        let second = try attempt(loadGameIndex(deviceId: deviceId)[gameId] ?? [])
+        if let copy = second.copy { return copy }
+        throw first.seen || second.seen ? SaveVaultError.versionMismatch : SaveVaultError.versionNotFound
+    }
+
+    private func copyFiles(of stored: StoredVersion, to directory: URL) throws -> ExportedVersion {
+        let info = stored.version.info
         let destination = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         let manager = FileManager.default
         try manager.createDirectory(at: destination, withIntermediateDirectories: true)
         do {
             var copied: [URL] = []
-            for file in [version.info.save, version.info.rtc].compactMap({ $0 }) {
+            for file in [info.save, info.rtc].compactMap({ $0 }) {
                 let target = destination.appending(path: file.name)
-                try coordinateReading(source.appending(path: file.name)) { url in
+                try coordinateReading(stored.folder.appending(path: file.name)) { url in
                     try manager.copyItem(at: url, to: target)
                 }
                 copied.append(target)
@@ -118,9 +160,12 @@ public actor FileSaveVault: SaveVault {
         if let rtcName, rtcName.lowercased() == saveName.lowercased() { throw SaveVaultError.invalidName(rtcName) }
 
         // 1. Assemble the version outside the vault, numbered after the
-        //    versions already there.
-        let gameFolder = try ensureGameFolder(console: console, game: game)
-        let sequence = (try versions(in: gameFolder).map(\.info.sequence).max() ?? 0) + 1
+        //    versions already there (in every folder of the game, as on
+        //    disk now: another instance or device may have written since).
+        var folders = try currentGameFolders(deviceId: console.deviceId, gameId: game.gameId, name: game.name)
+        if folders.isEmpty { folders = [try ensureGameFolder(console: console, game: game)] }
+        let gameFolder = folders[0]
+        let sequence = (try storedVersions(in: folders).map(\.version.info.sequence).max() ?? 0) + 1
         let manager = FileManager.default
         let stage = stagingDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try manager.createDirectory(at: stage, withIntermediateDirectories: true)
@@ -138,38 +183,29 @@ public actor FileSaveVault: SaveVault {
         try coordinateMove(from: stage, to: destination)
 
         // 3. Only then, rotate (the new version has the highest sequence;
-        //    it is also excluded by name, whatever happens).
-        let version = SaveVersion(id: name, info: info)
-        try rotate(gameFolder, keeping: version.id)
-        return version
+        //    it is also excluded by its folder, whatever happens).
+        try rotate(folders, keeping: destination)
+        return SaveVersion(id: name, info: info)
     }
 
-    public func retainedVersions(deviceId: String, gameId: String) throws -> [SaveVersion] {
-        guard let folder = try gameFolder(deviceId: deviceId, gameId: gameId) else { return [] }
-        try rotate(folder, keeping: nil)
-        return try versions(in: folder)
-    }
-
-    /// A game whose rotation fails (a version that cannot be deleted)
-    /// does not stop the others; the first error is thrown at the end.
-    public func finishRotations(deviceId: String) throws {
-        gameIndex[deviceId] = nil
-        var firstError: (any Error)?
-        for (_, folder) in try loadGameIndex(deviceId: deviceId).sorted(by: { $0.key < $1.key }) {
-            do {
-                try rotate(folder, keeping: nil)
-            } catch {
-                if firstError == nil { firstError = error }
+    /// Deletes the versions beyond the limit (the M9 retention policy),
+    /// counted as shown (identical versions published one after the other
+    /// count once), oldest published first, in every folder of the game.
+    /// Never `kept`, never the newest restorable version (files present,
+    /// downloaded and matching their SHA-256), and only a version whose
+    /// folder holds exactly its listed files, downloaded and matching
+    /// (checked again inside the coordinated deletion): anything else
+    /// (a placeholder, a file changed or added by hand, a folder that
+    /// cannot be read) is kept.
+    private func rotate(_ folders: [URL], keeping kept: URL) throws {
+        let stored = try storedVersions(in: folders)
+        let groups = Self.groups(stored)
+        guard groups.count > maxVersions else { return }
+        let restorable = stored.first { checkVersion($0).restorable }
+        for group in groups.dropFirst(maxVersions) {
+            for version in group where version.folder != kept && version.folder != restorable?.folder {
+                try deleteVersion(version)
             }
-        }
-        if let firstError { throw firstError }
-    }
-
-    /// Deletes the versions beyond the limit, oldest published first,
-    /// never `kept`.
-    private func rotate(_ gameFolder: URL, keeping kept: String?) throws {
-        for old in try versions(in: gameFolder).dropFirst(maxVersions) where old.id != kept {
-            try coordinateDeleting(gameFolder.appending(path: old.id, directoryHint: .isDirectory))
         }
     }
 
@@ -182,61 +218,128 @@ public actor FileSaveVault: SaveVault {
 
     // MARK: - Folders
 
-    private func loadConsoleIndex() throws -> [String: URL] {
+    private func loadConsoleIndex() throws -> [String: [URL]] {
         if let consoleIndex { return consoleIndex }
-        var index: [String: URL] = [:]
-        for folder in try subfolders(of: root) {
-            guard let info: VaultConsoleInfo = readJSON(folder.appending(path: Self.consoleFile)) else { continue }
-            // Two folders claiming one console (copied by hand): the first by name wins.
-            if index[info.deviceId] == nil { index[info.deviceId] = folder }
-        }
+        gameIndex = [:]
+        cleanHoldingArea()
+        let index = try consoleFolders()
         consoleIndex = index
         return index
     }
 
-    private func loadGameIndex(deviceId: String) throws -> [String: URL] {
-        if let games = gameIndex[deviceId] { return games }
-        var index: [String: URL] = [:]
-        if let console = try loadConsoleIndex()[deviceId] {
-            for system in try subfolders(of: console) {
-                for folder in try subfolders(of: system) {
-                    guard let info: VaultGameInfo = readJSON(folder.appending(path: Self.gameFile)) else { continue }
-                    if index[info.gameId] == nil { index[info.gameId] = folder }
+    /// Re-lists the console folders from disk (cheap): the game index of a
+    /// device whose console folders changed (one delivered by iCloud since
+    /// the last load) is dropped.
+    private func refreshConsoles() throws {
+        if consoleIndex == nil { cleanHoldingArea() }
+        let fresh = try consoleFolders()
+        if let consoleIndex {
+            for deviceId in Set(consoleIndex.keys).union(fresh.keys) where consoleIndex[deviceId] != fresh[deviceId] {
+                gameIndex[deviceId] = nil
+            }
+        } else {
+            gameIndex = [:]
+        }
+        consoleIndex = fresh
+    }
+
+    /// The folders of a game as on disk now: those of the index, plus any
+    /// folder of the console with the same name (without duplicate suffix)
+    /// as one of them or as `name` that holds the game (a folder another
+    /// instance or device wrote since the index was made). Canonical first.
+    private func currentGameFolders(deviceId: String, gameId: String, name: String?) throws -> [URL] {
+        try refreshConsoles()
+        let indexed = try loadGameIndex(deviceId: deviceId)[gameId] ?? []
+        let names = indexed.map(\.lastPathComponent) + (name.map { [Self.folderName($0)] } ?? [])
+        let bases = Set(names.map { Self.duplicateRank($0).base.lowercased() })
+        guard !bases.isEmpty else { return indexed }
+        let infos = GameInfoCache()
+        var found: [URL] = []
+        for console in consoleIndex?[deviceId] ?? [] {
+            for system in Self.ranked(try subfolders(of: console)) {
+                for folder in Self.ranked(try subfolders(of: system))
+                where bases.contains(Self.duplicateRank(folder.lastPathComponent).base.lowercased()) {
+                    if gameInfo(folder, infos)?.gameId == gameId { found.append(folder) }
                 }
             }
         }
+        guard !found.isEmpty else { return indexed }
+        gameIndex[deviceId]?[gameId] = found
+        return found
+    }
+
+    /// Tidies the folders of the console first (moves only, see
+    /// ``tidy(consoles:infos:)``).
+    private func loadGameIndex(deviceId: String) throws -> [String: [URL]] {
+        if let games = gameIndex[deviceId] { return games }
+        let consoles = try loadConsoleIndex()[deviceId] ?? []
+        var infos = GameInfoCache()
+        if tidy(consoles: consoles, infos: infos) { infos = GameInfoCache() }
+        let index = try gameFolders(in: consoles, infos: infos)
         gameIndex[deviceId] = index
         return index
     }
 
-    private func gameFolder(deviceId: String, gameId: String) throws -> URL? {
-        try loadGameIndex(deviceId: deviceId)[gameId]
+    /// The console folders by device id, canonical first.
+    func consoleFolders() throws -> [String: [URL]] {
+        var index: [String: [URL]] = [:]
+        for folder in Self.ranked(try subfolders(of: root)) {
+            guard let info: VaultConsoleInfo = readJSON(folder.appending(path: Self.consoleFile)) else { continue }
+            index[info.deviceId, default: []].append(folder)
+        }
+        return index
+    }
+
+    /// The game folders of console folders by game id, canonical first
+    /// (by console, then system, then game folder, each by ``precedes(_:_:)``).
+    func gameFolders(in consoles: [URL], infos: GameInfoCache) throws -> [String: [URL]] {
+        var index: [String: [URL]] = [:]
+        for console in consoles {
+            for system in Self.ranked(try subfolders(of: console)) {
+                for folder in Self.ranked(try subfolders(of: system)) {
+                    guard let info = gameInfo(folder, infos) else { continue }
+                    index[info.gameId, default: []].append(folder)
+                }
+            }
+        }
+        return index
+    }
+
+    /// The `.game.json` of game folders, read once per load.
+    final class GameInfoCache {
+        var infos: [URL: VaultGameInfo?] = [:]
+    }
+
+    func gameInfo(_ folder: URL, _ cache: GameInfoCache) -> VaultGameInfo? {
+        if let cached = cache.infos[folder] { return cached }
+        let info: VaultGameInfo? = readJSON(folder.appending(path: Self.gameFile))
+        cache.infos[folder] = info
+        return info
     }
 
     private func ensureConsoleFolder(_ console: VaultConsoleInfo) throws -> URL {
-        if let folder = try loadConsoleIndex()[console.deviceId] { return folder }
+        if let folder = try loadConsoleIndex()[console.deviceId]?.first { return folder }
         try coordinateWriting(root) { try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true) }
         let folder = root.appending(path: try uniqueName(Self.folderName(console.name), in: root), directoryHint: .isDirectory)
         try createFolder(folder, metadata: Self.encoder().encode(console), file: Self.consoleFile)
-        consoleIndex?[console.deviceId] = folder
+        consoleIndex?[console.deviceId] = [folder]
         return folder
     }
 
     private func ensureGameFolder(console: VaultConsoleInfo, game: VaultGameInfo) throws -> URL {
-        if let folder = try gameFolder(deviceId: console.deviceId, gameId: game.gameId) { return folder }
+        if let folder = try loadGameIndex(deviceId: console.deviceId)[game.gameId]?.first { return folder }
         let consoleFolder = try ensureConsoleFolder(console)
-        let system = consoleFolder.appending(path: Self.folderName(game.systemName), directoryHint: .isDirectory)
-        try coordinateWriting(system) { try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true) }
+        let system = try systemFolder(Self.folderName(game.systemName), in: consoleFolder)
         let folder = system.appending(path: try uniqueName(Self.folderName(game.name), in: system), directoryHint: .isDirectory)
         try createFolder(folder, metadata: Self.encoder().encode(game), file: Self.gameFile)
         var games = try loadGameIndex(deviceId: console.deviceId)
-        games[game.gameId] = folder
+        games[game.gameId] = [folder]
         gameIndex[console.deviceId] = games
         return folder
     }
 
     /// A folder and its metadata file, staged then moved in one rename.
-    private func createFolder(_ folder: URL, metadata: Data, file: String) throws {
+    func createFolder(_ folder: URL, metadata: Data, file: String) throws {
         let manager = FileManager.default
         let stage = stagingDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try manager.createDirectory(at: stage, withIntermediateDirectories: true)
@@ -245,41 +348,89 @@ public actor FileSaveVault: SaveVault {
         try coordinateMove(from: stage, to: folder)
     }
 
-    /// The version folders of a game, last published first.
-    private func versions(in game: URL) throws -> [SaveVersion] {
-        var versions: [SaveVersion] = []
-        for folder in try subfolders(of: game) {
-            guard let info: SaveVersionInfo = readJSON(folder.appending(path: Self.versionFile)) else { continue }
-            versions.append(SaveVersion(id: folder.lastPathComponent, info: info))
+    /// A version and the folder holding it.
+    struct StoredVersion {
+        let version: SaveVersion
+        let folder: URL
+    }
+
+    /// The versions of the folders of one game, last published first.
+    /// A version of the canonical folder (the first) is identified by its
+    /// folder name; one of another folder by its path in the vault, so
+    /// that identifiers stay unique.
+    func storedVersions(in games: [URL]) throws -> [StoredVersion] {
+        var stored: [StoredVersion] = []
+        for (index, game) in games.enumerated() {
+            for folder in try subfolders(of: game) {
+                guard let info: SaveVersionInfo = readJSON(folder.appending(path: Self.versionFile)) else { continue }
+                let id = index == 0 ? folder.lastPathComponent : relativePath(folder)
+                stored.append(StoredVersion(version: SaveVersion(id: id, info: info), folder: folder))
+            }
         }
-        return versions.sorted {
-            if $0.info.sequence != $1.info.sequence { return $0.info.sequence > $1.info.sequence }
-            if $0.info.syncedAt != $1.info.syncedAt { return $0.info.syncedAt > $1.info.syncedAt }
-            return $0.id > $1.id
+        return stored.sorted { Self.publishedAfter($0, $1) }
+    }
+
+    /// Publication order: sequence, then sync date, then version folder
+    /// name, then the manifest: nothing that changes when a version moves
+    /// to another game folder.
+    nonisolated static func publishedAfter(_ a: StoredVersion, _ b: StoredVersion) -> Bool {
+        let x = a.version.info, y = b.version.info
+        if x.sequence != y.sequence { return x.sequence > y.sequence }
+        if x.syncedAt != y.syncedAt { return x.syncedAt > y.syncedAt }
+        let nx = a.folder.lastPathComponent, ny = b.folder.lastPathComponent
+        if nx != ny { return nx > ny }
+        return manifestKey(x) > manifestKey(y)
+    }
+
+    nonisolated static func manifestKey(_ info: SaveVersionInfo) -> String {
+        [info.save, info.rtc].map { file in file.map { "\($0.sha256)/\($0.sizeBytes)/\($0.name)" } ?? "-" }.joined(separator: "|")
+            + "|\(info.modifiedAt?.timeIntervalSince1970 ?? 0)"
+    }
+
+    /// Versions in publication order, those identical to the version just
+    /// before them grouped with it.
+    nonisolated static func groups(_ stored: [StoredVersion]) -> [[StoredVersion]] {
+        var groups: [[StoredVersion]] = []
+        for version in stored {
+            if let first = groups.last?.first, sameContent(first.version.info, version.version.info) {
+                groups[groups.count - 1].append(version)
+            } else {
+                groups.append([version])
+            }
         }
+        return groups
+    }
+
+    /// One version per group (the last published).
+    nonisolated static func shown(_ stored: [StoredVersion]) -> [StoredVersion] {
+        groups(stored).map { $0[0] }
+    }
+
+    /// Whether two versions hold the same files (names, sizes, SHA-256).
+    nonisolated static func sameContent(_ a: SaveVersionInfo, _ b: SaveVersionInfo) -> Bool {
+        a.gameId == b.gameId && a.save == b.save && a.rtc == b.rtc
+    }
+
+    private func relativePath(_ url: URL) -> String {
+        let base = root.standardizedFileURL.pathComponents
+        let parts = url.standardizedFileURL.pathComponents
+        guard parts.starts(with: base) else { return url.path(percentEncoded: false) }
+        return parts.dropFirst(base.count).joined(separator: "/")
     }
 
     /// The folders in a folder, iCloud placeholders included (an item not
     /// downloaded yet shows as `.<name>.icloud`), hidden ones excluded.
-    private func subfolders(of folder: URL) throws -> [URL] {
-        var names: [String] = []
-        var exists = true
-        try coordinateReading(folder) { url in
-            do {
-                names = try FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))
-            } catch CocoaError.fileReadNoSuchFile {
-                exists = false
-            }
-        }
-        guard exists else { return [] }
+    func subfolders(of folder: URL) throws -> [URL] {
+        let names = try entries(of: folder)
         var result: [URL] = []
-        for raw in names.sorted() {
-            if raw.hasPrefix("."), raw.hasSuffix(".icloud") {
+        for raw in names {
+            if let name = Self.placeholderName(raw) {
                 // Only a placeholder of a folder can be a folder: keep it,
                 // the coordinated read of its metadata downloads it.
-                let name = String(raw.dropFirst().dropLast(".icloud".count))
                 if !name.hasPrefix(".") && !names.contains(name) {
-                    result.append(folder.appending(path: name, directoryHint: .isDirectory))
+                    let url = folder.appending(path: name, directoryHint: .isDirectory)
+                    Self.startDownloading(url)
+                    result.append(url)
                 }
                 continue
             }
@@ -293,12 +444,38 @@ public actor FileSaveVault: SaveVault {
         return result
     }
 
-    private func uniqueName(_ base: String, in folder: URL) throws -> String {
+    /// The names in a folder, sorted, placeholders as they are
+    /// (`.<name>.icloud`); empty when the folder does not exist.
+    func entries(of folder: URL) throws -> [String] {
+        var names: [String] = []
+        try coordinateReading(folder) { url in
+            do {
+                names = try FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))
+            } catch CocoaError.fileReadNoSuchFile {
+                names = []
+            }
+        }
+        return names.sorted()
+    }
+
+    /// `name` for the iCloud placeholder `.name.icloud` of an item not
+    /// downloaded yet, else nil.
+    nonisolated static func placeholderName(_ raw: String) -> String? {
+        guard raw.hasPrefix("."), raw.hasSuffix(".icloud"), raw.count > ".icloud".count + 1 else { return nil }
+        return String(raw.dropFirst().dropLast(".icloud".count))
+    }
+
+    /// Asks iCloud to download an item (no effect outside iCloud Drive).
+    nonisolated static func startDownloading(_ url: URL) {
+        try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+    }
+
+    func uniqueName(_ base: String, in folder: URL) throws -> String {
         var taken = Set<String>()
         try coordinateReading(folder) { url in
             let names = (try? FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))) ?? []
             for name in names {
-                let plain = name.hasPrefix(".") && name.hasSuffix(".icloud") ? String(name.dropFirst().dropLast(7)) : name
+                let plain = Self.placeholderName(name) ?? name
                 taken.insert(plain.lowercased())
             }
         }
@@ -310,7 +487,7 @@ public actor FileSaveVault: SaveVault {
 
     // MARK: - Coordination
 
-    private func coordinateReading(_ url: URL, _ body: (URL) throws -> Void) throws {
+    func coordinateReading(_ url: URL, _ body: (URL) throws -> Void) throws {
         var coordinationError: NSError?
         var bodyError: Error?
         NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &coordinationError) { url in
@@ -326,7 +503,7 @@ public actor FileSaveVault: SaveVault {
         }
     }
 
-    private func coordinateWriting(_ url: URL, _ body: (URL) throws -> Void) throws {
+    func coordinateWriting(_ url: URL, _ body: (URL) throws -> Void) throws {
         var coordinationError: NSError?
         var bodyError: Error?
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: [], error: &coordinationError) { url in
@@ -336,7 +513,7 @@ public actor FileSaveVault: SaveVault {
         if let coordinationError { throw coordinationError }
     }
 
-    private func coordinateMove(from source: URL, to destination: URL) throws {
+    func coordinateMove(from source: URL, to destination: URL) throws {
         var coordinationError: NSError?
         var bodyError: Error?
         let coordinator = NSFileCoordinator(filePresenter: nil)
@@ -360,17 +537,7 @@ public actor FileSaveVault: SaveVault {
         if let coordinationError { throw coordinationError }
     }
 
-    private func coordinateDeleting(_ url: URL) throws {
-        var coordinationError: NSError?
-        var bodyError: Error?
-        NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forDeleting, error: &coordinationError) { url in
-            do { try FileManager.default.removeItem(at: url) } catch { bodyError = error }
-        }
-        if let bodyError { throw bodyError }
-        if let coordinationError { throw coordinationError }
-    }
-
-    private func readJSON<T: Decodable>(_ url: URL) -> T? {
+    func readJSON<T: Decodable>(_ url: URL) -> T? {
         var data: Data?
         try? coordinateReading(url) { data = try Data(contentsOf: $0) }
         return data.flatMap { try? ProtocolJSON.decoder().decode(T.self, from: $0) }

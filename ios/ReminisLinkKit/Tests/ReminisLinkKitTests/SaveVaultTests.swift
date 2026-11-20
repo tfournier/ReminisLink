@@ -120,11 +120,13 @@ struct SaveVaultTests {
         for i in 1...11 {
             _ = try await eleven.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "save-\(i)"), rtc: nil, modifiedAt: nil)
         }
+        // Reading never deletes: the rotation is finished by the next version.
         let vault = sandbox.vault()
         #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-courier").count == 11)
-        let retained = try await vault.retainedVersions(deviceId: "dev-1", gameId: "g-courier")
-        #expect(retained.map(\.info.sequence) == Array((2...11).reversed()))
-        #expect(try await vault.versions(deviceId: "dev-1", gameId: "g-courier").count == 10)
+        #expect(try await sandbox.vault().versions(deviceId: "dev-1", gameId: "g-courier").count == 11)
+        _ = try await vault.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "save-12"), rtc: nil, modifiedAt: nil)
+        let retained = try await vault.versions(deviceId: "dev-1", gameId: "g-courier")
+        #expect(retained.map(\.info.sequence) == Array((3...12).reversed()))
     }
 
     @Test func aVerifiedExportRefusesACopyThatIsNotTheVersionChosen() async throws {
@@ -246,14 +248,15 @@ struct SaveVaultTests {
         let rtc = try sandbox.input("Game.rtc", "clock")
         let version = (try await vault.addVersion(console: brick, game: courier, save: save, rtc: rtc, modifiedAt: nil))
         let out = sandbox.base.appending(path: "Out")
-        let exported = try await vault.export(deviceId: "dev-1", gameId: "g-courier", versionId: version.id, to: out)
+        let exported = try await vault.export(deviceId: "dev-1", gameId: "g-courier", version: version, to: out)
         #expect(exported.save.lastPathComponent == "Game.sav")
         #expect(try Data(contentsOf: exported.save) == Data("content".utf8))
         #expect(try exported.rtc.map { try Data(contentsOf: $0) } == Data("clock".utf8))
         // The vault keeps its copy.
         #expect((try await vault.versions(deviceId: "dev-1", gameId: "g-courier")).count == 1)
         await #expect(throws: SaveVaultError.versionNotFound) {
-            (try await vault.export(deviceId: "dev-1", gameId: "g-courier", versionId: "nope", to: out))
+            let other = SaveVersionInfo(gameId: "g-courier", sequence: 9, syncedAt: Date(), modifiedAt: nil, save: SaveVersionFile(name: "Game.sav", sha256: "00", sizeBytes: 1), rtc: nil)
+            return try await vault.export(deviceId: "dev-1", gameId: "g-courier", version: SaveVersion(id: "nope", info: other), to: out)
         }
     }
 
