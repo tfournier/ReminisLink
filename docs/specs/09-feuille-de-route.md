@@ -164,6 +164,18 @@ Décisions de la personne du 19/11/2026 : s'inspirer du protocole des accessoire
 - **Chiffrement par TLS épinglé** : le pak génère un certificat (ECDSA P-256) ; son empreinte est transmise de façon authentifiée à l'appairage (dans le QR code) et épinglée par l'app. TLS de la bibliothèque standard Go, 1.2 au minimum et 1.3 de préférence (ChaCha20-Poly1305 choisi automatiquement si le processeur n'a pas d'instructions AES) ; débit à mesurer sur la console.
 - 07 mis à jour : menace « copie de la carte SD » ajoutée, risques « PIN cassable hors ligne » et « contenu en clair » retirés.
 
+## M16 — Mode démo (décidé le 20/11/2026, avant M15)
+
+But : essayer toute l'app sans console, pour l'examen App Store (le reviewer n'a pas de Brick), pour découvrir l'app avant d'installer le pak, et pour les captures App Store. Numéroté après M15 mais fait avant, car il compte pour la première soumission.
+
+- Le mode démo (pak simulé `FakePak`, aujourd'hui réservé aux builds de développement) devient disponible dans l'app publiée.
+- Écran sans console : bouton secondaire **« Essayer sans console »** à côté de « Ajouter une console ». Pas de fonction cachée (règle App Store 2.3.1).
+- Une console fictive « Brick de démo » avec des jeux aux noms inventés et des libellés de systèmes neutres (aucune marque) ; toutes les actions disponibles, sur des données en mémoire seulement.
+- Bandeau « Mode démo » toujours visible, avec **Quitter**. La démo ne touche ni au trousseau, ni à iCloud Drive, ni à la liste des vraies consoles, et n'utilise pas le réseau.
+- Textes en anglais et en français ; notes pour l'examen (`ios/AppStore/review_notes.txt`) : « Tap *Try Without a Console* on the first screen ». Politique de confidentialité vérifiée (rien ne sort de l'iPhone en démo).
+
+**Fait quand** : depuis une installation neuve, la démo s'ouvre, chaque fonction marche, la sortie ramène à la liste vide sans trace, et les tests UI couvrent l'entrée et la sortie.
+
 ## M15 — App universelle (décidé le 20/11/2026)
 
 But : une seule app, un seul binaire, sur iPhone, iPad et Mac à puce Apple (même fiche App Store), **sans code propre au Mac** (choix de la personne).
