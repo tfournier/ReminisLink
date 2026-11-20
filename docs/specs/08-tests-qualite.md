@@ -49,7 +49,7 @@ Checklist dans `docs/specs/checklists/` (à créer au jalon M2) :
 3. Appairage par QR code, puis par PIN.
 4. Navigation dans une vraie bibliothèque (temps de réponse).
 5. Envoi d'une ROM de 512 Mo : durée, reprise après coupure du Wi-Fi.
-6. Téléchargement d'un patch depuis une URL, application BPS, lancement du jeu patché dans NextUI.
+6. Envoi d'un patch depuis l'iPhone, application BPS, lancement du jeu patché dans NextUI.
 7. Save : copie, modification en jeu, restauration, vérification en jeu.
 8. State verrouillé, écrasé en jeu, restauré à l'ouverture suivante du pak.
 9. Suppression d'un jeu, contenu de la corbeille.

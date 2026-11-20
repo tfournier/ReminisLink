@@ -1,7 +1,7 @@
 ReminisLink fait de ton iPhone le compagnon de ta console rétro. Ouvre ReminisLink sur la console, gère tout depuis ton téléphone par le Wi-Fi de la maison, ferme-le et joue.
 
 APPORTE TES PROPRES FICHIERS
-ReminisLink ne fournit, ne liste et ne suggère aucun jeu. Tu ajoutes les jeux, saves, patchs et fichiers de cheats que tu possèdes déjà : depuis l’app Fichiers, depuis le menu de partage de n’importe quelle app, ou depuis un lien que la console télécharge elle-même.
+ReminisLink ne fournit, ne liste et ne suggère aucun jeu. Tu ajoutes les jeux, saves, patchs et fichiers de cheats que tu possèdes déjà : depuis l’app Fichiers ou depuis le menu de partage de n’importe quelle app.
 
 TA BIBLIOTHÈQUE
 • Tous les systèmes et les jeux de la carte SD, y compris ceux que tu as copiés à la main
@@ -20,7 +20,7 @@ STATES
 
 CHEATS
 • Active, désactive, modifie, réordonne et supprime tes cheats
-• Importe des fichiers de cheats (.cht) depuis ton iPhone, un lien ou la carte SD, en fusion ou en remplacement
+• Importe des fichiers de cheats (.cht) depuis ton iPhone ou la carte SD, en fusion ou en remplacement
 
 PATCHS
 • Applique des patchs IPS, BPS et UPS (traductions, corrections, améliorations) à un jeu que tu possèdes

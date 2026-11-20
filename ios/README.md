@@ -7,7 +7,7 @@
 | `Config/*-Info.plist`, `Config/*.entitlements` | Info.plist keys (launch screen included) and capabilities of docs/specs/06-app-ios.md §3 |
 | `Config/ExportOptions.plist` | Options of `xcodebuild -exportArchive` for App Store Connect (see "Release") |
 | `ReminisLink/` | SwiftUI app: `App/` (state, pairing, connections, errors), `Views/`, `Resources/` (String Catalogs EN + FR, assets, privacy manifest) |
-| `ReminisLinkShare/` | Share extension: copies shared files and links into the app group inbox, then opens the app on Add (it never uploads) |
+| `ReminisLinkShare/` | Share extension: copies shared files into the app group inbox, then opens the app on Add (it never uploads; web links are not accepted) |
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
 | `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync, tabs, flat library, file download, console closing, apps and SD browser) |
@@ -181,8 +181,10 @@ Pair it with *Add a Console > Pair with the Demo Console*, or open its link:
 xcrun simctl openurl booted 'reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1'
 ```
 
-The fake pak checks signatures like the real one; its game names are made up.
-Its PlayStation system has no emulator (`emulatorInstalled: false`): the
+The fake pak checks signatures like the real one; its game names and system
+labels are made up (no trademark: they appear in App Store screenshots), with
+NextUI-style folder tags (`Handheld Advance (GBA)`, `01) Pocket Classic (GB)`,
+`Disc Console (PS)`). Its disc system has no emulator (`emulatorInstalled: false`): the
 library shows it with "Emulator not installed on the console", and it can
 still be managed. A pak that does not send the field is taken as having the
 emulator.
@@ -269,9 +271,10 @@ TEST_RUNNER_RL_UITEST_PAIR_URL='reminislink://pair?...' TEST_RUNNER_RL_UITEST_SH
 - **Cheats**: edits stay on the iPhone until saved; the whole list is sent
   with `If-Match`. A `412` never overwrites: the app offers to reload,
   which discards the local edits. Unknown keys (`extra`) are sent back as
-  received. Import from a link (downloaded by the console), from Files
-  (uploaded to the staging area, then imported with its `uploadId`) or from
-  a `.cht` of the SD card (`/sd/files?type=cht`).
+  received. Import from Files (uploaded to the staging area, then imported
+  with its `uploadId`) or from a `.cht` of the SD card
+  (`/sd/files?type=cht`). The console never downloads a link (removed from
+  v1).
 
 The demo has two hooks for UI tests (Debug only): its first `PUT /cheats`
 meets a change made on the console with `RL_UITEST_CHEATS_CONFLICT=1`, and
@@ -363,9 +366,8 @@ next start and shown "Restored"):
 
 - The **Patch** section of the game sheet opens the Patch screen. The patch
   comes from Files (sent to the staging area with a resumable upload, then
-  applied by its `stagingId`), from a link (downloaded by the console to the
-  staging area, `POST /downloads`, then applied by the `stagingId` of the
-  job's result) or from the SD card (`GET /sd/files?type=patch`). A staged
+  applied by its `stagingId`) or from the SD card
+  (`GET /sd/files?type=patch`). A staged
   patch is not sent again when the user tries another output.
 - Output: a new file, named `<name> (patched).<ext>` by default (editable;
   like the pak, the app adds `.<extension of the ROM>` when the name does
@@ -383,9 +385,8 @@ next start and shown "Restored"):
   could not be verified (`verified: false`).
 - Cancellation never leads to a patch. The final state is always the one
   the console reports (a running job stays `running` with
-  `cancelRequested` until it stops): a download cancelled too late ends
-  "downloaded, nothing applied" (kept for an explicit new try), a patch
-  cancelled too late shows its result. Polling stops during a
+  `cancelRequested` until it stops): a patch cancelled too late shows its
+  result. Polling stops during a
   cancellation; a polling error is shown with Try Again.
 - Multi-disc games (`m3u`, `folder-m3u`) and `.zip`/`.7z` ROMs are not
   offered: a patch applies to a single, extracted ROM file.
@@ -634,23 +635,23 @@ downloads with curl (SHA-256 against the SD card).
   pak older than M12 (`404`) shows "Update ReminisLink on the console".
 - **Install** (`+`): Files (a `.zip`, or a `.pak` folder zipped by
   `PakArchiver` with `NSFileCoordinator` `.forUploading` into
-  `<Name>.pak.zip`), a link, or the SD card (the browser as a picker:
+  `<Name>.pak.zip`) or the SD card (the browser as a picker:
   only zips and `.pak` folders can be chosen). An options sheet keeps
   `auto` unless the user picks Tool or Emulator. A file goes through the
   transfer queue (target `pak`, `ownsFile: false`: `PakManager` keeps the
   copy until the end, to send it again on a replacement); its `complete`
-  returns a `jobId`, followed like the download job (link) and the
-  `pak-install` job of `POST /paks/install` (SD), by events or polling
+  returns a `jobId`, followed like the `pak-install` job of
+  `POST /paks/install` (SD), by events or polling
   (the Apps screen polls every second while visible, as Transfers).
 - **Conflict**: a job failed with `409 conflict` and `details.existing`
   asks "Replace <name>? The current version goes to the trash." (on Apps
   and on Transfers); Replace starts the same source again with
-  `overwrite` (upload, download) or `replace` (SD). `details.self` and
+  `overwrite` (upload) or `replace` (SD). `details.self` and
   `422 unsupported_format` get their own texts: the pak's English reason
   is mapped by `PakRefusal` (ReminisLinkKit) to a translated message, an
   unknown reason is shown as it is after "The console refused this pak:".
 - **Share extension**: unchanged; a shared zip can be sent from Add with
-  the type "App (pak)" (files and links), which uses the same path.
+  the type "App (pak)", which uses the same path.
 - **SD browser** (tap Storage on the Console tab, `SdFolderView`):
   `GET /sd/browse` folder by folder (opaque `sdEntryId`s only), size and
   date, `truncated` notice; a file downloads with progress and cancel

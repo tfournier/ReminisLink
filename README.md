@@ -5,7 +5,7 @@ ReminisLink lets you manage the games on your retro handheld from your iPhone: R
 It has two parts:
 
 - **The pak**: the ReminisLink program for the handheld (NextUI on the TrimUI Brick first), shown as "ReminisLink" in the Tools menu. You open it, manage your games from the phone, close it and play.
-- **ReminisLink for iOS**: the iPhone app. It finds the handheld on the local Wi-Fi network (Bonjour), pairs with a QR code and talks to the pak over HTTPS, pinned to the fingerprint of the certificate's public key (SPKI) carried by the QR code. The app and the pak only talk over your local network (downloads from a link are made by the pak itself, and save copies can go to your iCloud Drive).
+- **ReminisLink for iOS**: the iPhone app. It finds the handheld on the local Wi-Fi network (Bonjour), pairs with a QR code and talks to the pak over HTTPS, pinned to the fingerprint of the certificate's public key (SPKI) carried by the QR code. The app and the pak only talk over your local network (save copies can go to your iCloud Drive); the pak never connects to the internet.
 
 ![Pairing screen of the pak (illustrative QR code)](docs/screenshots/pairing.png)
 

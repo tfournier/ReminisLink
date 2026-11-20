@@ -9,9 +9,10 @@
 #     comment within 16 s;
 #   - B creates a save backup of Starlight Courier (GBA): A receives a
 #     `library` event naming the GBA systemId;
-#   - B downloads a ROM served on 127.0.0.1 (POST /downloads, kind rom,
-#     needs python3): A receives `job` events of that job up to
-#     `succeeded`, then a `library` event naming the GBA systemId;
+#   - B installs a tiny pak zipped on the SD card (POST /paks/install,
+#     needs python3 to zip it): A receives `job` events of that
+#     `pak-install` job up to `succeeded`, then a `paks` event (the pak
+#     never downloads anything since link downloads left v1);
 #   - A opens 3 more streams (4 in all): the 5th gets 429
 #     too_many_attempts with Retry-After; once one of them is closed, a new
 #     one is accepted;
@@ -66,12 +67,11 @@ now_ms() { python3 -c 'import time; print("%.3f" % time.time())' 2>/dev/null || 
 # --- the pak ----------------------------------------------------------------
 
 pak_pid=""
-http_pid=""
 stream_pids=()
 workdir=$(mktemp -d "${TMPDIR:-/tmp}/smoke-events.XXXXXX")
 cleanup() {
 	local p
-	for p in "${stream_pids[@]+"${stream_pids[@]}"}" $http_pid; do kill "$p" 2>/dev/null || true; done
+	for p in "${stream_pids[@]+"${stream_pids[@]}"}"; do kill "$p" 2>/dev/null || true; done
 	if [ -n "$pak_pid" ]; then
 		kill -TERM "$pak_pid" 2>/dev/null || true
 		wait "$pak_pid" 2>/dev/null || true
@@ -273,39 +273,39 @@ else
 	failed "A: no library event naming GBA within 3 s of B's write (events: $(events "$sa" | tail -n +$((n + 1)) | tr '\t\n' ' |'))"
 fi
 
-# B downloads a ROM from 127.0.0.1: job events, then library.
+# B installs a pak zipped on the SD card: job events, then paks.
 if command -v python3 >/dev/null 2>&1; then
-	www=$workdir/www
-	mkdir -p "$www"
-	head -c 3145728 /dev/urandom >"$www/Smoke Events.gba"
-	hport=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
-	python3 -m http.server "$hport" --bind 127.0.0.1 --directory "$www" >"$workdir/http.log" 2>&1 &
-	http_pid=$!
-	for ((t = 0; t < 50; t++)); do curl -s -o /dev/null "http://127.0.0.1:$hport/" && break; sleep 0.1; done
+	python3 - "$sd/SmokeEvents.pak.zip" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.writestr("SmokeEvents.pak/launch.sh", "#!/bin/sh\n")
+    z.writestr("SmokeEvents.pak/pak.json", '{"name":"SmokeEvents","type":"TOOL","version":"1"}\n')
+PY
+	req B GET /api/v1/sd/browse
+	entry=$(printf '%s' "$body" | tr '{' '\n' | grep '"name":"SmokeEvents.pak.zip"' | sed -n 's/.*"sdEntryId":"\([^"]*\)".*/\1/p')
+	[ -n "$entry" ] || die "SmokeEvents.pak.zip not listed by GET /sd/browse: $status"
 	n=$(count_events "$sa")
-	req B POST /api/v1/downloads "{\"url\":\"http://127.0.0.1:$hport/Smoke%20Events.gba\",\"target\":{\"kind\":\"rom\",\"systemId\":\"$gba\",\"folderId\":null,\"fileName\":\"Smoke Events.gba\"},\"sha256\":null,\"onConflict\":\"rename\"}"
-	check "B POST /downloads (ROM served on 127.0.0.1)" 202 "$status"
+	req B POST /api/v1/paks/install "{\"sdEntryId\":\"$entry\",\"kind\":\"tool\",\"onConflict\":\"fail\"}"
+	check "B POST /paks/install (zip on the SD card)" 202 "$status"
 	job=$(json_field jobId "$body")
 	if [ -n "$job" ] && wait_event "$sa" "$n" job "\"id\":\"$job\".*\"state\":\"succeeded\"|\"state\":\"succeeded\".*\"id\":\"$job\"" 15; then
 		pass "A received job $job succeeded after ${waited} s"
 		states=$(events "$sa" | tail -n +$((n + 1)) | awk -F'\t' '$1 == "job"' | grep -- "\"$job\"" | sed -En 's/.*"state":"([a-z]+)".*/\1/p' | tr '\n' ' ')
 		pass "job states seen by A: $states"
 		case $(events "$sa" | tail -n +$((n + 1)) | awk -F'\t' '$1 == "job"' | grep -- "\"$job\"" | head -n 1) in
-		*'"kind":"download"'*) pass "job event carries kind download" ;;
-		*) failed "job event without kind download" ;;
+		*'"kind":"pak-install"'*) pass "job event carries kind pak-install" ;;
+		*) failed "job event without kind pak-install" ;;
 		esac
-		if wait_event "$sa" "$n" library "\"$gba\"" 3; then
-			pass "A received library naming GBA after the download ($event_data)"
+		if wait_event "$sa" "$n" paks . 3; then
+			pass "A received paks after the installation ($event_data)"
 		else
-			failed "A: no library event after the download installed a ROM"
+			failed "A: no paks event after the pak was installed"
 		fi
 	else
 		failed "A: no job event 'succeeded' for job '$job' within 15 s (events: $(events "$sa" | tail -n +$((n + 1)) | cut -c1-160 | tr '\t\n' ' |'))"
 	fi
-	kill "$http_pid" 2>/dev/null || true
-	http_pid=""
 else
-	echo "SKIP: job events (python3 not found to serve a file on 127.0.0.1)"
+	echo "SKIP: job events (python3 not found to zip a pak)"
 fi
 
 # Stream limit: 4 per client.

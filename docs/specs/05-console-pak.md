@@ -109,7 +109,7 @@ ReminisLink/
 │   └── <trashEntryId>/
 │       ├── entry.json     # raison, libellé, date, liste des fichiers d'origine, taille
 │       └── <chemin d'origine relatif à la SD>
-├── uploads/               # fichiers temporaires des envois et téléchargements
+├── uploads/               # fichiers temporaires des envois et des patchs
 ├── staging/               # patchs et .cht en attente d'utilisation ; paks en cours d'installation (pk_*, M12)
 └── patches/               # patchs déposés par l'utilisateur (listés par /sd/files)
 ```
@@ -162,11 +162,9 @@ Implémentation en Go pur, sans dépendance :
 
 L'application se fait vers un fichier temporaire, puis vérification (pour BPS et UPS), puis renommage. La ROM d'origine n'est jamais modifiée sur place.
 
-### 5.6 Téléchargements
+### 5.6 Téléchargements (retirés de la v1)
 
-- Client HTTP standard de Go, avec un magasin de certificats racine **embarqué par le pak** : le firmware d'origine v1.1.1 n'a aucun certificat (pas de `/etc/ssl`, aucun `.crt`/`.pem`) et NextUI n'en fournit pas pour tg5040 (firmware v1.1.1 ; code NextUI : seul `h700-init.sh:27` en fournit). Cheat Manager s'en sort grâce à gabagool : `gabagool/v2/pkg/gabagool/internal/init.go` importe `github.com/BrandonKowalski/certifiable`, qui embarque `certificates.crt` (`go:embed`) et le pose dans `http.DefaultTransport` à l'initialisation. Ce mécanisme n'existe donc que dans un binaire qui lie gabagool, pas dans `internal/transfer` compilé sans CGO ni en mode `--headless`. Choix du mécanisme : décision ouverte, voir [m0/questions.md](m0/questions.md).
-- Délai de connexion 15 s, délai d'inactivité 60 s, reprise automatique avec `Range` (3 tentatives) si le serveur la supporte.
-- Le nom de fichier final est nettoyé (voir [03 §5](03-protocole.md#5-identifiants)).
+Le pak ne télécharge rien et ne se connecte jamais à Internet : aucun client HTTP sortant, aucun magasin de certificats racine (téléchargement depuis un lien retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées)). L'utilisateur télécharge un fichier sur l'iPhone, puis l'envoie depuis Fichiers ou le menu de partage. Les fichiers partiels laissés par un pak plus ancien dans `uploads/` sont effacés au lancement, comme tout fichier temporaire orphelin.
 
 ## 6. Informations de la console
 

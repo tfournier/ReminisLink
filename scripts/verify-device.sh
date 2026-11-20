@@ -38,7 +38,7 @@ procs 'ntpd' || echo "no ntpd process"
 }) 2>/dev/null
 
 section "Environment (NextUI variables)"
-env | grep -E '^(PLATFORM|DEVICE|TRIMUI_MODEL|IS_NEXT|SDCARD_PATH|ROMS_PATH|SAVES_PATH|CHEATS_PATH|USERDATA_PATH|SHARED_USERDATA_PATH|LOGS_PATH|BIOS_PATH|SYSTEM_PATH|HOME|PATH|LD_LIBRARY_PATH|SSL_CERT_FILE)=' 2>/dev/null
+env | grep -E '^(PLATFORM|DEVICE|TRIMUI_MODEL|IS_NEXT|SDCARD_PATH|ROMS_PATH|SAVES_PATH|CHEATS_PATH|USERDATA_PATH|SHARED_USERDATA_PATH|LOGS_PATH|BIOS_PATH|SYSTEM_PATH|HOME|PATH|LD_LIBRARY_PATH)=' 2>/dev/null
 
 section "NextUI version file (.system/version.txt, raw bytes)"
 if [ -f "$SD/.system/version.txt" ]; then
@@ -130,9 +130,6 @@ netstat -lnup 2>/dev/null | grep 5353 || netstat -lnu 2>/dev/null | grep 5353
 
 section "Listening TCP ports"
 netstat -lnt 2>/dev/null | limit 30
-
-section "CA certificates (for HTTPS downloads)"
-ls -la /etc/ssl/certs 2>&1 | limit 5
 
 section "Sleep and power daemons"
 procs 'keymon|batmon|audiomon|trimui_inputd'

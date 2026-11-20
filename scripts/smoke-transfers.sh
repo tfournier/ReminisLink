@@ -3,8 +3,9 @@
 # (cmd/reminislink/smoke_test.go): a file of RL_SMOKE_MB MiB (default 200)
 # is uploaded in chunks, the pak is stopped with SIGINT in the middle and
 # started again, the upload resumes at the offset and the SHA-256 of the
-# installed file is checked; then a file is downloaded from a local HTTP
-# server and a game is deleted to the trash, whose content is checked.
+# installed file is checked; then the pak is checked to have no
+# device-side download route (removed from v1) and a game is deleted to the
+# trash, whose content is checked.
 #
 # Usage: scripts/smoke-transfers.sh [size in MiB]
 set -euo pipefail

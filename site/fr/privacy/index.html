@@ -41,7 +41,7 @@
 
     <div class="wrap">
       <article class="prose">
-        <p>ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton réseau Wi-Fi local. Tes données restent sur ton iPhone, sur ta console et dans ton propre compte iCloud (copies de tes sauvegardes dans iCloud Drive, appairage dans le trousseau iCloud). Seule exception : un téléchargement depuis un lien, que la console fait elle-même (voir plus bas).</p>
+        <p>ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton réseau Wi-Fi local. Tes données restent sur ton iPhone, sur ta console et dans ton propre compte iCloud (copies de tes sauvegardes dans iCloud Drive, appairage dans le trousseau iCloud). ReminisLink sur la console ne se connecte jamais à internet : il ne répond qu’à tes appareils sur ton réseau local.</p>
 
         <h2>Ce que nous collectons</h2>
         <p><strong>Rien.</strong> ReminisLink n’a ni compte, ni serveur, ni mesure d’audience, ni publicité, ni pistage, ni SDK tiers. Le développeur ne reçoit aucune donnée sur toi ni sur ton utilisation de l’app.</p>
@@ -50,7 +50,7 @@
         <ul>
           <li><strong>Les préférences de l’app</strong>, et la liste des consoles appairées avec une ancienne version qui doivent être appairées de nouveau.</li>
           <li><strong>Un cache des jaquettes</strong> affichées dans la bibliothèque, qu’iOS peut vider à tout moment.</li>
-          <li><strong>Les fichiers et liens que tu partages vers ReminisLink</strong> depuis une autre app : l’extension de partage les copie dans un stockage partagé avec l’app jusqu’à leur envoi. L’app les supprime une fois utilisés ; ceux qui ne servent pas sont supprimés la prochaine fois que l’app vérifie sa boîte de réception (quand elle devient active), s’ils ont plus de 7 jours.</li>
+          <li><strong>Les fichiers que tu partages vers ReminisLink</strong> depuis une autre app : l’extension de partage les copie dans un stockage partagé avec l’app jusqu’à leur envoi. L’app les supprime une fois utilisés ; ceux qui ne servent pas sont supprimés la prochaine fois que l’app vérifie sa boîte de réception (quand elle devient active), s’ils ont plus de 7 jours.</li>
           <li><strong>Des copies temporaires des fichiers que tu envoies</strong>, gardées jusqu’à la fin du transfert. L’app ne garde pas sa file de transferts d’un lancement à l’autre : elles sont supprimées au plus tard au lancement suivant.</li>
           <li><strong>Les fichiers que tu télécharges</strong> depuis ta console (un fichier d’un jeu, un fichier de la carte SD) ou depuis tes copies de sauvegardes : écrits dans un dossier temporaire de l’app, puis enregistrés seulement là où tu le choisis (Fichiers, AirDrop, une autre app). Le dossier temporaire est vidé à chaque lancement de l’app.</li>
         </ul>
@@ -76,14 +76,11 @@
         <h2>Sur la carte SD de ta console</h2>
         <ul>
           <li><strong>Les appareils appairés</strong> (<code>clients.json</code>) : pour chacun, son identifiant, son nom, sa plateforme, les types d’appareils vus, sa clé publique (qui ne permet pas de signer) et la date d’appairage. Tu peux retirer un appareil dans Réglages &gt; Appareils sur la console.</li>
-          <li><strong>Le journal de ReminisLink</strong> (<code>/.userdata/tg5040/logs/</code>) : ce que la console a fait, avec pour chaque requête l’heure, l’action, le résultat, l’identifiant de l’appareil et son adresse sur ton réseau local, ainsi que le nom des appareils quand ils s’appairent, des noms de fichiers, et le protocole et l’hôte des liens de téléchargement (jamais leur chemin). Les requêtes non signées ou refusées ne sont journalisées que par échantillons. Jamais de clé, de secret ni de signature. Au lancement, un journal de plus de 5 Mo est renommé, en remplaçant l’ancien journal précédent.</li>
+          <li><strong>Le journal de ReminisLink</strong> (<code>/.userdata/tg5040/logs/</code>) : ce que la console a fait, avec pour chaque requête l’heure, l’action, le résultat, l’identifiant de l’appareil et son adresse sur ton réseau local, ainsi que le nom des appareils quand ils s’appairent et des noms de fichiers. Les requêtes non signées ou refusées ne sont journalisées que par échantillons. Jamais de clé, de secret ni de signature. Au lancement, un journal de plus de 5 Mo est renommé, en remplaçant l’ancien journal précédent.</li>
           <li><strong>Tes fichiers</strong>, là où NextUI les range, et dans le dossier de ReminisLink (<code>/.userdata/shared/ReminisLink/</code>) : copies de secours des sauvegardes, copies verrouillées des états de jeu, la corbeille (fichiers supprimés ou remplacés, purgés au lancement une fois 30 jours d’âge comptabilisé atteints, ou quand tu la vides), et fichiers temporaires des transferts (un envoi inactif pendant 24 heures est supprimé).</li>
           <li><strong>Le certificat de la console</strong> et sa clé privée.</li>
         </ul>
         <p>La carte SD n’a aucune protection propre : quiconque l’a en main peut lire ces fichiers.</p>
-
-        <h2>Téléchargements depuis un lien</h2>
-        <p>Quand tu saisis ou partages un lien, l’app l’envoie à ta console, qui télécharge elle-même le fichier (un jeu, un patch, un fichier de cheats ou une app pour la console), avec sa propre connexion. Le serveur du lien reçoit la requête de la console, comme pour tout téléchargement : le chemin et les paramètres du lien (pas la partie après #), l’adresse IP de la connexion (en général l’adresse publique de ton réseau), et « ReminisLink » comme nom de programme. Il peut rediriger la console vers un autre serveur, qui reçoit alors le même genre de requête. L’app elle-même ne contacte pas ces serveurs.</p>
 
         <h2>Autorisations</h2>
         <ul>

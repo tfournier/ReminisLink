@@ -1,7 +1,7 @@
 ReminisLink turns your iPhone into the companion of your retro handheld. Open ReminisLink on the handheld, manage everything from your phone over your home Wi-Fi, close it and play.
 
 BRING YOUR OWN FILES
-ReminisLink does not provide, list or suggest any game. You add the games, saves, patches and cheat files you already own: from the Files app, from the share sheet of any app, or from a link that the handheld downloads itself.
+ReminisLink does not provide, list or suggest any game. You add the games, saves, patches and cheat files you already own: from the Files app or from the share sheet of any app.
 
 YOUR LIBRARY
 • Every system and game on the SD card, including the ones you copied by hand
@@ -20,7 +20,7 @@ SAVE STATES
 
 CHEATS
 • Turn cheats on or off, edit, reorder and delete them
-• Import cheat files (.cht) from your iPhone, from a link or from the SD card, merged or replacing the list
+• Import cheat files (.cht) from your iPhone or from the SD card, merged or replacing the list
 
 PATCHES
 • Apply IPS, BPS and UPS patches (translations, fixes, improvements) to a game you own

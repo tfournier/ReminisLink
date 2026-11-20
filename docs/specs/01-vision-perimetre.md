@@ -27,16 +27,16 @@ Le mode d'emploi tient en une phrase : **on ouvre ReminisLink sur la console, on
 |---|---|
 | **Console** | IP, nom, modèle, OS et version, batterie (niveau, en charge), stockage (total, libre), version du pak |
 | **Bibliothèque** | Lister les systèmes et les jeux (y compris installés à la main), avec pour chacun : taille, save, nombre de states, nombre de cheats, jaquette |
-| **Ajout de jeux** | Depuis l'iPhone (Fichiers, partage) ; depuis une URL, téléchargée **directement par la console** |
+| **Ajout de jeux** | Depuis l'iPhone (Fichiers, partage) |
 | **Suppression** | Supprimer un jeu et toutes ses données (save, states, cheats, jaquette), avec sauvegarde préalable de la save et des states |
 | **Saves** | Télécharger sur l'iPhone, remplacer, créer une copie de sauvegarde nommée, restaurer une copie, supprimer une copie |
 | **States** | Lister les emplacements (date, taille, vignette si disponible), télécharger, supprimer, verrouiller / déverrouiller, restaurer ; historique du state de reprise |
-| **Cheats** | Lister, ajouter, modifier, activer / désactiver, supprimer ; importer depuis l'iPhone, une URL ou un fichier `.cht` de la carte SD (fusion ou remplacement) |
-| **Patchs** | Appliquer un patch IPS, BPS ou UPS venant de l'iPhone, d'une URL ou de la carte SD ; résultat dans un nouveau fichier (par défaut) ou à la place de la ROM (avec sauvegarde) |
+| **Cheats** | Lister, ajouter, modifier, activer / désactiver, supprimer ; importer depuis l'iPhone ou un fichier `.cht` de la carte SD (fusion ou remplacement) |
+| **Patchs** | Appliquer un patch IPS, BPS ou UPS venant de l'iPhone ou de la carte SD ; résultat dans un nouveau fichier (par défaut) ou à la place de la ROM (avec sauvegarde) |
 
 ## Hors périmètre v1
 
-Lancer un jeu ou un outil, contrôle à distance et recopie d'écran, Pak Store, mise à jour du firmware, gestionnaire de fichiers générique, synchronisation entre consoles, Bluetooth, app Android, format xdelta et patchs PPF.
+Téléchargement depuis un lien par la console (retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées) : l'utilisateur télécharge sur l'iPhone puis envoie depuis Fichiers), lancer un jeu ou un outil, contrôle à distance et recopie d'écran, Pak Store, mise à jour du firmware, gestionnaire de fichiers générique, synchronisation entre consoles, Bluetooth, app Android, format xdelta et patchs PPF.
 
 Ces points sont repris, ou non, après la v1 (voir [09](09-feuille-de-route.md)).
 

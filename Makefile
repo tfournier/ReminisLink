@@ -125,8 +125,6 @@ $(BIN): FORCE
 	@mkdir -p $(BUILD_DIR)
 	$(CROSS_ENV) go vet -tags "$(GO_TAGS)" ./cmd/... ./internal/ui/...
 	$(CROSS_ENV) go build -tags "$(GO_TAGS)" -trimpath -ldflags "$(LDFLAGS)" -o $@ ./cmd/reminislink
-	@# The root certificates of the downloads come from gabagool (decision D1).
-	@go version -m $@ | grep -q 'github.com/BrandonKowalski/certifiable' || { echo "certifiable is not linked in $@"; exit 1; }
 
 pak: build ## Assemble the pak folder in build/pak
 	rm -rf $(PAK_DIR)

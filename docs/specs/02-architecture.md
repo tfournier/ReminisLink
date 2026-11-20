@@ -32,7 +32,7 @@
 - Découvre les consoles, gère l'appairage et les clés.
 - Affiche la bibliothèque et exécute les actions via l'API.
 - Gère les envois de fichiers (reprenables) et le suivi des tâches côté console.
-- Reçoit des fichiers et des liens depuis les autres apps (extension de partage).
+- Reçoit des fichiers depuis les autres apps (extension de partage).
 
 ### Le contrat
 
@@ -49,7 +49,7 @@
 | `internal/osadapter` | Interface `Adapter` et implémentation `nextui` |
 | `internal/library` | Systèmes, jeux, identifiants opaques, fichiers associés à un jeu |
 | `internal/saves`, `internal/states`, `internal/cheats`, `internal/patch` | Fonctions métier |
-| `internal/transfer` | Envois reprenables, téléchargements par la console, gestionnaire de tâches |
+| `internal/transfer` | Envois reprenables, gestionnaire de tâches (patchs, installations de paks) |
 | `internal/store` | Données ReminisLink sur la carte SD : sauvegardes, verrous, clients, configuration |
 | `internal/ui` | Écrans gabagool |
 | `internal/device` | Batterie, stockage, réseau, version de l'OS |
@@ -62,7 +62,7 @@ Le code de lecture et d'écriture des `.cht` de Cheat Manager (`internal/cheats`
 |---|---|
 | `ReminisLinkKit` (Swift package) | Modèles, client API, signature HMAC, appairage, transferts, découverte. Sans UI, testable avec `swift test` |
 | `ReminisLink` (app) | Écrans SwiftUI |
-| `ReminisLinkShare` (extension de partage) | Reçoit fichiers et liens, les confie à l'app via un groupe d'apps (*App Group*) partagé |
+| `ReminisLinkShare` (extension de partage) | Reçoit des fichiers, les confie à l'app via un groupe d'apps (*App Group*) partagé |
 
 ## Flux principaux
 
@@ -78,7 +78,7 @@ Le code de lecture et d'écriture des `.cht` de Cheat Manager (`internal/cheats`
 
 **Ajout d'un jeu depuis l'iPhone** : l'app crée un envoi (`POST /uploads`), envoie les morceaux, termine l'envoi ; la console vérifie le SHA-256 puis déplace le fichier dans `Roms/<système>/`.
 
-**Ajout depuis une URL** : l'app transmet l'URL (`POST /downloads`) ; la console télécharge elle-même (un seul transfert au lieu de deux) ; l'app suit la tâche.
+**Pas de téléchargement par la console** : le pak ne se connecte jamais à Internet (téléchargement depuis un lien retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées)). Un fichier du web est téléchargé sur l'iPhone, puis envoyé comme les autres.
 
 ## Choix techniques et raisons
 
