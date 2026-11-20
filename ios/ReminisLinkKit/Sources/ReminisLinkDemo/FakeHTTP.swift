@@ -50,7 +50,7 @@ public final class FakeGate: @unchecked Sendable {
     private let lock = NSLock()
     private var _reached = false
     private var _isOpen = false
-    private var actions: [() -> Void] = []
+    private var actions: [@Sendable () -> Void] = []
 
     public init() {}
 
@@ -59,7 +59,7 @@ public final class FakeGate: @unchecked Sendable {
 
     /// Lets the request (or its answer) go on.
     public func open() {
-        let pending = lock.withLock { () -> [() -> Void] in
+        let pending = lock.withLock { () -> [@Sendable () -> Void] in
             _isOpen = true
             defer { actions = [] }
             return actions
@@ -67,7 +67,7 @@ public final class FakeGate: @unchecked Sendable {
         for action in pending { DispatchQueue.global().async(execute: action) }
     }
 
-    func hold(_ action: @escaping () -> Void) {
+    func hold(_ action: @escaping @Sendable () -> Void) {
         let runNow = lock.withLock { () -> Bool in
             _reached = true
             if !_isOpen { actions.append(action) }

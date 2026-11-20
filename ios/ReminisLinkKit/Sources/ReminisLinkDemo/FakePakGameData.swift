@@ -180,9 +180,11 @@ extension FakePak {
                                        blob: FakeBlob(size: 401_408, digest: "seed-rh\(i)-\(game.path)"))
             }
         }
-        data.cheats = (0..<game.cheatCount).map { i in
-            FakeCheat(description: "Demo cheat \(i + 1)", code: String(format: "%08X+%04X", 0x0200_0000 + i * 16, i),
-                      enabled: i == 0, extra: i == 0 ? ["handler": "0"] : [:])
+        data.cheats = (0..<game.cheatCount).map { (i: Int) -> FakeCheat in
+            let address: Int = 0x0200_0000 + i * 16
+            let code = String(format: "%08X+%04X", address, i)
+            let extra: [String: String] = i == 0 ? ["handler": "0"] : [:]
+            return FakeCheat(description: "Demo cheat \(i + 1)", code: code, enabled: i == 0, extra: extra)
         }
         return data
     }
