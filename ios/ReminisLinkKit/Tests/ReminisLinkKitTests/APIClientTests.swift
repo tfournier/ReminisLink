@@ -322,7 +322,8 @@ struct APIClientTests {
         #expect(closed.value == 1)
     }
 
-    /// Cancelled after a first chunk: the request stops at once.
+    /// Cancelled once a first chunk was received by the client (not merely
+    /// sent by the fake): the request stops at once.
     @Test func anArtCancelledAfterAFirstChunkStops() async throws {
         let stream = FakeStream()
         let closed = Counter()
@@ -332,9 +333,14 @@ struct APIClientTests {
             response.stream = stream
             return response
         }
+        let (received, signal) = AsyncStream<Int>.makeStream()
+        await client.observeLimitedReads { event in
+            if case .received(let count) = event { signal.yield(count) }
+        }
         let load = Task { try await client.art(gameId: "g") }
         stream.send(Data(repeating: 1, count: 1000))
-        try await Task.sleep(for: .milliseconds(100))
+        var chunks = received.makeAsyncIterator()
+        #expect(await chunks.next() == 1000)
         load.cancel()
         await #expect(throws: CancellationError.self) { try await load.value }
         let deadline = ContinuousClock.now + .seconds(5)
@@ -342,8 +348,9 @@ struct APIClientTests {
         #expect(closed.value == 1)
     }
 
-    /// Cancelled while the answer is on its way: the answer delivered
-    /// afterwards is neither returned nor stored.
+    /// Cancelled while the whole answer is being handed over (the success
+    /// reaches the continuation after the cancellation, before the caller
+    /// resumes): neither returned nor stored.
     @Test func anArtCancelledAtDeliveryIsNeitherReturnedNorStored() async throws {
         let gate = FakeGate()
         let client = stubClient { _, _ in
@@ -353,14 +360,37 @@ struct APIClientTests {
         }
         let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
         defer { try? FileManager.default.removeItem(at: cache.directory) }
+        let box = TaskBox()
+        let delivered = Counter()
+        await client.observeLimitedReads { event in
+            guard case .delivering = event else { return }
+            delivered.increment()
+            box.cancel() // before the continuation resumes
+        }
         let load = Task { try await cache.load(gameId: "g", client: client) }
-        let deadline = ContinuousClock.now + .seconds(5)
-        while !gate.reached, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        load.cancel()
+        box.set { load.cancel() }
         gate.open()
         await #expect(throws: CancellationError.self) { try await load.value }
-        try await Task.sleep(for: .milliseconds(100))
+        #expect(delivered.value == 1)
         #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g") == nil)
+    }
+
+    /// Only a real `404` drops the cached art: an error of the pak (`500`,
+    /// a card it cannot read) keeps it.
+    @Test func anArtErrorKeepsTheCachedCopy() async throws {
+        let status = Counter()
+        let client = stubClient { _, _ in
+            if status.value == 0 {
+                return FakeResponse(status: 200, headers: ["Content-Type": "image/png", "ETag": "\"v1\""], body: Data([1]))
+            }
+            return .error(500, code: "internal", message: "Internal error")
+        }
+        let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: cache.directory) }
+        #expect(try await cache.load(gameId: "g", client: client) == Data([1]))
+        status.increment()
+        await #expect(throws: APIError.self) { try await cache.load(gameId: "g", client: client) }
+        #expect(cache.entry(deviceId: FakePak.demoDeviceId, gameId: "g")?.data == Data([1]))
     }
 
     /// A redirection is never followed by the art request: one call.
@@ -406,6 +436,14 @@ struct APIClientTests {
         #expect(pak.log.last?.status == 304)
         #expect(try await cache.load(gameId: withoutArt.id, client: client) == nil)
     }
+}
+
+/// Holds a cancellation set after the task it cancels was created.
+final class TaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var action: (() -> Void)?
+    func set(_ action: @escaping () -> Void) { lock.withLock { self.action = action } }
+    func cancel() { lock.withLock { action }?() }
 }
 
 final class Counter: @unchecked Sendable {

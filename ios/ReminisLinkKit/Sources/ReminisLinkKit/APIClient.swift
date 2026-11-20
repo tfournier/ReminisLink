@@ -76,6 +76,13 @@ public actor APIClient {
     /// `401 disconnected` and `503 shutting_down` whatever the screen or
     /// transfer that sent the request).
     private let errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)?
+    /// Tests only: sees the bounded reads (`GET /art`) as they progress.
+    private var limitedReadObserver: (@Sendable (PakLimitedDataDelegate.Event) -> Void)?
+
+    /// Tests only: `observer` sees the progress of the next bounded reads.
+    func observeLimitedReads(_ observer: (@Sendable (PakLimitedDataDelegate.Event) -> Void)?) {
+        limitedReadObserver = observer
+    }
 
     /// Device time minus local time, measured on the last `/hello`.
     public private(set) var clockOffset: TimeInterval = 0
@@ -859,7 +866,7 @@ public actor APIClient {
     /// and every other request of the client behind it.
     private func transportLimited(_ request: URLRequest, maxBytes: Int) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await PakLimitedDataDelegate.fetch(
-            request, session: session, trust: PinnedTrust(pin: pin), maxBytes: maxBytes
+            request, session: session, trust: PinnedTrust(pin: pin), maxBytes: maxBytes, observer: limitedReadObserver
         )
         guard let http = response as? HTTPURLResponse else {
             throw APIError.invalidResponse("not an HTTP response")
@@ -1064,16 +1071,27 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
     private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
     private var body = Data()
     private var tooLarge = false
+    private let observer: (@Sendable (Event) -> Void)?
 
-    private init(trust: PinnedTrust, maxBytes: Int) {
+    /// What a test observer sees of a read.
+    enum Event: Sendable {
+        /// Bytes of the body received so far (after each chunk).
+        case received(Int)
+        /// The whole answer is about to be handed to the caller.
+        case delivering
+    }
+
+    private init(trust: PinnedTrust, maxBytes: Int, observer: (@Sendable (Event) -> Void)?) {
         self.maxBytes = maxBytes
+        self.observer = observer
         super.init(trust: trust, onSent: nil)
     }
 
     static func fetch(
-        _ request: URLRequest, session: URLSession, trust: PinnedTrust, maxBytes: Int
+        _ request: URLRequest, session: URLSession, trust: PinnedTrust, maxBytes: Int,
+        observer: (@Sendable (Event) -> Void)? = nil
     ) async throws -> (Data, URLResponse) {
-        let delegate = PakLimitedDataDelegate(trust: trust, maxBytes: maxBytes)
+        let delegate = PakLimitedDataDelegate(trust: trust, maxBytes: maxBytes, observer: observer)
         let task = session.dataTask(with: request)
         task.delegate = delegate
         let result = try await withTaskCancellationHandler {
@@ -1120,17 +1138,21 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        let fits = lock.withLock { () -> Bool in
-            guard !tooLarge else { return false }
+        let received = lock.withLock { () -> Int? in
+            guard !tooLarge else { return nil }
             guard body.count + data.count <= maxBytes else {
                 tooLarge = true
                 body = Data()
-                return false
+                return nil
             }
             body.append(data)
-            return true
+            return body.count
         }
-        if !fits { dataTask.cancel() }
+        if let received {
+            observer?(.received(received))
+        } else {
+            dataTask.cancel()
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
@@ -1140,6 +1162,7 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
         } else if let error {
             finish(.failure((error as? URLError).map(failure) ?? error))
         } else if let response = task.response {
+            observer?(.delivering)
             finish(.success((body, response)))
         } else {
             finish(.failure(APIError.invalidResponse("no response")))
