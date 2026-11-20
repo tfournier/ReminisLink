@@ -148,9 +148,11 @@ Check that both open over HTTPS before submitting.
 
 ### 6. App Review
 
-The demo mode exists in Debug builds only: a reviewer cannot use the app
-without a console. Attach a video of the whole flow and complete
-`AppStore/review_notes.txt` in *App Review Information > Notes*.
+The reviewer has no console: the published app has a demo mode (milestone
+M16, *Try Without a Console* on the first screen, see "Demo mode" below).
+Paste `AppStore/review_notes.txt` in *App Review Information > Notes*; the
+App Store screenshots and a review video made from the demo are in
+`docs/screenshots/appstore/`.
 
 ### App icon and launch screen
 
@@ -171,10 +173,21 @@ targets are in `Config/Config.xcconfig`.
 
 ## Demo mode (no console, no network)
 
-Launch with the environment variable `RL_DEMO=1` (already in the scheme,
+Milestone M16: *Try Without a Console* (welcome screen, or the last row of
+the list of consoles) opens a "Demo Brick" in every build, App Store
+included (`App/DemoMode.swift`, docs/specs/06-app-ios.md §12). It talks to
+the fake pak of `ReminisLinkDemo` through `FakeURLProtocol`, and
+`OfflineURLProtocol` fails any other request without going out; its keys
+stay in memory, its synced saves, art cache and file copies in one
+temporary folder and its settings in their own `UserDefaults` suite, all
+erased by *Quit* in its banner (and at the next launch after a crash). The
+real list of consoles is never touched. `DemoModeAppTests` and
+`DemoModeUITests` cover it.
+
+For UI tests, launch with the environment variable `RL_DEMO=1` (already in the scheme,
 disabled: tick it in *Edit Scheme > Run > Arguments*) or the argument
-`-RLDemo YES`. The app then talks to the fake pak of `ReminisLinkDemo`
-through a `URLProtocol`, keeps its keys in memory and sees one "Demo Brick".
+`-RLDemo YES` (Debug builds only). The whole app then runs on the same
+demo, without the banner and not paired yet, and sees one "Demo Brick".
 Pair it with *Add a Console > Pair with the Demo Console*, or open its link:
 
 ```sh

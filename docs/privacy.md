@@ -45,6 +45,10 @@ data about you or about how you use the app.
   SD card) or from your save copies: written to a temporary folder of the
   app, then saved only where you choose (Files, AirDrop, another app). The
   temporary folder is emptied at each launch of the app.
+- **The demo mode** (Try Without a Console) works with a made-up handheld
+  inside the app: it uses no network, puts nothing in the Keychain or iCloud
+  Drive, and what it writes to a temporary folder of the app is erased when
+  you quit it, or at the next launch.
 
 Deleting the app removes all of this. It does not remove the copies of your
 saves in iCloud Drive (see below), and iOS may keep the pairing in the
@@ -199,6 +203,10 @@ sur toi ni sur ton utilisation de l’app.
   dans un dossier temporaire de l’app, puis enregistrés seulement là où tu le
   choisis (Fichiers, AirDrop, une autre app). Le dossier temporaire est vidé
   à chaque lancement de l’app.
+- **Le mode démo** (Essayer sans console) fonctionne avec une console
+  inventée, dans l’app : il n’utilise pas le réseau, ne met rien dans le
+  trousseau ni dans iCloud Drive, et ce qu’il écrit dans un dossier temporaire
+  de l’app est effacé quand tu le quittes, ou au lancement suivant.
 
 Supprimer l’app efface tout cela. Cela n’efface pas les copies de tes
 sauvegardes dans iCloud Drive (voir plus bas), et iOS peut garder l’appairage

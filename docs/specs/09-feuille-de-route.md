@@ -176,6 +176,8 @@ But : essayer toute l'app sans console, pour l'examen App Store (le reviewer n'a
 
 **Fait quand** : depuis une installation neuve, la démo s'ouvre, chaque fonction marche, la sortie ramène à la liste vide sans trace, et les tests UI couvrent l'entrée et la sortie.
 
+- Fait le 20/11/2026 (branche `m16-demo`) : bouton sur l'écran d'accueil et rangée dans la liste des consoles, bandeau avec Quitter, isolement décrit en [06 §12](06-app-ios.md#12-mode-démo-m16) (données en mémoire, fichiers et préférences dans un dossier et une suite temporaires effacés à la sortie), tests unitaires (réseau, trousseau, iCloud, aucune trace) et tests UI (entrée, une fonction, sortie). Captures App Store et vidéo pour l'examen tirées de la démo (`docs/screenshots/appstore/`).
+
 ## M15 — App universelle (décidé le 20/11/2026)
 
 But : une seule app, un seul binaire, sur iPhone, iPad et Mac à puce Apple (même fiche App Store), **sans code propre au Mac** (choix de la personne).
