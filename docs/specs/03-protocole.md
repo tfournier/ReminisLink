@@ -166,7 +166,7 @@ Les suites Go et Swift DOIVENT les lire et les vérifier.
 - `systemId` = `b64u` du nom du dossier système (ex. `Game Boy Advance (GBA)`).
 - `gameId` = `b64u` du chemin du jeu relatif à `Roms/`, séparateur `/` (ex. `Game Boy Advance (GBA)/Hacks/Sky Garden Quest DX.gba`).
 - `folderId` = `b64u` du chemin d'un sous-dossier relatif à `Roms/`, même format.
-- `sdFileId`, `stagingId`, `backupId`, `entryId`, `uploadId`, `jobId` : identifiants générés par le pak, opaques eux aussi.
+- `sdFileId`, `stagingId`, `backupId`, `entryId`, `uploadId`, `jobId`, `pakId` et `sdEntryId` (M12) : identifiants générés par le pak, opaques eux aussi.
 - Ce sont des identifiants **opaques** : l'app ne les décode pas et ne les construit pas, elle les renvoie tels quels.
 - Le pak DOIT décoder, refuser tout composant `..`, chemin absolu ou caractère nul, puis vérifier que le chemin final, liens symboliques résolus, reste sous la racine attendue (`400 invalid_id` sinon).
 - Le décodage est **strict** : base64url non canonique, UTF-8 invalide, caractère de contrôle, `\` et chemin non canonique (`a//b`, `./a`, `a/`, `a/.`) sont refusés (`400 invalid_id`) au lieu d'être nettoyés par `filepath.Clean`, pour qu'un fichier ait un seul identifiant. *(Décision du 18/11/2026.)*
@@ -218,7 +218,7 @@ L'intégrité des morceaux (non signés) est garantie par le SHA-256 final, anno
 
 ## 8. Tâches (opérations longues côté console)
 
-Téléchargements depuis une URL et application de patchs. Une seule tâche à la fois s'exécute ; les autres attendent dans une file.
+Téléchargements depuis une URL, application de patchs et installation de paks (M12). Une seule tâche à la fois s'exécute ; les autres attendent dans une file.
 
 ```json
 {
@@ -233,7 +233,7 @@ Téléchargements depuis une URL et application de patchs. Une seule tâche à l
 }
 ```
 
-- `kind` : `download` ou `patch`.
+- `kind` : `download`, `patch` ou `pak-install` (M12 : installation d'un pak depuis la carte SD ou un envoi).
 - `state` : `queued`, `running`, `succeeded`, `failed`, `cancelled`.
 - `progress.total` vaut `null` si inconnu.
 - `result` (si `succeeded`) : la ressource créée, ex. `{ "gameId": "..." }`.

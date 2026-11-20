@@ -319,7 +319,7 @@ func TestEventStreamExampleIsValid(t *testing.T) {
 	if !ok || example == "" {
 		t.Fatal("no example for GET /events")
 	}
-	schemas := map[string]string{"hello": "EventHello", "shutdown": "EventShutdown", "device": "EventDevice", "library": "EventLibrary", "job": "Job"}
+	schemas := map[string]string{"hello": "EventHello", "shutdown": "EventShutdown", "device": "EventDevice", "library": "EventLibrary", "job": "Job", "paks": "EventPaks"}
 	// The schemas listed in contentSchema are those of the event types.
 	var listed []string
 	for _, ref := range lookup(media, "schema", "contentSchema", "oneOf").([]any) {
