@@ -1,0 +1,18 @@
+# Dependabot: weekly updates of the Go modules and of the GitHub Actions
+# used by the workflows. The iOS app has no third-party dependency.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
