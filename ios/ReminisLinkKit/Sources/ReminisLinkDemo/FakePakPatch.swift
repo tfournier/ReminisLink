@@ -230,6 +230,7 @@ extension FakePak {
             fails: false, patch: plan
         )
         lock.withLock { jobs[job.id] = job }
+        emitJob(job)
         return .json(202, ["jobId": job.id])
     }
 

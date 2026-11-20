@@ -11,7 +11,7 @@
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
 | `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync, tabs, flat library, file download, console closing) |
-| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M11 routes included) |
+| `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Events/`: the event stream of milestone M14 (SSE parser, typed events, liveness and reconnection), `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M14 routes included: `GET /events` with keep-alives, `library`/`job`/`device`/`shutdown` events and a mode without the route) |
 
 ## Build and test
 
@@ -497,6 +497,17 @@ lease of the demo console (`WriteAccessUITests`).
   there once the announcement is gone, does the same. The image of a game
   that is gone has no action. A
   Wi-Fi glitch alone (service still announced) keeps today's error screen.
+  The user does not have to do anything: when the browser sees the open
+  console's service withdrawn (the pak's mDNS goodbye as it quits,
+  `Discovery.onDevicesRemoved`), the session probes `GET /hello` once (3 s,
+  no retry, `ConsoleSession.checkStillOpen`): `503 shutting_down` or no
+  connection is the closing above, an answer means a Bonjour glitch and the
+  console stays open. A lease renewal that fails to connect right after the
+  browser started (back from the background) is checked the same way once
+  it has browsed for 3 s, if the console is still not seen.
+- **Console name**: the list shows the name the console reports
+  (`deviceName` of `/hello` or `/device`, matched by `deviceId`); a console
+  paired before M11 takes it at the first report.
 
 The fake pak serves `GET /games` (`allGamesSupported`, `allGamesLimit` to
 test the fallback), a `fileId` per file (base64url of `f_<role>[slot]`) and

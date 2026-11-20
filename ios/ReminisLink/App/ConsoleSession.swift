@@ -16,11 +16,13 @@ final class ConsoleSession {
     let deviceId: String
     private(set) var state: State = .idle
     private(set) var hello: Hello?
-    private(set) var status: DeviceStatus?
+    /// Set here and by the `device` events (M14).
+    var status: DeviceStatus?
     private(set) var trash: TrashList?
     private(set) var client: APIClient?
     /// Changes when games were added or deleted: the library screens reload.
-    private(set) var libraryRevision = 0
+    /// Also changed by the `library` events (M14).
+    var libraryRevision = 0
     /// Changes when a game art was set or removed: art views load again.
     var artRevision = 0
 
@@ -39,10 +41,35 @@ final class ConsoleSession {
     @ObservationIgnored unowned let app: AppModel
     /// The connection in progress, shared by every caller.
     @ObservationIgnored private var attempt: ConnectionAttempt?
+    /// The check in progress after the console's service disappeared (M11).
+    @ObservationIgnored private var closureCheck: Task<Void, Never>?
+
+    // Milestone M14 (ConsoleSession+Events.swift).
+    /// The event stream of the connection, while connected and active.
+    @ObservationIgnored var events: EventStream?
+    /// The client the event stream belongs to.
+    @ObservationIgnored weak var eventsClient: APIClient?
+    /// `hello` events received by the current stream.
+    @ObservationIgnored var hellosSeen = 0
+    /// The pak has no `GET /events` (older than M14): the screens poll,
+    /// as before, for the rest of this session.
+    var eventsUnsupported = false
+    /// The event stream is open (`hello` received): jobs follow its events.
+    var eventsLive = false
+    /// Library changes waiting for the debounce to end.
+    @ObservationIgnored var pendingLibraryChange: LibraryChange?
+    /// The systems the last change of ``libraryRevision`` touched, nil for
+    /// all of them (an action of this app, or an event that says so).
+    var lastLibraryChange: Set<String>?
+
+    /// The app, for the event stream's callbacks (M14), which may come
+    /// after the app is gone (tests): nil then, never a dangling `app`.
+    @ObservationIgnored weak var liveApp: AppModel?
 
     init(deviceId: String, app: AppModel) {
         self.deviceId = deviceId
         self.app = app
+        self.liveApp = app
     }
 
     var error: AppError? {
@@ -176,6 +203,8 @@ final class ConsoleSession {
             state = .connected
             closedByConsole = false
             lease.start(device: status, sentAt: deviceSentAt)
+            // M14: the console pushes its changes while the app is active.
+            updateEventStream()
             // Uploads paused when the console closed ReminisLink go on (M11).
             transfers.resumeAfterReconnection()
             // Milestone M9: copy the saves that changed (setting, default on).
@@ -207,6 +236,7 @@ final class ConsoleSession {
             let renamed = self.status.map { $0.deviceName != status.deviceName } ?? false
             self.status = status
             state = .connected
+            updateEventStream()
             if renamed { app.store.noteConsoleName(status.deviceName, for: deviceId) }
             await loadTrash()
         } catch {
@@ -255,7 +285,43 @@ final class ConsoleSession {
         guard let client, client === failed else { return }
         self.client = nil
         lease.stop()
+        stopEventStream()
         markClosedByConsole()
+    }
+
+    /// The console's Bonjour service disappeared, or a background request
+    /// (a lease renewal) failed to connect (M11): sends `/hello` once, with
+    /// a short timeout. `503 shutting_down` or no connection: the console
+    /// closed ReminisLink (back to the list, uploads paused). An answer: a
+    /// Bonjour glitch, the console stays open.
+    ///
+    /// `waitForBrowsing`: right after the browser started (back from the
+    /// background), its results are not in yet: wait until it has browsed
+    /// long enough, and probe only if the console is still not seen. A
+    /// removal seen by the browser needs no wait.
+    func checkStillOpen(waitForBrowsing: Bool) {
+        guard let client, !closedByConsole, closureCheck == nil else { return }
+        closureCheck = Task { [weak self] in
+            await self?.runClosureCheck(client: client, waitForBrowsing: waitForBrowsing)
+            self?.closureCheck = nil
+        }
+    }
+
+    private func runClosureCheck(client: APIClient, waitForBrowsing: Bool) async {
+        if waitForBrowsing {
+            let deadline = ContinuousClock.now + app.closureMinimumBrowsing + .seconds(1)
+            while !app.hasBrowsedLongEnough, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            // Stopped (background) or local network denied: nothing known.
+            guard app.hasBrowsedLongEnough else { return }
+        }
+        guard self.client === client, !app.isServiceVisible(deviceId) else { return }
+        do {
+            try await client.hello(timeout: PakClosure.probeTimeout)
+        } catch {
+            if PakClosure.probeMeansClosed(error) { consoleClosed(client: client) }
+        }
     }
 
     private func markClosedByConsole() {
@@ -279,6 +345,7 @@ final class ConsoleSession {
         state = .failed(error)
         self.client = nil
         lease.stop()
+        stopEventStream()
     }
 
     static func losesConnection(_ error: AppError) -> Bool {
@@ -323,6 +390,8 @@ final class ConsoleSession {
     /// lease is renewed in the foreground (or while a transfer runs), and
     /// released in the background.
     func setForeground(_ foreground: Bool) {
+        // M14: the event stream runs in the foreground only.
+        updateEventStream()
         guard client != nil else { return }
         let lease = lease
         Task { await lease.setForeground(foreground) }
@@ -398,8 +467,14 @@ final class ConsoleSession {
         // M11: a renewal that cannot reach the console, whose Bonjour
         // service is gone: it closed ReminisLink.
         lease.onConnectionFailure = { [weak self] error in
-            guard let self, let client = self.client, self.app.meansConsoleClosed(error, deviceId: self.deviceId) else { return }
-            self.consoleClosed(client: client)
+            guard let self, let client = self.client else { return }
+            if self.app.meansConsoleClosed(error, deviceId: self.deviceId) {
+                self.consoleClosed(client: client)
+            } else {
+                // Maybe too early for Bonjour to tell (the browser has just
+                // started): checked once it has browsed long enough.
+                self.checkStillOpen(waitForBrowsing: true)
+            }
         }
         return lease
     }
@@ -437,6 +512,7 @@ final class ConsoleSession {
 
     /// Games were added or deleted: reload the library and the dashboard.
     func contentChanged() {
+        lastLibraryChange = nil
         libraryRevision += 1
         Task { await refresh() }
     }
