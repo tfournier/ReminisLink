@@ -164,10 +164,22 @@ Décisions de la personne du 19/11/2026 : s'inspirer du protocole des accessoire
 - **Chiffrement par TLS épinglé** : le pak génère un certificat (ECDSA P-256) ; son empreinte est transmise de façon authentifiée à l'appairage (dans le QR code) et épinglée par l'app. TLS de la bibliothèque standard Go, 1.2 au minimum et 1.3 de préférence (ChaCha20-Poly1305 choisi automatiquement si le processeur n'a pas d'instructions AES) ; débit à mesurer sur la console.
 - 07 mis à jour : menace « copie de la carte SD » ajoutée, risques « PIN cassable hors ligne » et « contenu en clair » retirés.
 
+## M15 — App universelle (décidé le 20/11/2026)
+
+But : une seule app, un seul binaire, sur iPhone, iPad et Mac à puce Apple (même fiche App Store), **sans code propre au Mac** (choix de la personne).
+
+- **iPad** : famille d'appareils iPhone + iPad (`TARGETED_DEVICE_FAMILY = 1,2`), mise en page adaptée aux grands écrans (navigation en colonnes, listes et formulaires à largeur raisonnable), toutes les orientations, Split View et Slide Over, plusieurs tailles de fenêtre (Stage Manager). Pas de `UIRequiresFullScreen`.
+- **Mac** : l'app iPad telle quelle (« Designed for iPad », Mac à puce Apple), autorisée dans App Store Connect. À vérifier : découverte Bonjour et autorisation réseau local, scan du QR code avec la caméra FaceTime, import et export par Fichiers, extension de partage, trousseau iCloud. Repli si un point bloque : Mac Catalyst, toujours sans code propre au Mac.
+- **iPhone Duo** : rapports d'écran différents des autres iPhone et deux écrans (petit écran extérieur fermé, grand écran intérieur ouvert, mi-ouvert). L'app doit s'adapter à chaque posture sans bandes noires ni contenu coupé, et passer d'un écran à l'autre sans perdre l'état (transferts en cours, navigation).
+- **Appairage** : rien de nouveau. L'identité et la liste des consoles passent par le trousseau iCloud (M13) : une console appairée sur l'iPhone apparaît sur l'iPad et le Mac ; sinon, scan du QR code avec la caméra de l'appareil.
+- **Tests** : tests UI sur un simulateur iPad et sur le simulateur iPhone Duo (postures fermée, mi-ouverte, ouverte), captures App Store iPad, essai à la main sur Mac.
+
+**Fait quand** : l'app passe ses tests sur iPhone, iPad et iPhone Duo, s'ouvre et fonctionne sur un Mac à puce Apple (appairage, bibliothèque, transfert), et les captures iPad sont prêtes.
+
 ## Après la v1 (idées, non engagées)
 
 - Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli.
-- iPad, Android.
+- Android (iPad et Mac : M15).
 - TLS en option.
 - Gestionnaire de fichiers générique, lancement d'un jeu, Pak Store, mises à jour.
 - Export / import des données d'un jeu en archive ; synchronisation des states (M9 ne couvre que les saves).
