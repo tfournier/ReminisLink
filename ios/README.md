@@ -178,11 +178,17 @@ the list of consoles) opens a "Demo Brick" in every build, App Store
 included (`App/DemoMode.swift`, docs/specs/06-app-ios.md §12). It talks to
 the fake pak of `ReminisLinkDemo` through `FakeURLProtocol`, and
 `OfflineURLProtocol` fails any other request without going out; its keys
-stay in memory, its synced saves, art cache and file copies in one
-temporary folder and its settings in their own `UserDefaults` suite, all
-erased by *Quit* in its banner (and at the next launch after a crash). The
-real list of consoles is never touched. `DemoModeAppTests` and
-`DemoModeUITests` cover it.
+stay in memory, its synced saves, art cache and file copies in a temporary
+folder and its settings in a `UserDefaults` suite, both named by a new UUID
+per session. Downloads never reach the share sheet (an alert confirms them).
+*Quit* in its banner returns at once; the session then stops and awaits its
+work (`WorkTracker` counts file copies and downloads), erases its own
+folder and suite and is freed (a crashed session is erased at the next
+launch). While it runs, the real app pauses Bonjour, its uploads and its
+save syncs. The real list of consoles is never touched. Box arts and state
+thumbnails are drawn by `DemoArtwork` (no real art). `DemoModeAppTests`
+and `DemoModeUITests` cover it; the App Store screenshots are taken with
+`-RLScreenshots YES` (Debug only), which hides the banner.
 
 For UI tests, launch with the environment variable `RL_DEMO=1` (already in the scheme,
 disabled: tick it in *Edit Scheme > Run > Arguments*) or the argument
