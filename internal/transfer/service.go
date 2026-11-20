@@ -18,6 +18,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
+	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/saves"
 	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
@@ -30,6 +31,7 @@ const (
 	KindSave    = "save"
 	KindState   = "state"
 	KindStaging = "staging"
+	// KindPak (M12) is declared with the pak installation (paks.go).
 )
 
 // Conflict rules (OnConflict in protocol/openapi.yaml).
@@ -55,6 +57,8 @@ type Target struct {
 	FileName *string `json:"fileName,omitempty"`
 	GameID   string  `json:"gameId,omitempty"`
 	Slot     *int    `json:"slot,omitempty"`
+	// PakKind is the kind of a "pak" target (tool, emu, auto; M12).
+	PakKind *string `json:"pakKind,omitempty"`
 }
 
 // destination is a resolved Target.
@@ -95,6 +99,9 @@ type Options struct {
 	// VerifyWait bounds the wait for the hash of a resumed upload (0:
 	// DefaultVerifyWait).
 	VerifyWait time.Duration
+	// Paks knows the installed paks and the running one (M12; nil: the
+	// paks of the adapter roots, none of them the running pak).
+	Paks *paks.Manager
 }
 
 // DownloadOptions configure the downloads.
@@ -127,6 +134,7 @@ type Service struct {
 
 	uploads uploads
 	jobs    *Jobs
+	paks    *paks.Manager
 
 	// completedStaging maps the uploadId of a completed staging upload
 	// to its stagingId (cheat import with an "upload" source). In memory:
@@ -176,7 +184,10 @@ func New(opts Options) (*Service, error) {
 	if opts.ChunkSize > MaxChunkSize {
 		opts.ChunkSize = MaxChunkSize
 	}
-	s := &Service{opts: opts, log: opts.Logger, now: opts.Now, rand: rand.Reader, installMu: opts.Lock, rename: os.Rename}
+	if opts.Paks == nil {
+		opts.Paks = paks.NewManager(opts.Adapter.Roots(), "")
+	}
+	s := &Service{opts: opts, log: opts.Logger, now: opts.Now, rand: rand.Reader, installMu: opts.Lock, rename: os.Rename, paks: opts.Paks}
 	s.uploads.m = map[string]*upload{}
 	s.jobs = NewJobs(opts.Now)
 	s.verifyCtx, s.verifyCancel = context.WithCancel(context.Background())
@@ -264,6 +275,18 @@ func (s *Service) resolve(t Target, needName bool) (destination, *Error, error) 
 			return d, nil, err
 		}
 		d.dir = dir
+	case KindPak:
+		if t.FileName != nil {
+			// Informative (the label of the job): cleaned, never used as a path.
+			name, err := CleanFileName(*t.FileName)
+			if err != nil {
+				return d, invalidName("Invalid file name"), nil
+			}
+			d.name = name
+		}
+		if !validPakKind(pakKindOf(t)) {
+			return d, badRequest("Invalid target.pakKind"), nil
+		}
 	case KindSave, KindState:
 		if t.GameID == "" {
 			return d, badRequest("Missing target.gameId"), nil
@@ -544,6 +567,7 @@ func (s *Service) Maintain() error {
 	if err := s.purgeUploads(keep); err != nil {
 		return err
 	}
+	s.purgePakStaging()
 	return s.purgeStaging()
 }
 

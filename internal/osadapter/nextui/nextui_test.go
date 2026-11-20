@@ -175,6 +175,7 @@ func TestRootsFromEnv(t *testing.T) {
 		Minui:    "/mnt/SDCARD/.userdata/shared/.minui",
 		System:   "/mnt/SDCARD/.system/tg5040",
 		Emus:     "/mnt/SDCARD/Emus/tg5040",
+		Tools:    "/mnt/SDCARD/Tools/tg5040",
 		Cheats:   "/mnt/SDCARD/Cheats",
 		Userdata: "/mnt/SDCARD/.userdata/tg5040",
 		Shared:   "/mnt/SDCARD/.userdata/shared",
@@ -190,7 +191,7 @@ func TestRootsFromEnv(t *testing.T) {
 	}
 	r = RootsFromEnv(func(k string) string { return env[k] })
 	if r.Roms != "/r" || r.Saves != "/s" || r.Cheats != "/c" || r.Userdata != "/u" ||
-		r.States != "/sh" || r.Minui != "/sh/.minui" || r.Emus != "/sd/Emus/tg5050" || r.System != "/sd/.system/tg5050" || r.Data != "/sh/ReminisLink" || r.Logs != "/l" {
+		r.States != "/sh" || r.Minui != "/sh/.minui" || r.Emus != "/sd/Emus/tg5050" || r.Tools != "/sd/Tools/tg5050" || r.System != "/sd/.system/tg5050" || r.Data != "/sh/ReminisLink" || r.Logs != "/l" {
 		t.Errorf("from env: %+v", r)
 	}
 	r = RootsForSD("/card", "")

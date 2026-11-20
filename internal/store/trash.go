@@ -51,11 +51,16 @@ const (
 	// ReasonDeleteBackup: a save backup or a resume history entry deleted
 	// by the app or pushed out by the automatic limits.
 	ReasonDeleteBackup = "delete-backup"
+	// ReasonDeletePak and ReasonReplacePak (M12): a pak folder deleted
+	// or replaced by an installation.
+	ReasonDeletePak  = "delete-pak"
+	ReasonReplacePak = "replace-pak"
 )
 
 var validReasons = map[string]bool{
 	ReasonDeleteGame: true, ReasonDeleteState: true, ReasonOverwrite: true,
 	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true, ReasonDeleteBackup: true,
+	ReasonDeletePak: true, ReasonReplacePak: true,
 }
 
 // Errors of the trash.

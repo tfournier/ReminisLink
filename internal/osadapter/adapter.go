@@ -27,6 +27,7 @@ type Roots struct {
 	Minui    string // OS data shared between platforms (state thumbnails...)
 	System   string // OS system folder of the platform (emulator paks)
 	Emus     string // extra emulator paks of the platform
+	Tools    string // tool paks of the platform (M12)
 	Cheats   string // RetroArch .cht files
 	Userdata string // userdata of the platform (logs...)
 	Shared   string // userdata shared between platforms

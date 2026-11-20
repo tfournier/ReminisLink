@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -23,6 +25,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
+	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/saves"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/states"
@@ -247,6 +250,8 @@ func Open(opts Options) (a *App, err error) {
 			return st.FreeBytes, err
 		},
 		Logger: logger,
+		// The running pak can be neither deleted nor replaced (M12).
+		Paks: paks.NewManager(opts.Roots, selfPakDir()),
 	}); err != nil {
 		return a, err
 	}
@@ -545,3 +550,17 @@ func (a *App) Close() error { return a.logf.f.Close() }
 
 // Busy reports whether a transfer or a job is in progress (05 §7.3).
 func (a *App) Busy() bool { return a.xfer.Busy() }
+
+// selfPakDir is the folder of the running executable: the pak folder of
+// ReminisLink on the console (launch.sh runs ./reminislink from it), a
+// build folder elsewhere ("" when unknown).
+func selfPakDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return filepath.Dir(exe)
+}

@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
 
@@ -106,6 +107,9 @@ func (s *Service) StartDownload(req DownloadRequest, guard JobGuard) (string, *E
 	}
 	if !validConflict(onConflict) {
 		return "", badRequest("Invalid onConflict"), nil
+	}
+	if apiErr := checkPakTarget(*req.Target, onConflict); apiErr != nil {
+		return "", apiErr, nil
 	}
 	target := *req.Target
 	if _, apiErr, err := s.resolve(target, false); apiErr != nil || err != nil {
@@ -268,6 +272,19 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 		return nil, internal("Cannot write the file")
 	}
 	d.file = nil
+
+	if target.Kind == KindPak {
+		// M12: the archive is extracted and installed as a pak; the
+		// downloaded file is deleted afterwards (installed stays false).
+		if d.written > paks.MaxArchiveBytes {
+			return nil, newError(http.StatusRequestEntityTooLarge, CodeTooLarge, "Pak archive too large")
+		}
+		result, apiErr := s.runPakArchive(ctx, d.path, pakKindOf(target), pakConflict(onConflict), report)
+		if apiErr == nil {
+			s.log.Info("download finished", "url", safeURL(u), "bytes", d.written)
+		}
+		return result, apiErr
+	}
 
 	// Resolve and install under the write lock (M13: a job waits for its
 	// turn without a time limit) and the install lock (see CompleteUpload).

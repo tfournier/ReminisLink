@@ -440,3 +440,27 @@ func TestEndedSubscriptionKeepsItsPlace(t *testing.T) {
 		t.Error("OnEnd called for Close")
 	}
 }
+
+// Paks events (M12) are merged like the library events and carry {}.
+func TestPaksCoalescing(t *testing.T) {
+	h := New(fast())
+	s := subscribe(t, h, "a")
+	h.Paks()
+	if ev := next(t, s); ev.Type != TypePaks || string(ev.Data) != "{}" {
+		t.Fatalf("first: %s %s", ev.Type, ev.Data)
+	}
+	h.Paks()
+	h.Paks()
+	if ev := next(t, s); ev.Type != TypePaks {
+		t.Fatalf("merged: %s", ev.Type)
+	}
+	none(t, s, 150*time.Millisecond)
+	// A pending paks event goes before the shutdown.
+	h.Paks()
+	h.Paks()
+	next(t, s)
+	h.Shutdown(ReasonQuit)
+	if ev := next(t, s); ev.Type != TypePaks {
+		t.Fatalf("flushed at shutdown: %s", ev.Type)
+	}
+}

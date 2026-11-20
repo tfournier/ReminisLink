@@ -304,7 +304,8 @@ func (s *Server) changesUpload(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		switch target.Kind {
-		case transfer.KindStaging:
+		case transfer.KindStaging, transfer.KindPak:
+			// A pak upload queues a job: its success publishes paks.
 		case transfer.KindROM:
 			s.events.Library(target.SystemID)
 		default:
@@ -329,6 +330,10 @@ func (s *Server) jobUpdated(j transfer.Job) {
 	// A staging download installs nothing visible (no gameId).
 	if id, _ := j.Result["gameId"].(string); j.State == transfer.JobSucceeded && id != "" {
 		s.events.Library(systemOfGame(id))
+	}
+	// A pak installation (M12): a pak-install job, or a pak download.
+	if id, _ := j.Result["pakId"].(string); j.State == transfer.JobSucceeded && id != "" {
+		s.events.Paks()
 	}
 }
 

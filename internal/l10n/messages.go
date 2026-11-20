@@ -55,6 +55,8 @@ var (
 	ActDownloadFile  = &msg{ID: "activity_download_file", Other: "Downloading a file"}
 	ActPatch         = &msg{ID: "activity_patch", Other: "Patching: {{.Name}}"}
 	ActPatchFile     = &msg{ID: "activity_patch_file", Other: "Applying a patch"}
+	ActPak           = &msg{ID: "activity_pak", Other: "Installing: {{.Name}}"}
+	ActPakFile       = &msg{ID: "activity_pak_file", Other: "Installing an app"}
 	ActQueued        = &msg{ID: "activity_queued", Other: "{{.Text}} (waiting)"}
 	ActProgress      = &msg{ID: "activity_progress", Other: "{{.Text}}  {{.Percent}}%"}
 	ActBytes         = &msg{ID: "activity_bytes", Other: "{{.Text}}  {{.Size}}"}
@@ -82,6 +84,9 @@ var (
 	NoticePaired            = &msg{ID: "notice_paired", Other: "Paired with {{.Name}}"}
 	NoticeArtSet            = &msg{ID: "notice_art_set", Other: "Art updated"}
 	NoticeArtDeleted        = &msg{ID: "notice_art_deleted", Other: "Art moved to the trash"}
+	NoticePakInstalled      = &msg{ID: "notice_pak_installed", Other: "App installed"}
+	NoticePakInstallFailed  = &msg{ID: "notice_pak_install_failed", Other: "App installation failed"}
+	NoticePakDeleted        = &msg{ID: "notice_pak_deleted", Other: "App moved to the trash"}
 )
 
 // Other screens
@@ -146,4 +151,5 @@ var All = []*msg{
 	MsgForgotAll, MsgNameEmpty, MsgSaveError, BatteryLevel, BatteryCharging, BatteryLow, BatteryLowBanner, QRUnavailable, HintPairMore, NoticeArtSet, NoticeArtDeleted, ItemPairNew,
 	BtnDisconnect, DeviceItem, DeviceIdleItem, PlatformApple, PlatformAndroid, PlatformWeb, PlatformOther,
 	DeviceStateConnected, DeviceStateDisconnected, DeviceStateSeparator, MsgDisconnected, MsgDeviceError,
+	ActPak, ActPakFile, NoticePakInstalled, NoticePakInstallFailed, NoticePakDeleted,
 }

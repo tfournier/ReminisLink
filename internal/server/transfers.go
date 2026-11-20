@@ -227,10 +227,24 @@ func (s *Server) handleCancelUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
-	res, apiErr, err := s.opts.Transfers.CompleteUpload(s.withWriteCheck(r).Context(), r.PathValue("uploadId"))
+	// A "pak" upload queues a job (M12), guarded like the downloads.
+	ctx := transfer.WithJobGuard(s.withWriteCheck(r).Context(), func() transfer.JobGuard { return s.jobGuard(r) })
+	res, apiErr, err := s.opts.Transfers.CompleteUpload(ctx, r.PathValue("uploadId"))
 	if apiErr != nil || err != nil {
 		s.transferError(w, r, apiErr, err)
 		return
+	}
+	if id, ok := res["jobId"].(string); ok {
+		if hook := s.jobHook.Load(); hook != nil {
+			(*hook)(id)
+		}
+		// As jobStarted: a client revoked meanwhile loses the job.
+		if rej := s.writeCheck(r); rej != nil {
+			ad, _ := auth.AdmissionValue(r.Context()).(admission)
+			s.access.cancelStaleJobs(ad.id, s.opts.Transfers.Jobs())
+			auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, res)
 }

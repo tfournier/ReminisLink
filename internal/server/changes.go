@@ -29,6 +29,8 @@ const (
 	// ChangeArtSet and ChangeArtDeleted: PUT and DELETE /games/{gameId}/art.
 	ChangeArtSet     = "art-set"
 	ChangeArtDeleted = "art-deleted"
+	// ChangePakDeleted: DELETE /paks/{pakId} (M12).
+	ChangePakDeleted = "pak-deleted"
 )
 
 // notify calls OnChange with kind after a successful (2xx) response. name,

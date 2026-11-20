@@ -78,6 +78,7 @@ var eventSchemas = map[string]string{
 	events.TypeDevice:   "EventDevice",
 	events.TypeLibrary:  "EventLibrary",
 	events.TypeJob:      "Job",
+	events.TypePaks:     "EventPaks",
 }
 
 func checkEventData(t *testing.T, ev testutil.SSEEvent) {
@@ -221,6 +222,9 @@ var changeExempt = map[string]bool{
 	"POST " + Prefix + "/downloads":            true, // the job publishes on success
 	"DELETE " + Prefix + "/jobs/{jobId}":       true,
 	"POST " + Prefix + "/games/{gameId}/patch": true, // the job publishes on success
+	// M12: a pak change publishes a paks event, never a library one.
+	"DELETE " + Prefix + "/paks/{pakId}": true,
+	"POST " + Prefix + "/paks/install":   true, // the job publishes on success
 }
 
 // Every write route (M13: every former M10 write route) publishes a library
