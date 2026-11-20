@@ -76,6 +76,11 @@ func (e *env) read(rel string) string {
 	return string(data)
 }
 
+func (e *env) exists(rel string) bool {
+	_, err := os.Lstat(filepath.Join(e.sd, filepath.FromSlash(rel)))
+	return err == nil
+}
+
 func (e *env) temp(content string) string {
 	e.t.Helper()
 	tmp, err := e.svc.WriteTemp([]byte(content))
@@ -340,6 +345,56 @@ func TestClockFile(t *testing.T) {
 	entries, _, _ := e.trash.List()
 	if len(entries) != 1 || len(entries[0].Files) != 2 {
 		t.Fatalf("trash: %+v", entries)
+	}
+}
+
+// v1.0.1: the clock file follows every save backup. A backup made before
+// the game had a clock file restores the save only and leaves the current
+// clock file in place (it is in the before-restore backup); a backup with
+// a clock file restores it even when the game has none now; the
+// before-replace and before-patch backups hold the clock file too.
+func TestClockFileWithEveryBackup(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	const rtc = "Saves/GBA/Starlight Courier.gba.rtc"
+	old := e.read("Saves/GBA/Starlight Courier.gba.sav")
+	noClock, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.exists(backupsDir + noClock.ID + ".rtc") {
+		t.Fatal("clock copy made without a clock file")
+	}
+	testutil.WriteFile(t, e.sd, rtc, "clock 1")
+	replaced, err := e.svc.Replace(g, e.temp("new save"))
+	if err != nil || replaced == nil {
+		t.Fatal(err)
+	}
+	if e.read(backupsDir+replaced.ID+".rtc") != "clock 1" || e.read(rtc) != "clock 1" {
+		t.Fatal("before-replace: clock file not backed up or changed")
+	}
+	patched, err := e.svc.BackupLocked(g, ReasonBeforePatch)
+	if err != nil || e.read(backupsDir+patched.ID+".rtc") != "clock 1" {
+		t.Fatalf("before-patch: clock file not backed up: %v", err)
+	}
+	// A backup without clock file: the save only.
+	safety, err := e.svc.Restore(g, noClock.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.sav") != old || e.read(rtc) != "clock 1" || e.read(backupsDir+safety.ID+".rtc") != "clock 1" {
+		t.Fatal("restore without clock file")
+	}
+	// A backup with clock file while the game has none: it comes back.
+	if err := os.Remove(filepath.Join(e.sd, rtc)); err != nil {
+		t.Fatal(err)
+	}
+	safety, err = e.svc.Restore(g, replaced.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.read(rtc) != "clock 1" || e.exists(backupsDir+safety.ID+".rtc") {
+		t.Fatal("clock file not restored where there was none")
 	}
 }
 

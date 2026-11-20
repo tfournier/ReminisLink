@@ -101,7 +101,7 @@ ReminisLink/
 ├── tls/                   # certificat auto-signé du pak (cert.pem) et sa clé privée ECDSA P-256 (key.pem), M13
 ├── backups/
 │   └── <TAG>/<fichier ROM>/
-│       ├── saves/<backupId>.sav + <backupId>.json   # métadonnées : libellé, raison, date, sha256
+│       ├── saves/<backupId>.sav [+ <backupId>.rtc] + <backupId>.json   # métadonnées : libellé, raison, date, sha256 (et rtcSha256)
 │       └── resume/<entryId>.st + <entryId>.json
 ├── locks/
 │   └── <TAG>/<fichier ROM>/slot<N>.st + slot<N>.json  # sha256, date de verrouillage
@@ -126,6 +126,10 @@ ReminisLink/
 
 - Identifiant : `bk_<AAAAMMJJTHHMMSSZ>_<4 hex>`.
 - Pas de limite automatique sur les copies `manual`. Les copies automatiques (`before-*`) sont limitées à 10 par jeu ; au-delà, les plus anciennes sont supprimées.
+- **Fichier d'horloge** (`Saves/<TAG>/<rom.ext>.rtc`, v1.0.1) : il appartient à la save. Toute copie (manuelle ou automatique) le copie à côté de la save (`<backupId>.rtc`, écriture atomique, SHA-256 dans `rtcSha256` des métadonnées) ; la copie est écrite avant les métadonnées, une copie sans métadonnées n'existe pas. Une copie supprimée (ou au-delà de la limite) emporte son `.rtc` dans la même entrée de corbeille.
+- Restauration : le `.rtc` de la copie est restauré avec la save (installé avant elle : une coupure entre les deux laisse l'ancienne save avec l'horloge restaurée, et les deux anciens fichiers sont dans la copie `before-restore`). Une copie sans `.rtc` restaure la save seule et laisse le `.rtc` actuel en place (voir 04, choix et raison).
+- Remplacement depuis l'app (`PUT /games/{gameId}/save`, envoi ou téléchargement vers une save) : le `.rtc` reste en place ; il est copié avec l'ancienne save dans la copie `before-replace`.
+- Suppression du jeu (`DELETE /games/{gameId}`) : le `.rtc` part dans la même entrée de corbeille que la save (ou reste avec elle si `keepSave=true`) ; la purge ou `DELETE /trash/{entryId}` efface l'entrée entière. Il est listé (rôle `rtc`) par `GET /games/{gameId}`, `GET /games/{gameId}/deletion` et téléchargeable par `GET /games/{gameId}/files/{fileId}`.
 
 ### 5.2 Verrous de states
 

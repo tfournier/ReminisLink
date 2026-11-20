@@ -325,9 +325,9 @@ Aperçu en lecture seule de `DELETE /games/{gameId}` avec le même `keepSave`, c
 
 ### `DELETE /games/{gameId}?keepSave=false`
 
-1. **Déplace** dans la corbeille ReminisLink (`trash/<horodatage>/`, en conservant le chemin d'origine, voir [05](05-console-pak.md)) : la ROM (ou le `.m3u` et son dossier), la save, les states, les cheats et la jaquette. Rien n'est effacé définitivement par cette route : c'est un renommage sur la même carte SD, donc instantané.
+1. **Déplace** dans la corbeille ReminisLink (`trash/<horodatage>/`, en conservant le chemin d'origine, voir [05](05-console-pak.md)) : la ROM (ou le `.m3u` et son dossier), la save et son fichier d'horloge (`.rtc`), les states, les cheats et la jaquette, tous dans la **même** entrée de corbeille. Rien n'est effacé définitivement par cette route : c'est un renommage sur la même carte SD, donc instantané.
 2. Déplace aussi dans cette entrée de corbeille les verrous et l'historique de reprise du jeu (copies internes de ReminisLink, non listées).
-3. Avec `keepSave=true`, la save et les states restent en place, **ainsi que les verrous et l'historique de reprise**, qui les protègent. *(Décision du 18/11/2026.)*
+3. Avec `keepSave=true`, la save, son `.rtc` et les states restent en place, **ainsi que les verrous et l'historique de reprise**, qui les protègent. *(Décision du 18/11/2026.)*
 
 Réponse :
 
@@ -416,6 +416,8 @@ Le fichier d'horloge (`.rtc`) écrit par NextUI à côté de la save, pour que l
 
 Corps : la nouvelle save (≤ 64 Mio, sinon passer par `/uploads` avec `target.kind = "save"`). L'ancienne save est d'abord copiée en sauvegarde avec le libellé `Avant remplacement`. Réponse : `200` avec la nouvelle copie de sauvegarde créée (`backup`).
 
+Fichier d'horloge (`.rtc`, v1.0.1) : l'app n'envoie qu'une save, le `.rtc` actuel **reste en place** (même règle pour l'envoi `target.kind = "save"` et le téléchargement côté console vers une save). Il est copié avec l'ancienne save dans la copie `Avant remplacement` : il n'est jamais perdu sans copie. *Pourquoi :* la route ne reçoit pas de `.rtc` ; l'effacer ferait perdre l'horloge du jeu sans rien apporter, et le remplacer n'est pas possible.
+
 ### `GET /games/{gameId}/save/backups`
 
 ```json
@@ -432,13 +434,20 @@ Corps : la nouvelle save (≤ 64 Mio, sinon passer par `/uploads` avec `target.k
 
 Corps : `{ "label": "Avant le boss final" }` (optionnel, 80 caractères maximum). Crée une copie de la save actuelle. C'est la fonction « dupliquer la save ». Réponse `201` avec la copie.
 
+Toute copie de save (manuelle ou automatique `before-*`) contient aussi le fichier d'horloge du jeu (`.rtc`) s'il existe (05 §5.1). `sizeBytes` est la taille de la save seule.
+
 ### `POST /games/{gameId}/save/backups/{backupId}/restore`
 
-Copie d'abord la save actuelle (`before-restore`), puis remplace la save par la copie choisie. Réponse `200` : `{ "backup": {...} }`, la copie de sécurité créée, ou `null` s'il n'y avait pas de save.
+Copie d'abord la save actuelle (`before-restore`, avec son `.rtc` s'il existe), puis remplace la save par la copie choisie. Réponse `200` : `{ "backup": {...} }`, la copie de sécurité créée, ou `null` s'il n'y avait pas de save.
+
+Fichier d'horloge (`.rtc`, v1.0.1) :
+- La copie a un `.rtc` : il est restauré avec la save (vérifié par son SHA-256 comme la save ; installé juste avant la save). S'il y avait un `.rtc` sans save, il part d'abord à la corbeille (raison `restore`).
+- La copie n'a pas de `.rtc` (faite quand le jeu n'en avait pas) : seule la save est restaurée, le `.rtc` actuel **reste en place** (il est dans la copie `before-restore`). *Pourquoi :* l'effacer ne rendrait pas l'horloge de l'époque (elle n'a jamais été copiée) et ferait repartir l'horloge du jeu de zéro ; le garder est sans perte, et la copie de sécurité permet de revenir en arrière.
+- Une copie de `.rtc` abîmée : `409 conflict`, rien n'est changé.
 
 ### `GET` / `DELETE /games/{gameId}/save/backups/{backupId}`
 
-Télécharger le fichier de la copie ; supprimer la copie (`204`).
+Télécharger le fichier de la copie (la save seule, sans son `.rtc`) ; supprimer la copie (`204`) : la save, le `.rtc` et les métadonnées de la copie partent ensemble à la corbeille (`delete-backup`).
 
 ---
 

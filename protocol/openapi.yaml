@@ -648,11 +648,11 @@ paths:
       summary: Delete a game and its data (to the trash)
       description: |
         Moves to the ReminisLink trash (a rename on the same SD card, nothing
-        is erased): the ROM (or the `.m3u` and its folder), the save, the
-        states, the cheats and the art; the locks and the resume history of
-        the game (ReminisLink copies) go into the same trash entry. With
-        `keepSave=true`, the save, the states, the locks and the resume
-        history stay in place. Space is only freed when the trash is purged
+        is erased): the ROM (or the `.m3u` and its folder), the save and its
+        clock file (`.rtc`), the states, the cheats and the art; the locks
+        and the resume history of the game (ReminisLink copies) go into the
+        same trash entry. With `keepSave=true`, the save and its clock file,
+        the states, the locks and the resume history stay in place. Space is only freed when the trash is purged
         (automatically after 30 days, or with `DELETE /trash`). The discs of
         a multi-disc game that another playlist of the system still lists
         stay in place (M8), so that game stays playable.
@@ -661,7 +661,7 @@ paths:
         - name: keepSave
           in: query
           required: false
-          description: Keep the save, the states, their locks and the resume history in place.
+          description: Keep the save and its clock file (`.rtc`), the states, their locks and the resume history in place.
           schema: { type: boolean, default: false }
           example: false
       responses:
@@ -1061,7 +1061,9 @@ paths:
         save is first copied as a backup (`before-replace`, label `Avant
         remplacement`), then the new save is renamed over it (the save is
         never missing, and the previous one is not also moved to the trash:
-        the backup holds it). The body is signed like any other
+        the backup holds it). The clock file of the game (`.rtc`) is left
+        in place (the app sends a save only); it is copied into that
+        backup with the previous save. The body is signed like any other
         (`X-RL-Content-SHA256` is its hash).
       parameters:
         - $ref: '#/components/parameters/GameId'
@@ -1150,6 +1152,11 @@ paths:
       tags: [Saves]
       operationId: createSaveBackup
       summary: Back up the current save ("duplicate the save")
+      description: |
+        Copies the current save as a manual backup. The clock file of the
+        game (`.rtc`), when there is one, is copied with it (every backup,
+        manual or automatic, holds both); `sizeBytes` is the size of the
+        save alone.
       parameters:
         - $ref: '#/components/parameters/GameId'
       requestBody:
@@ -1184,7 +1191,7 @@ paths:
         - $ref: '#/components/parameters/BackupId'
       responses:
         '200':
-          description: The backup file.
+          description: The save file of the backup (its clock file, if any, is not part of the download).
           headers:
             Content-Disposition: { $ref: '#/components/headers/ContentDisposition' }
           content:
@@ -1227,7 +1234,8 @@ paths:
         (null if there was no current save). The clock file of the game
         (`.rtc`) is backed up with the save and restored with it when the
         backup has one (renamed before the save); a backup without clock
-        file leaves the current one in place.
+        file (made when the game had none) restores the save only and
+        leaves the current clock file in place (it is in the safety copy).
         `409 conflict` when the backup does not match its checksum (nothing
         is changed).
       parameters:

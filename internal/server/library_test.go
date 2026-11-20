@@ -698,6 +698,27 @@ func TestDeletionPreview(t *testing.T) {
 	if len(p.Kept) == 0 {
 		t.Fatalf("keepSave preview %s", r.Body)
 	}
+	// The clock file of the save is listed with it (role rtc), moved or
+	// kept like the save (v1.0.1).
+	testutil.WriteFile(t, f.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock")
+	hasClock := func(items []library.DeletionItem) bool {
+		for _, it := range items {
+			if it.Name == "Saves/GBA/Starlight Courier.gba.rtc" && it.Role == "rtc" && it.Size == 5 {
+				return true
+			}
+		}
+		return false
+	}
+	p = library.DeletionPreview{}
+	f.get(target, path, 200).JSON(t, &p)
+	if !hasClock(p.Moved) || hasClock(p.Kept) {
+		t.Fatalf("clock file: %+v", p)
+	}
+	p = library.DeletionPreview{}
+	f.get(target+"?keepSave=true", path, 200).JSON(t, &p)
+	if !hasClock(p.Kept) || hasClock(p.Moved) {
+		t.Fatalf("keepSave clock file: %+v", p)
+	}
 	f.get(target+"?keepSave=maybe", path, 400)
 	f.get("/api/v1/games/"+id(gba+"/Nope.gba")+"/deletion", path, 404)
 	// Nothing moved by a preview.

@@ -195,6 +195,8 @@ func TestPreviewDeletionIsWhatDeleteMoves(t *testing.T) {
 		ps := filepath.Join(sd, "Roms", "Sony PlayStation (PS)")
 		testutil.WriteFile(t, sd, ".userdata/shared/ReminisLink/locks/GBA/Starlight Courier.gba/slot0.st", "lock")
 		testutil.WriteFile(t, ps, "Mossy Hollow/Extras/notes.txt", "deep")
+		// The clock file of the save goes (or stays) with it (v1.0.1).
+		testutil.WriteFile(t, sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock")
 		if c.shared {
 			testutil.WriteFile(t, ps, "Shared.m3u", "Mossy Hollow/Mossy Hollow (Disc 2).cue\nQuiet Harbor (Disc 1).cue\n")
 		}
@@ -237,13 +239,37 @@ func TestPreviewDeletionIsWhatDeleteMoves(t *testing.T) {
 		if c.shared && len(p.Kept) == 0 {
 			t.Errorf("%s: shared disc not listed as kept", c.game)
 		}
-		if c.keepSave && c.game == "Game Boy Advance (GBA)/Starlight Courier.gba" {
-			roles := map[string]bool{}
-			for _, k := range p.Kept {
-				roles[k.Role] = true
+		if c.game == "Game Boy Advance (GBA)/Starlight Courier.gba" {
+			roles := func(items []DeletionItem) map[string]string {
+				m := map[string]string{}
+				for _, it := range items {
+					m[it.Name] = it.Role
+				}
+				return m
 			}
-			if !roles["save"] || !roles["state"] || !roles["other"] {
-				t.Errorf("keepSave: kept %+v", p.Kept)
+			moved, kept := roles(p.Moved), roles(p.Kept)
+			const rtc = "Saves/GBA/Starlight Courier.gba.rtc"
+			if c.keepSave {
+				if kept["Saves/GBA/Starlight Courier.gba.sav"] != "save" || kept[rtc] != "rtc" || moved[rtc] != "" {
+					t.Errorf("keepSave: kept %+v", p.Kept)
+				}
+				r := map[string]bool{}
+				for _, role := range kept {
+					r[role] = true
+				}
+				if !r["state"] || !r["other"] {
+					t.Errorf("keepSave: kept %+v", p.Kept)
+				}
+				if _, err := os.Stat(filepath.Join(sd, filepath.FromSlash(rtc))); err != nil {
+					t.Errorf("keepSave moved the clock file: %v", err)
+				}
+			} else {
+				if moved["Saves/GBA/Starlight Courier.gba.sav"] != "save" || moved[rtc] != "rtc" {
+					t.Errorf("moved %+v", p.Moved)
+				}
+				if data, err := os.ReadFile(filepath.Join(entry, filepath.FromSlash(rtc))); err != nil || string(data) != "clock" {
+					t.Errorf("clock file not in the trash entry of the game: %v", err)
+				}
 			}
 		}
 	}

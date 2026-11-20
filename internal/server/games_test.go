@@ -89,6 +89,13 @@ func TestSaveRoutes(t *testing.T) {
 	if res.Backup == nil || res.Backup.Reason != "before-replace" || f.read("Saves/GBA/Starlight Courier.gba.sav") != "new save" {
 		t.Fatalf("replace: %s", r.Body)
 	}
+	// The clock file stays in place and is in the before-replace backup
+	// (v1.0.1).
+	const rtc = "Saves/GBA/Starlight Courier.gba.rtc"
+	const backups = ".userdata/shared/ReminisLink/backups/GBA/Starlight Courier.gba/saves/"
+	if f.read(rtc) != "clock" || f.read(backups+res.Backup.ID+".rtc") != "clock" {
+		t.Fatal("replace: clock file changed or not backed up")
+	}
 	wantCode(t, f.do(http.MethodPut, g+"/save", "/games/{gameId}/save", nil, http.StatusBadRequest), "invalid_request")
 	r = f.do(http.MethodPut, lk+"/save", "/games/{gameId}/save", []byte("first"), http.StatusOK)
 	if strings.TrimSpace(string(r.Body)) != `{"backup":null}` {
@@ -121,6 +128,7 @@ func TestSaveRoutes(t *testing.T) {
 	}
 
 	// Restore: the current save is backed up first.
+	testutil.WriteFile(t, f.sd, rtc, "clock 2")
 	r = f.do(http.MethodPost, bk+"/restore", "/games/{gameId}/save/backups/{backupId}/restore", nil, http.StatusOK)
 	var restored struct {
 		Backup *backupJSON `json:"backup"`
@@ -128,6 +136,11 @@ func TestSaveRoutes(t *testing.T) {
 	r.JSON(t, &restored)
 	if restored.Backup == nil || restored.Backup.Reason != "before-restore" || f.read("Saves/GBA/Starlight Courier.gba.sav") != old {
 		t.Fatalf("restore: %s", r.Body)
+	}
+	// The clock file of the backup came back with the save; the clock file
+	// it replaced is in the before-restore backup.
+	if f.read(rtc) != "clock" || f.read(backups+restored.Backup.ID+".rtc") != "clock 2" {
+		t.Fatal("restore: clock file not restored or not backed up")
 	}
 
 	// A damaged backup is never restored: 409 conflict.

@@ -20,7 +20,7 @@ import (
 // TestSmokeSaves runs the M5 scenario against the real binary: a locked
 // state changed by hand on the SD card while the pak is closed is restored
 // at the next start (lockStatus "restored", then "intact"); a save is
-// backed up, replaced and restored; cheats are imported and edited, with an
+// backed up, replaced and restored (with its .rtc clock file); cheats are imported and edited, with an
 // ETag conflict.
 func TestSmokeSaves(t *testing.T) {
 	if testing.Short() {
@@ -106,12 +106,23 @@ func TestSmokeSaves(t *testing.T) {
 	// 2. Save: backup, replace, restore.
 	savePath := filepath.Join(sd, "Saves", "GBA", "Starlight Courier.gba.sav")
 	oldSave, _ := os.ReadFile(savePath)
+	// The clock file goes with the save (v1.0.1).
+	rtcPath := filepath.Join(sd, "Saves", "GBA", "Starlight Courier.gba.rtc")
+	if err := os.WriteFile(rtcPath, []byte("clock 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	var manual struct {
 		ID string `json:"id"`
 	}
 	call(t, c, http.MethodPost, game+"/save/backups", map[string]any{"label": "Avant le boss"}, http.StatusCreated, &manual)
 	if r := c.Do(t, http.MethodPut, game+"/save", []byte("new save")); r.Status != http.StatusOK || !strings.Contains(string(r.Body), "before-replace") {
 		t.Fatalf("PUT save: %d %s", r.Status, r.Body)
+	}
+	if got, _ := os.ReadFile(rtcPath); string(got) != "clock 1" {
+		t.Fatalf("PUT save changed the clock file: %q", got)
+	}
+	if err := os.WriteFile(rtcPath, []byte("clock 2"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 	var restored struct {
 		Backup struct {
@@ -122,6 +133,9 @@ func TestSmokeSaves(t *testing.T) {
 	if got, _ := os.ReadFile(savePath); string(got) != string(oldSave) || restored.Backup.Reason != "before-restore" {
 		t.Fatalf("restore: %q %+v", got, restored)
 	}
+	if got, _ := os.ReadFile(rtcPath); string(got) != "clock 1" {
+		t.Fatalf("clock file not restored: %q", got)
+	}
 	var backups struct {
 		Backups []json.RawMessage `json:"backups"`
 	}
@@ -129,7 +143,7 @@ func TestSmokeSaves(t *testing.T) {
 	if len(backups.Backups) != 3 {
 		t.Fatalf("backups: %d", len(backups.Backups))
 	}
-	t.Log("save: manual backup, replace (before-replace), restore (before-restore): ok")
+	t.Log("save: manual backup, replace (before-replace), restore (before-restore), clock file kept by the replace and restored: ok")
 
 	// 3. Cheats: import, edit, conflict.
 	var imported struct {

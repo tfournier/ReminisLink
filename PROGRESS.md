@@ -121,7 +121,7 @@ Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameI
 - M6 Go : les `.ips`/`.bps`/`.ups` posés sous `Roms/` sont listés comme des jeux (`ignoredExt`) — vérifier si NextUI les affiche aussi.
 - CI absente du dépôt : y brancher `make fuzz` en mode court (M7).
 - 2026-11-19 : 4 processus `reminislink-host --headless` laissés par l'agent principal pendant M3/M4 (commande d'arrêt visant un mauvais nom de processus) ; arrêtés. Arrêter désormais par PID.
-- M5 Go : fichier `.rtc` des saves non sauvegardé/restauré ni emporté par `DELETE /games` ; formats NextUI non par défaut seulement refusés (pas listés) ; jaquette d'un multi-disques au nom avec point (`TODO(M0)`).
+- M5 Go : ~~fichier `.rtc`~~ fait (sauvegardé, restauré, emporté avec le jeu ; vérifié et documenté pour la v1.0.1 du pak, 2026-11-20) ; formats NextUI non par défaut seulement refusés (pas listés) ; jaquette d'un multi-disques au nom avec point (`TODO(M0)`).
 - 2026-11-19 : interruption par limite d'utilisation (~40 min) pendant M5 ; agents repris sans perte.
 - M4 iOS : ouverture de l'app depuis l'extension de partage via `openURL` remonté par la chaîne des répondeurs (pas d'API publique) — risque en revue App Store, à valider avant M7.
 - M4 iOS : table extension → tag NextUI pour suggérer le système (`TODO(M0)`).
