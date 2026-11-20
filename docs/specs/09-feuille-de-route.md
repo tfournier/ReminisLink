@@ -164,6 +164,20 @@ Décisions de la personne du 19/11/2026 : s'inspirer du protocole des accessoire
 - **Chiffrement par TLS épinglé** : le pak génère un certificat (ECDSA P-256) ; son empreinte est transmise de façon authentifiée à l'appairage (dans le QR code) et épinglée par l'app. TLS de la bibliothèque standard Go, 1.2 au minimum et 1.3 de préférence (ChaCha20-Poly1305 choisi automatiquement si le processeur n'a pas d'instructions AES) ; débit à mesurer sur la console.
 - 07 mis à jour : menace « copie de la carte SD » ajoutée, risques « PIN cassable hors ligne » et « contenu en clair » retirés.
 
+## M17 — CI/CD et versions séparées (décidé le 20/11/2026, après la v1.0.0)
+
+But : publier le pak et l'app iOS depuis le même dépôt, chacun avec sa version, sans manipulation à la main.
+
+- **Tags et releases** : pak `vX.Y.Z` (ce qu'attendent la CI actuelle et le Pak Store), app `ios-vX.Y.Z`. Seule une release du pak est marquée « Latest » sur GitHub (le Pak Store lit la dernière release) ; les releases de l'app sont publiées avec `--latest=false` (ou en simple tag). Les deux numéros évoluent indépendamment.
+- **Pré-versions** : un tag avec suffixe (`ios-v1.1.0-beta.1`, `v1.1.0-beta.1`) est une pré-version. App : envoyée sur TestFlight seulement. Pak : release GitHub marquée « Pre-release » (ignorée par le Pak Store), zip joint pour les testeurs. Le numéro de version de l'app reste `X.Y.Z` (exigé par l'App Store), le suffixe ne sert qu'au tag ; le numéro de build augmente à chaque envoi.
+- **Versions normales** : tag sans suffixe. Pak : release « Latest » (comme aujourd'hui). App : build envoyé à App Store Connect puis soumis automatiquement à l'examen, publication automatique après approbation (réglage « Publier automatiquement » de la version). L'examen d'Apple reste obligatoire.
+- **Livraison iOS par Xcode Cloud** (choix de la personne) : workflows configurés dans App Store Connect, déclenchés par les tags `ios-v*` ; signature gérée par Apple, aucune clé dans GitHub. La soumission automatique à l'examen demande l'API App Store Connect depuis un script Xcode Cloud (`ci_scripts/`), avec une clé API stockée en variable secrète de Xcode Cloud, créée par la personne. Les tests restent sur GitHub Actions.
+- **Compatibilité** : `/hello` annonce aussi la version minimale de l'app qu'il accepte et l'app la version minimale du pak qu'elle sait piloter ; en cas d'écart, message clair (« mets à jour le pak » / « mets à jour l'app ») au lieu d'une erreur.
+- **Notes de version** : un journal par produit (`pak.json` pour le pak, un fichier pour l'app, repris dans les « Nouveautés » de l'App Store).
+- **Documentation** de la procédure de publication (README, ios/README.md).
+
+**Fait quand** : un tag `ios-v1.0.1-beta.1` arrive seul sur TestFlight, un tag `ios-v1.0.1` part seul à l'examen, un tag `v1.0.1` publie le pak en « Latest » et le Pak Store le voit, et une pré-version du pak n'apparaît pas dans le Pak Store.
+
 ## M16 — Mode démo (décidé le 20/11/2026, avant M15)
 
 But : essayer toute l'app sans console, pour l'examen App Store (le reviewer n'a pas de Brick), pour découvrir l'app avant d'installer le pak, et pour les captures App Store. Numéroté après M15 mais fait avant, car il compte pour la première soumission.
