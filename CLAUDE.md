@@ -18,14 +18,23 @@ ReminisLink is an iPhone companion for Linux retro handhelds (first target: Trim
 |---|---|
 | `cmd/reminislink/` | entry point; `--desktop` runs against a fake SD card on macOS/Linux |
 | `internal/server/` | HTTP routing, handlers, middleware |
-| `internal/auth/` | pairing, HMAC request signing, nonce cache, client store |
+| `internal/app/` | pak lifecycle: wires the server, UI, discovery and shutdown |
+| `internal/auth/` | pairing v2, Ed25519 request signing (RL2), nonce cache, client store (public keys only) |
+| `internal/tlsid/` | the pak's self-signed TLS identity and its pin (SPKI SHA-256) |
+| `internal/writelock/` | per-action write lock: SD writes run one at a time |
+| `internal/events/` | event stream hub for `GET /events` (SSE) |
+| `internal/confine/` | opens SD files and checks they stay inside their root |
+| `internal/device/` | console state: storage, network address, battery |
 | `internal/discovery/` | Bonjour/mDNS announcement |
 | `internal/osadapter/` | one adapter per OS (paths of ROMs, saves, states, cheats, art); `nextui` first |
 | `internal/library/` | systems, games, the files that belong to a game |
 | `internal/saves/`, `internal/states/`, `internal/cheats/`, `internal/patch/` | features |
+| `internal/paks/` | tool and emulator paks: list, archive checks, staged install |
 | `internal/transfer/` | resumable uploads, device-side downloads, jobs |
 | `internal/store/` | ReminisLink data on the SD card (backups, locks, clients, config) |
 | `internal/ui/` | the pak screens (gabagool) |
+| `internal/l10n/` | translations of the pak UI |
+| `internal/testutil/` | shared test helpers |
 | `ios/` | Xcode project `ReminisLink` (app + share extension + `ReminisLinkKit` Swift package) |
 | `protocol/openapi.yaml` | the API contract: source of truth for both sides |
 | `protocol/test-vectors/` | JSON test vectors used by the Go **and** Swift test suites |
