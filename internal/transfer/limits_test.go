@@ -63,7 +63,7 @@ func TestROMNamesFollowTheListing(t *testing.T) {
 		t.Fatalf("upload notes.txt: %v", apiErr)
 	}
 	dl := DownloadRequest{URL: ptr(fs.srv.URL + "/files/x"), Target: &Target{Kind: KindROM, SystemID: sys, FileName: ptr("notes.txt")}}
-	if _, apiErr, _ := e.svc.StartDownload(dl); apiErr == nil || apiErr.Code != CodeInvalidName {
+	if _, apiErr, _ := e.svc.StartDownload(dl, JobGuard{}); apiErr == nil || apiErr.Code != CodeInvalidName {
 		t.Fatalf("download notes.txt: %v", apiErr)
 	}
 	// A deduced name the listing ignores fails the job.

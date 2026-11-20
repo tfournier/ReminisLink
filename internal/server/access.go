@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/auth"
+	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
 // access is the in-memory state of M10 behind ONE mutex: the
@@ -36,9 +37,10 @@ type access struct {
 	// is read, before the verifier goes on.
 	lookupHook atomic.Pointer[func(id string)]
 	// onRevoke is called, with mu held, on every revocation: it closes
-	// the event streams of the client (M14) and cancels its jobs (M13).
-	// It must not block nor call access.
-	onRevoke func(id string)
+	// the event streams of the client (M14) and cancels its jobs of an
+	// older access generation than gen, its new one (M13). It must not
+	// block nor call access.
+	onRevoke func(id string, gen uint64)
 	// onPresence is called, with mu held, when a client becomes connected
 	// or is revoked: the device events follow (M14). It must not block
 	// nor call access.
@@ -93,7 +95,7 @@ func (a *access) revokeLocked(id, code string) {
 	a.revokedCode[id] = code
 	a.presence.forget(id)
 	if a.onRevoke != nil {
-		a.onRevoke(id)
+		a.onRevoke(id, a.gen[id])
 	}
 	a.presenceChangedLocked()
 }
@@ -167,6 +169,22 @@ func (a *access) recheck(ad admission) *auth.Rejection {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.checkGenLocked(ad, false)
+}
+
+// jobGuard ties a job to the request that starts it (M13): its install
+// step checks that this admission is still current, under the same lock
+// as the revocations.
+func (a *access) jobGuard(ad admission) transfer.JobGuard {
+	return transfer.JobGuard{Owner: ad.id, Gen: ad.gen, Valid: func() bool { return a.recheck(ad) == nil }}
+}
+
+// cancelStaleJobs cancels the jobs of a client started under an older
+// access generation than its current one (never a job of the current
+// one).
+func (a *access) cancelStaleJobs(id string, jobs *transfer.Jobs) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	jobs.CancelStale(id, a.gen[id])
 }
 
 // streamOpened records an open event stream (M14) for a request accepted

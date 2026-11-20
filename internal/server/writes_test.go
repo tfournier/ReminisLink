@@ -330,3 +330,105 @@ func TestJobOfARevokedClientIsCancelled(t *testing.T) {
 		t.Fatalf("job of another client: %+v", j)
 	}
 }
+
+// downloadOrigin serves a small file for the job tests.
+func downloadOrigin(t *testing.T) (url string, body []byte) {
+	t.Helper()
+	data := []byte("downloaded by a job")
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
+	}))
+	t.Cleanup(src.Close)
+	return src.URL, mustJSON(t, map[string]any{"url": src.URL + "/hack.bps", "target": map[string]any{"kind": "staging"}, "sha256": nil, "onConflict": "rename"})
+}
+
+// holdJobHandler makes the next request that queued a job stop before it
+// checks its client again, until the returned release is called. reached
+// gets the job id.
+func (f *fixture) holdJobHandler() (reached chan string, release func()) {
+	reached = make(chan string, 1)
+	gate := make(chan struct{})
+	var once sync.Once
+	hook := func(id string) {
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			reached <- id
+			<-gate
+		}
+	}
+	f.server.jobHook.Store(&hook)
+	return reached, func() { close(gate) }
+}
+
+func (f *fixture) jobState(id string) string {
+	f.t.Helper()
+	j, apiErr := f.server.opts.Transfers.Jobs().Get(id)
+	if apiErr != nil {
+		f.t.Fatal(apiErr)
+	}
+	return j.State
+}
+
+// Codex round 2, race 1: the queue starts the job before the request that
+// queued it answers; the client is revoked while the job waits for the
+// write lock: the job, tied to its client at submission, ends cancelled
+// without installing, and the request gets 401.
+func TestJobTiedToItsClientFromTheStart(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	_, body := downloadOrigin(t)
+	f.holdWrites(20 * time.Millisecond)
+	reached, release := f.holdJobHandler()
+	answer := make(chan testutil.Response, 1)
+	go func() { answer <- b.Do(t, http.MethodPost, "/api/v1/downloads", body) }()
+	id := <-reached
+	time.Sleep(150 * time.Millisecond) // the job downloaded and waits for its install
+	if st := f.jobState(id); st != "running" {
+		t.Fatalf("job %s", st)
+	}
+	if err := f.server.Disconnect(b.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	f.server.writes().Release()
+	if j := f.waitJob(id); j.State != "cancelled" || j.Result != nil {
+		t.Fatalf("job of a revoked client: %+v", j)
+	}
+	release()
+	r := <-answer
+	f.check(http.MethodPost, "/downloads", r)
+	wantCode(t, r, CodeDisconnected)
+}
+
+// Codex round 2, race 2: an old request that queued a job is revoked; the
+// client reconnects and queues another job; the old request then answers
+// 401 and cancels only its own job, never the new one.
+func TestOldJobRequestDoesNotCancelANewJob(t *testing.T) {
+	f := newFixture(t)
+	b := f.pairNamed("iPhone B")
+	_, body := downloadOrigin(t)
+	f.holdWrites(20 * time.Millisecond) // both jobs wait for their install
+	reached, release := f.holdJobHandler()
+	answer := make(chan testutil.Response, 1)
+	go func() { answer <- b.Do(t, http.MethodPost, "/api/v1/downloads", body) }()
+	oldID := <-reached
+	if err := f.server.Disconnect(b.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	f.as(b, http.MethodPost, "/api/v1/clients/me/connect", "/clients/me/connect", nil, http.StatusNoContent)
+	var fresh struct {
+		JobID string `json:"jobId"`
+	}
+	f.as(b, http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &fresh)
+	release()
+	r := <-answer
+	f.check(http.MethodPost, "/downloads", r)
+	wantCode(t, r, CodeDisconnected)
+	f.server.writes().Release()
+	if j := f.waitJob(oldID); j.State != "cancelled" {
+		t.Fatalf("old job: %+v", j)
+	}
+	if j := f.waitJob(fresh.JobID); j.State != "succeeded" {
+		t.Fatalf("new job: %+v", j)
+	}
+}

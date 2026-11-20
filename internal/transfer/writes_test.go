@@ -3,6 +3,7 @@ package transfer
 import (
 	"context"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -68,4 +69,31 @@ func TestCompleteWriteCheck(t *testing.T) {
 	}
 	e.svc.Writes().Release()
 	e.complete(c.UploadID)
+}
+
+// M13 (Codex round 2): the guard of a job is checked at its install step,
+// under the write lock: a revoked client's job ends cancelled and installs
+// nothing; CancelStale never touches a job of the current generation.
+func TestJobGuardAtInstall(t *testing.T) {
+	e := newEnv(t)
+	data := []byte("guarded download")
+	fs := newFileServer(t, data, false)
+	valid := atomic.Bool{}
+	guard := JobGuard{Owner: "b", Gen: 2, Valid: valid.Load}
+	url := fs.srv.URL + "/files/g.bin"
+	id, apiErr, err := e.svc.StartDownload(DownloadRequest{URL: &url, Target: staging()}, guard)
+	if apiErr != nil || err != nil {
+		t.Fatal(apiErr, err)
+	}
+	if j := waitJob(t, e.svc.Jobs(), id, JobSucceeded, JobFailed, JobCancelled); j.State != JobCancelled || j.Result != nil {
+		t.Fatalf("job with an invalid guard: %+v", j)
+	}
+	valid.Store(true)
+	id, _, _ = e.svc.StartDownload(DownloadRequest{URL: &url, Target: staging()}, guard)
+	if n := e.svc.Jobs().CancelStale("b", 2); n != 0 {
+		t.Fatalf("CancelStale cancelled %d jobs of the current generation", n)
+	}
+	if j := waitJob(t, e.svc.Jobs(), id, JobSucceeded, JobFailed, JobCancelled); j.State != JobSucceeded {
+		t.Fatalf("job with a valid guard: %+v", j)
+	}
 }

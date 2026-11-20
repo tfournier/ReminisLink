@@ -83,8 +83,9 @@ func checkURL(raw string) (*url.URL, *Error) {
 // or the query (they may hold tokens).
 func safeURL(u *url.URL) string { return u.Scheme + "://" + u.Host }
 
-// StartDownload checks a download request and queues its job.
-func (s *Service) StartDownload(req DownloadRequest) (string, *Error, error) {
+// StartDownload checks a download request and queues its job, guarded by
+// guard (M13: the client that asked for it).
+func (s *Service) StartDownload(req DownloadRequest, guard JobGuard) (string, *Error, error) {
 	if req.URL == nil || req.Target == nil {
 		return "", badRequest("Missing field"), nil
 	}
@@ -115,7 +116,7 @@ func (s *Service) StartDownload(req DownloadRequest) (string, *Error, error) {
 			return "", apiErr, err
 		}
 	}
-	id, err := s.jobs.SubmitLabeled(JobDownload, downloadLabel(u, target), func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	id, err := s.jobs.SubmitGuarded(JobDownload, downloadLabel(u, target), guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runDownload(ctx, u, target, want, onConflict, report)
 	})
 	if errors.Is(err, ErrTooManyJobs) {
@@ -278,6 +279,11 @@ func (s *Service) runDownload(ctx context.Context, u *url.URL, target Target, wa
 	// turn without a time limit) and the install lock (see CompleteUpload).
 	if err := s.opts.Writes.Acquire(ctx); err != nil {
 		return nil, newError(http.StatusServiceUnavailable, CodeShuttingDown, "Cancelled")
+	}
+	if !jobAllowed(ctx) {
+		// Its client was revoked while it ran: nothing installed.
+		s.opts.Writes.Release()
+		return nil, errJobRevoked
 	}
 	s.installMu.Lock()
 	if ctx.Err() != nil {

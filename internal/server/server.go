@@ -103,6 +103,9 @@ type Server struct {
 	access *access
 	// gateHook, when set (tests), is called after each gate decision.
 	gateHook atomic.Pointer[func()]
+	// jobHook, when set (tests), is called by a request that queued a
+	// job, before it checks its client again.
+	jobHook atomic.Pointer[func(id string)]
 	// routeTable lists the signed routes with their options, as
 	// registered (walked by the tests: every write route takes the write
 	// lock).
@@ -197,9 +200,9 @@ func New(opts Options) (*Server, error) {
 	// A revoked client (disconnected, forgotten, unpaired, paired again)
 	// loses its event streams and its jobs at once (M13: a job is not
 	// installed for a revoked client).
-	s.access.onRevoke = func(id string) {
+	s.access.onRevoke = func(id string, gen uint64) {
 		s.events.CloseClient(id)
-		opts.Transfers.Jobs().CancelOwner(id)
+		opts.Transfers.Jobs().CancelStale(id, gen)
 	}
 	s.access.onPresence = s.presenceChanged
 	opts.Transfers.Jobs().OnUpdate(s.jobUpdated)

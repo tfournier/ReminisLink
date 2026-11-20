@@ -180,7 +180,7 @@ func (e *env) download(url string, target *Target, sha *string, onConflict strin
 	if onConflict != "" {
 		req.OnConflict = &onConflict
 	}
-	id, apiErr, err := e.svc.StartDownload(req)
+	id, apiErr, err := e.svc.StartDownload(req, JobGuard{})
 	if apiErr != nil || err != nil {
 		e.t.Fatalf("start download: %v %v", apiErr, err)
 	}
@@ -325,7 +325,7 @@ func TestDownloadRequestErrors(t *testing.T) {
 	e := newEnv(t)
 	for _, u := range []string{"", "ftp://example.org/x", "file:///etc/passwd", "example.org/x", "http://", "javascript:alert(1)"} {
 		req := DownloadRequest{URL: ptr(u), Target: staging()}
-		if _, apiErr, _ := e.svc.StartDownload(req); apiErr == nil || apiErr.Code != CodeInvalidRequest {
+		if _, apiErr, _ := e.svc.StartDownload(req, JobGuard{}); apiErr == nil || apiErr.Code != CodeInvalidRequest {
 			t.Errorf("%q: %v", u, apiErr)
 		}
 	}
@@ -337,7 +337,7 @@ func TestDownloadRequestErrors(t *testing.T) {
 		{URL: ptr("http://x/y"), Target: &Target{Kind: KindROM, SystemID: "!"}},
 	}
 	for i, req := range bad {
-		if _, apiErr, _ := e.svc.StartDownload(req); apiErr == nil {
+		if _, apiErr, _ := e.svc.StartDownload(req, JobGuard{}); apiErr == nil {
 			t.Errorf("case %d accepted", i)
 		}
 	}

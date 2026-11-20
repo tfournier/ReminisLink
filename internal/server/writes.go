@@ -96,15 +96,27 @@ func (s *Server) withWriteCheck(r *http.Request) *http.Request {
 	}))
 }
 
-// ownJob records the client that started a job (cancelled if the console
-// revokes it, M13), and cancels it at once if that already happened.
-func (s *Server) ownJob(r *http.Request, id string) *auth.Rejection {
-	c, _ := auth.ClientFromContext(r.Context())
-	jobs := s.opts.Transfers.Jobs()
-	jobs.SetOwner(id, c.ID)
-	if rej := s.writeCheck(r); rej != nil {
-		jobs.CancelOwner(c.ID)
-		return rej
+// jobGuard is the guard of a job started by the request (M13): fixed at
+// submission, checked again at the install step.
+func (s *Server) jobGuard(r *http.Request) transfer.JobGuard {
+	ad, _ := auth.AdmissionValue(r.Context()).(admission)
+	return s.access.jobGuard(ad)
+}
+
+// jobStarted answers a request that queued a job: if its client was
+// revoked meanwhile, the job (started under the old access generation) is
+// cancelled, never one started since, and the request gets 401.
+func (s *Server) jobStarted(w http.ResponseWriter, r *http.Request, id string) {
+	if hook := s.jobHook.Load(); hook != nil {
+		(*hook)(id)
 	}
-	return nil
+	if rej := s.writeCheck(r); rej != nil {
+		ad, _ := auth.AdmissionValue(r.Context()).(admission)
+		s.access.cancelStaleJobs(ad.id, s.opts.Transfers.Jobs())
+		auth.WriteError(w, rej.Status, rej.Code, rej.Message, rej.Details)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, struct {
+		JobID string `json:"jobId"`
+	}{id})
 }

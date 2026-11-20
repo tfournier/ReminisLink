@@ -62,7 +62,7 @@ func stagingPatch(id string) *PatchSource {
 
 func (e *env) startPatch(game string, src *PatchSource, out *PatchOutput) string {
 	e.t.Helper()
-	id, apiErr, err := e.svc.StartPatch(gameID(game), PatchRequest{Patch: src, Output: out})
+	id, apiErr, err := e.svc.StartPatch(gameID(game), PatchRequest{Patch: src, Output: out}, JobGuard{})
 	if apiErr != nil || err != nil {
 		e.t.Fatalf("start patch: %v %v", apiErr, err)
 	}
@@ -201,7 +201,7 @@ func TestPatchCorruptAndUnsupported(t *testing.T) {
 	src, tgt := e.patchFixture(4096)
 	p := testutil.EncodeBPS(src, tgt)
 	// Not a patch: refused at once.
-	_, apiErr, _ := e.svc.StartPatch(gameID(courier), PatchRequest{Patch: stagingPatch(e.stage("hack.bps", []byte("not a patch at all")))})
+	_, apiErr, _ := e.svc.StartPatch(gameID(courier), PatchRequest{Patch: stagingPatch(e.stage("hack.bps", []byte("not a patch at all")))}, JobGuard{})
 	if apiErr == nil || apiErr.Status != http.StatusUnprocessableEntity || apiErr.Code != CodeUnsupportedFormat {
 		t.Fatalf("not a patch: %v", apiErr)
 	}
@@ -281,19 +281,19 @@ func TestPatchRequestErrors(t *testing.T) {
 		{"folder-m3u game", "Sony PlayStation (PS)/Mossy Hollow", PatchRequest{Patch: stagingPatch(st)}, 422, CodeUnsupportedFormat},
 	}
 	for _, c := range cases {
-		_, apiErr, err := e.svc.StartPatch(gameID(c.game), c.req)
+		_, apiErr, err := e.svc.StartPatch(gameID(c.game), c.req, JobGuard{})
 		if err != nil || apiErr == nil || apiErr.Status != c.status || apiErr.Code != c.code {
 			t.Errorf("%s: %v %v", c.name, apiErr, err)
 		}
 	}
-	if _, apiErr, _ := e.svc.StartPatch("!!", PatchRequest{Patch: stagingPatch(st)}); apiErr == nil || apiErr.Code != CodeInvalidID {
+	if _, apiErr, _ := e.svc.StartPatch("!!", PatchRequest{Patch: stagingPatch(st)}, JobGuard{}); apiErr == nil || apiErr.Code != CodeInvalidID {
 		t.Errorf("bad game id: %v", apiErr)
 	}
 	// A zipped ROM.
 	if err := os.WriteFile(e.path("Roms/"+gbaSystem+"/Zipped.zip"), []byte("PK"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, apiErr, _ := e.svc.StartPatch(gameID(gbaSystem+"/Zipped.zip"), PatchRequest{Patch: stagingPatch(st)}); apiErr == nil || apiErr.Code != CodeUnsupportedFormat {
+	if _, apiErr, _ := e.svc.StartPatch(gameID(gbaSystem+"/Zipped.zip"), PatchRequest{Patch: stagingPatch(st)}, JobGuard{}); apiErr == nil || apiErr.Code != CodeUnsupportedFormat {
 		t.Errorf("zip: %v", apiErr)
 	}
 }
