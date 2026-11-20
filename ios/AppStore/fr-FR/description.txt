@@ -1,45 +1,41 @@
 ReminisLink fait de ton iPhone le compagnon de ta console rétro. Ouvre ReminisLink sur la console, gère tout depuis ton téléphone par le Wi-Fi de la maison, ferme-le et joue.
 
 APPORTE TES PROPRES FICHIERS
-ReminisLink ne fournit, ne liste et ne suggère aucun jeu. Tu ajoutes les jeux, saves, patchs et fichiers de cheats que tu possèdes déjà : depuis l’app Fichiers ou depuis le menu de partage de n’importe quelle app.
+ReminisLink liste les jeux présents sur la carte SD de ta console, mais ne fournit aucun jeu, aucun catalogue et aucune source de jeux. Tu ajoutes les jeux, sauvegardes, patchs et fichiers de cheats que tu possèdes déjà, depuis l’app Fichiers ou le menu de partage de n’importe quelle app.
 
 TA BIBLIOTHÈQUE
-• Tous les systèmes et les jeux de la carte SD, y compris ceux que tu as copiés à la main
-• Pour chaque jeu : taille, save, states, states verrouillés, cheats et jaquette
-• Recherche, et tri par nom, date ou taille
+• Tous les jeux de la carte SD dans une seule liste, avec recherche et filtres par système
+• Pour chaque jeu : taille, sauvegarde, états de jeu, cheats et jaquette ; touche la jaquette pour la changer
+• Télécharge n’importe quel fichier d’un jeu sur ton iPhone
 
-SAVES
-• Télécharge une save sur ton iPhone ou remplace-la depuis Fichiers
-• Fais des copies de sauvegarde nommées et restaure-les d’une touche
-• La save actuelle est toujours copiée avant d’être remplacée ou restaurée
+SAUVEGARDES ET ÉTATS DE JEU
+• Télécharge, remplace, copie et restaure tes sauvegardes ; la sauvegarde actuelle est toujours copiée avant
+• Chaque emplacement d’état avec sa vignette, et le verrouillage d’un état pour qu’un jeu ne l’écrase pas
 
-STATES
-• Chaque emplacement avec sa vignette, sa date et sa taille
-• Verrouille un state : si un jeu l’écrase, ReminisLink le restaure à sa prochaine ouverture sur la console
-• Restaure une version précédente du state de reprise automatique
+CHEATS ET PATCHS
+• Active, désactive, modifie et réordonne tes cheats, importe des fichiers .cht
+• Applique des patchs IPS, BPS et UPS (traductions, corrections) à un jeu que tu possèdes, dans un nouveau fichier par défaut
 
-CHEATS
-• Active, désactive, modifie, réordonne et supprime tes cheats
-• Importe des fichiers de cheats (.cht) depuis ton iPhone ou la carte SD, en fusion ou en remplacement
-
-PATCHS
-• Applique des patchs IPS, BPS et UPS (traductions, corrections, améliorations) à un jeu que tu possèdes
-• Le résultat va dans un nouveau fichier par défaut, ou remplace le jeu après confirmation
+LES APPS DE LA CONSOLE
+• Vois les outils et émulateurs installés sur la console
+• Installe-en un depuis un zip dans Fichiers ou sur la carte SD, ou supprime-le
 
 RIEN NE SE PERD
-Supprimer un jeu ou le patcher sur place met d’abord ses fichiers dans la corbeille de la console, où ils restent au moins 30 jours : l’espace n’est libéré qu’en vidant la corbeille. Remplacer ou restaurer une save fait toujours d’abord une copie de sauvegarde.
+Les fichiers supprimés, remplacés ou patchés vont d’abord dans la corbeille de la console, jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu la vides.
 
-TES SAVES SUR L’IPHONE
-• Copie les saves de la console (avec leurs fichiers d’horloge) dans ton propre iCloud Drive, d’une touche ou à chaque connexion
-• Seules les saves modifiées sont copiées ; jusqu’à 10 versions de chacune sont gardées, dans le dossier ReminisLink de l’app Fichiers
-• Remets une version sur la console, ou partage-la
+TES SAUVEGARDES SUR L’IPHONE
+• Copie les sauvegardes de la console dans ton propre iCloud Drive, d’une touche ou à chaque connexion
+• Jusqu’à 10 versions de chacune, dans le dossier ReminisLink de l’app Fichiers
+
+TOUJOURS À JOUR
+L’app se rafraîchit seule quand la carte SD change, affiche les transferts et la batterie en direct, et revient à ta liste quand tu fermes ReminisLink sur la console.
 
 SIMPLE ET PRIVÉ
-• Appairage en un scan du QR code affiché par la console. Aucune adresse IP à taper
-• Pas de compte, pas de serveur, pas d’analytics, pas de publicité : l’app ne parle qu’à ta console, sur ton réseau local, et ne copie les saves que dans ton propre iCloud Drive
-• Les clés d’appairage sont gardées dans le Trousseau de l’iPhone
+• Appairage en un scan du QR code affiché par la console ; tes autres appareils Apple le récupèrent par le trousseau iCloud
+• Connexion chiffrée, vérifiée avec le certificat propre à ta console
+• Pas de compte, pas de serveur, pas de mesure d’audience, pas de publicité : l’app ne parle qu’à ta console, sur ton réseau local
 
 CONFIGURATION REQUISE
-L’outil gratuit ReminisLink doit être installé sur la console (depuis le Pak Store, ou à la main). La version 1.0 fonctionne avec la TrimUI Brick sous NextUI. L’iPhone et la console doivent être sur le même réseau Wi-Fi.
+L’outil gratuit ReminisLink doit être installé sur la console : voir le guide d’installation sur reminis.link. La version 1.0 fonctionne avec la TrimUI Brick sous NextUI. L’iPhone et la console doivent être sur le même réseau Wi-Fi.
 
 ReminisLink est un projet indépendant. TrimUI et NextUI sont les noms de leurs propriétaires respectifs, qui ne sont pas affiliés à ReminisLink.

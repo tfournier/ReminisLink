@@ -39,7 +39,7 @@ Pas d'entitlement multicast : Bonjour via `NWBrowser` n'en a pas besoin.
 Consoles ─┬─ Ajouter une console (scan QR)
           └─ Console ouverte : barre d'onglets (M11)
              ├─ Console : tableau de bord (état), sync des saves ─ Saves sur cet iPhone ─ Système ─ Jeu ─ Versions (M9)
-             │   ├─ Apps (M12) ─ Installer (Fichiers / lien / carte SD ─ sélecteur)
+             │   ├─ Apps (M12) ─ Installer (Fichiers / carte SD ─ sélecteur)
              │   └─ Stockage ─ Carte SD (M12, lecture seule) ─ Dossier ─ …
              ├─ Bibliothèque : tous les jeux (recherche, filtres) ─ Jeu ─┬─ Save
              │   └─ (Parcourir par console) ─ Système ─ (Dossier) ─ Jeu  ├─ States
@@ -107,7 +107,7 @@ Liste des envois et des tâches : progression, vitesse, temps restant, annulatio
 
 ### 4.8 Extension de partage
 
-- Accepte : fichiers (ROMs, `.sav`, `.ips`, `.bps`, `.ups`, `.cht`, zips de paks). Pas de lien web (retiré de la v1 le 20/11/2026) ; une demande d'une version plus ancienne qui contient des liens les ignore.
+- Accepte : fichiers (ROMs, `.sav`, `.ips`, `.bps`, `.ups`, `.cht`, zips de paks). Pas de lien web (retiré de la v1 le 20/11/2026) : chaque pièce jointe qui n'est qu'un lien (`public.url`, ou texte qui ne contient qu'une URL) est écartée, et une pièce jointe illisible n'empêche pas la copie des autres fichiers ; une demande d'une version plus ancienne qui contient des liens les ignore.
 - M12 : un zip partagé arrive sur Ajouter comme les autres fichiers ; le type **App (pak)** l'installe (§4.6, §11). L'extension elle-même ne change pas.
 - Enregistre la demande dans le groupe d'apps, puis ouvre l'app sur l'écran **Ajouter**, préremplie. L'extension n'envoie rien elle-même (limites de mémoire et de durée des extensions).
 

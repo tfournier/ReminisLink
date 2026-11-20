@@ -124,7 +124,9 @@ public-key fingerprint is in the QR code you scanned.
   (`/.userdata/shared/ReminisLink/`): backup copies of saves, locked copies
   of save states, the trash (deleted or replaced files, purged at launch once
   they reach 30 days of counted age, or when you empty it), and temporary
-  files of transfers (an upload left idle for 24 hours is deleted).
+  files of transfers (an upload left idle for 24 hours is deleted when the
+  handheld next notices that it expired, or at the next launch of
+  ReminisLink).
 - **The certificate of the handheld** and its private key.
 
 The SD card has no protection of its own: anyone holding it can read these
@@ -283,7 +285,8 @@ l’empreinte de la clé publique figure dans le QR code scanné.
   copies verrouillées des états de jeu, la corbeille (fichiers supprimés ou
   remplacés, purgés au lancement une fois 30 jours d’âge comptabilisé
   atteints, ou quand tu la vides), et fichiers temporaires des transferts (un
-  envoi inactif pendant 24 heures est supprimé).
+  envoi inactif pendant 24 heures est supprimé quand la console constate
+  ensuite son expiration, ou au prochain lancement de ReminisLink).
 - **Le certificat de la console** et sa clé privée.
 
 La carte SD n’a aucune protection propre : quiconque l’a en main peut lire

@@ -11,7 +11,7 @@ Jalon : …… Date : …… Version du pak : …… Version de NextUI : ……
 | 3 | Appairage par QR code (appareil photo de l'iPhone et scanner de l'app), puis par PIN | M3 | ☐ | |
 | 4 | Navigation dans une vraie bibliothèque : systèmes, dossiers, fiche de jeu ; temps de réponse de la liste d'un gros système | M3 | ☐ | ms : |
 | 5 | Envoi d'une ROM de 512 Mo : durée ; coupure du Wi-Fi au milieu, reprise jusqu'au bout | M4 | ☐ | durée : |
-| 6 | Téléchargement d'un patch depuis une URL, application BPS, lancement du jeu patché dans NextUI | M6 | ☐ | |
+| 6 | Envoi d'un patch depuis l'iPhone (Fichiers ou menu de partage), application BPS, lancement du jeu patché dans NextUI | M6 | ☐ | |
 | 7 | Save : copie de sauvegarde, modification en jeu, restauration, vérification en jeu | M5 | ☐ | |
 | 8 | State verrouillé, écrasé en jeu, restauré à l'ouverture suivante du pak ; l'app affiche « Restauré » | M5 | ☐ | |
 | 9 | Suppression d'un jeu ; contenu de la corbeille (`/.userdata/shared/ReminisLink/trash/`) ; vidage de la corbeille | M4 | ☐ | |
