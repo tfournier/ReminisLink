@@ -393,7 +393,7 @@ extension FakePak {
         switch segments.first {
         case "uploads" where segments.count == 3 && segments[2] == "complete":
             let object = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any] ?? [:]
-            if object["stagingId"] != nil { return nil }
+            if object["stagingId"] != nil || object["jobId"] != nil { return nil }
             if let gameId = object["gameId"] as? String, let (system, _) = library.game(id: gameId) {
                 return [system.id]
             }
@@ -425,7 +425,7 @@ extension FakePak {
         }
         switch job.target {
         case .rom(let system, _, _): return [system.id]
-        case .staging: return nil
+        case .staging, .pak: return nil
         case .save, .state: return []
         }
     }

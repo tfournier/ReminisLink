@@ -22,6 +22,11 @@ public enum TransferTarget: Sendable, Hashable, Encodable {
     case save(gameId: String)
     case state(gameId: String, slot: Int)
     case staging(fileName: String?)
+    /// M12: a pak archive (zip) to install. Its upload completes with a
+    /// `pak-install` job (``UploadResult/jobId``); its download job installs
+    /// it. `onConflict` accepts `fail` and `overwrite` only. `fileName`
+    /// names a loose archive without a name in its `pak.json`.
+    case pak(kind: PakInstallKind = .auto, fileName: String?)
 
     public var kind: String {
         switch self {
@@ -29,27 +34,29 @@ public enum TransferTarget: Sendable, Hashable, Encodable {
         case .save: "save"
         case .state: "state"
         case .staging: "staging"
+        case .pak: "pak"
         }
     }
 
     public var fileName: String? {
         switch self {
-        case .rom(_, _, let name), .staging(let name): name
+        case .rom(_, _, let name), .staging(let name), .pak(_, let name): name
         case .save, .state: nil
         }
     }
 
-    /// The same target with another file name (rom and staging only).
+    /// The same target with another file name (rom, staging and pak only).
     public func withFileName(_ name: String?) -> TransferTarget {
         switch self {
         case .rom(let systemId, let folderId, _): .rom(systemId: systemId, folderId: folderId, fileName: name)
         case .staging: .staging(fileName: name)
+        case .pak(let kind, _): .pak(kind: kind, fileName: name)
         case .save, .state: self
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, systemId, folderId, fileName, gameId, slot
+        case kind, systemId, folderId, fileName, gameId, slot, pakKind
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -66,6 +73,9 @@ public enum TransferTarget: Sendable, Hashable, Encodable {
             try c.encode(gameId, forKey: .gameId)
             try c.encode(slot, forKey: .slot)
         case .staging(let fileName):
+            try c.encodeIfPresent(fileName, forKey: .fileName)
+        case .pak(let kind, let fileName):
+            try c.encode(kind, forKey: .pakKind)
             try c.encodeIfPresent(fileName, forKey: .fileName)
         }
     }
@@ -116,18 +126,24 @@ public struct UploadStatus: Codable, Sendable, Equatable {
 
 /// `200` of `POST /uploads/{uploadId}/complete`, depending on the target:
 /// `gameId` (rom), `backup` (save: the copy of the previous save, null if
-/// there was none), `slot` (state) or `stagingId` (staging).
+/// there was none), `slot` (state), `stagingId` (staging) or `jobId` (M12,
+/// pak: the `pak-install` job that installs the archive).
 public struct UploadResult: Codable, Sendable, Equatable {
     public let gameId: String?
     public let stagingId: String?
     public let backup: SaveBackup?
     public let slot: StateSlot?
+    public let jobId: String?
 
-    public init(gameId: String? = nil, stagingId: String? = nil, backup: SaveBackup? = nil, slot: StateSlot? = nil) {
+    public init(
+        gameId: String? = nil, stagingId: String? = nil, backup: SaveBackup? = nil, slot: StateSlot? = nil,
+        jobId: String? = nil
+    ) {
         self.gameId = gameId
         self.stagingId = stagingId
         self.backup = backup
         self.slot = slot
+        self.jobId = jobId
     }
 }
 
@@ -152,13 +168,15 @@ public struct JobAccepted: Codable, Sendable, Equatable {
     public init(jobId: String) { self.jobId = jobId }
 }
 
-/// `download` or `patch` (open: an unknown kind is kept).
+/// `download`, `patch` or `pak-install` (open: an unknown kind is kept).
 public struct JobKind: RawRepresentable, Codable, Hashable, Sendable {
     public let rawValue: String
     public init(rawValue: String) { self.rawValue = rawValue }
 
     public static let download = JobKind(rawValue: "download")
     public static let patch = JobKind(rawValue: "patch")
+    /// M12: `POST /paks/install`, or the completion of a `pak` upload.
+    public static let pakInstall = JobKind(rawValue: "pak-install")
 }
 
 /// State of a job (open: an unknown state is kept).

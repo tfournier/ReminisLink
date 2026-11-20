@@ -9,6 +9,9 @@ public enum AddKind: String, Codable, Sendable, CaseIterable {
     case cheats
     /// `.sav`: replaces the save of a game.
     case save
+    /// M12: a zip archive installed as a tool or emulator pak. Never
+    /// suggested (most zips are games): the user picks it.
+    case pak
 
     public static let patchExtensions: Set<String> = ["ips", "bps", "ups"]
     public static let cheatExtensions: Set<String> = ["cht"]

@@ -589,6 +589,51 @@ public actor APIClient {
         return list.files
     }
 
+    // MARK: - Paks and SD browser (milestone M12)
+
+    /// `GET /paks`: the tool and emulator paks of the console. A pak older
+    /// than M12 answers `404`.
+    public func paks() async throws -> [Pak] {
+        let list: PakList = try await signedJSON(method: "GET", segments: ["paks"])
+        return list.paks
+    }
+
+    /// `DELETE /paks/{pakId}`: the whole pak folder goes to the trash
+    /// (reason `delete-pak`). ReminisLink itself gets `409 conflict`
+    /// (`details.self`). A write: `429 Device busy` when another write ran
+    /// too long.
+    public func deletePak(id: String) async throws -> TrashMoveResult {
+        try await signedJSON(method: "DELETE", segments: ["paks", id])
+    }
+
+    /// `POST /paks/install`: installs a zip archive or a `.pak` folder of
+    /// the SD card (an `sdEntryId` of ``browseSd(folderId:)``) in a job of
+    /// kind `pak-install`. Its failure (`422 unsupported_format`,
+    /// `409 conflict`, `507`) is in the job's `error`.
+    public func installPak(_ request: PakInstallRequest) async throws -> JobAccepted {
+        try await signedJSON(method: "POST", segments: ["paks", "install"], body: ProtocolJSON.encoder().encode(request))
+    }
+
+    /// `GET /sd/browse`: the root of the SD card (`folderId` nil) or the
+    /// folder of a folder entry. Read only.
+    public func browseSd(folderId: String? = nil) async throws -> SdFolder {
+        var query: [(name: String, value: String)] = []
+        if let folderId { query.append((name: "folderId", value: folderId)) }
+        return try await signedJSON(method: "GET", segments: ["sd", "browse"], query: query)
+    }
+
+    /// `GET /sd/browse/{sdEntryId}/content`: a whole file of the SD card,
+    /// streamed to disk into a new directory under `directory`, named after
+    /// `Content-Disposition` (else `fallbackName`).
+    public func downloadSdFile(
+        id: String, fallbackName: String = "download.bin", into directory: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) async throws -> DownloadedFile {
+        try await downloadSigned(
+            segments: ["sd", "browse", id, "content"], fallbackName: fallbackName, into: directory, progress: progress
+        )
+    }
+
     // MARK: - Plumbing
 
     /// Builds a request. Segments are percent-encoded one by one, and the
