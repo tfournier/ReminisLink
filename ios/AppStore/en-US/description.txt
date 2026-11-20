@@ -10,7 +10,7 @@ YOUR LIBRARY
 
 SAVES AND SAVE STATES
 • Download, replace, back up and restore saves; the current save is always copied first
-• See every save state slot with its thumbnail, and lock a state so a game cannot overwrite it
+• See every save state slot with its thumbnail, and lock a state: if it is overwritten or deleted, ReminisLink puts the locked copy back the next time it starts
 
 CHEATS AND PATCHES
 • Turn cheats on or off, edit and reorder them, import .cht files
@@ -21,7 +21,7 @@ APPS ON THE HANDHELD
 • Install one from a zip in Files or on the SD card, or remove one
 
 NOTHING IS LOST
-Deleted, replaced or patched files first go to the trash of the handheld, until they reach 30 days of counted age (purged at launch) or you empty it.
+Deleted games and games patched in place go to the trash of the handheld, until they reach 30 days of counted age (purged at launch) or you empty it; a replaced save is first copied to the backups.
 
 SAVES ON YOUR IPHONE
 • Copy the saves of the handheld to your own iCloud Drive, with one tap or each time it connects

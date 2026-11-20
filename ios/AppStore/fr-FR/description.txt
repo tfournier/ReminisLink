@@ -10,7 +10,7 @@ TA BIBLIOTHÈQUE
 
 SAUVEGARDES ET ÉTATS DE JEU
 • Télécharge, remplace, copie et restaure tes sauvegardes ; la sauvegarde actuelle est toujours copiée avant
-• Chaque emplacement d’état avec sa vignette, et le verrouillage d’un état pour qu’un jeu ne l’écrase pas
+• Chaque emplacement d’état avec sa vignette, et le verrouillage d’un état : s’il est écrasé ou supprimé, ReminisLink remet la copie verrouillée à son prochain lancement
 
 CHEATS ET PATCHS
 • Active, désactive, modifie et réordonne tes cheats, importe des fichiers .cht
@@ -21,7 +21,7 @@ LES APPS DE LA CONSOLE
 • Installe-en un depuis un zip dans Fichiers ou sur la carte SD, ou supprime-le
 
 RIEN NE SE PERD
-Les fichiers supprimés, remplacés ou patchés vont d’abord dans la corbeille de la console, jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu la vides.
+Les jeux supprimés et les jeux patchés sur place vont dans la corbeille de la console, jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu la vides ; une sauvegarde remplacée est d’abord gardée dans les copies de secours.
 
 TES SAUVEGARDES SUR L’IPHONE
 • Copie les sauvegardes de la console dans ton propre iCloud Drive, d’une touche ou à chaque connexion
