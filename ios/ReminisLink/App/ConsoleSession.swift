@@ -281,7 +281,9 @@ final class ConsoleSession {
         try Task.checkCancellation()
         guard let client else { throw unavailableError }
         do {
-            return try await operation(client)
+            let result = try await operation(client)
+            connectionWorks(client)
+            return result
         } catch {
             let appError = AppError(error)
             if case .api(let api) = appError, app.meansConsoleClosed(api, deviceId: deviceId) {
@@ -396,6 +398,15 @@ final class ConsoleSession {
         let waiters = reconnectionWaiters.values
         reconnectionWaiters.removeAll()
         for waiter in waiters { waiter.resume() }
+    }
+
+    /// A request (or an event) of the current connection succeeded: uploads
+    /// paused by a `401 disconnected` older than it go on (M10). Covers a
+    /// pause recorded after the reconnection whose `GET /device` check
+    /// failed for another reason.
+    func connectionWorks(_ client: APIClient) {
+        guard self.client === client, state == .connected, !transfers.pausedForReconnection.isEmpty else { return }
+        transfers.resumePausedForReconnection()
     }
 
     /// Whether the connection works, confirmed by the pak (`GET /device`):

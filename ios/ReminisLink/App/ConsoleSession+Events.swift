@@ -84,6 +84,7 @@ extension ConsoleSession {
 
     private func handle(_ event: PakEvent, from client: APIClient) {
         guard liveApp != nil, self.client === client else { return }
+        connectionWorks(client)
         switch event {
         case .hello:
             setEventsLive(true)
