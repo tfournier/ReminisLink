@@ -95,7 +95,7 @@ struct ArtTests {
         let client = try await pairedClient(pak)
         let cache = ArtCache(directory: FileManager.default.temporaryDirectory.appending(path: "art-\(UUID().uuidString)"))
         defer { try? FileManager.default.removeItem(at: cache.directory) }
-        let system = try #require(try await client.systems().first { $0.tag == "GBA" })
+        let system = try #require(try await client.systems().first { $0.tag == "HA" })
         let game = try #require(try await client.games(systemId: system.id).games.first { $0.hasArt })
         #expect(try await cache.load(gameId: game.id, client: client) == FakePak.artPNG)
 
@@ -147,7 +147,7 @@ struct ArtTests {
     @Test func theFakePakRefusesWhatThePakRefuses() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let system = try #require(try await client.systems().first { $0.tag == "GBA" })
+        let system = try #require(try await client.systems().first { $0.tag == "HA" })
         let game = try #require(try await client.games(systemId: system.id).games.first)
         // A JPEG is not a PNG; a PNG over 1024 px is refused.
         for body in [try makePicture(width: 64, height: 64), try makePicture(width: 1100, height: 10, type: .png)] {

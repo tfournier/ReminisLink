@@ -6,7 +6,7 @@ import Testing
 @testable import ReminisLinkKit
 
 /// A file of `size` pseudo-random bytes in a fresh directory.
-func makeFile(size: Int, name: String = "Test Game.gba", seed: UInt8 = 7) throws -> URL {
+func makeFile(size: Int, name: String = "Test Game.hab", seed: UInt8 = 7) throws -> URL {
     let directory = FileManager.default.temporaryDirectory.appending(path: "rl-tests-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let url = directory.appending(path: name)
@@ -24,7 +24,7 @@ func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
-let gbaSystemId = DemoLibrary.id("Handheld Advance (GBA)")
+let gbaSystemId = DemoLibrary.id("Handheld Advance (HA)")
 
 /// Records the offsets reported by an upload.
 final class OffsetLog: @unchecked Sendable {
@@ -46,7 +46,7 @@ final class SleepLog: @unchecked Sendable {
 struct TransferTests {
     let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-scratch-\(UUID().uuidString)")
 
-    func upload(_ file: URL, name: String = "Test Game.gba", onConflict: OnConflict = .fail, sha: String? = nil,
+    func upload(_ file: URL, name: String = "Test Game.hab", onConflict: OnConflict = .fail, sha: String? = nil,
                 retry: RetryPolicy = .immediate) throws -> ResumableUpload {
         let data = try Data(contentsOf: file)
         return ResumableUpload(
@@ -162,8 +162,8 @@ struct TransferTests {
         let upload = try upload(file)
         let offsets = OffsetLog()
         let result = try await upload.run(client: client, progress: { offsets.append($0) })
-        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Test Game.gba"))
-        #expect(try await gameNames(client).contains("Test Game.gba"))
+        #expect(result.gameId == DemoLibrary.id("Handheld Advance (HA)/Test Game.hab"))
+        #expect(try await gameNames(client).contains("Test Game.hab"))
         let chunks = pak.chunkLog
         #expect(chunks.count == 5)
         #expect(chunks.map(\.offset) == [0, 65536, 131072, 196608, 262144])
@@ -300,7 +300,7 @@ struct TransferTests {
         await #expect(throws: UploadFailure.outcomeUnknown) { try await upload.run(client: client) }
         await #expect(throws: UploadFailure.outcomeUnknown) { try await upload.run(client: client) }
         let names = try await gameNames(client)
-        #expect(names.filter { $0.hasPrefix("Test Game") } == ["Test Game.gba"])
+        #expect(names.filter { $0.hasPrefix("Test Game") } == ["Test Game.hab"])
         #expect(pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/uploads") }.count == 1)
         // Cancelling now cannot claim nothing was written.
         #expect(await upload.cancel(client: client) == .outcomeUnknown)
@@ -352,7 +352,7 @@ struct TransferTests {
         await #expect(throws: APIError.self) { try await upload.run(client: client) }
         #expect(await upload.uploadId == nil)
         #expect(pak.log.last?.status == 409)
-        #expect(try await !gameNames(client).contains("Test Game.gba"))
+        #expect(try await !gameNames(client).contains("Test Game.hab"))
     }
 
     @Test func insufficientStorage() async throws {
@@ -374,7 +374,7 @@ struct TransferTests {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let file = try makeFile(size: 10_000)
-        let upload = try upload(file, name: "Brambleway Dash.gba")
+        let upload = try upload(file, name: "Brambleway Dash.hab")
         do {
             _ = try await upload.run(client: client)
             Issue.record("no error")
@@ -384,14 +384,14 @@ struct TransferTests {
         }
         await upload.restart(onConflict: .rename)
         let result = try await upload.run(client: client)
-        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash (2).gba"))
+        #expect(result.gameId == DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash (2).hab"))
     }
 
     @Test func overwriteSendsTheOldFileToTheTrash() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
         let file = try makeFile(size: 10_000)
-        _ = try await upload(file, name: "Brambleway Dash.gba", onConflict: .overwrite).run(client: client)
+        _ = try await upload(file, name: "Brambleway Dash.hab", onConflict: .overwrite).run(client: client)
         let trash = try await client.trash()
         #expect(trash.entries.first?.reason == "overwrite")
         #expect(trash.entries.first?.label == "Brambleway Dash")
@@ -472,7 +472,7 @@ struct TransferTests {
     @Test func deleteGameMovesEverythingToTheTrash() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
         let detail = try await client.game(id: gameId)
         let result = try await client.deleteGame(id: gameId, keepSave: false)
         #expect(result.moved == detail.files.map(\.path))
@@ -489,7 +489,7 @@ struct TransferTests {
     @Test func deleteGameKeepingTheSave() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
         let result = try await client.deleteGame(id: gameId, keepSave: true)
         #expect(pak.log.last?.query == "keepSave=true")
         #expect(!result.moved.contains { $0.hasPrefix("Saves/") || $0.contains(".st") })
@@ -500,12 +500,12 @@ struct TransferTests {
     @Test func deletionPreviewIsWhatTheDeletionMoves() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
         let kept = try await client.deletionPreview(gameId: gameId, keepSave: true)
         #expect(pak.log.last?.query == "keepSave=true")
         #expect(kept.kept.contains { $0.role == .save } && kept.kept.contains { $0.role == .state })
         #expect(!kept.moved.contains { $0.role == .save || $0.role == .state })
-        #expect(kept.moved.contains { $0.name == "Thistledown Isles.gba" && $0.role == .rom })
+        #expect(kept.moved.contains { $0.name == "Thistledown Isles.hab" && $0.role == .rom })
         let preview = try await client.deletionPreview(gameId: gameId, keepSave: false)
         #expect(preview.kept.isEmpty)
         #expect(preview.movedBytes == preview.moved.reduce(0) { $0 + $1.size })
@@ -531,7 +531,7 @@ struct TransferTests {
     }
 
     @Test func deletionPreviewDecodesTheContractExample() throws {
-        let data = Data(#"{"moved":[{"name":"Thistledown Isles.gba","role":"rom","size":16777216},{"name":"ReminisLink/locks/x","role":"other","size":10}],"kept":[{"name":"Discs/CD1.chd","role":"rom","size":5}],"movedBytes":16777226}"#.utf8)
+        let data = Data(#"{"moved":[{"name":"Thistledown Isles.hab","role":"rom","size":16777216},{"name":"ReminisLink/locks/x","role":"other","size":10}],"kept":[{"name":"Discs/CD1.chd","role":"rom","size":5}],"movedBytes":16777226}"#.utf8)
         let preview = try ProtocolJSON.decoder().decode(DeletionPreview.self, from: data)
         #expect(preview.moved.last?.role == .other)
         #expect(preview.moved.map(DeletionPreview.isPakCopy) == [false, true])

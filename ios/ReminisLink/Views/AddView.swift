@@ -236,7 +236,9 @@ struct AddView: View {
     private func suggestSystems() {
         guard let systems else { return }
         for index in files.indices where files[index].systemId == nil {
-            files[index].systemId = SystemSuggestion.system(forFileName: files[index].name, in: systems)?.id
+            files[index].systemId = SystemSuggestion.system(
+                forFileName: files[index].name, in: systems, extraTagsByExtension: app.extraSystemTagsByExtension
+            )?.id
         }
     }
 

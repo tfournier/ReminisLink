@@ -33,7 +33,7 @@ final class SyncUITests: XCTestCase {
         expectReport(app, containing: "New versions: 1 · saves checked: 4", timeout: 20)
 
         // Its two versions; restore the older one.
-        openVersions(app, system: "Handheld Advance (GBA)", game: GameDataUITest.demoGame, timeout: 15)
+        openVersions(app, system: "Handheld Advance (HA)", game: GameDataUITest.demoGame, timeout: 15)
         XCTAssertTrue(app.buttons["synced.version.1"].waitForExistence(timeout: 10), "two versions expected")
         attachScreenshot(of: app, named: "sync-versions")
         app.buttons["synced.version.1"].tap()
@@ -54,7 +54,7 @@ final class SyncUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["console.sync"].tapWhenEnabled(timeout: 15)
         expectReport(app, containing: "New versions: 1", timeout: 20)
-        openVersions(app, system: "Handheld Advance (GBA)", game: GameDataUITest.demoGame, timeout: 15)
+        openVersions(app, system: "Handheld Advance (HA)", game: GameDataUITest.demoGame, timeout: 15)
         XCTAssertTrue(app.buttons["synced.version.2"].waitForExistence(timeout: 10), "three versions expected")
     }
 

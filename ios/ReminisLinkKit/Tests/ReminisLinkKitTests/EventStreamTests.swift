@@ -317,7 +317,7 @@ struct EventStreamTests {
         let watcher = try await pairedClient(pak)
         let other = try await pairedClient(pak)
         let bytes = try await watcher.openEvents()
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
         let systemId = try #require(pak.library.game(id: gameId)?.0.id)
         _ = try await other.deleteGame(id: gameId, keepSave: false)
         var parser = SSEParser()
@@ -354,9 +354,9 @@ struct EventStreamTests {
             let id = DemoLibrary.id(path)
             return (id, try #require(pak.library.game(id: id)?.0.id))
         }
-        let gba = try system("Handheld Advance (GBA)/Brambleway Dash.gba")
-        let gb = try system("01) Pocket Classic (GB)/Mosslight Maze 🌙.gb")
-        let gba2 = try system("Handheld Advance (GBA)/Thistledown Isles.gba")
+        let gba = try system("Handheld Advance (HA)/Brambleway Dash.hab")
+        let gb = try system("01) Pocket Classic (PCL)/Mosslight Maze 🌙.pcr")
+        let gba2 = try system("Handheld Advance (HA)/Thistledown Isles.hab")
         _ = try await other.deleteGame(id: gba.game, keepSave: false)
         #expect(!pak.libraryEventPending)
         _ = try await other.deleteGame(id: gb.game, keepSave: false)
@@ -371,7 +371,7 @@ struct EventStreamTests {
             .library(EventLibrary(systemIds: [gba.system, gb.system].sorted())),
         ])
         // An unknown change (the trash) wins over the systems.
-        _ = try await other.deleteGame(id: DemoLibrary.id("Handheld Advance (GBA)/Homebrew/Quillwork Tactics.gba"), keepSave: false)
+        _ = try await other.deleteGame(id: DemoLibrary.id("Handheld Advance (HA)/Homebrew/Quillwork Tactics.hab"), keepSave: false)
         _ = try await other.emptyTrash()
         pak.flushThrottledEvents()
         let merged = try await read("library", count: 1, from: bytes)

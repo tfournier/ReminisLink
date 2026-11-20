@@ -12,7 +12,7 @@ import UIKit
 struct ArtAppTests {
     let secure = InMemorySecureStore()
     let root = FileManager.default.temporaryDirectory.appending(path: "rl-m8-art-\(UUID().uuidString)")
-    let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
+    let skyGarden = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
     let keeper = Keeper()
 
     final class Keeper {

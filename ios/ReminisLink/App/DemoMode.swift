@@ -100,6 +100,9 @@ final class DemoMode {
             isDemo: isDemo,
             makeSession: { FakePak.makeOfflineSession() }
         )
+        // Its systems have invented tags and extensions: Add suggests them
+        // from the demo library.
+        app.extraSystemTagsByExtension = pak.library.tagsByExtension
         // Milestone M11: the fake pak withdraws its Bonjour service when it
         // quits, and announces it again when it opens.
         let discovery = app.discovery

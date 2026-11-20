@@ -30,7 +30,7 @@ enum GameDataUITest {
         for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)
-        openGame(app, system: "GBA", game: demoGame, timeout: 15)
+        openGame(app, system: "HA", game: demoGame, timeout: 15)
         return app
     }
 

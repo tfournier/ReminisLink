@@ -12,8 +12,8 @@ import Testing
 @Suite("App ergonomics (M11)", .serialized)
 struct ErgonomicsAppTests {
     let secure = InMemorySecureStore()
-    static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
-    static let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
+    static let skyGarden = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
+    static let pixelRunner = DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash.hab")
 
     /// Sessions hold their app unowned, and connections started by opening
     /// a console may outlive a test: its app stays alive.
@@ -110,7 +110,7 @@ struct ErgonomicsAppTests {
         let cheats = try #require(detail.files.first { $0.role == .cheats })
         let progress = FileDownload(fileId: try #require(cheats.fileId), expected: cheats.sizeBytes)
         let exported = try await session.downloadGameFile(gameId: Self.skyGarden, file: cheats, progress: progress)
-        #expect(exported.file.url.lastPathComponent == "Thistledown Isles.gba.cht")
+        #expect(exported.file.url.lastPathComponent == "Thistledown Isles.hab.cht")
         #expect(exported.file.directory.deletingLastPathComponent().standardizedFileURL == app.exportDirectory.standardizedFileURL)
         await waitUntil { progress.fraction == 1 }
         #expect(progress.fraction == 1)
@@ -284,11 +284,11 @@ struct ErgonomicsAppTests {
         await #expect(throws: AppError.consoleClosed) { try await session.perform { try await $0.systems() } }
         await session.connect()
         // The end of an Add sheet: no console reopened.
-        let file = FileManager.default.temporaryDirectory.appending(path: "m11-\(UUID().uuidString).gba")
+        let file = FileManager.default.temporaryDirectory.appending(path: "m11-\(UUID().uuidString).hab")
         try Data(count: 1000).write(to: file)
         let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: DemoLibrary.id("Handheld Advance (GBA)"), fileName: "M11.gba"),
-            destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: DemoLibrary.id("Handheld Advance (HA)"), fileName: "M11.hab"),
+            destination: "HA", ownsFile: false
         )
         #expect(item.phase == .paused)
         app.showTransfersAfterAdd(deviceId: id)

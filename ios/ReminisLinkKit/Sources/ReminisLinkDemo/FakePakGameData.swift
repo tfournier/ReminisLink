@@ -707,9 +707,9 @@ extension FakePak {
                 """))
             }
         }
-        let shared = "Cheats/GBA/Shared Pack.cht"
+        let shared = "Cheats/HA/Shared Pack.cht"
         files.append(("sd_" + DemoLibrary.id(shared), shared, "cheats = 1\ncheat0_desc = \"Shared\"\ncheat0_code = \"02000300+0003\"\n"))
-        let broken = "Cheats/GBA/Notes.cht"
+        let broken = "Cheats/HA/Notes.cht"
         files.append(("sd_" + DemoLibrary.id(broken), broken, "not a cheat file\n"))
         return files
     }

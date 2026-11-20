@@ -202,10 +202,13 @@ Pair it with *Add a Console > Pair with the Demo Console*, or open its link:
 xcrun simctl openurl booted 'reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1'
 ```
 
-The fake pak checks signatures like the real one; its game names and system
-labels are made up (no trademark: they appear in App Store screenshots), with
-NextUI-style folder tags (`Handheld Advance (GBA)`, `01) Pocket Classic (GB)`,
-`Disc Console (PS)`). Its disc system has no emulator (`emulatorInstalled: false`): the
+The fake pak checks signatures like the real one; its game names, system
+labels, folder tags and ROM extensions are made up (no trademark: they appear
+in App Store screenshots), in the NextUI folder style: `Handheld Advance (HA)`
+(`.hab`), `01) Pocket Classic (PCL)` (`.pcr`), `Disc Console (DCN)` (a
+`.m3u` folder). No real NextUI tag uses them, so Add suggests these systems
+from the demo library (`DemoLibrary.tagsByExtension`), not from the real
+extension table. Its disc system has no emulator (`emulatorInstalled: false`): the
 library shows it with "Emulator not installed on the console", and it can
 still be managed. A pak that does not send the field is taken as having the
 emulator.

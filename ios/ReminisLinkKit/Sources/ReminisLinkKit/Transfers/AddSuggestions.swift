@@ -68,8 +68,13 @@ public enum SystemSuggestion {
     ]
 
     /// The first system whose tag matches the extension of `fileName`.
-    public static func system(forFileName fileName: String, in systems: [GameSystem]) -> GameSystem? {
-        guard let tags = tagsByExtension[AddKind.fileExtension(fileName)] else { return nil }
+    /// `extraTagsByExtension` adds tags after those of ``tagsByExtension``
+    /// (the made-up systems of the demo mode).
+    public static func system(
+        forFileName fileName: String, in systems: [GameSystem], extraTagsByExtension: [String: [String]] = [:]
+    ) -> GameSystem? {
+        let ext = AddKind.fileExtension(fileName)
+        let tags = (tagsByExtension[ext] ?? []) + (extraTagsByExtension[ext] ?? [])
         for tag in tags {
             if let system = systems.first(where: { $0.tag.caseInsensitiveCompare(tag) == .orderedSame }) {
                 return system

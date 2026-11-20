@@ -94,7 +94,7 @@ final class ErgonomicsUITests: XCTestCase {
     func testDownloadAFileOfAGameInDemoMode() throws {
         let app = GameDataUITest.openDemoGame()
         // The cheats file, then the ROM (16 MiB, with its progress).
-        for name in ["Thistledown Isles.gba.cht", "Thistledown Isles.gba"] {
+        for name in ["Thistledown Isles.hab.cht", "Thistledown Isles.hab"] {
             let button = app.buttons.matching(identifier: "file.download")
                 .matching(NSPredicate(format: "label == %@", "Download \(name)")).firstMatch
             XCTAssertTrue(GameDataUITest.scrollTo(button, in: app), "no download button for \(name)")

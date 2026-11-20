@@ -174,7 +174,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             "trashedAt": "2026-11-18T17:00:00Z",
             "reason": "delete-game",
             "label": "Old Prototype",
-            "files": ["Roms/Handheld Advance (GBA)/Old Prototype.gba", "Saves/GBA/Old Prototype.gba.sav"],
+            "files": ["Roms/Handheld Advance (HA)/Old Prototype.hab", "Saves/HA/Old Prototype.hab.sav"],
             "sizeBytes": 17_377_096,
             "expiresAt": "2026-12-18T17:00:00Z",
         ]]

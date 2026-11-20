@@ -147,10 +147,10 @@ struct ClientAccessAppTests {
         await session.connect()
         let system = try #require(try await session.perform { try await $0.systems() }.first)
         pak.disconnect(clientId: clientId)
-        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).gba")
+        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).hab")
         try Data(repeating: 3, count: 20_000).write(to: file)
         let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "Paused.gba"), destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Paused.hab"), destination: "HA", ownsFile: false
         )
         await waitUntil { item.phase == .paused }
         #expect(item.phase == .paused)
@@ -175,10 +175,10 @@ struct ClientAccessAppTests {
         pak.disconnect(clientId: clientId)
         _ = try? await session.perform { try await $0.systems() }
         #expect(session.isDisconnected)
-        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).gba")
+        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).hab")
         try Data(repeating: 4, count: 20_000).write(to: file)
         let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "Late.gba"), destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Late.hab"), destination: "HA", ownsFile: false
         )
         await waitUntil { item.phase == .paused || item.phase == .failed }
         #expect(item.phase == .paused)
@@ -202,10 +202,10 @@ struct ClientAccessAppTests {
         let system = try #require(try await session.perform { try await $0.systems() }.first)
         let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
         pak.disconnect(clientId: clientId)
-        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).gba")
+        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).hab")
         try Data(repeating: 5, count: 20_000).write(to: file)
         let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "Early.gba"), destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Early.hab"), destination: "HA", ownsFile: false
         )
         // The refusal of `POST /uploads` waits; the user reconnects first.
         await waitUntil { created.reached }
@@ -233,7 +233,7 @@ struct ClientAccessAppTests {
         await session.connect()
         pak.disconnect(clientId: clientId)
         let file = try await picked(app, name: "pack.cht", contents: Data("cheat0_desc = \"Wait\"\ncheat0_code = \"3\"\n".utf8))
-        let game = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
+        let game = DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash.hab")
         let task = Task { try await session.importCheats(gameId: game, from: file, mode: .merge) }
         await waitUntil { session.reconnectionWaits == 1 }
         #expect(session.reconnectionWaits == 1)
@@ -252,18 +252,18 @@ struct ClientAccessAppTests {
         await session.connect()
         pak.disconnect(clientId: clientId)
         let game = PatchGame(
-            id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
-            fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
+            id: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab"), name: "Thistledown Isles",
+            fileName: "Thistledown Isles.hab", kind: .file, systemLabel: "Handheld Advance"
         )
         let flow = PatchFlow(session: session, game: game)
         flow.file = try await picked(app, name: "fix.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 64)))
-        flow.fileName = "Thistledown Isles (fix).gba"
+        flow.fileName = "Thistledown Isles (fix).hab"
         flow.start()
         await waitUntil { flow.isWaitingForReconnection }
         #expect(flow.isWaitingForReconnection)
         await session.reconnect()
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
-        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (fix).gba"), late: false))
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (fix).hab"), late: false))
         // Refused (401, nothing created; or not sent at all, the session
         // already knowing it was disconnected), then created once.
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status == 401 }.count <= 1)
@@ -283,10 +283,10 @@ struct ClientAccessAppTests {
         await session.connect()
         let system = try #require(try await session.perform { try await $0.systems() }.first)
         pak.busyNextWrites(1, retryAfter: 1)
-        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).gba")
+        let file = FileManager.default.temporaryDirectory.appending(path: "m13-\(UUID().uuidString).hab")
         try Data(repeating: 5, count: 20_000).write(to: file)
         let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: system.id, fileName: "Busy.gba"), destination: "GBA", ownsFile: false
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Busy.hab"), destination: "HA", ownsFile: false
         )
         await waitUntil(timeout: .seconds(10)) { item.phase == .done || item.phase == .failed }
         #expect(item.phase == .done, "\(String(describing: item.failure))")
@@ -303,7 +303,7 @@ struct ClientAccessAppTests {
         let (app, _) = try await pairedApp(pak)
         let session = app.session(for: pak.deviceId)
         await session.connect()
-        let game = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
+        let game = DemoLibrary.id("Handheld Advance (HA)/Brambleway Dash.hab")
         pak.busyNextWrites(1, retryAfter: 3)
         do {
             _ = try await session.deleteGame(id: game, keepSave: false)
@@ -347,13 +347,13 @@ struct ClientAccessAppTests {
         let session = app.session(for: pak.deviceId)
         await session.connect()
         let game = PatchGame(
-            id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
-            fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
+            id: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab"), name: "Thistledown Isles",
+            fileName: "Thistledown Isles.hab", kind: .file, systemLabel: "Handheld Advance"
         )
         let flow = PatchFlow(session: session, game: game)
         let file = try await picked(app, name: "big.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 300_000)))
         flow.file = file
-        flow.fileName = "Thistledown Isles (big).gba"
+        flow.fileName = "Thistledown Isles (big).hab"
         // The upload is created, then its first chunk waits at the door
         // while the console disconnects this app.
         let chunkGate = Locked<FakeGate?>(nil)
@@ -384,7 +384,7 @@ struct ClientAccessAppTests {
 
         await session.reconnect()
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
-        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (big).gba"), late: false))
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (big).hab"), late: false))
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
 
@@ -397,13 +397,13 @@ struct ClientAccessAppTests {
         let session = app.session(for: pak.deviceId)
         await session.connect()
         let game = PatchGame(
-            id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
-            fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
+            id: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab"), name: "Thistledown Isles",
+            fileName: "Thistledown Isles.hab", kind: .file, systemLabel: "Handheld Advance"
         )
         let flow = PatchFlow(session: session, game: game)
         let file = try await picked(app, name: "net.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 100_000)))
         flow.file = file
-        flow.fileName = "Thistledown Isles (net).gba"
+        flow.fileName = "Thistledown Isles (net).hab"
         let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
         flow.start()
         await waitUntil { created.reached }
@@ -421,7 +421,7 @@ struct ClientAccessAppTests {
 
         flow.start() // Resume
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
-        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (net).gba"), late: false))
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles (net).hab"), late: false))
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
 }

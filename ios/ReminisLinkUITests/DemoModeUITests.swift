@@ -30,7 +30,7 @@ final class DemoModeUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: 10))
 
         // A feature: the states of a demo game (made-up name).
-        GameDataUITest.openLibraryGame(app, system: "GBA", game: GameDataUITest.demoGame, timeout: 15)
+        GameDataUITest.openLibraryGame(app, system: "HA", game: GameDataUITest.demoGame, timeout: 15)
         XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 15))
         app.buttons["game.states"].tapAfterWaiting(timeout: 15)
         XCTAssertTrue(app.buttons["state.0"].waitForExistence(timeout: 15), "no state slot")
