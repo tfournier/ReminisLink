@@ -49,10 +49,7 @@ extension ConsoleSession {
     }
 
     func stopEventStream() {
-        // A catch-up of this stream publishes nothing after it closed.
-        catchUpGeneration += 1
-        catchUpTask?.cancel()
-        catchUpTask = nil
+        invalidateCatchUp()
         events?.stop()
         events = nil
         eventsClient = nil
@@ -72,6 +69,14 @@ extension ConsoleSession {
         stream.start()
     }
 
+    /// The catch-up in progress publishes nothing more (the stream closed
+    /// or ended, or a newer `hello` came).
+    private func invalidateCatchUp() {
+        catchUpGeneration += 1
+        catchUpTask?.cancel()
+        catchUpTask = nil
+    }
+
     private func setEventsLive(_ live: Bool) {
         if eventsLive != live { eventsLive = live }
         if transfers.jobsFollowedByEvents != live { transfers.jobsFollowedByEvents = live }
@@ -83,9 +88,8 @@ extension ConsoleSession {
         case .hello:
             setEventsLive(true)
             // Only the last catch-up publishes (generation, not ordering).
-            catchUpGeneration += 1
+            invalidateCatchUp()
             let generation = catchUpGeneration
-            catchUpTask?.cancel()
             catchUpTask = Task { await self.catchUp(client: client, generation: generation) }
         case .device(let device):
             lastDeviceEvent = device
@@ -121,7 +125,8 @@ extension ConsoleSession {
             }
         }
         guard isCurrent() else { return }
-        await transfers.refreshJobs(force: true)
+        // Each answer is checked before it is shown.
+        await transfers.refreshJobs(force: true, isCurrent: isCurrent)
         guard isCurrent() else { return }
         lastLibraryChange = nil
         libraryRevision += 1
@@ -163,6 +168,8 @@ extension ConsoleSession {
     /// A connection of the stream ended: what the session makes of it.
     private func eventStreamEnded(_ end: EventStream.End, client: APIClient) async -> EventStream.Decision {
         guard liveApp != nil, self.client === client else { return .stop }
+        // At once, before the probe or a reconnection.
+        invalidateCatchUp()
         setEventsLive(false)
         switch end {
         case .shutdown:

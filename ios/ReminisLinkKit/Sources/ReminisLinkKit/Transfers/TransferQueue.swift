@@ -580,20 +580,26 @@ public final class TransferQueue {
     /// second while they are visible (docs/specs/03-protocole.md §8), unless
     /// the event stream is live (M14). `force`: polls even then (to catch up
     /// after a reconnection of the stream).
-    public func refreshJobs(force: Bool = false) async {
+    /// `isCurrent`: asked after each answer, before it is shown; false
+    /// stops (M14: the catch-up of a stream that ended since).
+    public func refreshJobs(force: Bool = false, isCurrent: (() -> Bool)? = nil) async {
         guard force || !jobsFollowedByEvents else { return }
         let pending = jobs.filter { !$0.isFinished }
         guard !pending.isEmpty else { return }
+        let current = { isCurrent?() ?? true }
         let api: APIClient
         do {
             api = try await client()
         } catch {
+            guard current() else { return }
             for item in pending { item.failure = error }
             return
         }
         for item in pending {
+            guard current() else { return }
             do {
                 let job = try await api.job(id: item.id)
+                guard current() else { return }
                 // An event may have ended it meanwhile.
                 guard !item.isFinished else { continue }
                 item.job = job
@@ -601,11 +607,13 @@ public final class TransferQueue {
                 if job.state.isFinished { onJobFinished?(item) }
                 notifyJobObservers(item)
             } catch APIError.server(let error) where error.code == .notFound {
+                guard current() else { return }
                 item.isLost = true
                 item.failure = APIError.server(error)
             } catch is CancellationError {
                 return
             } catch {
+                guard current() else { return }
                 item.failure = error
             }
         }
