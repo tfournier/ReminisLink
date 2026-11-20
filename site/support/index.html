@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Support — ReminisLink</title>
-  <meta name="description" content="Help for ReminisLink: the app does not find the handheld, pairing, the trash, NextUI settings, compatible handhelds, and how to report a problem.">
+  <meta name="description" content="Help for ReminisLink: the app does not find the handheld, pairing, several devices, iPad and Mac, security, saves in iCloud Drive, apps, the trash, and how to report a problem.">
   <link rel="canonical" href="https://reminis.link/support/">
   <link rel="alternate" hreflang="en" href="https://reminis.link/support/">
   <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/support/">
@@ -22,6 +22,7 @@
       <nav class="site-nav" aria-label="Main">
         <ul>
           <li><a href="/">Home</a></li>
+          <li><a href="/install/">Installation</a></li>
           <li><a href="/support/" aria-current="page">Support</a></li>
           <li><a href="/privacy/">Privacy</a></li>
           <li class="lang"><a href="/fr/support/" hreflang="fr" lang="fr">Français</a></li>
@@ -42,11 +43,12 @@
       <div class="prose">
         <section class="faq" aria-labelledby="faq-title">
           <h2 id="faq-title">Frequently asked questions</h2>
+          <p>New to ReminisLink? Start with the <a href="/install/">installation guide</a>.</p>
 
           <details id="not-found">
             <summary>The app does not find my handheld</summary>
             <ul>
-              <li><strong>Is ReminisLink open on the handheld?</strong> Turn on Wi-Fi in the NextUI settings, then open <strong>Tools &gt; ReminisLink</strong>. The app can only see the handheld while this screen is open and no game is running. If the handheld goes to sleep, wake it up.</li>
+              <li><strong>Is ReminisLink open on the handheld?</strong> Turn on Wi-Fi in the NextUI settings, then open <strong>Tools &gt; ReminisLink</strong>. The pak only runs while no game is running, and the app can only see the handheld while it is open. If the handheld went to sleep, wake it up.</li>
               <li><strong>Same Wi-Fi network.</strong> The iPhone and the handheld must be connected to the same Wi-Fi network. Mobile data does not work.</li>
               <li><strong>No guest network.</strong> Guest networks, and routers with “client isolation” or “AP isolation” turned on, stop devices from seeing each other. Use your main network, or turn that option off in the router settings.</li>
               <li><strong>VPN.</strong> Some VPNs and network filters on the iPhone block the local network. Turn them off while you use ReminisLink.</li>
@@ -58,19 +60,77 @@
           <details id="pairing">
             <summary>How do I pair my iPhone?</summary>
             <ul>
-              <li>Open ReminisLink on the handheld: it shows a QR code. In the iPhone app, tap <strong>Add a Console</strong> and scan that code.</li>
-              <li>If the camera cannot be used, type the 6-digit code shown under the QR code instead. It is valid 10 minutes. It is less secure than the QR code: avoid it on a public Wi-Fi network.</li>
-              <li>If the scanner does not open, allow the camera in <strong>Settings &gt; ReminisLink &gt; Camera</strong>, or use the code.</li>
-              <li>After too many wrong attempts, the handheld shows a new code and waits a few seconds before accepting a new try.</li>
-              <li>To remove an iPhone, open <strong>Settings &gt; Devices</strong> on the handheld (select the iPhone, then Forget; Disconnect only cuts it off until it reconnects from the app). If you lend or lose the SD card, use <strong>Settings &gt; Forget all devices</strong>, then pair again.</li>
+              <li>Open ReminisLink on the handheld. The first time, it shows a QR code; once a device is paired, open <strong>Settings &gt; Pair a New Device</strong> to show it. In the iPhone app, tap <strong>Add a Console</strong> and scan that code.</li>
+              <li>Pairing uses the QR code only: there is no code to type. Each QR code is valid 10 minutes, and pairing is open only while it is shown.</li>
+              <li>If the scanner does not open, allow the camera in <strong>Settings &gt; ReminisLink &gt; Camera</strong>, or scan the QR code with the Camera app of the iPhone.</li>
+              <li>After too many failed attempts, the handheld blocks pairing for a short time and then shows a new QR code.</li>
             </ul>
+            <p>Step by step: <a href="/install/#pair">installation guide</a>.</p>
+          </details>
+
+          <details id="several-devices">
+            <summary>Can I use several iPhones, or share the handheld with my family?</summary>
+            <p>Yes. Your Apple devices signed in with the same Apple Account share one pairing through iCloud Keychain: pair once, from any of them. A device with another Apple Account pairs on its own: on the handheld, open <strong>Settings &gt; Pair a New Device</strong> and scan the QR code with that device.</p>
+            <p>All paired devices can use the handheld at the same time. Changes run one at a time (see “The console is busy” below).</p>
+          </details>
+
+          <details id="ipad-mac">
+            <summary>Does it work on iPad or Mac?</summary>
+            <p>Not officially for now: ReminisLink is an iPhone app, and it is only tested on iPhone. An iPad or a Mac may still be able to open iPhone apps, but nothing is guaranteed there. iPad and Mac support is planned as a separate step.</p>
+          </details>
+
+          <details id="remove-device">
+            <summary>How do I remove a paired device?</summary>
+            <ul>
+              <li><strong>From the app:</strong> open the handheld, then <strong>Console &gt; Unpair</strong>. The handheld forgets the pairing, and it is removed from all your Apple devices that share it.</li>
+              <li><strong>From the handheld:</strong> open <strong>Settings &gt; Devices</strong> and select the device. <strong>Forget</strong> removes its pairing (it will have to pair again). <strong>Disconnect</strong> only refuses its requests until it reconnects from the app; closing ReminisLink also lifts it.</li>
+              <li>If you lend or lose the SD card, or sell the handheld, use <strong>Settings &gt; Forget all devices</strong>, then pair again the devices you keep.</li>
+            </ul>
+          </details>
+
+          <details id="repair">
+            <summary>Why do I have to pair again after an update?</summary>
+            <p>When a version changes how devices pair or sign their requests, the pak deletes the old pairings when it first starts. This happened when ReminisLink moved to encrypted connections with one key per device. The app then shows <strong>Pair Again</strong> next to the handheld: tap it and scan a new QR code (<strong>Settings &gt; Pair a New Device</strong> on the handheld). The release notes say when this is needed.</p>
+            <p>The app also asks you to pair again if the handheld no longer has the identity it had when you paired (for example after its ReminisLink data folder was deleted from the SD card). In that case nothing is sent to it until you scan its QR code again.</p>
+          </details>
+
+          <details id="security">
+            <summary>Is the connection secure?</summary>
+            <ul>
+              <li><strong>Encrypted.</strong> The app and the handheld talk over HTTPS, on your local network only. Nothing goes through the internet.</li>
+              <li><strong>The right handheld.</strong> The handheld has its own certificate. The QR code you scan contains its fingerprint, and the app only accepts that exact certificate: another device on the network cannot pretend to be your handheld.</li>
+              <li><strong>Only your devices.</strong> Each request is signed with a private key that stays in your Keychain. The SD card only keeps the public keys of your devices: a copy of the card is not enough to control the handheld.</li>
+            </ul>
+          </details>
+
+          <details id="busy">
+            <summary>“The console is busy with another change”</summary>
+            <p>The handheld makes changes (send, delete, replace, restore, patch, cheats…) one at a time, even when several devices are connected. If one waits more than 10 seconds for the previous one to finish, it is refused and nothing is changed. Wait a moment and try again.</p>
+          </details>
+
+          <details id="back-to-list">
+            <summary>Why did the app go back to the list of consoles?</summary>
+            <p>The handheld tells the app as soon as ReminisLink closes on it (with <strong>B</strong>, or because it was turned off): the app goes back to its list with a short message. Transfers in progress are paused, not lost. While the handheld is open, the app refreshes what it shows by itself when something changes, even from another device.</p>
+          </details>
+
+          <details id="saves-icloud">
+            <summary>Are my saves copied to my iPhone or to iCloud?</summary>
+            <p>Yes, if you want. The app copies the saves of your handheld (with their clock files): with <strong>Sync Saves</strong> in the Console tab, and automatically each time it connects (you can turn this off in the settings of the app). It keeps up to 10 versions of each save, and you can restore one to the handheld; the handheld first keeps a copy of its current save.</p>
+            <p>With iCloud Drive turned on, the copies go to the ReminisLink folder of your own iCloud Drive (Files app). Otherwise they stay on the iPhone (<strong>Files &gt; On My iPhone &gt; ReminisLink</strong>). Save states are not copied.</p>
+          </details>
+
+          <details id="paks">
+            <summary>Can I install or remove apps (paks) on the handheld?</summary>
+            <p>Yes. In the Console tab, open <strong>Apps</strong>: it lists the tool and emulator paks of the handheld. You can install one from the Files app of the iPhone (a zip archive or a <code>.pak</code> folder), from a link that the handheld downloads itself, or from a file already on the SD card. A pak of the same name is only replaced after you confirm, and the old one goes to the trash. Removing a pak also moves it to the trash. ReminisLink cannot remove or replace itself.</p>
+            <p>ReminisLink does not check what a pak does: install only paks you trust.</p>
+            <p>Tap <strong>Storage</strong> in the Console tab to browse the SD card. This browser is read only: you can look at folders and download a file to your iPhone.</p>
           </details>
 
           <details id="trash">
             <summary>Where do deleted files go? (the trash)</summary>
-            <p>ReminisLink never erases your files directly. A deleted game, a game patched in place, a replaced save state or an older cheat file goes to the trash of the handheld, on the SD card, where it stays for at least 30 days. Replacing or restoring a save also makes a backup copy first.</p>
-            <p>The space is freed only when the trash is emptied: automatically after 30 days, or from the app (open your handheld in the app, then <strong>Trash</strong>, then <strong>Empty Trash</strong>). Emptying the trash cannot be undone.</p>
-            <p>The trash is the folder <code>/.userdata/shared/ReminisLink/trash/</code> on the SD card, if you need to get a file back by hand.</p>
+            <p>ReminisLink never erases your files directly. A deleted game, a game patched in place, a replaced save state, an older cheat file, a removed game image or a removed or replaced pak goes to the trash of the handheld, on the SD card, where it stays for at least 30 days. Replacing or restoring a save also makes a backup copy first.</p>
+            <p>The <strong>Trash</strong> tab of the app lists what is in it, with its size and when it will be deleted. The space is freed only when the trash is emptied: automatically after 30 days, or from that tab (delete one entry, or <strong>Empty Trash</strong>). Emptying the trash cannot be undone.</p>
+            <p>The app cannot put a file back yet. To get a file back by hand, look in the folder <code>/.userdata/shared/ReminisLink/trash/</code> of the SD card: each entry keeps the files under their original path.</p>
           </details>
 
           <details id="formats">
@@ -90,8 +150,8 @@
           </details>
 
           <details id="install">
-            <summary>How do I install or update the pak?</summary>
-            <p>On the handheld, open <strong>Pak Store</strong> and install or update <strong>ReminisLink</strong>. Or download <code>ReminisLink.pak.zip</code> from the <a href="https://github.com/tfournier/ReminisLink/releases/latest">latest release</a> and unzip it into <code>/Tools/tg5040/</code> on the SD card.</p>
+            <summary>How do I install, update or uninstall the pak?</summary>
+            <p>Download <code>ReminisLink.pak.zip</code> from the <a href="https://github.com/tfournier/ReminisLink/releases">releases page</a> and unzip it into <code>/Tools/tg5040/</code> on the SD card. To update, replace the <code>ReminisLink.pak</code> folder with the new one. The <a href="/install/">installation guide</a> has every step, including <a href="/install/#uninstall">uninstalling</a> and where ReminisLink keeps its data.</p>
           </details>
         </section>
 
@@ -103,9 +163,9 @@
             <li>the version of the iPhone app, and the version of the pak (shown on the handheld in <strong>Settings &gt; Version and log</strong>);</li>
             <li>your handheld and your NextUI version;</li>
             <li>what you did, what you expected and what happened;</li>
-            <li>if possible, the log file of the pak: <code>/.userdata/tg5040/logs/ReminisLink.txt</code> on the SD card. Read it before you share it: it may contain the name of your handheld and of your files.</li>
+            <li>if possible, the log file of the pak: <code>/.userdata/tg5040/logs/ReminisLink.txt</code> on the SD card. Read it before you share it: it may contain the names of your handheld, of your devices and of your files.</li>
           </ul>
-          <p>Never share the file <code>clients.json</code>: it holds the keys of your paired devices.</p>
+          <p>Never share the folder <code>/.userdata/shared/ReminisLink/tls/</code>: it holds the private key of the certificate of your handheld. (<code>clients.json</code> only holds the public keys of your paired devices, with their names.)</p>
           <!--
             CONTACT EMAIL (to be provided): replace contact@example.invalid below with the
             real address, then remove these comment markers so the paragraph is shown.
@@ -120,6 +180,7 @@
   <footer class="site-footer">
     <div class="wrap">
       <ul>
+        <li><a href="/install/">Installation</a></li>
         <li><a href="/support/">Support</a></li>
         <li><a href="/privacy/">Privacy policy</a></li>
         <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>

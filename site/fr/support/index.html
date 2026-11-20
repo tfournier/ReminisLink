@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Assistance — ReminisLink</title>
-  <meta name="description" content="Aide pour ReminisLink : l’app ne trouve pas la console, appairage, corbeille, réglages de NextUI, consoles compatibles, et comment signaler un problème.">
+  <meta name="description" content="Aide pour ReminisLink : l’app ne trouve pas la console, appairage, plusieurs appareils, iPad et Mac, sécurité, saves dans iCloud Drive, apps, corbeille, et comment signaler un problème.">
   <link rel="canonical" href="https://reminis.link/fr/support/">
   <link rel="alternate" hreflang="en" href="https://reminis.link/support/">
   <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/support/">
@@ -22,6 +22,7 @@
       <nav class="site-nav" aria-label="Menu principal">
         <ul>
           <li><a href="/fr/">Accueil</a></li>
+          <li><a href="/fr/install/">Installation</a></li>
           <li><a href="/fr/support/" aria-current="page">Assistance</a></li>
           <li><a href="/fr/privacy/">Confidentialité</a></li>
           <li class="lang"><a href="/support/" hreflang="en" lang="en">English</a></li>
@@ -42,11 +43,12 @@
       <div class="prose">
         <section class="faq" aria-labelledby="faq-title">
           <h2 id="faq-title">Questions fréquentes</h2>
+          <p>Tu découvres ReminisLink ? Commence par le <a href="/fr/install/">guide d’installation</a>.</p>
 
           <details id="not-found">
             <summary>L’app ne trouve pas ma console</summary>
             <ul>
-              <li><strong>ReminisLink est-il ouvert sur la console ?</strong> Active le Wi-Fi dans les réglages de NextUI, puis ouvre <strong>Tools &gt; ReminisLink</strong>. L’app ne voit la console que tant que cet écran est ouvert et qu’aucun jeu n’est lancé. Si la console s’est mise en veille, réveille-la.</li>
+              <li><strong>ReminisLink est-il ouvert sur la console ?</strong> Active le Wi-Fi dans les réglages de NextUI, puis ouvre <strong>Tools &gt; ReminisLink</strong>. Le pak ne tourne que lorsqu’aucun jeu n’est lancé, et l’app ne voit la console que tant qu’il est ouvert. Si la console s’est mise en veille, réveille-la.</li>
               <li><strong>Même réseau Wi-Fi.</strong> L’iPhone et la console doivent être connectés au même réseau Wi-Fi. Les données mobiles ne marchent pas.</li>
               <li><strong>Pas de réseau invité.</strong> Les réseaux invités, et les box ou routeurs avec l’« isolation des clients » (ou « isolation AP ») activée, empêchent les appareils de se voir. Utilise ton réseau principal, ou désactive cette option dans les réglages de la box.</li>
               <li><strong>VPN.</strong> Certains VPN et filtres réseau de l’iPhone bloquent le réseau local. Coupe-les pendant que tu utilises ReminisLink.</li>
@@ -58,19 +60,77 @@
           <details id="pairing">
             <summary>Comment appairer mon iPhone ?</summary>
             <ul>
-              <li>Ouvre ReminisLink sur la console : il affiche un QR code. Dans l’app iPhone, touche <strong>Ajouter une console</strong> et scanne ce code.</li>
-              <li>Si l’appareil photo n’est pas utilisable, tape plutôt le code à 6 chiffres affiché sous le QR code. Il est valable 10 minutes. Il est moins sûr que le QR code : évite-le sur un Wi-Fi public.</li>
-              <li>Si le scanner ne s’ouvre pas, autorise l’appareil photo dans <strong>Réglages &gt; ReminisLink &gt; Appareil photo</strong>, ou utilise le code.</li>
-              <li>Après trop d’essais erronés, la console affiche un nouveau code et attend quelques secondes avant d’accepter un nouvel essai.</li>
-              <li>Pour retirer un iPhone, ouvre <strong>Réglages &gt; Appareils</strong> sur la console (choisis l'iPhone, puis Oublier ; Déconnecter le coupe seulement jusqu'à ce qu'il se reconnecte depuis l'app). Si tu prêtes ou perds la carte SD, utilise <strong>Réglages &gt; Oublier tous les appareils</strong>, puis appaire de nouveau.</li>
+              <li>Ouvre ReminisLink sur la console. La première fois, il affiche un QR code ; dès qu’un appareil est appairé, ouvre <strong>Réglages &gt; Appairer un nouvel appareil</strong> pour l’afficher. Dans l’app iPhone, touche <strong>Ajouter une console</strong> et scanne ce code.</li>
+              <li>L’appairage se fait uniquement par le QR code : il n’y a aucun code à taper. Chaque QR code est valable 10 minutes, et l’appairage n’est ouvert que pendant qu’il est affiché.</li>
+              <li>Si le scanner ne s’ouvre pas, autorise l’appareil photo dans <strong>Réglages &gt; ReminisLink &gt; Appareil photo</strong>, ou scanne le QR code avec l’app Appareil photo de l’iPhone.</li>
+              <li>Après trop d’essais ratés, la console bloque l’appairage un court instant, puis affiche un nouveau QR code.</li>
             </ul>
+            <p>Pas à pas : <a href="/fr/install/#pair">guide d’installation</a>.</p>
+          </details>
+
+          <details id="several-devices">
+            <summary>Puis-je utiliser plusieurs iPhone, ou partager la console en famille ?</summary>
+            <p>Oui. Tes appareils Apple connectés au même compte Apple partagent un seul appairage grâce au trousseau iCloud : appaire une fois, depuis n’importe lequel. Un appareil d’un autre compte Apple s’appaire de son côté : sur la console, ouvre <strong>Réglages &gt; Appairer un nouvel appareil</strong> et scanne le QR code avec cet appareil.</p>
+            <p>Tous les appareils appairés peuvent utiliser la console en même temps. Les modifications passent une par une (voir « La console est occupée » plus bas).</p>
+          </details>
+
+          <details id="ipad-mac">
+            <summary>Est-ce que ça marche sur iPad ou sur Mac ?</summary>
+            <p>Pas officiellement pour l’instant : ReminisLink est une app iPhone, testée uniquement sur iPhone. Un iPad ou un Mac peut parfois ouvrir des apps iPhone, mais rien n’y est garanti. La prise en charge de l’iPad et du Mac est prévue dans une étape à part.</p>
+          </details>
+
+          <details id="remove-device">
+            <summary>Comment retirer un appareil appairé ?</summary>
+            <ul>
+              <li><strong>Depuis l’app :</strong> ouvre la console, puis <strong>Console &gt; Se désappairer</strong>. La console oublie l’appairage, et il est retiré de tous tes appareils Apple qui le partagent.</li>
+              <li><strong>Depuis la console :</strong> ouvre <strong>Réglages &gt; Appareils</strong> et choisis l’appareil. <strong>Oublier</strong> supprime son appairage (il devra s’appairer de nouveau). <strong>Déconnecter</strong> refuse seulement ses requêtes jusqu’à ce qu’il se reconnecte depuis l’app ; fermer ReminisLink lève aussi la déconnexion.</li>
+              <li>Si tu prêtes ou perds la carte SD, ou si tu vends la console, utilise <strong>Réglages &gt; Oublier tous les appareils</strong>, puis appaire de nouveau les appareils que tu gardes.</li>
+            </ul>
+          </details>
+
+          <details id="repair">
+            <summary>Pourquoi dois-je refaire l’appairage après une mise à jour ?</summary>
+            <p>Quand une version change la façon dont les appareils s’appairent ou signent leurs requêtes, le pak efface les anciens appairages à son premier lancement. C’est arrivé quand ReminisLink est passé aux connexions chiffrées avec une clé par appareil. L’app affiche alors <strong>Refaire l’appairage</strong> à côté de la console : touche-le et scanne un nouveau QR code (<strong>Réglages &gt; Appairer un nouvel appareil</strong> sur la console). Les notes de version le précisent quand c’est nécessaire.</p>
+            <p>L’app demande aussi de refaire l’appairage si la console n’a plus l’identité qu’elle avait à l’appairage (par exemple après la suppression de son dossier de données ReminisLink sur la carte SD). Dans ce cas, rien ne lui est envoyé tant que tu n’as pas scanné de nouveau son QR code.</p>
+          </details>
+
+          <details id="security">
+            <summary>La connexion est-elle sûre ?</summary>
+            <ul>
+              <li><strong>Chiffrée.</strong> L’app et la console communiquent en HTTPS, uniquement sur ton réseau local. Rien ne passe par Internet.</li>
+              <li><strong>La bonne console.</strong> La console a son propre certificat. Le QR code que tu scannes contient son empreinte, et l’app n’accepte que ce certificat précis : un autre appareil du réseau ne peut pas se faire passer pour ta console.</li>
+              <li><strong>Seulement tes appareils.</strong> Chaque requête est signée avec une clé privée qui reste dans ton trousseau. La carte SD ne garde que les clés publiques de tes appareils : une copie de la carte ne suffit pas pour piloter la console.</li>
+            </ul>
+          </details>
+
+          <details id="busy">
+            <summary>« La console est occupée par une autre modification »</summary>
+            <p>La console fait les modifications (envoi, suppression, remplacement, restauration, patch, cheats…) une par une, même quand plusieurs appareils sont connectés. Si l’une d’elles attend plus de 10 secondes que la précédente se termine, elle est refusée et rien n’est modifié. Patiente un instant et réessaie.</p>
+          </details>
+
+          <details id="back-to-list">
+            <summary>Pourquoi l’app est-elle revenue à la liste des consoles ?</summary>
+            <p>La console prévient l’app dès que ReminisLink s’y ferme (avec <strong>B</strong>, ou parce qu’elle a été éteinte) : l’app revient à sa liste avec un court message. Les transferts en cours sont mis en pause, pas perdus. Tant que la console est ouverte, l’app rafraîchit d’elle-même ce qu’elle affiche quand quelque chose change, même depuis un autre appareil.</p>
+          </details>
+
+          <details id="saves-icloud">
+            <summary>Mes saves sont-elles copiées sur mon iPhone ou dans iCloud ?</summary>
+            <p>Oui, si tu le veux. L’app copie les saves de ta console (avec leurs fichiers d’horloge) : avec <strong>Synchroniser les saves</strong> dans l’onglet Console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Elle garde jusqu’à 10 versions de chaque save, et tu peux en restaurer une sur la console ; la console garde d’abord une copie de sa save actuelle.</p>
+            <p>Si iCloud Drive est activé, les copies vont dans le dossier ReminisLink de ton propre iCloud Drive (app Fichiers). Sinon, elles restent sur l’iPhone (<strong>Fichiers &gt; Sur mon iPhone &gt; ReminisLink</strong>). Les states ne sont pas copiés.</p>
+          </details>
+
+          <details id="paks">
+            <summary>Puis-je installer ou supprimer des apps (paks) sur la console ?</summary>
+            <p>Oui. Dans l’onglet Console, ouvre <strong>Apps</strong> : la liste des paks d’outils et d’émulateurs de la console. Tu peux en installer un depuis l’app Fichiers de l’iPhone (une archive zip ou un dossier <code>.pak</code>), depuis un lien que la console télécharge elle-même, ou depuis un fichier déjà présent sur la carte SD. Un pak du même nom n’est remplacé qu’après ta confirmation, et l’ancien part à la corbeille. Supprimer un pak le met aussi à la corbeille. ReminisLink ne peut ni se supprimer ni se remplacer.</p>
+            <p>ReminisLink ne vérifie pas ce que fait un pak : n’installe que des paks de confiance.</p>
+            <p>Touche <strong>Stockage</strong> dans l’onglet Console pour parcourir la carte SD. Ce navigateur est en lecture seule : tu peux consulter les dossiers et télécharger un fichier sur ton iPhone.</p>
           </details>
 
           <details id="trash">
             <summary>Où vont les fichiers supprimés ? (la corbeille)</summary>
-            <p>ReminisLink n’efface jamais tes fichiers directement. Un jeu supprimé, un jeu patché sur place, un state remplacé ou un ancien fichier de cheats va dans la corbeille de la console, sur la carte SD, où il reste au moins 30 jours. Remplacer ou restaurer une save fait aussi d’abord une copie de sauvegarde.</p>
-            <p>L’espace n’est libéré qu’en vidant la corbeille : automatiquement après 30 jours, ou depuis l’app (ouvre ta console dans l’app, puis <strong>Corbeille</strong>, puis <strong>Vider la corbeille</strong>). Vider la corbeille est définitif.</p>
-            <p>La corbeille est le dossier <code>/.userdata/shared/ReminisLink/trash/</code> de la carte SD, si tu dois récupérer un fichier à la main.</p>
+            <p>ReminisLink n’efface jamais tes fichiers directement. Un jeu supprimé, un jeu patché sur place, un state remplacé, un ancien fichier de cheats, une image de jeu retirée ou un pak supprimé ou remplacé va dans la corbeille de la console, sur la carte SD, où il reste au moins 30 jours. Remplacer ou restaurer une save fait aussi d’abord une copie de sauvegarde.</p>
+            <p>L’onglet <strong>Corbeille</strong> de l’app liste son contenu, avec la taille et la date de suppression. L’espace n’est libéré qu’en vidant la corbeille : automatiquement après 30 jours, ou depuis cet onglet (supprimer une entrée, ou <strong>Vider la corbeille</strong>). Vider la corbeille est définitif.</p>
+            <p>L’app ne sait pas encore remettre un fichier en place. Pour récupérer un fichier à la main, regarde dans le dossier <code>/.userdata/shared/ReminisLink/trash/</code> de la carte SD : chaque entrée garde les fichiers sous leur chemin d’origine.</p>
           </details>
 
           <details id="formats">
@@ -90,8 +150,8 @@
           </details>
 
           <details id="install">
-            <summary>Comment installer ou mettre à jour le pak ?</summary>
-            <p>Sur la console, ouvre <strong>Pak Store</strong> et installe ou mets à jour <strong>ReminisLink</strong>. Ou télécharge <code>ReminisLink.pak.zip</code> depuis la <a href="https://github.com/tfournier/ReminisLink/releases/latest">dernière version</a> et décompresse-le dans <code>/Tools/tg5040/</code> sur la carte SD.</p>
+            <summary>Comment installer, mettre à jour ou désinstaller le pak ?</summary>
+            <p>Télécharge <code>ReminisLink.pak.zip</code> depuis la <a href="https://github.com/tfournier/ReminisLink/releases">page des versions</a> et décompresse-le dans <code>/Tools/tg5040/</code> sur la carte SD. Pour mettre à jour, remplace le dossier <code>ReminisLink.pak</code> par le nouveau. Le <a href="/fr/install/">guide d’installation</a> détaille chaque étape, y compris la <a href="/fr/install/#uninstall">désinstallation</a> et l’endroit où ReminisLink garde ses données.</p>
           </details>
         </section>
 
@@ -103,9 +163,9 @@
             <li>la version de l’app iPhone, et celle du pak (affichée sur la console dans <strong>Réglages &gt; Version et journal</strong>) ;</li>
             <li>ta console et ta version de NextUI ;</li>
             <li>ce que tu as fait, ce que tu attendais et ce qui s’est passé ;</li>
-            <li>si possible, le journal du pak : <code>/.userdata/tg5040/logs/ReminisLink.txt</code> sur la carte SD. Relis-le avant de le partager : il peut contenir le nom de ta console et de tes fichiers.</li>
+            <li>si possible, le journal du pak : <code>/.userdata/tg5040/logs/ReminisLink.txt</code> sur la carte SD. Relis-le avant de le partager : il peut contenir le nom de ta console, de tes appareils et de tes fichiers.</li>
           </ul>
-          <p>Ne partage jamais le fichier <code>clients.json</code> : il contient les clés de tes appareils appairés.</p>
+          <p>Ne partage jamais le dossier <code>/.userdata/shared/ReminisLink/tls/</code> : il contient la clé privée du certificat de ta console. (<code>clients.json</code> ne contient que les clés publiques de tes appareils appairés, avec leur nom.)</p>
           <!--
             CONTACT EMAIL (to be provided): replace contact@example.invalid below with the
             real address, then remove these comment markers so the paragraph is shown.
@@ -120,6 +180,7 @@
   <footer class="site-footer">
     <div class="wrap">
       <ul>
+        <li><a href="/fr/install/">Installation</a></li>
         <li><a href="/fr/support/">Assistance</a></li>
         <li><a href="/fr/privacy/">Politique de confidentialité</a></li>
         <li><a href="https://github.com/tfournier/ReminisLink">GitHub</a></li>
