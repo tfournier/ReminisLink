@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Assistance — ReminisLink</title>
-  <meta name="description" content="Aide pour ReminisLink : l’app ne trouve pas la console, appairage, plusieurs appareils, iPad et Mac, sécurité, saves dans iCloud Drive, apps, corbeille, et comment signaler un problème.">
+  <meta name="description" content="Aide pour ReminisLink : l’app ne trouve pas la console, appairage, plusieurs appareils, iPad et Mac, sécurité, sauvegardes dans iCloud Drive, apps, corbeille, et comment signaler un problème.">
   <link rel="canonical" href="https://reminis.link/fr/support/">
   <link rel="alternate" hreflang="en" href="https://reminis.link/support/">
   <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/support/">
@@ -98,8 +98,8 @@
             <summary>La connexion est-elle sûre ?</summary>
             <ul>
               <li><strong>Chiffrée.</strong> L’app et la console communiquent en HTTPS, uniquement sur ton réseau local. Rien ne passe par Internet.</li>
-              <li><strong>La bonne console.</strong> La console a son propre certificat. Le QR code que tu scannes contient son empreinte, et l’app n’accepte que ce certificat précis : un autre appareil du réseau ne peut pas se faire passer pour ta console.</li>
-              <li><strong>Seulement tes appareils.</strong> Chaque requête est signée avec une clé privée qui reste dans ton trousseau. La carte SD ne garde que les clés publiques de tes appareils : une copie de la carte ne suffit pas pour piloter la console.</li>
+              <li><strong>La bonne console.</strong> La console a son propre certificat. Le QR code que tu scannes contient l’empreinte de sa clé publique, et l’app n’accepte qu’un certificat avec cette clé, même pendant l’appairage : un autre appareil du réseau ne peut pas se faire passer pour ta console.</li>
+              <li><strong>Seulement tes appareils.</strong> Une fois l’appairage fait, chaque requête est signée avec une clé privée qui reste dans ton trousseau. Seules deux requêtes ne sont pas signées : celle qui vérifie que la console est là, et l’appairage lui-même, qui exige le secret à usage unique du QR code. La carte SD ne garde que les clés publiques de tes appareils : une copie de la carte ne suffit pas pour piloter la console.</li>
             </ul>
           </details>
 
@@ -110,12 +110,12 @@
 
           <details id="back-to-list">
             <summary>Pourquoi l’app est-elle revenue à la liste des consoles ?</summary>
-            <p>La console prévient l’app dès que ReminisLink s’y ferme (avec <strong>B</strong>, ou parce qu’elle a été éteinte) : l’app revient à sa liste avec un court message. Les transferts en cours sont mis en pause, pas perdus. Tant que la console est ouverte, l’app rafraîchit d’elle-même ce qu’elle affiche quand quelque chose change, même depuis un autre appareil.</p>
+            <p>La console prévient l’app dès que ReminisLink s’y ferme (avec <strong>B</strong>, par exemple) : l’app revient à sa liste avec un court message. Les fichiers que tu envoyais depuis l’iPhone sont mis en pause et gardent leur progression sur la carte SD. Un téléchargement depuis un lien que faisait la console est arrêté, et son fichier partiel supprimé : relance-le plus tard. Si la console se met en veille ou sort de la portée du Wi-Fi sans fermer ReminisLink, l’app affiche plutôt une perte de connexion. Tant que la console est ouverte, l’app rafraîchit d’elle-même ce qu’elle affiche quand quelque chose change, même depuis un autre appareil.</p>
           </details>
 
           <details id="saves-icloud">
-            <summary>Mes saves sont-elles copiées sur mon iPhone ou dans iCloud ?</summary>
-            <p>Oui, si tu le veux. L’app copie les saves de ta console (avec leurs fichiers d’horloge) : avec <strong>Synchroniser les saves</strong> dans l’onglet Console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Elle garde jusqu’à 10 versions de chaque save, et tu peux en restaurer une sur la console ; la console garde d’abord une copie de sa save actuelle.</p>
+            <summary>Mes sauvegardes sont-elles copiées sur mon iPhone ou dans iCloud ?</summary>
+            <p>Oui, si tu le veux. L’app copie les sauvegardes de ta console (avec leurs fichiers d’horloge) : avec <strong>Synchroniser les saves</strong> dans l’onglet Console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Elle garde jusqu’à 10 versions de chaque sauvegarde, et tu peux en restaurer une sur la console ; la console garde d’abord une copie de sa sauvegarde actuelle.</p>
             <p>Si iCloud Drive est activé, les copies vont dans le dossier ReminisLink de ton propre iCloud Drive (app Fichiers). Sinon, elles restent sur l’iPhone (<strong>Fichiers &gt; Sur mon iPhone &gt; ReminisLink</strong>). Les states ne sont pas copiés.</p>
           </details>
 
@@ -128,15 +128,15 @@
 
           <details id="trash">
             <summary>Où vont les fichiers supprimés ? (la corbeille)</summary>
-            <p>ReminisLink n’efface jamais tes fichiers directement. Un jeu supprimé, un jeu patché sur place, un state remplacé, un ancien fichier de cheats, une image de jeu retirée ou un pak supprimé ou remplacé va dans la corbeille de la console, sur la carte SD, où il reste au moins 30 jours. Remplacer ou restaurer une save fait aussi d’abord une copie de sauvegarde.</p>
-            <p>L’onglet <strong>Corbeille</strong> de l’app liste son contenu, avec la taille et la date de suppression. L’espace n’est libéré qu’en vidant la corbeille : automatiquement après 30 jours, ou depuis cet onglet (supprimer une entrée, ou <strong>Vider la corbeille</strong>). Vider la corbeille est définitif.</p>
+            <p>ReminisLink n’efface jamais tes fichiers directement. Un jeu supprimé, un jeu patché sur place, un state remplacé, un ancien fichier de cheats, une image de jeu retirée ou un pak supprimé ou remplacé va dans la corbeille de la console, sur la carte SD, où il reste 30 jours sauf si tu la vides. Remplacer ou restaurer une sauvegarde fait aussi d’abord une copie de secours.</p>
+            <p>L’onglet <strong>Corbeille</strong> de l’app liste son contenu, avec la taille et la date de suppression. L’espace n’est libéré qu’à la suppression des entrées : depuis cet onglet (une entrée, ou <strong>Vider la corbeille</strong>), ce qui est définitif, ou automatiquement. À chaque lancement, ReminisLink supprime les entrées qui ont 30 jours. L’horloge de la console n’est pas fiable : elle compte le temps pendant lequel ReminisLink tourne, plus 7 jours au plus pour chaque intervalle entre deux lancements. Une entrée peut donc rester plus de 30 jours du calendrier, jamais moins.</p>
             <p>L’app ne sait pas encore remettre un fichier en place. Pour récupérer un fichier à la main, regarde dans le dossier <code>/.userdata/shared/ReminisLink/trash/</code> de la carte SD : chaque entrée garde les fichiers sous leur chemin d’origine.</p>
           </details>
 
           <details id="formats">
             <summary>« Ce jeu utilise un réglage de NextUI que ReminisLink ne gère pas encore »</summary>
-            <p>NextUI peut enregistrer les saves et les states dans plusieurs formats, choisis dans ses réglages. ReminisLink 1.0 ne gère que les formats par défaut. Avec un autre format, ou quand NextUI nomme les saves d’après le fichier contenu dans une archive zip, ReminisLink refuse de modifier les saves et les states des jeux concernés et ne change rien. Les jeux, les cheats et les patchs fonctionnent toujours.</p>
-            <p>Changer ce réglage dans NextUI change l’endroit où tes saves sont cherchées : garde-le si tu en as besoin. La prise en charge des autres formats est prévue.</p>
+            <p>NextUI peut enregistrer les saves et les states dans plusieurs formats, choisis dans ses réglages. ReminisLink 1.0 ne gère que les formats par défaut. Avec un autre format, ou quand NextUI nomme les sauvegardes d’après le fichier contenu dans une archive zip, ReminisLink refuse de modifier les sauvegardes et les states des jeux concernés et ne change rien. Les jeux, les cheats et les patchs fonctionnent toujours.</p>
+            <p>Changer ce réglage dans NextUI change l’endroit où tes sauvegardes sont cherchées : garde-le si tu en as besoin. La prise en charge des autres formats est prévue.</p>
           </details>
 
           <details id="devices">
@@ -146,7 +146,7 @@
 
           <details id="games">
             <summary>Où trouver des jeux ?</summary>
-            <p>ReminisLink ne fournit, ne liste et ne suggère aucun jeu. Apporte tes propres fichiers : les jeux, saves, patchs et fichiers de cheats que tu possèdes déjà, depuis l’app Fichiers, le menu de partage d’une autre app, ou un lien.</p>
+            <p>ReminisLink liste les jeux de ta carte SD, mais ne fournit aucun jeu, n’a aucun catalogue à télécharger et n’indique pas où en trouver. Apporte tes propres fichiers : les jeux, sauvegardes, patchs et fichiers de cheats que tu possèdes déjà, depuis l’app Fichiers, le menu de partage d’une autre app, ou un lien.</p>
           </details>
 
           <details id="install">
@@ -157,7 +157,7 @@
 
         <section aria-labelledby="report-title">
           <h2 id="report-title">Signaler un problème ou poser une question</h2>
-          <p>Ouvre une issue sur GitHub : <a href="https://github.com/tfournier/ReminisLink/issues">github.com/tfournier/ReminisLink/issues</a>. Un compte GitHub gratuit est nécessaire. Tu peux écrire en français.</p>
+          <p>Ouvre un ticket (« issue ») sur GitHub : <a href="https://github.com/tfournier/ReminisLink/issues">github.com/tfournier/ReminisLink/issues</a>. Un compte GitHub gratuit est nécessaire. Tu peux écrire en français.</p>
           <p>Pour nous aider, indique :</p>
           <ul>
             <li>la version de l’app iPhone, et celle du pak (affichée sur la console dans <strong>Réglages &gt; Version et journal</strong>) ;</li>

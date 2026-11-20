@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Politique de confidentialité — ReminisLink</title>
-  <meta name="description" content="ReminisLink ne collecte aucune donnée : ni compte, ni serveur, ni analytics, ni publicité, ni pistage.">
+  <meta name="description" content="ReminisLink ne collecte aucune donnée : ni compte, ni serveur, ni mesure d’audience, ni publicité, ni pistage.">
   <link rel="canonical" href="https://reminis.link/fr/privacy/">
   <link rel="alternate" hreflang="en" href="https://reminis.link/privacy/">
   <link rel="alternate" hreflang="fr" href="https://reminis.link/fr/privacy/">
@@ -41,36 +41,49 @@
 
     <div class="wrap">
       <article class="prose">
-        <p>ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton réseau Wi-Fi local. Elle est conçue pour que tes données ne quittent jamais ton réseau, sauf ce que tu gardes dans ton propre compte iCloud : les copies de tes saves dans iCloud Drive et l’appairage de tes consoles dans le trousseau iCloud.</p>
+        <p>ReminisLink est une app iPhone qui gère les jeux de ta console rétro par ton réseau Wi-Fi local. Tes données restent sur ton iPhone, sur ta console et dans ton propre compte iCloud (copies de tes sauvegardes dans iCloud Drive, appairage dans le trousseau iCloud). Seule exception : un téléchargement depuis un lien, que la console fait elle-même (voir plus bas).</p>
 
         <h2>Ce que nous collectons</h2>
-        <p><strong>Rien.</strong> ReminisLink n’a ni compte, ni serveur, ni analytics, ni publicité, ni pistage, ni SDK tiers. Le développeur ne reçoit aucune donnée sur toi ni sur ton utilisation de l’app.</p>
+        <p><strong>Rien.</strong> ReminisLink n’a ni compte, ni serveur, ni mesure d’audience, ni publicité, ni pistage, ni SDK tiers. Le développeur ne reçoit aucune donnée sur toi ni sur ton utilisation de l’app.</p>
 
-        <h2>Ce qui reste sur ton iPhone</h2>
+        <h2>Sur ton iPhone</h2>
         <ul>
-          <li><strong>Les préférences de l’app</strong>, et la liste des consoles appairées avec une ancienne version qui doivent être appairées de nouveau, dans le stockage de l’app.</li>
+          <li><strong>Les préférences de l’app</strong>, et la liste des consoles appairées avec une ancienne version qui doivent être appairées de nouveau.</li>
           <li><strong>Un cache des jaquettes</strong> affichées dans la bibliothèque, qu’iOS peut vider à tout moment.</li>
-          <li><strong>Des copies temporaires des fichiers que tu envoies</strong> (depuis Fichiers ou le menu de partage), gardées seulement jusqu’à la fin du transfert.</li>
-          <li><strong>Les fichiers que tu télécharges</strong> depuis ta console (un fichier d’un jeu, un fichier de la carte SD), enregistrés seulement là où tu le choisis (Fichiers, AirDrop, une autre app).</li>
+          <li><strong>Les fichiers et liens que tu partages vers ReminisLink</strong> depuis une autre app : l’extension de partage les copie dans un stockage partagé avec l’app jusqu’à leur envoi. L’app les supprime une fois utilisés, ou quand ils ont plus de 7 jours.</li>
+          <li><strong>Des copies temporaires des fichiers que tu envoies</strong>, gardées jusqu’à la fin du transfert, et supprimées au plus tard au lancement suivant de l’app.</li>
+          <li><strong>Les fichiers que tu télécharges</strong> depuis ta console (un fichier d’un jeu, un fichier de la carte SD) ou depuis tes copies de sauvegardes : écrits dans un dossier temporaire de l’app, puis enregistrés seulement là où tu le choisis (Fichiers, AirDrop, une autre app). Le dossier temporaire est vidé à chaque lancement de l’app.</li>
         </ul>
-        <p>Supprimer l’app efface ses préférences, son cache et les copies temporaires. Cela n’efface pas les copies de tes saves dans iCloud Drive (voir plus bas), et iOS peut garder l’appairage dans le trousseau après la suppression de l’app : désappaire d’abord tes consoles dans l’app si tu veux qu’il disparaisse.</p>
+        <p>Supprimer l’app efface tout cela. Cela n’efface pas les copies de tes sauvegardes dans iCloud Drive (voir plus bas), et iOS peut garder l’appairage dans le trousseau après la suppression de l’app : désappaire d’abord tes consoles dans l’app si tu veux qu’il disparaisse.</p>
 
         <h2>Appairage de tes consoles (trousseau iCloud)</h2>
-        <p>Pour s’appairer, l’app crée sa propre identité : un identifiant et une clé privée de signature. Pour chaque console appairée, elle garde l’identifiant, le nom et le modèle de la console, le nom que tu lui as donné, l’empreinte de son certificat et sa dernière adresse sur ton réseau local, ainsi que le nom que tu as choisi d’afficher sur tes consoles.</p>
+        <p>Pour s’appairer, l’app crée sa propre identité : un identifiant et une clé privée de signature. Pour chaque console appairée, elle garde l’identifiant, le nom et le modèle de la console, le nom que tu lui as donné, l’empreinte de la clé publique de son certificat et sa dernière adresse sur ton réseau local, ainsi que le nom que tu as choisi d’afficher sur tes consoles.</p>
         <p>Tout cela est gardé dans le trousseau iOS, lisible seulement par ReminisLink et son extension de partage, et synchronisé par le <strong>trousseau iCloud</strong> avec tes autres appareils Apple connectés au même compte Apple, pour qu’ils partagent un seul appairage. Le trousseau iCloud est le service d’Apple, chiffré de bout en bout, sous ton compte Apple et la politique de confidentialité d’Apple. Si le trousseau iCloud est désactivé, ces éléments restent sur cet appareil. Le développeur ne les reçoit jamais.</p>
         <p>Se désappairer d’une console dans l’app retire l’appairage de la console et de tous ces appareils. L’identité elle-même est gardée, pour que tes autres appairages continuent de fonctionner.</p>
 
-        <h2>Ce qui va vers ta console</h2>
-        <p>ReminisLink ne communique qu’avec les consoles que tu as appairées, sur ton réseau local : trouvées par Bonjour, puis en HTTPS (chiffré) sur ce réseau. L’app n’accepte que le certificat dont l’empreinte figurait dans le QR code scanné, et signe chaque requête avec sa clé privée. De chaque appareil appairé, la console ne garde sur sa carte SD que son nom, son type et sa clé publique, qui ne permet pas de signer.</p>
+        <h2>Copies de tes sauvegardes (iCloud Drive)</h2>
+        <p>ReminisLink peut copier les sauvegardes de tes consoles (avec leurs fichiers d’horloge) sur ton iPhone : avec le bouton <strong>Synchroniser les saves</strong> d’une console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Jusqu’à 10 versions de chaque sauvegarde sont gardées. À côté des copies, de petits fichiers notent l’identifiant et le nom de la console, l’identifiant, le nom et le système du jeu, et pour chaque version son numéro, sa date, sa taille et sa somme de contrôle.</p>
+        <p>Les copies vont dans <strong>ton propre iCloud Drive</strong>, dans le dossier ReminisLink de l’app Fichiers, où tu peux les voir, les déplacer ou les supprimer. iCloud est le service d’Apple, sous ton compte Apple et la politique de confidentialité d’Apple : le développeur n’a aucun serveur et ne reçoit jamais ces copies. Quand iCloud Drive n’est pas disponible pour l’app (compte non connecté, ou iCloud Drive désactivé pour ReminisLink), les copies restent sur ton iPhone (Fichiers &gt; Sur mon iPhone &gt; ReminisLink), ne sont pas déplacées plus tard vers iCloud Drive, et sont supprimées avec l’app.</p>
+
+        <h2>Entre l’app et ta console</h2>
+        <p>ReminisLink ne communique qu’avec des consoles de ton réseau local, trouvées par Bonjour, en HTTPS (chiffré). L’app n’accepte que le certificat dont l’empreinte de la clé publique figure dans le QR code scanné.</p>
         <ul>
-          <li>Les fichiers que tu choisis d’envoyer (jeux, saves, patchs, fichiers de cheats, images de jeux, apps pour la console).</li>
-          <li>À l’appairage, le nom que tu as choisi (par défaut le modèle de l’appareil, par exemple « iPhone »), l’identifiant et la clé publique de l’app, et la plateforme (Apple) ; avec chaque requête, le type d’appareil (iPhone, iPad ou Mac). La console affiche le nom et le type dans sa liste des appareils appairés. Tu peux l’en retirer à tout moment.</li>
-          <li><strong>Les liens que tu saisis ou partages</strong> : l’app envoie le lien à ta console, qui télécharge elle-même le fichier (un jeu, un patch, un fichier de cheats ou une app pour la console), avec sa propre connexion. Le site du lien voit la console, pas l’app.</li>
+          <li><strong>Appairage.</strong> Le QR code contient l’identifiant et le nom de la console, un secret à usage unique, son adresse locale et son port, et cette empreinte. L’app cherche la console par Bonjour, ou à défaut se connecte à l’adresse du QR code. Deux requêtes ne sont pas signées : celle qui vérifie que la console est là et ouverte à l’appairage, et la requête d’appairage, qui prouve à la place que l’app a scanné le QR code. L’app envoie alors le nom que tu as choisi (par défaut le modèle de l’appareil, par exemple « iPhone »), l’identifiant et la clé publique de l’app, et la plateforme (Apple).</li>
+          <li><strong>Après l’appairage</strong>, toutes les autres requêtes sont signées avec la clé privée de l’app, et indiquent le type d’appareil (iPhone, iPad ou Mac).</li>
+          <li><strong>Les fichiers que tu choisis d’envoyer</strong> : jeux, sauvegardes, states, patchs, fichiers de cheats, images de jeux et apps pour la console.</li>
         </ul>
 
-        <h2>Copies de tes saves (iCloud Drive)</h2>
-        <p>ReminisLink peut copier les saves de tes consoles (avec leurs fichiers d’horloge) sur ton iPhone : avec le bouton Synchroniser les saves d’une console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Jusqu’à 10 versions de chaque save sont gardées.</p>
-        <p>Les copies vont dans <strong>ton propre iCloud Drive</strong>, dans le dossier ReminisLink de l’app Fichiers, où tu peux les voir, les déplacer ou les supprimer. iCloud est le service d’Apple, sous ton compte Apple et la politique de confidentialité d’Apple : le développeur n’a aucun serveur et ne reçoit jamais ces copies. Si iCloud Drive est désactivé, les copies restent sur ton iPhone (Fichiers &gt; Sur mon iPhone &gt; ReminisLink) et sont supprimées avec l’app.</p>
+        <h2>Sur la carte SD de ta console</h2>
+        <ul>
+          <li><strong>Les appareils appairés</strong> (<code>clients.json</code>) : pour chacun, son identifiant, son nom, sa plateforme, les types d’appareils vus, sa clé publique (qui ne permet pas de signer) et la date d’appairage. Tu peux retirer un appareil dans Réglages &gt; Appareils sur la console.</li>
+          <li><strong>Le journal de ReminisLink</strong> (<code>/.userdata/tg5040/logs/</code>) : ce que la console a fait, avec pour chaque requête l’heure, l’action, le résultat, l’identifiant de l’appareil et son adresse sur ton réseau local, ainsi que le nom des appareils quand ils s’appairent, et des noms de fichiers. Jamais de clé, de secret ni de signature. Au lancement, un journal de plus de 5 Mo est renommé, en remplaçant l’ancien journal précédent.</li>
+          <li><strong>Tes fichiers</strong>, là où NextUI les range, et dans le dossier de ReminisLink (<code>/.userdata/shared/ReminisLink/</code>) : copies de secours des sauvegardes, copies verrouillées des states, la corbeille (fichiers supprimés ou remplacés, effacés après 30 jours comptés par la console, ou quand tu la vides), et fichiers temporaires des transferts.</li>
+          <li><strong>Le certificat de la console</strong> et sa clé privée.</li>
+        </ul>
+        <p>La carte SD n’a aucune protection propre : quiconque l’a en main peut lire ces fichiers.</p>
+
+        <h2>Téléchargements depuis un lien</h2>
+        <p>Quand tu saisis ou partages un lien, l’app l’envoie à ta console, qui télécharge elle-même le fichier (un jeu, un patch, un fichier de cheats ou une app pour la console), avec sa propre connexion. Le serveur du lien reçoit la requête de la console, comme pour tout téléchargement : l’adresse complète du lien (avec son chemin et ses paramètres), l’adresse IP publique de ton réseau, et « ReminisLink » comme nom de programme. L’app elle-même ne contacte pas ce serveur.</p>
 
         <h2>Autorisations</h2>
         <ul>
@@ -89,7 +102,7 @@
         <p>Toute modification de cette politique sera publiée sur cette page, avec une nouvelle date.</p>
 
         <h2>Contact</h2>
-        <p>Ouvre une issue sur le dépôt du projet : <a href="https://github.com/tfournier/ReminisLink/issues">github.com/tfournier/ReminisLink/issues</a>.</p>
+        <p>Ouvre un ticket sur le dépôt GitHub du projet : <a href="https://github.com/tfournier/ReminisLink/issues">github.com/tfournier/ReminisLink/issues</a>.</p>
       </article>
     </div>
   </main>

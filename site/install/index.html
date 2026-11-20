@@ -82,7 +82,7 @@
             <li>It checks the Wi-Fi. Without a Wi-Fi connection it shows “No Wi-Fi”: press <strong>B</strong>, turn on Wi-Fi in the NextUI settings, and open it again.</li>
             <li>It shows “Preparing…” for a moment, then its main screen with a <strong>QR code</strong>. Leave this screen open for the next steps.</li>
           </ol>
-          <p>On the handheld, <strong>Y</strong> opens the settings, <strong>A</strong> hides or shows the QR code and <strong>B</strong> quits (it asks first if a transfer is in progress).</p>
+          <p>On the main screen of the handheld, <strong>Y</strong> opens the settings, <strong>A</strong> hides or shows the QR code and <strong>B</strong> quits (it asks first if a transfer is in progress). On the <strong>Pair a New Device</strong> screen, <strong>B</strong> goes back to the settings.</p>
         </section>
 
         <section aria-labelledby="iphone">
@@ -96,7 +96,7 @@
           <ol>
             <li>In the app, tap <strong>Add a Console</strong>. You can type the name that the handheld will show for your devices (by default, “iPhone”).</li>
             <li>Scan the QR code shown by the handheld. Allow the camera when iOS asks; you can also scan the code with the Camera app of the iPhone.</li>
-            <li>The app finds the handheld, pairs and opens it. The handheld shows “Paired with” and the name.</li>
+            <li>The app shows its progress (searching for the console, pairing, done). On the last step you can change the name of the handheld on this iPhone, then tap <strong>Open the Console</strong>. The handheld goes back to its main screen and shows “Paired with” and the name.</li>
           </ol>
           <p>Pairing is open only while the QR code is shown, and each QR code is valid 10 minutes. Once a device is paired, the main screen no longer shows a QR code: to pair <strong>another</strong> device, open <strong>Settings &gt; Pair a New Device</strong> on the handheld.</p>
           <p>Your iPhone keeps its pairing in iCloud Keychain: your other Apple devices signed in with the same Apple Account share it and do not need to pair again. A device with another Apple Account pairs with its own QR code.</p>
@@ -123,8 +123,8 @@
           <ol>
             <li>Read the release notes of the new version on the <a href="https://github.com/tfournier/ReminisLink/releases">releases page</a>.</li>
             <li>With the SD card in your computer, delete the folder <code>/Tools/tg5040/ReminisLink.pak/</code>, then unzip the new <code>ReminisLink.pak.zip</code> into <code>/Tools/tg5040/</code>, as for the first installation. ReminisLink cannot replace itself from the app while it runs.</li>
-            <li>Your settings, paired devices, backups and trash are in another folder (see below): they are kept.</li>
-            <li>Update the iPhone app too. If the release notes say so, or if the app shows <strong>Pair Again</strong> next to the handheld, pair again by scanning a new QR code (<strong>Settings &gt; Pair a New Device</strong> on the handheld).</li>
+            <li>Your settings, backups, locked states and trash are in another folder (see below): they are kept. Paired devices are kept too, unless the new version changes how pairing works: it then deletes the old pairings at its first launch, and the release notes say so.</li>
+            <li>Update the iPhone app too. If the app shows <strong>Pair Again</strong> next to the handheld, pair again by scanning a new QR code (<strong>Settings &gt; Pair a New Device</strong> on the handheld).</li>
           </ol>
         </section>
 
@@ -139,11 +139,11 @@
             <li><code>tls/</code>: the certificate of the handheld and its private key;</li>
             <li><code>backups/</code>: the backup copies of your saves and the history of resume states;</li>
             <li><code>locks/</code>: the locked copies of your save states;</li>
-            <li><code>trash/</code>: the files deleted or replaced in the last 30 days;</li>
+            <li><code>trash/</code>: the files deleted or replaced, until they are 30 days old or you empty the trash;</li>
             <li><code>patches/</code>: the patches you copied there;</li>
             <li><code>uploads/</code> and <code>staging/</code>: temporary files.</li>
           </ul>
-          <p>Before you delete this folder, look in <code>backups/</code> and <code>trash/</code> for anything you want to keep: deleting it removes them for good. If you only delete the pak and install it again later, everything is still there. The log files are in <code>/.userdata/tg5040/logs/</code> (names starting with <code>ReminisLink</code>).</p>
+          <p>Before you delete this folder, look in <code>backups/</code>, <code>locks/</code> and <code>trash/</code> for anything you want to keep (a locked copy may be the only good version of a state): deleting the folder removes them for good. If you only delete the pak and install it again later, everything is still there. The log files are in <code>/.userdata/tg5040/logs/</code> (names starting with <code>ReminisLink</code>).</p>
           <h3>On the iPhone</h3>
           <p>To remove the pairing first, open the handheld in the app, then <strong>Console &gt; Unpair</strong> (this removes it on all your Apple devices that share it). Then delete the app as usual. The copies of your saves in iCloud Drive are not deleted with the app: remove the ReminisLink folder in Files if you no longer want them.</p>
         </section>
