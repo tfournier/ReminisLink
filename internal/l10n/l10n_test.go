@@ -91,7 +91,7 @@ func TestLocalize(t *testing.T) {
 	if got := T(StateReady); got != "Prêt" {
 		t.Errorf("T(StateReady) = %q", got)
 	}
-	if got := Tf(ItemName, "Name", "Brick du salon"); got != "Nom de la console : Brick du salon" {
+	if got := Tf(ItemName, "Name", "Brick du salon"); got != "Nom de la console\u00a0: Brick du salon" {
 		t.Errorf("Tf(ItemName) = %q", got)
 	}
 	if got := Tn(MsgForgotAll, 1); got != "1 appareil oublié." {

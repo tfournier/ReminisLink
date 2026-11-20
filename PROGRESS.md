@@ -115,10 +115,10 @@ Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameI
 
 ## Plus tard
 - M7 Go : `github.com/BurntSushi/toml` en dépendance directe, mais seulement dans `internal/l10n/l10n_test.go` (comme Cheat Manager ; déjà tirée par gabagool) ; `go-sdl2` en direct (dépendance de gabagool) — acceptés par l'agent principal.
-- M7 Go : batterie et SSID toujours `null` (sources confirmées en 05 §6) ; cosmétique gabagool (pastille, « : » sans espace insécable, PIN sous le pli quand des transferts s'affichent).
+- M7 Go : ~~batterie, PIN sous le pli~~ (batterie affichée depuis M8, PIN retiré en M13) ; « : » et « % » avec espace insécable dans l'interface française du pak (2026-11-20) ; SSID toujours `null` (sources confirmées en 05 §6).
 - `make desktop` sur le Mac demande `brew install pkg-config sdl2 sdl2_ttf sdl2_image sdl2_gfx` (non installé).
 - Images et volumes Docker laissés par M7 : `reminislink-build`, `reminislink-screenshots`, `reminislink-shots`, `rhysd/actionlint`, volumes `reminislink-*`.
-- M6 Go : les `.ips`/`.bps`/`.ups` posés sous `Roms/` sont listés comme des jeux (`ignoredExt`) — vérifier si NextUI les affiche aussi.
+- M6 Go : les `.ips`/`.bps`/`.ups` posés sous `Roms/` ne sont pas listés comme des jeux (`ignoredExt`), alors que NextUI, qui ne filtre aucune extension, les affiche (m0/source-analysis.md) : écart voulu, ce ne sont pas des jeux.
 - CI absente du dépôt : y brancher `make fuzz` en mode court (M7).
 - 2026-11-19 : 4 processus `reminislink-host --headless` laissés par l'agent principal pendant M3/M4 (commande d'arrêt visant un mauvais nom de processus) ; arrêtés. Arrêter désormais par PID.
 - M5 Go : ~~fichier `.rtc`~~ fait (sauvegardé, restauré, emporté avec le jeu ; vérifié et documenté pour la v1.0.1 du pak, 2026-11-20) ; formats NextUI non par défaut seulement refusés (pas listés) ; jaquette d'un multi-disques au nom avec point (`TODO(M0)`).
@@ -136,4 +136,4 @@ Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameI
 - M2 : refuser les clés de requête en double (`400 invalid_request`, 03 §4.2).
 - M2 : `ReadHeaderTimeout`, délai d'inactivité de lecture, `BaseContext` annulé à l'arrêt ; brancher `Require(RouteSave)` et `Require(RouteChunk)`.
 - Revue M1 (pour M2) : vérifier qu'un `folderId` appartient au `systemId` de la route.
-- Revue M1 : NFC/NFD non normalisés dans les identifiants — à vérifier en mode desktop sur macOS (noms souvent en NFD).
+- Revue M1 : NFC/NFD — voulu : les identifiants encodent les octets réels du nom sur la carte (pas de normalisation, sinon le fichier ne serait plus retrouvé) ; les noms affichés et les noms reçus sont normalisés en NFC (M8) ; couvert par des tests NFD (library, nextui, transfer, ui).

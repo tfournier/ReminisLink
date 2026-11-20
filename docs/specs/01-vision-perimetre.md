@@ -36,7 +36,7 @@ Le mode d'emploi tient en une phrase : **on ouvre ReminisLink sur la console, on
 
 ## Hors périmètre v1
 
-Téléchargement depuis un lien par la console (retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées) : l'utilisateur télécharge sur l'iPhone puis envoie depuis Fichiers), lancer un jeu ou un outil, contrôle à distance et recopie d'écran, Pak Store, mise à jour du firmware, gestionnaire de fichiers générique, synchronisation entre consoles, Bluetooth, app Android, format xdelta et patchs PPF.
+Téléchargement depuis un lien par la console (retiré le 20/11/2026 et écarté, décision de la personne : l'utilisateur télécharge sur l'iPhone puis envoie depuis Fichiers), lancer un jeu ou un outil, contrôle à distance et recopie d'écran, Pak Store, mise à jour du firmware, gestionnaire de fichiers générique, synchronisation entre consoles, Bluetooth, app Android, format xdelta et patchs PPF.
 
 Ces points sont repris, ou non, après la v1 (voir [09](09-feuille-de-route.md)).
 

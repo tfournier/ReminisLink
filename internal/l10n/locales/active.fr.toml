@@ -6,40 +6,40 @@ other = "{{.Text}}  {{.Size}}"
 
 
 [activity_pak]
-other = "Installation : {{.Name}}"
+other = "Installation\u00a0: {{.Name}}"
 
 [activity_pak_file]
 other = "Installation d'une app"
 
 [activity_patch]
-other = "Patch : {{.Name}}"
+other = "Patch\u00a0: {{.Name}}"
 
 [activity_patch_file]
 other = "Application d'un patch"
 
 [activity_progress]
-other = "{{.Text}}  {{.Percent}} %"
+other = "{{.Text}}  {{.Percent}}\u00a0%"
 
 [activity_queued]
 other = "{{.Text}} (en attente)"
 
 [activity_upload]
-other = "Envoi : {{.Name}}"
+other = "Envoi\u00a0: {{.Name}}"
 
 [activity_upload_file]
 other = "Envoi d'un fichier"
 
 [battery_charging]
-other = "{{.Percent}} % (en charge)"
+other = "{{.Percent}}\u00a0% (en charge)"
 
 [battery_level]
-other = "{{.Percent}} %"
+other = "{{.Percent}}\u00a0%"
 
 [battery_low]
-other = "Faible : {{.Percent}} %"
+other = "Faible\u00a0: {{.Percent}}\u00a0%"
 
 [battery_low_banner]
-other = "Batterie faible : branche la console"
+other = "Batterie faible\u00a0: branche la console"
 
 [button_back]
 other = "Retour"
@@ -99,10 +99,10 @@ other = "déconnecté"
 other = ", "
 
 [hint_no_wifi]
-other = "Le Wi-Fi est coupé : active-le dans les réglages de NextUI.\nReminisLink reprend dès son retour."
+other = "Le Wi-Fi est coupé\u00a0: active-le dans les réglages de NextUI.\nReminisLink reprend dès son retour."
 
 [hint_pair_more]
-other = "Pour appairer un autre appareil : Réglages (Y) > Appairer un nouvel appareil."
+other = "Pour appairer un autre appareil\u00a0: Réglages (Y) > Appairer un nouvel appareil."
 
 [item_about]
 other = "Version et journal"
@@ -111,10 +111,10 @@ other = "Version et journal"
 other = "Oublier tous les appareils"
 
 [item_language]
-other = "Langue : {{.Name}}"
+other = "Langue\u00a0: {{.Name}}"
 
 [item_name]
-other = "Nom de la console : {{.Name}}"
+other = "Nom de la console\u00a0: {{.Name}}"
 
 [item_pair_new]
 other = "Appairer un nouvel appareil"
@@ -139,22 +139,22 @@ other = "État"
 other = "Choisis la langue de l'interface."
 
 [msg_about]
-other = "ReminisLink {{.Version}}\n\nJournal :\n{{.Path}}"
+other = "ReminisLink {{.Version}}\n\nJournal\u00a0:\n{{.Path}}"
 
 [msg_closing]
 other = "Fermeture…"
 
 [msg_confirm_forget]
-other = "Oublier {{.Name}} ?\nCet appareil devra être appairé de nouveau."
+other = "Oublier {{.Name}}\u00a0?\nCet appareil devra être appairé de nouveau."
 
 [msg_confirm_forget_all]
-other = "Oublier tous les appareils appairés ?\nChaque appareil devra être appairé de nouveau."
+other = "Oublier tous les appareils appairés\u00a0?\nChaque appareil devra être appairé de nouveau."
 
 [msg_confirm_quit]
-other = "Un transfert est en cours. Quitter quand même ?"
+other = "Un transfert est en cours. Quitter quand même\u00a0?"
 
 [msg_device_error]
-other = "Impossible de modifier cet appareil :\n{{.Error}}"
+other = "Impossible de modifier cet appareil\u00a0:\n{{.Error}}"
 
 [msg_disconnected]
 other = "{{.Name}} est déconnecté.\nIl peut se reconnecter depuis l'app."
@@ -176,10 +176,10 @@ other = "Pas de Wi-Fi.\nActive le Wi-Fi dans les réglages de NextUI."
 other = "Préparation…"
 
 [msg_save_error]
-other = "Impossible d'enregistrer les réglages :\n{{.Error}}"
+other = "Impossible d'enregistrer les réglages\u00a0:\n{{.Error}}"
 
 [msg_start_error]
-other = "ReminisLink n'a pas pu démarrer :\n{{.Error}}"
+other = "ReminisLink n'a pas pu démarrer\u00a0:\n{{.Error}}"
 
 [none_connected]
 other = "Aucun"
@@ -241,14 +241,14 @@ other = "Corbeille vidée"
 other = "Entrée de la corbeille supprimée"
 
 [notice_with_name]
-other = "{{.Text}} : {{.Name}}"
+other = "{{.Text}}\u00a0: {{.Name}}"
 
 [paired_item]
 other = "{{.Name}} (appairé le {{.Date}})"
 
 [pairing_blocked]
-one = "Trop d'essais ratés : appairage bloqué pendant {{.Count}} min"
-other = "Trop d'essais ratés : appairage bloqué pendant {{.Count}} min"
+one = "Trop d'essais ratés\u00a0: appairage bloqué pendant {{.Count}} min"
+other = "Trop d'essais ratés\u00a0: appairage bloqué pendant {{.Count}} min"
 
 [pairing_expires]
 one = "Expire dans {{.Count}} min"
@@ -267,10 +267,10 @@ other = "Autre"
 other = "Web"
 
 [qr_hidden]
-other = "QR code masqué : l'appairage est fermé.\nAppuie sur A pour l'afficher."
+other = "QR code masqué\u00a0: l'appairage est fermé.\nAppuie sur A pour l'afficher."
 
 [qr_unavailable]
-other = "Pas de QR code sur ce système : appaire depuis la console."
+other = "Pas de QR code sur ce système\u00a0: appaire depuis la console."
 
 [scan_hint]
 other = "Scanne avec l'app ReminisLink"

@@ -40,14 +40,14 @@ func TestBuildMainFrench(t *testing.T) {
 	st.Notice = &app.Notice{Kind: server.ChangeSaveRestored, Name: "Sky Garden Quest"}
 	v := BuildMain(st, now, true, false)
 	want := MainView{
-		State: "Transfert en cours", Banner: "Save restaurée : Sky Garden Quest", ShowQR: true,
+		State: "Transfert en cours", Banner: "Save restaurée\u00a0: Sky Garden Quest", ShowQR: true,
 		QRLink: "reminislink://pair?v=2", Hint: "Scanne avec l'app ReminisLink",
 		Items: []Item{
 			{"QR code", "Expire dans 9 min"},
 			{"Console", "Brick de Thomas · 192.168.1.42"},
 			{"Appareils connectés", "iPhone de T."},
 		},
-		Transfers: []string{"Envoi : Sky Garden Quest DX.gba  62 %"},
+		Transfers: []string{"Envoi\u00a0: Sky Garden Quest DX.gba  62\u00a0%"},
 	}
 	if v.Key() != want.Key() {
 		t.Fatalf("view\n got %#v\nwant %#v", v, want)
@@ -233,23 +233,23 @@ func TestBatteryOnTheMainScreen(t *testing.T) {
 		t.Fatalf("unknown battery: %#v", v)
 	}
 	st.Battery = &osadapter.Battery{Percent: 78}
-	if v := BuildMain(st, now, true, false); v.Battery != "78 %" || v.LowBattery {
+	if v := BuildMain(st, now, true, false); v.Battery != "78\u00a0%" || v.LowBattery {
 		t.Fatalf("78 %%: %#v", v)
 	}
 	st.Battery = &osadapter.Battery{Percent: 12, Charging: true}
-	if v := BuildMain(st, now, true, false); v.Battery != "12 % (en charge)" || v.LowBattery {
+	if v := BuildMain(st, now, true, false); v.Battery != "12\u00a0% (en charge)" || v.LowBattery {
 		t.Fatalf("charging: %#v", v)
 	}
 	// Low and not charging: alert, and a banner only during a transfer.
 	st.Battery = &osadapter.Battery{Percent: 14}
 	v := BuildMain(st, now, true, false)
-	if v.Battery != "Faible : 14 %" || !v.LowBattery || v.Banner != "" {
+	if v.Battery != "Faible\u00a0: 14\u00a0%" || !v.LowBattery || v.Banner != "" {
 		t.Fatalf("low: %#v", v)
 	}
 	st.Activities = []transfer.Activity{{Kind: transfer.ActivityUpload, Name: "x.gba", Done: 1, Total: 2}}
 	st.Notice = &app.Notice{Kind: server.ChangeROMAdded, Name: "y.gba"}
 	v = BuildMain(st, now, true, false)
-	if !strings.HasPrefix(v.Banner, "Batterie faible : branche la console\n") || !strings.Contains(v.Banner, "y.gba") {
+	if !strings.HasPrefix(v.Banner, "Batterie faible\u00a0: branche la console\n") || !strings.Contains(v.Banner, "y.gba") {
 		t.Fatalf("low during a transfer: %#v", v)
 	}
 	st.Battery.Percent = 15
