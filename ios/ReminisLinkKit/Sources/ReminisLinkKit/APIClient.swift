@@ -1076,10 +1076,11 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
         let delegate = PakLimitedDataDelegate(trust: trust, maxBytes: maxBytes)
         let task = session.dataTask(with: request)
         task.delegate = delegate
-        return try await withTaskCancellationHandler {
+        let result = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 delegate.lock.withLock { delegate.continuation = continuation }
                 if Task.isCancelled {
+                    task.cancel()
                     delegate.finish(.failure(CancellationError()))
                 } else {
                     task.resume()
@@ -1088,6 +1089,10 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
         } onCancel: {
             task.cancel()
         }
+        // A success delivered just before the cancellation reached the
+        // task: still a cancellation for the caller.
+        try Task.checkCancellation()
+        return result
     }
 
     private func finish(_ result: Result<(Data, URLResponse), Error>) {

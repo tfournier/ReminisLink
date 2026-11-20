@@ -151,6 +151,9 @@ struct GameArtView: View {
             guard let data = cache.entry(deviceId: deviceId, gameId: gameId)?.data else { return nil }
             return (data, Self.decode(data, maxPixelSize: maxPixelSize))
         }.value
+        // A task cancelled meanwhile (the art changed, the row went away)
+        // never shows what it decoded: a newer task owns the image.
+        guard !Task.isCancelled else { return }
         if let cached { image = cached.1 }
         guard let client = app.session(for: deviceId).client,
               let data = try? await cache.load(gameId: gameId, client: client),

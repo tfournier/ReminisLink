@@ -56,10 +56,15 @@ public struct ArtCache: Sendable {
 
     /// The art of a game: the cached copy if the pak says it is still valid
     /// (`304`), otherwise the new one, stored. Nil if the game has none.
+    /// Throws `CancellationError` when the task is cancelled, even if the
+    /// answer had already arrived.
     public func load(gameId: String, client: APIClient) async throws -> Data? {
         guard let deviceId = client.expectedDeviceId else { return nil }
         let fetch = startFetch(deviceId: deviceId, gameId: gameId)
         let response = try await client.art(gameId: gameId, ifNoneMatch: fetch.cached?.etag)
+        // Cancelled while the answer was delivered: neither stored nor
+        // returned (the caller no longer wants it).
+        try Task.checkCancellation()
         return complete(fetch, with: response)
     }
 
