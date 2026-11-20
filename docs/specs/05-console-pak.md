@@ -168,7 +168,7 @@ L'application se fait vers un fichier temporaire, puis vérification (pour BPS e
 
 ### 5.6 Téléchargements (retirés de la v1)
 
-Le pak ne télécharge rien et ne se connecte jamais à Internet : aucun client HTTP sortant, aucun magasin de certificats racine (téléchargement depuis un lien retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées)). L'utilisateur télécharge un fichier sur l'iPhone, puis l'envoie depuis Fichiers ou le menu de partage. Les fichiers partiels laissés par un pak plus ancien dans `uploads/` sont effacés au lancement, comme tout fichier temporaire orphelin.
+Le pak ne télécharge rien et ne se connecte jamais à Internet : aucun client HTTP sortant, aucun magasin de certificats racine (téléchargement depuis un lien retiré le 20/11/2026 et écarté, décision de la personne). L'utilisateur télécharge un fichier sur l'iPhone, puis l'envoie depuis Fichiers ou le menu de partage. Les fichiers partiels laissés par un pak plus ancien dans `uploads/` sont effacés au lancement, comme tout fichier temporaire orphelin.
 
 ## 6. Informations de la console
 

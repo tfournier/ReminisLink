@@ -78,7 +78,7 @@ Le code de lecture et d'écriture des `.cht` de Cheat Manager (`internal/cheats`
 
 **Ajout d'un jeu depuis l'iPhone** : l'app crée un envoi (`POST /uploads`), envoie les morceaux, termine l'envoi ; la console vérifie le SHA-256 puis déplace le fichier dans `Roms/<système>/`.
 
-**Pas de téléchargement par la console** : le pak ne se connecte jamais à Internet (téléchargement depuis un lien retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées)). Un fichier du web est téléchargé sur l'iPhone, puis envoyé comme les autres.
+**Pas de téléchargement par la console** : le pak ne se connecte jamais à Internet (téléchargement depuis un lien retiré le 20/11/2026 et écarté, décision de la personne). Un fichier du web est téléchargé sur l'iPhone, puis envoyé comme les autres.
 
 ## Choix techniques et raisons
 

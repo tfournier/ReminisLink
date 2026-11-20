@@ -533,7 +533,7 @@ Corps : `{ "cheats": [ ... ] }` (liste complète, dans l'ordre) avec l'en-tête 
 - `source.type` : `sd` (`sdFileId` venant de `GET /sd/files`), `inline` (`text` : contenu du `.cht`, 1 Mio maximum), `upload` (`uploadId` d'un envoi terminé avec `target.kind = "staging"`, connu seulement pendant la session du pak), `staging` (`stagingId` renvoyé par la fin de l'envoi : à préférer, il survit à un redémarrage du pak).
 - `mode` : `merge` (ajoute à la suite) ou `replace`.
 - Réponse : `{ "imported": 15, "total": 27 }`. `422 unsupported_format` si aucun cheat n'a été trouvé.
-- La source `url` (fichier téléchargé par la console) est retirée de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées).
+- La source `url` (fichier téléchargé par la console) est retirée le 20/11/2026 et écartée, décision de la personne.
 
 ### `GET /sd/files?type=cht|patch`
 
@@ -590,7 +590,7 @@ En-têtes : `Upload-Offset`, `Content-Length`, `X-RL-Content-SHA256: UNSIGNED`. 
 
 Réponse `200` selon la cible : `{ "gameId": "..." }` (`rom`), `{ "backup": {...} }` (`save`), `{ "slot": {...} }` (`state`), `{ "stagingId": "..." }` (`staging`) ou `{ "jobId": "..." }` (`pak`, M12 : l'archive passe dans la zone d'attente, l'envoi est terminé, et une tâche `pak-install` l'installe ; extraire jusqu'à 1 Gio peut durer plus longtemps qu'une requête). Le résultat de la tâche est `{ "pakId": "..." }`.
 
-### `POST /downloads` (retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées))
+### `POST /downloads` (retiré le 20/11/2026 et écarté, décision de la personne)
 
 Le pak ne télécharge plus rien : la route n'existe plus (`404`). L'app envoie un fichier téléchargé sur l'iPhone par `POST /uploads`.
 
@@ -639,7 +639,7 @@ Déplace le dossier entier du pak vers la corbeille (raison `delete-pak`, libell
 { "sdEntryId": "se_...", "kind": "auto", "onConflict": "replace" }
 ```
 
-- **Source** : une entrée du navigateur SD, fichier zip ou dossier dont le nom finit par `.pak` (copié tel quel). Les autres sources passent par le même circuit : cible `pak` de `POST /uploads` (fichier de l'iPhone ; un dossier `.pak` choisi sur l'iPhone est zippé par l'app avant l'envoi, `NSFileCoordinator` option `forUploading`). L'installation depuis une URL (cible `pak` de `POST /downloads`) est retirée de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées).
+- **Source** : une entrée du navigateur SD, fichier zip ou dossier dont le nom finit par `.pak` (copié tel quel). Les autres sources passent par le même circuit : cible `pak` de `POST /uploads` (fichier de l'iPhone ; un dossier `.pak` choisi sur l'iPhone est zippé par l'app avant l'envoi, `NSFileCoordinator` option `forUploading`). L'installation depuis une URL (cible `pak` de `POST /downloads`) est retirée le 20/11/2026 et écartée, décision de la personne.
 - **`kind`** : `tool` (`Tools/<plateforme>/`), `emu` (`Emus/<plateforme>/`) ou `auto` (par défaut) : dossier de l'archive (`Tools/` ou `Emus/`), sinon emplacement du dossier source sur la carte, sinon `type` de son `pak.json` (`TOOL`, `EMU`), sinon `tool`.
 - **`onConflict`** : `fail` (par défaut : la tâche échoue en `409 conflict`, `details.existing`) ou `replace` (l'ancien pak part à la corbeille, raison `replace-pak`). L'app envoie `replace` après confirmation. Dans la cible `pak` d'envoi, la même règle s'écrit `onConflict: overwrite` (énumération commune des envois).
 - Réponse `202` : `{ "jobId": "..." }` (tâche `pak-install`, résultat `{ "pakId": "..." }`). Refus immédiats : `400`, `404` (entrée absente), `422 unsupported_format` (ni fichier ni dossier `.pak`). Échecs de la tâche : `422 unsupported_format` (avec un message en anglais), `409 conflict` (pak existant avec `fail`, ou ReminisLink lui-même avec `details.self: true`), `507 insufficient_storage`.
