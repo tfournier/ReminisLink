@@ -25,7 +25,7 @@ func (l Layout) BackupsDir(tag string) string { return filepath.Join(l.Root, "ba
 // TrashDir is the trash: one folder per trash entry.
 func (l Layout) TrashDir() string { return filepath.Join(l.Root, "trash") }
 
-// UploadsDir holds the temporary files of the uploads and downloads.
+// UploadsDir holds the temporary files of the uploads and patches.
 func (l Layout) UploadsDir() string { return filepath.Join(l.Root, "uploads") }
 
 // StagingDir holds the patches and .cht files waiting to be used.

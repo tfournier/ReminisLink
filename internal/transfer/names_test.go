@@ -1,7 +1,6 @@
 package transfer
 
 import (
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,29 +44,6 @@ func TestTruncateName(t *testing.T) {
 	}
 	if truncateName("short.gba") != "short.gba" {
 		t.Fatal("short name changed")
-	}
-}
-
-func TestDeduceName(t *testing.T) {
-	u, _ := url.Parse("https://example.org/files/My%20Hack%3F.bps?token=1")
-	cases := []struct {
-		cd   string
-		u    *url.URL
-		want string
-	}{
-		{`attachment; filename="patch.ips"`, u, "patch.ips"},
-		{`attachment; filename*=UTF-8''Caf%C3%A9.bps`, u, "Café.bps"},
-		{`attachment; filename="C:\dir\x.zip"`, u, "x.zip"},
-		{`attachment; filename=".."`, u, "My Hack_.bps"},
-		{"", u, "My Hack_.bps"},
-		{"garbage;;", u, "My Hack_.bps"},
-		{"", &url.URL{Scheme: "https", Host: "example.org", Path: "/"}, DefaultDownloadName},
-		{"", nil, DefaultDownloadName},
-	}
-	for _, c := range cases {
-		if got := deduceName(c.cd, c.u); got != c.want {
-			t.Errorf("deduceName(%q) = %q, want %q", c.cd, got, c.want)
-		}
 	}
 }
 
@@ -115,12 +91,5 @@ func TestNamesAreNormalizedToNFC(t *testing.T) {
 	}
 	if got, err := CleanFileName(nfc); err != nil || got != nfc {
 		t.Fatalf("CleanFileName(NFC) = %q %v", got, err)
-	}
-	u, _ := url.Parse("https://example.org/files/" + url.PathEscape(nfd))
-	if got := deduceName("", u); got != nfc {
-		t.Fatalf("deduceName(URL in NFD) = %q", got)
-	}
-	if got := deduceName(`attachment; filename*=UTF-8''`+url.PathEscape(nfd), nil); got != nfc {
-		t.Fatalf("deduceName(Content-Disposition in NFD) = %q", got)
 	}
 }

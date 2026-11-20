@@ -51,8 +51,6 @@ var (
 	TitleTransfers   = &msg{ID: "title_transfers", Other: "Transfers"}
 	ActUpload        = &msg{ID: "activity_upload", Other: "Receiving: {{.Name}}"}
 	ActUploadFile    = &msg{ID: "activity_upload_file", Other: "Receiving a file"}
-	ActDownload      = &msg{ID: "activity_download", Other: "Downloading: {{.Name}}"}
-	ActDownloadFile  = &msg{ID: "activity_download_file", Other: "Downloading a file"}
 	ActPatch         = &msg{ID: "activity_patch", Other: "Patching: {{.Name}}"}
 	ActPatchFile     = &msg{ID: "activity_patch_file", Other: "Applying a patch"}
 	ActPak           = &msg{ID: "activity_pak", Other: "Installing: {{.Name}}"}
@@ -77,8 +75,6 @@ var (
 	NoticeCheatsUpdated     = &msg{ID: "notice_cheats_updated", Other: "Cheats updated"}
 	NoticeTrashEmptied      = &msg{ID: "notice_trash_emptied", Other: "Trash emptied"}
 	NoticeTrashEntryDeleted = &msg{ID: "notice_trash_entry_deleted", Other: "Trash entry deleted"}
-	NoticeDownloaded        = &msg{ID: "notice_downloaded", Other: "Download finished"}
-	NoticeDownloadFailed    = &msg{ID: "notice_download_failed", Other: "Download failed"}
 	NoticePatched           = &msg{ID: "notice_patched", Other: "Patch applied"}
 	NoticePatchFailed       = &msg{ID: "notice_patch_failed", Other: "Patch failed"}
 	NoticePaired            = &msg{ID: "notice_paired", Other: "Paired with {{.Name}}"}
@@ -140,11 +136,11 @@ var All = []*msg{
 	BtnQuit, BtnBack, BtnSelect, BtnCancel, BtnConfirm, BtnOK, BtnForget, BtnSettings, BtnHideQR,
 	BtnShowQR, StateReady, StateConnected, StateTransfer, StateNoWiFi, HintNoWiFi, ScanHint, QRHidden,
 	LabelQR, PairingExpires, PairingBlocked, LabelConsole, ConsoleValue, LabelState, LabelConnected,
-	NoneConnected, TitleTransfers, ActUpload, ActUploadFile, ActDownload, ActDownloadFile, ActPatch,
+	NoneConnected, TitleTransfers, ActUpload, ActUploadFile, ActPatch,
 	ActPatchFile, ActQueued, ActProgress, ActBytes, SizeMB, DecimalSeparator, NoticeWithName,
 	NoticeROMAdded, NoticeSaveReplaced, NoticeSaveRestored, NoticeStateReplaced, NoticeStateRestored,
 	NoticeStateDeleted, NoticeGameDeleted, NoticeCheatsUpdated, NoticeTrashEmptied,
-	NoticeTrashEntryDeleted, NoticeDownloaded, NoticeDownloadFailed, NoticePatched, NoticePatchFailed,
+	NoticeTrashEntryDeleted, NoticePatched, NoticePatchFailed,
 	NoticePaired, MsgNoWiFi, MsgPreparing, MsgClosing, MsgStartError, MsgConfirmQuit, LanguagePrompt,
 	TitleSettings, ItemName, ItemPaired, ItemForgetAll, ItemLanguage, ItemAbout, MsgAbout,
 	TitlePaired, MsgNoPaired, PairedItem, DateLayout, MsgConfirmForget, MsgConfirmForgetAll,

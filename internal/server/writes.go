@@ -28,7 +28,7 @@ const (
 	// writeHandler: the whole handler runs under the lock (serialized).
 	writeHandler
 	// writeInner: the handler takes the lock itself, around its critical
-	// section only (a cheat import fetches its source first).
+	// section only (a cheat import reads its source first).
 	writeInner
 	// writeInstall: the transfer service takes the lock around the
 	// install step (an upload's final step, a job's install).

@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -401,18 +400,14 @@ func TestDeleteGameAndTrash(t *testing.T) {
 	}
 }
 
-func TestDownloadOverHTTP(t *testing.T) {
+// The job routes, with a patch job.
+func TestJobsOverHTTP(t *testing.T) {
 	f := newFixture(t)
-	data := []byte("downloaded patch")
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
-	}))
-	defer src.Close()
-	body := mustJSON(t, map[string]any{"url": src.URL + "/hack.bps", "target": map[string]any{"kind": "staging"}, "sha256": nil, "onConflict": "rename"})
+	target, body := f.patchJobBody("")
 	var accepted struct {
 		JobID string `json:"jobId"`
 	}
-	f.do(http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &accepted)
+	f.do(http.MethodPost, target, patchRoute, body, http.StatusAccepted).JSON(t, &accepted)
 	var job struct {
 		State  string         `json:"state"`
 		Result map[string]any `json:"result"`
@@ -425,7 +420,7 @@ func TestDownloadOverHTTP(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		f.do(http.MethodGet, "/api/v1/jobs/"+accepted.JobID, "/jobs/{jobId}", nil, http.StatusOK).JSON(t, &job)
 	}
-	if job.State != "succeeded" || !strings.HasPrefix(job.Result["stagingId"].(string), "st_") {
+	if id, _ := job.Result["gameId"].(string); job.State != "succeeded" || id == "" {
 		t.Fatalf("job %+v", job)
 	}
 	f.do(http.MethodGet, "/api/v1/jobs", "/jobs", nil, http.StatusOK)
@@ -436,8 +431,6 @@ func TestDownloadOverHTTP(t *testing.T) {
 	}
 	f.do(http.MethodGet, "/api/v1/jobs/job_000000000000000000000000", "/jobs/{jobId}", nil, http.StatusNotFound)
 	f.do(http.MethodGet, "/api/v1/jobs/x", "/jobs/{jobId}", nil, http.StatusBadRequest)
-	bad := mustJSON(t, map[string]any{"url": "ftp://example.org/x", "target": map[string]any{"kind": "staging"}})
-	f.do(http.MethodPost, "/api/v1/downloads", "/downloads", bad, http.StatusBadRequest)
 }
 
 func TestTooManyUploadsOverHTTP(t *testing.T) {

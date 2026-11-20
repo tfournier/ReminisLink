@@ -3,8 +3,6 @@ package transfer
 import (
 	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,7 +148,7 @@ func TestCancelledQueuedPakJobCleansUp(t *testing.T) {
 	e := newEnv(t)
 	stage, _ := e.svc.newPakStaging()
 	block := make(chan struct{})
-	e.svc.Jobs().Submit(JobDownload, func(ctx context.Context, _ func(int64, *int64)) (map[string]any, *Error) {
+	e.svc.Jobs().Submit(JobPatch, func(ctx context.Context, _ func(int64, *int64)) (map[string]any, *Error) {
 		<-block
 		return nil, nil
 	})
@@ -201,48 +199,11 @@ func TestPlacePakCancelled(t *testing.T) {
 	}
 }
 
-// Codex 4: a pak download is capped at the pak archive size, on the
-// announced length and on the bytes written (no length).
-func TestPakDownloadCap(t *testing.T) {
-	defer func(old int64) { pakArchiveLimit = old }(pakArchiveLimit)
-	pakArchiveLimit = 1000
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/announced" {
-			w.Header().Set("Content-Length", "5000")
-			w.WriteHeader(http.StatusOK)
-			w.Write(make([]byte, 5000))
-			return
-		}
-		w.WriteHeader(http.StatusOK) // chunked, no length
-		for i := 0; i < 100; i++ {
-			if _, err := w.Write(make([]byte, 1000)); err != nil {
-				break
-			}
-			w.(http.Flusher).Flush()
-		}
-	}))
-	defer srv.Close()
-	e := newEnv(t)
-	for _, p := range []string{"/announced", "/chunked"} {
-		id := e.download(srv.URL+p, &Target{Kind: KindPak}, nil, ConflictFail)
-		j := waitJob(t, e.svc.Jobs(), id, JobFailed, JobSucceeded, JobCancelled)
-		if j.State != JobFailed || j.Error.Code != CodeTooLarge {
-			t.Fatalf("%s: %+v %+v", p, j, j.Error)
-		}
-	}
-	des, _ := os.ReadDir(e.svc.opts.Layout.UploadsDir())
-	for _, d := range des {
-		if fi, _ := d.Info(); fi != nil && fi.Size() > 1000 {
-			t.Fatalf("more than the cap written: %s %d", d.Name(), fi.Size())
-		}
-	}
-}
-
 // Review 4: two cancels of a queued job both answer after its cleanup.
 func TestConcurrentCancelsWaitForTheCleanup(t *testing.T) {
 	e := newEnv(t)
 	block := make(chan struct{})
-	e.svc.Jobs().Submit(JobDownload, func(ctx context.Context, _ func(int64, *int64)) (map[string]any, *Error) {
+	e.svc.Jobs().Submit(JobPatch, func(ctx context.Context, _ func(int64, *int64)) (map[string]any, *Error) {
 		<-block
 		return nil, nil
 	})

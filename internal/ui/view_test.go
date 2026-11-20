@@ -91,12 +91,12 @@ func TestPairingExpiryText(t *testing.T) {
 func TestActivityText(t *testing.T) {
 	setLang(t, "en")
 	cases := map[string]transfer.Activity{
-		"Receiving: Moon.gba  50%":      {Kind: transfer.ActivityUpload, Name: "Moon.gba", Done: 5, Total: 10},
-		"Receiving a file":              {Kind: transfer.ActivityUpload, Total: 0},
-		"Downloading: Hack.bps  1.5 MB": {Kind: transfer.JobDownload, Name: "Hack.bps", Done: 3 << 19, Total: -1},
-		"Downloading a file  100%":      {Kind: transfer.JobDownload, Done: 20, Total: 10},
-		"Patching: Moon (waiting)":      {Kind: transfer.JobPatch, Name: "Moon", Queued: true},
-		"Applying a patch":              {Kind: transfer.JobPatch, Total: -1},
+		"Receiving: Moon.gba  50%": {Kind: transfer.ActivityUpload, Name: "Moon.gba", Done: 5, Total: 10},
+		"Receiving a file":         {Kind: transfer.ActivityUpload, Total: 0},
+		"Patching: Hack  1.5 MB":   {Kind: transfer.JobPatch, Name: "Hack", Done: 3 << 19, Total: -1},
+		"Applying a patch  100%":   {Kind: transfer.JobPatch, Done: 20, Total: 10},
+		"Patching: Moon (waiting)": {Kind: transfer.JobPatch, Name: "Moon", Queued: true},
+		"Applying a patch":         {Kind: transfer.JobPatch, Total: -1},
 	}
 	for want, a := range cases {
 		if got := ActivityText(a); got != want {
@@ -123,7 +123,7 @@ func TestNoticeText(t *testing.T) {
 	// Every kind has a text.
 	for _, k := range []string{server.ChangeROMAdded, server.ChangeSaveReplaced, server.ChangeSaveRestored,
 		server.ChangeStateReplaced, server.ChangeStateRestored, server.ChangeStateDeleted, server.ChangeGameDeleted,
-		server.ChangeCheatsUpdated, server.ChangeTrashEmptied, server.ChangeTrashEntryDeleted, app.NoticeDownloaded, app.NoticeDownloadFailed,
+		server.ChangeCheatsUpdated, server.ChangeTrashEmptied, server.ChangeTrashEntryDeleted, app.NoticePakInstalled, app.NoticePakInstallFailed,
 		app.NoticePatched, app.NoticePatchFailed, server.ChangeArtSet, server.ChangeArtDeleted} {
 		if NoticeText(app.Notice{Kind: k, Name: "X"}) == "" {
 			t.Errorf("no text for %q", k)

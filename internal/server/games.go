@@ -17,7 +17,6 @@ import (
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/saves"
 	"github.com/tfournier/ReminisLink/internal/states"
-	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
 // Error codes of the save, state and cheat routes.
@@ -27,10 +26,6 @@ const (
 	CodeUnsupportedFormat   = "unsupported_format"
 	CodeInsufficientStorage = "insufficient_storage"
 )
-
-// FetchRetryAfter is the Retry-After (seconds) answered when a cheat import
-// from a URL could not start because another one was running.
-const FetchRetryAfter = 5
 
 // SpaceMargin is the free space kept on the SD card by the copies of the
 // save and state routes, on top of the bytes they write.
@@ -626,7 +621,6 @@ func (s *Server) handlePutCheats(w http.ResponseWriter, r *http.Request) {
 type cheatImportRequest struct {
 	Source *struct {
 		Type      string  `json:"type"`
-		URL       *string `json:"url"`
 		SDFileID  *string `json:"sdFileId"`
 		Text      *string `json:"text"`
 		UploadID  *string `json:"uploadId"`
@@ -680,30 +674,6 @@ func (s *Server) handleImportCheats(w http.ResponseWriter, r *http.Request) {
 	var data []byte
 	var err error
 	switch src.Type {
-	case "url":
-		if src.URL == nil {
-			missing()
-			return
-		}
-		select {
-		case s.fetchSlot <- struct{}{}:
-		case <-r.Context().Done():
-			if s.ShuttingDown() {
-				auth.WriteError(w, http.StatusServiceUnavailable, auth.CodeShuttingDown, "Shutting down", nil)
-				return
-			}
-			// The client gave up while another import was running.
-			w.Header().Set("Retry-After", strconv.Itoa(FetchRetryAfter))
-			auth.WriteError(w, http.StatusTooManyRequests, auth.CodeTooManyAttempts, "Another cheat import is running", nil)
-			return
-		}
-		var apiErr *transfer.Error
-		data, apiErr = s.opts.Transfers.FetchSmall(r.Context(), *src.URL, cheats.MaxImportBytes)
-		<-s.fetchSlot
-		if apiErr != nil {
-			s.transferError(w, r, apiErr, nil)
-			return
-		}
 	case "sd":
 		if src.SDFileID == nil {
 			missing()

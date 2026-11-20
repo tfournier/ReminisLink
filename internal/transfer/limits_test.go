@@ -33,11 +33,11 @@ func TestUploadAndJobLimits(t *testing.T) {
 		return nil, nil
 	}
 	for i := 0; i < MaxPendingJobs; i++ {
-		if _, err := q.Submit(JobDownload, block); err != nil {
+		if _, err := q.Submit(JobPatch, block); err != nil {
 			t.Fatalf("job %d: %v", i, err)
 		}
 	}
-	if _, err := q.Submit(JobDownload, block); err != ErrTooManyJobs {
+	if _, err := q.Submit(JobPatch, block); err != ErrTooManyJobs {
 		t.Fatalf("job %d: %v", MaxPendingJobs+1, err)
 	}
 }
@@ -54,33 +54,17 @@ func TestStagingTmpNameResolves(t *testing.T) {
 }
 
 func TestROMNamesFollowTheListing(t *testing.T) {
-	fs := newFileServer(t, []byte("data"), false)
 	e := newEnv(t)
-	sys := gameID(gbaSystem)
 	// Refused at creation: the library would not list it.
 	req := CreateUploadRequest{Target: romTarget("notes.txt"), SizeBytes: ptr(int64(1)), SHA256: ptr(sum([]byte{1}))}
 	if _, apiErr, _ := e.svc.CreateUpload(req); apiErr == nil || apiErr.Code != CodeInvalidName {
 		t.Fatalf("upload notes.txt: %v", apiErr)
 	}
-	dl := DownloadRequest{URL: ptr(fs.srv.URL + "/files/x"), Target: &Target{Kind: KindROM, SystemID: sys, FileName: ptr("notes.txt")}}
-	if _, apiErr, _ := e.svc.StartDownload(dl, JobGuard{}); apiErr == nil || apiErr.Code != CodeInvalidName {
-		t.Fatalf("download notes.txt: %v", apiErr)
-	}
-	// A deduced name the listing ignores fails the job.
-	j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+"/files/notes.txt", &Target{Kind: KindROM, SystemID: sys}, nil, ""), JobSucceeded, JobFailed)
-	if j.State != JobFailed || j.Error.Code != CodeInvalidName || e.exists("Roms/"+gbaSystem+"/notes.txt") {
-		t.Fatalf("deduced notes.txt: %+v", j)
-	}
 	// A name without extension is listed, so it is accepted, with a
 	// gameId the library resolves.
-	for _, path := range []string{"/files/", "/files/noext"} {
-		j := waitJob(t, e.svc.Jobs(), e.download(fs.srv.URL+path, &Target{Kind: KindROM, SystemID: sys}, nil, ""), JobSucceeded, JobFailed)
-		if j.State != JobSucceeded {
-			t.Fatalf("%s: %+v", path, j.Error)
-		}
-		if _, err := e.lib.Game(j.Result["gameId"].(string)); err != nil {
-			t.Fatalf("%s: gameId not listed: %v", path, err)
-		}
+	res := e.complete(e.uploaded(romTarget("noext"), []byte("data"), ""))
+	if _, err := e.lib.Game(res["gameId"].(string)); err != nil {
+		t.Fatalf("gameId not listed: %v", err)
 	}
 }
 
@@ -143,7 +127,7 @@ func TestFinishedJobsAreBounded(t *testing.T) {
 	quick := func(context.Context, func(int64, *int64)) (map[string]any, *Error) { return nil, nil }
 	var first string
 	for i := 0; i < MaxFinishedJobs+10; i++ {
-		id, err := q.Submit(JobDownload, quick)
+		id, err := q.Submit(JobPatch, quick)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -238,40 +222,6 @@ func TestOverwriteDuringDeleteGame(t *testing.T) {
 	}
 	if delErr == nil && e.exists("Roms/"+gbaSystem+"/Starlight Courier.gba") && e.read("Roms/"+gbaSystem+"/Starlight Courier.gba") != "new" {
 		t.Fatal("unexpected content")
-	}
-}
-
-func TestCancelJobDuringInstall(t *testing.T) {
-	data := bytes.Repeat([]byte("z"), 1000)
-	fs := newFileServer(t, data, false)
-	e := newEnv(t)
-	// Hold the install lock so the job blocks right before installing.
-	e.svc.installMu.Lock()
-	id := e.download(fs.srv.URL+"/files/late.bin", staging(), nil, "")
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		j, _ := e.svc.Jobs().Get(id)
-		if j.Progress.Done == int64(len(data)) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("download did not reach the install")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	time.Sleep(20 * time.Millisecond)
-	done := make(chan Job)
-	go func() { j, _ := e.svc.Jobs().Cancel(id); done <- j }()
-	time.Sleep(20 * time.Millisecond)
-	e.svc.installMu.Unlock()
-	j := <-done
-	// Cancelled while waiting for the lock (Codex review of M4): the
-	// context is checked again once the lock is held, nothing installed.
-	if j.State != JobCancelled || j.Result["stagingId"] != nil {
-		t.Fatalf("job %+v", j)
-	}
-	if des, _ := os.ReadDir(e.layout.StagingDir()); len(des) != 0 {
-		t.Fatalf("installed after the cancel: %v", des)
 	}
 }
 

@@ -3,7 +3,6 @@ package transfer
 import (
 	"context"
 	"io"
-	"net/url"
 	"testing"
 	"time"
 )
@@ -79,7 +78,7 @@ func TestActivitiesJobs(t *testing.T) {
 		}
 		return nil, nil
 	}
-	a, _ := q.SubmitLabeled(JobDownload, "Sky Hack.bps", slow)
+	a, _ := q.SubmitLabeled(JobPatch, "Sky Hack.bps", slow)
 	b, _ := q.SubmitLabeled(JobPatch, "Moon", slow)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -128,26 +127,12 @@ func TestActivitiesIncludeJobs(t *testing.T) {
 	}
 }
 
-func TestDownloadLabel(t *testing.T) {
-	u, _ := url.Parse("https://example.org/a/Sky%20Hack.bps?token=secret")
-	if got := downloadLabel(u, Target{}); got != "Sky Hack.bps" {
-		t.Errorf("from the URL: %q", got)
-	}
-	if got := downloadLabel(u, Target{FileName: ptr("Given.ips")}); got != "Given.ips" {
-		t.Errorf("from the target: %q", got)
-	}
-	u, _ = url.Parse("https://example.org/")
-	if got := downloadLabel(u, Target{}); got != "" {
-		t.Errorf("no name: %q", got)
-	}
-}
-
 func TestJobsOnFinish(t *testing.T) {
 	q := NewJobs(nil)
 	defer q.Close()
 	got := make(chan Job, 1)
 	q.OnFinish(func(j Job) { got <- j })
-	id, _ := q.SubmitLabeled(JobDownload, "A.bin", func(context.Context, func(int64, *int64)) (map[string]any, *Error) {
+	id, _ := q.SubmitLabeled(JobPatch, "A.bin", func(context.Context, func(int64, *int64)) (map[string]any, *Error) {
 		return map[string]any{"ok": true}, nil
 	})
 	select {

@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tfournier/ReminisLink/internal/testutil"
 )
 
 // M13 (Codex review): a cancel that arrives while the final step of an
@@ -76,12 +78,12 @@ func TestCompleteWriteCheck(t *testing.T) {
 // nothing; CancelStale never touches a job of the current generation.
 func TestJobGuardAtInstall(t *testing.T) {
 	e := newEnv(t)
-	data := []byte("guarded download")
-	fs := newFileServer(t, data, false)
+	src, tgt := e.patchFixture(4 << 10)
+	stagingID := e.stage("hack.bps", testutil.EncodeBPS(src, tgt))
 	valid := atomic.Bool{}
 	guard := JobGuard{Owner: "b", Gen: 2, Valid: valid.Load}
-	url := fs.srv.URL + "/files/g.bin"
-	id, apiErr, err := e.svc.StartDownload(DownloadRequest{URL: &url, Target: staging()}, guard)
+	req := PatchRequest{Patch: stagingPatch(stagingID)}
+	id, apiErr, err := e.svc.StartPatch(gameID(courier), req, guard)
 	if apiErr != nil || err != nil {
 		t.Fatal(apiErr, err)
 	}
@@ -89,11 +91,11 @@ func TestJobGuardAtInstall(t *testing.T) {
 		t.Fatalf("job with an invalid guard: %+v", j)
 	}
 	valid.Store(true)
-	id, _, _ = e.svc.StartDownload(DownloadRequest{URL: &url, Target: staging()}, guard)
+	id, _, _ = e.svc.StartPatch(gameID(courier), req, guard)
 	if n := e.svc.Jobs().CancelStale("b", 2); n != 0 {
 		t.Fatalf("CancelStale cancelled %d jobs of the current generation", n)
 	}
 	if j := waitJob(t, e.svc.Jobs(), id, JobSucceeded, JobFailed, JobCancelled); j.State != JobSucceeded {
-		t.Fatalf("job with a valid guard: %+v", j)
+		t.Fatalf("job with a valid guard: %+v %+v", j, j.Error)
 	}
 }

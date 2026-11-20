@@ -148,7 +148,6 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 		Saves: sv, States: st, Lock: lock,
 		FreeSpace: func(string) (int64, error) { return free.Load(), nil },
 		Now:       clk.Now, Logger: logger, ChunkSize: 64 << 10,
-		Downloads: transfer.DownloadOptions{RetryDelay: time.Millisecond},
 		// The running pak (M12): Tools/tg5040/ReminisLink.pak, created by
 		// the tests that need it.
 		Paks: paks.NewManager(roots, filepath.Join(roots.Tools, "ReminisLink.pak")),

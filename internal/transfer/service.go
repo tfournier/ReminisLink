@@ -3,7 +3,6 @@ package transfer
 import (
 	"context"
 	"crypto/rand"
-	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -49,7 +48,7 @@ const (
 	StagingExpiry = 24 * time.Hour
 )
 
-// Target is the destination of an upload or a download.
+// Target is the destination of an upload.
 type Target struct {
 	Kind     string  `json:"kind"`
 	SystemID string  `json:"systemId,omitempty"`
@@ -94,8 +93,6 @@ type Options struct {
 	Logger    *slog.Logger     // nil: slog.Default()
 	// ChunkSize is the size of upload chunks (0: DefaultChunkSize).
 	ChunkSize int64
-	// Downloads configures the HTTP client of POST /downloads.
-	Downloads DownloadOptions
 	// VerifyWait bounds the wait for the hash of a resumed upload (0:
 	// DefaultVerifyWait).
 	VerifyWait time.Duration
@@ -104,22 +101,7 @@ type Options struct {
 	Paks *paks.Manager
 }
 
-// DownloadOptions configure the downloads.
-type DownloadOptions struct {
-	// RootCAs replaces the trusted certificate authorities (nil: those of
-	// http.DefaultTransport, see baseTransport).
-	RootCAs *x509.CertPool
-	// Transport replaces the HTTP transport (tests).
-	Transport http.RoundTripper
-	// RetryDelay is the wait before the first retry, doubled each time
-	// (0: DefaultRetryDelay).
-	RetryDelay time.Duration
-	// IdleTimeout is the longest wait for the next bytes (0:
-	// DownloadIdleTimeout).
-	IdleTimeout time.Duration
-}
-
-// Service holds the uploads, the jobs and the downloads.
+// Service holds the uploads and the jobs.
 type Service struct {
 	opts Options
 	log  *slog.Logger
@@ -151,9 +133,6 @@ type Service struct {
 
 	// rename is os.Rename; tests replace it to simulate failures.
 	rename func(oldpath, newpath string) error
-
-	clientOnce sync.Once
-	client     *http.Client
 }
 
 // New returns a Service. Call LoadUploads at start (after the maintenance)
@@ -215,7 +194,7 @@ func (s *Service) randomHex(n int) string {
 }
 
 // DeleteGame moves a game and its data to the trash (library.DeleteGame)
-// under the install lock, so no upload or download can install a file
+// under the install lock, so no upload or job can install a file
 // between the checks of the move and its renames (or its roll back).
 func (s *Service) DeleteGame(gameID string, keepSave bool) (library.DeleteResult, error) {
 	s.installMu.Lock()
@@ -234,9 +213,9 @@ func libraryError(err error, what string) *Error {
 	return nil
 }
 
-// resolve checks a target and finds its destination. needName requires
-// fileName for rom and staging targets (uploads; downloads may deduce it).
-func (s *Service) resolve(t Target, needName bool) (destination, *Error, error) {
+// resolve checks a target and finds its destination; rom and staging
+// targets require fileName.
+func (s *Service) resolve(t Target) (destination, *Error, error) {
 	d := destination{kind: t.Kind}
 	switch t.Kind {
 	case KindROM, KindStaging:
@@ -246,7 +225,7 @@ func (s *Service) resolve(t Target, needName bool) (destination, *Error, error) 
 				return d, invalidName("Invalid file name"), nil
 			}
 			d.name = name
-		} else if needName {
+		} else {
 			return d, badRequest("Missing target.fileName"), nil
 		}
 		if t.Kind == KindStaging {
@@ -548,8 +527,8 @@ func (s *Service) romAdded(dst string) (map[string]any, *Error, error) {
 
 // Maintain deletes the expired temporary files at start
 // (docs/specs/05-console-pak.md §2.3): uploads idle for more than
-// UploadIdleExpiry, staging files older than StagingExpiry, partial
-// downloads of a previous run. The patch installations a power cut
+// UploadIdleExpiry, staging files older than StagingExpiry, temporary
+// files of a previous run. The patch installations a power cut
 // interrupted are finished first. Call it after the trash recovery
 // (store.Trash.Recover) and before LoadUploads.
 func (s *Service) Maintain() error {

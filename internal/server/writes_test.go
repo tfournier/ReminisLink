@@ -1,15 +1,14 @@
 package server
 
 import (
-	"bytes"
 	"crypto/rand"
 	"net/http"
-	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,8 +17,9 @@ import (
 	"github.com/tfournier/ReminisLink/internal/testutil"
 )
 
-// formerLeaseRoutes are the 23 routes that took the M10 write lease, and
-// the 2 write routes of M12 (paks), with how each one takes the M13 write
+// formerLeaseRoutes are the 22 routes that took the M10 write lease (the
+// 23rd, POST /downloads, was removed from v1), and the 2 write routes of
+// M12 (paks), with how each one takes the M13 write
 // lock. Written by hand: a new write route must be added here on purpose.
 var formerLeaseRoutes = map[string]writeMode{
 	"PUT /games/{gameId}/art":                               writeHandler,
@@ -39,7 +39,6 @@ var formerLeaseRoutes = map[string]writeMode{
 	"PUT /games/{gameId}/cheats":                            writeHandler,
 	"POST /games/{gameId}/cheats/import":                    writeInner,
 	"POST /uploads/{uploadId}/complete":                     writeInstall,
-	"POST /downloads":                                       writeInstall,
 	"POST /games/{gameId}/patch":                            writeInstall,
 	"POST /uploads":                                         writeStaging,
 	"PUT /uploads/{uploadId}":                               writeStaging,
@@ -79,8 +78,8 @@ func TestWriteRoutesTakeTheWriteLock(t *testing.T) {
 		}
 	}
 	sort.Strings(seen)
-	if len(seen) != len(formerLeaseRoutes) || len(seen) != 25 {
-		t.Errorf("%d write routes registered, want 25: %v", len(seen), seen)
+	if len(seen) != len(formerLeaseRoutes) || len(seen) != 24 {
+		t.Errorf("%d write routes registered, want 24: %v", len(seen), seen)
 	}
 	if ops := contract(t).OperationsWithStatus("423"); len(ops) != 0 {
 		t.Errorf("the contract still declares 423: %v", ops)
@@ -212,17 +211,12 @@ func TestUploadWaitsOnlyAtTheEnd(t *testing.T) {
 // failing (no request wait for jobs).
 func TestJobWaitsForItsInstall(t *testing.T) {
 	f := newFixture(t)
-	data := []byte("downloaded while busy")
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
-	}))
-	defer src.Close()
+	target, body := f.patchJobBody("Patched While Busy.gba")
 	f.holdWrites(20 * time.Millisecond)
-	body := mustJSON(t, map[string]any{"url": src.URL + "/hack.bps", "target": map[string]any{"kind": "staging"}, "sha256": nil, "onConflict": "rename"})
 	var accepted struct {
 		JobID string `json:"jobId"`
 	}
-	f.do(http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &accepted)
+	f.do(http.MethodPost, target, patchRoute, body, http.StatusAccepted).JSON(t, &accepted)
 	time.Sleep(200 * time.Millisecond) // ten times the request wait
 	var j jobState
 	f.do(http.MethodGet, "/api/v1/jobs/"+accepted.JobID, "/jobs/{jobId}", nil, http.StatusOK).JSON(t, &j)
@@ -304,17 +298,12 @@ func TestRevokedWhileWaitingForTheWriteLock(t *testing.T) {
 func TestJobOfARevokedClientIsCancelled(t *testing.T) {
 	f := newFixture(t)
 	b := f.pairNamed("iPhone B")
-	data := []byte("downloaded for a revoked client")
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
-	}))
-	defer src.Close()
+	target, body := f.patchJobBody("")
 	f.holdWrites(20 * time.Millisecond)
-	body := mustJSON(t, map[string]any{"url": src.URL + "/hack.bps", "target": map[string]any{"kind": "staging"}, "sha256": nil, "onConflict": "rename"})
 	var accepted struct {
 		JobID string `json:"jobId"`
 	}
-	f.as(b, http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &accepted)
+	f.as(b, http.MethodPost, target, patchRoute, body, http.StatusAccepted).JSON(t, &accepted)
 	time.Sleep(100 * time.Millisecond) // the job waits for its install
 	if err := f.server.Disconnect(b.ClientID); err != nil {
 		t.Fatal(err)
@@ -327,22 +316,33 @@ func TestJobOfARevokedClientIsCancelled(t *testing.T) {
 	var other struct {
 		JobID string `json:"jobId"`
 	}
-	f.do(http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &other)
+	f.do(http.MethodPost, target, patchRoute, body, http.StatusAccepted).JSON(t, &other)
 	f.server.Disconnect(b.ClientID)
 	if j := f.waitJob(other.JobID); j.State != "succeeded" {
 		t.Fatalf("job of another client: %+v", j)
 	}
 }
 
-// downloadOrigin serves a small file for the job tests.
-func downloadOrigin(t *testing.T) (url string, body []byte) {
-	t.Helper()
-	data := []byte("downloaded by a job")
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
-	}))
-	t.Cleanup(src.Close)
-	return src.URL, mustJSON(t, map[string]any{"url": src.URL + "/hack.bps", "target": map[string]any{"kind": "staging"}, "sha256": nil, "onConflict": "rename"})
+// patchRoute is the route of the patch jobs used by the job tests.
+const patchRoute = "/games/{gameId}/patch"
+
+// patchJobBody writes a ROM, stages a BPS patch for it and returns the
+// target and body of a patch job (new-file, named name when not empty).
+func (f *fixture) patchJobBody(name string) (target string, body []byte) {
+	f.t.Helper()
+	game := gbaFolder + "/Starlight Courier.gba"
+	src := []byte(strings.Repeat("rom data ", 2_000))
+	if err := os.WriteFile(filepath.Join(f.sd, "Roms", filepath.FromSlash(game)), src, 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+	tgt := append([]byte("patched "), src...)
+	stagingID := f.stageFile("hack.bps", testutil.EncodeBPS(src, tgt))
+	output := map[string]any{"mode": "new-file"}
+	if name != "" {
+		output["fileName"] = name
+	}
+	return "/api/v1/games/" + library.EncodeID(game) + "/patch",
+		mustJSON(f.t, map[string]any{"patch": map[string]any{"type": "staging", "stagingId": stagingID}, "output": output})
 }
 
 // holdJobHandler makes the next request that queued a job stop before it
@@ -392,15 +392,13 @@ func (f *fixture) waitWriteWaiter() {
 func TestJobTiedToItsClientFromTheStart(t *testing.T) {
 	f := newFixture(t)
 	b := f.pairNamed("iPhone B")
-	origin, _ := downloadOrigin(t)
-	body := mustJSON(t, map[string]any{"url": origin + "/hack.gba", "onConflict": "fail",
-		"target": map[string]any{"kind": "rom", "systemId": library.EncodeID(gbaFolder), "fileName": "Revoked Download.gba"}})
+	target, body := f.patchJobBody("Revoked Patch.gba")
 	f.holdWrites(20 * time.Millisecond)
 	reached, release := f.holdJobHandler()
 	answer := make(chan testutil.Response, 1)
-	go func() { answer <- b.Do(t, http.MethodPost, "/api/v1/downloads", body) }()
+	go func() { answer <- b.Do(t, http.MethodPost, target, body) }()
 	id := <-reached
-	f.waitWriteWaiter() // the job downloaded and waits for its install
+	f.waitWriteWaiter() // the job patched and waits for its install
 	if err := f.server.Disconnect(b.ClientID); err != nil {
 		t.Fatal(err)
 	}
@@ -408,26 +406,20 @@ func TestJobTiedToItsClientFromTheStart(t *testing.T) {
 	if j := f.waitJob(id); j.State != "cancelled" || j.Result != nil {
 		t.Fatalf("job of a revoked client: %+v", j)
 	}
-	if f.exists("Roms/" + gbaFolder + "/Revoked Download.gba") {
+	if f.exists("Roms/" + gbaFolder + "/Revoked Patch.gba") {
 		t.Fatal("the job of a revoked client installed its file")
 	}
 	release()
 	r := <-answer
-	f.check(http.MethodPost, "/downloads", r)
+	f.check(http.MethodPost, patchRoute, r)
 	wantCode(t, r, CodeDisconnected)
 }
 
 // Codex round 3: a client revoked after its request was accepted but
-// before the job is queued gets 401, no job, and no outbound request.
+// before the job is queued gets 401 and no job.
 func TestRevokedBeforeTheJobIsQueued(t *testing.T) {
 	f := newFixture(t)
 	b := f.pairNamed("iPhone B")
-	var requests atomic.Int32
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		w.Write([]byte("x"))
-	}))
-	defer src.Close()
 	game := gbaFolder + "/Starlight Courier.gba"
 	stagingID := f.stageFile("hack.bps", testutil.EncodeBPS([]byte("abcdef"), []byte("abXdef")))
 	hook := func() { f.server.Disconnect(b.ClientID) }
@@ -436,7 +428,6 @@ func TestRevokedBeforeTheJobIsQueued(t *testing.T) {
 		target, route string
 		body          []byte
 	}{
-		{"/api/v1/downloads", "/downloads", mustJSON(t, map[string]any{"url": src.URL + "/x.bps", "target": map[string]any{"kind": "staging"}})},
 		{"/api/v1/games/" + library.EncodeID(game) + "/patch", "/games/{gameId}/patch",
 			mustJSON(t, map[string]any{"patch": map[string]any{"type": "staging", "stagingId": stagingID}, "output": map[string]any{"mode": "new-file"}})},
 	} {
@@ -449,9 +440,6 @@ func TestRevokedBeforeTheJobIsQueued(t *testing.T) {
 	if jobs := f.server.opts.Transfers.Jobs().List(); len(jobs) != 0 {
 		t.Fatalf("jobs created for a revoked client: %+v", jobs)
 	}
-	if n := requests.Load(); n != 0 {
-		t.Fatalf("%d outbound requests for a revoked client", n)
-	}
 }
 
 // Codex round 2, race 2: an old request that queued a job is revoked; the
@@ -460,11 +448,11 @@ func TestRevokedBeforeTheJobIsQueued(t *testing.T) {
 func TestOldJobRequestDoesNotCancelANewJob(t *testing.T) {
 	f := newFixture(t)
 	b := f.pairNamed("iPhone B")
-	_, body := downloadOrigin(t)
+	target, body := f.patchJobBody("")
 	f.holdWrites(20 * time.Millisecond) // both jobs wait for their install
 	reached, release := f.holdJobHandler()
 	answer := make(chan testutil.Response, 1)
-	go func() { answer <- b.Do(t, http.MethodPost, "/api/v1/downloads", body) }()
+	go func() { answer <- b.Do(t, http.MethodPost, target, body) }()
 	oldID := <-reached
 	if err := f.server.Disconnect(b.ClientID); err != nil {
 		t.Fatal(err)
@@ -473,10 +461,10 @@ func TestOldJobRequestDoesNotCancelANewJob(t *testing.T) {
 	var fresh struct {
 		JobID string `json:"jobId"`
 	}
-	f.as(b, http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted).JSON(t, &fresh)
+	f.as(b, http.MethodPost, target, patchRoute, body, http.StatusAccepted).JSON(t, &fresh)
 	release()
 	r := <-answer
-	f.check(http.MethodPost, "/downloads", r)
+	f.check(http.MethodPost, patchRoute, r)
 	wantCode(t, r, CodeDisconnected)
 	f.server.writes().Release()
 	if j := f.waitJob(oldID); j.State != "cancelled" {

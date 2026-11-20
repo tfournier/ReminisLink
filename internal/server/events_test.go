@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,7 +217,6 @@ var changeExempt = map[string]bool{
 	"POST " + Prefix + "/uploads":              true, // an upload opens
 	"PUT " + Prefix + "/uploads/{uploadId}":    true, // staging area
 	"DELETE " + Prefix + "/uploads/{uploadId}": true,
-	"POST " + Prefix + "/downloads":            true, // the job publishes on success
 	"DELETE " + Prefix + "/jobs/{jobId}":       true,
 	"POST " + Prefix + "/games/{gameId}/patch": true, // the job publishes on success
 	// M12: a pak change publishes a paks event, never a library one.
@@ -297,36 +294,6 @@ func TestEventsDuringAPatchJob(t *testing.T) {
 	}
 	if len(states) < 2 || states[0] != "queued" || states[len(states)-1] != "succeeded" {
 		t.Fatalf("job states %v", states)
-	}
-}
-
-// A download job too, with its progress.
-func TestEventsDuringADownloadJob(t *testing.T) {
-	f := newFixture(t)
-	f.fastEvents(events.Options{})
-	payload := []byte(strings.Repeat("x", 100_000))
-	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(payload))
-	}))
-	defer origin.Close()
-	s := f.openEvents(f.client)
-	var accepted struct {
-		JobID string `json:"jobId"`
-	}
-	body := map[string]any{"url": origin.URL + "/game.gba", "target": map[string]any{"kind": "rom", "systemId": id(gbaFolder), "fileName": "Downloaded.gba"}}
-	f.do("POST", "/api/v1/downloads", "/downloads", mustJSON(t, body), http.StatusAccepted).JSON(t, &accepted)
-	sawSucceeded := false
-	for !sawSucceeded {
-		ev := f.nextEvent(s)
-		if ev.Type != "job" {
-			t.Fatalf("event %+v before the job ended", ev)
-		}
-		var j jobState
-		json.Unmarshal([]byte(ev.Data), &j)
-		sawSucceeded = j.State == "succeeded"
-	}
-	if ev := f.nextEvent(s); ev.Type != "library" || ev.Data != `{"systemIds":["`+id(gbaFolder)+`"]}` {
-		t.Fatalf("after the download: %+v", ev)
 	}
 }
 

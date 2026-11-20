@@ -3,13 +3,10 @@ package server
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -324,32 +321,11 @@ func TestCheatRoutes(t *testing.T) {
 	wantCode(t, imp(map[string]any{"type": "inline", "text": "nothing here"}, "merge", http.StatusUnprocessableEntity), "unsupported_format")
 	wantCode(t, imp(map[string]any{"type": "inline", "text": cht}, "append", http.StatusBadRequest), "invalid_request")
 	wantCode(t, imp(map[string]any{"type": "ftp"}, "merge", http.StatusBadRequest), "invalid_request")
-	wantCode(t, imp(map[string]any{"type": "url"}, "merge", http.StatusBadRequest), "invalid_request")
-
-	// URL: served by a local server; the URL path and query never reach the log.
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/ok.cht":
-			w.Write([]byte(cht))
-		case "/big.cht":
-			w.Write([]byte(strings.Repeat("#", 5<<20+1)))
-		case "/broken":
-			w.WriteHeader(http.StatusInternalServerError)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer src.Close()
-	r = imp(map[string]any{"type": "url", "url": src.URL + "/ok.cht?token=secret123"}, "replace", http.StatusOK)
+	// The pak never fetches a URL: the url source is gone (removed from v1).
+	wantCode(t, imp(map[string]any{"type": "url", "url": "https://example.org/a.cht"}, "merge", http.StatusBadRequest), "invalid_request")
+	r = imp(map[string]any{"type": "inline", "text": cht}, "replace", http.StatusOK)
 	if strings.TrimSpace(string(r.Body)) != `{"imported":1,"total":1}` {
-		t.Fatalf("url: %s", r.Body)
-	}
-	wantCode(t, imp(map[string]any{"type": "url", "url": src.URL + "/missing.cht"}, "merge", http.StatusNotFound), "not_found")
-	wantCode(t, imp(map[string]any{"type": "url", "url": src.URL + "/big.cht"}, "merge", http.StatusRequestEntityTooLarge), "too_large")
-	wantCode(t, imp(map[string]any{"type": "url", "url": src.URL + "/broken"}, "merge", http.StatusUnprocessableEntity), "unsupported_format")
-	wantCode(t, imp(map[string]any{"type": "url", "url": "file:///etc/passwd"}, "merge", http.StatusBadRequest), "invalid_request")
-	if strings.Contains(f.logs.String(), "secret123") || strings.Contains(f.logs.String(), "ok.cht") {
-		t.Fatal("URL logged in full")
+		t.Fatalf("inline replace: %s", r.Body)
 	}
 
 	// SD card file, from GET /sd/files.
@@ -402,53 +378,5 @@ func TestSaveRouteBodyLimit(t *testing.T) {
 	}
 	if fi, err := os.Stat(filepath.Join(f.sd, "Saves", "GBA", "Starlight Courier.gba.sav")); err != nil || fi.Size() != int64(len(big)) {
 		t.Fatalf("saved %v", err)
-	}
-}
-
-// TestCheatImportSlot: one import from a URL at a time; a request whose
-// client gives up while waiting gets 429 with Retry-After.
-func TestCheatImportSlot(t *testing.T) {
-	f := newFixture(t)
-	g := gamePath(scPath)
-	var mu sync.Mutex
-	active, most := 0, 0
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		active++
-		most = max(most, active)
-		mu.Unlock()
-		time.Sleep(150 * time.Millisecond)
-		mu.Lock()
-		active--
-		mu.Unlock()
-		w.Write([]byte("cheat0_desc = \"A\"\ncheat0_code = \"1\"\n"))
-	}))
-	defer src.Close()
-	body := mustJSON(t, map[string]any{"source": map[string]any{"type": "url", "url": src.URL + "/a.cht"}, "mode": "merge"})
-	var wg sync.WaitGroup
-	status := make([]int, 2)
-	for i := range status {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			status[i] = f.client.Do(t, http.MethodPost, g+"/cheats/import", body).Status
-		}(i)
-	}
-	wg.Wait()
-	if status[0] != http.StatusOK || status[1] != http.StatusOK || most != 1 {
-		t.Fatalf("statuses %v, %d imports at once", status, most)
-	}
-
-	// The slot is taken and the client gives up: 429 too_many_attempts.
-	f.server.fetchSlot <- struct{}{}
-	defer func() { <-f.server.fetchSlot }()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	req := httptest.NewRequest(http.MethodPost, g+"/cheats/import", strings.NewReader(string(body))).WithContext(ctx)
-	req.SetPathValue("gameId", library.EncodeID(scPath))
-	rec := httptest.NewRecorder()
-	f.server.handleImportCheats(rec, req)
-	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" || !strings.Contains(rec.Body.String(), "too_many_attempts") {
-		t.Fatalf("given up: %d %v %s", rec.Code, rec.Header(), rec.Body)
 	}
 }
