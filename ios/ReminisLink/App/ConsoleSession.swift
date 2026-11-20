@@ -53,6 +53,8 @@ final class ConsoleSession {
     /// end of the stream changes the generation, and an older catch-up
     /// publishes nothing.
     @ObservationIgnored var catchUpGeneration = 0
+    /// Loads of the trash: only the last one started publishes.
+    @ObservationIgnored var trashLoads = LoadGeneration()
     @ObservationIgnored var catchUpTask: Task<Void, Never>?
     /// Catch-ups that went to their end (tests wait on it).
     @ObservationIgnored var catchUpsDone = 0
@@ -259,9 +261,14 @@ final class ConsoleSession {
 
     /// Reloads the trash. A failure keeps the last known content (it never
     /// fails the dashboard). Returns whether the content is fresh.
+    ///
+    /// M14: every load of the trash (dashboard, a change, a `hello`) goes
+    /// through one generation, checked before publishing: an older answer
+    /// arriving last never shows an entry deleted since.
     @discardableResult
     func loadTrash() async -> Bool {
-        guard let client, let fresh = try? await client.trash() else { return false }
+        let generation = trashLoads.begin()
+        guard let client, let fresh = try? await client.trash(), trashLoads.isCurrent(generation) else { return false }
         trash = fresh
         return true
     }

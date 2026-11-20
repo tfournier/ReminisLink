@@ -386,4 +386,23 @@ struct EventsAppTests {
         #expect(!loads.isCurrent(first))
         #expect(loads.isCurrent(second))
     }
+
+    // MARK: - Review round 3
+
+    @Test func anOlderTrashAnswerNeverReshowsADeletedEntry() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = await openLive(app, pak)
+        let entry = try #require(session.trash?.entries.first)
+        // A load of the trash whose answer (with the entry) is held.
+        let gate = pak.holdNextAnswer(method: "GET", path: APIClient.apiPrefix + "/trash")
+        let older = Task { await session.loadTrash() }
+        await waitUntil { gate.reached }
+        // The entry is deleted for good; the trash is loaded again.
+        try await session.deleteTrashEntry(entry.id)
+        #expect(session.trash?.entries.contains { $0.id == entry.id } == false)
+        gate.open()
+        #expect(await older.value == false)
+        #expect(session.trash?.entries.contains { $0.id == entry.id } == false)
+    }
 }

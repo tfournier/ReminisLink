@@ -291,6 +291,8 @@ struct StatesView: View {
     }
 
     private func updated(_ slot: StateSlot) {
+        // Newer than any load in flight: those are dropped (M14).
+        _ = loads.begin()
         restoredSlots.remove(slot.slot)
         slots = slots?.replacing(slot)
         session.contentChanged()
@@ -356,7 +358,10 @@ struct StatesView: View {
         let gameId = route.gameId
         let entryId = entry.id
         await run {
-            history = try await session.perform { try await $0.restoreResumeHistory(gameId: gameId, entryId: entryId) }
+            let restored = try await session.perform { try await $0.restoreResumeHistory(gameId: gameId, entryId: entryId) }
+            // Newer than any load in flight: those are dropped (M14).
+            _ = loads.begin()
+            history = restored
             notice = String(localized: "Resume state restored.")
             session.contentChanged()
             await load()

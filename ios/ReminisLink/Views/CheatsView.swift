@@ -10,7 +10,12 @@ struct CheatsView: View {
     @Environment(\.dismiss) private var dismiss
     let route: GameRoute
 
-    @State private var editor: CheatEditor?
+    /// The list and every read of it (one load generation, M14).
+    @State private var loader = CheatsLoader()
+    private var editor: CheatEditor? {
+        get { loader.editor }
+        nonmutating set { loader.editor = newValue }
+    }
     @State private var error: AppError?
     @State private var notice: String?
     @State private var isWorking = false
@@ -23,9 +28,6 @@ struct CheatsView: View {
     /// The shown error comes from a save: "Try Again" saves again (local
     /// changes are never dropped without "Discard Changes").
     @State private var saveFailed = false
-    /// Only the last read of the list is used (M14: a reload, a change on
-    /// the console and a save may overlap).
-    @State private var reads = LoadGeneration()
 
     private var session: ConsoleSession { app.session(for: route.deviceId) }
     private var hasChanges: Bool { editor?.hasChanges ?? false }
@@ -57,11 +59,13 @@ struct CheatsView: View {
         .navigationBarBackButtonHidden(hasChanges)
         .toolbar { toolbar }
         .task { if editor == nil { await load() } }
-        .refreshable { if !hasChanges { await load() } }
+        // Through the same protections as a change on the console: the
+        // same list keeps the editor (an open sheet still works).
+        .refreshable { await refresh(userAsked: true) }
         // M14: the console changed something (any device): the list is
         // read again; local edits are kept, and the user is told if they
         // can no longer be saved.
-        .onChange(of: session.libraryRevision) { Task { await consoleMayHaveChanged() } }
+        .onChange(of: session.libraryRevision) { Task { await refresh(userAsked: false) } }
         // M14: a newer list of the console held back while a sheet edits
         // a cheat is shown once the sheet closes.
         .sheet(item: $editing, onDismiss: applyHeldList) { cheat in
@@ -198,35 +202,33 @@ struct CheatsView: View {
 
     // MARK: Actions
 
-    private func load() async {
+    private var fetch: CheatsLoader.Fetch {
+        let session = session
         let gameId = route.gameId
+        return { try await session.perform { try await $0.cheats(gameId: gameId) } }
+    }
+
+    /// Replaces the list (first load, Reload after a conflict, after an
+    /// import, Try Again without edits).
+    private func load() async {
         saveFailed = false
-        let generation = reads.begin()
         do {
-            let list = try await session.perform { try await $0.cheats(gameId: gameId) }
-            guard reads.isCurrent(generation) else { return }
-            if editor == nil {
-                editor = CheatEditor(list)
-            } else {
-                editor?.load(list)
-            }
-            error = nil
+            if try await loader.load(fetch) { error = nil }
         } catch {
-            guard reads.isCurrent(generation) else { return }
             show(error)
         }
     }
 
-    private func consoleMayHaveChanged() async {
-        guard editor != nil, !isWorking else { return }
-        let gameId = route.gameId
-        let generation = reads.begin()
-        guard let list = try? await session.perform({ try await $0.cheats(gameId: gameId) }),
-              reads.isCurrent(generation)
-        else { return }
-        let canApply = editing == nil && !isAdding
-        if editor?.consoleChanged(list, canApply: canApply) == .conflict {
-            notice = String(localized: "This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list.")
+    /// Pull-to-refresh, or a change on the console (M14).
+    private func refresh(userAsked: Bool) async {
+        do {
+            let change = try await loader.refresh(canApply: { editing == nil && !isAdding }, fetch)
+            if change != nil { error = nil }
+            if change == .conflict {
+                notice = String(localized: "This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list.")
+            }
+        } catch {
+            if userAsked { show(error) }
         }
     }
 
@@ -244,16 +246,14 @@ struct CheatsView: View {
         let gameId = route.gameId
         let update = editor.update()
         let etag = editor.etag
-        // A read sent before the save would show the list before it.
-        _ = reads.begin()
         isWorking = true
         defer { isWorking = false }
         error = nil
         notice = nil
         saveFailed = false
         do {
-            let saved = try await session.perform { try await $0.replaceCheats(gameId: gameId, update, ifMatch: etag) }
-            self.editor?.load(saved)
+            let session = session
+            try await loader.save { try await session.perform { try await $0.replaceCheats(gameId: gameId, update, ifMatch: etag) } }
             notice = String(localized: "Cheats saved.")
             session.contentChanged()
         } catch let error as AppError where error.isPreconditionFailed {
@@ -262,6 +262,8 @@ struct CheatsView: View {
             show(error)
             saveFailed = !AppError(error).isCancellation
         }
+        // A change on the console reported during the save.
+        if loader.takeMissedRefresh() { await refresh(userAsked: false) }
     }
 
     /// "Try Again" repeats what failed: the save, or the first load. It
