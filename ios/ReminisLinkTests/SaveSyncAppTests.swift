@@ -182,7 +182,7 @@ struct SaveSyncAppTests {
         let app = try await pairedApp(pak)
         await app.session(for: pak.deviceId).connect()
         await waitForSync(app.saveSync(for: pak.deviceId))
-        let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+        let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
         let vault = await app.currentVault()
         let version = try #require(try await vault.latestVersion(deviceId: pak.deviceId, gameId: skyGarden))
         let session = app.session(for: pak.deviceId)
@@ -193,18 +193,18 @@ struct SaveSyncAppTests {
         // The console folder is named after the console's name at the
         // first sync (M11: the name the console reports).
         let console = try #require(app.store.device(id: pak.deviceId)?.name)
-        let file = root.appending(path: "Saves/\(console)/Handheld Advance (GBA)/Sky Garden Quest/\(version.id)/Sky Garden Quest.gba.sav")
+        let file = root.appending(path: "Saves/\(console)/Handheld Advance (GBA)/Thistledown Isles/\(version.id)/Thistledown Isles.gba.sav")
         let original = try Data(contentsOf: file)
         try Data("tampered".utf8).write(to: file)
         await #expect(throws: SaveVaultError.versionMismatch) {
-            _ = try await session.restore(version, gameId: skyGarden, gameName: "Sky Garden Quest", from: vault)
+            _ = try await session.restore(version, gameId: skyGarden, gameName: "Thistledown Isles", from: vault)
         }
         #expect(AppError.restore(SaveVaultError.versionMismatch) == .versionChanged)
         #expect(!pak.log.contains { $0.method == "PUT" })
 
         // Intact: sent, and the console has the bytes of the version.
         try original.write(to: file)
-        let outcome = try await session.restore(version, gameId: skyGarden, gameName: "Sky Garden Quest", from: vault)
+        let outcome = try await session.restore(version, gameId: skyGarden, gameName: "Thistledown Isles", from: vault)
         guard case .replaced(let backup) = outcome else { Issue.record("not replaced"); return }
         #expect(backup?.reason == .beforeReplace)
         let client = try await session.connectedClient()

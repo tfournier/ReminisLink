@@ -31,13 +31,13 @@ final class PairingUITests: XCTestCase {
             .waitForExistence(timeout: 10))
         attachScreenshot(app, "dashboard")
         GameDataUITest.openLibraryTab(app, timeout: 10)
-        XCTAssertTrue(app.buttons["game.Sky Garden Quest"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["game.Thistledown Isles"].waitForExistence(timeout: 10))
         attachScreenshot(app, "library")
-        app.buttons["game.Sky Garden Quest"].tapAfterWaiting(timeout: 10)
+        app.buttons["game.Thistledown Isles"].tapAfterWaiting(timeout: 10)
         XCTAssertTrue(app.staticTexts["game.title"].waitForExistence(timeout: 10))
         attachScreenshot(app, "game")
-        XCTAssertEqual(app.staticTexts["game.title"].label, "Sky Garden Quest")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Sky Garden Quest.gba'")).firstMatch
+        XCTAssertEqual(app.staticTexts["game.title"].label, "Thistledown Isles")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Thistledown Isles.gba'")).firstMatch
             .waitForExistence(timeout: 10))
     }
 

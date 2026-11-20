@@ -43,6 +43,12 @@ final class DemoMode {
     let defaults: UserDefaults
     /// How long after ``end()`` the session's files are erased once more.
     var eraseAgainAfter: Duration = .seconds(2)
+    /// How long ``end()`` waits for the session's work (a file provider
+    /// that never answers); past it the session is released anyway and a
+    /// late write is left to the cleanup at the next launch.
+    var shutdownTimeout: Duration = .seconds(10)
+    /// The last ``end()`` gave up waiting (tests).
+    private(set) var endTimedOut = false
 
     /// - Parameters:
     ///   - name: the folder and suite name; a new one per session by default.
@@ -125,11 +131,27 @@ final class DemoMode {
     /// later. Never another session's.
     func end() async {
         pak.unregister()
-        await app.shutDown()
+        let app = app
+        endTimedOut = !(await Self.wait(upTo: shutdownTimeout) { await app.shutDown() })
         pak.onAvailabilityChange = nil
         erase()
         try? await Task.sleep(for: eraseAgainAfter)
         erase()
+    }
+
+    /// Runs `operation` and waits for it at most `limit`: true if it ended.
+    static func wait(upTo limit: Duration, _ operation: @escaping @MainActor () async -> Void) async -> Bool {
+        let gate = OnceGate()
+        return await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                await operation()
+                if gate.claim() { continuation.resume(returning: true) }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: limit)
+                if gate.claim() { continuation.resume(returning: false) }
+            }
+        }
     }
 
     func erase() {
@@ -175,6 +197,17 @@ final class DemoMode {
         UserDefaults.standard.removePersistentDomain(forName: suiteName)
         // The preferences daemon may leave an empty file behind.
         try? FileManager.default.removeItem(at: preferencesFile(suiteName: suiteName))
+    }
+}
+
+/// True for the first caller only.
+@MainActor
+private final class OnceGate {
+    private var claimed = false
+
+    func claim() -> Bool {
+        defer { claimed = true }
+        return !claimed
     }
 }
 

@@ -221,14 +221,14 @@ struct SaveSyncTests {
         #expect(!list.truncated)
         let sky = try #require(list.saves.first { $0.gameId == skyGarden })
         #expect(sky.rtc?.sizeBytes == 16)
-        #expect(sky.path == "Saves/GBA/Sky Garden Quest.gba.sav")
+        #expect(sky.path == "Saves/GBA/Thistledown Isles.gba.sav")
 
         let first = try await sync().run()
         #expect(first.stored.count == 4 && first.failures.isEmpty)
         let versions = try await sandbox.vault().versions(deviceId: pak.deviceId, gameId: skyGarden)
-        #expect(versions.first?.info.save.name == "Sky Garden Quest.gba.sav")
-        #expect(versions.first?.info.rtc?.name == "Sky Garden Quest.gba.rtc")
-        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Brick/Handheld Advance (GBA)/Sky Garden Quest").path))
+        #expect(versions.first?.info.save.name == "Thistledown Isles.gba.sav")
+        #expect(versions.first?.info.rtc?.name == "Thistledown Isles.gba.rtc")
+        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Brick/Handheld Advance (GBA)/Thistledown Isles").path))
 
         pak.play(gameId: skyGarden, content: Data("played".utf8))
         let second = try await sync().run()

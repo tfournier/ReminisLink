@@ -196,8 +196,12 @@ final class AppModel {
     /// The consoles whose save sync was stopped while the demo mode runs,
     /// started again when it ends (M16).
     @ObservationIgnored var syncsPausedForDemo: [String] = []
-    /// Ended (the demo mode that owned it was quit).
+    /// Ended (the demo mode that owned it was quit): no session is created
+    /// or kept, no sync, copy or download starts.
     @ObservationIgnored private(set) var isShutDown = false
+    /// The real app while the demo mode runs (M16): no save sync, trash
+    /// read or upload starts; sync requests wait for the end of the demo.
+    @ObservationIgnored var isPausedForDemo = false
 
     /// The screens pushed above the list of consoles (settings, synced
     /// saves), while no console is open.
@@ -563,9 +567,15 @@ final class AppModel {
     func session(for deviceId: String) -> ConsoleSession {
         if let session = sessions[deviceId] { return session }
         let session = ConsoleSession(deviceId: deviceId, app: self)
+        // M16: once shut down, a late caller gets a session that is never
+        // kept (and never connects), so the app can be freed.
+        guard !isShutDown else { return session }
         sessions[deviceId] = session
         return session
     }
+
+    /// The sessions kept (tests).
+    var sessionCount: Int { sessions.count }
 
     /// Finds a paired console with Bonjour by its id; when Bonjour does not
     /// find it quickly, the last address where it presented its pinned
@@ -653,6 +663,7 @@ final class AppModel {
     /// syncs, file copies and downloads, and the discovery. The model is
     /// not used afterwards.
     func shutDown() async {
+        guard !isShutDown else { return }
         isShutDown = true
         sheet = nil
         let ended = Array(sessions.values)

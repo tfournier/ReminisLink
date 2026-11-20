@@ -113,7 +113,7 @@ public struct DemoLibrary: Sendable {
 
     public static let sample = DemoLibrary(systems: [
         System(folder: "Handheld Advance (GBA)", label: "Handheld Advance", tag: "GBA", games: [
-            Game(path: "Sky Garden Quest.gba", sizeBytes: 16_777_216, modifiedAt: base,
+            Game(path: "Thistledown Isles.gba", sizeBytes: 16_777_216, modifiedAt: base,
                  hasSave: true, stateSlots: [0, 1, 2], lockedStateCount: 1, cheatCount: 12, hasArt: true, hasClock: true),
             Game(path: "Brambleway Dash.gba", sizeBytes: 4_194_304, modifiedAt: base.addingTimeInterval(86_400 * 3)),
             Game(path: "Homebrew/Quillwork Tactics.gba", sizeBytes: 1_048_576, modifiedAt: base.addingTimeInterval(86_400),

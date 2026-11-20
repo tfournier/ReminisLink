@@ -24,8 +24,8 @@ struct LibraryModelTests {
     @Test func decodesTheContractExampleOfAllGames() throws {
         let all = try decode(AllGames.self, """
         {"games":[
-          {"id":"R2FtZQ","systemId":"R0JB","folderId":null,"folderPath":null,"name":"Sky Garden Quest",
-           "fileName":"Sky Garden Quest.gba","kind":"file","sizeBytes":16777216,"modifiedAt":"2026-10-02T09:12:00Z",
+          {"id":"R2FtZQ","systemId":"R0JB","folderId":null,"folderPath":null,"name":"Thistledown Isles",
+           "fileName":"Thistledown Isles.gba","kind":"file","sizeBytes":16777216,"modifiedAt":"2026-10-02T09:12:00Z",
            "hasSave":true,"stateCount":3,"lockedStateCount":1,"cheatCount":12,"hasArt":true},
           {"id":"VGlueQ","systemId":"R0JB","folderId":"SG9tZQ","folderPath":"Homebrew/2026","name":"Tiny",
            "fileName":"Tiny.gba","kind":"file","sizeBytes":1,"modifiedAt":"2026-10-02T09:12:00Z",
@@ -39,7 +39,7 @@ struct LibraryModelTests {
         #expect(sky.id == "R2FtZQ")
         #expect(sky.systemId == "R0JB")
         #expect(sky.folderId == nil && sky.folderPath == nil)
-        #expect(sky.summary.name == "Sky Garden Quest")
+        #expect(sky.summary.name == "Thistledown Isles")
         #expect(sky.summary.cheatCount == 12)
         #expect(all.games[1].folderId == "SG9tZQ")
         #expect(all.games[1].folderPath == "Homebrew/2026")
@@ -124,7 +124,7 @@ struct LibraryAPITests {
         let file = try await client.downloadGameFile(gameId: skyGarden, fileId: romId, into: root) {
             progress.add($0, $1)
         }
-        #expect(file.url.lastPathComponent == "Sky Garden Quest.gba")
+        #expect(file.url.lastPathComponent == "Thistledown Isles.gba")
         #expect(try FileDigest.size(of: file.url) == rom.sizeBytes)
         #expect(file.directory.deletingLastPathComponent().standardizedFileURL == root.standardizedFileURL)
         #expect(pak.log.last?.path == "/api/v1/games/\(skyGarden)/files/\(romId)")
@@ -135,7 +135,7 @@ struct LibraryAPITests {
 
         let cheats = try #require(detail.files.first { $0.role == .cheats })
         let cht = try await client.downloadGameFile(gameId: skyGarden, fileId: try #require(cheats.fileId), into: root)
-        #expect(cht.url.lastPathComponent == "Sky Garden Quest.gba.cht")
+        #expect(cht.url.lastPathComponent == "Thistledown Isles.gba.cht")
         #expect(try FileDigest.size(of: cht.url) == cheats.sizeBytes)
         let text = try String(contentsOf: cht.url, encoding: .utf8)
         #expect(text.hasPrefix("cheats = 12"))
@@ -284,7 +284,7 @@ struct LibraryFilterTests {
     ]
 
     static let games = [
-        game("Sky Garden Quest", system: "gba", size: 16, days: 0, save: true, states: 3, cheats: 12),
+        game("Thistledown Isles", system: "gba", size: 16, days: 0, save: true, states: 3, cheats: 12),
         game("pixel runner", system: "gba", file: "Brambleway Dash (Europe).gba", size: 4, days: 3),
         game("Cartographe Égaré", system: "mgba", size: 2, days: 2, states: 1, cheats: 2),
         game("Mosslight Maze", system: "gb", size: 1, days: 1, save: true),
@@ -321,13 +321,13 @@ struct LibraryFilterTests {
     }
 
     @Test func sortsByNameDateOrSize() {
-        #expect(names(LibraryQuery()) == ["Cartographe Égaré", "Mosslight Maze", "pixel runner", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(sort: .date)) == ["pixel runner", "Cartographe Égaré", "Mosslight Maze", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(sort: .size)) == ["Sky Garden Quest", "pixel runner", "Cartographe Égaré", "Mosslight Maze"])
+        #expect(names(LibraryQuery()) == ["Cartographe Égaré", "Mosslight Maze", "pixel runner", "Thistledown Isles"])
+        #expect(names(LibraryQuery(sort: .date)) == ["pixel runner", "Cartographe Égaré", "Mosslight Maze", "Thistledown Isles"])
+        #expect(names(LibraryQuery(sort: .size)) == ["Thistledown Isles", "pixel runner", "Cartographe Égaré", "Mosslight Maze"])
     }
 
     @Test func searchesTheNameAndTheFileName() {
-        #expect(names(LibraryQuery(text: "sky")) == ["Sky Garden Quest"])
+        #expect(names(LibraryQuery(text: "thistle")) == ["Thistledown Isles"])
         // Accents and case do not matter.
         #expect(names(LibraryQuery(text: "egare")) == ["Cartographe Égaré"])
         // The file name counts too.
@@ -337,12 +337,12 @@ struct LibraryFilterTests {
     }
 
     @Test func filtersByConsoleAndContents() {
-        #expect(names(LibraryQuery(systemLabel: "Game Boy Advance")) == ["Cartographe Égaré", "pixel runner", "Sky Garden Quest"])
+        #expect(names(LibraryQuery(systemLabel: "Game Boy Advance")) == ["Cartographe Égaré", "pixel runner", "Thistledown Isles"])
         #expect(names(LibraryQuery(systemLabel: "Game Boy")) == ["Mosslight Maze"])
-        #expect(names(LibraryQuery(hasSave: true)) == ["Mosslight Maze", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(hasStates: true)) == ["Cartographe Égaré", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(hasCheats: true)) == ["Cartographe Égaré", "Sky Garden Quest"])
-        #expect(names(LibraryQuery(systemLabel: "Game Boy Advance", hasSave: true, hasStates: true, hasCheats: true)) == ["Sky Garden Quest"])
+        #expect(names(LibraryQuery(hasSave: true)) == ["Mosslight Maze", "Thistledown Isles"])
+        #expect(names(LibraryQuery(hasStates: true)) == ["Cartographe Égaré", "Thistledown Isles"])
+        #expect(names(LibraryQuery(hasCheats: true)) == ["Cartographe Égaré", "Thistledown Isles"])
+        #expect(names(LibraryQuery(systemLabel: "Game Boy Advance", hasSave: true, hasStates: true, hasCheats: true)) == ["Thistledown Isles"])
         #expect(names(LibraryQuery(text: "moon", systemLabel: "Game Boy Advance")).isEmpty)
         // A console no longer in the list matches nothing.
         #expect(names(LibraryQuery(systemLabel: "Atari")).isEmpty)

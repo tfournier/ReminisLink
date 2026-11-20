@@ -317,7 +317,7 @@ struct EventStreamTests {
         let watcher = try await pairedClient(pak)
         let other = try await pairedClient(pak)
         let bytes = try await watcher.openEvents()
-        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
         let systemId = try #require(pak.library.game(id: gameId)?.0.id)
         _ = try await other.deleteGame(id: gameId, keepSave: false)
         var parser = SSEParser()
@@ -356,7 +356,7 @@ struct EventStreamTests {
         }
         let gba = try system("Handheld Advance (GBA)/Brambleway Dash.gba")
         let gb = try system("01) Pocket Classic (GB)/Mosslight Maze 🌙.gb")
-        let gba2 = try system("Handheld Advance (GBA)/Sky Garden Quest.gba")
+        let gba2 = try system("Handheld Advance (GBA)/Thistledown Isles.gba")
         _ = try await other.deleteGame(id: gba.game, keepSave: false)
         #expect(!pak.libraryEventPending)
         _ = try await other.deleteGame(id: gb.game, keepSave: false)

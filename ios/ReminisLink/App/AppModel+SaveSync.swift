@@ -97,6 +97,7 @@ extension AppModel {
     /// background (Bonjour, uploads after their current chunk) and its
     /// running save syncs stop; they start again in ``resumeAfterDemo()``.
     func pauseForDemo() {
+        isPausedForDemo = true
         discovery.stop()
         enterBackground()
         syncsPausedForDemo = syncStates.filter { $0.value.task != nil }.map(\.key).sorted()
@@ -105,6 +106,7 @@ extension AppModel {
 
     /// The demo mode ended: Bonjour, uploads and the stopped syncs go on.
     func resumeAfterDemo() {
+        isPausedForDemo = false
         discovery.start()
         becomeActive()
         let paused = syncsPausedForDemo
@@ -124,6 +126,13 @@ extension AppModel {
     /// With `afterCurrent` (a new connection), a running sync is followed
     /// by a new one, with the new client, once it ends.
     func startSaveSync(deviceId: String, afterCurrent: Bool = false) {
+        guard !isShutDown else { return }
+        // M16: asked while the demo runs (a connection that ended then):
+        // run when the demo ends.
+        if isPausedForDemo {
+            if !syncsPausedForDemo.contains(deviceId) { syncsPausedForDemo.append(deviceId) }
+            return
+        }
         let state = saveSync(for: deviceId)
         guard state.task == nil else {
             if afterCurrent { state.pendingRequest = UUID() }
@@ -153,6 +162,9 @@ extension AppModel {
     }
 
     private func runSaveSync(deviceId: String, state: SaveSyncState) async throws -> SaveSyncReport {
+        // Shut down or paused before this task first ran: nothing starts.
+        try Task.checkCancellation()
+        guard !isShutDown, !isPausedForDemo else { throw CancellationError() }
         let session = session(for: deviceId)
         let client = try await session.connectedClient()
         let vault = await vaultProvider.resolve()

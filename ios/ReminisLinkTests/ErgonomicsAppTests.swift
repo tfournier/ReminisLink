@@ -12,7 +12,7 @@ import Testing
 @Suite("App ergonomics (M11)", .serialized)
 struct ErgonomicsAppTests {
     let secure = InMemorySecureStore()
-    static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+    static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
     static let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Brambleway Dash.gba")
 
     /// Sessions hold their app unowned, and connections started by opening
@@ -58,7 +58,7 @@ struct ErgonomicsAppTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let id = pak.deviceId
-        let game = GameRoute(deviceId: id, gameId: Self.skyGarden, systemLabel: "Handheld Advance", name: "Sky Garden Quest", hasArt: true)
+        let game = GameRoute(deviceId: id, gameId: Self.skyGarden, systemLabel: "Handheld Advance", name: "Thistledown Isles", hasArt: true)
 
         // As the Patch screen opens a new ROM.
         app.path = [.console(id), .library(id), .game(game)]
@@ -110,7 +110,7 @@ struct ErgonomicsAppTests {
         let cheats = try #require(detail.files.first { $0.role == .cheats })
         let progress = FileDownload(fileId: try #require(cheats.fileId), expected: cheats.sizeBytes)
         let exported = try await session.downloadGameFile(gameId: Self.skyGarden, file: cheats, progress: progress)
-        #expect(exported.file.url.lastPathComponent == "Sky Garden Quest.gba.cht")
+        #expect(exported.file.url.lastPathComponent == "Thistledown Isles.gba.cht")
         #expect(exported.file.directory.deletingLastPathComponent().standardizedFileURL == app.exportDirectory.standardizedFileURL)
         await waitUntil { progress.fraction == 1 }
         #expect(progress.fraction == 1)

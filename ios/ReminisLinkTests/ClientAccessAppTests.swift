@@ -252,18 +252,18 @@ struct ClientAccessAppTests {
         await session.connect()
         pak.disconnect(clientId: clientId)
         let game = PatchGame(
-            id: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
-            fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Handheld Advance"
+            id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
+            fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
         )
         let flow = PatchFlow(session: session, game: game)
         flow.file = try await picked(app, name: "fix.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 64)))
-        flow.fileName = "Sky Garden Quest (fix).gba"
+        flow.fileName = "Thistledown Isles (fix).gba"
         flow.start()
         await waitUntil { flow.isWaitingForReconnection }
         #expect(flow.isWaitingForReconnection)
         await session.reconnect()
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
-        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (fix).gba"), late: false))
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (fix).gba"), late: false))
         // Refused (401, nothing created; or not sent at all, the session
         // already knowing it was disconnected), then created once.
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status == 401 }.count <= 1)
@@ -347,13 +347,13 @@ struct ClientAccessAppTests {
         let session = app.session(for: pak.deviceId)
         await session.connect()
         let game = PatchGame(
-            id: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
-            fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Handheld Advance"
+            id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
+            fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
         )
         let flow = PatchFlow(session: session, game: game)
         let file = try await picked(app, name: "big.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 300_000)))
         flow.file = file
-        flow.fileName = "Sky Garden Quest (big).gba"
+        flow.fileName = "Thistledown Isles (big).gba"
         // The upload is created, then its first chunk waits at the door
         // while the console disconnects this app.
         let chunkGate = Locked<FakeGate?>(nil)
@@ -384,7 +384,7 @@ struct ClientAccessAppTests {
 
         await session.reconnect()
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
-        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (big).gba"), late: false))
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (big).gba"), late: false))
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
 
@@ -397,13 +397,13 @@ struct ClientAccessAppTests {
         let session = app.session(for: pak.deviceId)
         await session.connect()
         let game = PatchGame(
-            id: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
-            fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Handheld Advance"
+            id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
+            fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
         )
         let flow = PatchFlow(session: session, game: game)
         let file = try await picked(app, name: "net.bps", contents: DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 1, target: Data(count: 100_000)))
         flow.file = file
-        flow.fileName = "Sky Garden Quest (net).gba"
+        flow.fileName = "Thistledown Isles (net).gba"
         let created = pak.holdNextAnswer(method: "POST", path: "/api/v1/uploads")
         flow.start()
         await waitUntil { created.reached }
@@ -421,7 +421,7 @@ struct ClientAccessAppTests {
 
         flow.start() // Resume
         await waitUntil { flow.step == .patching || !flow.step.isBusy }
-        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (net).gba"), late: false))
+        #expect(flow.step == .patching || flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (net).gba"), late: false))
         #expect(pak.log.filter { $0.method == "POST" && $0.path == "/api/v1/uploads" && $0.status < 300 }.count == 1)
     }
 }

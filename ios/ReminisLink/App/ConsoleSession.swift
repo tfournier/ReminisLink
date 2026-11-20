@@ -145,6 +145,8 @@ final class ConsoleSession {
     /// explicit action: every automatic path (screens, transfers, a sheet
     /// that ends) comes through here and is refused.
     func connect(explicit: Bool = false) async {
+        // M16: a demo that ended connects no more.
+        guard !app.isShutDown else { return }
         if closedByConsole {
             guard explicit else { return }
             closedByConsole = false
@@ -276,6 +278,8 @@ final class ConsoleSession {
     /// arriving last never shows an entry deleted since.
     @discardableResult
     func loadTrash() async -> Bool {
+        // M16: not while the demo runs (real app) or once shut down (demo).
+        guard !app.isPausedForDemo, !app.isShutDown else { return false }
         let generation = trashLoads.begin()
         guard let client, let fresh = try? await client.trash(), trashLoads.isCurrent(generation) else { return false }
         trash = fresh

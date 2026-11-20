@@ -135,7 +135,7 @@ extension FakePak {
     /// `ReminisLink/patches/`. Their bytes are headers only.
     func sdPatchFiles() -> [(id: String, path: String, bytes: Data)] {
         let files: [(String, Data)] = [
-            ("Roms/Handheld Advance (GBA)/Sky Garden Quest (Translation).bps",
+            ("Roms/Handheld Advance (GBA)/Thistledown Isles (Translation).bps",
              DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 0x1234_5678, target: Data("demo".utf8))),
             ("Roms/Handheld Advance (GBA)/Brambleway Dash (Hack).ups",
              DemoPatch.upsHeader(sourceSize: 4_194_304, targetSize: 4_194_304)),

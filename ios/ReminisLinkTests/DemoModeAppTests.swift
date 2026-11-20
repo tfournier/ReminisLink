@@ -124,11 +124,11 @@ struct DemoModeAppTests {
         let demo = makeDemo()
         try await demo.pair()
         #expect(demo.pak.drawsArtwork)
-        let cover = DemoArtwork.cover(for: "Sky Garden Quest")
+        let cover = DemoArtwork.cover(for: "Thistledown Isles")
         #expect(ArtImage.pngSize(cover)?.width == 512)
-        #expect(cover == DemoArtwork.cover(for: "Sky Garden Quest"))
+        #expect(cover == DemoArtwork.cover(for: "Thistledown Isles"))
         #expect(cover != DemoArtwork.cover(for: "Mosslight Maze"))
-        #expect(ArtImage.pngSize(DemoArtwork.screen(for: "Sky Garden Quest", slot: 1))?.width == 640)
+        #expect(ArtImage.pngSize(DemoArtwork.screen(for: "Thistledown Isles", slot: 1))?.width == 640)
         await demo.end()
     }
 
@@ -159,7 +159,7 @@ struct DemoModeAppTests {
         #expect(live.store.devices.count == 1)
     }
 
-    @Test func quittingDuringAFileCopyWaitsForItThenErases() async throws {
+    @Test func quittingDuringAFileCopyCancelsItThenErases() async throws {
         let (live, _) = try await makeLive()
         let root = AppRoot(live: live)
         let demo = makeDemo()
@@ -174,9 +174,10 @@ struct DemoModeAppTests {
         }
         try await Task.sleep(for: .milliseconds(20))
         root.quitDemo()
-        try await copy.value
+        // Cancelled (and waited for) before the erasure.
+        await #expect(throws: CancellationError.self) { try await copy.value }
         await root.waitForEndedDemos()
-        // Written before the erasure, never after it.
+        // Never written after the erasure.
         #expect(!FileManager.default.fileExists(atPath: demo.root.path))
         // New work is refused once the session ends.
         await #expect(throws: CancellationError.self) { try await demo.app.work.run { () } }
@@ -286,6 +287,117 @@ struct DemoModeAppTests {
         // Quit: the upload goes on and the sync starts again.
         root.quitDemo()
         await waitUntil(timeout: .seconds(20)) { item.phase == .done }
+        #expect(item.phase == .done)
+        let sync = live.saveSync(for: livePak.deviceId)
+        await waitForSync(sync)
+        guard case .finished = sync.phase else { Issue.record("no sync after the demo: \(sync.phase)"); return }
+        await root.waitForEndedDemos()
+    }
+
+    @Test func shuttingDownBeforeASyncFirstRunsKeepsNoSession() async throws {
+        weak var weakApp: AppModel?
+        do {
+            let demo = makeDemo()
+            weakApp = demo.app
+            try await demo.pair()
+            demo.app.syncOnConnect = false
+            await demo.app.session(for: demo.pak.deviceId).connect()
+            // Asked, then shut down in the same turn: the sync task has
+            // not run yet.
+            demo.app.startSaveSync(deviceId: demo.pak.deviceId)
+            await demo.end()
+            #expect(demo.app.sessionCount == 0)
+            // Late callers get nothing kept, nothing started.
+            _ = demo.app.session(for: demo.pak.deviceId)
+            demo.app.startSaveSync(deviceId: demo.pak.deviceId)
+            #expect(demo.app.sessionCount == 0)
+            #expect(!demo.app.saveSync(for: demo.pak.deviceId).isRunning)
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(weakApp == nil)
+    }
+
+    @Test func quittingCancelsAPatchUploadBeforeItsChunkFolder() async throws {
+        let (live, _) = try await makeLive()
+        let root = AppRoot(live: live)
+        let demo = makeDemo()
+        await root.startDemo { demo }
+        let session = demo.app.session(for: demo.pak.deviceId)
+        await session.connect()
+        let file = demo.app.transferDirectory.appending(path: "src/Fix.bps")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 40_000).write(to: file)
+        let scratch = demo.app.transferDirectory.appending(path: "chunks-patch")
+        let upload = ResumableUpload(
+            source: UploadSource(fileURL: file, sizeBytes: 40_000, sha256: String(repeating: "0", count: 64)),
+            target: .staging(fileName: "Fix.bps"), onConflict: .rename, scratchDirectory: scratch
+        )
+        let client = try await session.connectedClient()
+        // As PatchFlow does: the hashing, then the upload, as tracked work.
+        let patch = Task { @MainActor in
+            try await demo.app.work.run {
+                try await Task.sleep(for: .milliseconds(300))
+                return try await upload.run(client: client)
+            }
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        root.quitDemo()
+        await #expect(throws: CancellationError.self) { try await patch.value }
+        await root.waitForEndedDemos()
+        #expect(!FileManager.default.fileExists(atPath: scratch.path))
+        #expect(!FileManager.default.fileExists(atPath: demo.root.path))
+    }
+
+    @Test func quittingNeverWaitsForeverForAStuckOperation() async throws {
+        let (live, _) = try await makeLive()
+        let root = AppRoot(live: live)
+        let demo = makeDemo()
+        demo.shutdownTimeout = .milliseconds(300)
+        await root.startDemo { demo }
+        // A file provider that never answers, whatever the cancellation.
+        _ = Task { @MainActor in
+            try await demo.app.work.run {
+                await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+            }
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        let start = ContinuousClock.now
+        root.quitDemo()
+        await root.waitForEndedDemos()
+        #expect(ContinuousClock.now - start < .seconds(3))
+        #expect(demo.endTimedOut)
+        #expect(!FileManager.default.fileExists(atPath: demo.root.path))
+        #expect(root.demo == nil)
+    }
+
+    @Test func theRealAppStartsNothingNewDuringTheDemo() async throws {
+        let (live, livePak) = try await makeLive()
+        let liveSession = live.session(for: livePak.deviceId)
+        live.syncOnConnect = false
+        await liveSession.connect()
+        let system = try #require(try await liveSession.perform { try await $0.systems() }.first { $0.tag == "GBA" })
+        let root = AppRoot(live: live)
+        let demo = makeDemo()
+        await root.startDemo { demo }
+        let requests = livePak.log.count
+        // A sync asked during the demo (a connection that ended then) waits;
+        // so do a trash read and a new upload.
+        live.startSaveSync(deviceId: livePak.deviceId)
+        #expect(!live.saveSync(for: livePak.deviceId).isRunning)
+        #expect(live.syncsPausedForDemo == [livePak.deviceId])
+        #expect(await liveSession.loadTrash() == false)
+        let file = scratch.appending(path: "src/Later.gba")
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 2, count: 30_000).write(to: file)
+        let item = try liveSession.transfers.enqueue(
+            fileURL: file, target: .rom(systemId: system.id, fileName: "Later.gba"), destination: "GBA", ownsFile: false
+        )
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(livePak.log.count == requests, "\(livePak.log.suffix(from: requests).map { "\($0.method) \($0.path)" })")
+        #expect(item.phase == .waiting)
+        // Quit: the upload and the sync asked meanwhile run.
+        root.quitDemo()
+        await waitUntil { item.phase == .done }
         #expect(item.phase == .done)
         let sync = live.saveSync(for: livePak.deviceId)
         await waitForSync(sync)

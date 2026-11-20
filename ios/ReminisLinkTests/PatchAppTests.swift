@@ -12,12 +12,12 @@ import Testing
 struct PatchAppTests {
     let secure = InMemorySecureStore()
     let root = FileManager.default.temporaryDirectory.appending(path: "rl-m6-\(UUID().uuidString)")
-    let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+    let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba")
     let skyGardenGame = PatchGame(
-        id: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
-        fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Handheld Advance"
+        id: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles.gba"), name: "Thistledown Isles",
+        fileName: "Thistledown Isles.gba", kind: .file, systemLabel: "Handheld Advance"
     )
-    /// The size of Sky Garden Quest in the demo library.
+    /// The size of Thistledown Isles in the demo library.
     let skyGardenSize = 16_777_216
     /// Keeps the app models alive for the whole test: a session only
     /// holds its app `unowned`, as the app outlives every session.
@@ -92,17 +92,17 @@ struct PatchAppTests {
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
         let flow = PatchFlow(session: session, game: skyGardenGame)
-        #expect(flow.fileName == "Sky Garden Quest (patched).gba")
+        #expect(flow.fileName == "Thistledown Isles (patched).gba")
         #expect(!flow.canStart)
         let bps = DemoPatch.bps(sourceSize: skyGardenSize, sourceCRC32: 1, target: Data(count: 64))
         let file = try await picked(app, name: "translation.bps", contents: bps)
         flow.file = file
-        flow.fileName = "Sky Garden Quest (FR).gba"
+        flow.fileName = "Thistledown Isles (FR).gba"
         #expect(flow.canStart)
         let revision = session.libraryRevision
         flow.start()
         await runToTheEnd(flow)
-        let produced = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (FR).gba")
+        let produced = DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (FR).gba")
         #expect(flow.step == .succeeded(gameId: produced, late: false))
         // Sent to the staging area, then patched by its stagingId.
         #expect(pak.log.contains { $0.method == "POST" && $0.path.hasSuffix("/uploads") })
@@ -110,7 +110,7 @@ struct PatchAppTests {
         // The job is also on the Transfers screen.
         let item = try #require(session.transfers.jobs.first)
         #expect(item.kind == .patch)
-        #expect(item.title.contains("Sky Garden Quest"))
+        #expect(item.title.contains("Thistledown Isles"))
         #expect(session.libraryRevision > revision)
         // The copy of the file is gone once on the console.
         await waitUntilGone(file.directory)
@@ -154,8 +154,8 @@ struct PatchAppTests {
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
         let files = try await session.perform { try await $0.sdFiles(type: .patch) }
-        let sorted = SdFile.sortedForGame(files, fileName: "Sky Garden Quest.gba", name: "Sky Garden Quest")
-        #expect(sorted.first?.fileName == "Sky Garden Quest (Translation).bps")
+        let sorted = SdFile.sortedForGame(files, fileName: "Thistledown Isles.gba", name: "Thistledown Isles")
+        #expect(sorted.first?.fileName == "Thistledown Isles (Translation).bps")
         let flow = PatchFlow(session: session, game: skyGardenGame)
         flow.source = .sdCard
         flow.sdFileId = sorted.first?.id
@@ -226,12 +226,12 @@ struct PatchAppTests {
         flow.fileName = "../x.gba"
         #expect(!flow.canStart)
         // Another ending: the ROM's extension is added, as by the pak.
-        flow.fileName = "Sky Garden Quest (FR).gb"
-        #expect(flow.canStart && flow.outputName == .valid("Sky Garden Quest (FR).gb.gba"))
+        flow.fileName = "Thistledown Isles (FR).gb"
+        #expect(flow.canStart && flow.outputName == .valid("Thistledown Isles (FR).gb.gba"))
         // No extension: the ROM's is added.
-        flow.fileName = "Sky Garden Quest (FR)"
-        #expect(flow.canStart && flow.outputName == .valid("Sky Garden Quest (FR).gba"))
-        flow.fileName = "Sky Garden Quest (FR).gb"
+        flow.fileName = "Thistledown Isles (FR)"
+        #expect(flow.canStart && flow.outputName == .valid("Thistledown Isles (FR).gba"))
+        flow.fileName = "Thistledown Isles (FR).gb"
         flow.mode = .replace
         #expect(flow.canStart)
         // An archive ROM is not offered.
@@ -247,7 +247,7 @@ struct PatchAppTests {
         shared.sdFileId = "sd_1"
         #expect(!shared.canStart)
         shared.game = skyGardenGame
-        #expect(shared.fileName == "Sky Garden Quest (patched).gba")
+        #expect(shared.fileName == "Thistledown Isles (patched).gba")
         #expect(shared.canStart)
     }
 
@@ -312,7 +312,7 @@ struct PatchAppTests {
         await wait(flow) { $0 == .patching }
         try await finishOnTheConsole(try #require(flow.job?.id), session)
         await flow.cancel()
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: true))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: true))
     }
 
     @Test func cancellingWhileTheFileIsSentNeverPatches() async throws {
@@ -410,7 +410,7 @@ struct PatchAppTests {
         #expect(flow.step == .patching)
         await runToTheEnd(flow)
         #expect(flow.pollError == nil)
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: false))
     }
 
     /// "Try Again" while the timer polls too: the patch job is seen
@@ -437,7 +437,7 @@ struct PatchAppTests {
         async let second: Void = flow.tick()
         _ = await (first, second)
         pak.responseDelay = 0
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Thistledown Isles (patched).gba"), late: false))
         #expect(pak.log.filter { $0.path.hasSuffix("/patch") }.count == 1)
     }
 

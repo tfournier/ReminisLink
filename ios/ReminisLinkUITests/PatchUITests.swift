@@ -32,7 +32,7 @@ final class PatchUITests: XCTestCase {
         attachScreenshot(of: app, named: "patch-mismatch")
 
         // The patch of this game, replacing it.
-        GameDataUITest.button(app, "patch.sdFile", containing: "Sky Garden Quest (Translation).bps").tap()
+        GameDataUITest.button(app, "patch.sdFile", containing: "Thistledown Isles (Translation).bps").tap()
         XCTAssertFalse(error.exists, "error kept after a new choice")
         app.buttons["Replace the Game"].firstMatch.tapAfterWaiting()
         XCTAssertTrue(app.descendants(matching: .any)["patch.replaceWarning"].firstMatch.waitForExistence(timeout: 5))
@@ -52,7 +52,7 @@ final class PatchUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += GameDataUITest.englishArguments
         app.launchEnvironment["RL_DEMO"] = "1"
-        // Sky Garden Quest is 16 MiB in the demo; the fake pak checks the size.
+        // Thistledown Isles is 16 MiB in the demo; the fake pak checks the size.
         app.launchEnvironment["RL_UITEST_SHARE_PATCH"] = "UITest Hack.bps:16777216:00000000:UITest output"
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)
@@ -60,21 +60,21 @@ final class PatchUITests: XCTestCase {
         XCTAssertTrue(pairingDone.waitForExistence(timeout: 15), "pairing did not finish")
         pairingDone.tap()
 
-        chooseGame(app, game: "Sky Garden Quest", timeout: 15)
+        chooseGame(app, game: "Thistledown Isles", timeout: 15)
         XCTAssertTrue(app.descendants(matching: .any)["patch.file"].firstMatch.waitForExistence(timeout: 10), "shared file not shown")
         let name = app.textFields["patch.fileName"]
-        XCTAssertEqual(name.value as? String, "Sky Garden Quest (patched).gba")
+        XCTAssertEqual(name.value as? String, "Thistledown Isles (patched).gba")
         // Without extension: the ROM's is added (shown, then sent).
-        replaceText(of: name, with: "Sky Garden Quest DX")
+        replaceText(of: name, with: "Thistledown Isles DX")
         let finalName = app.staticTexts["patch.finalName"]
         XCTAssertTrue(finalName.waitForExistence(timeout: 5))
-        XCTAssertTrue(finalName.label.contains("Sky Garden Quest DX.gba"), finalName.label)
+        XCTAssertTrue(finalName.label.contains("Thistledown Isles DX.gba"), finalName.label)
         attachScreenshot(of: app, named: "patch-shared")
         app.buttons["patch.apply"].tapWhenEnabled()
         app.buttons["patch.openGame"].tapAfterWaiting(timeout: 30)
         let title = app.staticTexts["game.title"]
         XCTAssertTrue(title.waitForExistence(timeout: 15))
-        XCTAssertEqual(title.label, "Sky Garden Quest DX")
+        XCTAssertEqual(title.label, "Thistledown Isles DX")
     }
 
     /// Against a real pak (`make headless`), on Starlight Courier
