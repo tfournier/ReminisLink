@@ -114,7 +114,7 @@ struct StatesView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
                 Text("A lock keeps a copy of the state on the console. It cannot stop a game from overwriting the state: the state is restored the next time ReminisLink is opened on the console if it was overwritten in game.")
-                Text("Deleted states go to the trash of the console for at least 30 days.")
+                Text("Deleted states go to the trash of the console, removed automatically after 30 days or when it is emptied.")
             }
             .accessibilityIdentifier("states.lockHelp")
         }
@@ -243,7 +243,7 @@ struct StatesView: View {
         case .restore:
             Text("The current state goes to the trash of the console, then the locked copy replaces it.")
         case .delete:
-            Text("The state goes to the trash of the console, where it stays for at least 30 days.")
+            Text("The state goes to the trash of the console, removed automatically after 30 days or when it is emptied.")
         case .restoreResume(let entry):
             Text("The current resume state is archived first, then replaced by the version of \(entry.capturedAt.dateTimeString).")
         }

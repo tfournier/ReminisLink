@@ -21,12 +21,12 @@
         }
       }
     },
-    "%@ goes to the trash of the console: it can be recovered for at least 30 days." : {
+    "%@ goes to the trash of the console: it can be recovered until it is removed automatically after 30 days, or until the trash is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ va dans la corbeille de la console : récupérable pendant au moins 30 jours."
+            "value" : "%@ va dans la corbeille de la console : récupérable jusqu’à son effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée."
           }
         }
       }
@@ -61,12 +61,12 @@
         }
       }
     },
-    "%@ stay on the SD card for at least 30 days, until the trash is emptied." : {
+    "%@ stay on the SD card until they are removed automatically after 30 days, or until the trash is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ restent sur la carte SD pendant au moins 30 jours, jusqu’à ce que la corbeille soit vidée."
+            "value" : "%@ restent sur la carte SD jusqu’à leur effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée."
           }
         }
       }
@@ -1291,12 +1291,12 @@
         }
       }
     },
-    "Deleted states go to the trash of the console for at least 30 days." : {
+    "Deleted states go to the trash of the console, removed automatically after 30 days or when it is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les states supprimés vont dans la corbeille de la console pendant au moins 30 jours."
+            "value" : "Les states supprimés vont dans la corbeille de la console, effacés automatiquement après 30 jours ou quand elle est vidée."
           }
         }
       }
@@ -1651,12 +1651,12 @@
         }
       }
     },
-    "Everything stays in the trash of the console for at least 30 days. The space is only freed when the trash is emptied." : {
+    "Everything stays in the trash of the console until it is removed automatically after 30 days, or until the trash is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tout reste dans la corbeille de la console pendant au moins 30 jours. L’espace n’est libéré qu’en vidant la corbeille."
+            "value" : "Tout reste dans la corbeille de la console jusqu’à son effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée."
           }
         }
       }
@@ -1731,12 +1731,12 @@
         }
       }
     },
-    "Files stay in the trash of the console for at least 30 days. Their space is only freed when the trash is emptied." : {
+    "Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les fichiers restent au moins 30 jours dans la corbeille de la console. Leur espace n’est libéré qu’en vidant la corbeille."
+            "value" : "Les fichiers restent dans la corbeille de la console jusqu’à leur effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée."
           }
         }
       }
@@ -2051,12 +2051,12 @@
         }
       }
     },
-    "Install ReminisLink on the console from the Pak Store." : {
+    "Install ReminisLink on the console: see the installation guide on reminis.link." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installe ReminisLink sur la console depuis le Pak Store."
+            "value" : "Installe ReminisLink sur la console : voir le guide d’installation sur reminis.link."
           }
         }
       }
@@ -4611,12 +4611,12 @@
         }
       }
     },
-    "The state goes to the trash of the console, where it stays for at least 30 days." : {
+    "The state goes to the trash of the console, removed automatically after 30 days or when it is emptied." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le state va dans la corbeille de la console, où il reste au moins 30 jours."
+            "value" : "Le state va dans la corbeille de la console, effacé automatiquement après 30 jours ou quand elle est vidée."
           }
         }
       }

@@ -149,7 +149,7 @@ struct DeleteGameView: View {
             .disabled(isWorking || preview == nil)
             .accessibilityIdentifier("delete.confirm")
         } footer: {
-            Text("Everything stays in the trash of the console for at least 30 days. The space is only freed when the trash is emptied.")
+            Text("Everything stays in the trash of the console until it is removed automatically after 30 days, or until the trash is emptied.")
         }
     }
 
@@ -164,7 +164,7 @@ struct DeleteGameView: View {
         } header: {
             Text("Moved to the trash of the console")
         } footer: {
-            Text("\(result.movedBytes.byteString) stay on the SD card for at least 30 days, until the trash is emptied.")
+            Text("\(result.movedBytes.byteString) stay on the SD card until they are removed automatically after 30 days, or until the trash is emptied.")
         }
         .accessibilityIdentifier("delete.result")
         Section {

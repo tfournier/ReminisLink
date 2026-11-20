@@ -129,7 +129,7 @@ struct PaksView: View {
             }
             .accessibilityIdentifier("pak.delete.confirm")
         } message: { pak in
-            Text("\(pak.name) goes to the trash of the console: it can be recovered for at least 30 days.")
+            Text("\(pak.name) goes to the trash of the console: it can be recovered until it is removed automatically after 30 days, or until the trash is emptied.")
         }
         .pakReplacementConfirmation(manager)
         .task { await manager.load() }

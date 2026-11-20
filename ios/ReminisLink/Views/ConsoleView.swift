@@ -142,7 +142,7 @@ struct TrashView: View {
                     }
                 }
             } footer: {
-                Text("Files stay in the trash of the console for at least 30 days. Their space is only freed when the trash is emptied.")
+                Text("Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied.")
             }
         }
         .overlay {

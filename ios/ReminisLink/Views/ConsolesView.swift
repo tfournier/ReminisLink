@@ -286,7 +286,7 @@ struct WelcomeView: View {
                     .frame(maxWidth: .infinity)
                     .multilineTextAlignment(.center)
                 VStack(alignment: .leading, spacing: 16) {
-                    step(1, "Install ReminisLink on the console from the Pak Store.")
+                    step(1, "Install ReminisLink on the console: see the installation guide on reminis.link.")
                     step(2, "Open ReminisLink from the Tools menu of the console. If another device is already paired, open Settings > Pair a New Device.")
                     step(3, "Scan the QR code shown on the console.")
                 }
