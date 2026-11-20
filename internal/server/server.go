@@ -121,6 +121,9 @@ type Server struct {
 	// streamHook, when set (tests), is called by a stream after it took
 	// an event, before writing it.
 	streamHook atomic.Pointer[func(events.Event)]
+	// sampleHook, when set (tests), is called after each device sample
+	// (changed: the streams were marked).
+	sampleHook atomic.Pointer[func(changed bool)]
 }
 
 // timeouts are the durations of the server, changed by tests only.
@@ -129,9 +132,12 @@ type timeouts struct {
 	sendIdle time.Duration // SendIdleTimeout
 	shutdown time.Duration // ShutdownTimeout
 	grace    time.Duration // shutdownGrace
-	// keepAlive: KeepAliveInterval; deviceSample: DeviceSampleEvery.
+	// keepAlive: KeepAliveInterval; deviceSample and deviceRate (the
+	// least time between two device events of a stream):
+	// DeviceSampleEvery.
 	keepAlive    time.Duration
 	deviceSample time.Duration
+	deviceRate   time.Duration
 }
 
 // New builds the server and its routes.
@@ -173,6 +179,7 @@ func New(opts Options) (*Server, error) {
 			grace:        shutdownGrace,
 			keepAlive:    KeepAliveInterval,
 			deviceSample: DeviceSampleEvery,
+			deviceRate:   DeviceSampleEvery,
 		},
 	}
 	s.events = s.newEventHub(events.Options{})

@@ -14,13 +14,17 @@
 //   - job: at most one per JobInterval for each job, the latest state
 //     winning, except that a change of state (or of cancelRequested) is
 //     sent at once;
-//   - device: sent at once; the caller (the device sampler) limits the
-//     rate, so that it can publish under its own lock.
+//   - device: not an event in the buffers. The sampler marks every
+//     stream "device dirty" (MarkDevice) and each stream builds the
+//     event when it writes it, with the presence of that moment, at most
+//     one per interval for that stream.
 //
 // A subscription ended by the hub (revoked, lagging, shutdown) keeps its
-// place in the limits until its owner calls Close, when its stream is
-// really gone: a client cannot open more streams while the old ones are
-// still being cut off.
+// place in the limits, and stays reachable by CloseClient, until its
+// owner calls Close, when its stream is really gone: a client cannot
+// open more streams while the old ones are still being cut off, and a
+// revocation during the shutdown still stops a stream writing its last
+// events.
 //
 // Event ids are not set here: each stream numbers its own events.
 package events
@@ -104,8 +108,8 @@ type Hub struct {
 
 	mu     sync.Mutex
 	subs   map[*Subscription]struct{} // receiving events
-	open   int                        // not yet Closed by their owner
-	count  map[string]int             // open streams per client
+	live   map[*Subscription]struct{} // not yet Closed by their owner
+	count  map[string]int             // live streams per client
 	closed bool
 
 	library throttle
@@ -147,7 +151,7 @@ func New(opts Options) *Hub {
 	if opts.JobInterval <= 0 {
 		opts.JobInterval = DefaultJobInterval
 	}
-	return &Hub{opts: opts, subs: map[*Subscription]struct{}{}, count: map[string]int{},
+	return &Hub{opts: opts, subs: map[*Subscription]struct{}{}, live: map[*Subscription]struct{}{}, count: map[string]int{},
 		libIDs: map[string]struct{}{}, jobs: map[string]*jobThrottle{}}
 }
 
@@ -160,9 +164,13 @@ type Subscription struct {
 	done     chan struct{}
 	reason   CloseReason // set before done is closed
 	final    Event       // the shutdown event (Reason Shutdown)
-	counted  bool        // holds its place in the limits until Close
 	onEnd    func(CloseReason)
+	device   chan struct{} // "device dirty" (capacity 1)
 }
+
+// Device is signalled when the device state changed (MarkDevice): the
+// stream then builds and writes a device event.
+func (s *Subscription) Device() <-chan struct{} { return s.device }
 
 // OnEnd sets the function called, with the hub lock held, when the hub
 // ends the subscription (Lagging, Revoked or Shutdown; not Close): the
@@ -204,9 +212,8 @@ func (s *Subscription) Close() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.removeLocked(s, Cancelled)
-	if s.counted {
-		s.counted = false
-		h.open--
+	if _, ok := h.live[s]; ok {
+		delete(h.live, s)
 		if h.count[s.clientID]--; h.count[s.clientID] <= 0 {
 			delete(h.count, s.clientID)
 		}
@@ -220,12 +227,13 @@ func (h *Hub) Subscribe(clientID string) (*Subscription, error) {
 	switch {
 	case h.closed:
 		return nil, ErrClosed
-	case h.open >= h.opts.MaxTotal, h.count[clientID] >= h.opts.MaxPerClient:
+	case len(h.live) >= h.opts.MaxTotal, h.count[clientID] >= h.opts.MaxPerClient:
 		return nil, ErrTooManyStreams
 	}
-	s := &Subscription{hub: h, clientID: clientID, ch: make(chan Event, h.opts.Buffer), done: make(chan struct{}), counted: true}
+	s := &Subscription{hub: h, clientID: clientID, ch: make(chan Event, h.opts.Buffer), done: make(chan struct{}),
+		device: make(chan struct{}, 1)}
 	h.subs[s] = struct{}{}
-	h.open++
+	h.live[s] = struct{}{}
 	h.count[clientID]++
 	if len(h.subs) == 1 && h.opts.OnActive != nil {
 		h.opts.OnActive(true)
@@ -276,7 +284,7 @@ func (t *throttle) stop() {
 func (h *Hub) Count() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.open
+	return len(h.live)
 }
 
 // Active reports whether at least one stream receives events: producers
@@ -293,13 +301,37 @@ func (h *Hub) CloseClient(clientID string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	n := 0
-	for s := range h.subs {
-		if s.clientID == clientID {
+	for s := range h.live {
+		if s.clientID != clientID {
+			continue
+		}
+		n++
+		switch {
+		case s.reason == Open:
 			h.removeLocked(s, Revoked)
-			n++
+		case s.reason == Shutdown:
+			// Still writing its last events: the revocation wins, no
+			// shutdown event.
+			s.reason, s.final = Revoked, Event{}
+			if s.onEnd != nil {
+				s.onEnd(Revoked)
+			}
 		}
 	}
 	return n
+}
+
+// MarkDevice tells every stream that the device state changed. It never
+// blocks.
+func (h *Hub) MarkDevice() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for s := range h.subs {
+		select {
+		case s.device <- struct{}{}:
+		default: // already marked
+		}
+	}
 }
 
 // Shutdown refuses new streams and ends every stream with the shutdown
@@ -417,21 +449,6 @@ func (h *Hub) sendLibraryLocked() {
 		SystemIDs []string `json:"systemIds"`
 	}{ids})
 	h.broadcastLocked(Event{Type: TypeLibrary, Data: data})
-}
-
-// Device publishes the state of the device (EventDevice) at once. The
-// caller limits the rate (at most one every 5 s).
-func (h *Hub) Device(v any) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.closed || len(h.subs) == 0 {
-		return
-	}
-	data, err := json.Marshal(v)
-	if err != nil {
-		return
-	}
-	h.broadcastLocked(Event{Type: TypeDevice, Data: data})
 }
 
 // Job publishes the state of a job (a Job of the contract, marshalled

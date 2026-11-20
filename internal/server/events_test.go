@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/events"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -470,11 +469,46 @@ func TestEventsReadOnlyClient(t *testing.T) {
 	}
 }
 
+// fastDevice samples the device every 20 ms, with at most one device
+// event per rate for each stream; the result of each sample (changed)
+// goes to the returned channel.
+func (f *fixture) fastDevice(rate time.Duration) chan bool {
+	f.server.timeouts.deviceSample = 20 * time.Millisecond
+	f.server.timeouts.deviceRate = rate
+	samples := make(chan bool, 10000)
+	hook := func(changed bool) {
+		select {
+		case samples <- changed:
+		default:
+		}
+	}
+	f.server.sampleHook.Store(&hook)
+	return samples
+}
+
+// waitSample waits for a sample that marked the streams (changed) or,
+// with changed false, for any sample.
+func waitSample(t *testing.T, samples chan bool, changed bool) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case c := <-samples:
+			if c || !changed {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no device sample")
+		}
+	}
+}
+
 func TestEventsDevice(t *testing.T) {
 	f := newFixture(t)
 	f.fastEvents(events.Options{})
-	f.server.timeouts.deviceSample = 20 * time.Millisecond
+	samples := f.fastDevice(0)
 	s := f.openEvents(f.client)
+	waitSample(t, samples, false) // the reference
 	// Small changes of the free space are ignored.
 	f.storage.Add(-1000)
 	if ev, err := s.NextEvent(200 * time.Millisecond); !errors.Is(err, testutil.ErrSSETimeout) {
@@ -760,41 +794,89 @@ func TestEventsRevocationInterruptsABlockedWrite(t *testing.T) {
 	}
 }
 
-// A device sample that races with a revocation never publishes the
-// revoked client: the battery and the space are read first, the clients
-// and the publication happen under the access lock.
-func TestEventsDeviceSampleDuringARevocation(t *testing.T) {
-	var armed atomic.Pointer[func()]
-	f := newFixture(t, func(o *Options) {
-		inner := o.Storage
-		o.Storage = func(p string) (device.Storage, error) {
-			if hook := armed.Swap(nil); hook != nil {
-				(*hook)()
-			}
-			return inner(p)
-		}
-	})
+// A device change marked while a stream is busy writing another event,
+// then a revocation: the device event is built when it is written, so it
+// never shows the revoked client again.
+func TestEventsDeviceAfterARevocation(t *testing.T) {
+	f := newFixture(t)
 	f.fastEvents(events.Options{})
-	f.server.timeouts.deviceSample = 20 * time.Millisecond
+	samples := f.fastDevice(0)
 	b := f.pairNamed("iPad")
 	f.as(b, "GET", "/api/v1/systems", "/systems", nil, http.StatusOK)
 	s := f.openEvents(f.client)
+	waitSample(t, samples, false) // the reference, with B connected
+	taken, release := f.takeHook(events.TypeLibrary)
+	f.server.events.Library(id(gbaFolder))
+	<-taken // the stream is busy with the library event
 	f.storage.Add(-2 << 20)
-	if ev := f.nextEvent(s); ev.Type != "device" || !strings.Contains(ev.Data, `"iPad"`) {
-		t.Fatalf("first device event %+v", ev)
+	waitSample(t, samples, true) // the stream is marked: B still connected
+	if err := f.server.Disconnect(b.ClientID); err != nil {
+		t.Fatal(err)
 	}
-	// The next sample: B is disconnected while the space is read.
-	hook := func() {
-		if err := f.server.Disconnect(b.ClientID); err != nil {
-			t.Error(err)
-		}
-		f.storage.Add(-2 << 20)
+	close(release)
+	if ev := f.nextEvent(s); ev.Type != "library" {
+		t.Fatalf("%+v", ev)
 	}
-	armed.Store(&hook)
 	ev := f.nextEvent(s)
-	if ev.Type != "device" || strings.Contains(ev.Data, `"iPad"`) {
+	if ev.Type != "device" || strings.Contains(ev.Data, `"iPad"`) || !strings.Contains(ev.Data, `"freeBytes":`+fmt.Sprint(f.storage.Load())) {
 		t.Fatalf("device event after the revocation %+v", ev)
 	}
+}
+
+// Each stream gets at most one device event per interval, whatever the
+// samples: changes within it are sent once, at its end.
+func TestEventsDeviceRate(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{})
+	const rate = 300 * time.Millisecond
+	samples := f.fastDevice(rate)
+	s := f.openEvents(f.client)
+	waitSample(t, samples, false)
+	stop := make(chan struct{})
+	go func() { // a change at every sample
+		for {
+			select {
+			case <-stop:
+				return
+			case <-samples:
+				f.storage.Add(-2 << 20)
+			}
+		}
+	}()
+	var times []time.Time
+	for len(times) < 4 {
+		if ev := f.nextEvent(s); ev.Type == "device" {
+			times = append(times, time.Now())
+		}
+	}
+	close(stop)
+	for i := 1; i < len(times); i++ {
+		// The receive times jitter a little around the send times.
+		if gap := times[i].Sub(times[i-1]); gap < rate-50*time.Millisecond {
+			t.Errorf("device events %v apart, want at least %v", gap, rate)
+		}
+	}
+}
+
+// Unpairing during the shutdown (a request accepted just before it)
+// still stops a stream writing its last events: revocation wins over
+// the shutdown event.
+func TestEventsRevocationDuringShutdown(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{})
+	c := f.pairNamed("iPad")
+	s := f.openEvents(c)
+	taken, release := f.takeHook(events.TypeLibrary)
+	f.server.events.Library(id(gbaFolder))
+	<-taken
+	f.server.events.Job("job_000000000000000000000001", "queued", false, map[string]any{"queued": true})
+	f.server.CloseEvents(events.ReasonQuit)
+	if _, err := f.server.Forget(c.ClientID); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	wantCut(t, s)
+	waitFor(t, "stream gone", func() bool { return f.server.EventStreams() == 0 })
 }
 
 // At shutdown, a stream whose write is blocked (the client stopped

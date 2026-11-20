@@ -91,22 +91,50 @@ func TestLibraryCoalescing(t *testing.T) {
 func TestNoEventWithoutStreams(t *testing.T) {
 	h := New(fast())
 	h.Library("A")
-	h.Device(map[string]int{"x": 1})
 	h.Job("j", "running", false, map[string]int{"x": 1})
 	s := subscribe(t, h, "a")
 	none(t, s, 150*time.Millisecond)
 }
 
-// Device events go at once: the sampler limits their rate.
-func TestDeviceAtOnce(t *testing.T) {
+// MarkDevice marks every stream once, without blocking.
+func TestMarkDevice(t *testing.T) {
 	h := New(fast())
-	s := subscribe(t, h, "a")
-	h.Device(map[string]int{"v": 1})
-	h.Device(map[string]int{"v": 2})
-	for _, want := range []string{`{"v":1}`, `{"v":2}`} {
-		if ev := next(t, s); ev.Type != TypeDevice || string(ev.Data) != want {
-			t.Fatalf("%s %s, want %s", ev.Type, ev.Data, want)
+	a, b := subscribe(t, h, "a"), subscribe(t, h, "b")
+	h.MarkDevice()
+	h.MarkDevice()
+	for _, s := range []*Subscription{a, b} {
+		select {
+		case <-s.Device():
+		default:
+			t.Fatal("not marked")
 		}
+		select {
+		case <-s.Device():
+			t.Fatal("marked twice")
+		default:
+		}
+	}
+}
+
+// A revocation during the shutdown reaches a stream still writing its
+// last events: no shutdown event for it.
+func TestRevocationDuringShutdown(t *testing.T) {
+	h := New(fast())
+	a, b := subscribe(t, h, "a"), subscribe(t, h, "b")
+	var reasons []CloseReason
+	a.OnEnd(func(r CloseReason) { reasons = append(reasons, r) })
+	h.Shutdown(ReasonQuit)
+	if n := h.CloseClient("a"); n != 1 {
+		t.Fatalf("closed %d", n)
+	}
+	if fmt.Sprint(reasons) != fmt.Sprint([]CloseReason{Shutdown, Revoked}) {
+		t.Fatalf("OnEnd %v", reasons)
+	}
+	if _, ok := a.Final(); ok || a.Reason() != Revoked {
+		t.Fatalf("a keeps its shutdown event: %v", a.Reason())
+	}
+	if _, ok := b.Final(); !ok {
+		t.Fatal("b lost its shutdown event")
 	}
 }
 
@@ -346,7 +374,7 @@ func TestConcurrentUse(t *testing.T) {
 				default:
 				}
 				h.Library(fmt.Sprint(i))
-				h.Device(n)
+				h.MarkDevice()
 				h.Job(fmt.Sprint("j", i), fmt.Sprint(n%3), n%7 == 0, n)
 			}
 		}(i)

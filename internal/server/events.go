@@ -172,11 +172,39 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
+	// Device events: at most one per deviceRate for this stream; a change
+	// within it is sent when it ends.
+	var lastDevice time.Time
+	var deviceTimer *time.Timer
+	var deviceLater <-chan time.Time
+	stopDeviceTimer := func() {
+		if deviceTimer != nil {
+			deviceTimer.Stop()
+			deviceTimer, deviceLater = nil, nil
+		}
+	}
+	defer stopDeviceTimer()
+	sendDevice := func() error {
+		stopDeviceTimer() // a change marked meanwhile goes with this event
+		lastDevice = time.Now()
+		return sw.event(s.deviceEvent(), idle)
+	}
 	for {
 		var err error
 		select {
 		case <-r.Context().Done():
 			return
+		case <-sub.Device():
+			if wait := s.timeouts.deviceRate - time.Since(lastDevice); !lastDevice.IsZero() && wait > 0 {
+				if deviceLater == nil {
+					deviceTimer = time.NewTimer(wait)
+					deviceLater = deviceTimer.C
+				}
+				continue
+			}
+			err = sendDevice()
+		case <-deviceLater:
+			err = sendDevice()
 		case ev := <-sub.C():
 			if hook := s.streamHook.Load(); hook != nil {
 				(*hook)(ev)
@@ -306,10 +334,15 @@ type eventDevice struct {
 	Storage          []storageVolume   `json:"storage"`
 }
 
-// deviceSampler reads the device state while at least one stream is open.
+// deviceSampler reads the device state while at least one stream is
+// open. It only detects changes: the streams build their device events
+// when they write them (deviceEvent).
 type deviceSampler struct {
 	mu   sync.Mutex
 	stop chan struct{}
+	gen  uint64      // of the running sampler; an older one stops
+	last eventDevice // last sample (connectedClients: for comparison only)
+	have bool        // last is set (the first sample of a run is the reference)
 }
 
 // eventsActive is the OnActive hook of the hub (called with its lock
@@ -321,59 +354,80 @@ func (s *Server) eventsActive(active bool) {
 	switch {
 	case active && s.sampler.stop == nil:
 		s.sampler.stop = make(chan struct{})
-		go s.sampleDevice(s.sampler.stop, s.timeouts.deviceSample)
+		s.sampler.gen++
+		s.sampler.have = false
+		go s.sampleDevice(s.sampler.stop, s.sampler.gen, s.timeouts.deviceSample)
 	case !active && s.sampler.stop != nil:
 		close(s.sampler.stop)
 		s.sampler.stop = nil
 	}
 }
 
-// sampleDevice publishes a device event when the battery, the connected
-// clients or the free space (by FreeSpaceStep at least) changed since the
-// last one, at most one per interval. The first sample is the reference:
-// the app reads GET /device when its stream opens.
-func (s *Server) sampleDevice(stop <-chan struct{}, every time.Duration) {
-	last, _ := s.publishDevice(nil)
-	var sent time.Time
+// sampleDevice reads the device state every interval and marks the
+// streams "device dirty" when the battery, the connected clients or the
+// free space (by FreeSpaceStep at least) changed since the last sample.
+// The first sample is the reference: the app reads GET /device when its
+// stream opens.
+func (s *Server) sampleDevice(stop <-chan struct{}, gen uint64, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
+		cur := s.readDevice()
+		s.sampler.mu.Lock()
+		if s.sampler.gen != gen { // a newer sampler runs
+			s.sampler.mu.Unlock()
+			return
+		}
+		changed := s.sampler.have && deviceChanged(s.sampler.last, cur)
+		if changed || !s.sampler.have {
+			s.sampler.last, s.sampler.have = cur, true
+		}
+		s.sampler.mu.Unlock()
+		// Outside the sampler lock: the hub calls eventsActive with its
+		// own lock held.
+		if changed {
+			s.events.MarkDevice()
+		}
+		if hook := s.sampleHook.Load(); hook != nil {
+			(*hook)(changed)
+		}
 		select {
 		case <-stop:
 			return
 		case <-ticker.C:
 		}
-		if !sent.IsZero() && time.Since(sent) < every {
-			continue // a late tick: the change goes at the next one
-		}
-		if cur, ok := s.publishDevice(&last); ok {
-			last, sent = cur, time.Now()
-		}
 	}
 }
 
-// publishDevice reads the device state and, when it changed since last
-// (nil: just read it), publishes it. The connected clients are read and
-// the event handed to the streams under the access lock, so a revocation
-// (which removes the presence under that lock) is either already in the
-// event or comes after it: an event never brings back a client that
-// Disconnect or Forget already removed.
-func (s *Server) publishDevice(last *eventDevice) (eventDevice, bool) {
-	d := eventDevice{Storage: []storageVolume{}}
+// readDevice reads the battery, the space of the SD card and the
+// connected clients.
+func (s *Server) readDevice() eventDevice {
+	d := eventDevice{Storage: []storageVolume{}, ConnectedClients: s.ConnectedClients()}
 	if info, err := s.opts.Adapter.DeviceInfo(); err == nil && info.Battery != nil {
 		d.Battery = &batteryInfo{Percent: info.Battery.Percent, Charging: info.Battery.Charging}
 	}
 	if st, err := s.opts.Storage(s.opts.Adapter.Roots().SD); err == nil {
 		d.Storage = append(d.Storage, storageVolume{ID: "sd", Label: "SD", TotalBytes: st.TotalBytes, FreeBytes: st.FreeBytes})
 	}
-	s.access.mu.Lock()
-	defer s.access.mu.Unlock()
-	d.ConnectedClients = s.ConnectedClients()
-	if last == nil || !deviceChanged(*last, d) {
-		return d, false
+	return d
+}
+
+// deviceEvent builds a device event when a stream writes it: the battery
+// and the space of the last sample, the connected clients of this moment
+// (read under the access lock, like GET /device), so a client removed by
+// a revocation before is never shown again.
+func (s *Server) deviceEvent() events.Event {
+	s.sampler.mu.Lock()
+	d := eventDevice{Battery: s.sampler.last.Battery, Storage: s.sampler.last.Storage}
+	s.sampler.mu.Unlock()
+	if d.Storage == nil {
+		d.Storage = []storageVolume{}
 	}
-	s.events.Device(d)
-	return d, true
+	s.access.mu.Lock()
+	d.ConnectedClients = s.ConnectedClients()
+	s.access.mu.Unlock()
+	data, _ := json.Marshal(d)
+	return events.Event{Type: events.TypeDevice, Data: data}
 }
 
 // deviceChanged compares what a device event is about: the battery, the
