@@ -2171,7 +2171,15 @@ paths:
         directly in its folder (names compared ignoring case, as on the
         exFAT card). Files at the top of the archive next to the pak
         folder and the `__MACOSX/` folder are ignored; any other entry
-        outside the pak folder refuses the archive.
+        outside the pak folder refuses the archive. **Loose archives**
+        (Pak Store style): when a `launch.sh` file is at the top of the
+        archive, every entry (but `__MACOSX/`) belongs to the pak, named
+        after the `name` of its `pak.json` when it is a usable name, else
+        after the file name of the archive (the `fileName` of the upload,
+        the deduced or given name of the download, the name of the SD
+        entry) without `.zip`; `.pak` is added when missing and the name
+        is cleaned like any file name (refused when nothing usable is
+        left: `422 unsupported_format`).
 
         **Protections** (rule 2 of CLAUDE.md; the content itself is not
         judged, as for a ROM): an entry with an absolute path, a `..` or
@@ -2179,9 +2187,13 @@ paths:
         character, invalid UTF-8, a component of more than 255 bytes or a
         path of more than 1024 bytes refuses the archive; so do a symbolic
         link or any entry that is neither a file nor a folder, two entries
-        whose paths differ only by case, more than 10 000 entries, more
+        whose paths differ only by case (folders included), more than
+        10 000 entries or a central directory of more than 4 MiB (both
+        read from the end records before the directory itself), more
         than 1 GiB uncompressed (announced or real), and an entry of more
-        than 1 MiB compressed more than 200 times. Nothing is written
+        than 1 MiB compressed more than 200 times. An archive uploaded or
+        downloaded as a pak is at most 1 GiB (checked on the announced
+        length and on every write). Nothing is written
         outside the staging area of the pak before every check passed.
 
         **Kind**: `tool` installs into `Tools/<platform>/`, `emu` into
@@ -2196,9 +2208,12 @@ paths:
         one at a time"; the job checks again that its client was not
         revoked), the existing pak of the same name (ignoring case), if
         any, moves to the trash (reason `replace-pak`) and the staged
-        folder is renamed into place, the folders being synced. A power
-        cut between the two leaves the old pak in the trash (30 days). A
-        `paks` event follows (M14). ReminisLink itself can be neither
+        folder is renamed into place, as one journaled replacement (like
+        an overwritten ROM, M8): every folder is synced, any failure puts
+        the old pak back and fails the job, and a power cut is finished
+        (the new pak in place) or rolled back (the old pak back) when the
+        pak starts again, never neither. The folder of the paks is never
+        reached through a link. A `paks` event follows (M14). ReminisLink itself can be neither
         replaced nor deleted while it runs (`409 conflict`).
       requestBody:
         required: true

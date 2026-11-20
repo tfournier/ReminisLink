@@ -42,6 +42,10 @@ const pakStagingPrefix = "pk_"
 
 var pakStagingRe = regexp.MustCompile(`^pk_\d{8}T\d{6}Z_[0-9a-f]{8}$`)
 
+// pakArchiveLimit bounds an archive uploaded or downloaded as a pak
+// (paks.MaxArchiveBytes; lowered by tests).
+var pakArchiveLimit int64 = paks.MaxArchiveBytes
+
 // pakArchiveName is the name of an uploaded archive in its staging folder.
 const pakArchiveName = "archive.zip"
 
@@ -111,18 +115,31 @@ func (s *Service) newPakStaging() (string, error) {
 	return dir, nil
 }
 
+// removeStaging deletes a staging folder of a pak installation, unless a
+// replacement the trash could not finish nor roll back still names a
+// folder inside it (store.ErrReplaceFailed: the next start finishes it).
+func (s *Service) removeStaging(stage string) bool {
+	stage = filepath.Clean(stage)
+	for p := range s.opts.Trash.PendingSources() {
+		if p == stage || strings.HasPrefix(p, stage+string(filepath.Separator)) {
+			s.log.Warn("staging: pak kept for an interrupted replacement", "entry", filepath.Base(stage))
+			return false
+		}
+	}
+	return os.RemoveAll(stage) == nil
+}
+
 // purgePakStaging deletes the staging folders of the pak installations
-// left by a previous run (called at start, no job runs).
+// left by a previous run (called at start, after the trash recovery; no
+// job runs), except those an unfinished replacement still needs.
 func (s *Service) purgePakStaging() {
 	des, err := os.ReadDir(s.opts.Layout.StagingDir())
 	if err != nil {
 		return
 	}
 	for _, d := range des {
-		if pakStagingRe.MatchString(d.Name()) {
-			if err := os.RemoveAll(filepath.Join(s.opts.Layout.StagingDir(), d.Name())); err == nil {
-				s.log.Info("staging: deleted a pak left by a previous run", "entry", d.Name())
-			}
+		if pakStagingRe.MatchString(d.Name()) && s.removeStaging(filepath.Join(s.opts.Layout.StagingDir(), d.Name())) {
+			s.log.Info("staging: deleted a pak left by a previous run", "entry", d.Name())
 		}
 	}
 }
@@ -172,12 +189,14 @@ func withoutPath(err error) error {
 
 // runPakArchive installs the zip archive at archive (a synced file of the
 // uploads or staging area, left in place) as a pak.
-func (s *Service) runPakArchive(ctx context.Context, archive, kind, onConflict string, report func(int64, *int64)) (map[string]any, *Error) {
+// name is the file name of the archive, which names a loose archive
+// without a name in its pak.json.
+func (s *Service) runPakArchive(ctx context.Context, archive, kind, onConflict, name string, report func(int64, *int64)) (map[string]any, *Error) {
 	stage, err := s.newPakStaging()
 	if err != nil {
 		return nil, s.pakError(ctx, err)
 	}
-	defer os.RemoveAll(stage)
+	defer s.removeStaging(stage)
 	f, err := os.Open(archive)
 	if err != nil {
 		return nil, s.pakError(ctx, err)
@@ -187,12 +206,18 @@ func (s *Service) runPakArchive(ctx context.Context, archive, kind, onConflict s
 		f.Close()
 		return nil, s.pakError(ctx, err)
 	}
-	staged, err := paks.ExtractZip(ctx, f, fi.Size(), stage, s.paks.Platform(), s.spaceFor(stage), progressOf(report))
+	staged, err := paks.ExtractZip(ctx, f, fi.Size(), stage, s.extractOptions(stage, name, report))
 	f.Close()
 	if err != nil {
 		return nil, s.pakError(ctx, err)
 	}
 	return s.placePak(ctx, staged, kind, onConflict)
+}
+
+// extractOptions are the options of an extraction into stage.
+func (s *Service) extractOptions(stage, name string, report func(int64, *int64)) paks.ExtractOptions {
+	return paks.ExtractOptions{Platform: s.paks.Platform(), Name: name, Clean: CleanFileName,
+		Space: s.spaceFor(stage), Progress: progressOf(report)}
 }
 
 func progressOf(report func(int64, *int64)) paks.Progress {
@@ -245,15 +270,18 @@ func (s *Service) placePak(ctx context.Context, staged paks.Staged, requested, o
 	if ctx.Err() != nil {
 		return nil, newError(http.StatusServiceUnavailable, CodeShuttingDown, "Cancelled")
 	}
-	parent := s.paks.Dir(kind)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
+	// The folder of the paks: created under the SD card only, no link at
+	// any component (the desktop mode runs on file systems with links).
+	parent, err := s.paks.EnsureDir(kind)
+	if err != nil {
 		return nil, s.pakError(ctx, err)
 	}
 	dest := filepath.Join(parent, staged.Name)
 	if file := store.FindFold(parent, staged.Name, false); file != "" {
 		return nil, s.pakConflictError(file) // never replace a file by a folder
 	}
-	entryID := ""
+	var items []store.MoveItem
+	label := paks.DisplayName(staged.Name)
 	if existing := store.FindFold(parent, staged.Name, true); existing != "" {
 		if s.paks.IsSelf(existing) {
 			return nil, selfError()
@@ -261,26 +289,24 @@ func (s *Service) placePak(ctx context.Context, staged paks.Staged, requested, o
 		if onConflict != PakConflictReplace {
 			return nil, s.pakConflictError(existing)
 		}
-		res, err := s.opts.Trash.Move(store.ReasonReplacePak, paks.DisplayName(filepath.Base(existing)), []store.MoveItem{{Path: existing}})
-		if err != nil {
-			return nil, s.pakError(ctx, err)
-		}
-		entryID = res.Entry.ID
+		items = []store.MoveItem{{Path: existing}}
+		label = paks.DisplayName(filepath.Base(existing))
 	} else if _, err := os.Lstat(dest); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		// Something FindFold does not list (a link): never replaced.
 		return nil, s.pakConflictError(dest)
 	}
-	if err := s.rename(staged.Dir, dest); err != nil {
-		if entryID != "" {
-			if uerr := s.opts.Trash.Undo(entryID); uerr != nil {
-				s.log.Error("pak install: the old pak stays in the trash", "entry", entryID, "error", uerr)
-			}
+	// Journaled replacement (rule 1 of CLAUDE.md, M8): the old pak moves
+	// to a trash entry "installing", the staged folder is renamed into
+	// place, every folder synced (any error rolls back); a power cut is
+	// finished or rolled back by the trash recovery at the next start.
+	install := store.Install{Src: staged.Dir, Dst: dest, Size: paks.FolderSize(staged.Dir), Dir: true}
+	if _, err := s.opts.Trash.Replace(store.ReasonReplacePak, label, items, []store.Install{install}); err != nil {
+		if errors.Is(err, store.ErrReplaceFailed) {
+			s.log.Error("pak install: replacement left for the next start", "pak", staged.Name)
 		}
 		return nil, s.pakError(ctx, err)
 	}
-	store.SyncDir(parent)
-	store.SyncDir(filepath.Dir(staged.Dir))
-	s.log.Info("pak installed", "pak", staged.Name, "kind", kind, "replaced", entryID != "")
+	s.log.Info("pak installed", "pak", staged.Name, "kind", kind, "replaced", items != nil)
 	return map[string]any{"pakId": s.paks.ID(dest)}, nil
 }
 
@@ -360,7 +386,7 @@ func (s *Service) runPakFromSD(ctx context.Context, id, kind, onConflict string,
 	if err != nil {
 		return nil, s.pakError(ctx, err)
 	}
-	defer os.RemoveAll(stage)
+	defer s.removeStaging(stage)
 	staged, err := paks.CopyFolder(ctx, p, stage, s.spaceFor(stage), progressOf(report))
 	if err != nil {
 		return nil, s.pakError(ctx, err)
@@ -388,8 +414,8 @@ func (s *Service) runPakSDArchive(ctx context.Context, id, kind, onConflict stri
 	if err != nil {
 		return nil, s.pakError(ctx, err)
 	}
-	defer os.RemoveAll(stage)
-	staged, err := paks.ExtractZip(ctx, f, fi.Size(), stage, s.paks.Platform(), s.spaceFor(stage), progressOf(report))
+	defer s.removeStaging(stage)
+	staged, err := paks.ExtractZip(ctx, f, fi.Size(), stage, s.extractOptions(stage, fi.Name(), report))
 	if err != nil {
 		return nil, s.pakError(ctx, err)
 	}
@@ -410,17 +436,21 @@ func (s *Service) queuePakUpload(ctx context.Context, t Target, part, onConflict
 		os.Remove(stage)
 		return nil, nil, err
 	}
-	store.SyncDir(stage)
-	store.SyncDir(filepath.Dir(part))
-	label := ""
+	if err := errors.Join(store.SyncDirChecked(stage), store.SyncDirChecked(filepath.Dir(part))); err != nil {
+		if rerr := s.rename(archive, part); rerr == nil {
+			os.Remove(stage)
+		}
+		return nil, nil, err
+	}
+	label, name := "", ""
 	if t.FileName != nil {
-		label = paks.DisplayName(strings.TrimSuffix(*t.FileName, filepath.Ext(*t.FileName)))
+		name = *t.FileName
+		label = paks.DisplayName(strings.TrimSuffix(name, filepath.Ext(name)))
 	}
 	kind, conflict := pakKindOf(t), pakConflict(onConflict)
-	id, apiErr, err := s.submitGuarded(JobPakInstall, label, jobGuardOf(ctx), func(jctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
-		defer os.RemoveAll(stage)
-		return s.runPakArchive(jctx, archive, kind, conflict, report)
-	})
+	id, apiErr, err := s.submitWithCleanup(JobPakInstall, label, jobGuardOf(ctx), func(jctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+		return s.runPakArchive(jctx, archive, kind, conflict, name, report)
+	}, func() { s.removeStaging(stage) })
 	if apiErr != nil || err != nil {
 		if rerr := s.rename(archive, part); rerr == nil {
 			os.Remove(stage)

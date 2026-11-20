@@ -181,8 +181,14 @@ func TestBrowseTruncates(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.Mkdir(filepath.Join(dir, "zdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	f, err := l.Browse(SDEntryID("Many"))
-	if err != nil || !f.Truncated || len(f.Entries) != MaxBrowseEntries || f.Entries[0].Name != "f00000" {
+	// A bounded selection in the listing order: the folder first, then
+	// the first files by name; the last ones are left out.
+	if err != nil || !f.Truncated || len(f.Entries) != MaxBrowseEntries || f.Entries[0].Name != "zdir" ||
+		f.Entries[1].Name != "f00000" || f.Entries[MaxBrowseEntries-1].Name != fmt.Sprintf("f%05d", MaxBrowseEntries-2) {
 		t.Fatalf("truncated %v %d %v", f.Truncated, len(f.Entries), err)
 	}
 }

@@ -11,7 +11,8 @@
 #     409 conflict; with overwrite: installed, the old one in the trash
 #     (replace-pak);
 #   - DELETE /paks/{pakId}: moved to the trash (delete-pak), no longer
-#     listed;
+#     listed; a loose archive (launch.sh at its top) installs under the
+#     name of the archive;
 #   - GET /sd/browse lists the root of the card; README.md is downloaded
 #     (GET /sd/browse/{sdEntryId}/content) and compared with the copy;
 #     the ReminisLink data folder is not listed under .userdata/shared;
@@ -38,7 +39,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ $# -gt 0 ]; then
-	sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'
 	exit 2
 fi
 
@@ -139,13 +140,13 @@ make_pak() {
 	(cd "$dir" && zip -qr "$2" SmokeClock.pak)
 }
 
-# upload_pak ZIP ONCONFLICT: uploads ZIP with the pak target and completes
-# it; sets $job.
+# upload_pak ZIP ONCONFLICT [FILENAME]: uploads ZIP with the pak target
+# and completes it; sets $job.
 upload_pak() {
-	local size sum upload
+	local size sum upload fname=${3:-SmokeClock.pak.zip}
 	size=$(wc -c <"$1" | tr -d ' ')
 	sum=$(sha256_hex <"$1")
-	rl2_req A POST /api/v1/uploads "{\"target\":{\"kind\":\"pak\",\"pakKind\":\"auto\",\"fileName\":\"SmokeClock.pak.zip\"},\"sizeBytes\":$size,\"sha256\":\"$sum\",\"onConflict\":\"$2\"}"
+	rl2_req A POST /api/v1/uploads "{\"target\":{\"kind\":\"pak\",\"pakKind\":\"auto\",\"fileName\":\"$fname\"},\"sizeBytes\":$size,\"sha256\":\"$sum\",\"onConflict\":\"$2\"}"
 	[ "$status" = 201 ] || die "POST /uploads (pak): $status $body"
 	upload=$(json_field uploadId "$body")
 	sreq PUT "/api/v1/uploads/$upload" "" "$1" unsigned "$workdir/chunk" "Upload-Offset: 0"
@@ -212,6 +213,16 @@ list_paks
 check "SmokeClock no longer listed" "" "$(pak_field SmokeClock pakId)"
 rl2_req A GET /api/v1/trash
 case $body in *'"reason":"delete-pak"'*) pass "the deleted pak is in the trash (delete-pak)" ;; *) failed "no delete-pak trash entry: $body" ;; esac
+
+# A loose archive (launch.sh at its top): named after the archive.
+mkdir -p "$workdir/loose"
+printf '#!/bin/sh\necho loose\n' >"$workdir/loose/launch.sh"
+(cd "$workdir/loose" && zip -q "$workdir/loose.zip" launch.sh)
+upload_pak "$workdir/loose.zip" fail "Smoke Loose.zip"
+wait_job "$job"
+check "loose archive: job succeeded" succeeded "$state"
+list_paks
+check "... installed as Tools/<platform>/Smoke Loose.pak" "Tools/tg5040/Smoke Loose.pak" "$(pak_field "Smoke Loose" path)"
 
 # --- SD browser ---------------------------------------------------------------
 

@@ -1,8 +1,10 @@
 package library
 
 import (
+	"container/heap"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -243,55 +245,86 @@ func (l *Library) Browse(folderID string) (SDFolder, error) {
 		}
 		return SDFolder{}, err
 	}
-	des, err := dir.ReadDir(-1)
-	dir.Close()
-	if err != nil {
-		return SDFolder{}, err
-	}
+	// Read in batches and keep only the first MaxBrowseEntries in the
+	// sort order (a max-heap of that size): a folder of any size is
+	// listed in bounded memory.
+	defer dir.Close()
 	hidden := l.hiddenSet(sd)
 	base := splitRel(rel)
-	for _, d := range des {
-		t := d.Type()
-		if t&fs.ModeSymlink != 0 || (!t.IsDir() && !t.IsRegular()) {
-			continue
+	h := &entryHeap{}
+	for {
+		des, rerr := dir.ReadDir(browseBatch)
+		for _, d := range des {
+			t := d.Type()
+			if t&fs.ModeSymlink != 0 || (!t.IsDir() && !t.IsRegular()) {
+				continue
+			}
+			info, err := d.Info()
+			if err != nil {
+				continue // vanished meanwhile
+			}
+			comps := append(append([]string(nil), base...), d.Name())
+			if hidden.hides(comps, info) {
+				continue
+			}
+			childRel := strings.Join(comps, "/")
+			if checkRelPath(childRel) != nil {
+				continue // a name the API cannot carry (control character...)
+			}
+			e := SDEntry{ID: SDEntryID(childRel), Name: d.Name(), ModifiedAt: info.ModTime().UTC().Truncate(time.Second)}
+			if t.IsDir() {
+				e.Kind = SDEntryFolder
+			} else {
+				e.Kind = SDEntryFile
+				size := info.Size()
+				e.SizeBytes = &size
+			}
+			heap.Push(h, e)
+			if h.Len() > MaxBrowseEntries {
+				heap.Pop(h) // the last in the sort order
+				out.Truncated = true
+			}
 		}
-		info, err := d.Info()
-		if err != nil {
-			continue // vanished meanwhile
+		if rerr == io.EOF {
+			break
 		}
-		comps := append(append([]string(nil), base...), d.Name())
-		if hidden.hides(comps, info) {
-			continue
+		if rerr != nil {
+			return SDFolder{}, rerr
 		}
-		childRel := strings.Join(comps, "/")
-		if checkRelPath(childRel) != nil {
-			continue // a name the API cannot carry (control character...)
-		}
-		e := SDEntry{ID: SDEntryID(childRel), Name: d.Name(), ModifiedAt: info.ModTime().UTC().Truncate(time.Second)}
-		if t.IsDir() {
-			e.Kind = SDEntryFolder
-		} else {
-			e.Kind = SDEntryFile
-			size := info.Size()
-			e.SizeBytes = &size
-		}
-		out.Entries = append(out.Entries, e)
 	}
-	sort.Slice(out.Entries, func(i, j int) bool {
-		a, b := out.Entries[i], out.Entries[j]
-		if a.Kind != b.Kind {
-			return a.Kind == SDEntryFolder
-		}
-		if la, lb := strings.ToLower(a.Name), strings.ToLower(b.Name); la != lb {
-			return la < lb
-		}
-		return a.Name < b.Name
-	})
-	if len(out.Entries) > MaxBrowseEntries {
-		out.Entries = out.Entries[:MaxBrowseEntries]
-		out.Truncated = true
-	}
+	out.Entries = append(out.Entries, *h...)
+	sort.Slice(out.Entries, func(i, j int) bool { return entryBefore(out.Entries[i], out.Entries[j]) })
 	return out, nil
+}
+
+// browseBatch is the number of folder entries read at a time.
+const browseBatch = 512
+
+// entryBefore is the order of a listing: folders first, then by name
+// ignoring case, then by name.
+func entryBefore(a, b SDEntry) bool {
+	if a.Kind != b.Kind {
+		return a.Kind == SDEntryFolder
+	}
+	if la, lb := strings.ToLower(a.Name), strings.ToLower(b.Name); la != lb {
+		return la < lb
+	}
+	return a.Name < b.Name
+}
+
+// entryHeap is a max-heap of entries in the listing order: its top is
+// the entry that comes last.
+type entryHeap []SDEntry
+
+func (h entryHeap) Len() int           { return len(h) }
+func (h entryHeap) Less(i, j int) bool { return entryBefore(h[j], h[i]) }
+func (h entryHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *entryHeap) Push(x any)        { *h = append(*h, x.(SDEntry)) }
+func (h *entryHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
 }
 
 // OpenSDEntry opens the regular file of an sdEntryId for reading, through

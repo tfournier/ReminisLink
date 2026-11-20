@@ -16,6 +16,10 @@ type Install struct {
 	// finishes an interrupted replacement with a complete file.
 	Size   int64
 	SHA256 string
+	// Dir: Src is a folder (a pak, M12), fully written and synced before
+	// Replace; Size is then the total size of its regular files, and a
+	// folder is complete when it holds exactly that (SHA256 unused).
+	Dir bool
 }
 
 // ErrReplaceFailed wraps the error of an install that could not be
@@ -53,7 +57,7 @@ func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Insta
 		if err := errors.Join(err1, err2); err != nil {
 			return MoveResult{}, err
 		}
-		records[i] = installRecord{Src: src, Dst: dst, Size: in.Size, SHA256: in.SHA256}
+		records[i] = installRecord{Src: src, Dst: dst, Size: in.Size, SHA256: in.SHA256, Dir: in.Dir}
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -191,8 +195,13 @@ func installed(sd string, r installRecord) bool {
 }
 
 // complete reports whether path is a regular file of r.Size bytes with
-// the SHA-256 r.SHA256 (when set).
+// the SHA-256 r.SHA256 (when set), or, for a folder install, a folder
+// (not a link) whose regular files total r.Size bytes.
 func complete(path string, r installRecord) bool {
+	if r.Dir {
+		fi, err := os.Lstat(path)
+		return err == nil && fi.IsDir() && dirSize(path) == r.Size
+	}
 	fi, err := os.Lstat(path)
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() != r.Size {
 		return false

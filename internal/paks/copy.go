@@ -103,7 +103,7 @@ func CopyFolder(ctx context.Context, src, dest string, space SpaceFunc, progress
 	if err := os.Mkdir(target, 0o755); err != nil {
 		return Staged{}, err
 	}
-	dirs := []string{target}
+	dirs := map[string]bool{target: true}
 	var done int64
 	for _, it := range items {
 		if err := ctx.Err(); err != nil {
@@ -114,7 +114,7 @@ func CopyFolder(ctx context.Context, src, dest string, space SpaceFunc, progress
 			if err := os.MkdirAll(out, 0o755); err != nil {
 				return Staged{}, err
 			}
-			dirs = append(dirs, out)
+			dirs[out] = true
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -129,7 +129,9 @@ func CopyFolder(ctx context.Context, src, dest string, space SpaceFunc, progress
 			progress(done, total)
 		}
 	}
-	syncTree(target, dirs)
+	if err := syncTree(target, dirs); err != nil {
+		return Staged{}, err
+	}
 	return Staged{Dir: target, Name: name}, nil
 }
 

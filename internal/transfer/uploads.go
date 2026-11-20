@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
 
@@ -182,7 +181,7 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 	if apiErr := checkPakTarget(*req.Target, onConflict); apiErr != nil {
 		return UploadCreated{}, apiErr, nil
 	}
-	if req.Target.Kind == KindPak && *req.SizeBytes > paks.MaxArchiveBytes {
+	if req.Target.Kind == KindPak && *req.SizeBytes > pakArchiveLimit {
 		return UploadCreated{}, newError(http.StatusRequestEntityTooLarge, CodeTooLarge, "Pak archive too large"), nil
 	}
 	d, apiErr, err := s.resolve(*req.Target, true)

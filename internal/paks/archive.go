@@ -3,12 +3,14 @@ package paks
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -133,18 +135,27 @@ type plan struct {
 	total   int64 // announced uncompressed bytes
 }
 
+// item is an entry of the archive whose name and type were checked.
+type item struct {
+	f     *zip.File
+	comps []string
+	dir   bool
+}
+
 // planArchive checks every entry of an archive and finds its single pak
-// folder (see protocol/openapi.yaml POST /paks/install).
+// folder (see protocol/openapi.yaml POST /paks/install): a <Name>.pak
+// folder (at the top or under Tools|Emus/<platform>/), or, for a "loose"
+// archive, the files at its top with a launch.sh among them (p.name is
+// then empty: the caller names it).
 func planArchive(zr *zip.Reader, platform string) (plan, error) {
 	var p plan
 	if len(zr.File) > MaxEntries {
 		return p, refuse("more than %d entries", MaxEntries)
 	}
-	rootKey := ""
-	// kinds of the paths seen (lowercase, inside the pak folder): a path
-	// can be a file or a folder, never both, never twice a file.
-	seen := map[string]bool{} // true: folder
-	var total uint64
+	// First pass: names, types, explicit duplicates (a folder too).
+	var items []item
+	explicit := map[string]bool{}
+	looseLaunch := false
 	for _, f := range zr.File {
 		name := f.Name
 		if strings.ContainsRune(name, 0) {
@@ -170,9 +181,29 @@ func planArchive(zr *zip.Reader, platform string) (plan, error) {
 		if strings.EqualFold(comps[0], macOSFolder) {
 			continue
 		}
+		key := strings.ToLower(name)
+		if explicit[key] {
+			return p, refuse("two entries with the same name (ignoring case)")
+		}
+		explicit[key] = true
+		if len(comps) == 1 && !isDir && strings.EqualFold(comps[0], LaunchScript) {
+			looseLaunch = true
+		}
+		items = append(items, item{f: f, comps: comps, dir: isDir})
+	}
+
+	rootKey := ""
+	// kinds of the paths seen (lowercase, inside the pak folder): a path
+	// can be a file or a folder, never both, never twice a file.
+	seen := map[string]bool{} // true: folder
+	var total uint64
+	for _, it := range items {
+		comps, isDir := it.comps, it.dir
 		var root []string
 		kind := ""
 		switch {
+		case looseLaunch:
+			root = nil // every entry belongs to the pak
 		case HasSuffix(comps[0]):
 			root = comps[:1]
 		case strings.EqualFold(comps[0], "Tools") || strings.EqualFold(comps[0], "Emus"):
@@ -204,14 +235,16 @@ func planArchive(zr *zip.Reader, platform string) (plan, error) {
 		default:
 			return p, refuse("entry outside the pak folder")
 		}
-		if len(comps) == len(root) && !isDir {
-			return p, refuse("the pak folder is a file")
-		}
-		key := strings.ToLower(strings.Join(root, "/"))
-		if rootKey == "" {
-			rootKey, p.name, p.kind = key, root[len(root)-1], kind
-		} else if key != rootKey {
-			return p, refuse("more than one pak in the archive")
+		if !looseLaunch {
+			if len(comps) == len(root) && !isDir {
+				return p, refuse("the pak folder is a file")
+			}
+			key := strings.ToLower(strings.Join(root, "/"))
+			if rootKey == "" {
+				rootKey, p.name, p.kind = key, root[len(root)-1], kind
+			} else if key != rootKey {
+				return p, refuse("more than one pak in the archive")
+			}
 		}
 		rel := comps[len(root):]
 		if len(rel) == 0 {
@@ -229,6 +262,7 @@ func planArchive(zr *zip.Reader, platform string) (plan, error) {
 			}
 			seen[k] = wantDir
 		}
+		f := it.f
 		if !isDir {
 			if f.UncompressedSize64 > RatioMinBytes && f.CompressedSize64*MaxRatio < f.UncompressedSize64 {
 				return p, refuse("entry compressed more than %d times", MaxRatio)
@@ -242,11 +276,13 @@ func planArchive(zr *zip.Reader, platform string) (plan, error) {
 		}
 		p.entries = append(p.entries, entry{file: f, rel: strings.Join(rel, "/"), dir: isDir})
 	}
-	if rootKey == "" {
-		return p, refuse("no .pak folder in the archive")
-	}
-	if strings.HasPrefix(p.name, ".") || DisplayName(p.name) == "" {
-		return p, refuse("invalid pak folder name")
+	if !looseLaunch {
+		if rootKey == "" {
+			return p, refuse("no .pak folder in the archive")
+		}
+		if strings.HasPrefix(p.name, ".") || DisplayName(p.name) == "" {
+			return p, refuse("invalid pak folder name")
+		}
 	}
 	if isDir, ok := seen[LaunchScript]; !ok || isDir {
 		return p, refuse("no launch.sh in the pak folder")
@@ -255,21 +291,108 @@ func planArchive(zr *zip.Reader, platform string) (plan, error) {
 	return p, nil
 }
 
+// ExtractOptions configure ExtractZip.
+type ExtractOptions struct {
+	Platform string // platform folder of Tools|Emus/<platform>/ (tg5040)
+	// Name names a loose archive (launch.sh at its top) when its pak.json
+	// has no usable name: the file name of the archive (".zip" dropped,
+	// ".pak" added).
+	Name string
+	// Clean checks and cleans a pak name (transfer.CleanFileName); nil:
+	// only the checks of the archive entries.
+	Clean    func(string) (string, error)
+	Space    SpaceFunc
+	Progress Progress
+}
+
+// looseName names the pak of a loose archive: the name of its pak.json
+// when usable, else o.Name, without ".zip", with ".pak".
+func looseName(p plan, o ExtractOptions) (string, error) {
+	clean := func(n string) string {
+		n = strings.TrimSpace(n)
+		if len(n) > 4 && strings.EqualFold(n[len(n)-4:], ".zip") {
+			n = n[:len(n)-4]
+		}
+		if !HasSuffix(n) {
+			n += Suffix
+		}
+		if o.Clean != nil {
+			c, err := o.Clean(n)
+			if err != nil {
+				return ""
+			}
+			n = c
+		}
+		if checkComponent(n) != nil || strings.HasPrefix(n, ".") || !HasSuffix(n) || DisplayName(n) == "" {
+			return ""
+		}
+		return n
+	}
+	for _, e := range p.entries {
+		if !e.dir && strings.EqualFold(e.rel, MetadataFile) && e.file.UncompressedSize64 <= maxMetadataBytes {
+			if name := metadataName(e.file); name != "" {
+				if n := clean(name); n != "" {
+					return n, nil
+				}
+			}
+		}
+	}
+	if n := clean(o.Name); n != "" {
+		return n, nil
+	}
+	return "", refuse("cannot name the pak (no name in pak.json nor a usable archive name)")
+}
+
+// metadataName reads the name of a pak.json entry ("" when unreadable).
+func metadataName(f *zip.File) string {
+	rc, err := f.Open()
+	if err != nil {
+		return ""
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(io.LimitReader(rc, maxMetadataBytes+1))
+	if err != nil || len(data) > maxMetadataBytes {
+		return ""
+	}
+	var md struct {
+		Name any `json:"name"`
+	}
+	if json.Unmarshal(data, &md) != nil {
+		return ""
+	}
+	name, _ := md.Name.(string)
+	if strings.ContainsAny(name, "/\\") {
+		return ""
+	}
+	return name
+}
+
 // ExtractZip checks the zip archive r and extracts its pak folder into
-// dest (an empty staging folder). Nothing is written before every entry
-// was checked and space approved the announced size; the real sizes are
-// checked again while extracting. Refusals are FormatErrors.
-func ExtractZip(ctx context.Context, r io.ReaderAt, size int64, dest, platform string, space SpaceFunc, progress Progress) (Staged, error) {
+// dest (an empty staging folder). The central directory is bounded
+// before it is read (CheckDirectory); nothing is written before every
+// entry was checked and o.Space approved the announced size; the real
+// sizes are checked again while extracting, and every file and folder
+// written is synced (an error fails the extraction). Refusals are
+// FormatErrors.
+func ExtractZip(ctx context.Context, r io.ReaderAt, size int64, dest string, o ExtractOptions) (Staged, error) {
+	if err := CheckDirectory(r, size); err != nil {
+		return Staged{}, err
+	}
 	zr, err := zip.NewReader(r, size)
 	if err != nil {
 		return Staged{}, refuse("not a zip archive")
 	}
-	p, err := planArchive(zr, platform)
+	p, err := planArchive(zr, o.Platform)
 	if err != nil {
 		return Staged{}, err
 	}
-	if space != nil {
-		if err := space(p.total); err != nil {
+	if p.name == "" {
+		if p.name, err = looseName(p, o); err != nil {
+			return Staged{}, err
+		}
+	}
+	if o.Space != nil {
+		if err := o.Space(p.total); err != nil {
 			return Staged{}, err
 		}
 	}
@@ -277,7 +400,7 @@ func ExtractZip(ctx context.Context, r io.ReaderAt, size int64, dest, platform s
 	if err := os.Mkdir(target, 0o755); err != nil {
 		return Staged{}, err
 	}
-	dirs := []string{target}
+	dirs := map[string]bool{target: true}
 	var done int64
 	for _, e := range p.entries {
 		if err := ctx.Err(); err != nil {
@@ -287,26 +410,31 @@ func ExtractZip(ctx context.Context, r io.ReaderAt, size int64, dest, platform s
 		if rel, err := filepath.Rel(target, path); err != nil || !filepath.IsLocal(rel) {
 			return Staged{}, refuse("entry outside the pak folder") // never reached: checked by planArchive
 		}
-		if e.dir {
-			if err := os.MkdirAll(path, 0o755); err != nil {
-				return Staged{}, err
-			}
-			dirs = append(dirs, path)
-			continue
+		dir := path
+		if !e.dir {
+			dir = filepath.Dir(path)
 		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return Staged{}, err
+		}
+		for d := dir; d != target && !dirs[d]; d = filepath.Dir(d) {
+			dirs[d] = true
+		}
+		if e.dir {
+			continue
 		}
 		n, err := extractFile(ctx, e.file, path, MaxUncompressedBytes-done)
 		done += n
 		if err != nil {
 			return Staged{}, err
 		}
-		if progress != nil {
-			progress(done, p.total)
+		if o.Progress != nil {
+			o.Progress(done, p.total)
 		}
 	}
-	syncTree(target, dirs)
+	if err := syncTree(target, dirs); err != nil {
+		return Staged{}, err
+	}
 	return Staged{Dir: target, Name: p.name, Kind: p.kind}, nil
 }
 
@@ -394,10 +522,20 @@ func (c ctxReader) Read(p []byte) (int, error) {
 }
 
 // syncTree syncs every folder written, deepest first, then the staging
-// folder holding the pak.
-func syncTree(target string, dirs []string) {
-	for i := len(dirs) - 1; i >= 0; i-- {
-		store.SyncDir(dirs[i])
+// folder holding the pak, and returns the first error.
+func syncTree(target string, dirs map[string]bool) error {
+	list := make([]string, 0, len(dirs))
+	for d := range dirs {
+		list = append(list, d)
 	}
-	store.SyncDir(filepath.Dir(target))
+	sort.Slice(list, func(i, j int) bool { return len(list[i]) > len(list[j]) })
+	for _, d := range list {
+		if err := syncDir(d); err != nil {
+			return err
+		}
+	}
+	return syncDir(filepath.Dir(target))
 }
+
+// syncDir is store.SyncDirChecked; tests replace it.
+var syncDir = store.SyncDirChecked

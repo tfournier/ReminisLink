@@ -131,6 +131,7 @@ type installRecord struct {
 	Dst    string `json:"dst"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256,omitempty"`
+	Dir    bool   `json:"dir,omitempty"`
 }
 
 // public returns the API form of an entry. expiresAt is the earliest time

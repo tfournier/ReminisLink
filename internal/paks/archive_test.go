@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"context"
+	"encoding/binary"
 	"errors"
 	"hash/crc32"
 	"io/fs"
@@ -13,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/tfournier/ReminisLink/internal/store"
 )
 
 // zipEntry is an entry of a test archive.
@@ -50,7 +53,7 @@ func makeZip(t *testing.T, entries ...zipEntry) []byte {
 func extract(t *testing.T, data []byte) (Staged, string, error) {
 	t.Helper()
 	dest := t.TempDir()
-	s, err := ExtractZip(context.Background(), bytes.NewReader(data), int64(len(data)), dest, "tg5040", nil, nil)
+	s, err := ExtractZip(context.Background(), bytes.NewReader(data), int64(len(data)), dest, ExtractOptions{Platform: "tg5040"})
 	return s, dest, err
 }
 
@@ -159,7 +162,10 @@ func TestExtractRefusesLinksAndSpecialFiles(t *testing.T) {
 }
 
 func TestExtractRefusesBadLayouts(t *testing.T) {
-	wantRefused(t, makeZip(t, zipEntry{name: "launch.sh", data: "x"}), "no .pak folder")
+	wantRefused(t, makeZip(t, zipEntry{name: "README.md", data: "x"}), "no .pak folder")
+	wantRefused(t, makeZip(t, zipEntry{name: "launch.sh", data: "x"}), "cannot name the pak")
+	wantRefused(t, makeZip(t, launch, zipEntry{name: "Clock.pak/res/"}, zipEntry{name: "Clock.pak/RES/"}), "same name")
+	wantRefused(t, makeZip(t, zipEntry{name: "Clock.pak/"}, zipEntry{name: "clock.PAK/"}, launch), "same name")
 	wantRefused(t, makeZip(t, zipEntry{name: "Clock.pak/pak.json", data: "{}"}), "no launch.sh")
 	wantRefused(t, makeZip(t, zipEntry{name: "Clock.pak/bin/launch.sh", data: "x"}), "no launch.sh")
 	wantRefused(t, makeZip(t, zipEntry{name: "Clock.pak/launch.sh/", data: ""}), "no launch.sh")
@@ -259,8 +265,8 @@ func TestExtractChecksSpaceFirst(t *testing.T) {
 	dest := t.TempDir()
 	full := errors.New("card full")
 	var asked int64
-	_, err := ExtractZip(context.Background(), bytes.NewReader(data), int64(len(data)), dest, "tg5040",
-		func(need int64) error { asked = need; return full }, nil)
+	_, err := ExtractZip(context.Background(), bytes.NewReader(data), int64(len(data)), dest, ExtractOptions{Platform: "tg5040",
+		Space: func(need int64) error { asked = need; return full }})
 	if !errors.Is(err, full) || asked != int64(len(launch.data))+10 {
 		t.Fatalf("space: %v asked %d", err, asked)
 	}
@@ -273,7 +279,117 @@ func TestExtractStopsWhenCancelled(t *testing.T) {
 	data := makeZip(t, launch, zipEntry{name: "Clock.pak/data", data: "x"})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := ExtractZip(ctx, bytes.NewReader(data), int64(len(data)), t.TempDir(), "tg5040", nil, nil); !errors.Is(err, context.Canceled) {
+	if _, err := ExtractZip(ctx, bytes.NewReader(data), int64(len(data)), t.TempDir(), ExtractOptions{Platform: "tg5040"}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled: %v", err)
+	}
+}
+
+func extractNamed(t *testing.T, data []byte, name string) (Staged, error) {
+	t.Helper()
+	return ExtractZip(context.Background(), bytes.NewReader(data), int64(len(data)), t.TempDir(),
+		ExtractOptions{Platform: "tg5040", Name: name, Clean: func(n string) (string, error) {
+			return strings.ReplaceAll(n, "?", "_"), nil
+		}})
+}
+
+// Loose archives (M12 review): launch.sh at the top of the archive.
+func TestExtractLooseArchive(t *testing.T) {
+	loose := makeZip(t, zipEntry{name: "launch.sh", data: "x"}, zipEntry{name: "bin/tool", data: "y"},
+		zipEntry{name: "__MACOSX/._launch.sh", data: "z"})
+	s, err := extractNamed(t, loose, "Clock.zip")
+	if err != nil || s.Name != "Clock.pak" || s.Kind != "" {
+		t.Fatalf("from the archive name: %+v %v", s, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(s.Dir, "bin", "tool")); string(data) != "y" {
+		t.Fatalf("content %q", data)
+	}
+	if _, err := os.Lstat(filepath.Join(s.Dir, "__MACOSX")); err == nil {
+		t.Fatal("__MACOSX extracted")
+	}
+	if s, err := extractNamed(t, loose, "Clock.pak.ZIP"); err != nil || s.Name != "Clock.pak" {
+		t.Fatalf("pak.zip: %+v %v", s, err)
+	}
+	if s, err := extractNamed(t, loose, "What?.zip"); err != nil || s.Name != "What_.pak" {
+		t.Fatalf("cleaned: %+v %v", s, err)
+	}
+	// The name of pak.json wins.
+	named := makeZip(t, zipEntry{name: "launch.sh", data: "x"}, zipEntry{name: "pak.json", data: `{"name":"Nice Clock","type":"EMU"}`})
+	if s, err := extractNamed(t, named, "archive.zip"); err != nil || s.Name != "Nice Clock.pak" {
+		t.Fatalf("pak.json name: %+v %v", s, err)
+	}
+	// An unusable pak.json name falls back to the archive name.
+	bad := makeZip(t, zipEntry{name: "launch.sh", data: "x"}, zipEntry{name: "pak.json", data: `{"name":"../evil"}`})
+	if s, err := extractNamed(t, bad, "Safe.zip"); err != nil || s.Name != "Safe.pak" {
+		t.Fatalf("bad pak.json name: %+v %v", s, err)
+	}
+	if _, err := extractNamed(t, bad, ".zip"); !isRefusal(err, "cannot name") {
+		t.Fatalf("no name: %v", err)
+	}
+	// Same protections.
+	if _, err := extractNamed(t, makeZip(t, zipEntry{name: "launch.sh", data: "x"}, zipEntry{name: "../evil", data: "x"}), "A.zip"); !isRefusal(err, "dot path") {
+		t.Fatalf("zip-slip: %v", err)
+	}
+	if _, err := extractNamed(t, makeZip(t, zipEntry{name: "launch.sh", data: "x"}, zipEntry{name: "l", data: "/etc", mode: fs.ModeSymlink | 0o777}), "A.zip"); !isRefusal(err, "symbolic link") {
+		t.Fatalf("link: %v", err)
+	}
+}
+
+// eocd builds an end of central directory record.
+func eocd(entries uint16, dirSize, dirOffset uint32) []byte {
+	b := make([]byte, 22)
+	binary.LittleEndian.PutUint32(b, 0x06054b50)
+	binary.LittleEndian.PutUint16(b[8:], entries)
+	binary.LittleEndian.PutUint16(b[10:], entries)
+	binary.LittleEndian.PutUint32(b[12:], dirSize)
+	binary.LittleEndian.PutUint32(b[16:], dirOffset)
+	return b
+}
+
+// The central directory is bounded before archive/zip loads it (M12
+// review: millions of empty entries in a small archive).
+func TestCheckDirectory(t *testing.T) {
+	if err := CheckDirectory(bytes.NewReader(eocd(20000, 100, 0)), 22); !isRefusal(err, "more than 10000 entries") {
+		t.Fatalf("entries: %v", err)
+	}
+	if err := CheckDirectory(bytes.NewReader(eocd(10, 8<<20, 0)), 22); !isRefusal(err, "central directory larger") {
+		t.Fatalf("directory size: %v", err)
+	}
+	// zip64: the counts of the zip64 record are used.
+	rec := make([]byte, 56)
+	binary.LittleEndian.PutUint32(rec, 0x06064b50)
+	binary.LittleEndian.PutUint64(rec[32:], 3_000_000)
+	binary.LittleEndian.PutUint64(rec[40:], 1000)
+	loc := make([]byte, 20)
+	binary.LittleEndian.PutUint32(loc, 0x07064b50)
+	binary.LittleEndian.PutUint64(loc[8:], 0)
+	data := append(append(rec, loc...), eocd(0xffff, 0xffffffff, 0xffffffff)...)
+	if err := CheckDirectory(bytes.NewReader(data), int64(len(data))); !isRefusal(err, "more than 10000 entries") {
+		t.Fatalf("zip64: %v", err)
+	}
+	if err := CheckDirectory(bytes.NewReader([]byte("short")), 5); !isRefusal(err, "not a zip") {
+		t.Fatalf("short: %v", err)
+	}
+	// A real archive with a comment passes.
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	w.SetComment("comment PK\x05\x06 inside")
+	w.Create("a")
+	w.Close()
+	if err := CheckDirectory(bytes.NewReader(buf.Bytes()), int64(buf.Len())); err != nil {
+		t.Fatalf("real archive: %v", err)
+	}
+	// And through ExtractZip, before any read of the directory.
+	if _, _, err := extract(t, eocd(20000, 100, 0)); !isRefusal(err, "more than 10000") {
+		t.Fatalf("extract: %v", err)
+	}
+}
+
+// A folder sync failure fails the extraction (M12 review).
+func TestExtractSyncFailure(t *testing.T) {
+	failure := errors.New("sync failed")
+	syncDir = func(string) error { return failure }
+	defer func() { syncDir = store.SyncDirChecked }()
+	if _, _, err := extract(t, makeZip(t, launch, zipEntry{name: "Clock.pak/a/b", data: "x"})); !errors.Is(err, failure) {
+		t.Fatalf("sync: %v", err)
 	}
 }

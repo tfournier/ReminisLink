@@ -443,3 +443,32 @@ func TestBrowseSDOverHTTP(t *testing.T) {
 		f.get("/api/v1/sd/browse/"+library.SDEntryID("link.md")+"/content", "/sd/browse/{sdEntryId}/content", http.StatusNotFound)
 	}
 }
+
+// Review B: loose archives (launch.sh at the top) are named by their
+// pak.json, else by the archive name.
+func TestInstallLooseArchives(t *testing.T) {
+	f := newFixture(t)
+	loose := pakZip(t, "launch.sh", "#!/bin/sh\n", "bin/tool", "x")
+	j := f.waitJob(f.uploadPak(loose, map[string]any{"fileName": "Loose Tool.zip"}, "fail"))
+	if j.State != "succeeded" || !f.exists("Tools/tg5040/Loose Tool.pak/bin/tool") {
+		t.Fatalf("named by the upload: %+v", j)
+	}
+	named := pakZip(t, "launch.sh", "x", "pak.json", `{"name":"Fancy","type":"EMU"}`)
+	j = f.waitJob(f.uploadPak(named, map[string]any{"fileName": "whatever.zip"}, "fail"))
+	if j.State != "succeeded" || !f.exists("Emus/tg5040/Fancy.pak/launch.sh") {
+		t.Fatalf("named by pak.json: %+v", j)
+	}
+	if err := os.WriteFile(filepath.Join(f.sd, "Clock.pak.zip"), loose, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	j = f.waitJob(jobID(t, f.installFromSD(map[string]any{"sdEntryId": f.sdEntry("Clock.pak.zip")}, http.StatusAccepted)))
+	if j.State != "succeeded" || !f.exists("Tools/tg5040/Clock.pak/launch.sh") {
+		t.Fatalf("named by the SD entry: %+v", j)
+	}
+	// No name at all: refused.
+	j = f.waitJob(f.uploadPak(loose, map[string]any{}, "fail"))
+	if j.State != "failed" || j.Error.Code != "unsupported_format" {
+		t.Fatalf("no name: %+v", j)
+	}
+	f.noPakStaging()
+}

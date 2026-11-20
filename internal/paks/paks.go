@@ -8,6 +8,7 @@ package paks
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -233,6 +234,37 @@ func (m *Manager) describe(kind, dir string) (Pak, error) {
 		Version: version, Self: m.IsSelf(dir),
 	}, nil
 }
+
+// ErrUnsafeFolder means the folder of the paks is not a real folder of
+// the SD card (a link at some component).
+var ErrUnsafeFolder = errors.New("paks: folder outside the SD card or reached through a link")
+
+// EnsureDir creates the folder of the paks of a kind under the SD card,
+// through an os.Root of the card (nothing is created outside it), and
+// checks that no component of it is a link.
+func (m *Manager) EnsureDir(kind string) (string, error) {
+	dir := m.Dir(kind)
+	rel, err := filepath.Rel(m.sd, dir)
+	if dir == "" || err != nil || !filepath.IsLocal(rel) {
+		return "", ErrUnsafeFolder
+	}
+	root, err := os.OpenRoot(m.sd)
+	if err != nil {
+		return "", err
+	}
+	defer root.Close()
+	if err := root.MkdirAll(rel, 0o755); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrUnsafeFolder, err)
+	}
+	if !m.safeParent(dir) {
+		return "", ErrUnsafeFolder
+	}
+	return dir, nil
+}
+
+// FolderSize is the size of the regular files of a folder (links not
+// followed): the size a journaled replacement checks (store.Install).
+func FolderSize(dir string) int64 { return folderSize(dir) }
 
 // folderSize is the size of the regular files of dir (links are not
 // followed), bounded by maxSizeWalk files.

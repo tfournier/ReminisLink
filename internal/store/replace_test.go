@@ -510,3 +510,79 @@ func TestRestoringTransitionIsDurableBeforeTheRollback(t *testing.T) {
 		t.Fatalf("entry left %v", names)
 	}
 }
+
+// M12: a pak folder replaced with the journal, then recovered after a
+// power cut in either direction.
+func TestTrashReplaceFolder(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	old := filepath.Join(sd, "Tools/tg5040/Clock.pak")
+	write(t, sd, "Tools/tg5040/Clock.pak/launch.sh", "old")
+	staged := filepath.Join(sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak")
+	write(t, sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak/launch.sh", "new!")
+	write(t, sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak/res/a", "xy")
+	if _, err := tr.Replace(ReasonReplacePak, "Clock", []MoveItem{{Path: old}}, []Install{{Src: staged, Dst: old, Size: 6, Dir: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(old, "launch.sh")); string(data) != "new!" || exists(staged) {
+		t.Fatalf("not installed: %q", data)
+	}
+	entries, _, _ := tr.List()
+	if len(entries) != 1 || entries[0].Reason != ReasonReplacePak {
+		t.Fatalf("entries %+v", entries)
+	}
+}
+
+func TestTrashRecoverFolderReplacement(t *testing.T) {
+	const src = ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak"
+	const dst = "Tools/tg5040/Clock.pak"
+	// Cut after the old pak moved: the complete staged folder is installed.
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, src+"/launch.sh", "new!")
+	interrupted(t, tr, sd, map[string]string{dst + "/launch.sh": "old"}, []installRecord{{Src: src, Dst: dst, Size: 4, Dir: true}})
+	os.Remove(filepath.Join(sd, dst))
+	if !tr.PendingSources()[filepath.Join(sd, src)] {
+		t.Fatal("staged folder not pending")
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(sd, dst, "launch.sh")); string(data) != "new!" {
+		t.Fatalf("not finished: %q", data)
+	}
+	// Cut with an incomplete staged folder: the old pak comes back.
+	tr, sd, _, _ = newTestTrash(t)
+	write(t, sd, src+"/launch.sh", "ne")
+	interrupted(t, tr, sd, map[string]string{dst + "/launch.sh": "old"}, []installRecord{{Src: src, Dst: dst, Size: 4, Dir: true}})
+	os.Remove(filepath.Join(sd, dst))
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(sd, dst, "launch.sh")); string(data) != "old" {
+		t.Fatalf("not rolled back: %q", data)
+	}
+}
+
+// A sync failure after the rename puts the old pak back.
+func TestTrashReplaceFolderSyncFailure(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	old := filepath.Join(sd, "Tools/tg5040/Clock.pak")
+	write(t, sd, "Tools/tg5040/Clock.pak/launch.sh", "old")
+	staged := filepath.Join(sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak")
+	write(t, sd, ".userdata/shared/ReminisLink/staging/pk_1/Clock.pak/launch.sh", "new")
+	fail := true
+	tr.syncDir = func(dir string) error {
+		if fail && dir == filepath.Dir(old) && exists(filepath.Join(old, "launch.sh")) {
+			if data, _ := os.ReadFile(filepath.Join(old, "launch.sh")); string(data) == "new" {
+				fail = false
+				return errors.New("simulated sync failure")
+			}
+		}
+		return nil
+	}
+	if _, err := tr.Replace(ReasonReplacePak, "Clock", []MoveItem{{Path: old}}, []Install{{Src: staged, Dst: old, Size: 3, Dir: true}}); err == nil {
+		t.Fatal("sync failure ignored")
+	}
+	if data, _ := os.ReadFile(filepath.Join(old, "launch.sh")); string(data) != "old" {
+		t.Fatalf("old pak not back: %q", data)
+	}
+}
