@@ -49,10 +49,13 @@ final class ConsoleSession {
     @ObservationIgnored var events: EventStream?
     /// The client the event stream belongs to.
     @ObservationIgnored weak var eventsClient: APIClient?
-    /// `hello` events received in this session, every stream included:
-    /// after the first, the screens reload (the pak replays nothing missed
-    /// while no stream was open: background, another console shown).
-    @ObservationIgnored var hellosSeen = 0
+    /// The catch-up after the last `hello` (M14): a newer `hello` or the
+    /// end of the stream changes the generation, and an older catch-up
+    /// publishes nothing.
+    @ObservationIgnored var catchUpGeneration = 0
+    @ObservationIgnored var catchUpTask: Task<Void, Never>?
+    /// Catch-ups that went to their end (tests wait on it).
+    @ObservationIgnored var catchUpsDone = 0
     /// The pak has no `GET /events` (older than M14): the screens poll,
     /// as before, for the rest of this session.
     var eventsUnsupported = false

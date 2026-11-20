@@ -49,6 +49,10 @@ extension ConsoleSession {
     }
 
     func stopEventStream() {
+        // A catch-up of this stream publishes nothing after it closed.
+        catchUpGeneration += 1
+        catchUpTask?.cancel()
+        catchUpTask = nil
         events?.stop()
         events = nil
         eventsClient = nil
@@ -77,10 +81,12 @@ extension ConsoleSession {
         guard liveApp != nil, self.client === client else { return }
         switch event {
         case .hello:
-            let reconnected = hellosSeen > 0
-            hellosSeen += 1
             setEventsLive(true)
-            Task { await self.caughtUp(client: client, reconnected: reconnected) }
+            // Only the last catch-up publishes (generation, not ordering).
+            catchUpGeneration += 1
+            let generation = catchUpGeneration
+            catchUpTask?.cancel()
+            catchUpTask = Task { await self.catchUp(client: client, generation: generation) }
         case .device(let device):
             lastDeviceEvent = device
             deviceEvents += 1
@@ -94,13 +100,18 @@ extension ConsoleSession {
         }
     }
 
-    /// After `hello`: the dashboard is read once (no `device` event is sent
-    /// at the start), and the jobs once (they may have moved while no
-    /// stream was open). After a reconnection, the screens reload too:
-    /// events may have been missed.
-    private func caughtUp(client: APIClient, reconnected: Bool) async {
+    /// After every `hello`: the dashboard is read once (no `device` event
+    /// is sent at the start), the jobs once, and the screens (library, open
+    /// game, trash) reload: the pak replays nothing, and whatever happened
+    /// before this stream (background, the list shown, a slow opening) is
+    /// unknown. Cheap, and never stale. A newer `hello` or the end of the
+    /// stream makes this one publish nothing more.
+    private func catchUp(client: APIClient, generation: Int) async {
+        func isCurrent() -> Bool {
+            liveApp != nil && self.client === client && catchUpGeneration == generation && !Task.isCancelled
+        }
         let eventsBefore = deviceEvents
-        if let status = try? await client.device(), self.client === client {
+        if let status = try? await client.device(), isCurrent() {
             // A `device` event that arrived while the request was out is
             // newer than this answer: its fields win.
             if deviceEvents != eventsBefore, let event = lastDeviceEvent {
@@ -109,13 +120,13 @@ extension ConsoleSession {
                 self.status = status
             }
         }
-        guard liveApp != nil, self.client === client else { return }
+        guard isCurrent() else { return }
         await transfers.refreshJobs(force: true)
-        if reconnected {
-            lastLibraryChange = nil
-            libraryRevision += 1
-            await loadTrash()
-        }
+        guard isCurrent() else { return }
+        lastLibraryChange = nil
+        libraryRevision += 1
+        await loadTrash()
+        if isCurrent() { catchUpsDone += 1 }
     }
 
     /// A `library` event: the screens reload once the events stop coming
