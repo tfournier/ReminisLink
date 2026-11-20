@@ -111,9 +111,8 @@ info:
     trash, state locks, the deletion of a pak (M12), and the final step of
     an upload (`POST /uploads/{uploadId}/complete`). Creating or cancelling an
     upload, its chunks (`PUT /uploads/{uploadId}`) and cancelling a job
-    only touch the staging area of the pak and never wait. A device-side
-    download, a patch or a pak installation (a job) waits
-    for its turn only for the step that installs its file (or its pak
+    only touch the staging area of the pak and never wait. A patch or a
+    pak installation (a job) waits for its turn only for the step that installs its file (or its pak
     folder), never failing for it. A request that arrives while another write runs waits for it
     to finish (after its body was received and verified); if it waited
     10 s without getting its turn, it gets `429 device_busy`
@@ -167,7 +166,7 @@ tags:
   - name: Cheats
     description: RetroArch `.cht` cheat lists.
   - name: Transfers
-    description: Resumable uploads, device-side downloads and patching.
+    description: Resumable uploads and patching.
   - name: Jobs
     description: Long-running device-side operations.
   - name: Paks
@@ -401,8 +400,8 @@ paths:
         - `job`: a `Job`, when a job of any client changes state, and
           while it runs at most once per second.
         - `paks` (M12): `EventPaks` (an empty object), after a pak was
-          installed (a `pak-install` job, or a `download` job with a
-          `pak` target, that succeeded) or deleted by any client, so the
+          installed (a `pak-install` job that succeeded) or deleted by any
+          client, so the
           app reloads `GET /paks`. At most one every second (changes are
           merged). A pak change does not send `library`.
 
@@ -1597,8 +1596,7 @@ paths:
       operationId: importCheats
       summary: Import cheats
       description: |
-        Sources: `url` (downloaded by the device, 5 MiB max, synchronous),
-        `sd` (`sdFileId` from `GET /sd/files`), `inline` (`.cht` text, 1 MiB
+        Sources: `sd` (`sdFileId` from `GET /sd/files`), `inline` (`.cht` text, 1 MiB
         max), `upload` (`uploadId` of an upload with `target.kind = "staging"`
         completed since the pak started), `staging` (`stagingId` returned by
         that upload, valid until the staging file is purged after 24 h;
@@ -1606,10 +1604,8 @@ paths:
         to 5 MiB (`413` beyond). `mode`: `merge` appends the cheats after the
         current ones, `replace` replaces them (the comment lines of the
         current file are kept). `422 unsupported_format` if no cheat is
-        found. With a `url` source: `404 not_found` if the server answers
-        404 or 410, `422 unsupported_format` for any other download failure
-        (network, HTTP error); the URL is never logged beyond its scheme and
-        host.
+        found. The pak never fetches a URL (the `url` source was removed
+        from v1).
       parameters:
         - $ref: '#/components/parameters/GameId'
       requestBody:
@@ -1618,7 +1614,7 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/CheatImportRequest' }
             example:
-              source: { type: url, url: 'https://example.org/cheats/game.cht' }
+              source: { type: staging, stagingId: st_01JD3Y4K5M6N }
               mode: merge
       responses:
         '200':
@@ -1850,48 +1846,6 @@ paths:
         '503': { $ref: '#/components/responses/ShuttingDown' }
         '507': { $ref: '#/components/responses/InsufficientStorage' }
 
-  /downloads:
-    post:
-      tags: [Transfers]
-      operationId: createDownload
-      summary: Download a URL on the device (creates a job)
-      description: |
-        Same `target` as `POST /uploads`; `fileName` may be omitted (taken
-        from `Content-Disposition` or the URL, then normalized to NFC and
-        cleaned like any given name). `http` and `https` only, 5
-        redirects, 4 GiB max. The result of the job is the created resource.
-        At most 100 jobs are queued or running (`429 too_many_attempts`
-        with `Retry-After` beyond).
-
-        `pak` target (M12): the job (kind `download`) downloads the archive
-        (1 GiB max), then installs it like `POST /paks/install` and its
-        result is `{ "pakId": "..." }`. `onConflict` accepts `fail` and
-        `overwrite` only.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/DownloadRequest' }
-            example:
-              url: 'https://example.org/hack.bps'
-              target: { kind: staging }
-              sha256: null
-              onConflict: rename
-      responses:
-        '202':
-          description: Job created.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/JobAccepted' }
-              example: { jobId: job_01JD3Y0A2B3C }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '413': { $ref: '#/components/responses/TooLarge' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '500': { $ref: '#/components/responses/Internal' }
-        '503': { $ref: '#/components/responses/ShuttingDown' }
-
   /games/{gameId}/patch:
     post:
       tags: [Transfers]
@@ -1975,7 +1929,7 @@ paths:
               example:
                 jobs:
                   - id: job_01JD3Y0A2B3C
-                    kind: download
+                    kind: patch
                     state: running
                     progress: { done: 12582912, total: 536870912 }
                     createdAt: '2026-11-18T17:00:00Z'
@@ -2043,7 +1997,7 @@ paths:
               schema: { $ref: '#/components/schemas/Job' }
               example:
                 id: job_01JD3Y0A2B3C
-                kind: download
+                kind: patch
                 state: cancelled
                 progress: { done: 12582912, total: null }
                 createdAt: '2026-11-18T17:00:00Z'
@@ -2155,7 +2109,7 @@ paths:
         `.pak` (copied as is). The other sources use the same pipeline:
         the `pak` target of `POST /uploads` (an archive sent from the
         phone; a `.pak` folder chosen on the phone is zipped by the app
-        first) and of `POST /downloads` (an archive at a URL).
+        first). The pak never installs from a URL (removed from v1).
 
         The request is checked at once (`400`, `404` for a missing entry,
         `422 unsupported_format` for an entry that is neither a file nor a
@@ -2178,9 +2132,8 @@ paths:
         (Pak Store style): when a `launch.sh` file is at the top of the
         archive, every entry (but `__MACOSX/`) belongs to the pak, named
         after the `name` of its `pak.json` when it is a usable name, else
-        after the file name of the archive (the `fileName` of the upload,
-        the deduced or given name of the download, the name of the SD
-        entry) without `.zip`; `.pak` is added when missing and the name
+        after the file name of the archive (the `fileName` of the upload
+        or the name of the SD entry) without `.zip`; `.pak` is added when missing and the name
         is cleaned like any file name (refused when nothing usable is
         left: `422 unsupported_format`).
 
@@ -2194,8 +2147,8 @@ paths:
         10 000 entries or a central directory of more than 4 MiB (both
         read from the end records before the directory itself), more
         than 1 GiB uncompressed (announced or real), and an entry of more
-        than 1 MiB compressed more than 200 times. An archive uploaded or
-        downloaded as a pak is at most 1 GiB (checked on the announced
+        than 1 MiB compressed more than 200 times. An archive uploaded as a
+        pak is at most 1 GiB (checked on the announced
         length and on every write). Nothing is written
         outside the staging area of the pak before every check passed.
 
@@ -2500,12 +2453,11 @@ components:
         request nonces is full (it never forgets a live nonce to make room);
         too many open uploads (32, message `Too many open uploads`) on
         `POST /uploads`; too many queued and running jobs (100, message
-        `Too many jobs`) on `POST /downloads`; an upload resumed after a
+        `Too many jobs`) on `POST /games/{gameId}/patch`,
+        `POST /paks/install` and the completion of a `pak` upload; an upload resumed after a
         restart of the pak is still being verified (message `Upload is
         being verified`) on `PUT /uploads/{uploadId}` and
-        `POST /uploads/{uploadId}/complete`; a cheat import from a URL
-        waiting for another one (one at a time) when the client gives up
-        (message `Another cheat import is running`); more than 4 event streams
+        `POST /uploads/{uploadId}/complete`; more than 4 event streams
         for the client or 16 in all on `GET /events` (M14, message `Too many
         event streams`). On every route that changes the SD card, a write
         that waited 10 s for the write in progress gets the code
@@ -3101,11 +3053,6 @@ components:
         source:
           oneOf:
             - type: object
-              required: [type, url]
-              properties:
-                type: { type: string, const: url }
-                url: { type: string, format: uri }
-            - type: object
               required: [type, sdFileId]
               properties:
                 type: { type: string, const: sd }
@@ -3203,42 +3150,6 @@ components:
             kind: { type: string, const: pak }
             pakKind: { $ref: '#/components/schemas/PakInstallKind' }
             fileName: { $ref: '#/components/schemas/FileName' }
-    DownloadTarget:
-      description: Same as UploadTarget, but `fileName` is optional (deduced from `Content-Disposition` or the URL).
-      oneOf:
-        - type: object
-          required: [kind, systemId]
-          properties:
-            kind: { type: string, const: rom }
-            systemId: { $ref: '#/components/schemas/OpaqueId' }
-            folderId:
-              oneOf:
-                - $ref: '#/components/schemas/OpaqueId'
-                - type: 'null'
-            fileName: { $ref: '#/components/schemas/FileName' }
-        - type: object
-          required: [kind, gameId]
-          properties:
-            kind: { type: string, const: save }
-            gameId: { $ref: '#/components/schemas/OpaqueId' }
-        - type: object
-          required: [kind, gameId, slot]
-          properties:
-            kind: { type: string, const: state }
-            gameId: { $ref: '#/components/schemas/OpaqueId' }
-            slot: { type: integer, minimum: 0 }
-        - type: object
-          required: [kind]
-          properties:
-            kind: { type: string, const: staging }
-            fileName: { $ref: '#/components/schemas/FileName' }
-        - type: object
-          required: [kind]
-          description: 'M12: a pak archive (zip), installed by the download job; its result is `{ "pakId": "..." }`. `fileName` (else the name deduced from the response) is the fallback name of a loose archive, as for the upload target.'
-          properties:
-            kind: { type: string, const: pak }
-            pakKind: { $ref: '#/components/schemas/PakInstallKind' }
-            fileName: { $ref: '#/components/schemas/FileName' }
     CreateUploadRequest:
       type: object
       required: [target, sizeBytes, sha256]
@@ -3283,17 +3194,6 @@ components:
           description: 'M12, `pak` target: the `pak-install` job that installs the archive.'
           properties:
             jobId: { $ref: '#/components/schemas/OpaqueId' }
-    DownloadRequest:
-      type: object
-      required: [url, target]
-      properties:
-        url: { type: string, format: uri, description: '`http` or `https` only.' }
-        target: { $ref: '#/components/schemas/DownloadTarget' }
-        sha256:
-          oneOf:
-            - $ref: '#/components/schemas/Sha256Hex'
-            - type: 'null'
-        onConflict: { $ref: '#/components/schemas/OnConflict' }
     PatchRequest:
       type: object
       required: [patch]
@@ -3327,7 +3227,7 @@ components:
         id: { $ref: '#/components/schemas/OpaqueId' }
         kind:
           type: string
-          enum: [download, patch, pak-install]
+          enum: [patch, pak-install]
           description: '`pak-install` (M12): `POST /paks/install`, or the completion of a `pak` upload.'
         state: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
         progress:
@@ -3344,7 +3244,7 @@ components:
         updatedAt: { $ref: '#/components/schemas/Timestamp' }
         result:
           type: [object, 'null']
-          description: "The created resource when `succeeded`, e.g. `{ \"gameId\": \"...\" }`; a patch job adds `verified` (boolean, `false` for IPS); a pak installation (a `pak-install` job, or a `download` job with a `pak` target, M12) gives `{ \"pakId\": \"...\" }`."
+          description: "The created resource when `succeeded`, e.g. `{ \"gameId\": \"...\" }`; a patch job adds `verified` (boolean, `false` for IPS); a pak installation (a `pak-install` job, M12) gives `{ \"pakId\": \"...\" }`."
           additionalProperties: true
         error:
           description: Same object as in error responses, when `failed`.
