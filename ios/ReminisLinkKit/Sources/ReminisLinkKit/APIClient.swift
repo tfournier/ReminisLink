@@ -103,9 +103,14 @@ public actor APIClient {
 
     /// `GET /hello`: checks the device id and the compatibility, and measures
     /// the clock offset used to sign the next requests.
+    ///
+    /// `timeout`: the longest silence before it fails, when shorter than
+    /// the session's (M11: the probe sent when the console's Bonjour
+    /// service disappears).
     @discardableResult
-    public func hello() async throws -> Hello {
-        let request = try makeRequest(method: "GET", segments: ["hello"])
+    public func hello(timeout: TimeInterval? = nil) async throws -> Hello {
+        var request = try makeRequest(method: "GET", segments: ["hello"])
+        if let timeout { request.timeoutInterval = timeout }
         let (data, response) = try await transport(request)
         try check(response, data: data, accept: [200])
         let hello: Hello = try decode(data)

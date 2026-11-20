@@ -293,6 +293,8 @@ final class AppModel {
         self.syncScratchDirectory = temporary.appending(path: "SyncScratch")
         self.lookupTimeout = lookupTimeout
         self.makeSession = makeSession
+        // M11: the pak withdraws its Bonjour service as it quits.
+        discovery.onDevicesRemoved = { [weak self] ids in self?.servicesRemoved(ids) }
     }
 
     static let syncOnConnectKey = "syncSavesOnConnect"
@@ -522,6 +524,24 @@ final class AppModel {
             browsingFor: discovery.browsingDuration,
             minimumBrowsing: closureMinimumBrowsing
         )
+    }
+
+    /// Whether Bonjour currently sees this console.
+    func isServiceVisible(_ deviceId: String) -> Bool {
+        DiscoveryLogic.find(id: deviceId, in: discovery.devices) != nil
+    }
+
+    /// Whether Bonjour has been browsing long enough for the absence of a
+    /// console to mean something (M11).
+    var hasBrowsedLongEnough: Bool {
+        discovery.browsingDuration.map { $0 >= closureMinimumBrowsing } ?? false
+    }
+
+    /// Bonjour saw these consoles withdraw their service (M11): each
+    /// connected one checks at once whether it closed ReminisLink, even if
+    /// the user does nothing.
+    func servicesRemoved(_ deviceIds: [String]) {
+        for id in deviceIds { sessions[id]?.checkStillOpen(waitForBrowsing: false) }
     }
 
     /// The console closed ReminisLink (M11): back to the list of consoles,
