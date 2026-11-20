@@ -637,9 +637,9 @@ func (s *Service) DeleteArt(gameID string) (library.Game, error) {
 func (s *Service) Writes() *writelock.Lock { return s.opts.Writes }
 
 // ErrorDeviceBusy is the answer to a request that waited too long for the
-// write in progress (429, M13).
+// write in progress (429 device_busy, M13).
 func ErrorDeviceBusy() *Error {
-	return newError(http.StatusTooManyRequests, CodeTooManyAttempts, "Device busy")
+	return newError(http.StatusTooManyRequests, CodeDeviceBusy, "Device busy")
 }
 
 type writeCheckKey struct{}

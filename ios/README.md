@@ -452,8 +452,9 @@ the read-only banner, **Take Over**): several paired devices may write; the
 pak runs the writes one at a time.
 
 - **Device busy**: a write that waited 10 s for the one in progress gets
-  `429 too_many_attempts` (message `Device busy`) with `Retry-After`;
-  nothing was changed (`ServerError.isDeviceBusy`). The end of an upload
+  `429 device_busy` with `Retry-After`; nothing was changed
+  (`ServerError.isDeviceBusy`, which also recognizes the answer of an M13
+  pak: `429 too_many_attempts` with the message `Device busy`). The end of an upload
   (`complete`) is sent again by itself after `Retry-After` (and that
   refusal never makes its outcome unknown); a user action shows "The
   console is busy with another change. Nothing was changed. Try again in N

@@ -18,6 +18,9 @@ public enum ErrorCode: Hashable, Sendable {
     case unsupportedFormat
     case patchMismatch
     case tooManyAttempts
+    /// A write waited 10 s for the write in progress on the console
+    /// (`429` with `Retry-After`, added after M13).
+    case deviceBusy
     case `internal`
     case shuttingDown
     case insufficientStorage
@@ -44,6 +47,7 @@ public enum ErrorCode: Hashable, Sendable {
         (.unsupportedFormat, "unsupported_format"),
         (.patchMismatch, "patch_mismatch"),
         (.tooManyAttempts, "too_many_attempts"),
+        (.deviceBusy, "device_busy"),
         (.internal, "internal"),
         (.shuttingDown, "shutting_down"),
         (.insufficientStorage, "insufficient_storage"),
@@ -89,13 +93,18 @@ public struct ServerError: Error, Sendable, Equatable {
         return max(0, required - available)
     }
 
-    /// M13: a write that waited 10 s for the write in progress on the
-    /// console (`429 too_many_attempts`, message `Device busy`, with
-    /// `Retry-After`). Nothing was changed: the same request can be sent
-    /// again. The contract tells it from the other `429`s by its message.
+    /// A write that waited 10 s for the write in progress on the console
+    /// (`429 device_busy` with `Retry-After`). Nothing was changed: the
+    /// same request can be sent again. A pak from M13 answered
+    /// `429 too_many_attempts` with the message `Device busy` instead,
+    /// still recognized here.
     public var isDeviceBusy: Bool {
-        status == 429 && code == .tooManyAttempts && message == "Device busy"
+        guard status == 429 else { return false }
+        return code == .deviceBusy || (code == .tooManyAttempts && message == Self.legacyDeviceBusyMessage)
     }
+
+    /// The message of the M13 busy answer (`429 too_many_attempts`).
+    public static let legacyDeviceBusyMessage = "Device busy"
 }
 
 /// Everything ``APIClient`` can throw.
@@ -128,7 +137,8 @@ public enum APIError: Error, Sendable, Equatable {
         return nil
     }
 
-    /// `429 Device busy` (M13): another write was running on the console.
+    /// `429 device_busy` (or an M13 pak's `Device busy`): another write was
+    /// running on the console.
     public var isDeviceBusy: Bool {
         if case .server(let e) = self { return e.isDeviceBusy }
         return false

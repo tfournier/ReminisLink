@@ -24,6 +24,7 @@ const (
 	CodeShuttingDown        = "shutting_down"
 	CodeInsufficientStorage = "insufficient_storage"
 	CodeTooManyAttempts     = "too_many_attempts"
+	CodeDeviceBusy          = "device_busy"
 )
 
 // Error is an error the API reports as it is: HTTP status, code, English

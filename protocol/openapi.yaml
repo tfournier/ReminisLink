@@ -116,8 +116,11 @@ info:
     for its turn only for the step that installs its file (or its pak
     folder), never failing for it. A request that arrives while another write runs waits for it
     to finish (after its body was received and verified); if it waited
-    10 s without getting its turn, it gets `429 too_many_attempts`
+    10 s without getting its turn, it gets `429 device_busy`
     (message `Device busy`) with `Retry-After`, and nothing was changed.
+    The dedicated code `device_busy` came after M13: a pak from M13 sent
+    `429 too_many_attempts` with the message `Device busy` instead, so a
+    client keeps recognizing that answer too.
     Once it holds its turn, a write checks again that its client was not
     disconnected, forgotten, unpaired or paired again meanwhile
     (`401 disconnected` or `401 unknown_client`, nothing changed). The
@@ -2492,8 +2495,8 @@ components:
           example: { error: { code: too_many_attempts, message: Pairing is blocked, details: {} } }
     TooManyRequests:
       description: |
-        The device cannot take this request right now (`too_many_attempts`,
-        always with `Retry-After`). Retry later. Cases: its cache of recent
+        The device cannot take this request right now (`too_many_attempts`
+        or `device_busy`, always with `Retry-After`). Retry later. Cases: its cache of recent
         request nonces is full (it never forgets a live nonce to make room);
         too many open uploads (32, message `Too many open uploads`) on
         `POST /uploads`; too many queued and running jobs (100, message
@@ -2504,9 +2507,11 @@ components:
         waiting for another one (one at a time) when the client gives up
         (message `Another cheat import is running`); more than 4 event streams
         for the client or 16 in all on `GET /events` (M14, message `Too many
-        event streams`); a write that waited 10 s for the write in progress
-        (M13, message `Device busy`, nothing was changed) on every route
-        that changes the SD card (see "Writes one at a time").
+        event streams`). On every route that changes the SD card, a write
+        that waited 10 s for the write in progress gets the code
+        `device_busy` instead (message `Device busy`, nothing was changed;
+        see "Writes one at a time"); a pak from M13 sent `too_many_attempts`
+        with the same message.
       headers:
         Retry-After:
           description: Seconds before trying again.
@@ -2514,7 +2519,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: too_many_attempts, message: Too many requests, details: {} } }
+          examples:
+            tooManyAttempts:
+              value: { error: { code: too_many_attempts, message: Too many requests, details: {} } }
+            deviceBusy:
+              value: { error: { code: device_busy, message: Device busy, details: {} } }
     Internal:
       description: Unexpected error (`internal`); details are in the device log.
       content:
@@ -2591,6 +2600,7 @@ components:
         - unsupported_format
         - patch_mismatch
         - too_many_attempts
+        - device_busy
         - internal
         - shutting_down
         - insufficient_storage

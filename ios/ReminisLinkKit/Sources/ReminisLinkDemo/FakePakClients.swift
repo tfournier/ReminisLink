@@ -8,7 +8,7 @@ import ReminisLinkKit
 // client from the console (`401 disconnected` until
 // `POST /clients/me/connect`), Forget, and the writes run one at a time
 // (M13: a write that waited too long for the one in progress gets
-// `429 too_many_attempts`, message `Device busy`, with `Retry-After`;
+// `429 device_busy` with `Retry-After`;
 // simulated here with ``busyNextWrites(_:retryAfter:)``). As the contract
 // says, the disconnections are kept in memory only.
 
@@ -46,8 +46,8 @@ extension FakePak {
     }
 
     /// The next `count` writes (requests that change the SD card) find
-    /// another write running for too long: `429 too_many_attempts`
-    /// (`Device busy`) with `Retry-After: retryAfter`, nothing changed.
+    /// another write running for too long: `429 device_busy` with
+    /// `Retry-After: retryAfter`, nothing changed.
     public func busyNextWrites(_ count: Int, retryAfter: Int = 1) {
         lock.withLock {
             busyWrites += count
@@ -76,7 +76,7 @@ extension FakePak {
             guard busyWrites > 0 else { return nil }
             busyWrites -= 1
             _busyRefusals += 1
-            return .error(429, code: "too_many_attempts", message: "Device busy",
+            return .error(429, code: "device_busy", message: "Device busy",
                           headers: ["Retry-After": String(busyRetryAfter)])
         }
     }

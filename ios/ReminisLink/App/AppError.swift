@@ -229,8 +229,9 @@ enum AppError: Error, Equatable {
         return false
     }
 
-    /// `429 Device busy` (M13): another write was running on the console;
-    /// nothing was changed.
+    /// `429 device_busy` (or an M13 pak's `429 too_many_attempts`
+    /// `Device busy`): another write was running on the console; nothing
+    /// was changed.
     var isDeviceBusy: Bool {
         if case .api(let error) = self { return error.isDeviceBusy }
         return false
@@ -382,7 +383,7 @@ enum AppError: Error, Equatable {
                 return String(localized: "The clocks of the console and of this iPhone are too far apart.")
             case .pairingFailed:
                 return String(localized: "Pairing failed. The code may have expired: show a new QR code on the console and try again.")
-            case .tooManyAttempts where server.isDeviceBusy:
+            case _ where server.isDeviceBusy: // device_busy, or an M13 pak's too_many_attempts "Device busy"
                 if let seconds = server.retryAfter {
                     return String(localized: "The console is busy with another change. Nothing was changed. Try again in \(seconds) seconds.")
                 }

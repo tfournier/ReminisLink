@@ -25,8 +25,11 @@ const (
 	CodeReplayedRequest = "replayed_request"
 	CodeTooLarge        = "too_large"
 	CodeTooManyAttempts = "too_many_attempts"
-	CodeInternal        = "internal"
-	CodeShuttingDown    = "shutting_down"
+	// CodeDeviceBusy: a write waited too long for the one in progress
+	// (429 with Retry-After, M13 write lock).
+	CodeDeviceBusy   = "device_busy"
+	CodeInternal     = "internal"
+	CodeShuttingDown = "shutting_down"
 )
 
 // Signed body limits, chosen per route when it is registered. A signed body

@@ -8,7 +8,7 @@ struct APIErrorTests {
     @Test func everyContractCodeRoundTrips() {
         let raw = ["invalid_request", "invalid_id", "invalid_name", "unknown_client", "bad_signature", "clock_skew",
                    "replayed_request", "pairing_failed", "not_found", "conflict", "checksum_mismatch", "state_locked",
-                   "too_large", "unsupported_format", "patch_mismatch", "too_many_attempts", "internal",
+                   "too_large", "unsupported_format", "patch_mismatch", "too_many_attempts", "device_busy", "internal",
                    "shutting_down", "insufficient_storage", "disconnected"]
         #expect(ErrorCode.allKnown.map(\.rawValue) == raw)
         for code in raw {
@@ -49,6 +49,25 @@ struct APIErrorTests {
         guard case .server(let server) = error else { Issue.record("\(String(describing: error))"); return }
         #expect(server.code == .tooManyAttempts)
         #expect(server.retryAfter == 30)
+    }
+
+    @Test func deviceBusyIsDecodedWithItsRetryAfter() async throws {
+        let error = await failure(.error(429, code: "device_busy", message: "Device busy", headers: ["Retry-After": "2"]))
+        guard case .server(let server) = error else { Issue.record("\(String(describing: error))"); return }
+        #expect(server.code == .deviceBusy)
+        #expect(server.retryAfter == 2)
+        #expect(server.isDeviceBusy)
+        #expect(error?.isDeviceBusy == true)
+    }
+
+    /// A pak from M13 said "busy" with `too_many_attempts` and the message
+    /// `Device busy`: still recognized. Other `429`s are not busy.
+    @Test func deviceBusyFromAnOlderPakAndOther429s() {
+        #expect(ServerError(status: 429, code: .tooManyAttempts, message: "Device busy").isDeviceBusy)
+        #expect(ServerError(status: 429, code: .deviceBusy, message: "anything").isDeviceBusy)
+        #expect(!ServerError(status: 429, code: .tooManyAttempts, message: "Too many requests").isDeviceBusy)
+        #expect(!ServerError(status: 429, code: .tooManyAttempts, message: "Too many event streams").isDeviceBusy)
+        #expect(!ServerError(status: 503, code: .deviceBusy, message: "Device busy").isDeviceBusy)
     }
 
     @Test func insufficientStorageMissingBytes() async throws {

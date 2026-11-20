@@ -104,7 +104,7 @@ func (f *fixture) holdWrites(wait time.Duration) {
 	}
 }
 
-// wantBusy checks a 429 Device busy with Retry-After.
+// wantBusy checks a 429 device_busy with Retry-After.
 func wantBusy(t *testing.T, r testutil.Response) {
 	t.Helper()
 	var e struct {
@@ -113,7 +113,7 @@ func wantBusy(t *testing.T, r testutil.Response) {
 		} `json:"error"`
 	}
 	r.JSON(t, &e)
-	if r.Status != http.StatusTooManyRequests || e.Error.Code != "too_many_attempts" || e.Error.Message != "Device busy" ||
+	if r.Status != http.StatusTooManyRequests || e.Error.Code != "device_busy" || e.Error.Message != "Device busy" ||
 		r.Header.Get("Retry-After") != "2" {
 		t.Fatalf("want 429 Device busy, got %d %s Retry-After=%q", r.Status, r.Body, r.Header.Get("Retry-After"))
 	}
