@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ReminisLink API
-  version: 1.0.0
+  version: 2.0.0
   summary: HTTP API served by the ReminisLink pak on the handheld, used by the iOS app.
   description: |
     Source of truth for both implementations (Go pak and Swift app). It is
@@ -9,12 +9,29 @@ info:
     any API change is made here first.
 
     ## Transport
-    HTTP/1.1 on the local network, no TLS in v1. Default port 47821 (the pak
-    tries the 9 next ports if it is busy; the real port is announced with
-    Bonjour `_reminislink._tcp` and in the pairing QR code). All paths below
-    are relative to the `/api/v1` prefix. JSON bodies are UTF-8,
-    `camelCase`, at most 1 MiB. Dates are RFC 3339 UTC, sizes are 64-bit
-    byte counts. Clients must ignore unknown fields.
+    HTTPS (TLS 1.2 or later, TLS 1.3 preferred) on the local network, M13.
+    Default port 47821 (the pak tries the 9 next ports if it is busy; the
+    real port is announced with Bonjour `_reminislink._tcp` and in the
+    pairing QR code). Every route, `GET /hello` included, is served over
+    TLS only; the pak serves no plain HTTP. All paths below are relative to
+    the `/api/v1` prefix. JSON bodies are UTF-8, `camelCase`, at most 1 MiB.
+    Dates are RFC 3339 UTC, sizes are 64-bit byte counts. Clients must
+    ignore unknown fields.
+
+    **Certificate and pin.** On its first launch the pak creates an ECDSA
+    P-256 key and a self-signed X.509 certificate (common name: the
+    `deviceId`, long validity), kept on the SD card, and reuses them at
+    every launch. The **pin** is b64u(SHA-256(DER of the certificate's
+    SubjectPublicKeyInfo)), carried by the pairing link (`k`, see
+    `POST /pair`). The app accepts only the certificate whose public key
+    matches the pin of the console (pinning): no system trust, no CA, no
+    host name check. A connection whose pin differs is closed before any
+    request is sent. If the certificate is lost (card reformatted), the
+    pin changes and the console must be paired again. Bonjour does not
+    carry the pin: it only comes from the QR code. An app that holds an
+    older (RL1) pairing, without a pin, may read `GET /hello` without
+    pinning only to see `apiVersion: 2` and offer to pair again; it sends
+    nothing else on such a connection.
 
     ## Identifiers
     `systemId`, `gameId` and `folderId` are base64url (no padding) of a path
@@ -25,14 +42,15 @@ info:
     is answered with `400 invalid_id`. `path` fields in responses are
     informative only and are never sent back.
 
-    ## Request signing
-    Every route except `GET /hello` and `POST /pair` is signed with the key
-    shared at pairing. The five `X-RL-*` headers (see the security schemes)
-    carry the signature of this canonical string (lines joined with `\n`, no
-    trailing newline):
+    ## Request signing (RL2-ED25519, M13)
+    Every route except `GET /hello` and `POST /pair` is signed with the
+    client's Ed25519 private key, registered at pairing (the pak keeps
+    only the public key). The five `X-RL-*` headers (see the security
+    schemes) carry the signature of this canonical string (lines joined
+    with `\n`, no trailing newline):
 
     ```
-    RL1-HMAC-SHA256
+    RL2-ED25519
     <METHOD in uppercase>
     <path as sent on the request line, still percent-encoded, with /api/v1, without the query>
     <canonical query>
@@ -40,6 +58,9 @@ info:
     <X-RL-Nonce>
     <X-RL-Content-SHA256>
     ```
+
+    `X-RL-Signature` = b64u of the 64-byte Ed25519 signature (RFC 8032) of
+    the UTF-8 canonical string.
 
     Canonical query: the raw query is split on `&`, each pair at its first
     `=`, decoded (`+` is a space, `%XX` a byte), re-encoded per RFC 3986
@@ -52,9 +73,9 @@ info:
     malformed signature headers (`401 bad_signature`); clock skew above 300 s
     (`401 clock_skew`, the app corrects with `serverTime` from `/hello` and
     retries once); nonce already used in the last 10 minutes
-    (`401 replayed_request`); HMAC compared in constant time, then body
-    SHA-256 (both `401 bad_signature`; the body of a request whose signature
-    is wrong is never read). The nonce is reserved as soon as the signature
+    (`401 replayed_request`); Ed25519 signature, then body SHA-256 (both
+    `401 bad_signature`; the body of a request whose signature is wrong is
+    never read). The nonce is reserved as soon as the signature
     is valid, before the body is read: any later failure (body hash, size)
     consumes it, and the app retries with a new nonce. A request with a
     valid signature from a client disconnected by the console then gets
@@ -65,47 +86,53 @@ info:
     limits are fixed per route. If the device cannot remember more nonces,
     it answers `429 too_many_attempts` with `Retry-After`.
 
-    Shared test vectors: `protocol/test-vectors/`.
+    **`X-RL-Platform`** (informative, not signed, optional): the kind of
+    device sending the request, one of `iphone`, `ipad`, `mac`, `android`,
+    `web`. The pak only uses it to show, on its Devices screen, the
+    platforms recently seen for each paired client (several Apple devices
+    can share one pairing through the iCloud Keychain). Other values are
+    ignored. It is never used for any decision.
+
+    Shared test vectors: `protocol/test-vectors/` (`pairing.json`,
+    `signing.json`, `tls.json`, `ids.json`).
 
     ## Errors
     Every error has the body `{ "error": { "code", "message", "details" } }`.
     `message` is English, for logs; the app shows a translated text chosen
     from `code`.
 
-    ## Single writer (M10)
-    At most one paired client holds the **write lease** at a time; the
-    others are read-only. The lease is kept in memory only (free at launch,
-    dropped when the pak closes).
+    ## Writes one at a time (M13)
+    Several paired clients may act at the same time; there is no write
+    lease and no read-only client (the M10 lease, `/writer` and
+    `423 read_only` are gone). The pak runs the operations that change the
+    SD card one at a time: deletions, replacements, restores, cheats, art,
+    trash, state locks, creating and cancelling an upload, cancelling a
+    job, and the final step of an upload (`POST /uploads/{uploadId}/complete`).
+    Upload chunks (`PUT /uploads/{uploadId}`) are written to the staging
+    area without waiting. A device-side download or a patch (a job) waits
+    for its turn only for the step that installs its file, never failing
+    for it. A request that arrives while another write runs waits for it
+    to finish (after its body was received and verified); if it waited
+    10 s without getting its turn, it gets `429 too_many_attempts`
+    (message `Device busy`) with `Retry-After`, and nothing was changed.
+    The confirmation of a game deletion still shows the preview computed
+    by the pak (`GET /games/{gameId}/deletion`); a change made by another
+    client between the preview and the deletion is an accepted risk (every
+    deleted or replaced file stays 30 days in the trash).
 
-    - Every operation that changes the SD card (each `423` response below:
-      uploads, deletions, replacements, restores, patch, cheats, art, trash,
-      state locks, device-side downloads, cancelling an upload or a job)
-      takes the lease if it is free. If another client holds it, the pak
-      answers `423 read_only` with `details.writer` (the holder's
-      `clientName`) before reading the body and without changing anything.
-      Read routes (`GET`), `PUT`/`DELETE /writer`, `POST /clients/me/connect`
-      and `DELETE /clients/me` never need the lease.
-    - Every signed request accepted from the holder renews the lease, so do
-      the explicit renewals of `PUT /writer` (the app sends one about every
-      20 s while it is in the foreground or one of its transfers is
-      running). The lease expires 60 s after the last one.
-    - A request already accepted when the lease changes hands runs to its
-      end; device-side jobs already queued keep running. The next write
-      request of the former holder gets `423 read_only` (an upload is paused
-      by the app, never lost).
-    - The console can **disconnect** a client (Settings > Devices): its
-      lease is dropped and all its signed requests get
-      `401 disconnected` until it calls `POST /clients/me/connect`, which the
-      app only does on an explicit user action. This state is kept in memory
-      only. The console can also **forget** a client: its pairing is removed
-      (`401 unknown_client` afterwards) and its lease dropped.
+    - The console can **disconnect** a client (Settings > Devices): all its
+      signed requests get `401 disconnected` until it calls
+      `POST /clients/me/connect`, which the app only does on an explicit
+      user action. This state is kept in memory only. The console can also
+      **forget** a client (or all of them): its pairing is removed
+      (`401 unknown_client` afterwards).
 servers:
-  - url: http://{host}:{port}/api/v1
-    description: ReminisLink pak on the local network
+  - url: https://{host}:{port}/api/v1
+    description: ReminisLink pak on the local network (TLS, self-signed certificate pinned by the app)
     variables:
       host:
         default: 192.168.1.42
-        description: IPv4 address resolved with Bonjour (or from the QR code during pairing)
+        description: IPv4 address resolved with Bonjour (or from the pairing link, see `POST /pair`)
       port:
         default: '47821'
         description: Port announced with Bonjour
@@ -145,14 +172,14 @@ paths:
         per IP. Returns nothing else (no games, no clients).
 
         `pairingOpen` (M8): pairing is only open while the console shows the
-        pairing QR code and PIN (main screen while no device is paired,
-        otherwise Settings > Pair a new device) and is not blocked after
-        too many failures. It is `false` otherwise: the app then asks the
-        user to open the pairing screen on the console.
+        pairing QR code (main screen while no device is paired, otherwise
+        Settings > Pair a new device) and is not blocked after too many
+        failures. It is `false` otherwise: the app then asks the user to
+        open the pairing screen on the console.
 
-        `writerHeld` (M10): `true` while a client holds the write lease. The
-        holder's name is only given to paired clients (`GET /device`,
-        `GET /writer`, `423 read_only`).
+        `apiVersion` is `2` since M13 (TLS, pairing v2, RL2-ED25519
+        signing). An app paired with an older pak (RL1) that sees `2` offers
+        to pair again: the pak erased its RL1 pairings.
       security: []
       responses:
         '200':
@@ -168,11 +195,10 @@ paths:
                 os: nextui
                 osVersion: NextUI-20261013-039a06de
                 pakVersion: 1.0.0
-                apiVersion: 1
+                apiVersion: 2
                 minClientVersion: 1.0.0
                 serverTime: '2026-11-18T17:00:00Z'
                 pairingOpen: true
-                writerHeld: false
         '429': { $ref: '#/components/responses/TooManyAttempts' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -183,27 +209,45 @@ paths:
       operationId: pair
       summary: Pair the app with the device (unsigned)
       description: |
-        Mutual authentication and key derivation (03-protocole §3.2).
-        `ikm` is the 32-byte QR secret (`qr`) or the UTF-8 bytes of the PIN
-        (`pin`).
+        Pairing v2 (M13, 03-protocole §3). The console shows a QR code
+        holding the **pairing link**:
 
-        - client `proof` = b64u(HMAC-SHA256(ikm, `RL1-PAIR-CLIENT|` + deviceId + `|` + clientId + `|` + clientNonce))
-          where clientNonce is the b64u string as sent;
-        - key = HKDF-SHA256(ikm, salt = clientNonce ‖ deviceNonce (raw bytes),
-          info = `RL1-KEY|` + deviceId + `|` + clientId, L = 32);
-        - device `proof` = b64u(HMAC-SHA256(key, `RL1-PAIR-DEVICE|` + deviceId + `|` + clientId)).
+        `reminislink://pair?v=2&id=<deviceId>&n=<name>&s=<secret>&h=<IPv4>&p=<port>&k=<pin>`
 
-        The key never travels. A wrong proof or an expired secret gives
-        `401 pairing_failed`; after 5 failures the secret and the PIN are
-        regenerated and pairing is blocked for 30 s (`429 too_many_attempts`).
-        The secret is single use. Pairing again with the same `clientId`
-        replaces its key. Rate-limited per IP.
+        `n` is percent-encoded per RFC 3986; `s` is the 32-byte pairing
+        secret in b64u (random, single use, valid 10 minutes); `h` and `p`
+        are the address and port of the console; `k` is the pin of its
+        certificate (b64u(SHA-256(SPKI DER)), see Transport). The app
+        refuses a link whose `v` is not `2` (an older pak: "update the
+        ReminisLink pak"). The app finds the console with Bonjour by `id`;
+        when Bonjour does not answer, it MAY connect to `h`:`p`, because the
+        pin authenticates the console. Every connection is pinned to `k`.
+
+        Over that pinned connection the app sends its Ed25519 public key
+        with an HMAC proof that it read the QR code; the pak answers with
+        its own proof. With `secret` the 32 bytes of `s` and every other
+        value the exact string sent (b64u for keys and nonces):
+
+        - client `proof` = b64u(HMAC-SHA256(secret, `RL2-PAIR-CLIENT|` + deviceId + `|` + clientId + `|` + clientPublicKey + `|` + clientNonce));
+        - device `proof` = b64u(HMAC-SHA256(secret, `RL2-PAIR-DEVICE|` + deviceId + `|` + clientId + `|` + clientPublicKey + `|` + clientNonce + `|` + deviceNonce)).
+
+        The pak stores `clientId`, `clientName`, `platform` and
+        `clientPublicKey`; no shared key is derived and no secret is kept.
+        A wrong proof or an expired secret gives `401 pairing_failed`; after
+        5 failures the secret is regenerated and pairing is blocked for 30 s
+        (`429 too_many_attempts`). The secret is single use. Pairing again
+        with the same `clientId` replaces its public key and platform.
+        There is no PIN. Rate-limited per IP.
+
+        `platform` is the kind of client: `apple` (an identity shared by the
+        iPhone, iPad and Mac of one Apple account through the iCloud
+        Keychain), `android`, `web` or `other`.
 
         Pairing on demand (M8): pairing is only open while the console shows
-        the QR code and PIN (`pairingOpen` of `GET /hello`). While it is
-        closed, every well-formed request gets `401 pairing_failed` and does
-        not count as a failure. The secret and the PIN are drawn again each
-        time the pairing screen opens and are invalidated when it closes.
+        the QR code (`pairingOpen` of `GET /hello`). While it is closed,
+        every well-formed request gets `401 pairing_failed` and does not
+        count as a failure. The secret is drawn again each time the pairing
+        screen opens and is invalidated when it closes.
       security: []
       requestBody:
         required: true
@@ -211,22 +255,23 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/PairRequest' }
             example:
-              method: qr
               clientId: 3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d
-              clientName: iPhone de Thomas
-              clientNonce: 1VJAnjLsGJmboJkSh9gQhE6Ek3vGUjOyCpczkoh2ZUk
-              proof: SdvbDjoHNSgSAY-08qUbzoh8RoJ-66Pel4qbFNb7EYI
+              clientName: Thomas
+              platform: apple
+              clientPublicKey: w8cDzxkGI2CkPhdYLQGftWTd3szMwBSkA8KaPCy1s6k
+              clientNonce: SzpTB2xxxaK_3oWNbw77ffxKLhLfXjFftWRpnp1E9Ec
+              proof: Zq5wX5uDY9uFR03YZrkrJDOE9UpkL5G-wX0VvaoNmD0
       responses:
         '200':
-          description: Paired. The app derives the key and checks `proof` before storing it.
+          description: Paired. The app checks `proof` before storing the pairing.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PairResponse' }
               example:
                 deviceId: 7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10
                 deviceName: Brick de Thomas
-                deviceNonce: dt1WaitBI6WbQWuwqh2X_tUrbbTlvbKCuj3fWQMncvM
-                proof: UfZxa5dfLLL0YLDfFwjEUiac8DVldpr7LGjQEDNEip4
+                deviceNonce: gmW5fAqc_r6XsaNaUW5N-Al-5L9pDTYkfmSzW5LBDC4
+                proof: N5YeK3s4c1RX8moNmuvjviGxavLlgmO5oIig6CtxuFk
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/PairingFailed' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -239,7 +284,7 @@ paths:
       tags: [Device]
       operationId: unpair
       summary: Unpair the calling client
-      description: Removes the calling client from the device. The app then deletes the key from its Keychain.
+      description: 'Removes the calling client from the device. The app then forgets this console; its own key stays, since it may serve other consoles and devices.'
       responses:
         '204': { description: Unpaired. }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -259,73 +304,9 @@ paths:
         for the calling client. The app calls it only on an explicit user
         action (the user opens this console or taps "Reconnect"), never from
         an automatic reconnection. No effect for a client that is not
-        disconnected. Does not take the write lease.
+        disconnected.
       responses:
         '204': { description: Connected. }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '413': { $ref: '#/components/responses/TooLarge' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '500': { $ref: '#/components/responses/Internal' }
-        '503': { $ref: '#/components/responses/ShuttingDown' }
-
-  /writer:
-    get:
-      tags: [Device]
-      operationId: getWriter
-      summary: Who holds the write lease (M10)
-      responses:
-        '200':
-          description: The holder, or null when the lease is free.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WriterState' }
-              example: { writer: { clientName: iPhone de Thomas, you: false, expiresAt: '2026-11-18T17:01:00Z' } }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '413': { $ref: '#/components/responses/TooLarge' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '500': { $ref: '#/components/responses/Internal' }
-        '503': { $ref: '#/components/responses/ShuttingDown' }
-    put:
-      tags: [Device]
-      operationId: takeWriter
-      summary: Take or renew the write lease (M10)
-      description: |
-        Takes the lease if it is free or already held by the caller (renewal,
-        expiry pushed to 60 s from now). If another client holds it, answers
-        `423 read_only` unless `force` is true: the lease then passes to the
-        caller (the former holder gets `423 read_only` on its next write).
-        The body may be empty (same as `{}`).
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TakeWriterRequest' }
-            example: { force: false }
-      responses:
-        '200':
-          description: The caller holds the lease.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WriterState' }
-              example: { writer: { clientName: iPhone de Thomas, you: true, expiresAt: '2026-11-18T17:01:00Z' } }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
-        '429': { $ref: '#/components/responses/TooManyRequests' }
-        '500': { $ref: '#/components/responses/Internal' }
-        '503': { $ref: '#/components/responses/ShuttingDown' }
-    delete:
-      tags: [Device]
-      operationId: releaseWriter
-      summary: Release the write lease (M10)
-      description: |
-        Releases the lease if the caller holds it; no effect otherwise. The
-        app calls it when it goes to the background with no transfer running.
-      responses:
-        '204': { description: 'Released, or not held by the caller.' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -345,8 +326,7 @@ paths:
             unknown. `connectedClients` lists the paired clients with a signed
             request accepted in the last 30 seconds or an open event stream
             (`GET /events`, M14), the caller included; the pak keeps it in
-            memory only (empty at launch). `writer` (M10) is
-            the client holding the write lease, or null.
+            memory only (empty at launch).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Device' }
@@ -365,7 +345,6 @@ paths:
                 uptimeSeconds: 512
                 connectedClients:
                   - { clientName: iPhone de Thomas, lastSeenAt: '2026-11-18T17:00:00Z' }
-                writer: { clientName: iPhone de Thomas, you: true, expiresAt: '2026-11-18T17:01:00Z' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/TooLarge' }
@@ -584,7 +563,7 @@ paths:
         `fileId` that is not (any more) in it gets `404 not_found`, as does a
         symbolic link, a path reached through one or outside the expected
         root. The whole file is sent (no `Range` in this version).
-        `Content-Length` is set. Read route: no write lease needed.
+        `Content-Length` is set. Read route: never waits for a write.
       parameters:
         - $ref: '#/components/parameters/GameId'
         - name: fileId
@@ -682,7 +661,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -768,7 +746,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -804,7 +781,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -915,7 +891,6 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -945,7 +920,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1072,7 +1046,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1158,7 +1131,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1202,7 +1174,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1238,7 +1209,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1323,7 +1293,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1383,7 +1352,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1411,7 +1379,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1445,7 +1412,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1516,7 +1482,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1601,7 +1566,6 @@ paths:
         '412': { $ref: '#/components/responses/PreconditionFailed' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1647,7 +1611,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1732,7 +1695,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1800,7 +1762,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1817,7 +1778,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1849,7 +1809,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1888,7 +1847,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1957,7 +1915,6 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -2056,7 +2013,6 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
-        '423': { $ref: '#/components/responses/ReadOnly' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -2067,7 +2023,7 @@ components:
       type: apiKey
       in: header
       name: X-RL-Client
-      description: '`clientId` of the paired app (lowercase UUID). Part of the RL1-HMAC-SHA256 signature, see the API description.'
+      description: '`clientId` of the paired app (lowercase UUID). Part of the RL2-ED25519 signature, see the API description.'
     rlTime:
       type: apiKey
       in: header
@@ -2087,7 +2043,7 @@ components:
       type: apiKey
       in: header
       name: X-RL-Signature
-      description: base64url (no padding) of HMAC-SHA256(key, canonical string).
+      description: base64url (no padding) of the 64-byte Ed25519 signature of the canonical string (first line `RL2-ED25519`) by the client's private key; the pak verifies it with the public key registered at pairing.
 
   parameters:
     SystemId:
@@ -2161,16 +2117,6 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: { code: clock_skew, message: Request time is too far from the device time, details: {} } }
-    ReadOnly:
-      description: |
-        M10: another client holds the write lease (`read_only`,
-        `details.writer` = its `clientName`). Nothing was changed. The app
-        shows "Read-only" and offers "Take over" (`PUT /writer` with
-        `force`).
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: read_only, message: Another device has write access, details: { writer: iPhone de Thomas } } }
     PairingFailed:
       description: Wrong proof or expired secret (`pairing_failed`).
       content:
@@ -2243,7 +2189,9 @@ components:
         waiting for another one (one at a time) when the client gives up
         (message `Another cheat import is running`); more than 4 event streams
         for the client or 16 in all on `GET /events` (M14, message `Too many
-        event streams`).
+        event streams`); a write that waited 10 s for the write in progress
+        (M13, message `Device busy`, nothing was changed) on every route
+        that changes the SD card (see "Writes one at a time").
       headers:
         Retry-After:
           description: Seconds before trying again.
@@ -2331,7 +2279,6 @@ components:
         - internal
         - shutting_down
         - insufficient_storage
-        - read_only
         - disconnected
     ErrorBody:
       type: object
@@ -2341,7 +2288,7 @@ components:
         message: { type: string, description: 'English, for logs.' }
         details:
           type: object
-          description: Extra data depending on `code` (`existing`, `offset`, `required`, `available`, `writer`...).
+          description: Extra data depending on `code` (`existing`, `offset`, `required`, `available`...).
           additionalProperties: true
     Error:
       type: object
@@ -2351,7 +2298,7 @@ components:
 
     Hello:
       type: object
-      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, apiVersion, minClientVersion, serverTime, pairingOpen, writerHeld]
+      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, apiVersion, minClientVersion, serverTime, pairingOpen]
       properties:
         deviceId: { $ref: '#/components/schemas/Uuid' }
         deviceName: { type: string }
@@ -2362,31 +2309,45 @@ components:
           type: [string, 'null']
           description: 'OS release as NextUI shows it (lines of `.system/version.txt` joined), e.g. `NextUI-20261013-039a06de`; null when unknown.'
         pakVersion: { type: string }
-        apiVersion: { type: integer, minimum: 1 }
+        apiVersion: { type: integer, minimum: 1, description: '2 since M13 (TLS, pairing v2, RL2-ED25519).' }
         minClientVersion: { type: string, description: Oldest app version supported. }
         serverTime: { $ref: '#/components/schemas/Timestamp' }
         pairingOpen: { type: boolean }
-        writerHeld: { type: boolean, description: 'M10: a client holds the write lease.' }
     PairRequest:
       type: object
-      required: [method, clientId, clientName, clientNonce, proof]
+      required: [clientId, clientName, platform, clientPublicKey, clientNonce, proof]
       properties:
-        method: { type: string, enum: [qr, pin] }
         clientId: { $ref: '#/components/schemas/Uuid' }
-        clientName: { type: string, minLength: 1, maxLength: 64 }
-        clientNonce: { $ref: '#/components/schemas/B64U32' }
-        proof: { $ref: '#/components/schemas/B64U32' }
+        clientName: { type: string, minLength: 1, maxLength: 64, description: Name typed by the user at pairing (shown on the console). }
+        platform: { $ref: '#/components/schemas/ClientPlatform' }
+        clientPublicKey:
+          allOf: [{ $ref: '#/components/schemas/B64U32' }]
+          description: The client's Ed25519 public key (32 raw bytes), base64url.
+        clientNonce:
+          allOf: [{ $ref: '#/components/schemas/B64U32' }]
+          description: 32 random bytes, base64url.
+        proof:
+          allOf: [{ $ref: '#/components/schemas/B64U32' }]
+          description: b64u(HMAC-SHA256(secret, `RL2-PAIR-CLIENT|` + deviceId + `|` + clientId + `|` + clientPublicKey + `|` + clientNonce)).
+    ClientPlatform:
+      type: string
+      enum: [apple, android, web, other]
+      description: Kind of paired client. `apple` is an identity shared by the Apple devices of one account (iCloud Keychain).
     PairResponse:
       type: object
       required: [deviceId, deviceName, deviceNonce, proof]
       properties:
         deviceId: { $ref: '#/components/schemas/Uuid' }
         deviceName: { type: string }
-        deviceNonce: { $ref: '#/components/schemas/B64U32' }
-        proof: { $ref: '#/components/schemas/B64U32' }
+        deviceNonce:
+          allOf: [{ $ref: '#/components/schemas/B64U32' }]
+          description: 32 random bytes, base64url.
+        proof:
+          allOf: [{ $ref: '#/components/schemas/B64U32' }]
+          description: b64u(HMAC-SHA256(secret, `RL2-PAIR-DEVICE|` + deviceId + `|` + clientId + `|` + clientPublicKey + `|` + clientNonce + `|` + deviceNonce)).
     Device:
       type: object
-      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, network, battery, storage, uptimeSeconds, connectedClients, writer]
+      required: [deviceId, deviceName, model, platform, os, osVersion, pakVersion, network, battery, storage, uptimeSeconds, connectedClients]
       properties:
         deviceId: { $ref: '#/components/schemas/Uuid' }
         deviceName: { type: string }
@@ -2417,33 +2378,6 @@ components:
           type: array
           description: Paired clients with a signed request accepted in the last 30 seconds or an open event stream (M14), caller included. In memory only.
           items: { $ref: '#/components/schemas/ConnectedClient' }
-        writer:
-          oneOf:
-            - { $ref: '#/components/schemas/Writer' }
-            - { type: 'null' }
-          description: M10, the client holding the write lease, or null.
-    Writer:
-      type: object
-      required: [clientName, you, expiresAt]
-      properties:
-        clientName: { type: string }
-        you: { type: boolean, description: The caller holds the lease. }
-        expiresAt: { $ref: '#/components/schemas/Timestamp' }
-    WriterState:
-      type: object
-      required: [writer]
-      properties:
-        writer:
-          oneOf:
-            - { $ref: '#/components/schemas/Writer' }
-            - { type: 'null' }
-    TakeWriterRequest:
-      type: object
-      properties:
-        force:
-          type: boolean
-          default: false
-          description: Take the lease even if another client holds it ("Take over", after the user confirmed).
     ConnectedClient:
       type: object
       required: [clientName, lastSeenAt]

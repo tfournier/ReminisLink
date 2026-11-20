@@ -12,7 +12,6 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | POST | `/clients/me/connect` | Se reconnecter après une déconnexion par la console (M10) |
 | GET | `/device` | État de la console |
 | GET | `/events` | Flux d'événements de la console (Server-Sent Events, M14) |
-| GET / PUT / DELETE | `/writer` | Détenteur du bail d'écriture / le prendre ou le renouveler / le relâcher (M10) |
 | GET | `/systems` | Liste des systèmes |
 | GET | `/systems/{systemId}/games` | Contenu d'un système (dossiers et jeux) |
 | GET | `/games` | Tous les jeux de tous les systèmes, à plat (M11) |
@@ -64,29 +63,28 @@ Sert à vérifier qu'on parle bien à la bonne console, à mesurer l'écart d'ho
   "os": "nextui",
   "osVersion": "NextUI-20261013-039a06de",
   "pakVersion": "1.0.0",
-  "apiVersion": 1,
+  "apiVersion": 2,
   "minClientVersion": "1.0.0",
   "serverTime": "2026-11-18T17:00:00Z",
-  "pairingOpen": true,
-  "writerHeld": false
+  "pairingOpen": true
 }
 ```
 
-`writerHeld` (M10) : `true` quand un client tient le bail d'écriture ; le nom de ce client n'est donné qu'aux clients appairés (`GET /device`, `GET /writer`, `423 read_only`), pour ne pas exposer le nom d'un iPhone à tout le réseau.
+`apiVersion` vaut `2` depuis M13 (TLS épinglé, appairage v2, signature RL2-ED25519). Une app appairée à un pak plus ancien (RL1) qui lit `2` propose de réappairer : le pak a effacé les appairages RL1. Elle peut lire `/hello` sans épinglage dans ce seul but ([03 §1](03-protocole.md#1-transport)). `writerHeld` (M10) est retiré avec le bail d'écriture.
 
 Aucune autre information (pas de liste de jeux, pas de clients). Limitée à 10 requêtes par seconde par IP (au-delà : `429 too_many_attempts`).
 
 ### `POST /pair` (non signée)
 
-Voir [03 §3](03-protocole.md#3-appairage). `method` : `qr` ou `pin`. `clientName` : 1 à 64 caractères. `clientId` et `deviceId` : UUID en minuscules.
+Voir [03 §3](03-protocole.md#3-appairage) (appairage v2, M13). Corps : `clientId`, `clientName` (1 à 64 caractères, saisi par l'utilisateur à l'appairage), `platform` (`apple`, `android`, `web` ou `other`), `clientPublicKey` (clé publique Ed25519, 32 octets en base64url), `clientNonce`, `proof`. Plus de champ `method` ni de PIN. `clientId` et `deviceId` : UUID en minuscules. Réponse : `deviceId`, `deviceName`, `deviceNonce`, `proof`.
 
 ### `DELETE /clients/me`
 
-Supprime le client appelant de la console. Réponse `204`. L'app supprime ensuite la clé de son Trousseau. N'exige pas le bail d'écriture ; libère le bail si l'appelant le tenait.
+Supprime le client appelant de la console. Réponse `204`. L'app oublie ensuite cette console ; sa propre clé reste dans le Trousseau (elle peut servir à d'autres consoles et aux autres appareils Apple du compte).
 
 ### `POST /clients/me/connect` (M10)
 
-Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §7.2](05-console-pak.md#72-réglages-y)) pour le client appelant. Réponse `204`, sans effet si le client n'était pas déconnecté ; ne prend pas le bail d'écriture. L'app ne l'appelle que sur une action de l'utilisateur (ouverture de cette console, bouton « Se reconnecter »), jamais lors d'une reconnexion automatique. C'est la seule route signée permise à un client déconnecté. Un appel dont le pak a chargé la clé avant une nouvelle déconnexion par la console ne lève pas celle-ci (`401 disconnected`). Le pak ne peut pas savoir quand l'app a envoyé la requête : un appel dont les en-têtes arrivent après la déconnexion la lève, comme une nouvelle action de l'utilisateur.
+Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §7.2](05-console-pak.md#72-réglages-y)) pour le client appelant. Réponse `204`, sans effet si le client n'était pas déconnecté. L'app ne l'appelle que sur une action de l'utilisateur (ouverture de cette console, bouton « Se reconnecter »), jamais lors d'une reconnexion automatique. C'est la seule route signée permise à un client déconnecté. Un appel dont le pak a chargé la clé avant une nouvelle déconnexion par la console ne lève pas celle-ci (`401 disconnected`). Le pak ne peut pas savoir quand l'app a envoyé la requête : un appel dont les en-têtes arrivent après la déconnexion la lève, comme une nouvelle action de l'utilisateur.
 
 ### `GET /device`
 
@@ -107,12 +105,11 @@ Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §
   "uptimeSeconds": 512,
   "connectedClients": [
     { "clientName": "iPhone de Thomas", "lastSeenAt": "2026-11-18T17:00:00Z" }
-  ],
-  "writer": { "clientName": "iPhone de Thomas", "you": true, "expiresAt": "2026-11-18T17:01:00Z" }
+  ]
 }
 ```
 
-`writer` (M10) : le client qui tient le bail d'écriture (`you` : c'est l'appelant ; `expiresAt` : fin du bail s'il n'est pas renouvelé), ou `null` si le bail est libre. Voir « Un seul appareil en écriture » ci-dessous.
+`writer` (M10) est retiré en M13 avec le bail d'écriture.
 
 `connectedClients` : les clients appairés dont une requête signée a été acceptée dans les 30 dernières secondes, ou qui ont un flux d'événements ouvert (`GET /events`, M14 : connectés tant que le flux est ouvert, `lastSeenAt` vaut alors l'heure courante ; à la fermeture de leur dernier flux, les 30 s partent de ce moment ; une déconnexion ou un oubli depuis la console les retire aussitôt) (même règle que l'état « Connecté » de l'écran de la console, [05 §7.1](05-console-pak.md#71-écran-principal)), le client appelant compris. Tenu **en mémoire** par le pak, sans écriture sur la carte SD ; vide au lancement. *(Ajouté le 18/11/2026.)*
 
@@ -120,7 +117,7 @@ Lève la déconnexion décidée depuis la console (Réglages > Appareils, [05 §
 
 ### `GET /events` (M14)
 
-Flux **Server-Sent Events** (`Content-Type: text/event-stream`, UTF-8, `Cache-Control: no-store`). Route signée comme les autres, de lecture : la signature n'est vérifiée qu'à l'ouverture, elle ne prend pas le bail d'écriture (un client en lecture seule l'ouvre aussi), un client déconnecté depuis la console reçoit `401 disconnected`. Le flux reste ouvert tant que le pak tourne.
+Flux **Server-Sent Events** (`Content-Type: text/event-stream`, UTF-8, `Cache-Control: no-store`). Route signée comme les autres, de lecture : la signature n'est vérifiée qu'à l'ouverture, elle n'attend jamais une écriture en cours, un client déconnecté depuis la console reçoit `401 disconnected`. Le flux reste ouvert tant que le pak tourne.
 
 ```text
 id: 1
@@ -158,41 +155,25 @@ Chaque événement : `id: <n>` (croissant dans le flux, à partir de 1), `event:
 
 ---
 
-## Un seul appareil en écriture (M10)
+## Écritures une à une (M13)
 
-Décision du 19/11/2026. Un seul client appairé à la fois tient le **bail d'écriture** ; les autres sont en lecture seule. Le bail est tenu **en mémoire** par le pak : libre au lancement, perdu à la fermeture du pak.
+Décision du 19/11/2026, qui remplace le bail d'écriture de M10 (retirés : bail, renouvellement, `GET` / `PUT` / `DELETE /writer`, `writerHeld`, `Device.writer`, `423 read_only`). Plusieurs clients appairés peuvent agir en même temps ; aucun n'est en lecture seule.
 
-- **Routes d'écriture** : toutes celles qui modifient la carte SD, c'est-à-dire chaque opération dont les réponses comprennent `423` dans `protocol/openapi.yaml` (envois et leurs morceaux, fin et annulation d'un envoi, suppressions, remplacements, restaurations, copies de save, verrous de states, cheats, jaquette, corbeille, téléchargements par la console, patch, annulation d'une tâche ; 23 opérations). Une telle requête prend le bail s'il est libre (ou expiré). Si un autre client le tient, le pak répond **`423 read_only`** avec `details.writer` (le `clientName` du détenteur), **avant de lire le corps** et sans rien modifier. La vérification est faite à un seul endroit, juste après la signature et la réservation du nonce. Le bail pris ainsi avant la lecture du corps est **provisoire** : il n'est confirmé (et un bail déjà tenu n'est renouvelé) qu'une fois la requête acceptée, corps vérifié ; si la requête est refusée ensuite (`401 bad_signature`, `413 too_large`…), le bail provisoire est rendu. Toute réponse d'erreur donnée avant la lecture complète du corps (`423`, `401`, `413`…) ferme la connexion (`Connection: close`) au lieu d'attendre le corps.
-- **Toujours permis** : les routes de lecture (`GET`, téléchargements et Sync M9 compris), `PUT` / `DELETE /writer`, `POST /clients/me/connect` et `DELETE /clients/me`.
-- **Renouvellement** : chaque requête signée acceptée du détenteur (lecture comprise) renouvelle le bail confirmé (une lecture ne confirme jamais un bail provisoire), comme `PUT /writer` (l'app en envoie un environ toutes les 20 s tant qu'elle est au premier plan ou qu'un de ses transferts est en cours). Le bail expire **60 s** après le dernier renouvellement.
-- **Changement de main** : une requête déjà acceptée (corps vérifié) quand le bail change de main va jusqu'au bout ; une requête dont le corps était encore en cours de lecture est refusée à son acceptation si son client a été déconnecté ou oublié entre-temps (`401`), même s'il s'est reconnecté ou a été réappairé depuis, ou si un autre client a pris la main (`423`), et les tâches déjà lancées par la console continuent. La requête d'écriture suivante de l'ancien détenteur reçoit `423 read_only` ; un envoi est mis en pause par l'app, jamais perdu (il reprend avec `GET /uploads/{uploadId}` une fois le bail repris).
-
-### `GET /writer`
-
-```json
-{ "writer": { "clientName": "iPhone de Thomas", "you": false, "expiresAt": "2026-11-18T17:01:00Z" } }
-```
-
-`writer` vaut `null` quand le bail est libre.
-
-### `PUT /writer`
-
-Corps facultatif : `{ "force": false }` (un corps vide vaut `{}`). Prend le bail s'il est libre ou déjà tenu par l'appelant (renouvellement : fin repoussée à 60 s). Si un autre client le tient : `423 read_only`, sauf avec `force: true` (« Prendre la main », après confirmation dans l'app) : le bail passe à l'appelant. Réponse `200` avec le même corps que `GET /writer` (`you: true`).
-
-### `DELETE /writer`
-
-Relâche le bail si l'appelant le tient, sans effet sinon. Réponse `204`. L'app l'appelle quand elle passe en arrière-plan sans transfert en cours.
+- **Écritures sérialisées** : le pak exécute une à une les opérations qui modifient la carte SD : suppressions, remplacements, restaurations, copies de save, verrous de states, cheats, jaquette, corbeille, création et annulation d'un envoi, annulation d'une tâche, et l'étape finale d'un envoi (`POST /uploads/{uploadId}/complete`). Les morceaux d'un envoi (`PUT /uploads/{uploadId}`) vont dans la zone d'attente sans attendre. Une tâche (téléchargement par la console, patch) n'attend son tour que pour l'étape qui installe son fichier, sans délai maximal ni échec pour cette raison.
+- **Attente** : une écriture qui arrive pendant une autre attend qu'elle finisse ; l'attente commence une fois le corps reçu et vérifié (le pak ne garde jamais le verrou pendant la lecture d'un corps). Après **10 s** d'attente sans obtenir son tour, la requête reçoit **`429 too_many_attempts`** (message `Device busy`) avec `Retry-After`, sans rien avoir modifié ; l'app réessaie.
+- **Lectures** : jamais bloquées par une écriture.
+- **Risque accepté** (07 §3) : entre l'aperçu d'une suppression (`GET /games/{gameId}/deletion`) et la suppression, un autre client peut changer les fichiers du jeu ; tout fichier supprimé ou remplacé reste 30 jours dans la corbeille.
 
 ### Déconnecter et oublier depuis la console
 
-- **Déconnecter** (Réglages > Appareils) : le bail du client est retiré, il disparaît de `connectedClients`, et toutes ses requêtes signées reçoivent **`401 disconnected`** (après la vérification de la signature et la réservation du nonce) jusqu'à ce qu'il appelle `POST /clients/me/connect`. État tenu en mémoire seulement : la fermeture du pak le lève. Un nouvel appairage du même client depuis l'écran d'appairage de la console le lève aussi.
-- **Oublier** : l'appairage est supprimé de `clients.json` (écriture atomique) ; ses requêtes reçoivent ensuite `401 unknown_client`, et son bail comme sa déconnexion sont oubliés.
+- **Déconnecter** (Réglages > Appareils) : le client disparaît de `connectedClients`, et toutes ses requêtes signées reçoivent **`401 disconnected`** (après la vérification de la signature et la réservation du nonce) jusqu'à ce qu'il appelle `POST /clients/me/connect`. État tenu en mémoire seulement : la fermeture du pak le lève. Un nouvel appairage du même client depuis l'écran d'appairage de la console le lève aussi.
+- **Oublier** : l'appairage est supprimé de `clients.json` (écriture atomique) ; ses requêtes reçoivent ensuite `401 unknown_client`, et sa déconnexion est oubliée. **Tout oublier** supprime tous les appairages.
 
 ### Erreurs
 
 | Code | HTTP | Sens |
 |---|---|---|
-| `read_only` | 423 | Un autre client tient le bail d'écriture (`details.writer`). Rien n'a été modifié. |
+| `too_many_attempts` | 429 | `Device busy` : une écriture a attendu 10 s celle en cours (`Retry-After`). Rien n'a été modifié. |
 | `disconnected` | 401 | Le client a été déconnecté depuis la console ; levé par `POST /clients/me/connect`. |
 
 ---
@@ -282,7 +263,7 @@ Tous les jeux de tous les systèmes de `GET /systems` (avec ou sans émulateur),
 - Tri par dossier du système puis par chemin, insensible à la casse.
 - 20 000 jeux au plus : au-delà, `truncated` vaut `true` (les 20 000 premiers dans cet ordre) et l'app revient à la navigation par système.
 - Coût : chaque dossier et chaque dossier de données d'un système (saves, states, cheats) est lu une seule fois. La requête s'arrête si le client se déconnecte.
-- Route de lecture : pas de bail d'écriture (M10).
+- Route de lecture : n'attend jamais une écriture.
 
 ### `GET /games/{gameId}`
 
@@ -316,7 +297,7 @@ Télécharge un fichier de `files` (ROM, disque, playlist, save, fichier d'horlo
 - Confinement (règle 2) : le fichier est ouvert à travers `os.Root` du dossier de tête de son rôle (`Roms/`, `Saves/`, `Cheats/`, dossier des states), sans lien symbolique à aucun composant du chemin sous ce dossier, et doit être sous le dossier le plus étroit de son rôle (le dossier du système pour une ROM ou une jaquette, `Saves/<TAG>`, `Cheats/<TAG>`). Un lien, un chemin qui passe par un lien ou un fichier hors de ces dossiers : `404 not_found` (journalisé, sans chemin absolu).
 - Réponse `200` : le fichier entier, `Content-Type: application/octet-stream`, `Content-Length`, `Content-Disposition: attachment; filename="<nom>"` (même forme que le téléchargement de la save, avec `filename*` pour un nom non ASCII). Pas de `Range` ni de requête conditionnelle dans cette version.
 - Envoi en flux à mémoire constante (disques PS1 de plusieurs centaines de Mo) ; le serveur HTTP du pak n'a pas de `WriteTimeout` : un envoi lent n'est pas coupé tant que des octets passent ; le fichier est écrit par morceaux de 32 Kio au plus, chacun avec un délai de 60 s : un client qui accepte moins de 32 Kio en 60 s est coupé (comme pour les autres téléchargements de fichiers).
-- Route de lecture : pas de bail d'écriture (M10), un appareil en lecture seule télécharge aussi.
+- Route de lecture : n'attend jamais une écriture.
 
 ### `GET /games/{gameId}/art`
 

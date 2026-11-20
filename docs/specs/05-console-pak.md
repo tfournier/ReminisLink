@@ -10,13 +10,13 @@
 
 ## 2. Cycle de vie
 
-1. **Démarrage** : lecture de la configuration, création de l'identifiant de console au premier lancement.
+1. **Démarrage** : lecture de la configuration, création de l'identifiant de console et du certificat TLS (`tls/`, M13) au premier lancement ; effacement des clients RL1 au premier lancement M13.
 2. **Contrôle Wi-Fi** : une adresse IPv4 non loopback doit exister sur l'interface sans fil (`wlan0` sur tg5040, code NextUI `etc/wifi/wifi_init.sh:3`). Sinon : écran « Pas de Wi-Fi. Active le Wi-Fi dans les réglages de NextUI. » et sortie avec B.
 3. **Maintenance** (avant d'ouvrir le serveur, en affichant « Préparation… ») :
    - archivage des states de reprise qui ont changé (§5.3) ;
    - contrôle des verrous et restauration automatique (§5.2) ;
    - purge de la corbeille (entrées de plus de 30 jours d'âge crédité, voir §4), des envois expirés et des fichiers `staging` (> 24 h).
-4. **Serveur** : écoute sur `0.0.0.0:47821` (ou le premier port libre parmi les 9 suivants), puis annonce Bonjour.
+4. **Serveur** : écoute en HTTPS (M13) sur `0.0.0.0:47821` (ou le premier port libre parmi les 9 suivants), puis annonce Bonjour.
 5. **Écran principal** (§7).
 6. **Fermeture** (B, ou signal SIGTERM/SIGINT) : refus des nouvelles requêtes (`503 shutting_down`), événement `shutdown` aux flux d'événements (M14, 1 s au plus pour les écrire), `sync`, retrait de l'annonce (sans attendre les requêtes ni les flux), attente des écritures en cours (10 s maximum), `sync`, sortie.
 
@@ -97,7 +97,8 @@ Racine : `/.userdata/shared/ReminisLink/` (partagée entre plateformes, comme le
 ```
 ReminisLink/
 ├── config.json            # deviceId, deviceName, port préféré, langue
-├── clients.json           # clients appairés : clientId, nom, clé (b64u), dates
+├── clients.json           # clients appairés : clientId, nom, plateforme, clé publique Ed25519 (b64u), plateformes vues, dates
+├── tls/                   # certificat auto-signé du pak (cert.pem) et sa clé privée ECDSA P-256 (key.pem), M13
 ├── backups/
 │   └── <TAG>/<fichier ROM>/
 │       ├── saves/<backupId>.sav + <backupId>.json   # métadonnées : libellé, raison, date, sha256
@@ -113,7 +114,7 @@ ReminisLink/
 └── patches/               # patchs déposés par l'utilisateur (listés par /sd/files)
 ```
 
-- `clients.json` contient les clés en clair : sur exFAT il n'y a pas de permissions. Quelqu'un qui a la carte SD en main a déjà accès à tout, ce risque est accepté (voir [07](07-securite.md)).
+- `clients.json` ne contient que des **clés publiques** (M13) : une copie de la carte ne permet pas de signer à la place d'un client. La clé privée TLS du pak (`tls/key.pem`) est sur la carte, sans protection (exFAT n'a pas de permissions) : une copie permet de se faire passer pour la console sur le réseau local, pas pour les clients ; risque accepté (voir [07](07-securite.md)). Au premier lancement du pak M13, les clients RL1 (clé HMAC partagée) sont effacés.
 - **Corbeille** : tout fichier de l'utilisateur supprimé ou remplacé par ReminisLink y est *déplacé* (renommage, même carte SD), jamais effacé directement. Seules la purge automatique (> 30 jours d'âge crédité) et les routes `DELETE /trash` effacent définitivement.
 - **Âge crédité** (décision du 18/11/2026) : l'horloge de la console n'est pas fiable. Faits (analyse M0) : RTC matérielle `/dev/rtc0` lue au démarrage par `sysfixtime` (`hwclock -s`) ; NextUI s'éteint par `poweroff_next`, qui contourne `sysfixtime stop` : l'heure n'est **pas** réécrite dans la RTC à l'extinction (code NextUI `poweroff_next.c:145-152` ; firmware v1.1.1 `/etc/init.d/sysfixtime`) ; NTP par busybox ntpd (`sysntpd`, réglage NextUI « Network time sync »), seulement une fois le Wi-Fi connecté, sans recopie dans la RTC. Que la RTC tienne l'heure console éteinte dépend du matériel **[À VÉRIFIER M0]**. Le pak tient une horloge propre, cumulée et enregistrée dans `config.json` : pendant qu'il tourne, elle avance selon l'horloge monotone du système (enregistrée régulièrement et à la fermeture) ; à chaque lancement, elle est créditée du temps écoulé selon l'horloge murale depuis la plus grande heure murale jamais enregistrée (`creditWallMax` dans `config.json`, borne haute persistante mise à jour à chaque enregistrement ; M8, revue Codex de M4), **borné entre 0 et 7 jours**. Une horloge qui oscille entre une heure en retard (RTC au démarrage, avant NTP) et l'heure juste n'est donc créditée qu'une fois ; une horloge passée une fois dans le futur ne fait que retarder la purge (le temps de session compte toujours). Une entrée de corbeille note la valeur de cette horloge à sa création ; elle est purgée quand l'écart atteint 30 jours. Une horloge murale fausse ne peut donc jamais vieillir une entrée de plus de 7 jours d'un coup ; au pire, la purge est retardée. Un arrêt brutal fait perdre au plus le temps depuis le dernier enregistrement (dans le sens prudent).
 - Toute écriture de fichier JSON est atomique (`.tmp`, `fsync`, renommage).
@@ -194,7 +195,7 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 │          ██████████████              │
 │                                      │
 │  Scanne avec l'app ReminisLink       │
-│  Code : 482 913   (expire dans 9 min)│
+│  (expire dans 9 min)                 │
 │  Brick de Thomas · 192.168.1.42      │
 │                                      │
 │  Appareils connectés : iPhone de T.  │
@@ -204,19 +205,18 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 └──────────────────────────────────────┘
 ```
 
-- **Appairage seulement à la demande** (M8, décision du 19/11/2026) : tant qu'aucun appareil n'est appairé, l'écran principal affiche le QR code et le PIN (comme ci-dessus). Dès qu'au moins un appareil est appairé, l'écran principal ne montre plus ni QR code ni PIN (nom, IP, état, appareils connectés, transferts) ; un nouvel appareil s'appaire depuis **Réglages > Appairer un nouvel appareil**, qui affiche le QR code et le PIN. L'appairage n'est **ouvert que pendant que le QR code ou le PIN est affiché** : sinon `POST /pair` répond `401 pairing_failed` sans compter d'échec, et `GET /hello` renvoie `pairingOpen: false`. Le secret et le PIN sont régénérés à chaque ouverture de l'écran d'appairage et invalidés à sa fermeture.
+- **Appairage seulement à la demande** (M8, décision du 19/11/2026) : tant qu'aucun appareil n'est appairé, l'écran principal affiche le QR code (comme ci-dessus). Dès qu'au moins un appareil est appairé, l'écran principal ne montre plus de QR code (nom, IP, état, appareils connectés, transferts) ; un nouvel appareil s'appaire depuis **Réglages > Appairer un nouvel appareil**, qui affiche le QR code. L'appairage n'est **ouvert que pendant que le QR code est affiché** : sinon `POST /pair` répond `401 pairing_failed` sans compter d'échec, et `GET /hello` renvoie `pairingOpen: false`. Le secret est régénéré à chaque ouverture de l'écran d'appairage et invalidé à sa fermeture. **Plus de PIN depuis M13** (décision du 19/11/2026) : seul le QR code est affiché.
 - L'état **en haut à gauche** : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s, ou un flux d'événements ouvert, M14), `Transfert en cours` ; la pastille ne chevauche jamais le titre.
-- Sous les appareils connectés, la ligne **Accès en écriture : <appareil>** quand un appareil tient le bail d'écriture (M10) ; absente quand le bail est libre.
 - **En haut à droite, le niveau de batterie** (pourcentage et indicateur de charge, source 05 §6), rafraîchi régulièrement ; sous 15 % et sans charge, affichage d'alerte et, pendant un transfert, bandeau « Batterie faible : branche la console » (M8, demande de la personne).
 - La liste des transferts et tâches en cours avec leur progression.
 - Un bandeau de notification bref quand une action modifie la carte SD (« Save restaurée : Sky Garden Quest »).
 
 ### 7.2 Réglages (Y)
 
-- **Appairer un nouvel appareil** : affiche le QR code et le PIN et ouvre l'appairage jusqu'au retour (M8).
+- **Appairer un nouvel appareil** : affiche le QR code (sans PIN depuis M13) et ouvre l'appairage jusqu'au retour (M8).
 - **Nom de la console** (clavier gabagool), utilisé dans Bonjour.
-- **Appareils** (M10, décision du 19/11/2026) : la liste des appareils appairés avec leur état : *connecté* (une requête signée acceptée depuis moins de 30 s, ou un flux d'événements ouvert, M14), *a la main* (il tient le bail d'écriture, [04](04-api-v1.md#un-seul-appareil-en-écriture-m10)), *déconnecté* ; un appareil sans état affiche sa date d'appairage. A sur un appareil ouvre ses actions :
-  - **Déconnecter** : retire son bail d'écriture et refuse ses requêtes (`401 disconnected`) jusqu'à ce qu'il se reconnecte volontairement depuis l'app (`POST /clients/me/connect`). Tenu en mémoire : la fermeture du pak lève la déconnexion.
+- **Appareils** (M10, décision du 19/11/2026) : la liste des appareils appairés avec leur **plateforme** (M13 : *Apple*, *Android*, *Web* ou *Autre*, avec pour une identité Apple les plateformes vues récemment, par exemple « iPhone, iPad », d'après l'en-tête `X-RL-Platform`) et leur état : *connecté* (une requête signée acceptée depuis moins de 30 s, ou un flux d'événements ouvert, M14), *déconnecté* ; un appareil sans état affiche sa date d'appairage. L'état *a la main* est retiré avec le bail d'écriture (M13). A sur un appareil ouvre ses actions :
+  - **Déconnecter** : refuse ses requêtes (`401 disconnected`) jusqu'à ce qu'il se reconnecte volontairement depuis l'app (`POST /clients/me/connect`). Tenu en mémoire : la fermeture du pak lève la déconnexion.
   - **Oublier** (avec confirmation) : supprime son appairage ; l'appareil devra se réappairer.
 - **Oublier tous les appareils** (confirmation).
 - **Langue**.

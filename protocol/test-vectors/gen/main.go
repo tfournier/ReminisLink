@@ -16,9 +16,16 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"os"
@@ -74,6 +81,9 @@ func Generate() (map[string][]byte, error) {
 	if files["ids.json"], err = idVectors(); err != nil {
 		return nil, err
 	}
+	if files["tls.json"], err = tlsVectors(); err != nil {
+		return nil, err
+	}
 	out := map[string][]byte{}
 	for name, v := range files {
 		var buf bytes.Buffer
@@ -120,70 +130,111 @@ func seeded(seed string, n int) []byte {
 type pairingFile struct {
 	Description string        `json:"description"`
 	Cases       []pairingCase `json:"cases"`
+	Links       []pairingLink `json:"links"`
 }
 
 type pairingCase struct {
 	Name               string `json:"name"`
-	Method             string `json:"method"`
-	Secret             string `json:"secret,omitempty"`
-	PIN                string `json:"pin,omitempty"`
-	IKMHex             string `json:"ikmHex"`
+	Secret             string `json:"secret"`
+	SecretHex          string `json:"secretHex"`
 	DeviceID           string `json:"deviceId"`
 	ClientID           string `json:"clientId"`
+	ClientSeed         string `json:"clientSeed"`
+	ClientPublicKey    string `json:"clientPublicKey"`
 	ClientNonce        string `json:"clientNonce"`
 	DeviceNonce        string `json:"deviceNonce"`
 	ClientProofMessage string `json:"clientProofMessage"`
 	ClientProof        string `json:"clientProof"`
-	SaltHex            string `json:"saltHex"`
-	KeyInfo            string `json:"keyInfo"`
-	Key                string `json:"key"`
 	DeviceProofMessage string `json:"deviceProofMessage"`
 	DeviceProof        string `json:"deviceProof"`
 }
 
+type pairingLink struct {
+	Name       string `json:"name"`
+	DeviceID   string `json:"deviceId"`
+	DeviceName string `json:"deviceName"`
+	Secret     string `json:"secret"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Pin        string `json:"pin"`
+	Link       string `json:"link"`
+}
+
+// ed25519Key returns the Ed25519 key of a fixed seed.
+func ed25519Key(seed string) (ed25519.PrivateKey, []byte) {
+	s := seeded(seed, ed25519.SeedSize)
+	return ed25519.NewKeyFromSeed(s), s
+}
+
 func pairingVectors() (pairingFile, error) {
 	type input struct {
-		name, method, pin, deviceID, clientID string
+		name, deviceID, clientID string
 	}
 	inputs := []input{
-		{"qr-1", "qr", "", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"},
-		{"qr-2", "qr", "", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "c0ffee00-1234-4abc-9def-000000000001"},
-		{"qr-3", "qr", "", "00000000-0000-4000-8000-000000000000", "ffffffff-ffff-4fff-bfff-ffffffffffff"},
-		{"pin-1", "pin", "042517", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"},
-		{"pin-2", "pin", "000000", "a1b2c3d4-e5f6-4789-8abc-def012345678", "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a"},
+		{"pair-1", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"},
+		{"pair-2", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "c0ffee00-1234-4abc-9def-000000000001"},
+		{"pair-3", "00000000-0000-4000-8000-000000000000", "ffffffff-ffff-4fff-bfff-ffffffffffff"},
 	}
 	f := pairingFile{
-		Description: "Pairing (docs/specs/03-protocole.md §3.2). Binary values are base64url without padding unless the field name ends in Hex. ikm is the QR secret (qr) or the UTF-8 bytes of the PIN (pin).",
+		Description: "Pairing v2 (docs/specs/03-protocole.md §3, M13). Binary values are base64url without padding unless the field name ends in Hex. secret is the 32-byte QR secret (the HMAC key). clientSeed is the 32-byte Ed25519 seed (private key) of the client and clientPublicKey its public key, sent as is in POST /pair. clientProof = b64u(HMAC-SHA256(secret, clientProofMessage)); deviceProof = b64u(HMAC-SHA256(secret, deviceProofMessage)). links: pairing links (QR code) built from their fields; pin is b64u(SHA-256(SPKI DER)) of the console certificate (see tls.json).",
 	}
 	for _, in := range inputs {
-		c := pairingCase{Name: in.name, Method: in.method, DeviceID: in.deviceID, ClientID: in.clientID}
-		var ikm []byte
-		if in.method == "qr" {
-			ikm = seeded(in.name+"/secret", auth.SecretSize)
-			c.Secret = auth.EncodeB64U(ikm)
-		} else {
-			c.PIN = in.pin
-			ikm = auth.PINIKM(in.pin)
+		secret := seeded(in.name+"/secret", auth.SecretSize)
+		priv, seed := ed25519Key(in.name + "/client-key")
+		pub := auth.EncodeB64U(priv.Public().(ed25519.PublicKey))
+		c := pairingCase{
+			Name: in.name, Secret: auth.EncodeB64U(secret), SecretHex: hex.EncodeToString(secret),
+			DeviceID: in.deviceID, ClientID: in.clientID,
+			ClientSeed: auth.EncodeB64U(seed), ClientPublicKey: pub,
+			ClientNonce: auth.EncodeB64U(seeded(in.name+"/clientNonce", auth.PairingNonceSize)),
+			DeviceNonce: auth.EncodeB64U(seeded(in.name+"/deviceNonce", auth.PairingNonceSize)),
 		}
-		clientNonce := seeded(in.name+"/clientNonce", auth.PairingNonceSize)
-		deviceNonce := seeded(in.name+"/deviceNonce", auth.PairingNonceSize)
-		c.IKMHex = hex.EncodeToString(ikm)
-		c.ClientNonce = auth.EncodeB64U(clientNonce)
-		c.DeviceNonce = auth.EncodeB64U(deviceNonce)
-		c.ClientProofMessage = auth.ClientProofMessage(in.deviceID, in.clientID, c.ClientNonce)
-		c.ClientProof = auth.ClientProof(ikm, in.deviceID, in.clientID, c.ClientNonce)
-		c.SaltHex = hex.EncodeToString(append(append([]byte{}, clientNonce...), deviceNonce...))
-		c.KeyInfo = auth.KeyInfo(in.deviceID, in.clientID)
-		key, err := auth.DeriveKey(ikm, clientNonce, deviceNonce, in.deviceID, in.clientID)
-		if err != nil {
-			return f, fmt.Errorf("%s: %w", in.name, err)
+		c.ClientProofMessage = auth.PairClientMessage(c.DeviceID, c.ClientID, c.ClientPublicKey, c.ClientNonce)
+		if want := "RL2-PAIR-CLIENT|" + c.DeviceID + "|" + c.ClientID + "|" + c.ClientPublicKey + "|" + c.ClientNonce; c.ClientProofMessage != want {
+			return f, fmt.Errorf("%s: client message %q", in.name, c.ClientProofMessage)
 		}
-		c.Key = auth.EncodeB64U(key)
-		c.DeviceProofMessage = auth.DeviceProofMessage(in.deviceID, in.clientID)
-		c.DeviceProof = auth.DeviceProof(key, in.deviceID, in.clientID)
+		c.ClientProof = auth.PairClientProof(secret, c.DeviceID, c.ClientID, c.ClientPublicKey, c.ClientNonce)
+		c.DeviceProofMessage = auth.PairDeviceMessage(c.DeviceID, c.ClientID, c.ClientPublicKey, c.ClientNonce, c.DeviceNonce)
+		if want := "RL2-PAIR-DEVICE|" + c.DeviceID + "|" + c.ClientID + "|" + c.ClientPublicKey + "|" + c.ClientNonce + "|" + c.DeviceNonce; c.DeviceProofMessage != want {
+			return f, fmt.Errorf("%s: device message %q", in.name, c.DeviceProofMessage)
+		}
+		c.DeviceProof = auth.PairDeviceProof(secret, c.DeviceID, c.ClientID, c.ClientPublicKey, c.ClientNonce, c.DeviceNonce)
+		// Independent check of the HMAC.
+		if hmacB64U(secret, c.ClientProofMessage) != c.ClientProof || hmacB64U(secret, c.DeviceProofMessage) != c.DeviceProof {
+			return f, fmt.Errorf("%s: proof does not match HMAC-SHA256", in.name)
+		}
 		f.Cases = append(f.Cases, c)
 	}
+	_, _, pin, err := tlsKey()
+	if err != nil {
+		return f, err
+	}
+	links := []struct {
+		name, deviceID, deviceName, host string
+		port                             int
+		want                             string // expected, written by hand except secret and pin
+	}{
+		{"ascii-name", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick", "192.168.1.42", 47821,
+			"reminislink://pair?v=2&id=7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10&n=Brick&s=%s&h=192.168.1.42&p=47821&k=%s"},
+		{"name-with-spaces-and-accents", "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10", "Brick de Théo & Zoé", "10.0.0.7", 47823,
+			"reminislink://pair?v=2&id=7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10&n=Brick%%20de%%20Th%%C3%%A9o%%20%%26%%20Zo%%C3%%A9&s=%s&h=10.0.0.7&p=47823&k=%s"},
+	}
+	for _, l := range links {
+		secret := seeded("link/"+l.name+"/secret", auth.SecretSize)
+		link := auth.PairingLink(l.deviceID, l.deviceName, secret, l.host, l.port, pin)
+		if want := fmt.Sprintf(l.want, auth.EncodeB64U(secret), pin); link != want {
+			return f, fmt.Errorf("link %s = %q, want %q", l.name, link, want)
+		}
+		f.Links = append(f.Links, pairingLink{Name: l.name, DeviceID: l.deviceID, DeviceName: l.deviceName,
+			Secret: auth.EncodeB64U(secret), Host: l.host, Port: l.port, Pin: pin, Link: link})
+	}
 	return f, nil
+}
+
+func hmacB64U(key []byte, msg string) string {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(msg))
+	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
 // ---------------------------------------------------------------- signing
@@ -196,7 +247,8 @@ type signingFile struct {
 
 type signingCase struct {
 	Name             string            `json:"name"`
-	Key              string            `json:"key"`
+	Seed             string            `json:"seed"`
+	PublicKey        string            `json:"publicKey"`
 	ClientID         string            `json:"clientId"`
 	Method           string            `json:"method"`
 	Path             string            `json:"path"`
@@ -217,8 +269,8 @@ type invalidQuery struct {
 }
 
 func signingVectors() (signingFile, error) {
-	key1 := seeded("signing/key-1", auth.KeySize)
-	key2 := seeded("signing/key-2", auth.KeySize)
+	key1, _ := ed25519Key("signing/key-1")
+	key2, _ := ed25519Key("signing/key-2")
 	const client1 = "3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
 	const client2 = "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a"
 	gba := library.EncodeID("Game Boy Advance (GBA)")
@@ -231,7 +283,7 @@ func signingVectors() (signingFile, error) {
 
 	type input struct {
 		name           string
-		key            []byte
+		key            ed25519.PrivateKey
 		clientID       string
 		method, path   string
 		query          string
@@ -273,7 +325,7 @@ func signingVectors() (signingFile, error) {
 	}
 
 	f := signingFile{
-		Description: "Request signing (docs/specs/03-protocole.md §4). key and nonce are base64url without padding. query is the raw query as sent (without '?'); body is the UTF-8 request body. method is as given by the caller and is uppercased in the canonical request and the request line. headers lists the signature headers to send.",
+		Description: "Request signing RL2-ED25519 (docs/specs/03-protocole.md §4, M13). seed is the 32-byte Ed25519 private key (seed) of the client and publicKey its 32-byte public key; nonce and signature are base64url without padding. query is the raw query as sent (without '?'); body is the UTF-8 request body. method is as given by the caller and is uppercased in the canonical request and the request line. signature = b64u(Ed25519(seed, canonicalRequest)), 64 bytes: Ed25519 (RFC 8032) is deterministic, but a signer that adds randomness (CryptoKit) produces other valid signatures, so tests compare signatures by verifying them with publicKey. headers lists the signature headers to send.",
 	}
 	for _, in := range inputs {
 		nonce := auth.EncodeB64U(seeded("signing/"+in.name+"/nonce", auth.RequestNonceSize))
@@ -288,17 +340,25 @@ func signingVectors() (signingFile, error) {
 		if cq != in.canonicalQuery {
 			return f, fmt.Errorf("%s: canonical query %q, expected %q", in.name, cq, in.canonicalQuery)
 		}
-		canonical, err := auth.CanonicalRequest(auth.RequestParts{
+		canonical, err := auth.CanonicalRequestRL2(auth.RequestParts{
 			Method: in.method, Path: in.path, RawQuery: in.query,
 			Time: in.time, Nonce: nonce, ContentSHA256: content,
 		})
 		if err != nil {
 			return f, fmt.Errorf("%s: %w", in.name, err)
 		}
-		sig := auth.Sign(in.key, canonical)
+		if want := strings.Join([]string{"RL2-ED25519", strings.ToUpper(in.method), in.path, in.canonicalQuery, in.time, nonce, content}, "\n"); canonical != want {
+			return f, fmt.Errorf("%s: canonical request %q, expected %q", in.name, canonical, want)
+		}
+		sig := auth.SignRL2(in.key, canonical)
+		pub := in.key.Public().(ed25519.PublicKey)
+		if !auth.VerifyRL2(pub, canonical, sig) {
+			return f, fmt.Errorf("%s: signature does not verify", in.name)
+		}
 		f.Cases = append(f.Cases, signingCase{
-			Name: in.name, Key: auth.EncodeB64U(in.key), ClientID: in.clientID,
-			Method: in.method, Path: in.path, Query: in.query, Time: in.time, Nonce: nonce,
+			Name: in.name, Seed: auth.EncodeB64U(in.key.Seed()), PublicKey: auth.EncodeB64U(pub),
+			ClientID: in.clientID,
+			Method:   in.method, Path: in.path, Query: in.query, Time: in.time, Nonce: nonce,
 			Body: in.body, ContentSHA256: content, CanonicalQuery: cq,
 			CanonicalRequest: canonical, Signature: sig,
 			Headers: map[string]string{
@@ -322,6 +382,87 @@ func signingVectors() (signingFile, error) {
 		f.InvalidQueries = append(f.InvalidQueries, q)
 	}
 	return f, nil
+}
+
+// ---------------------------------------------------------------- tls
+
+type tlsFile struct {
+	Description      string `json:"description"`
+	PrivateKeyHex    string `json:"privateKeyHex"`
+	PublicKeyX963Hex string `json:"publicKeyX963Hex"`
+	SPKIDERHex       string `json:"spkiDerHex"`
+	CertificatePEM   string `json:"certificatePem"`
+	Pin              string `json:"pin"`
+	PinStdBase64     string `json:"pinStdBase64"`
+}
+
+// tlsCertificatePEM was made once from the key of tlsKey (self-signed,
+// CN = a device id, 20 years): an ECDSA signature is randomized, so the
+// certificate is a fixed input, checked against the key below.
+const tlsCertificatePEM = `-----BEGIN CERTIFICATE-----
+MIIBgjCCASigAwIBAgIBATAKBggqhkjOPQQDAjAvMS0wKwYDVQQDEyQ3ZjNhOWMy
+ZS0xYjRkLTRjNTUtOWE1MS0yZjBmOWU3ZDNhMTAwHhcNMjYxMTIwMDAwMDAwWhcN
+NDYxMTIwMDAwMDAwWjAvMS0wKwYDVQQDEyQ3ZjNhOWMyZS0xYjRkLTRjNTUtOWE1
+MS0yZjBmOWU3ZDNhMTAwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATMq02qyXBQ
+iFE9ganhYlkd0c0ybTAcPdsE+YGtHDWYngS0yS1JeYMS35LgzR7qiqJfEe26fdkq
+VFOAGykR+k89ozUwMzAOBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUH
+AwEwDAYDVR0TAQH/BAIwADAKBggqhkjOPQQDAgNIADBFAiEAmEhpLZpeBA9iPYEp
+hoBIfhFIcv1Xlk8RZI2Fk4zC3iYCIE9necCx3oipmTaGRdfHBt6Cv73U1pSxTgrw
+3rNIS9IV
+-----END CERTIFICATE-----
+`
+
+// tlsKey returns the fixed P-256 key of the TLS vectors, the DER of its
+// SubjectPublicKeyInfo and its pin.
+func tlsKey() (*ecdsa.PrivateKey, []byte, string, error) {
+	priv, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), seeded("tls/key-1", 32))
+	if err != nil {
+		return nil, nil, "", err
+	}
+	spki, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return priv, spki, auth.CertificatePin(spki), nil
+}
+
+func tlsVectors() (tlsFile, error) {
+	priv, spki, pin, err := tlsKey()
+	if err != nil {
+		return tlsFile{}, err
+	}
+	block, _ := pem.Decode([]byte(tlsCertificatePEM))
+	if block == nil {
+		return tlsFile{}, fmt.Errorf("tls: bad certificate PEM")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return tlsFile{}, err
+	}
+	if !bytes.Equal(cert.RawSubjectPublicKeyInfo, spki) {
+		return tlsFile{}, fmt.Errorf("tls: certificate key differs from the vector key")
+	}
+	sum := sha256.Sum256(spki)
+	if base64.RawURLEncoding.EncodeToString(sum[:]) != pin {
+		return tlsFile{}, fmt.Errorf("tls: pin mismatch")
+	}
+	raw, err := priv.Bytes()
+	if err != nil {
+		return tlsFile{}, err
+	}
+	x963, err := priv.PublicKey.Bytes()
+	if err != nil {
+		return tlsFile{}, err
+	}
+	return tlsFile{
+		Description:      "Certificate pin (docs/specs/03-protocole.md §1 and §3, M13). The console certificate is self-signed with an ECDSA P-256 key. pin = b64u(SHA-256(DER of the certificate's SubjectPublicKeyInfo)), the \"k\" of the pairing link; pinStdBase64 is the same hash in standard base64 (curl --pinnedpubkey sha256//...). publicKeyX963Hex is the uncompressed point (04 || X || Y), what SecKeyCopyExternalRepresentation returns; spkiDerHex is that point behind the fixed P-256 SubjectPublicKeyInfo header. privateKeyHex is the scalar (tests only).",
+		PrivateKeyHex:    hex.EncodeToString(raw),
+		PublicKeyX963Hex: hex.EncodeToString(x963),
+		SPKIDERHex:       hex.EncodeToString(spki),
+		CertificatePEM:   tlsCertificatePEM,
+		Pin:              pin,
+		PinStdBase64:     base64.StdEncoding.EncodeToString(sum[:]),
+	}, nil
 }
 
 // ---------------------------------------------------------------- ids
