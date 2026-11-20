@@ -97,6 +97,10 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 
 - 2026-11-19 — M10 : Codex a dépassé 3 tours ; la personne a choisi « corriger + 4e tour » (Go), règle appliquée aussi à iOS ; le dernier correctif iOS (annulation non confirmée) a été relu par l'agent principal sans 5e tour.
 - 2026-11-19 — Suggestions de la personne après essai de M10, proposées en M11 « Ergonomie » : toucher l'image pour la changer ; télécharger chaque fichier d'un jeu ; bibliothèque à plat avec recherche et filtres ; barre d'onglets (Console, Bibliothèque, Transferts, Corbeille) ; plus d'envoi depuis la vue console ; retour à la liste des consoles quand le pak se ferme.
+- 2026-11-20 — Licence : MIT pour tout le dépôt (pak, app iOS, contrat, docs), décision de la personne ; le nom et l'icône restent hors licence (mention à ajouter au README).
+- 2026-11-20 — Publication iOS depuis le compte développeur existant de la personne, app gratuite et non commerciale ; identifiant `link.reminis.app` aussi pour les builds locaux (suffixe `.dev` abandonné). Fiche App Store Connect : anglais en langue principale, français en localisation, 4+, « Data Not Collected », chiffrement exempté (`ITSAppUsesNonExemptEncryption = NO`).
+- 2026-11-20 — M15 « App universelle » inscrit (09) : iPhone + iPad, Mac en « Designed for iPad » sans code propre au Mac, iPhone Duo testé.
+- 2026-11-20 — Téléchargement par lien (par la console) retiré de la v1, décision de la personne : risque d'examen App Store, politique de confidentialité et certificats racine sur la console ; l'utilisateur télécharge sur l'iPhone puis envoie depuis Fichiers.
 
 ## Questions ouvertes pour la personne
 
