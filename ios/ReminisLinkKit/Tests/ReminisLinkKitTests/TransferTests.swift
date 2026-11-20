@@ -34,6 +34,14 @@ final class OffsetLog: @unchecked Sendable {
     func append(_ value: Int64) { lock.withLock { _values.append(value) } }
 }
 
+/// Records the waits of a retry policy.
+final class SleepLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [Duration] = []
+    var values: [Duration] { lock.withLock { _values } }
+    func append(_ value: Duration) { lock.withLock { _values.append(value) } }
+}
+
 @Suite("Transfers")
 struct TransferTests {
     let scratch = FileManager.default.temporaryDirectory.appending(path: "rl-scratch-\(UUID().uuidString)")
@@ -209,6 +217,43 @@ struct TransferTests {
         let creates = pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/uploads") && $0.status == 201 }
         #expect(creates.count == 2)
         #expect(pak.chunkLog.map(\.offset) == [0, 65536, 0, 65536, 131072, 196608])
+    }
+
+    /// `429 device_busy` on `complete`: the run waits the `Retry-After` of
+    /// the pak when it is longer than its own delay, then sends it again.
+    @Test func aBusyCompleteWaitsTheRetryAfterOfThePak() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let file = try makeFile(size: 10 * 1024)
+        let waits = SleepLog()
+        let upload = try upload(file, retry: RetryPolicy(delays: [.milliseconds(500)], sleep: { waits.append($0) }))
+        pak.busyNextWrites(1, retryAfter: 9)
+        let result = try await upload.run(client: client)
+        #expect(result.gameId != nil)
+        #expect(pak.busyRefusals == 1)
+        #expect(waits.values == [.seconds(9)])
+    }
+
+    /// A `complete` refused as busy wrote nothing: if the pak then forgets
+    /// the upload, it is created again; the outcome is never "unknown".
+    @Test func aBusyCompleteNeverMakesTheOutcomeUnknown() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let file = try makeFile(size: 10 * 1024)
+        let upload = try upload(file, retry: RetryPolicy(delays: [], sleep: { _ in }))
+        pak.busyNextWrites(1)
+        do {
+            _ = try await upload.run(client: client)
+            Issue.record("expected device busy")
+        } catch let error as APIError {
+            #expect(error.isDeviceBusy)
+            #expect(error.code == .deviceBusy)
+        }
+        pak.restart()
+        let result = try await upload.run(client: client)
+        #expect(result.gameId != nil)
+        let creates = pak.log.filter { $0.method == "POST" && $0.path.hasSuffix("/uploads") && $0.status == 201 }
+        #expect(creates.count == 2)
     }
 
     /// Regression: the "complete was sent" state must survive across runs.
