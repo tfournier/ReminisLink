@@ -98,7 +98,7 @@ Onglet **Console** (M11). Aucun ajout de fichier depuis cet onglet : l'ajout res
 ### 4.6 Ajouter
 
 - **Depuis Fichiers** : sélection multiple, choix du système (proposé d'après l'extension), puis envoi.
-- Pas de source « lien » : la console ne télécharge rien (téléchargement depuis un lien retiré de la v1 le 20/11/2026, voir [09, Après la v1](09-feuille-de-route.md#après-la-v1-idées-non-engagées)) ; un fichier du web se télécharge d'abord sur l'iPhone.
+- Pas de source « lien » : la console ne télécharge rien (téléchargement depuis un lien retiré le 20/11/2026 et écarté) ; un fichier du web se télécharge d'abord sur l'iPhone.
 - **Type App (pak)** (M12) : un zip peut être envoyé comme app ; il suit alors le parcours d'installation de §11 (type automatique, demande avant de remplacer un pak du même nom). Jamais proposé d'office : la plupart des zips sont des jeux.
 - L'app NE DOIT proposer aucune source de ROMs.
 

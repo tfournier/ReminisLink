@@ -51,7 +51,7 @@ Ces faits changent une décision. Rien n'a été modifié dans l'architecture : 
 
 ## D1 — Certificats racine *(tranché le 19/11/2026 : aucune nouvelle dépendance ; gabagool, déjà autorisé, importe `certifiable` qui embarque 143 certificats racine et les installe dans `http.DefaultTransport` — c'est ainsi que le Pak Store télécharge en HTTPS ; les téléchargements du pak partent de `http.DefaultTransport.Clone()`. Vérifié : la base NSS `/etc/pki/nssdb/cert9.db` du firmware est vide.)*
 
-*Sans objet depuis le 20/11/2026 : le pak ne télécharge plus rien (téléchargement depuis un lien retiré de la v1, voir [09](../09-feuille-de-route.md#après-la-v1-idées-non-engagées)).*
+*Sans objet depuis le 20/11/2026 : le pak ne télécharge plus rien (téléchargement depuis un lien retiré le 20/11/2026 et écarté).*
 
 ### Détail pour les téléchargements HTTPS (05 §5.6)
 
