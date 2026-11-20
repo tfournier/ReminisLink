@@ -12,8 +12,8 @@ import Testing
 struct GameDataAppTests {
     let secure = InMemorySecureStore()
     let root = FileManager.default.temporaryDirectory.appending(path: "rl-m5-\(UUID().uuidString)")
-    let skyGarden = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
-    let pixelRunner = DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner.gba")
+    let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+    let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
 
     func makePak() -> FakePak {
         let pak = FakePak(host: "m5-\(UUID().uuidString.lowercased()).test")
@@ -128,9 +128,8 @@ struct GameDataAppTests {
         #expect(!FileManager.default.fileExists(atPath: exported.file.directory.path))
     }
 
-    @Test func saveIsOfferedForFilesButNotForLinks() {
+    @Test func saveIsOfferedForFiles() {
         #expect(AddKind.sendable.contains(.save))
-        #expect(!AddKind.linkKinds.contains(.save))
         #expect(AddKind.suggested(forFileName: "Sky Garden Quest.gba.sav") == .save)
     }
 

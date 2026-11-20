@@ -773,7 +773,7 @@ extension AppModel {
             bytes[i] = UInt8(truncatingIfNeeded: x >> 16)
         }
         try? Data(bytes).write(to: file)
-        _ = try? shareInbox.write(files: [file], urls: [])
+        _ = try? shareInbox.write(files: [file])
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -792,7 +792,7 @@ extension AppModel {
             try Data("#!/bin/sh\necho \"\(name)\"\n".utf8).write(to: folder.appending(path: "launch.sh"))
             try Data("{\"name\":\"\(name)\",\"type\":\"TOOL\",\"version\":\"0.0.1\"}".utf8).write(to: folder.appending(path: "pak.json"))
             let zipped = try PakArchiver.zip(folder: folder, into: directory.appending(path: "out"))
-            _ = try shareInbox.write(files: [zipped.url], urls: [])
+            _ = try shareInbox.write(files: [zipped.url])
         } catch {
             return false
         }
@@ -812,7 +812,7 @@ extension AppModel {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appending(path: parts[0])
         try? DemoPatch.bps(sourceSize: size, sourceCRC32: crc, target: Data(parts[3].utf8)).write(to: file)
-        _ = try? shareInbox.write(files: [file], urls: [])
+        _ = try? shareInbox.write(files: [file])
         try? FileManager.default.removeItem(at: directory)
         return true
     }

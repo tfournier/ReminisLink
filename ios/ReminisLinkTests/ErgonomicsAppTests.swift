@@ -12,8 +12,8 @@ import Testing
 @Suite("App ergonomics (M11)", .serialized)
 struct ErgonomicsAppTests {
     let secure = InMemorySecureStore()
-    static let skyGarden = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
-    static let pixelRunner = DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner.gba")
+    static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
+    static let pixelRunner = DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner.gba")
 
     /// Sessions hold their app unowned, and connections started by opening
     /// a console may outlive a test: its app stays alive.
@@ -58,7 +58,7 @@ struct ErgonomicsAppTests {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let id = pak.deviceId
-        let game = GameRoute(deviceId: id, gameId: Self.skyGarden, systemLabel: "Game Boy Advance", name: "Sky Garden Quest", hasArt: true)
+        let game = GameRoute(deviceId: id, gameId: Self.skyGarden, systemLabel: "Handheld Advance", name: "Sky Garden Quest", hasArt: true)
 
         // As the Patch screen opens a new ROM.
         app.path = [.console(id), .library(id), .game(game)]
@@ -287,7 +287,7 @@ struct ErgonomicsAppTests {
         let file = FileManager.default.temporaryDirectory.appending(path: "m11-\(UUID().uuidString).gba")
         try Data(count: 1000).write(to: file)
         let item = try session.transfers.enqueue(
-            fileURL: file, target: .rom(systemId: DemoLibrary.id("Game Boy Advance (GBA)"), fileName: "M11.gba"),
+            fileURL: file, target: .rom(systemId: DemoLibrary.id("Handheld Advance (GBA)"), fileName: "M11.gba"),
             destination: "GBA", ownsFile: false
         )
         #expect(item.phase == .paused)

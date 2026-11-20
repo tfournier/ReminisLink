@@ -11,12 +11,12 @@
         }
       }
     },
-    "Nothing to add: share files or a web link." : {
+    "Nothing to add: share files." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rien à ajouter : partage des fichiers ou un lien web."
+            "value" : "Rien à ajouter : partage des fichiers."
           }
         }
       }

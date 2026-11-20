@@ -59,7 +59,7 @@ type Options struct {
 	Pairing  *auth.PairingSession
 	// Trash receives the deleted and replaced files.
 	Trash *store.Trash
-	// Transfers holds the uploads, the downloads and the jobs.
+	// Transfers holds the uploads and the jobs.
 	Transfers *transfer.Service
 	// Saves, States and Cheats serve the routes of the games' data; they
 	// share their SD card lock with Transfers.
@@ -124,9 +124,6 @@ type Server struct {
 	// allGamesLimit is the most games of GET /games (library.MaxAllGames;
 	// changed by tests).
 	allGamesLimit int
-	// fetchSlot allows one cheat import from a URL at a time: its body
-	// (up to 5 MiB) is read in memory outside the signed body budget.
-	fetchSlot chan struct{}
 	// events is the hub of GET /events (M14); sampler reads the device
 	// state while a stream is open.
 	events  *events.Hub
@@ -186,7 +183,6 @@ func New(opts Options) (*Server, error) {
 		hello:         newRateLimiter(HelloRate, HelloBurst, opts.Now),
 		pair:          newRateLimiter(PairRate, PairBurst, opts.Now),
 		presence:      newPresence(),
-		fetchSlot:     make(chan struct{}, 1),
 		allGamesLimit: library.MaxAllGames,
 		timeouts: timeouts{
 			bodyIdle:     BodyIdleTimeout,
@@ -329,8 +325,6 @@ func (s *Server) routes() http.Handler {
 	// installed in Roms/).
 	reg("POST "+Prefix+"/uploads/{uploadId}/complete", auth.RouteJSON, writeInstall, false, s.changesUpload(s.notifyUpload(s.handleCompleteUpload)))
 	s.routeTable[len(s.routeTable)-1].library = true
-	// A job waits for the write lock at its install step only.
-	reg("POST "+Prefix+"/downloads", auth.RouteJSON, writeInstall, false, s.handleCreateDownload)
 	signed("GET "+Prefix+"/jobs", auth.RouteJSON, s.handleJobs)
 	signed("GET "+Prefix+"/jobs/{jobId}", auth.RouteJSON, s.handleJob)
 	reg("DELETE "+Prefix+"/jobs/{jobId}", auth.RouteJSON, writeStaging, false, s.handleCancelJob)
@@ -360,11 +354,11 @@ func (s *Server) routes() http.Handler {
 	// Cheats.
 	signed("GET "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.handleGetCheats)
 	changing("PUT "+Prefix+"/games/{gameId}/cheats", auth.RouteJSON, s.notify(ChangeCheatsUpdated, s.gameName, s.handlePutCheats))
-	// The import fetches its source first, then takes the write lock.
+	// The import reads its source first, then takes the write lock.
 	reg("POST "+Prefix+"/games/{gameId}/cheats/import", auth.RouteJSON, writeInner, true, s.notify(ChangeCheatsUpdated, s.gameName, s.handleImportCheats))
 	signed("GET "+Prefix+"/sd/files", auth.RouteJSON, s.handleSDFiles)
 
-	// Patches (a job, like the downloads).
+	// Patches (a job; it waits for the write lock at its install step only).
 	reg("POST "+Prefix+"/games/{gameId}/patch", auth.RouteJSON, writeInstall, false, s.handlePatchGame)
 
 	// Paks (M12). The deletion runs under the write lock; an installation

@@ -61,7 +61,7 @@ final class ErgonomicsUITests: XCTestCase {
         for name in ["Sky Garden Quest", "Moonlit Maze 🌙", "Starlight Saga", "Tiny Tactics (Demo)"] {
             XCTAssertTrue(app.buttons["game.\(name)"].waitForExistence(timeout: 10), "\(name) not listed")
         }
-        XCTAssertTrue(app.buttons["game.Moonlit Maze 🌙"].label.contains("Game Boy"))
+        XCTAssertTrue(app.buttons["game.Moonlit Maze 🌙"].label.contains("Pocket Classic"))
         attachScreenshot(of: app, named: "library-flat")
 
         // Search: name or file name.
@@ -83,7 +83,7 @@ final class ErgonomicsUITests: XCTestCase {
         // Filter: one console (the label, GBA and MGBA alike).
         app.buttons["library.filter"].tap()
         app.buttons["Filter by Console"].tapAfterWaiting()
-        app.buttons["Game Boy"].tapAfterWaiting()
+        app.buttons["Pocket Classic"].tapAfterWaiting()
         XCTAssertTrue(app.buttons["game.Sky Garden Quest"].waitForNonExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["No games match the filters"].waitForExistence(timeout: 5))
         app.buttons["library.clearFilters"].firstMatch.tap()

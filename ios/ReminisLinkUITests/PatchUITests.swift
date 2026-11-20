@@ -21,7 +21,7 @@ final class PatchUITests: XCTestCase {
         let app = GameDataUITest.openDemoGame()
         XCTAssertTrue(GameDataUITest.scrollTo(app.buttons["game.patch"], in: app), "no Patch button")
         app.buttons["game.patch"].tap()
-        app.segmentedControls["patch.source"].buttons.element(boundBy: 2).tapAfterWaiting()
+        app.segmentedControls["patch.source"].buttons.element(boundBy: 1).tapAfterWaiting()
 
         // A patch for another ROM.
         GameDataUITest.button(app, "patch.sdFile", containing: "Pixel Runner (Hack).ups").tapAfterWaiting(timeout: 15)

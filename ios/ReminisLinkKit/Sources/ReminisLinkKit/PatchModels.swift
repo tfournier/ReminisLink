@@ -215,6 +215,6 @@ extension ShareRequest {
     /// One patch file and nothing else: the share opens the Patch screen
     /// (docs/specs/06-app-ios.md §4.8) instead of the Add screen.
     public var isSinglePatch: Bool {
-        urls.isEmpty && files.count == 1 && files.allSatisfy(PatchNaming.isPatchFileName)
+        files.count == 1 && files.allSatisfy(PatchNaming.isPatchFileName)
     }
 }

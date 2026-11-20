@@ -537,7 +537,7 @@ public final class TransferQueue {
 
     /// Follows a job started on the device.
     @discardableResult
-    public func track(jobId: String, title: String, kind: JobKind = .download) -> JobItem {
+    public func track(jobId: String, title: String, kind: JobKind) -> JobItem {
         if let existing = jobs.first(where: { $0.id == jobId }) { return existing }
         let item = JobItem(id: jobId, title: title, kind: kind)
         jobs.append(item)

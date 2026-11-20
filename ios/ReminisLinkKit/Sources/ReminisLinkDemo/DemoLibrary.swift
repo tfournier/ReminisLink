@@ -114,7 +114,7 @@ public struct DemoLibrary: Sendable {
     private static let base = Date(timeIntervalSince1970: 1_790_000_000)
 
     public static let sample = DemoLibrary(systems: [
-        System(folder: "Game Boy Advance (GBA)", label: "Game Boy Advance", tag: "GBA", games: [
+        System(folder: "Handheld Advance (GBA)", label: "Handheld Advance", tag: "GBA", games: [
             Game(path: "Sky Garden Quest.gba", sizeBytes: 16_777_216, modifiedAt: base,
                  hasSave: true, stateSlots: [0, 1, 2], lockedStateCount: 1, cheatCount: 12, hasArt: true, hasClock: true),
             Game(path: "Pixel Runner.gba", sizeBytes: 4_194_304, modifiedAt: base.addingTimeInterval(86_400 * 3)),
@@ -123,10 +123,10 @@ public struct DemoLibrary: Sendable {
             Game(path: "Homebrew/Cartographe Égaré.gba", sizeBytes: 2_097_152, modifiedAt: base.addingTimeInterval(86_400 * 2),
                  stateSlots: [0], cheatCount: 2),
         ]),
-        System(folder: "01) Game Boy (GB)", label: "Game Boy", tag: "GB", games: [
+        System(folder: "01) Pocket Classic (GB)", label: "Pocket Classic", tag: "GB", games: [
             Game(path: "Moonlit Maze 🌙.gb", sizeBytes: 262_144, modifiedAt: base, hasSave: true, stateSlots: [0], hasArt: true),
         ]),
-        System(folder: "Sony PlayStation (PS)", label: "Sony PlayStation", tag: "PS", emulatorInstalled: false, games: [
+        System(folder: "Disc Console (PS)", label: "Disc Console", tag: "PS", emulatorInstalled: false, games: [
             // Small for a disc game: the fake pak serves every file whole,
             // from memory.
             Game(path: "Starlight Saga", kind: .folderM3U, sizeBytes: 7_340_032, modifiedAt: base,

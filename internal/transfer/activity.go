@@ -2,8 +2,6 @@ package transfer
 
 import (
 	"io"
-	"net/url"
-	"path"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -18,13 +16,13 @@ import (
 const ActiveUploadWindow = 30 * time.Second
 
 // ActivityUpload is the Kind of an upload; jobs use their job kind
-// (JobDownload, JobPatch).
+// (JobPatch, JobPakInstall).
 const ActivityUpload = "upload"
 
 // Activity is a transfer or a job in progress.
 type Activity struct {
 	ID     string // upload or job id
-	Kind   string // ActivityUpload, JobDownload or JobPatch
+	Kind   string // ActivityUpload, JobPatch or JobPakInstall
 	Target string // uploads: target kind (KindROM, KindSave...)
 	Name   string // file or game name, "" when unknown
 	Done   int64  // bytes done
@@ -95,18 +93,6 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	n, err := p.r.Read(b)
 	p.live.Add(int64(n))
 	return n, err
-}
-
-// downloadLabel is the name shown for a download: the file name of the
-// target, else the last segment of the URL path (never the query).
-func downloadLabel(u *url.URL, target Target) string {
-	if target.FileName != nil && *target.FileName != "" {
-		return *target.FileName
-	}
-	if name, err := CleanFileName(path.Base(u.Path)); err == nil {
-		return name
-	}
-	return ""
 }
 
 // UploadTarget returns the target of a live upload (ok false when the id

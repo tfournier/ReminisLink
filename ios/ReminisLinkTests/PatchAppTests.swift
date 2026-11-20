@@ -4,18 +4,18 @@ import ReminisLinkKit
 import Testing
 @testable import ReminisLink
 
-/// Milestone M6 in the app: the Patch flow from Files, a link and the SD
-/// card, new file and replacement, the errors, cancellation, and a shared
+/// Milestone M6 in the app: the Patch flow from Files and the SD card, new
+/// file and replacement, the errors, cancellation, and a shared
 /// patch opening the Patch screen.
 @MainActor
 @Suite("Patch in the app", .serialized)
 struct PatchAppTests {
     let secure = InMemorySecureStore()
     let root = FileManager.default.temporaryDirectory.appending(path: "rl-m6-\(UUID().uuidString)")
-    let skyGarden = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+    let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
     let skyGardenGame = PatchGame(
-        id: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
-        fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Game Boy Advance"
+        id: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba"), name: "Sky Garden Quest",
+        fileName: "Sky Garden Quest.gba", kind: .file, systemLabel: "Handheld Advance"
     )
     /// The size of Sky Garden Quest in the demo library.
     let skyGardenSize = 16_777_216
@@ -66,9 +66,9 @@ struct PatchAppTests {
             switch flow.step {
             case .preparing, .sending, .starting, .cancellingUpload:
                 try? await Task.sleep(for: .milliseconds(10))
-            case .downloading, .patching:
+            case .patching:
                 await flow.tick()
-            case .idle, .downloaded, .succeeded, .failed, .cancelled:
+            case .idle, .succeeded, .failed, .cancelled:
                 return
             }
         }
@@ -102,7 +102,7 @@ struct PatchAppTests {
         let revision = session.libraryRevision
         flow.start()
         await runToTheEnd(flow)
-        let produced = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (FR).gba")
+        let produced = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (FR).gba")
         #expect(flow.step == .succeeded(gameId: produced, late: false))
         // Sent to the staging area, then patched by its stagingId.
         #expect(pak.log.contains { $0.method == "POST" && $0.path.hasSuffix("/uploads") })
@@ -147,36 +147,6 @@ struct PatchAppTests {
         #expect(flow.step == .failed(.unsupportedPatch))
         // Same words in English and French.
         #expect(AppError.unsupportedPatch.message.contains("IPS, BPS"))
-    }
-
-    @Test func aLinkIsDownloadedByTheConsoleThenApplied() async throws {
-        let pak = makePak()
-        let app = try await makeApp(pak)
-        let session = app.session(for: pak.deviceId)
-        let flow = PatchFlow(session: session, game: skyGardenGame)
-        flow.source = .link
-        flow.linkText = "not a link"
-        #expect(!flow.canStart)
-        flow.linkText = "https://example.org/files/hack.bps"
-        #expect(flow.canStart)
-        flow.start()
-        await wait(flow) { $0 == .downloading }
-        #expect(session.transfers.jobs.first?.kind == .download)
-        await runToTheEnd(flow)
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
-        #expect(session.transfers.jobs.map(\.kind) == [.download, .patch])
-    }
-
-    @Test func aLinkTheConsoleCannotDownloadSaysSo() async throws {
-        let pak = makePak()
-        let app = try await makeApp(pak)
-        let flow = PatchFlow(session: app.session(for: pak.deviceId), game: skyGardenGame)
-        flow.source = .link
-        flow.linkText = "https://example.org/missing"
-        flow.start()
-        await runToTheEnd(flow)
-        #expect(flow.step == .failed(.patchDownloadFailed))
-        #expect(!pak.log.contains { $0.path.hasSuffix("/patch") })
     }
 
     @Test func aPatchOfTheSDCardReplacesTheGame() async throws {
@@ -244,15 +214,15 @@ struct PatchAppTests {
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
         let multiDisc = PatchFlow(session: session, game: PatchGame(
-            id: "g", name: "Starlight Saga", fileName: "Starlight Saga", kind: .folderM3U, systemLabel: "Sony PlayStation"
+            id: "g", name: "Starlight Saga", fileName: "Starlight Saga", kind: .folderM3U, systemLabel: "Disc Console"
         ))
-        multiDisc.source = .link
-        multiDisc.linkText = "https://example.org/a.ips"
+        multiDisc.source = .sdCard
+        multiDisc.sdFileId = "sd_1"
         #expect(!multiDisc.isPatchable && !multiDisc.canStart)
 
         let flow = PatchFlow(session: session, game: skyGardenGame)
-        flow.source = .link
-        flow.linkText = "https://example.org/a.ips"
+        flow.source = .sdCard
+        flow.sdFileId = "sd_1"
         flow.fileName = "../x.gba"
         #expect(!flow.canStart)
         // Another ending: the ROM's extension is added, as by the pak.
@@ -266,15 +236,15 @@ struct PatchAppTests {
         #expect(flow.canStart)
         // An archive ROM is not offered.
         let archive = PatchFlow(session: session, game: PatchGame(
-            id: "z", name: "Packed", fileName: "Packed.zip", kind: .file, systemLabel: "Game Boy Advance"
+            id: "z", name: "Packed", fileName: "Packed.zip", kind: .file, systemLabel: "Handheld Advance"
         ))
-        archive.source = .link
-        archive.linkText = "https://example.org/a.ips"
+        archive.source = .sdCard
+        archive.sdFileId = "sd_1"
         #expect(archive.game?.refusal == .archive && !archive.canStart)
         // No game yet (a shared patch).
         let shared = PatchFlow(session: session, game: nil)
-        shared.source = .link
-        shared.linkText = "https://example.org/a.ips"
+        shared.source = .sdCard
+        shared.sdFileId = "sd_1"
         #expect(!shared.canStart)
         shared.game = skyGardenGame
         #expect(shared.fileName == "Sky Garden Quest (patched).gba")
@@ -288,7 +258,7 @@ struct PatchAppTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let patch = directory.appending(path: "Hack.bps")
         try Data("BPS1".utf8).write(to: patch)
-        let request = try app.shareInbox.write(files: [patch], urls: [])
+        let request = try app.shareInbox.write(files: [patch])
         app.checkShareInbox()
         guard case .patch(let context) = app.sheet else { Issue.record("no patch sheet"); return }
         #expect(context.request?.id == request.id)
@@ -306,7 +276,7 @@ struct PatchAppTests {
         // A ROM still opens the Add screen.
         let rom = directory.appending(path: "Homebrew.gba")
         try Data(count: 4).write(to: rom)
-        try app.shareInbox.write(files: [rom], urls: [])
+        try app.shareInbox.write(files: [rom])
         app.checkShareInbox()
         guard case .add = app.sheet else { Issue.record("no add sheet"); return }
     }
@@ -329,49 +299,6 @@ struct PatchAppTests {
         }
     }
 
-    @Test func aDownloadCancelledTooLateIsNeverApplied() async throws {
-        let pak = makePak()
-        let app = try await makeApp(pak)
-        let session = app.session(for: pak.deviceId)
-        let flow = PatchFlow(session: session, game: skyGardenGame)
-        flow.cancelPollInterval = .milliseconds(1)
-        flow.source = .link
-        flow.linkText = "https://example.org/files/hack.bps"
-        flow.mode = .replace
-        flow.start()
-        await wait(flow) { $0 == .downloading }
-        // The download ends on the console between two polls.
-        let jobId = try #require(flow.job?.id)
-        try await finishOnTheConsole(jobId, session)
-        await flow.cancel()
-        #expect(flow.step == .downloaded)
-        #expect(!flow.isCancelling)
-        #expect(!pak.log.contains { $0.path.hasSuffix("/patch") })
-        // Polling again changes nothing.
-        await flow.tick()
-        #expect(!pak.log.contains { $0.path.hasSuffix("/patch") })
-        // An explicit new try uses the downloaded patch.
-        let downloads = pak.log.filter { $0.path.hasSuffix("/downloads") }.count
-        flow.start()
-        await runToTheEnd(flow)
-        #expect(flow.step == .succeeded(gameId: skyGarden, late: false))
-        #expect(pak.log.filter { $0.path.hasSuffix("/downloads") }.count == downloads)
-    }
-
-    @Test func aDownloadCancelledInTimeIsCancelled() async throws {
-        let pak = makePak()
-        let app = try await makeApp(pak)
-        let flow = PatchFlow(session: app.session(for: pak.deviceId), game: skyGardenGame)
-        flow.cancelPollInterval = .milliseconds(1)
-        flow.source = .link
-        flow.linkText = "https://example.org/files/hack.bps"
-        flow.start()
-        await wait(flow) { $0 == .downloading }
-        await flow.cancel()
-        #expect(flow.step == .cancelled)
-        #expect(!pak.log.contains { $0.path.hasSuffix("/patch") })
-    }
-
     @Test func aPatchCancelledTooLateShowsItsResult() async throws {
         let pak = makePak()
         let app = try await makeApp(pak)
@@ -385,7 +312,7 @@ struct PatchAppTests {
         await wait(flow) { $0 == .patching }
         try await finishOnTheConsole(try #require(flow.job?.id), session)
         await flow.cancel()
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: true))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: true))
     }
 
     @Test func cancellingWhileTheFileIsSentNeverPatches() async throws {
@@ -432,23 +359,23 @@ struct PatchAppTests {
         #expect(flow.step == .failed(.alreadyPatched))
     }
 
-    @Test func aJobCancelledFromTransfersNeverLeadsToThePatch() async throws {
+    @Test func aJobCancelledFromTransfersEndsCancelled() async throws {
         let pak = makePak()
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
+        let files = try await session.perform { try await $0.sdFiles(type: .patch) }
         let flow = PatchFlow(session: session, game: skyGardenGame)
-        flow.source = .link
-        flow.linkText = "https://example.org/files/hack.bps"
+        flow.source = .sdCard
+        flow.sdFileId = files.first { $0.fileName == "Bonus Levels.ips" }?.id
         flow.start()
-        await wait(flow) { $0 == .downloading }
+        await wait(flow) { $0 == .patching }
         let item = try #require(flow.job)
         await flow.tick()
-        // The Transfers screen cancels the running download.
+        // The Transfers screen cancels the running patch.
         try await session.transfers.cancel(item)
         #expect(item.job?.cancelRequested == true)
         await runToTheEnd(flow)
         #expect(flow.step == .cancelled)
-        #expect(!pak.log.contains { $0.path.hasSuffix("/patch") })
     }
 
     @Test func anIPSIsAppliedUnverified() async throws {
@@ -462,7 +389,7 @@ struct PatchAppTests {
         flow.fileName = "Bonus"
         flow.start()
         await runToTheEnd(flow)
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Bonus.gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Bonus.gba"), late: false))
         #expect(flow.verified == false)
     }
 
@@ -483,25 +410,25 @@ struct PatchAppTests {
         #expect(flow.step == .patching)
         await runToTheEnd(flow)
         #expect(flow.pollError == nil)
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
     }
 
-    /// "Try Again" while the timer polls too: the download job is seen
-    /// finished twice, the second poll must not fail the patch started by
-    /// the first one, nor allow a new start while it runs.
+    /// "Try Again" while the timer polls too: the patch job is seen
+    /// finished twice; the flow moves on once, and nothing is started again.
     @Test func twoPollsOfTheSameJobAdvanceOnce() async throws {
         let pak = makePak()
         let app = try await makeApp(pak)
         let session = app.session(for: pak.deviceId)
+        let files = try await session.perform { try await $0.sdFiles(type: .patch) }
         let flow = PatchFlow(session: session, game: skyGardenGame)
-        flow.source = .link
-        flow.linkText = "https://example.org/files/hack.bps"
+        flow.source = .sdCard
+        flow.sdFileId = files.first { $0.fileName == "Bonus Levels.ips" }?.id
         flow.start()
-        await wait(flow) { $0 == .downloading }
+        await wait(flow) { $0 == .patching }
         let jobId = try #require(flow.job?.id)
         // Polled on the console until the next poll finishes it.
         var job = try await session.perform { try await $0.job(id: jobId) }
-        while job.state == .queued || (job.progress.total ?? 0) - job.progress.done > pak.downloadSize / 3 {
+        while job.state == .queued || (job.progress.total ?? 0) - job.progress.done > (job.progress.total ?? 0) / 3 {
             job = try await session.perform { try await $0.job(id: jobId) }
         }
         #expect(job.state == .running)
@@ -509,11 +436,8 @@ struct PatchAppTests {
         async let first: Void = flow.tick()
         async let second: Void = flow.tick()
         _ = await (first, second)
-        #expect(flow.step == .starting || flow.step == .patching)
-        #expect(!flow.canStart)
         pak.responseDelay = 0
-        await runToTheEnd(flow)
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
         #expect(pak.log.filter { $0.path.hasSuffix("/patch") }.count == 1)
     }
 
@@ -521,19 +445,16 @@ struct PatchAppTests {
         let mismatch = ServerError(status: 0, code: .patchMismatch, message: "")
         let format = ServerError(status: 422, code: .unsupportedFormat, message: "")
         let full = ServerError(status: 507, code: .insufficientStorage, message: "")
-        let missing = ServerError(status: 0, code: .notFound, message: "")
         #expect(AppError.patch(APIError.server(mismatch)) == .patchMismatch)
         #expect(AppError.patch(APIError.server(format)) == .unsupportedPatch)
         #expect(AppError.patch(APIError.server(full)) == .api(.server(full)))
         #expect(AppError.patch(CancellationError()) == .cancelled)
-        #expect(AppError.patchJob(mismatch, kind: .patch) == .patchMismatch)
-        #expect(AppError.patchJob(missing, kind: .download) == .patchDownloadFailed)
-        #expect(AppError.patchJob(full, kind: .download) == .api(.server(full)))
+        #expect(AppError.patchJob(mismatch) == .patchMismatch)
+        #expect(AppError.patchJob(full) == .api(.server(full)))
         #expect(AppError.jobLost.action == nil && AppError.patchMismatch.action == nil)
         let already = ServerError(status: 0, code: .patchMismatch, message: "", details: ["reason": .string("already-patched")])
         #expect(AppError.patch(APIError.server(already)) == .alreadyPatched)
-        #expect(AppError.patchJob(ServerError(status: 0, code: .conflict, message: ""), kind: .patch) == .romChangedDuringPatch)
-        #expect(AppError.patchJob(ServerError(status: 0, code: .tooLarge, message: ""), kind: .patch) == .patchTooLarge)
-        #expect(AppError.patchJob(ServerError(status: 0, code: .conflict, message: ""), kind: .download) == .patchDownloadFailed)
+        #expect(AppError.patchJob(ServerError(status: 0, code: .conflict, message: "")) == .romChangedDuringPatch)
+        #expect(AppError.patchJob(ServerError(status: 0, code: .tooLarge, message: "")) == .patchTooLarge)
     }
 }

@@ -24,7 +24,7 @@ func sha256Hex(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
-let gbaSystemId = DemoLibrary.id("Game Boy Advance (GBA)")
+let gbaSystemId = DemoLibrary.id("Handheld Advance (GBA)")
 
 /// Records the offsets reported by an upload.
 final class OffsetLog: @unchecked Sendable {
@@ -132,7 +132,7 @@ struct TransferTests {
         let upload = try upload(file)
         let offsets = OffsetLog()
         let result = try await upload.run(client: client, progress: { offsets.append($0) })
-        #expect(result.gameId == DemoLibrary.id("Game Boy Advance (GBA)/Test Game.gba"))
+        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Test Game.gba"))
         #expect(try await gameNames(client).contains("Test Game.gba"))
         let chunks = pak.chunkLog
         #expect(chunks.count == 5)
@@ -354,7 +354,7 @@ struct TransferTests {
         }
         await upload.restart(onConflict: .rename)
         let result = try await upload.run(client: client)
-        #expect(result.gameId == DemoLibrary.id("Game Boy Advance (GBA)/Pixel Runner (2).gba"))
+        #expect(result.gameId == DemoLibrary.id("Handheld Advance (GBA)/Pixel Runner (2).gba"))
     }
 
     @Test func overwriteSendsTheOldFileToTheTrash() async throws {
@@ -439,7 +439,7 @@ struct TransferTests {
     @Test func deleteGameMovesEverythingToTheTrash() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
         let detail = try await client.game(id: gameId)
         let result = try await client.deleteGame(id: gameId, keepSave: false)
         #expect(result.moved == detail.files.map(\.path))
@@ -456,7 +456,7 @@ struct TransferTests {
     @Test func deleteGameKeepingTheSave() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
         let result = try await client.deleteGame(id: gameId, keepSave: true)
         #expect(pak.log.last?.query == "keepSave=true")
         #expect(!result.moved.contains { $0.hasPrefix("Saves/") || $0.contains(".st") })
@@ -467,7 +467,7 @@ struct TransferTests {
     @Test func deletionPreviewIsWhatTheDeletionMoves() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)
-        let gameId = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+        let gameId = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
         let kept = try await client.deletionPreview(gameId: gameId, keepSave: true)
         #expect(pak.log.last?.query == "keepSave=true")
         #expect(kept.kept.contains { $0.role == .save } && kept.kept.contains { $0.role == .state })
@@ -505,49 +505,6 @@ struct TransferTests {
         #expect(!DeletionPreview.isPakCopy(DeletionItem(name: "ReminisLink/x", role: .rom, size: 1)))
         #expect(preview.kept == [DeletionItem(name: "Discs/CD1.chd", role: .rom, size: 5)])
         #expect(preview.movedBytes == 16_777_226)
-    }
-
-    @Test func downloadJobRunsToItsEnd() async throws {
-        let pak = makePak()
-        let client = try await pairedClient(pak)
-        let accepted = try await client.createDownload(DownloadRequest(
-            url: "http://192.168.1.10:8000/homebrew.gba", target: .rom(systemId: gbaSystemId, fileName: nil)
-        ))
-        var job = try await client.job(id: accepted.jobId)
-        var steps = 0
-        while !job.state.isFinished && steps < 10 {
-            job = try await client.job(id: accepted.jobId)
-            steps += 1
-        }
-        #expect(job.state == .succeeded)
-        #expect(job.kind == .download)
-        #expect(job.progress.fraction == 1)
-        // Named after the URL, as the pak does without Content-Disposition.
-        #expect(job.resultGameId == DemoLibrary.id("Game Boy Advance (GBA)/homebrew.gba"))
-        #expect(try await client.jobs().map(\.id) == [accepted.jobId])
-    }
-
-    @Test func failedAndCancelledJobs() async throws {
-        let pak = makePak()
-        let client = try await pairedClient(pak)
-        let failing = try await client.createDownload(DownloadRequest(url: "https://example.org/missing", target: .staging(fileName: nil)))
-        var job = try await client.job(id: failing.jobId)
-        while !job.state.isFinished { job = try await client.job(id: failing.jobId) }
-        #expect(job.state == .failed)
-        #expect(job.serverError?.code == .notFound)
-
-        let other = try await client.createDownload(DownloadRequest(url: "https://example.org/x.ips", target: .staging(fileName: nil)))
-        let cancelled = try await client.cancelJob(id: other.jobId)
-        #expect(cancelled.state == .cancelled)
-        #expect(cancelled.state.isFinished)
-    }
-
-    @Test func downloadRefusesOtherSchemes() async throws {
-        let pak = makePak()
-        let client = try await pairedClient(pak)
-        await #expect(throws: APIError.self) {
-            try await client.createDownload(DownloadRequest(url: "ftp://example.org/a", target: .staging(fileName: nil)))
-        }
     }
 
     @Test func jobDecodingIsLenient() throws {

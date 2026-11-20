@@ -227,7 +227,7 @@ func (s *Server) handleCancelUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
-	// A "pak" upload queues a job (M12), guarded like the downloads.
+	// A "pak" upload queues a job (M12), guarded like the other jobs.
 	ctx := transfer.WithJobGuard(s.withWriteCheck(r).Context(), func() transfer.JobGuard { return s.jobGuard(r) })
 	res, apiErr, err := s.opts.Transfers.CompleteUpload(ctx, r.PathValue("uploadId"))
 	if apiErr != nil || err != nil {
@@ -249,20 +249,7 @@ func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// --- Downloads and jobs ----------------------------------------------------
-
-func (s *Server) handleCreateDownload(w http.ResponseWriter, r *http.Request) {
-	var req transfer.DownloadRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	id, apiErr, err := s.opts.Transfers.StartDownload(req, s.jobGuard(r))
-	if apiErr != nil || err != nil {
-		s.transferError(w, r, apiErr, err)
-		return
-	}
-	s.jobStarted(w, r, id)
-}
+// --- Patches and jobs ------------------------------------------------------
 
 func (s *Server) handlePatchGame(w http.ResponseWriter, r *http.Request) {
 	var req transfer.PatchRequest

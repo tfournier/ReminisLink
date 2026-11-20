@@ -10,7 +10,7 @@ import ReminisLinkKit
 /// (GET, and PUT and DELETE of milestone M8, see FakePakArt.swift),
 /// `/trash`, `DELETE /clients/me`, and the transfers of milestone M4:
 /// `/uploads` (create, chunks with `Upload-Offset`, status, complete with
-/// the SHA-256 check, cancel), `/downloads` and `/jobs`, and the saves,
+/// the SHA-256 check, cancel) and `/jobs`, and the saves,
 /// states, locks, resume history, cheats and `/sd/files` of milestone M5
 /// (see FakePakGameData.swift), and `POST /games/{id}/patch` with
 /// `/sd/files?type=patch` of milestone M6 (see FakePakPatch.swift), and
@@ -125,7 +125,6 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     private var lostCompleteRequests = 0
     private var _chunkSize: Int64 = 4 << 20
     var _freeBytes: Int64 = 40_265_318_400
-    private var _downloadSize: Int64 = 8 << 20
     private var _chunkLog: [ChunkRecord] = []
     /// Milestone M11 (FakePakLibrary.swift): `GET /games`, `fileId` and the
     /// file downloads exist (false: a pak older than M11, `404`), and
@@ -172,7 +171,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             "trashedAt": "2026-11-18T17:00:00Z",
             "reason": "delete-game",
             "label": "Old Prototype",
-            "files": ["Roms/Game Boy Advance (GBA)/Old Prototype.gba", "Saves/GBA/Old Prototype.gba.sav"],
+            "files": ["Roms/Handheld Advance (GBA)/Old Prototype.gba", "Saves/GBA/Old Prototype.gba.sav"],
             "sizeBytes": 17_377_096,
             "expiresAt": "2026-12-18T17:00:00Z",
         ]]
@@ -287,12 +286,6 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public var freeBytes: Int64 {
         get { lock.withLock { _freeBytes } }
         set { lock.withLock { _freeBytes = newValue } }
-    }
-
-    /// Size of every simulated download.
-    public var downloadSize: Int64 {
-        get { lock.withLock { _downloadSize } }
-        set { lock.withLock { _downloadSize = newValue } }
     }
 
     public var chunkLog: [ChunkRecord] { lock.withLock { _chunkLog } }
@@ -498,8 +491,6 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             return removed ? FakeResponse(status: 204) : .error(404, code: "not_found", message: "Upload not found")
         case ("POST", let s) where s.count == 3 && s[0] == "uploads" && s[2] == "complete":
             return completeUpload(id: s[1])
-        case ("POST", ["downloads"]):
-            return createDownload(body: body)
         case ("GET", ["jobs"]):
             let list = lock.withLock { jobs.values.sorted { $0.createdAt < $1.createdAt } }.map { advance($0.id) }
             return .json(200, ["jobs": list.compactMap { $0 }])
@@ -860,9 +851,6 @@ struct FakeJob {
     var result: [String: Any]?
     var error: [String: Any]?
     let target: FakePak.Target
-    let fails: Bool
-    /// The downloaded URL (download jobs).
-    var url: String? = nil
     /// What a patch job does (milestone M6).
     var patch: FakePatchPlan? = nil
     /// `DELETE` arrived while running: the job ends `cancelled` at its
@@ -870,8 +858,6 @@ struct FakeJob {
     var cancelRequested = false
     /// What a `pak-install` job installs (milestone M12).
     var pakPlan: FakePakPlan? = nil
-    /// `onConflict` of a download job.
-    var onConflict: String = "rename"
 
     var json: [String: Any] {
         [
@@ -914,7 +900,7 @@ extension FakePak {
         return String(name.map { forbidden.contains($0) ? "_" : $0 })
     }
 
-    fileprivate func parseTarget(_ object: Any?, fileNameRequired: Bool) -> ParsedTarget {
+    fileprivate func parseTarget(_ object: Any?) -> ParsedTarget {
         guard let t = object as? [String: Any], let kind = t["kind"] as? String else {
             return .refused(.error(400, code: "invalid_request", message: "Missing target"))
         }
@@ -936,7 +922,7 @@ extension FakePak {
             guard let folder = library.folderPath(system: system, folderId: t["folderId"] as? String) else {
                 return .refused(.error(404, code: "not_found", message: "Folder not found"))
             }
-            if fileNameRequired && fileName == nil {
+            if fileName == nil {
                 return .refused(.error(400, code: "invalid_request", message: "Missing fileName"))
             }
             return .ok(.rom(system: system, folder: folder, fileName: fileName))
@@ -953,7 +939,7 @@ extension FakePak {
             }
             return .ok(.state(gameId: gameId, slot: slot))
         case "staging":
-            if fileNameRequired && fileName == nil {
+            if fileName == nil {
                 return .refused(.error(400, code: "invalid_request", message: "Missing fileName"))
             }
             return .ok(.staging(fileName: fileName))
@@ -982,7 +968,7 @@ extension FakePak {
             return .error(400, code: "invalid_request", message: "Invalid onConflict")
         }
         let target: Target
-        switch parseTarget(object["target"], fileNameRequired: true) {
+        switch parseTarget(object["target"]) {
         case .ok(let t): target = t
         case .refused(let response): return response
         }
@@ -1245,39 +1231,8 @@ extension FakePak {
         return .json(200, removeGame(system: system, game: game, keepSave: keepSave, reason: "delete-game"))
     }
 
-    func createDownload(body: Data) -> FakeResponse {
-        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-              let string = object["url"] as? String, let url = URL(string: string),
-              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme), url.host() != nil
-        else { return .error(400, code: "invalid_request", message: "Invalid URL") }
-        let target: Target
-        switch parseTarget(object["target"], fileNameRequired: false) {
-        case .ok(let t): target = t
-        case .refused(let response): return response
-        }
-        let onConflict = object["onConflict"] as? String ?? "fail"
-        guard ["fail", "rename", "overwrite"].contains(onConflict) else {
-            return .error(400, code: "invalid_request", message: "Invalid onConflict")
-        }
-        if case .pak = target, onConflict == "rename" {
-            return .error(400, code: "invalid_request", message: "rename is not allowed for a pak")
-        }
-        let now = Date()
-        var job = FakeJob(
-            id: Self.randomId("job_"), kind: "download", state: "queued", done: 0, total: nil,
-            createdAt: now, updatedAt: now, result: nil, error: nil, target: target,
-            // A URL whose last path component is "missing" fails (demo and tests).
-            fails: url.lastPathComponent == "missing", url: string
-        )
-        job.onConflict = onConflict
-        lock.withLock { jobs[job.id] = job }
-        _ = string
-        emitJob(job)
-        return .json(202, ["jobId": job.id])
-    }
-
-    /// Returns a job, moving it one step forward (queued → running → a
-    /// third of the file per call → succeeded or failed).
+    /// Returns a job, moving it one step forward (a patch or a pak
+    /// installation; see FakePakPatch.swift and FakePakPaks.swift).
     func advance(_ id: String) -> [String: Any]? {
         guard let before = lock.withLock({ jobs[id] }) else { return nil }
         let json = advanceOnce(id)
@@ -1294,70 +1249,16 @@ extension FakePak {
     }
 
     private func advanceOnce(_ id: String) -> [String: Any]? {
-        let total = downloadSize
         guard var job = lock.withLock({ jobs[id] }) else { return nil }
-        let now = Date()
         if job.cancelRequested && job.state == "running" {
             // Stopped before installing anything.
             job.state = "cancelled"
         } else if job.patch != nil {
             advancePatch(&job)
-            job.updatedAt = now
-            lock.withLock { jobs[id] = job }
-            return job.json
         } else if job.pakPlan != nil {
             advancePakInstall(&job)
-            job.updatedAt = now
-            lock.withLock { jobs[id] = job }
-            return job.json
         }
-        switch job.state {
-        case "queued":
-            job.state = "running"
-            job.total = total
-        case "running":
-            job.done = min(total, job.done + max(1, total / 3))
-            if job.fails {
-                job.state = "failed"
-                job.error = ["code": "not_found", "message": "Download failed: HTTP 404", "details": [String: Any]()]
-            } else if job.done >= total {
-                var name: String?
-                if case .rom(_, _, let n) = job.target { name = n }
-                if case .staging(let n) = job.target { name = n }
-                if case .pak(_, let n) = job.target { name = n }
-                let fromURL = job.url.flatMap(URL.init(string:)).map(\.lastPathComponent).flatMap(Self.cleanFileName)
-                let fileName = name ?? fromURL ?? "download.bin"
-                if case .pak = job.target {
-                    // M12: the download job installs the archive, at most
-                    // 1 GiB (nothing is installed beyond).
-                    let response = total > Self.maxPakArchiveBytes
-                        ? FakeResponse.error(413, code: "too_large", message: "Pak archive larger than 1 GiB")
-                        : store(target: job.target, sizeBytes: total, onConflict: job.onConflict, fallbackName: fileName)
-                    finish(&job, with: response)
-                    job.updatedAt = now
-                    lock.withLock { jobs[id] = job }
-                    return job.json
-                }
-                let response = store(target: job.target, sizeBytes: total, onConflict: "rename", fallbackName: fileName)
-                if let result = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any], response.status == 200 {
-                    job.state = "succeeded"
-                    job.result = result
-                    lock.withLock {
-                        _freeBytes -= total
-                        if let stagingId = result["stagingId"] as? String {
-                            // A download keeps no bytes: only its name.
-                            stagedFiles[stagingId] = FakeStagedFile(name: fileName, bytes: nil)
-                        }
-                    }
-                } else {
-                    job.state = "failed"
-                    job.error = ["code": "internal", "message": "Store failed", "details": [String: Any]()]
-                }
-            }
-        default:
-            break
-        }
-        job.updatedAt = now
+        job.updatedAt = Date()
         lock.withLock { jobs[id] = job }
         return job.json
     }

@@ -98,7 +98,6 @@ func newEnv(t *testing.T, tweak ...func(*Options)) *env {
 		Saves: sv, States: st, Lock: lock,
 		FreeSpace: func(string) (int64, error) { return *e.free, nil },
 		Now:       clk.Now, Logger: logger, ChunkSize: 1 << 10,
-		Downloads: DownloadOptions{RetryDelay: time.Millisecond},
 	}
 	for _, f := range tweak {
 		f(&e.opts)

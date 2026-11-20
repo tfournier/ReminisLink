@@ -41,7 +41,7 @@
 
     <div class="wrap">
       <article class="prose">
-        <p>ReminisLink is an iPhone app that manages the games of your retro handheld over your local Wi-Fi network. Your data stays on your iPhone, on your handheld and in your own iCloud account (copies of your saves in iCloud Drive, pairing in iCloud Keychain). The only exception is a download from a link, which the handheld makes itself (see below).</p>
+        <p>ReminisLink is an iPhone app that manages the games of your retro handheld over your local Wi-Fi network. Your data stays on your iPhone, on your handheld and in your own iCloud account (copies of your saves in iCloud Drive, pairing in iCloud Keychain). ReminisLink on the handheld never connects to the internet: it only answers your devices on your local network.</p>
 
         <h2>What we collect</h2>
         <p><strong>Nothing.</strong> ReminisLink has no account, no server, no analytics, no advertising, no tracking and no third-party SDK. The developer receives no data about you or about how you use the app.</p>
@@ -50,7 +50,7 @@
         <ul>
           <li><strong>The preferences of the app</strong>, and the list of handhelds paired with an older version that must be paired again.</li>
           <li><strong>A cache of box art</strong> shown in the library, which iOS may clear at any time.</li>
-          <li><strong>Files and links you share to ReminisLink</strong> from another app: the share extension copies them into storage shared with the app until you send them. The app deletes them once they are used; unused ones are deleted the next time the app checks its inbox (when it becomes active) once they are older than 7 days.</li>
+          <li><strong>Files you share to ReminisLink</strong> from another app: the share extension copies them into storage shared with the app until you send them. The app deletes them once they are used; unused ones are deleted the next time the app checks its inbox (when it becomes active) once they are older than 7 days.</li>
           <li><strong>Temporary copies of the files you send</strong>, kept until the transfer ends. The app does not keep its transfer queue across launches: they are deleted at the next launch at the latest.</li>
           <li><strong>Files you download</strong> from your handheld (a file of a game, a file of the SD card) or from your save copies: written to a temporary folder of the app, then saved only where you choose (Files, AirDrop, another app). The temporary folder is emptied at each launch of the app.</li>
         </ul>
@@ -76,14 +76,11 @@
         <h2>On the SD card of your handheld</h2>
         <ul>
           <li><strong>The paired devices</strong> (<code>clients.json</code>): for each one, its identifier, name, platform, the types of device seen, its public key (which cannot be used to sign) and the date of pairing. You can remove a device in Settings &gt; Devices on the handheld.</li>
-          <li><strong>The log of ReminisLink</strong> (<code>/.userdata/tg5040/logs/</code>): what the handheld did, with for each request the time, the action, the result, the identifier of the device and its address on your local network, plus the names of devices when they pair, file names, and the scheme and host of download links (never their path). Requests that are not signed or are rejected are only logged in samples. Never a key, a secret or a signature. At launch, a log larger than 5 MB is renamed, replacing the previous old log.</li>
-          <li><strong>Your files</strong>, where NextUI keeps them, and in the ReminisLink folder (<code>/.userdata/shared/ReminisLink/</code>): backup copies of saves, locked copies of save states, the trash (deleted or replaced files, purged at launch once they reach 30 days of counted age, or when you empty it), and temporary files of transfers (an upload left idle for 24 hours is deleted).</li>
+          <li><strong>The log of ReminisLink</strong> (<code>/.userdata/tg5040/logs/</code>): what the handheld did, with for each request the time, the action, the result, the identifier of the device and its address on your local network, plus the names of devices when they pair and file names. Requests that are not signed or are rejected are only logged in samples. Never a key, a secret or a signature. At launch, a log larger than 5 MB is renamed, replacing the previous old log.</li>
+          <li><strong>Your files</strong>, where NextUI keeps them, and in the ReminisLink folder (<code>/.userdata/shared/ReminisLink/</code>): backup copies of saves, locked copies of save states, the trash (deleted or replaced files, purged at launch once they reach 30 days of counted age, or when you empty it), and temporary files of transfers (an upload left idle for 24 hours is deleted when the handheld next notices that it expired, or at the next launch of ReminisLink).</li>
           <li><strong>The certificate of the handheld</strong> and its private key.</li>
         </ul>
         <p>The SD card has no protection of its own: anyone holding it can read these files.</p>
-
-        <h2>Downloads from a link</h2>
-        <p>When you type or share a link, the app sends it to your handheld, which downloads the file itself (a game, a patch, a cheat file or an app for the handheld), from its own connection. The server of the link receives the request of the handheld, as for any download: the path and parameters of the link (not the part after #), the IP address of the connection (usually the public address of your network), and “ReminisLink” as the name of the program. It may redirect the handheld to another server, which then receives the same kind of request. The app itself does not contact these servers.</p>
 
         <h2>Permissions</h2>
         <ul>

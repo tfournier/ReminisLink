@@ -78,21 +78,3 @@ public enum SystemSuggestion {
         return nil
     }
 }
-
-/// Checks a URL typed or pasted on the Add screen: `http` and `https` only,
-/// with a host (docs/specs/04-api-v1.md, `POST /downloads`).
-public enum DownloadURL {
-    public static func validated(_ text: String) -> URL? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https", let host = url.host(), !host.isEmpty
-        else { return nil }
-        return url
-    }
-
-    /// The last path component, as a name to show.
-    public static func displayName(_ url: URL) -> String {
-        let last = url.lastPathComponent
-        return last.isEmpty || last == "/" ? (url.host() ?? url.absoluteString) : last
-    }
-}

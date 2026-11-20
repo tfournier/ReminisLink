@@ -24,7 +24,7 @@ const (
 	MaxEntries = 10000
 	// MaxUncompressedBytes bounds the size of a pak, announced or real.
 	MaxUncompressedBytes = 1 << 30
-	// MaxArchiveBytes bounds an archive sent or downloaded as a pak.
+	// MaxArchiveBytes bounds an archive sent as a pak.
 	MaxArchiveBytes = 1 << 30
 	// MaxRatio bounds the compression ratio of an entry larger than
 	// RatioMinBytes (zip bombs).

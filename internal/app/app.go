@@ -498,7 +498,7 @@ func (a *App) withdraw() {
 //     atomic and resumed at the next start): the network watch and the
 //     announcement stop (the Bonjour goodbye never waits for the requests
 //     nor the event streams), the running requests get up to
-//     server.ShutdownTimeout, the running download is cancelled (its
+//     server.ShutdownTimeout, the running job is cancelled (its
 //     partial file deleted), and the card is synced again.
 //
 // It returns the error of the server, if any. Safe to call more than once

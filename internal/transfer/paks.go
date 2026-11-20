@@ -17,13 +17,13 @@ import (
 )
 
 // Pak installation (M12, protocol/openapi.yaml POST /paks/install and the
-// "pak" upload and download targets). Every source ends in the same
+// "pak" upload target). Every source ends in the same
 // pipeline: the pak is extracted (or copied) into a folder of the staging
 // area and checked there (internal/paks), then, holding the write lock
 // and the install lock, the old pak of the same name goes to the trash
 // and the staged folder is renamed into place.
 
-// KindPak is the "pak" upload and download target.
+// KindPak is the "pak" upload target.
 const KindPak = "pak"
 
 // JobPakInstall is the kind of the job of POST /paks/install and of a
@@ -42,7 +42,7 @@ const pakStagingPrefix = "pk_"
 
 var pakStagingRe = regexp.MustCompile(`^pk_\d{8}T\d{6}Z_[0-9a-f]{8}$`)
 
-// pakArchiveLimit bounds an archive uploaded or downloaded as a pak
+// pakArchiveLimit bounds an archive uploaded as a pak
 // (paks.MaxArchiveBytes; lowered by tests).
 var pakArchiveLimit int64 = paks.MaxArchiveBytes
 
@@ -65,7 +65,7 @@ func pakKindOf(t Target) string {
 	return *t.PakKind
 }
 
-// pakConflict maps the onConflict of a "pak" upload or download target.
+// pakConflict maps the onConflict of a "pak" upload target.
 func pakConflict(onConflict string) string {
 	if onConflict == ConflictOverwrite {
 		return PakConflictReplace

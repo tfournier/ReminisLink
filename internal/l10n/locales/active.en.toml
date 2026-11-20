@@ -3,11 +3,7 @@
 [activity_bytes]
 other = "{{.Text}}  {{.Size}}"
 
-[activity_download]
-other = "Downloading: {{.Name}}"
 
-[activity_download_file]
-other = "Downloading a file"
 
 [activity_pak]
 other = "Installing: {{.Name}}"
@@ -197,11 +193,7 @@ other = "Art updated"
 [notice_cheats_updated]
 other = "Cheats updated"
 
-[notice_download_failed]
-other = "Download failed"
 
-[notice_downloaded]
-other = "Download finished"
 
 [notice_game_deleted]
 other = "Game moved to the trash"

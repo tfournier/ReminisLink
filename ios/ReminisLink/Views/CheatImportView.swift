@@ -2,12 +2,11 @@ import ReminisLinkKit
 import SwiftUI
 
 /// Imports cheats into a game (docs/specs/04-api-v1.md, `cheats/import`):
-/// from a link (downloaded by the console), from Files (sent to the
-/// staging area first) or from a `.cht` of the SD card; merged into the
-/// list or replacing it. The app proposes no source of cheats.
+/// from Files (sent to the staging area first) or from a `.cht` of the SD
+/// card; merged into the list or replacing it. The app proposes no source
+/// of cheats, and the console never downloads a link (removed from v1).
 struct CheatImportView: View {
     enum Source: Hashable {
-        case link
         case files
         case sdCard
     }
@@ -17,9 +16,8 @@ struct CheatImportView: View {
     let route: GameRoute
     let onImported: (CheatImportResult) -> Void
 
-    @State private var source: Source = .link
+    @State private var source: Source = .files
     @State private var mode: CheatImportMode = .merge
-    @State private var linkText = ""
     @State private var file: PickedFile?
     @State private var showImporter = false
     @State private var sdFiles: [SdFile]?
@@ -36,7 +34,6 @@ struct CheatImportView: View {
             Form {
                 Section {
                     Picker("Source", selection: $source) {
-                        Text("Link").tag(Source.link)
                         Text("Files").tag(Source.files)
                         Text("SD Card").tag(Source.sdCard)
                     }
@@ -59,7 +56,6 @@ struct CheatImportView: View {
                     }
                 }
                 switch source {
-                case .link: linkSection
                 case .files: filesSection
                 case .sdCard: sdSection
                 }
@@ -113,26 +109,6 @@ struct CheatImportView: View {
     }
 
     // MARK: Sources
-
-    private var linkSection: some View {
-        Section {
-            TextField(text: $linkText, prompt: Text(verbatim: "https://")) {
-                Text("Link")
-            }
-            .keyboardType(.URL)
-            .textContentType(.URL)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .accessibilityIdentifier("import.link")
-        } footer: {
-            if !linkText.isEmpty && DownloadURL.validated(linkText) == nil {
-                Text("Enter a link starting with http:// or https://.")
-                    .foregroundStyle(.red)
-            } else {
-                Text("The console downloads the .cht file itself (5 MB at most).")
-            }
-        }
-    }
 
     private var filesSection: some View {
         Section {
@@ -193,7 +169,6 @@ struct CheatImportView: View {
     private var canImport: Bool {
         guard !isImporting else { return false }
         switch source {
-        case .link: return DownloadURL.validated(linkText) != nil
         case .files: return file != nil
         case .sdCard: return sdFileId != nil
         }
@@ -232,9 +207,6 @@ struct CheatImportView: View {
         do {
             let result: CheatImportResult
             switch source {
-            case .link:
-                guard let url = DownloadURL.validated(linkText) else { return }
-                result = try await session.importCheats(gameId: gameId, CheatImportRequest(source: .url(url.absoluteString), mode: mode))
             case .files:
                 guard let file else { return }
                 self.file = nil

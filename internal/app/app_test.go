@@ -231,7 +231,7 @@ func TestStatusTransferAndNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := make(chan struct{})
-	a.xfer.Jobs().SubmitLabeled(transfer.JobDownload, "Sky Hack.bps", func(ctx contextT, report func(int64, *int64)) (map[string]any, *transfer.Error) {
+	a.xfer.Jobs().SubmitLabeled(transfer.JobPatch, "Sky Hack.bps", func(ctx contextT, report func(int64, *int64)) (map[string]any, *transfer.Error) {
 		<-release
 		return nil, nil
 	})
@@ -242,7 +242,7 @@ func TestStatusTransferAndNotice(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		st, _ := a.Status()
-		if st.State == StateReady && st.Notice != nil && st.Notice.Kind == NoticeDownloaded && st.Notice.Name == "Sky Hack.bps" {
+		if st.State == StateReady && st.Notice != nil && st.Notice.Kind == NoticePatched && st.Notice.Name == "Sky Hack.bps" {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -338,9 +338,9 @@ func TestNotices(t *testing.T) {
 			t.Errorf("job %s: %+v %v", state, x, ok)
 		}
 	}
-	n.jobFinished(transfer.Job{Kind: transfer.JobDownload, State: transfer.JobFailed})
-	if x, _ := n.current(); x.Kind != NoticeDownloadFailed {
-		t.Errorf("download failed: %+v", x)
+	n.jobFinished(transfer.Job{Kind: transfer.JobPakInstall, State: transfer.JobFailed})
+	if x, _ := n.current(); x.Kind != NoticePakInstallFailed {
+		t.Errorf("pak install failed: %+v", x)
 	}
 }
 

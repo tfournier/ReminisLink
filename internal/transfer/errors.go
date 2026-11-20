@@ -1,6 +1,5 @@
 // Package transfer moves files onto the SD card: resumable uploads from the
-// app (docs/specs/03-protocole.md §7), downloads made by the console and
-// the queue of long jobs (§8), and the installation of a received file at
+// app (docs/specs/03-protocole.md §7), the queue of long jobs (§8), and the installation of a received file at
 // its destination with the conflict rules (docs/specs/04-api-v1.md,
 // Transferts).
 package transfer
@@ -25,6 +24,7 @@ const (
 	CodeInsufficientStorage = "insufficient_storage"
 	CodeTooManyAttempts     = "too_many_attempts"
 	CodeDeviceBusy          = "device_busy"
+	CodeUnsupportedFormat   = "unsupported_format"
 )
 
 // Error is an error the API reports as it is: HTTP status, code, English

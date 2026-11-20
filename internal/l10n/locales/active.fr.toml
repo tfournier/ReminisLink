@@ -3,11 +3,7 @@
 [activity_bytes]
 other = "{{.Text}}  {{.Size}}"
 
-[activity_download]
-other = "Téléchargement : {{.Name}}"
 
-[activity_download_file]
-other = "Téléchargement d'un fichier"
 
 [activity_pak]
 other = "Installation : {{.Name}}"
@@ -197,11 +193,7 @@ other = "Jaquette modifiée"
 [notice_cheats_updated]
 other = "Cheats modifiés"
 
-[notice_download_failed]
-other = "Échec du téléchargement"
 
-[notice_downloaded]
-other = "Téléchargement terminé"
 
 [notice_game_deleted]
 other = "Jeu mis à la corbeille"

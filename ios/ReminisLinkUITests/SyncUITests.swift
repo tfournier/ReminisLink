@@ -33,7 +33,7 @@ final class SyncUITests: XCTestCase {
         expectReport(app, containing: "New versions: 1 · saves checked: 4", timeout: 20)
 
         // Its two versions; restore the older one.
-        openVersions(app, game: GameDataUITest.demoGame, timeout: 15)
+        openVersions(app, system: "Handheld Advance (GBA)", game: GameDataUITest.demoGame, timeout: 15)
         XCTAssertTrue(app.buttons["synced.version.1"].waitForExistence(timeout: 10), "two versions expected")
         attachScreenshot(of: app, named: "sync-versions")
         app.buttons["synced.version.1"].tap()
@@ -54,7 +54,7 @@ final class SyncUITests: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         app.buttons["console.sync"].tapWhenEnabled(timeout: 15)
         expectReport(app, containing: "New versions: 1", timeout: 20)
-        openVersions(app, game: GameDataUITest.demoGame, timeout: 15)
+        openVersions(app, system: "Handheld Advance (GBA)", game: GameDataUITest.demoGame, timeout: 15)
         XCTAssertTrue(app.buttons["synced.version.2"].waitForExistence(timeout: 10), "three versions expected")
     }
 
@@ -97,7 +97,7 @@ final class SyncUITests: XCTestCase {
         app.buttons["console.sync"].tapWhenEnabled(timeout: 30)
         expectReport(app, containing: "Up to date", timeout: 60)
 
-        openVersions(app, game: GameDataUITest.headlessGame, timeout: 30)
+        openVersions(app, system: "Game Boy Advance (GBA)", game: GameDataUITest.headlessGame, timeout: 30)
         app.buttons["synced.version.0"].tapAfterWaiting(timeout: 10)
         app.buttons["synced.restore"].tapAfterWaiting()
         let alert = app.alerts.firstMatch
@@ -120,9 +120,9 @@ final class SyncUITests: XCTestCase {
     /// From the dashboard to the versions of a synced save (a GBA game:
     /// the folder of its system is `<label> (<tag>)`).
     @MainActor
-    private func openVersions(_ app: XCUIApplication, game: String, timeout: TimeInterval) {
+    private func openVersions(_ app: XCUIApplication, system: String, game: String, timeout: TimeInterval) {
         app.buttons["console.syncedSaves"].tapAfterWaiting(timeout: timeout)
-        let row = app.buttons["synced.game.Game Boy Advance (GBA)/\(game)"]
+        let row = app.buttons["synced.game.\(system)/\(game)"]
         XCTAssertTrue(GameDataUITest.scrollTo(row, in: app), "\(game) is not listed")
         row.tap()
         XCTAssertTrue(app.buttons["synced.version.0"].waitForExistence(timeout: timeout), "no version listed")

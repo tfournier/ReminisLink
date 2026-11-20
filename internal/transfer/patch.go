@@ -305,7 +305,7 @@ func (s *Service) runPatch(ctx context.Context, j patchJob, report func(int64, *
 		return nil, notFound("Game not found")
 	}
 
-	opts := patch.Options{MaxTargetSize: MaxDownloadBytes}
+	opts := patch.Options{MaxTargetSize: patch.MaxTargetSize}
 	info, err := patch.Inspect(ctx, pf, pInfo.Size(), srcInfo.Size(), opts)
 	if err != nil {
 		if ctx.Err() != nil {

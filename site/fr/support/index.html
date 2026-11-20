@@ -97,7 +97,7 @@
           <details id="security">
             <summary>La connexion est-elle sûre ?</summary>
             <ul>
-              <li><strong>Chiffrée.</strong> L’app et la console communiquent en HTTPS, uniquement sur ton réseau local. Seuls un téléchargement depuis un lien que tu donnes (fait par la console) et iCloud, si tu l’utilises, passent par Internet.</li>
+              <li><strong>Chiffrée.</strong> L’app et la console communiquent en HTTPS, uniquement sur ton réseau local. ReminisLink sur la console ne se connecte jamais à Internet ; seul iCloud, si tu l’utilises, passe par Internet.</li>
               <li><strong>La bonne console.</strong> La console a son propre certificat. Le QR code que tu scannes contient l’empreinte de sa clé publique, et l’app n’accepte qu’un certificat avec cette clé, même pendant l’appairage : un autre appareil du réseau ne peut pas se faire passer pour ta console.</li>
               <li><strong>Seulement tes appareils.</strong> Chaque requête est signée avec une clé privée qui reste dans ton trousseau. Seules deux requêtes ne sont pas signées : celle qui vérifie que la console est là, et l’appairage lui-même, qui exige le secret à usage unique du QR code. De tes appareils, la carte SD ne garde que les clés publiques : une copie de la carte ne suffit pas pour piloter la console. Elle contient en revanche la clé du certificat de la console : garde la carte en lieu sûr.</li>
             </ul>
@@ -110,7 +110,7 @@
 
           <details id="back-to-list">
             <summary>Pourquoi l’app est-elle revenue à la liste des consoles ?</summary>
-            <p>La console prévient l’app dès que ReminisLink s’y ferme (avec <strong>B</strong>, par exemple) : l’app revient à sa liste avec un court message. Les fichiers que tu envoyais depuis l’iPhone sont mis en pause : reprends-les depuis Transferts tant que l’app reste ouverte. La console garde leur progression pendant 24 heures d’inactivité, mais l’app ne garde pas sa liste de transferts une fois fermée. Un téléchargement depuis un lien que faisait la console est arrêté, et son fichier partiel supprimé : relance-le plus tard. Si la console se met en veille ou sort de la portée du Wi-Fi sans fermer ReminisLink, l’app affiche plutôt une perte de connexion. Tant que la console est ouverte, l’app rafraîchit d’elle-même ce qu’elle affiche quand quelque chose change, même depuis un autre appareil.</p>
+            <p>La console prévient l’app dès que ReminisLink s’y ferme (avec <strong>B</strong>, par exemple) : l’app revient à sa liste avec un court message. Les fichiers que tu envoyais depuis l’iPhone sont mis en pause : reprends-les depuis Transferts tant que l’app reste ouverte. La console garde leur progression pendant 24 heures d’inactivité, mais l’app ne garde pas sa liste de transferts une fois fermée. Un patch ou une installation que faisait la console est arrêté, et son fichier partiel supprimé : relance-le plus tard. Si la console se met en veille ou sort de la portée du Wi-Fi sans fermer ReminisLink, l’app affiche plutôt une perte de connexion. Tant que la console est ouverte, l’app rafraîchit d’elle-même ce qu’elle affiche quand quelque chose change, même depuis un autre appareil.</p>
           </details>
 
           <details id="sauvegardes-icloud">
@@ -121,7 +121,7 @@
 
           <details id="paks">
             <summary>Puis-je installer ou supprimer des apps (paks) sur la console ?</summary>
-            <p>Oui. Dans l’onglet Console, ouvre <strong>Apps</strong> : la liste des paks d’outils et d’émulateurs de la console. Tu peux en installer un depuis l’app Fichiers de l’iPhone (une archive zip ou un dossier <code>.pak</code>), depuis un lien que la console télécharge elle-même, ou depuis un fichier déjà présent sur la carte SD. Un pak du même nom n’est remplacé qu’après ta confirmation, et l’ancien part à la corbeille. Supprimer un pak le met aussi à la corbeille. ReminisLink ne peut ni se supprimer ni se remplacer.</p>
+            <p>Oui. Dans l’onglet Console, ouvre <strong>Apps</strong> : la liste des paks d’outils et d’émulateurs de la console. Tu peux en installer un depuis l’app Fichiers de l’iPhone (une archive zip ou un dossier <code>.pak</code>), ou depuis un fichier déjà présent sur la carte SD. Un pak du même nom n’est remplacé qu’après ta confirmation, et l’ancien part à la corbeille. Supprimer un pak le met aussi à la corbeille. ReminisLink ne peut ni se supprimer ni se remplacer.</p>
             <p>ReminisLink ne vérifie pas ce que fait un pak : n’installe que des paks de confiance.</p>
             <p>Touche <strong>Stockage</strong> dans l’onglet Console pour parcourir la carte SD. Ce navigateur est en lecture seule : tu peux consulter les dossiers et télécharger un fichier sur ton iPhone.</p>
           </details>
@@ -146,7 +146,7 @@
 
           <details id="games">
             <summary>Où trouver des jeux ?</summary>
-            <p>ReminisLink liste les jeux de ta carte SD, mais ne fournit aucun jeu, n’a aucun catalogue à télécharger et n’indique pas où en trouver. Apporte tes propres fichiers : les jeux, sauvegardes, patchs et fichiers de cheats que tu possèdes déjà, depuis l’app Fichiers, le menu de partage d’une autre app, ou un lien.</p>
+            <p>ReminisLink liste les jeux de ta carte SD, mais ne fournit aucun jeu, n’a aucun catalogue à télécharger et n’indique pas où en trouver. Apporte tes propres fichiers : les jeux, sauvegardes, patchs et fichiers de cheats que tu possèdes déjà, depuis l’app Fichiers ou le menu de partage d’une autre app. Un fichier du web se télécharge d’abord sur ton iPhone (il va dans l’app Fichiers), puis s’ajoute : la console ne télécharge jamais rien elle-même.</p>
           </details>
 
           <details id="install">

@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -346,26 +345,14 @@ func TestInstallPakFromSD(t *testing.T) {
 	f.noPakStaging()
 }
 
-func TestInstallPakFromDownload(t *testing.T) {
+// The pak never fetches a URL (link downloads removed from v1): the route
+// of the device-side downloads is gone.
+func TestNoDownloadRoute(t *testing.T) {
 	f := newFixture(t)
-	data := clockZip(t, "4.0")
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
-	}))
-	defer src.Close()
-	body := mustJSON(t, map[string]any{"url": src.URL + "/Clock.pak.zip", "target": map[string]any{"kind": "pak", "pakKind": "tool"}, "onConflict": "fail"})
-	j := f.waitJob(jobID(t, f.do(http.MethodPost, "/api/v1/downloads", "/downloads", body, http.StatusAccepted)))
-	if j.State != "succeeded" || j.Kind != "download" || j.Result["pakId"] == nil || !f.exists("Tools/tg5040/Clock.pak/launch.sh") {
-		t.Fatalf("download: %+v", j)
+	body := mustJSON(t, map[string]any{"url": "https://example.org/Clock.pak.zip", "target": map[string]any{"kind": "pak"}})
+	if r := f.client.Do(t, http.MethodPost, "/api/v1/downloads", body); r.Status != http.StatusNotFound {
+		t.Fatalf("POST /downloads: %d %s", r.Status, r.Body)
 	}
-	des, _ := os.ReadDir(f.layout.UploadsDir())
-	for _, d := range des {
-		if strings.HasPrefix(d.Name(), "dl_") {
-			t.Fatalf("downloaded archive left: %s", d.Name())
-		}
-	}
-	bad := mustJSON(t, map[string]any{"url": src.URL + "/x.zip", "target": map[string]any{"kind": "pak"}, "onConflict": "rename"})
-	wantCode(t, f.do(http.MethodPost, "/api/v1/downloads", "/downloads", bad, http.StatusBadRequest), "invalid_request")
 }
 
 func TestInstallPakOfARevokedClient(t *testing.T) {

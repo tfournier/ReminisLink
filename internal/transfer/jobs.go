@@ -23,8 +23,7 @@ const CancelWait = 10 * time.Second
 
 // Job kinds and states.
 const (
-	JobDownload = "download"
-	JobPatch    = "patch"
+	JobPatch = "patch"
 
 	JobQueued    = "queued"
 	JobRunning   = "running"

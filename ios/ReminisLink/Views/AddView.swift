@@ -34,38 +34,23 @@ struct GamePickerTarget: Identifiable {
 }
 
 /// Add screen (docs/specs/06-app-ios.md §4.6): files from Files (several at
-/// once, system suggested from the extension) or a link downloaded by the
-/// console. Prefilled by the share extension. The app proposes no source
-/// of games.
+/// once, system suggested from the extension). Prefilled by the share
+/// extension. The app proposes no source of games, and the console never
+/// downloads a link (removed from v1).
 ///
 /// A save (`.sav`, `.srm`) replaces the save of the game chosen for it,
 /// through a resumable upload (`target.kind = "save"`): the pak first
 /// copies the current save (`before-replace`, milestone M5).
 struct AddView: View {
-    enum Mode: Hashable {
-        case files
-        case link
-    }
-
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     let context: AddContext
 
     @State private var deviceId: String?
-    @State private var mode: Mode = .files
     @State private var files: [AddFile] = []
     @State private var gamePicker: GamePickerTarget?
-    /// Links of a share request that also held files: offered once the
-    /// files are sent.
-    @State private var pendingLinks: [String] = []
-    /// The shared link offered in the Link tab (the user may replace it).
-    @State private var sharedLink: String?
     @State private var showImporter = false
     @State private var systems: [GameSystem]?
-    @State private var linkText = ""
-    @State private var linkKind: AddKind = .rom
-    @State private var linkSystemId: String?
-    @State private var canPaste = false
     @State private var error: AppError?
     @State private var isSending = false
     @State private var didLoadRequest = false
@@ -83,21 +68,10 @@ struct AddView: View {
                         }
                     }
                 }
-                Section {
-                    Picker("Source", selection: $mode) {
-                        Text("Files").tag(Mode.files)
-                        Text("Link").tag(Mode.link)
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("add.mode")
-                }
                 if let error {
                     Section { ErrorView(error: error) }
                 }
-                switch mode {
-                case .files: filesSection
-                case .link: linkSection
-                }
+                filesSection
             }
             .navigationTitle("Add")
             .navigationBarTitleDisplayMode(.inline)
@@ -109,7 +83,7 @@ struct AddView: View {
                     if isSending {
                         ProgressView()
                     } else {
-                        Button(mode == .files ? "Send" : "Download") { Task { await send() } }
+                        Button("Send") { Task { await send() } }
                             .disabled(!canSend)
                             .accessibilityIdentifier("add.send")
                     }
@@ -136,12 +110,8 @@ struct AddView: View {
         .task {
             if deviceId == nil { deviceId = context.deviceId }
             loadRequest()
-            canPaste = UIPasteboard.general.hasURLs
         }
         .task(id: deviceId) { await loadSystems() }
-        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
-            canPaste = UIPasteboard.general.hasURLs
-        }
     }
 
     // MARK: Files
@@ -185,13 +155,6 @@ struct AddView: View {
                     .accessibilityIdentifier("add.file")
             }
         }
-        if !pendingLinks.isEmpty {
-            Section {
-                ForEach(pendingLinks, id: \.self) { Text($0).font(.footnote) }
-            } footer: {
-                Text("The shared links are offered in the Link tab once the files are sent.")
-            }
-        }
         Section {
             Button {
                 showImporter = true
@@ -216,69 +179,16 @@ struct AddView: View {
         .accessibilityIdentifier("add.system")
     }
 
-    // MARK: Link
-
-    @ViewBuilder
-    private var linkSection: some View {
-        Section {
-            TextField(text: $linkText, prompt: Text(verbatim: "https://")) {
-                Text("Link")
-            }
-            .keyboardType(.URL)
-            .textContentType(.URL)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .accessibilityIdentifier("add.link")
-            if canPaste {
-                PasteButton(payloadType: URL.self) { urls in
-                    if let url = urls.first { linkText = url.absoluteString }
-                }
-                .labelStyle(.titleAndIcon)
-            }
-        } footer: {
-            if !linkText.isEmpty && DownloadURL.validated(linkText) == nil {
-                Text("Enter a link starting with http:// or https://.")
-                    .foregroundStyle(.red)
-            } else {
-                Text("The console downloads the file itself, on its own Wi-Fi connection.")
-            }
-        }
-        Section {
-            Picker("Type", selection: $linkKind) {
-                ForEach(AddKind.linkKinds, id: \.self) { Text($0.title).tag($0) }
-            }
-            if linkKind == .rom {
-                systemPicker(selection: $linkSystemId)
-            }
-        } footer: {
-            Text(linkKind.help)
-        }
-        if !pendingLinks.isEmpty {
-            Section {
-                ForEach(pendingLinks, id: \.self) { Text($0).font(.footnote) }
-            } header: {
-                Text("Next Shared Links")
-            } footer: {
-                Text("Offered one after the other once this one is downloaded.")
-            }
-        }
-    }
-
     // MARK: Logic
 
     private var canSend: Bool {
         guard deviceId != nil, !isSending else { return false }
-        switch mode {
-        case .files:
-            return !files.isEmpty && files.allSatisfy { file in
-                switch file.kind {
-                case .rom: file.systemId != nil
-                case .patch, .cheats, .pak: true
-                case .save: file.game != nil
-                }
+        return !files.isEmpty && files.allSatisfy { file in
+            switch file.kind {
+            case .rom: file.systemId != nil
+            case .patch, .cheats, .pak: true
+            case .save: file.game != nil
             }
-        case .link:
-            return DownloadURL.validated(linkText) != nil && (linkKind != .rom || linkSystemId != nil)
         }
     }
 
@@ -292,29 +202,7 @@ struct AddView: View {
             files.append(AddFile(url: url, name: name, sizeBytes: size, isSecurityScoped: false,
                                  request: request, kind: kind))
         }
-        // Links sent before the app was stopped are not offered again.
-        pendingLinks = request.pendingURLs
-        if files.isEmpty { useNextLink() }
         suggestSystems()
-    }
-
-    /// Offers the next shared link in the Link tab, with its type and
-    /// system suggested. False when none is left.
-    @discardableResult
-    private func useNextLink() -> Bool {
-        guard !pendingLinks.isEmpty else { return false }
-        let link = pendingLinks.removeFirst()
-        sharedLink = link
-        mode = .link
-        linkText = link
-        linkKind = .rom
-        linkSystemId = nil
-        if let url = URL(string: link) {
-            let kind = AddKind.suggested(forFileName: url.lastPathComponent)
-            if AddKind.linkKinds.contains(kind) { linkKind = kind }
-        }
-        suggestSystems()
-        return true
     }
 
     private func addPicked(_ urls: [URL]) {
@@ -344,14 +232,11 @@ struct AddView: View {
         }
     }
 
-    /// Fills the system of the files (and of the link) still without one.
+    /// Fills the system of the files still without one.
     private func suggestSystems() {
         guard let systems else { return }
         for index in files.indices where files[index].systemId == nil {
             files[index].systemId = SystemSuggestion.system(forFileName: files[index].name, in: systems)?.id
-        }
-        if linkSystemId == nil, let url = DownloadURL.validated(linkText) {
-            linkSystemId = SystemSuggestion.system(forFileName: url.lastPathComponent, in: systems)?.id
         }
     }
 
@@ -362,65 +247,23 @@ struct AddView: View {
         error = nil
         let session = app.session(for: deviceId)
         do {
-            switch mode {
-            case .files:
-                // Each file leaves the list once queued: after a failure, a
-                // new tap only sends the others.
-                for file in files {
-                    let copy = try await Self.makeLocalCopy(of: file, in: app.transferDirectory, inbox: app.shareInbox)
-                    if file.kind == .pak {
-                        // M12: installed by the console once sent; it asks
-                        // before replacing a pak of the same name.
-                        let picked = PickedFile(url: copy, name: file.name, sizeBytes: file.sizeBytes)
-                        await session.paks.install(.file(picked), name: file.name, kind: .auto)
-                        files.removeAll { $0.id == file.id }
-                        continue
-                    }
-                    try session.transfers.enqueue(
-                        fileURL: copy, fileName: file.name, target: target(for: file),
-                        destination: destination(for: file), ownsFile: true
-                    )
+            // Each file leaves the list once queued: after a failure, a new
+            // tap only sends the others.
+            for file in files {
+                let copy = try await Self.makeLocalCopy(of: file, in: app.transferDirectory, inbox: app.shareInbox)
+                if file.kind == .pak {
+                    // M12: installed by the console once sent; it asks
+                    // before replacing a pak of the same name.
+                    let picked = PickedFile(url: copy, name: file.name, sizeBytes: file.sizeBytes)
+                    await session.paks.install(.file(picked), name: file.name, kind: .auto)
                     files.removeAll { $0.id == file.id }
+                    continue
                 }
-                // The share also held links: offer them now.
-                if useNextLink() { return }
-            case .link:
-                guard let url = DownloadURL.validated(linkText) else { return }
-                if linkKind == .pak {
-                    // M12: downloaded and installed by the console.
-                    let install = await session.paks.install(.link(url), name: DownloadURL.displayName(url), kind: .auto)
-                    if case .failed(let error) = install.phase {
-                        session.paks.remove(install)
-                        throw error
-                    }
-                    if let request = context.request {
-                        let sent = request.sharedLink(matching: url.absoluteString)
-                        if let sent { _ = try? app.shareInbox.consumeLink(sent, of: request.id) }
-                        pendingLinks = ShareRequest.linksLeft(pendingLinks, offered: sharedLink, sent: sent)
-                        sharedLink = nil
-                    }
-                    if useNextLink() { return }
-                    if let request = context.request { app.finishShare(request) }
-                    dismiss()
-                    app.showTransfersAfterAdd(deviceId: deviceId)
-                    return
-                }
-                let target: TransferTarget = linkKind == .rom && linkSystemId != nil
-                    ? .rom(systemId: linkSystemId ?? "", fileName: nil)
-                    : .staging(fileName: nil)
-                let request = DownloadRequest(url: url.absoluteString, target: target)
-                let accepted = try await session.perform { try await $0.createDownload(request) }
-                session.transfers.track(jobId: accepted.jobId, title: DownloadURL.displayName(url))
-                if let request = context.request {
-                    // Only the URL sent is recorded, if it is a shared link;
-                    // a shared link the user replaced stays to offer.
-                    let sent = request.sharedLink(matching: url.absoluteString)
-                    if let sent { _ = try? app.shareInbox.consumeLink(sent, of: request.id) }
-                    pendingLinks = ShareRequest.linksLeft(pendingLinks, offered: sharedLink, sent: sent)
-                    sharedLink = nil
-                }
-                // More shared links: offer the next one.
-                if useNextLink() { return }
+                try session.transfers.enqueue(
+                    fileURL: copy, fileName: file.name, target: target(for: file),
+                    destination: destination(for: file), ownsFile: true
+                )
+                files.removeAll { $0.id == file.id }
             }
             if let request = context.request { app.finishShare(request) }
             dismiss()
@@ -505,6 +348,4 @@ extension AddKind {
 extension AddKind {
     /// The types a file from Files can be sent as.
     static let sendable: [AddKind] = [.rom, .save, .patch, .cheats, .pak]
-    /// The types of a link downloaded by the console (docs/specs/06 §4.6).
-    static let linkKinds: [AddKind] = [.rom, .patch, .cheats, .pak]
 }

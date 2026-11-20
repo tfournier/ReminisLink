@@ -176,8 +176,6 @@ func minutesLeft(d time.Duration) int {
 func ActivityText(a transfer.Activity) string {
 	var text string
 	switch a.Kind {
-	case transfer.JobDownload:
-		text = named(a.Name, l10n.ActDownload, l10n.ActDownloadFile)
 	case transfer.JobPatch:
 		text = named(a.Name, l10n.ActPatch, l10n.ActPatchFile)
 	case transfer.JobPakInstall:
@@ -230,8 +228,6 @@ var noticeMessages = map[string]*l10n.Message{
 	server.ChangePakDeleted:        l10n.NoticePakDeleted,
 	app.NoticePakInstalled:         l10n.NoticePakInstalled,
 	app.NoticePakInstallFailed:     l10n.NoticePakInstallFailed,
-	app.NoticeDownloaded:           l10n.NoticeDownloaded,
-	app.NoticeDownloadFailed:       l10n.NoticeDownloadFailed,
 	app.NoticePatched:              l10n.NoticePatched,
 	app.NoticePatchFailed:          l10n.NoticePatchFailed,
 }

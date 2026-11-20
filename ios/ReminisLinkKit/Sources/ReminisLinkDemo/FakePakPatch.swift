@@ -137,9 +137,9 @@ extension FakePak {
     /// `ReminisLink/patches/`. Their bytes are headers only.
     func sdPatchFiles() -> [(id: String, path: String, bytes: Data)] {
         let files: [(String, Data)] = [
-            ("Roms/Game Boy Advance (GBA)/Sky Garden Quest (Translation).bps",
+            ("Roms/Handheld Advance (GBA)/Sky Garden Quest (Translation).bps",
              DemoPatch.bps(sourceSize: 16_777_216, sourceCRC32: 0x1234_5678, target: Data("demo".utf8))),
-            ("Roms/Game Boy Advance (GBA)/Pixel Runner (Hack).ups",
+            ("Roms/Handheld Advance (GBA)/Pixel Runner (Hack).ups",
              DemoPatch.upsHeader(sourceSize: 4_194_304, targetSize: 4_194_304)),
             ("ReminisLink/patches/Bonus Levels.ips", DemoPatch.ips(offset: 0x100, bytes: Data("demo".utf8))),
             ("ReminisLink/patches/Read Me.ips", Data("not a patch\n".utf8)),
@@ -227,7 +227,7 @@ extension FakePak {
         let job = FakeJob(
             id: Self.randomId("job_"), kind: "patch", state: "queued", done: 0, total: nil,
             createdAt: now, updatedAt: now, result: nil, error: nil, target: .staging(fileName: nil),
-            fails: false, patch: plan
+            patch: plan
         )
         lock.withLock { jobs[job.id] = job }
         emitJob(job)

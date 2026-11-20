@@ -51,6 +51,8 @@ Ces faits changent une décision. Rien n'a été modifié dans l'architecture : 
 
 ## D1 — Certificats racine *(tranché le 19/11/2026 : aucune nouvelle dépendance ; gabagool, déjà autorisé, importe `certifiable` qui embarque 143 certificats racine et les installe dans `http.DefaultTransport` — c'est ainsi que le Pak Store télécharge en HTTPS ; les téléchargements du pak partent de `http.DefaultTransport.Clone()`. Vérifié : la base NSS `/etc/pki/nssdb/cert9.db` du firmware est vide.)*
 
+*Sans objet depuis le 20/11/2026 : le pak ne télécharge plus rien (téléchargement depuis un lien retiré de la v1, voir [09](../09-feuille-de-route.md#après-la-v1-idées-non-engagées)).*
+
 ### Détail pour les téléchargements HTTPS (05 §5.6)
 
 Fait : le firmware v1.1.1 n'a aucun magasin de certificats (pas de `/etc/ssl`, aucun `.crt`/`.pem`) et NextUI n'en fournit pas pour tg5040. Le client HTTP de Go ne trouvera rien. Cheat Manager fonctionne parce que gabagool importe `github.com/BrandonKowalski/certifiable`, qui embarque `certificates.crt` (`go:embed`) et le pose dans `http.DefaultTransport` à l'initialisation. Dans ReminisLink, ce code n'est lié que si `internal/ui` l'est : pas en `--headless`, pas dans les tests `CGO_ENABLED=0` de `internal/transfer`, et le client de 05 §5.6 devrait cloner `http.DefaultTransport` (et non en créer un neuf) pour en profiter.

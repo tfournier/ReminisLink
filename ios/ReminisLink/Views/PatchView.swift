@@ -13,7 +13,7 @@ struct PatchContext: Identifiable, Equatable {
 }
 
 /// Patch screen of a game (docs/specs/06-app-ios.md §4.5): choose the
-/// patch (Files, link, SD card), choose the output (a new file with a
+/// patch (Files, SD card), choose the output (a new file with a
 /// suggested name, or replace the game), follow the job, then open the
 /// new game. Opened from the game sheet, or by a shared `.ips`, `.bps` or
 /// `.ups` (the console, then the game, are chosen first). The app
@@ -263,7 +263,6 @@ private struct PatchFormSections: View {
         Section {
             Picker("Patch", selection: $flow.source) {
                 Text("Files").tag(PatchFlow.Source.files)
-                Text("Link").tag(PatchFlow.Source.link)
                 Text("SD Card").tag(PatchFlow.Source.sdCard)
             }
             .pickerStyle(.segmented)
@@ -271,7 +270,6 @@ private struct PatchFormSections: View {
             .accessibilityIdentifier("patch.source")
             switch flow.source {
             case .files: filesRows
-            case .link: linkRows
             case .sdCard: sdRows
             }
         } header: {
@@ -280,13 +278,6 @@ private struct PatchFormSections: View {
             switch flow.source {
             case .files:
                 Text("An IPS, BPS or UPS patch. It is sent to the staging area of the console, then applied.")
-            case .link:
-                if !flow.linkText.isEmpty && flow.validatedLink == nil {
-                    Text("Enter a link starting with http:// or https://.")
-                        .foregroundStyle(.red)
-                } else {
-                    Text("The console downloads the patch itself, on its own Wi-Fi connection.")
-                }
             case .sdCard:
                 Text("The .ips, .bps and .ups files of the Roms folder and of the ReminisLink/patches folder of the SD card.")
             }
@@ -315,18 +306,6 @@ private struct PatchFormSections: View {
         }
         .disabled(locked)
         .accessibilityIdentifier("patch.choose")
-    }
-
-    private var linkRows: some View {
-        TextField(text: $flow.linkText, prompt: Text(verbatim: "https://")) {
-            Text("Link")
-        }
-        .keyboardType(.URL)
-        .textContentType(.URL)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .disabled(locked)
-        .accessibilityIdentifier("patch.link")
     }
 
     @ViewBuilder
@@ -445,8 +424,6 @@ private struct PatchFormSections: View {
                         .accessibilityIdentifier("patch.waitingForReconnection")
                 }
             }
-        case .downloading:
-            Section { progressRow(Text("The console is downloading the patch…"), fraction: flow.job?.job?.progress.fraction) }
         case .starting:
             Section { progressRow(Text("Starting…"), fraction: nil) }
         case .cancellingUpload:
@@ -463,12 +440,6 @@ private struct PatchFormSections: View {
                 }
             } footer: {
                 Text("You can close this screen: the console goes on. Follow it in Transfers.")
-            }
-        case .downloaded:
-            Section {
-                Text("The console downloaded the patch before the cancellation arrived. Nothing was applied: tap Apply to use it.")
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("patch.downloaded")
             }
         case .succeeded(let gameId, let late):
             Section {

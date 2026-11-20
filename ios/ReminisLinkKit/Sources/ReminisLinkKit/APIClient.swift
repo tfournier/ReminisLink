@@ -415,12 +415,7 @@ public actor APIClient {
         try check(response, data: data, accept: [200, 204])
     }
 
-    // MARK: - Downloads and jobs
-
-    /// `POST /downloads`: the device downloads the URL in a job.
-    public func createDownload(_ request: DownloadRequest) async throws -> JobAccepted {
-        try await signedJSON(method: "POST", segments: ["downloads"], body: ProtocolJSON.encoder().encode(request))
-    }
+    // MARK: - Jobs
 
     public func jobs() async throws -> [Job] {
         let list: JobList = try await signedJSON(method: "GET", segments: ["jobs"])

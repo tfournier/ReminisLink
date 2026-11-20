@@ -51,8 +51,8 @@ func TestJobsRunOneAtATime(t *testing.T) {
 		mu.Unlock()
 		return map[string]any{"gameId": "x"}, nil
 	}
-	a, _ := q.Submit(JobDownload, block)
-	b, _ := q.Submit(JobDownload, block)
+	a, _ := q.Submit(JobPatch, block)
+	b, _ := q.Submit(JobPatch, block)
 	waitJob(t, q, a, JobRunning)
 	if j, _ := q.Get(b); j.State != JobQueued {
 		t.Fatalf("second job %s", j.State)
@@ -99,14 +99,14 @@ func TestJobsRunOneAtATime(t *testing.T) {
 
 func TestJobsFailCancelClose(t *testing.T) {
 	q := NewJobs(nil)
-	failing, _ := q.Submit(JobDownload, func(context.Context, func(int64, *int64)) (map[string]any, *Error) {
-		return nil, notFound("Download failed: HTTP 404")
+	failing, _ := q.Submit(JobPatch, func(context.Context, func(int64, *int64)) (map[string]any, *Error) {
+		return nil, notFound("Game not found")
 	})
 	j := waitJob(t, q, failing, JobFailed)
 	if j.Error == nil || j.Error.Code != CodeNotFound || j.Error.Details == nil || j.Result != nil {
 		t.Fatalf("failed job %+v", j)
 	}
-	panicking, _ := q.Submit(JobDownload, func(context.Context, func(int64, *int64)) (map[string]any, *Error) {
+	panicking, _ := q.Submit(JobPatch, func(context.Context, func(int64, *int64)) (map[string]any, *Error) {
 		panic("boom")
 	})
 	if j := waitJob(t, q, panicking, JobFailed); j.Error.Code != CodeInternal {
@@ -119,8 +119,8 @@ func TestJobsFailCancelClose(t *testing.T) {
 		close(stopped) // the partial file is deleted here
 		return nil, internal("cancelled")
 	}
-	running, _ := q.Submit(JobDownload, wait)
-	queued, _ := q.Submit(JobDownload, wait)
+	running, _ := q.Submit(JobPatch, wait)
+	queued, _ := q.Submit(JobPatch, wait)
 	waitJob(t, q, running, JobRunning)
 	if j, apiErr := q.Cancel(queued); apiErr != nil || j.State != JobCancelled {
 		t.Fatalf("cancel queued: %+v %v", j, apiErr)
@@ -146,7 +146,7 @@ func TestJobsFailCancelClose(t *testing.T) {
 
 	// Close cancels the running job and refuses new ones.
 	started := make(chan struct{})
-	last, _ := q.Submit(JobDownload, func(ctx context.Context, _ func(int64, *int64)) (map[string]any, *Error) {
+	last, _ := q.Submit(JobPatch, func(ctx context.Context, _ func(int64, *int64)) (map[string]any, *Error) {
 		close(started)
 		<-ctx.Done()
 		return nil, internal("cancelled")
@@ -156,7 +156,7 @@ func TestJobsFailCancelClose(t *testing.T) {
 	if j, _ := q.Get(last); j.State != JobCancelled {
 		t.Fatalf("after close: %s", j.State)
 	}
-	if _, err := q.Submit(JobDownload, wait); err != ErrJobsClosed {
+	if _, err := q.Submit(JobPatch, wait); err != ErrJobsClosed {
 		t.Fatalf("submit after close: %v", err)
 	}
 }
@@ -265,7 +265,7 @@ func TestJobsOnUpdate(t *testing.T) {
 		return map[string]any{}, nil
 	})
 	<-reported
-	b, _ := q.Submit(JobDownload, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+	b, _ := q.Submit(JobPatch, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		<-ctx.Done()
 		return nil, internal("cancelled")
 	})

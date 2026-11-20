@@ -309,8 +309,6 @@ public struct CheatsUpdate: Codable, Sendable, Equatable {
 
 /// Where imported cheats come from.
 public enum CheatImportSource: Sendable, Equatable, Encodable {
-    /// Downloaded by the console (5 MiB at most).
-    case url(String)
     /// A `.cht` of the SD card (`id` of `GET /sd/files?type=cht`).
     case sd(sdFileId: String)
     /// The text of a `.cht` (1 MiB at most).
@@ -323,15 +321,12 @@ public enum CheatImportSource: Sendable, Equatable, Encodable {
     case staging(stagingId: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, url, sdFileId, text, uploadId, stagingId
+        case type, sdFileId, text, uploadId, stagingId
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .url(let url):
-            try c.encode("url", forKey: .type)
-            try c.encode(url, forKey: .url)
         case .sd(let id):
             try c.encode("sd", forKey: .type)
             try c.encode(id, forKey: .sdFileId)

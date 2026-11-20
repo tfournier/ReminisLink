@@ -364,27 +364,6 @@ struct PaksAppTests {
         held.open()
     }
 
-    @Test func installFromALink() async throws {
-        let pak = makePak()
-        pak.downloadSize = 4096
-        let app = try await pairedApp(pak)
-        let session = app.session(for: pak.deviceId)
-        let manager = session.paks
-        let url = try #require(URL(string: "https://example.invalid/paks/Notes.pak.zip"))
-        let install = await manager.install(.link(url), name: "Notes.pak.zip", kind: .emu)
-        await follow(session) { install.isFinished }
-        #expect(install.phase == .installed)
-        #expect(pak.installedPak(named: "Notes")?.kind == "emu")
-        let again = await manager.install(.link(url), name: "Notes.pak.zip", kind: .emu)
-        await follow(session) { again.phase == .needsReplacement(name: "Notes") }
-        await manager.replace(again)
-        await follow(session) { again.isFinished }
-        #expect(again.phase == .installed)
-        // The job of the download says it installed.
-        let job = try #require(session.transfers.jobs.last)
-        #expect(job.job?.resultPakId != nil)
-    }
-
     @Test func aPakFolderIsZippedOnTheIPhone() async throws {
         let source = root.appending(path: "src-\(UUID().uuidString)/Timer.pak", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)

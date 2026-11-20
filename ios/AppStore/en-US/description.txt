@@ -1,45 +1,41 @@
 ReminisLink turns your iPhone into the companion of your retro handheld. Open ReminisLink on the handheld, manage everything from your phone over your home Wi-Fi, close it and play.
 
 BRING YOUR OWN FILES
-ReminisLink does not provide, list or suggest any game. You add the games, saves, patches and cheat files you already own: from the Files app, from the share sheet of any app, or from a link that the handheld downloads itself.
+ReminisLink lists the games found on the SD card of your handheld, but provides no game, no catalog and no source of games. You add the games, saves, patches and cheat files you already own, from the Files app or from the share sheet of any app.
 
 YOUR LIBRARY
-• Every system and game on the SD card, including the ones you copied by hand
-• For each game: size, save, save states, locked states, cheats and box art
-• Search and sort by name, date or size
+• Every game on the SD card in one list, with search and filters by system
+• For each game: size, save, save states, cheats and box art; tap the art to change it
+• Download any file of a game to your iPhone
 
-SAVES
-• Download a save to your iPhone or replace it from Files
-• Make named backup copies and restore them in one tap
-• The current save is always copied before it is replaced or restored
+SAVES AND SAVE STATES
+• Download, replace, back up and restore saves; the current save is always copied first
+• See every save state slot with its thumbnail, and lock a state: if it is overwritten or deleted, ReminisLink puts the locked copy back the next time it starts
 
-SAVE STATES
-• See every slot with its thumbnail, date and size
-• Lock a state: if a game overwrites it, ReminisLink restores it the next time it opens on the handheld
-• Restore an earlier version of the automatic resume state
+CHEATS AND PATCHES
+• Turn cheats on or off, edit and reorder them, import .cht files
+• Apply IPS, BPS and UPS patches (translations, fixes) to a game you own, into a new file by default
 
-CHEATS
-• Turn cheats on or off, edit, reorder and delete them
-• Import cheat files (.cht) from your iPhone, from a link or from the SD card, merged or replacing the list
-
-PATCHES
-• Apply IPS, BPS and UPS patches (translations, fixes, improvements) to a game you own
-• The result goes to a new file by default, or replaces the game after a confirmation
+APPS ON THE HANDHELD
+• See the tools and emulators installed on the handheld
+• Install one from a zip in Files or on the SD card, or remove one
 
 NOTHING IS LOST
-Deleting a game or patching it in place first moves its files to the trash of the handheld, where they stay for at least 30 days: the space is freed only when you empty the trash. Replacing or restoring a save always makes a backup copy first.
+Deleted games and games patched in place go to the trash of the handheld, until they reach 30 days of counted age (purged at launch) or you empty it; a replaced save is first copied to the backups.
 
 SAVES ON YOUR IPHONE
-• Copy the saves of the handheld (with their clock files) to your own iCloud Drive, with one tap or each time it connects
-• Only the saves that changed are copied; up to 10 versions of each are kept, in the ReminisLink folder of the Files app
-• Put a version back on the handheld, or share it
+• Copy the saves of the handheld to your own iCloud Drive, with one tap or each time it connects
+• Up to 10 versions of each save, in the ReminisLink folder of the Files app
+
+ALWAYS UP TO DATE
+The app refreshes on its own when the SD card changes, shows transfers and battery live, and goes back to your list when you close ReminisLink on the handheld.
 
 SIMPLE AND PRIVATE
-• Pair in one scan of the QR code shown on the handheld. No IP address to type
-• No account, no server, no analytics, no ads: the app talks only to your handheld, on your local network, and copies saves only to your own iCloud Drive
-• Pairing keys are kept in the iPhone Keychain
+• Pair in one scan of the QR code shown on the handheld; your other Apple devices get the pairing through iCloud Keychain
+• Encrypted connection, checked against the handheld's own certificate
+• No account, no server, no analytics, no ads: the app talks only to your handheld on your local network
 
 REQUIREMENTS
-The free ReminisLink tool must be installed on the handheld (from the Pak Store, or by hand). Version 1.0 works with the TrimUI Brick running NextUI. The iPhone and the handheld must be on the same Wi-Fi network.
+The free ReminisLink tool must be installed on the handheld: see the installation guide on reminis.link. Version 1.0 works with the TrimUI Brick running NextUI. The iPhone and the handheld must be on the same Wi-Fi network.
 
 ReminisLink is an independent project. TrimUI and NextUI are the names of their respective owners, who are not affiliated with ReminisLink.

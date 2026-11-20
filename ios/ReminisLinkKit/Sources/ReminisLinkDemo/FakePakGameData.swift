@@ -732,13 +732,6 @@ extension FakePak {
         else { return .error(400, code: "invalid_request", message: "Invalid import request") }
         let text: String
         switch type {
-        case "url":
-            guard let string = source["url"] as? String, let url = URL(string: string),
-                  ["http", "https"].contains(url.scheme?.lowercased() ?? "")
-            else { return .error(400, code: "invalid_request", message: "Invalid URL") }
-            // A URL ending in "empty.cht" holds no cheat (demo and tests).
-            text = url.lastPathComponent == "empty.cht" ? "# nothing\n"
-                : "cheat0_desc = \"Link cheat A\"\ncheat0_code = \"02000400+0004\"\ncheat1_desc = \"Link cheat B\"\ncheat1_code = \"02000500+0005\"\n"
         case "sd":
             guard let id = source["sdFileId"] as? String, let file = sdFileList().first(where: { $0.id == id }) else {
                 return .error(404, code: "not_found", message: "File not found")

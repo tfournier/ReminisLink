@@ -26,26 +26,22 @@ nonisolated final class PatchPauseFlag: @unchecked Sendable {
 /// Applies a patch to a game (docs/specs/06-app-ios.md §4.5, milestone M6).
 ///
 /// The patch comes from Files (sent to the staging area with a resumable
-/// upload, then used by its `stagingId`), from a link (downloaded by the
-/// console to the staging area in a job, then used by the `stagingId` of
-/// the job's result) or from the SD card (`GET /sd/files?type=patch`).
-/// `POST /games/{gameId}/patch` then starts a job.
+/// upload, then used by its `stagingId`) or from the SD card
+/// (`GET /sd/files?type=patch`). `POST /games/{gameId}/patch` then starts a
+/// job. The console never downloads a patch from a link (removed from v1).
 ///
 /// Jobs go through the transfer queue of the console (they also show on
 /// the Transfers screen). The screen calls ``tick()`` every second while
 /// it is visible and the app is active (docs/specs/03-protocole.md §8):
 /// nothing is polled otherwise.
 ///
-/// A cancellation never leads to a patch: a download cancelled too late
-/// ends "downloaded, nothing applied" (the staged patch is kept for an
-/// explicit new try); the final state of a cancelled job is always the
-/// one the console reports.
+/// A cancellation never leads to a patch; the final state of a cancelled
+/// job is always the one the console reports.
 @MainActor
 @Observable
 final class PatchFlow {
     enum Source: Hashable {
         case files
-        case link
         case sdCard
     }
 
@@ -55,15 +51,10 @@ final class PatchFlow {
         case preparing
         /// Sending the file to the staging area (0...1).
         case sending(Double)
-        /// The console downloads the patch of the link.
-        case downloading
         /// `POST /games/{gameId}/patch` is in flight.
         case starting
         /// The console applies the patch.
         case patching
-        /// The download of the link ended although it was cancelled: the
-        /// patch is in the staging area, nothing was applied.
-        case downloaded
         /// `gameId` of the produced ROM; `late`: the cancellation reached
         /// the console after the patch was in place.
         case succeeded(gameId: String?, late: Bool)
@@ -83,15 +74,15 @@ final class PatchFlow {
         /// Something runs: the inputs are locked.
         var isBusy: Bool {
             switch self {
-            case .preparing, .sending, .downloading, .starting, .patching, .cancellingUpload: true
-            case .idle, .downloaded, .succeeded, .failed, .cancelled: false
+            case .preparing, .sending, .starting, .patching, .cancellingUpload: true
+            case .idle, .succeeded, .failed, .cancelled: false
             }
         }
 
         /// The app side runs: closing the screen would stop it.
         var holdsTheScreen: Bool {
             switch self {
-            case .preparing, .sending, .downloading, .starting, .cancellingUpload: true
+            case .preparing, .sending, .starting, .cancellingUpload: true
             default: false
             }
         }
@@ -115,14 +106,13 @@ final class PatchFlow {
             inputChanged()
         }
     }
-    var linkText = "" { didSet { inputChanged() } }
     var sdFileId: String? { didSet { inputChanged() } }
     var mode: PatchOutputMode = .newFile { didSet { inputChanged() } }
     /// The name of the new file, suggested as `<name> (patched).<ext>`.
     var fileName = "" { didSet { inputChanged() } }
 
     private(set) var step: Step = .idle
-    /// The job followed now (download of the patch, then the patch).
+    /// The job followed now (the patch).
     private(set) var job: JobItem?
     /// A cancellation was asked and the console has not confirmed it yet.
     private(set) var isCancelling = false
@@ -143,8 +133,6 @@ final class PatchFlow {
     @ObservationIgnored private var staged: (key: String, stagingId: String)?
     /// The upload of the file, kept to resume it.
     @ObservationIgnored private var upload: (key: String, upload: ResumableUpload)?
-    /// The source the running download is for.
-    @ObservationIgnored private var downloadKey: String?
     /// Jobs the user cancelled: their end never leads further.
     @ObservationIgnored private var cancelledJobs: Set<String> = []
     /// A cancellation asked while a request was in flight.
@@ -178,8 +166,6 @@ final class PatchFlow {
         return PatchNaming.outputName(fileName, romFileName: game.fileName)
     }
 
-    var validatedLink: URL? { DownloadURL.validated(linkText) }
-
     /// Something was sent to this console: it can no longer be changed.
     var isBoundToConsole: Bool { step.isBusy || staged != nil || upload != nil }
 
@@ -187,7 +173,6 @@ final class PatchFlow {
     private var sourceKey: String? {
         switch source {
         case .files: file.map { "file:\($0.id)" }
-        case .link: validatedLink.map { "link:\($0.absoluteString)" }
         case .sdCard: sdFileId.map { "sd:\($0)" }
         }
     }
@@ -201,7 +186,7 @@ final class PatchFlow {
 
     private func inputChanged() {
         switch step {
-        case .failed, .cancelled, .downloaded: step = .idle
+        case .failed, .cancelled: step = .idle
         default: break
         }
     }
@@ -242,9 +227,6 @@ final class PatchFlow {
                     patch = .sd(sdFileId: sdFileId)
                 case .files:
                     patch = .staging(stagingId: try await stageFile(key: key))
-                case .link:
-                    try await startDownload(key: key)
-                    return
                 }
             }
             try await startPatch(patch)
@@ -301,20 +283,6 @@ final class PatchFlow {
         step = .sending(size > 0 ? min(1, Double(offset) / Double(size)) : 1)
     }
 
-    /// `POST /downloads` to the staging area; ``tick()`` follows the job.
-    private func startDownload(key: String) async throws {
-        guard let url = validatedLink else { return }
-        guard !cancelRequested else { return finishCancelledRequest() }
-        step = .downloading
-        let request = DownloadRequest(url: url.absoluteString, target: .staging(fileName: nil))
-        let accepted = try await session.perform { try await $0.createDownload(request) }
-        downloadKey = key
-        let item = session.transfers.track(jobId: accepted.jobId, title: DownloadURL.displayName(url), kind: .download)
-        job = item
-        // Cancelled while the request was in flight: cancel the job now.
-        if cancelRequested { await cancelJob(item) }
-    }
-
     private func startPatch(_ patch: PatchSource) async throws {
         guard let game else { return }
         // Never after a cancellation.
@@ -346,7 +314,7 @@ final class PatchFlow {
     /// second by the screen while it is visible and the app is active;
     /// paused while a cancellation is in progress.
     func tick() async {
-        guard !isCancelling, let job, step == .downloading || step == .patching else { return }
+        guard !isCancelling, let job, step == .patching else { return }
         let polled = step
         if !job.isFinished {
             await session.transfers.refreshJobs()
@@ -363,7 +331,7 @@ final class PatchFlow {
     /// A job changed (an event, or a poll of another screen): the step
     /// that follows it moves on as ``tick()`` would.
     private func jobUpdated(_ item: JobItem) {
-        guard !isCancelling, item === job, step == .downloading || step == .patching else { return }
+        guard !isCancelling, item === job, step == .patching else { return }
         pollError = nil
         if item.job?.cancelRequested == true { cancelledJobs.insert(item.id) }
         advance()
@@ -374,7 +342,7 @@ final class PatchFlow {
         // Only the step that follows this job moves on, once: a second
         // poll of the same finished job changes nothing (e.g. while the
         // patch request it started is in flight).
-        guard step == (item.kind == .download ? .downloading : .patching) else { return }
+        guard step == .patching else { return }
         if item.isLost {
             step = .failed(.jobLost)
             return
@@ -386,23 +354,11 @@ final class PatchFlow {
             return
         }
         switch (step, job.state) {
-        case (.downloading, .succeeded):
-            guard let stagingId = job.resultStagingId, let key = downloadKey else {
-                step = .failed(.api(.invalidResponse("no stagingId")))
-                return
-            }
-            staged = (key, stagingId)
-            step = .starting
-            // Not tied to the polling task: leaving the screen must not
-            // stop the request half-way.
-            runTask = Task {
-                do { try await startPatch(.staging(stagingId: stagingId)) } catch { fail(error) }
-            }
         case (.patching, .succeeded):
             verified = job.resultVerified
             step = .succeeded(gameId: job.resultGameId, late: false)
         case (_, .failed):
-            fail(job: job, kind: item.kind)
+            fail(job: job)
         case (_, .cancelled):
             step = .cancelled
         default:
@@ -416,26 +372,21 @@ final class PatchFlow {
         switch job.state {
         case .cancelled:
             step = .cancelled
-        case .succeeded where item.kind == .download:
-            // Downloaded before the cancellation arrived: keep it for an
-            // explicit new try, apply nothing.
-            if let stagingId = job.resultStagingId, let key = downloadKey { staged = (key, stagingId) }
-            step = .downloaded
         case .succeeded:
             verified = job.resultVerified
             step = .succeeded(gameId: job.resultGameId, late: true)
             session.contentChanged()
         case .failed:
-            fail(job: job, kind: item.kind)
+            fail(job: job)
         default:
             step = .failed(.unexpected)
         }
     }
 
-    private func fail(job: Job, kind: JobKind) {
+    private func fail(job: Job) {
         if let server = job.serverError {
             mismatchDetails = server.patchMismatchDetails
-            step = .failed(AppError.patchJob(server, kind: kind))
+            step = .failed(AppError.patchJob(server))
         } else {
             step = .failed(.unexpected)
         }
@@ -487,7 +438,7 @@ final class PatchFlow {
             // The request answers first; its job is then cancelled.
             cancelRequested = true
             isCancelling = true
-        case .downloading, .patching:
+        case .patching:
             cancelRequested = true
             if let job {
                 await cancelJob(job)

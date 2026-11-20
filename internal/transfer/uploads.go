@@ -184,7 +184,7 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 	if req.Target.Kind == KindPak && *req.SizeBytes > pakArchiveLimit {
 		return UploadCreated{}, newError(http.StatusRequestEntityTooLarge, CodeTooLarge, "Pak archive too large"), nil
 	}
-	d, apiErr, err := s.resolve(*req.Target, true)
+	d, apiErr, err := s.resolve(*req.Target)
 	if apiErr != nil || err != nil {
 		return UploadCreated{}, apiErr, err
 	}
@@ -576,7 +576,7 @@ func (s *Service) CompleteUpload(ctx context.Context, id string) (map[string]any
 	// Resolve and install under the install lock too: a DELETE /games of
 	// the target game cannot slip in between (no orphan save recreated).
 	s.installMu.Lock()
-	d, apiErr, err := s.resolve(u.meta.Target, true)
+	d, apiErr, err := s.resolve(u.meta.Target)
 	var result map[string]any
 	switch {
 	case apiErr != nil || err != nil:
@@ -724,7 +724,8 @@ func (s *Service) loadUpload(id string) (*upload, error) {
 }
 
 // purgeUploads deletes the uploads idle for more than UploadIdleExpiry and
-// the leftovers of a previous run (partial downloads, orphan files).
+// the leftovers of a previous run (temporary files of an interrupted job,
+// partial downloads of an older pak, orphan files).
 // keep are files of uploads/ never deleted (referenced by a patch
 // installation marker).
 func (s *Service) purgeUploads(keep map[string]bool) error {
@@ -765,8 +766,9 @@ func (s *Service) purgeUploads(keep map[string]bool) error {
 			}
 			continue
 		}
-		// Not part of a known upload: a partial download of a previous run
-		// (jobs do not survive a restart) or an orphan file.
+		// Not part of a known upload: a temporary file of a previous run
+		// (jobs do not survive a restart; a partial download of an older
+		// pak) or an orphan file.
 		if err := os.RemoveAll(filepath.Join(dir, name)); err == nil {
 			s.log.Info("uploads: deleted a leftover temporary file", "file", name)
 		}

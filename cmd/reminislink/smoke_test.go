@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,8 +141,8 @@ func call(t *testing.T, c *testutil.Client, method, target string, body any, wan
 }
 
 // TestSmokeTransfers runs the M4 scenario against the real binary: a large
-// upload cut by SIGINT in the middle and resumed after a restart, a
-// download from a local HTTP server, a game deleted to the trash.
+// upload cut by SIGINT in the middle and resumed after a restart, no
+// device-side download route, a game deleted to the trash.
 func TestSmokeTransfers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the pak")
@@ -222,33 +221,9 @@ func TestSmokeTransfers(t *testing.T) {
 	}
 	t.Logf("upload of %d MiB resumed at %d MiB and verified in %v", sizeMB, half>>20, time.Since(start).Round(time.Millisecond))
 
-	// 2. Download from a local HTTP server.
-	patch := []byte("local patch content")
-	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Disposition", `attachment; filename="Smoke Hack.bps"`)
-		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(patch))
-	}))
-	defer src.Close()
-	var accepted struct {
-		JobID string `json:"jobId"`
-	}
-	call(t, c, http.MethodPost, "/api/v1/downloads", map[string]any{"url": src.URL + "/dl?id=1", "target": map[string]any{"kind": "staging"}}, http.StatusAccepted, &accepted)
-	var job struct {
-		State  string         `json:"state"`
-		Result map[string]any `json:"result"`
-		Error  any            `json:"error"`
-	}
-	for deadline := time.Now().Add(15 * time.Second); job.State != "succeeded"; time.Sleep(100 * time.Millisecond) {
-		if job.State == "failed" || time.Now().After(deadline) {
-			t.Fatalf("download job %+v", job)
-		}
-		call(t, c, http.MethodGet, "/api/v1/jobs/"+accepted.JobID, nil, http.StatusOK, &job)
-	}
-	staged := filepath.Join(roots.Data, "staging", job.Result["stagingId"].(string), "Smoke Hack.bps")
-	if got, err := os.ReadFile(staged); err != nil || !bytes.Equal(got, patch) {
-		t.Fatalf("downloaded file: %v", err)
-	}
-	t.Log("download from a local server: ok")
+	// 2. The pak never fetches a URL (link downloads removed from v1).
+	call(t, c, http.MethodPost, "/api/v1/downloads", map[string]any{"url": "https://example.org/x.bps", "target": map[string]any{"kind": "staging"}}, http.StatusNotFound, nil)
+	t.Log("no device-side download route: ok")
 
 	// 3. Delete a game, check the trash.
 	var deleted struct {

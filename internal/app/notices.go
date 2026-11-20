@@ -14,11 +14,9 @@ const NoticeDuration = 5 * time.Second
 
 // Notice kinds: the server.Change kinds, plus these.
 const (
-	NoticeDownloaded     = "downloaded"
-	NoticeDownloadFailed = "download-failed"
-	NoticePatched        = "patched"
-	NoticePatchFailed    = "patch-failed"
-	NoticePaired         = "paired"
+	NoticePatched     = "patched"
+	NoticePatchFailed = "patch-failed"
+	NoticePaired      = "paired"
 	// NoticePakInstalled and NoticePakInstallFailed: the end of a pak
 	// installation job (M12).
 	NoticePakInstalled     = "pak-installed"
@@ -56,10 +54,6 @@ func (n *notices) change(c server.Change) { n.push(Notice{Kind: c.Kind, Name: c.
 func (n *notices) jobFinished(j transfer.Job) {
 	var kind string
 	switch {
-	case j.Kind == transfer.JobDownload && j.State == transfer.JobSucceeded:
-		kind = NoticeDownloaded
-	case j.Kind == transfer.JobDownload && j.State == transfer.JobFailed:
-		kind = NoticeDownloadFailed
 	case j.Kind == transfer.JobPatch && j.State == transfer.JobSucceeded:
 		kind = NoticePatched
 	case j.Kind == transfer.JobPatch && j.State == transfer.JobFailed:

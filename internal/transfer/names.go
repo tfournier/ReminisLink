@@ -3,8 +3,6 @@ package transfer
 import (
 	"errors"
 	"io/fs"
-	"mime"
-	"net/url"
 	"os"
 	"path"
 	"strconv"
@@ -26,8 +24,8 @@ var ErrInvalidName = errors.New("invalid file name")
 // "_" (the separators "/" and "\" are refused before).
 const exFATForbidden = `"*:<>?|`
 
-// CleanFileName checks and cleans a file name given by the app or deduced
-// from a download (docs/specs/03-protocole.md §5). The name is first
+// CleanFileName checks and cleans a file name given by the app
+// (docs/specs/03-protocole.md §5). The name is first
 // normalized to Unicode NFC (M8: the iPhone often gives decomposed NFD
 // names, which NextUI and the pak screen draw badly). Then it is refused
 // when empty,
@@ -142,42 +140,6 @@ func truncateName(name string) string {
 		keep--
 	}
 	return strings.TrimRight(base[:keep], " .") + ext
-}
-
-// DefaultDownloadName is used when a download gives no usable name.
-const DefaultDownloadName = "download"
-
-// deduceName returns the name of a downloaded file: from the
-// Content-Disposition header, else from the last segment of the URL, else
-// DefaultDownloadName. The result is cleaned (CleanFileName) and shortened.
-func deduceName(contentDisposition string, u *url.URL) string {
-	var candidates []string
-	if contentDisposition != "" {
-		if _, params, err := mime.ParseMediaType(contentDisposition); err == nil {
-			if n := params["filename"]; n != "" {
-				// Keep the last segment of a path ("C:\dir\x.zip").
-				if i := strings.LastIndexAny(n, `/\`); i >= 0 {
-					n = n[i+1:]
-				}
-				candidates = append(candidates, n)
-			}
-		}
-	}
-	if u != nil {
-		if seg := path.Base(u.Path); seg != "." && seg != "/" {
-			candidates = append(candidates, seg)
-		}
-	}
-	for _, c := range candidates {
-		// NFC before the truncation (the normalization changes the length).
-		if utf8.ValidString(c) {
-			c = norm.NFC.String(c)
-		}
-		if n, err := CleanFileName(truncateName(c)); err == nil {
-			return n
-		}
-	}
-	return DefaultDownloadName
 }
 
 // findFold returns the name of the entry of dir equal to name ignoring

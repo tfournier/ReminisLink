@@ -11,10 +11,10 @@ import Testing
 @Suite("Event stream in the app (M14)", .serialized)
 struct EventsAppTests {
     let secure = InMemorySecureStore()
-    static let skyGarden = DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest.gba")
+    static let skyGarden = DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest.gba")
     static let skyGardenGame = PatchGame(
         id: skyGarden, name: "Sky Garden Quest", fileName: "Sky Garden Quest.gba", kind: .file,
-        systemLabel: "Game Boy Advance"
+        systemLabel: "Handheld Advance"
     )
 
     /// Sessions hold their app unowned: the apps outlive the tests.
@@ -172,9 +172,10 @@ struct EventsAppTests {
         let app = try await pairedApp(pak)
         let session = await openLive(app, pak)
         #expect(session.transfers.jobsFollowedByEvents)
+        let files = try await session.perform { try await $0.sdFiles(type: .patch) }
         let flow = PatchFlow(session: session, game: Self.skyGardenGame)
-        flow.source = .link
-        flow.linkText = "https://example.org/files/hack.bps"
+        flow.source = .sdCard
+        flow.sdFileId = files.first { $0.fileName == "Bonus Levels.ips" }?.id
         flow.start()
         // Nobody calls `tick()`: the events move the flow on.
         await waitUntil(timeout: .seconds(10)) {
@@ -182,8 +183,8 @@ struct EventsAppTests {
             if case .failed = flow.step { return true }
             return false
         }
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
-        #expect(session.transfers.jobs.map(\.kind) == [.download, .patch])
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(session.transfers.jobs.map(\.kind) == [.patch])
         #expect(session.transfers.jobs.allSatisfy { $0.job?.state == .succeeded })
         // The screens' polling sends nothing while the stream is live.
         await flow.tick()
@@ -202,20 +203,21 @@ struct EventsAppTests {
         #expect(!session.eventsLive)
         #expect(!session.transfers.jobsFollowedByEvents)
         #expect(session.state == .connected)
+        let files = try await session.perform { try await $0.sdFiles(type: .patch) }
         let flow = PatchFlow(session: session, game: Self.skyGardenGame)
-        flow.source = .link
-        flow.linkText = "https://example.org/files/hack.bps"
+        flow.source = .sdCard
+        flow.sdFileId = files.first { $0.fileName == "Bonus Levels.ips" }?.id
         flow.start()
         for _ in 0..<500 {
             switch flow.step {
-            case .downloading, .patching: await flow.tick()
+            case .patching: await flow.tick()
             case .succeeded, .failed, .cancelled: break
             default: try? await Task.sleep(for: .milliseconds(10))
             }
             if case .succeeded = flow.step { break }
             if case .failed = flow.step { break }
         }
-        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Game Boy Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
+        #expect(flow.step == .succeeded(gameId: DemoLibrary.id("Handheld Advance (GBA)/Sky Garden Quest (patched).gba"), late: false))
         #expect(pak.log.contains { $0.method == "GET" && $0.path.hasPrefix(APIClient.apiPrefix + "/jobs/") })
         // Tried once for this session, never again.
         app.enterBackground()

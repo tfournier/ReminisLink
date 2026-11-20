@@ -12,8 +12,6 @@
 			<dict>
 				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
 				<integer>20</integer>
-				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
-				<integer>1</integer>
 			</dict>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>

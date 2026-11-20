@@ -84,7 +84,7 @@ final class CheatsUITests: XCTestCase {
         // Import a .cht of the SD card, added to the list.
         app.buttons["cheats.add"].tapAfterWaiting()
         app.buttons["cheats.import"].tapAfterWaiting()
-        app.segmentedControls["import.source"].buttons.element(boundBy: 2).tapAfterWaiting()
+        app.segmentedControls["import.source"].buttons.element(boundBy: 1).tapAfterWaiting()
         app.buttons.matching(identifier: "import.sdFile").firstMatch.tapAfterWaiting(timeout: timeout)
         attachScreenshot(of: app, named: "cheats-import")
         app.buttons["import.run"].tapWhenEnabled()

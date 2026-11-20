@@ -327,11 +327,11 @@ func (s *Server) jobUpdated(j transfer.Job) {
 	}
 	done := j.State == transfer.JobSucceeded || j.State == transfer.JobFailed || j.State == transfer.JobCancelled
 	s.events.Job(j.ID, key, done, j)
-	// A staging download installs nothing visible (no gameId).
+	// A job without a gameId installs nothing in the library.
 	if id, _ := j.Result["gameId"].(string); j.State == transfer.JobSucceeded && id != "" {
 		s.events.Library(systemOfGame(id))
 	}
-	// A pak installation (M12): a pak-install job, or a pak download.
+	// A pak installation (M12): a pak-install job.
 	if id, _ := j.Result["pakId"].(string); j.State == transfer.JobSucceeded && id != "" {
 		s.events.Paks()
 	}

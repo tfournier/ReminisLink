@@ -48,7 +48,7 @@ struct LibraryView: View {
                 Button {
                     app.showAdd(deviceId: deviceId)
                 } label: {
-                    Label("Add Files or a Link", systemImage: "plus")
+                    Label("Add Files", systemImage: "plus")
                 }
                 .accessibilityIdentifier("library.add")
             }

@@ -53,8 +53,7 @@ var (
 	ErrTooLarge = errors.New("patched file too large")
 )
 
-// MaxTargetSize is the default bound of a patched file (4 GiB, the bound
-// of the downloads).
+// MaxTargetSize is the default bound of a patched file (4 GiB).
 const MaxTargetSize int64 = 4 << 30
 
 // Header magics.
