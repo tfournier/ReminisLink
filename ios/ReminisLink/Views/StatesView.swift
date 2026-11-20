@@ -68,6 +68,9 @@ struct StatesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if slots == nil { await load() } }
         .refreshable { await load() }
+        // M14: a change made on the console by any device (a lock, a
+        // deletion, a restore); the game's system is not known here.
+        .onChange(of: session.libraryRevision) { Task { await load() } }
         .exportSheet($exported)
         .confirmationDialog(
             selected.map(title) ?? "",

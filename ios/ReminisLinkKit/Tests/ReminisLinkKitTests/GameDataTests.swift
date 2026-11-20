@@ -158,6 +158,28 @@ struct CheatEditorTests {
         }, etag: "\"e1\""))
     }
 
+    @Test func aChangeOnTheConsoleNeverClobbersLocalEdits() {
+        let newer = CheatList(cheats: [Cheat(index: 0, description: "New", code: "9", enabled: true, extra: [:])], etag: "\"e2\"")
+        // No local edits: the new list is shown.
+        var clean = editor()
+        let cleanWarns = clean.consoleChanged(newer)
+        #expect(!cleanWarns)
+        #expect(clean.cheats.map(\.description) == ["New"])
+        #expect(clean.etag == "\"e2\"")
+        // Local edits: kept, and the change is reported.
+        var edited = editor()
+        edited.move(fromOffsets: [0], toOffset: 4)
+        let editedWarns = edited.consoleChanged(newer)
+        #expect(editedWarns)
+        #expect(edited.cheats.map(\.description) == ["B", "C", "D", "A"])
+        #expect(edited.etag == "\"e1\"")
+        // The same list again (this iPhone's own save): nothing to say.
+        let same = CheatList(cheats: edited.original, etag: "\"e1\"")
+        let sameWarns = edited.consoleChanged(same)
+        #expect(!sameWarns)
+        #expect(edited.hasChanges)
+    }
+
     @Test func movesLikeAListDoes() {
         var e = editor()
         e.move(fromOffsets: [0], toOffset: 4)

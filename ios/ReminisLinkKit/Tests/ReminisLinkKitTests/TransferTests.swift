@@ -99,12 +99,19 @@ struct TransferTests {
         try handle.close()
         let expected = reference.finalize().map { String(format: "%02x", $0) }.joined()
 
-        let baseline = try #require(physicalFootprint())
-        let peak = PeakMemory(baseline)
-        let digest = try await FileDigest.sha256(of: url, progress: { _ in peak.sample() })
-        #expect(digest == expected)
-        let growth = peak.value - baseline
-        #expect(growth < 50 << 20, "memory grew by \(growth >> 20) MiB")
+        // The footprint is the whole process's: tests running in parallel
+        // allocate too. A spike of theirs can only add to the growth, so
+        // the smallest of three runs is the digest's own (a digest holding
+        // the file would grow by 100 MiB every time).
+        var smallest = Int.max
+        for _ in 0..<3 where smallest >= 50 << 20 {
+            let baseline = try #require(physicalFootprint())
+            let peak = PeakMemory(baseline)
+            let digest = try await FileDigest.sha256(of: url, progress: { _ in peak.sample() })
+            #expect(digest == expected)
+            smallest = min(smallest, Int(peak.value - baseline))
+        }
+        #expect(smallest < 50 << 20, "memory grew by \(smallest >> 20) MiB")
     }
 
     // MARK: Uploads against the fake pak

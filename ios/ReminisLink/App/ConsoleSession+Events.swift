@@ -17,8 +17,9 @@ struct LibraryChange: Equatable {
 
 /// Milestone M14: the event stream of the console (`GET /events`).
 ///
-/// It runs while the session is connected and the app is active, and is
-/// stopped in the background. What it brings:
+/// It runs while the session is connected, its console is the one shown
+/// and the app is active; it is stopped in the background and when the
+/// app goes back to the list or to another console. What it brings:
 /// - `shutdown` (or the stream ending right after it): the console closed
 ///   ReminisLink, back to the list at once, uploads paused (no probe);
 /// - the stream ending without `shutdown`: the M11 `/hello` probe decides
@@ -32,7 +33,8 @@ extension ConsoleSession {
     /// Whether the stream should run now.
     private var wantsEventStream: Bool {
         guard let app = liveApp else { return false }
-        return client != nil && state == .connected && app.isForeground && !eventsUnsupported && !closedByConsole
+        return client != nil && state == .connected && app.isForeground && app.openConsoleId == deviceId
+            && !eventsUnsupported && !closedByConsole
     }
 
     /// Starts or stops the stream to match the session and the app.
@@ -55,7 +57,6 @@ extension ConsoleSession {
 
     private func startEventStream(client: APIClient) {
         guard let app = liveApp else { return }
-        hellosSeen = 0
         let stream = EventStream(
             timing: app.eventTiming,
             connect: { try await client.openEvents() },
@@ -81,6 +82,8 @@ extension ConsoleSession {
             setEventsLive(true)
             Task { await self.caughtUp(client: client, reconnected: reconnected) }
         case .device(let device):
+            lastDeviceEvent = device
+            deviceEvents += 1
             status = status?.updated(with: device)
         case .library(let library):
             libraryChanged(library.affectedSystems)
@@ -96,8 +99,15 @@ extension ConsoleSession {
     /// stream was open). After a reconnection, the screens reload too:
     /// events may have been missed.
     private func caughtUp(client: APIClient, reconnected: Bool) async {
+        let eventsBefore = deviceEvents
         if let status = try? await client.device(), self.client === client {
-            self.status = status
+            // A `device` event that arrived while the request was out is
+            // newer than this answer: its fields win.
+            if deviceEvents != eventsBefore, let event = lastDeviceEvent {
+                self.status = status.updated(with: event)
+            } else {
+                self.status = status
+            }
         }
         guard liveApp != nil, self.client === client else { return }
         await transfers.refreshJobs(force: true)

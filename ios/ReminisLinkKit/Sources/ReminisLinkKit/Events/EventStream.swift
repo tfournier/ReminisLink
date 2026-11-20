@@ -1,5 +1,33 @@
 import Foundation
 
+/// The bytes of an open event stream, pulled one at a time by the reader:
+/// nothing is read ahead of the parser (beyond URLSession's own buffer),
+/// so a slow reader never piles bytes up in memory.
+public protocol EventByteSource: AnyObject, Sendable {
+    /// The next byte, nil at the end of the stream.
+    func next() async throws -> UInt8?
+    /// Closes the connection; ``next()`` then ends.
+    func cancel()
+}
+
+/// An ``EventByteSource`` over an async sequence of bytes (tests).
+public final class SequenceByteSource<Base: AsyncSequence & Sendable>: EventByteSource, @unchecked Sendable
+where Base.Element == UInt8 {
+    private var iterator: Base.AsyncIterator
+    private let onCancel: @Sendable () -> Void
+
+    public init(_ base: Base, onCancel: @escaping @Sendable () -> Void = {}) {
+        iterator = base.makeAsyncIterator()
+        self.onCancel = onCancel
+    }
+
+    public func next() async throws -> UInt8? {
+        try await iterator.next()
+    }
+
+    public func cancel() { onCancel() }
+}
+
 /// The delays of an ``EventStream``, and the clock it measures them with
 /// (tests drive their own).
 public struct EventStreamTiming: Sendable {
@@ -83,7 +111,7 @@ public final class EventStream {
         case stop
     }
 
-    public typealias Connect = @Sendable () async throws -> AsyncThrowingStream<UInt8, Error>
+    public typealias Connect = @Sendable () async throws -> any EventByteSource
 
     public let timing: EventStreamTiming
     private let connect: Connect
@@ -95,6 +123,8 @@ public final class EventStream {
     public private(set) var isLive = false
     /// Connections tried since the start.
     public private(set) var attempts = 0
+    /// Bytes read since the start (tests wait on it).
+    public private(set) var bytesReceived = 0
 
     private var loopTask: Task<Void, Never>?
     private var watchdogTask: Task<Void, Never>?
@@ -182,25 +212,32 @@ public final class EventStream {
     private func runOnce(_ current: Int) async -> (End, Bool) {
         var wasLive = false
         do {
-            let bytes = try await connect()
+            let source = try await connect()
+            defer { source.cancel() }
             activity.touch(timing.now())
             var parser = SSEParser()
-            for try await byte in bytes {
-                activity.touch(timing.now())
-                guard let item = parser.feed(byte), case .event(let raw) = item, let event = PakEvent(raw) else { continue }
-                guard generation == current else { return (.endOfStream, wasLive) }
-                switch event {
-                case .shutdown(let shutdown):
-                    return (.shutdown(shutdown), wasLive)
-                case .hello:
-                    wasLive = true
-                    isLive = true
-                default:
-                    break
+            let end: End = try await withTaskCancellationHandler {
+                while let byte = try await source.next() {
+                    activity.touch(timing.now())
+                    bytesReceived += 1
+                    guard let item = parser.feed(byte), case .event(let raw) = item, let event = PakEvent(raw) else { continue }
+                    guard generation == current else { return .endOfStream }
+                    switch event {
+                    case .shutdown(let shutdown):
+                        return .shutdown(shutdown)
+                    case .hello:
+                        wasLive = true
+                        isLive = true
+                    default:
+                        break
+                    }
+                    onEvent(event)
                 }
-                onEvent(event)
+                return .endOfStream
+            } onCancel: {
+                source.cancel()
             }
-            return (.endOfStream, wasLive)
+            return (end, wasLive)
         } catch let error as APIError {
             // An answer, even an error, shows the console is reachable.
             if case .server = error { activity.touch(timing.now()) }

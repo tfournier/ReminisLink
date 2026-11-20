@@ -49,13 +49,19 @@ final class ConsoleSession {
     @ObservationIgnored var events: EventStream?
     /// The client the event stream belongs to.
     @ObservationIgnored weak var eventsClient: APIClient?
-    /// `hello` events received by the current stream.
+    /// `hello` events received in this session, every stream included:
+    /// after the first, the screens reload (the pak replays nothing missed
+    /// while no stream was open: background, another console shown).
     @ObservationIgnored var hellosSeen = 0
     /// The pak has no `GET /events` (older than M14): the screens poll,
     /// as before, for the rest of this session.
     var eventsUnsupported = false
     /// The event stream is open (`hello` received): jobs follow its events.
     var eventsLive = false
+    /// The last `device` event and how many arrived: a `GET /device`
+    /// answer older than the last event keeps the event's fields.
+    @ObservationIgnored var lastDeviceEvent: EventDevice?
+    @ObservationIgnored var deviceEvents = 0
     /// Library changes waiting for the debounce to end.
     @ObservationIgnored var pendingLibraryChange: LibraryChange?
     /// The systems the last change of ``libraryRevision`` touched, nil for

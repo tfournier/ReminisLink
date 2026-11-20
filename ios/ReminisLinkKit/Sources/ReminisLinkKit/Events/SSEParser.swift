@@ -36,9 +36,12 @@ public enum SSEItem: Sendable, Equatable {
 /// - A blank line dispatches the event, unless no `data` line came (then
 ///   the buffers are reset and nothing is dispatched).
 /// - An event cut by the end of the stream is dropped.
-/// - A line longer than ``maxLineBytes`` is dropped whole (memory bound).
+/// - A line longer than ``maxLineBytes`` is dropped whole, and an event
+///   whose `data` lines add up to more than ``maxEventBytes`` is dropped
+///   whole (up to the next blank line): memory stays bounded.
 public struct SSEParser: Sendable {
     public static let maxLineBytes = 1 << 20
+    public static let maxEventBytes = 1 << 20
 
     private var line: [UInt8] = []
     private var lineTooLong = false
@@ -46,6 +49,8 @@ public struct SSEParser: Sendable {
     private var isFirstLine = true
     private var data = ""
     private var hasData = false
+    /// The event being read went over ``maxEventBytes``.
+    private var eventTooLarge = false
     private var eventType = ""
     private var lastEventId: String?
 
@@ -119,6 +124,12 @@ public struct SSEParser: Sendable {
         case "event":
             eventType = String(value)
         case "data":
+            guard !eventTooLarge else { break }
+            if data.utf8.count + value.utf8.count + 1 > Self.maxEventBytes {
+                eventTooLarge = true
+                data = ""
+                break
+            }
             data += value
             data += "\n"
             hasData = true
@@ -135,9 +146,10 @@ public struct SSEParser: Sendable {
         defer {
             data = ""
             hasData = false
+            eventTooLarge = false
             eventType = ""
         }
-        guard hasData else { return nil }
+        guard hasData, !eventTooLarge else { return nil }
         var payload = data
         if payload.hasSuffix("\n") { payload.removeLast() }
         return .event(SSEEvent(id: lastEventId, type: eventType.isEmpty ? "message" : eventType, data: payload))

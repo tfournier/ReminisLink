@@ -99,6 +99,17 @@ struct EventParserTests {
         #expect(events("data: \(long)\ndata: kept\n\n") == [SSEEvent(id: nil, type: "message", data: "kept")])
     }
 
+    @Test func anEventTooLargeInAllIsDroppedUpToTheNextBlankLine() {
+        // Each line is under the line limit; together they are over the
+        // event limit.
+        let line = "data: " + String(repeating: "x", count: SSEParser.maxEventBytes / 4) + "\n"
+        let text = "event: library\n" + String(repeating: line, count: 5) + "data: tail\n\nevent: hello\ndata: next\n\n"
+        #expect(events(text) == [SSEEvent(id: nil, type: "hello", data: "next")])
+        // Just under the limit, it passes.
+        let fits = "data: " + String(repeating: "y", count: SSEParser.maxEventBytes - 7) + "\n\n"
+        #expect(events(fits).first?.data.utf8.count == SSEParser.maxEventBytes - 7)
+    }
+
     // MARK: - Typed events
 
     @Test func knownEventsAreDecoded() throws {

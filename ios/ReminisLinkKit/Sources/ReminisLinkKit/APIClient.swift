@@ -155,7 +155,7 @@ public actor APIClient {
     /// `429` with `Retry-After`, `401`, `503`), and is seen by the error
     /// observer like any other. Cancelling the returned stream (or the
     /// task reading it) closes the connection.
-    public func openEvents() async throws -> AsyncThrowingStream<UInt8, Error> {
+    public func openEvents() async throws -> any EventByteSource {
         let ((bytes, errorBody), response) = try await withSignedRequests(
             method: "GET", segments: ["events"], query: [], headers: ["Accept": "text/event-stream"],
             body: nil, bodyFile: nil, bodyFileSHA256: nil, timeout: Self.eventsTimeout
@@ -189,7 +189,7 @@ public actor APIClient {
             try check(response, data: errorBody, accept: [200])
             throw APIError.unexpectedStatus(response.statusCode)
         }
-        return bytes.stream()
+        return bytes
     }
 
     /// `DELETE /clients/me`. The caller then deletes the key.
@@ -1006,31 +1006,24 @@ public enum AppVersion {
     }
 }
 
-/// The bytes of an open event stream, handed out of the signing loop.
-struct EventBytes: @unchecked Sendable {
-    let bytes: URLSession.AsyncBytes
+/// The bytes of an open event stream, read straight from URLSession
+/// (pulled by the parser, never buffered here).
+final class EventBytes: EventByteSource, @unchecked Sendable {
+    private var iterator: URLSession.AsyncBytes.AsyncIterator
+    private let task: URLSessionDataTask
 
-    /// The bytes as a stream; a transport failure becomes
-    /// ``APIError/network(_:)``. Ending it early closes the connection.
-    func stream() -> AsyncThrowingStream<UInt8, Error> {
-        let bytes = bytes
-        return AsyncThrowingStream { continuation in
-            let reader = Task {
-                do {
-                    for try await byte in bytes {
-                        continuation.yield(byte)
-                    }
-                    continuation.finish()
-                } catch let error as URLError {
-                    continuation.finish(throwing: error.code == .cancelled ? CancellationError() : APIError.network(error.code))
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in
-                reader.cancel()
-                bytes.task.cancel()
-            }
+    init(bytes: URLSession.AsyncBytes) {
+        iterator = bytes.makeAsyncIterator()
+        task = bytes.task
+    }
+
+    func next() async throws -> UInt8? {
+        do {
+            return try await iterator.next()
+        } catch let error as URLError {
+            throw error.code == .cancelled ? CancellationError() : APIError.network(error.code)
         }
     }
+
+    func cancel() { task.cancel() }
 }
