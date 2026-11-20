@@ -45,7 +45,7 @@ Ces points sont repris, ou non, après la v1 (voir [09](09-feuille-de-route.md))
 | Composant | v1 | Ensuite |
 |---|---|---|
 | Console | NextUI sur `tg5040` (TrimUI Brick, Brick Pro, Smart Pro) | `tg5050`, `h700`, `my355` (comme Cheat Manager), puis Knulli |
-| Téléphone | iOS 17+ (iPhone) | iPad, Android |
+| Téléphone | iOS 18+ (iPhone) | iPad, Android |
 
 ## Principes
 

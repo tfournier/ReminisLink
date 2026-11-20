@@ -50,7 +50,7 @@ ReminisLink is an iPhone companion for Linux retro handhelds (first target: Trim
 
 ## Swift (iOS)
 
-- iOS 17 minimum, SwiftUI, Observation (`@Observable`), Swift Concurrency (async/await), no third-party dependency without asking.
+- iOS 18 minimum, SwiftUI, Observation (`@Observable`), Swift Concurrency (async/await), no third-party dependency without asking.
 - Networking, signing and models in the `ReminisLinkKit` Swift package, testable with `swift test`.
 - Keys and tokens only in the Keychain.
 

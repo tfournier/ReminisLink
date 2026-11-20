@@ -2,7 +2,7 @@
 
 ## 1. Cible
 
-- iPhone, iOS 17 minimum. iPad plus tard.
+- iPhone, iOS 18 minimum (décidé le 20/11/2026 : iOS 17 ne peut plus être testé avec Xcode 27). iPad plus tard.
 - SwiftUI, Observation (`@Observable`), Swift Concurrency. Aucune dépendance tierce sans accord.
 - Langues : anglais et français en v1 (String Catalog `Localizable.xcstrings`).
 - Identifiants : domaine du produit `reminis.link`, décision du 19/11/2026, définitifs : app **`link.reminis.app`**, extension `link.reminis.app.share`, groupe d'apps `group.link.reminis.app`, groupe de Trousseau `<Team ID>.link.reminis.app.shared`. Le préfixe ne rattache pas l'app à une entreprise ; le nom du vendeur affiché sur l'App Store est celui du compte qui publie. L'équipe de signature reste locale (`ios/Config/Local.xcconfig`, ignoré par Git).

@@ -5,7 +5,7 @@ let strict: [SwiftSetting] = [.treatAllWarnings(as: .error)]
 
 let package = Package(
     name: "ReminisLinkKit",
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS(.v18), .macOS(.v14)],
     products: [
         .library(name: "ReminisLinkKit", targets: ["ReminisLinkKit"]),
         // A fake pak served through URLProtocol: tests, previews and the

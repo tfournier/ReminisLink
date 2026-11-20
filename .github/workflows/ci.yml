@@ -81,7 +81,7 @@ jobs:
           if-no-files-found: error
 
   ios:
-    # Swift tools 6.2 and the iOS 17+ simulator: Xcode 26.
+    # Swift tools 6.2 and the iOS 18+ simulator: Xcode 26.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
