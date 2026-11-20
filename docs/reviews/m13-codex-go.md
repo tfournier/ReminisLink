@@ -1,0 +1,21 @@
+Verdict : à corriger
+
+## Bloquant
+
+- [writes.go:60](/Users/tfournier/projets/github.com/tfournier/reminislink-m13-go/internal/server/writes.go:60) **Une écriture en attente peut s’exécuter après la révocation du client.** A écrit sur la carte. B envoie une suppression qui passe les contrôles d’accès puis attend le verrou. L’utilisateur déconnecte ou oublie B depuis la console. Si A libère le verrou avant les 10 secondes, la suppression de B s’exécute avec l’autorisation vérifiée avant la révocation. Revérifier la génération d’accès après l’acquisition du verrou, juste avant la mutation, et couvrir aussi les écritures qui prennent le verrou dans leur gestionnaire.
+- [uploads.go:569](/Users/tfournier/projets/github.com/tfournier/reminislink-m13-go/internal/transfer/uploads.go:569) **L’annulation d’un envoi peut attendre une écriture, contrairement au contrat.** A termine un envoi pendant qu’une écriture concurrente occupe le verrou global. `complete` attend ce verrou en gardant `u.mu`. Si B annule le même envoi, `CancelUpload` attend `u.mu`. Lorsque l’écriture libère le verrou global, le fichier peut être installé avant que l’annulation ne reprenne et renvoie `404`. Relâcher le verrou de l’envoi pendant l’attente, puis reprendre et revalider l’envoi avant l’installation. Ajouter un test où l’annulation arrive pendant cette attente.
+- [Vectors.swift:32](/Users/tfournier/projets/github.com/tfournier/reminislink-m13-go/ios/ReminisLinkKit/Tests/ReminisLinkKitTests/Vectors.swift:32) **Les tests Swift échoueront au décodage des nouveaux vecteurs.** La CI lance `swift test`. Le test d’appairage charge un JSON RL2 dont les cas n’ont plus le champ obligatoire `method`. Le test de signature attend encore le champ obligatoire `key`, remplacé par `seed` et `publicKey`. Intégrer l’adaptation des tests Swift avant la fusion et vérifier côté Swift les preuves, les signatures et l’empreinte SPKI.
+- [rl2.sh:82](/Users/tfournier/projets/github.com/tfournier/reminislink-m13-go/scripts/lib/rl2.sh:82) **Les scripts smoke RL2 s’arrêtent avec le Bash livré par macOS.** Avec `/bin/bash` 3.2 et OpenSSL 3 ou ultérieur, `smoke-writes.sh` active `set -u`, puis l’autotest de signature lit `BASHPID`, absent de ce Bash. Le script s’arrête avant les vérifications API. Utiliser des noms temporaires uniques compatibles avec Bash 3.2, ou déclarer et vérifier la version minimale de Bash au démarrage.
+
+## À corriger
+
+- [tlsid.go:91](/Users/tfournier/projets/github.com/tfournier/reminislink-m13-go/internal/tlsid/tlsid.go:91) La clé et le certificat sont écrits atomiquement chacun de leur côté. Si un certificat déjà épinglé disparaît alors que la clé privée reste intacte, le démarrage suivant remplace aussi la clé et change le pin. Régénérer le certificat à partir de la clé existante, ou conserver les deux dans un même fichier atomique.
+- [09-feuille-de-route.md:157](/Users/tfournier/projets/github.com/tfournier/reminislink-m13-go/docs/specs/09-feuille-de-route.md:157) La feuille de route mentionne TLS 1.3. OpenAPI, les specs de transport et le serveur autorisent TLS 1.2. Aligner la feuille de route et le minimum effectivement retenu.
+
+**Tests lancés**
+
+- `gofmt -l cmd internal protocol scripts`, `git diff --check e84a003d...HEAD`, `scripts/sync-test-vectors.sh --check` et `bash -n` sur les scripts RL2 modifiés ont réussi.
+- Vérification indépendante avec Python et `cryptography` réussie pour les six preuves HMAC, les deux liens d’appairage, les dix signatures Ed25519 et l’empreinte SPKI.
+- `make lint test`, `make contract`, `swift test`, `xcodebuild test` et les scripts smoke ont été laissés de côté conformément à la contrainte de lecture seule. Les échecs Swift et Bash ci-dessus sont établis par inspection. La version de Bash et l’absence de `BASHPID` ont été vérifiées localement.
+
+La revue porte sur `e84a003d...HEAD`. Aucun prompt M13 n’est présent dans `prompts/`. La conception de la feuille de route a servi de référence. La description de PR est restée inaccessible faute d’authentification GitHub. Aucun fichier du dépôt n’a été modifié.
