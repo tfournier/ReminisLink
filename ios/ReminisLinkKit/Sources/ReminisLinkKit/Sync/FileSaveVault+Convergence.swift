@@ -44,8 +44,9 @@ extension FileSaveVault {
     nonisolated static func duplicateRank(_ name: String) -> (base: String, number: Int) {
         let name = name.precomposedStringWithCanonicalMapping
         func number(_ digits: Substring) -> Int? {
-            guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
-            return Int(digits)
+            guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+                  let n = Int(digits), n >= 2 else { return nil }
+            return n
         }
         if name.hasSuffix(")"), let open = name.range(of: " (", options: .backwards) {
             let digits = name[open.upperBound..<name.index(before: name.endIndex)]
@@ -77,6 +78,7 @@ extension FileSaveVault {
     func tidy(consoles: [URL], infos: GameInfoCache) -> Bool {
         guard let canonical = consoles.first else { return false }
         var changed = false
+        cleanHoldingArea()
         let rootUnknown = ((try? subfolders(of: root)) ?? []).filter {
             (readJSON($0.appending(path: Self.consoleFile)) as VaultConsoleInfo?) == nil
         }
@@ -84,17 +86,24 @@ extension FileSaveVault {
 
         var games = (try? gameFolders(in: consolesKnown ? consoles : [canonical], infos: infos)) ?? [:]
 
-        // Console folders: a system folder whose name is free moves into
-        // the canonical console folder; else its games with no other
-        // folder move into the system folder of that name.
+        // Console folders: a system folder of known identity goes to the
+        // canonical console folder: its games with no other folder join
+        // the canonical system folder of the same identity if there is
+        // one, else the whole folder moves if its name is free. A folder
+        // of unknown identity, or whose name is taken by another system,
+        // stays.
         if consolesKnown {
             for duplicate in consoles.dropFirst() {
                 for system in (try? subfolders(of: duplicate)) ?? [] {
-                    if (try? moveIfReady(system, into: canonical)) == true { changed = true; continue }
-                    guard let existing = try? existingChild(system.lastPathComponent, in: canonical) else { continue }
-                    for game in (try? subfolders(of: system)) ?? [] {
-                        guard let info = gameInfo(game, infos), games[info.gameId]?.count == 1 else { continue }
-                        if (try? moveIfReady(game, into: existing)) == true { changed = true }
+                    guard let identity = systemIdentity(system, infos) else { continue }
+                    let targets = Self.ranked((try? subfolders(of: canonical)) ?? [])
+                    if let target = targets.first(where: { systemIdentity($0, infos) == identity }) {
+                        for game in (try? subfolders(of: system)) ?? [] {
+                            guard let info = gameInfo(game, infos), games[info.gameId]?.count == 1 else { continue }
+                            if (try? moveIfReady(game, into: target)) == true { changed = true }
+                        }
+                    } else if (try? moveIfReady(system, into: canonical)) == true {
+                        changed = true
                     }
                 }
             }
@@ -163,14 +172,6 @@ extension FileSaveVault {
         return changed
     }
 
-    /// The folder named `name` in `folder` (whatever its case), if it is
-    /// a folder on this device.
-    func existingChild(_ name: String, in folder: URL) throws -> URL? {
-        guard let match = try entries(of: folder).first(where: { $0.lowercased() == name.lowercased() }) else { return nil }
-        let url = folder.appending(path: match, directoryHint: .isDirectory)
-        return Self.isDirectory(url) ? url : nil
-    }
-
     /// The system a system folder holds: the folder name of the
     /// `systemName` of its games, when every game folder in it is readable
     /// and they agree (nil otherwise: unknown).
@@ -236,35 +237,52 @@ extension FileSaveVault {
         return moved
     }
 
-    /// Removes a folder left empty: inside the coordinated removal, it must
-    /// hold nothing but its `metadata` file and the Finder's `.DS_Store`;
-    /// those are removed, then the folder with `rmdir`, which fails if
-    /// anything arrived meanwhile (the metadata file is then put back).
-    /// Never removes a folder with content.
+    /// Where a duplicate folder goes to be checked and removed: a hidden
+    /// folder of the vault (same volume, never indexed).
+    static let holdingFolder = ".ReminisLink-holding"
+
+    /// Removes a duplicate folder left empty, without ever leaving a
+    /// version without its identity file: inside one coordinated access,
+    /// the folder (holding nothing but its `metadata` file and `.DS_Store`)
+    /// is moved whole into the holding area; there, if it still holds
+    /// nothing else, its files are removed, then the folder (`rmdir`);
+    /// otherwise (anything arrived) it is moved back intact.
     @discardableResult
     func removeIfEmpty(_ folder: URL, metadata: String?) throws -> Bool {
         let allowed = Set([metadata, Self.finderFile].compactMap { $0 })
         guard try entries(of: folder).allSatisfy({ allowed.contains($0) }) else { return false }
+        let holding = root.appending(path: Self.holdingFolder, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: holding, withIntermediateDirectories: true)
+        let held = holding.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let hook = holdingHook
         var removed = false
         var coordinationError: NSError?
         var bodyError: Error?
-        NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: folder, options: .forDeleting, error: &coordinationError) { url in
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(
+            writingItemAt: folder, options: .forMoving, writingItemAt: held, options: .forReplacing,
+            error: &coordinationError
+        ) { from, to in
             let manager = FileManager.default
-            let path = url.path(percentEncoded: false)
-            guard let names = try? manager.contentsOfDirectory(atPath: path), names.allSatisfy({ allowed.contains($0) }) else { return }
-            let metadataURL = metadata.map { url.appending(path: $0) }
-            let saved = metadataURL.flatMap { try? Data(contentsOf: $0) }
+            guard let names = try? manager.contentsOfDirectory(atPath: from.path(percentEncoded: false)),
+                  names.allSatisfy({ allowed.contains($0) }) else { return }
             do {
-                for name in names { try manager.removeItem(at: url.appending(path: name)) }
-                guard rmdir(path) == 0 else {
-                    if let metadataURL, let saved { try? Self.writeSynced(saved, to: metadataURL) }
-                    return
-                }
-                removed = true
+                coordinator.item(at: from, willMoveTo: to)
+                try manager.moveItem(at: from, to: to)
+                coordinator.item(at: from, didMoveTo: to)
             } catch {
-                if let metadataURL, let saved, !manager.fileExists(atPath: metadataURL.path(percentEncoded: false)) {
-                    try? Self.writeSynced(saved, to: metadataURL)
-                }
+                bodyError = error
+                return
+            }
+            hook?(to)
+            if Self.removeHeld(to, allowed: allowed, metadata: metadata) {
+                removed = true
+                return
+            }
+            // Something arrived: back where it was, intact.
+            do {
+                try Self.putBack(to, at: from, coordinator: coordinator)
+            } catch {
                 bodyError = error
             }
         }
@@ -273,20 +291,101 @@ extension FileSaveVault {
         return removed
     }
 
+    /// Removes a held folder if it holds nothing but `allowed` files: the
+    /// others first, its metadata file last, then the folder (`rmdir`).
+    /// If that fails, the metadata file is written back and false returned.
+    nonisolated static func removeHeld(_ held: URL, allowed: Set<String>, metadata: String?) -> Bool {
+        let manager = FileManager.default
+        let path = held.path(percentEncoded: false)
+        guard let names = try? manager.contentsOfDirectory(atPath: path), names.allSatisfy({ allowed.contains($0) }) else {
+            return false
+        }
+        let metadataURL = metadata.map { held.appending(path: $0) }
+        var saved: Data?
+        if let metadataURL, names.contains(metadataURL.lastPathComponent) {
+            guard let data = try? Data(contentsOf: metadataURL) else { return false }
+            saved = data
+        }
+        for name in names where name != metadata { try? manager.removeItem(at: held.appending(path: name)) }
+        if let metadataURL, saved != nil { try? manager.removeItem(at: metadataURL) }
+        if rmdir(path) == 0 { return true }
+        if let metadataURL, let saved, !manager.fileExists(atPath: metadataURL.path(percentEncoded: false)) {
+            try? writeSynced(saved, to: metadataURL)
+        }
+        return false
+    }
+
+    /// Moves a held folder back to `original`, or next to it under a free
+    /// name if that name was taken meanwhile.
+    nonisolated static func putBack(_ held: URL, at original: URL, coordinator: NSFileCoordinator) throws {
+        let manager = FileManager.default
+        var target = original
+        var n = 2
+        while manager.fileExists(atPath: target.path(percentEncoded: false)) {
+            target = original.deletingLastPathComponent().appending(path: "\(original.lastPathComponent) (\(n))", directoryHint: .isDirectory)
+            n += 1
+        }
+        coordinator.item(at: held, willMoveTo: target)
+        try manager.moveItem(at: held, to: target)
+        coordinator.item(at: held, didMoveTo: target)
+    }
+
+    /// Folders left in the holding area by a removal that was stopped (the
+    /// app quit): removed if they hold nothing but an identity file.
+    func cleanHoldingArea() {
+        let holding = root.appending(path: Self.holdingFolder, directoryHint: .isDirectory)
+        let allowed: Set<String> = [Self.consoleFile, Self.gameFile, Self.finderFile]
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: holding.path(percentEncoded: false))) ?? [] {
+            let held = holding.appending(path: name, directoryHint: .isDirectory)
+            try? coordinateWriting(held) { url in
+                let names = (try? FileManager.default.contentsOfDirectory(atPath: url.path(percentEncoded: false))) ?? []
+                let metadata = names.first { $0 == Self.consoleFile || $0 == Self.gameFile }
+                _ = Self.removeHeld(url, allowed: allowed, metadata: metadata)
+            }
+        }
+    }
+
     /// Deletes a version beyond the limit (publication only). Inside the
     /// coordinated deletion, its `.version.json` must still be the one
-    /// listed and nothing in it may be a placeholder; otherwise it stays.
+    /// listed, and the folder must hold exactly its listed files,
+    /// downloaded and matching their size and SHA-256; otherwise it stays.
     func deleteVersion(_ version: StoredVersion) throws {
         var coordinationError: NSError?
         var bodyError: Error?
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: version.folder, options: .forDeleting, error: &coordinationError) { url in
             guard let data = try? Data(contentsOf: url.appending(path: Self.versionFile)),
                   let info = try? ProtocolJSON.decoder().decode(SaveVersionInfo.self, from: data),
-                  info == version.version.info, Self.isFullyLocal(url) else { return }
+                  info == version.version.info, Self.versionCheck(url, info).exact else { return }
             do { try FileManager.default.removeItem(at: url) } catch { bodyError = error }
         }
         if let bodyError { throw bodyError }
         if let coordinationError { throw coordinationError }
+    }
+
+    /// ``versionCheck(_:_:)`` in a coordinated read.
+    func checkVersion(_ version: StoredVersion) -> (restorable: Bool, exact: Bool) {
+        var result = (restorable: false, exact: false)
+        try? coordinateReading(version.folder) { url in result = Self.versionCheck(url, version.version.info) }
+        return result
+    }
+
+    /// `restorable`: the listed files are there, downloaded, with their
+    /// size and SHA-256. `exact`: also nothing else in the folder but the
+    /// `.version.json` (and `.DS_Store`). A folder that cannot be read is
+    /// neither.
+    nonisolated static func versionCheck(_ folder: URL, _ info: SaveVersionInfo) -> (restorable: Bool, exact: Bool) {
+        let manager = FileManager.default
+        guard let names = try? manager.contentsOfDirectory(atPath: folder.path(percentEncoded: false)) else { return (false, false) }
+        for file in [info.save, info.rtc].compactMap({ $0 }) {
+            let url = folder.appending(path: file.name)
+            guard names.contains(file.name), !isDirectory(url),
+                  (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus) != .notDownloaded,
+                  (try? FileDigest.size(of: url)) == file.sizeBytes,
+                  (try? FileDigest.sha256Sync(of: url)) == file.sha256
+            else { return (false, false) }
+        }
+        let expected = Set([versionFile, finderFile, info.save.name] + (info.rtc.map { [$0.name] } ?? []))
+        return (true, names.allSatisfy { expected.contains($0) })
     }
 
     // MARK: - Downloads
@@ -316,7 +415,8 @@ extension FileSaveVault {
         }
         check(item)
         guard isDirectory(item) else { return local }
-        let names = (try? manager.contentsOfDirectory(atPath: path)) ?? []
+        // A folder that cannot be listed is not known to be local.
+        guard let names = try? manager.contentsOfDirectory(atPath: path) else { return false }
         for name in names {
             let url = item.appending(path: name)
             if let real = placeholderName(name) {

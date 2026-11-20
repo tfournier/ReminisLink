@@ -424,5 +424,182 @@ struct VaultConvergenceTests {
         #expect(FileSaveVault.duplicateRank("X (12)").base == "X" && FileSaveVault.duplicateRank("X (12)").number == 12)
         #expect(FileSaveVault.duplicateRank("2").number == 1)
         #expect(FileSaveVault.duplicateRank(" (2)").number == 1)
+        // Only numbers from 2 are duplicate suffixes.
+        #expect(FileSaveVault.duplicateRank("Brick 0").number == 1 && FileSaveVault.duplicateRank("Brick (1)").number == 1)
+        #expect(first(["Brick 0", "Arcade"]) == "Arcade")
+    }
+
+    // MARK: - Round 2
+
+    /// The limit deletes only a version whose folder holds exactly its
+    /// listed files, matching; the versions kept export their own bytes.
+    @Test func theRotationKeepsVersionsChangedByHandOrUnreadable() async throws {
+        let sandbox = try VaultSandbox()
+        let courier = game("g1", "Starlight Courier")
+        let small = vault(sandbox.root, sandbox, maxVersions: 2)
+        var added: [SaveVersion] = []
+        for i in 1...4 {
+            added.append(try await small.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "v\(i)"), rtc: nil, modifiedAt: nil))
+        }
+        // v1 and v2 went (exactly as written); v3 and v4 are kept.
+        let folder = sandbox.root.appending(path: "My Brick/\(Self.gba)/Starlight Courier")
+        #expect(try names(folder) == [added[2].id, added[3].id])
+        // v3 gets a file added by hand, v4 a save changed by hand.
+        try Data("note".utf8).write(to: folder.appending(path: "\(added[2].id)/notes.txt"))
+        try Data("edited".utf8).write(to: folder.appending(path: "\(added[3].id)/Game.sav"))
+        var more: [SaveVersion] = []
+        for i in 5...6 {
+            more.append(try await vault(sandbox.root, sandbox, maxVersions: 2).addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "v\(i)"), rtc: nil, modifiedAt: nil))
+        }
+        // v3 and v4 are beyond the limit but not exactly as written: kept.
+        #expect(Set(try names(folder)) == [added[2].id, added[3].id, more[0].id, more[1].id])
+        #expect(FileManager.default.fileExists(atPath: folder.appending(path: "\(added[2].id)/notes.txt").path))
+        // A folder that cannot be read is kept too.
+        let locked = folder.appending(path: more[0].id)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        let v7 = try await vault(sandbox.root, sandbox, maxVersions: 2).addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "v7"), rtc: nil, modifiedAt: nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        #expect(Set(try names(folder)) == [added[2].id, added[3].id, more[0].id, more[1].id, v7.id])
+        // What is left exports its own bytes; the edited copy is refused.
+        let reader = vault(sandbox.root, sandbox, maxVersions: 2)
+        let out = sandbox.base.appending(path: "Out")
+        for (version, content) in [(v7, "v7"), (more[0], "v5"), (added[2], "v3")] {
+            let copy = try await reader.exportVerified(deviceId: "dev-1", gameId: "g1", version: version, to: out)
+            #expect(try Data(contentsOf: copy.save) == Data(content.utf8))
+        }
+        await #expect(throws: SaveVaultError.versionMismatch) {
+            try await reader.export(deviceId: "dev-1", gameId: "g1", version: added[3], to: out)
+        }
+    }
+
+    /// A duplicate folder is removed through the holding area; when a
+    /// version arrives meanwhile, it is put back intact, with its identity.
+    @Test func aFolderThatReceivesAVersionWhileHeldIsPutBack() async throws {
+        let sandbox = try VaultSandbox()
+        let mine = vault(sandbox.root, sandbox)
+        _ = try await mine.addVersion(console: brick, game: game("g1", "Starlight Courier"), save: try sandbox.input("Game.sav", "a"), rtc: nil, modifiedAt: nil)
+        let empty = sandbox.root.appending(path: "My Brick/\(Self.gba)/Starlight Courier 2")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: sandbox.root.appending(path: "My Brick/\(Self.gba)/Starlight Courier/.game.json"), to: empty.appending(path: ".game.json"))
+        await mine.setHoldingHook { held in
+            try? FileManager.default.createDirectory(at: held.appending(path: "2026-11-20 10.00.00"), withIntermediateDirectories: true)
+            try? Data("late".utf8).write(to: held.appending(path: "2026-11-20 10.00.00/Game.sav"))
+        }
+        #expect(try await mine.removeIfEmpty(empty, metadata: FileSaveVault.gameFile) == false)
+        #expect(try Data(contentsOf: empty.appending(path: "2026-11-20 10.00.00/Game.sav")) == Data("late".utf8))
+        #expect(FileManager.default.fileExists(atPath: empty.appending(path: ".game.json").path))
+        let holding = sandbox.root.appending(path: FileSaveVault.holdingFolder)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: holding.path).isEmpty)
+
+        // Without anything arriving, it goes.
+        await mine.setHoldingHook(nil)
+        try FileManager.default.removeItem(at: empty.appending(path: "2026-11-20 10.00.00"))
+        #expect(try await mine.removeIfEmpty(empty, metadata: FileSaveVault.gameFile) == true)
+        #expect(!FileManager.default.fileExists(atPath: empty.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: holding.path).isEmpty)
+    }
+
+    /// An instance that indexed the vault before another device's console
+    /// folder arrived publishes after every version on disk and lists them all.
+    @Test func aLoadedInstanceSeesAConsoleFolderDeliveredAfterIndexing() async throws {
+        let sandbox = try VaultSandbox()
+        let iPhone = sandbox.root
+        let mac = sandbox.base.appending(path: "Mac", directoryHint: .isDirectory)
+        let courier = game("g1", "Starlight Courier")
+        let loaded = vault(iPhone, sandbox)
+        _ = try await loaded.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "a"), rtc: nil, modifiedAt: nil)
+        #expect(try await loaded.versions(deviceId: "dev-1", gameId: "g1").count == 1)
+        let macVault = vault(mac, sandbox, clock: TestClock(start: Self.later))
+        for content in ["m1", "m2", "m3"] {
+            _ = try await macVault.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", content), rtc: nil, modifiedAt: nil)
+        }
+        try deliver(mac.appending(path: "My Brick"), into: iPhone)
+
+        #expect(try await loaded.versions(deviceId: "dev-1", gameId: "g1").count == 4)
+        let next = try await loaded.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "b"), rtc: nil, modifiedAt: nil)
+        #expect(next.info.sequence == 4)
+    }
+
+    /// Two loaded instances: a game folder that arrives after both indexed
+    /// is seen by each when it lists and publishes.
+    @Test func twoLoadedInstancesSeeAGameFolderDeliveredAfterIndexing() async throws {
+        let sandbox = try VaultSandbox()
+        let iPhone = sandbox.root
+        let mac = sandbox.base.appending(path: "Mac", directoryHint: .isDirectory)
+        let courier = game("g1", "Starlight Courier")
+        let first = vault(iPhone, sandbox)
+        let second = vault(iPhone, sandbox, clock: TestClock(start: Self.later))
+        _ = try await first.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "a"), rtc: nil, modifiedAt: nil)
+        #expect(try await second.versions(deviceId: "dev-1", gameId: "g1").count == 1)
+        // A third device's game folder arrives as "Starlight Courier 2".
+        let macVault = vault(mac, sandbox, clock: TestClock(start: Self.later + 50))
+        for content in ["m1", "m2"] {
+            _ = try await macVault.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", content), rtc: nil, modifiedAt: nil)
+        }
+        try deliver(mac.appending(path: "My Brick/\(Self.gba)/Starlight Courier"), into: iPhone.appending(path: "My Brick/\(Self.gba)"))
+        #expect(try await first.versions(deviceId: "dev-1", gameId: "g1").count == 3)
+        let published = try await second.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "b"), rtc: nil, modifiedAt: nil)
+        #expect(published.info.sequence == 3)
+        #expect(try await first.versions(deviceId: "dev-1", gameId: "g1").map(\.info.sequence) == [3, 2, 1, 1])
+    }
+
+    /// A listed version whose indexed copy was changed by hand is exported
+    /// from an identical copy that arrived since, under another path.
+    @Test func exportFindsAGoodCopyThatArrivedAfterIndexing() async throws {
+        let sandbox = try VaultSandbox()
+        let iPhone = sandbox.root
+        let mac = sandbox.base.appending(path: "Mac", directoryHint: .isDirectory)
+        let courier = game("g1", "Starlight Courier")
+        let reader = vault(iPhone, sandbox)
+        let version = try await reader.addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "good"), rtc: nil, modifiedAt: nil)
+        let listed = try #require(try await reader.versions(deviceId: "dev-1", gameId: "g1").first)
+        try Data("bad!".utf8).write(to: iPhone.appending(path: "My Brick/\(Self.gba)/Starlight Courier/\(version.id)/Game.sav"))
+        _ = try await vault(mac, sandbox, clock: TestClock(start: Self.later))
+            .addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "good"), rtc: nil, modifiedAt: nil)
+        try deliver(mac.appending(path: "My Brick/\(Self.gba)/Starlight Courier"), into: iPhone.appending(path: "My Brick/\(Self.gba)"))
+        let copy = try await reader.exportVerified(deviceId: "dev-1", gameId: "g1", version: listed, to: sandbox.base.appending(path: "Out"))
+        #expect(try Data(contentsOf: copy.save) == Data("good".utf8))
+    }
+
+    /// Same sequence and sync date: the order does not change when a
+    /// version moves into the canonical folder.
+    @Test func theOrderOfVersionsDoesNotChangeWhenTheyMove() async throws {
+        let sandbox = try VaultSandbox()
+        let iPhone = sandbox.root
+        let mac = sandbox.base.appending(path: "Mac", directoryHint: .isDirectory)
+        let courier = game("g1", "Starlight Courier")
+        let instant = Date(timeIntervalSince1970: 1_795_609_330)
+        _ = try await FileSaveVault(location: .iCloud, root: iPhone, stagingDirectory: sandbox.staging, timeZone: Self.paris, now: { instant })
+            .addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "iphone"), rtc: nil, modifiedAt: nil)
+        _ = try await FileSaveVault(location: .iCloud, root: mac, stagingDirectory: sandbox.staging, timeZone: TimeZone(identifier: "UTC")!, now: { instant })
+            .addVersion(console: brick, game: courier, save: try sandbox.input("Game.sav", "mac"), rtc: nil, modifiedAt: nil)
+        try deliver(mac.appending(path: "My Brick/\(Self.gba)/Starlight Courier"), into: iPhone.appending(path: "My Brick/\(Self.gba)"))
+        let canonical = iPhone.appending(path: "My Brick/\(Self.gba)/Starlight Courier")
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: canonical.path)
+        let before = try await vault(iPhone, sandbox).versions(deviceId: "dev-1", gameId: "g1").map(\.info)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: canonical.path)
+        let after = try await vault(iPhone, sandbox).versions(deviceId: "dev-1", gameId: "g1").map(\.info)
+        #expect(try names(canonical).count == 2)
+        #expect(before.count == 2 && before == after)
+    }
+
+    /// The first pass never moves a system folder of unknown identity, nor
+    /// mixes two systems behind the same folder name.
+    @Test func consoleFoldersNeverMixDifferentSystems() async throws {
+        let sandbox = try VaultSandbox()
+        let iPhone = sandbox.root
+        let mac = sandbox.base.appending(path: "Mac", directoryHint: .isDirectory)
+        _ = try await vault(iPhone, sandbox).addVersion(console: brick, game: game("g1", "Starlight Courier"), save: try sandbox.input("Game.sav", "a"), rtc: nil, modifiedAt: nil)
+        // On the Mac, a Game Boy Color game sits in a folder named like the GBA one.
+        _ = try await vault(mac, sandbox, clock: TestClock(start: Self.later))
+            .addVersion(console: brick, game: game("g2", "Moonlit Maze", system: "Game Boy Color (GBC)"), save: try sandbox.input("Maze.sav", "m"), rtc: nil, modifiedAt: nil)
+        try FileManager.default.moveItem(at: mac.appending(path: "My Brick/Game Boy Color (GBC)"), to: mac.appending(path: "My Brick/\(Self.gba)"))
+        try deliver(mac.appending(path: "My Brick"), into: iPhone)
+
+        let merged = vault(iPhone, sandbox)
+        #expect(try await merged.games(deviceId: "dev-1").map(\.id).sorted() == ["g1", "g2"])
+        #expect(try names(iPhone.appending(path: "My Brick/\(Self.gba)")) == ["Starlight Courier"])
+        #expect(try names(iPhone.appending(path: "My Brick 2/\(Self.gba)")) == ["Moonlit Maze"])
     }
 }
