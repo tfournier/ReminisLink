@@ -187,6 +187,7 @@ extension FakePak {
         let hub = eventHub
         let stream = FakeStream()
         let key = ObjectIdentifier(stream)
+        var isFirst = false
         let refusal = hub.lock.withLock { () -> FakeResponse? in
             guard hub.supported else { return .error(404, code: "not_found", message: "No route") }
             let mine = hub.subscribers.values.filter { $0.clientId == clientId }.count
@@ -194,10 +195,14 @@ extension FakePak {
                 return .error(429, code: "too_many_attempts", message: "Too many event streams",
                               headers: ["Retry-After": String(hub.retryAfter)])
             }
+            isFirst = hub.subscribers.isEmpty
             hub.subscribers[key] = FakeEventHub.Subscriber(clientId: clientId, stream: stream)
             return nil
         }
         if let refusal { return refusal }
+        // No `device` event at the start (contract): the state with this
+        // stream open is the reference, as the pak reads it then.
+        if isFirst { resetDeviceReference() }
         stream.onClose = { [weak self] in self?.streamClosed(key) }
         send(to: key, "hello", ["serverTime": ProtocolJSON.formatDate(Date().addingTimeInterval(clockOffset)),
                                 "keepAliveSeconds": Int(keepAliveInterval.rounded(.up))])
@@ -210,8 +215,37 @@ extension FakePak {
     private func streamClosed(_ key: ObjectIdentifier) {
         let removed = eventHub.lock.withLock { eventHub.subscribers.removeValue(forKey: key) != nil }
         guard removed else { return }
+        afterStreamsChanged()
+    }
+
+    /// The streams changed: timers, and the presence of the others; the
+    /// device reference is dropped with the last stream.
+    private func afterStreamsChanged() {
         restartEventTimers()
-        checkDeviceChange()
+        let none = eventHub.lock.withLock { () -> Bool in
+            guard eventHub.subscribers.isEmpty else { return false }
+            eventHub.lastDevice = nil
+            eventHub.devicePending = false
+            return true
+        }
+        if !none { checkDeviceChange() }
+    }
+
+    /// The current state becomes the reference of the `device` events.
+    private func resetDeviceReference() {
+        let snapshot = deviceSnapshot()
+        eventHub.lock.withLock {
+            eventHub.lastDevice = snapshot
+            eventHub.devicePending = false
+        }
+    }
+
+    private func deviceSnapshot() -> FakeEventHub.DeviceSnapshot {
+        let clients = connectedClientsJSON().compactMap { $0["clientName"] as? String }
+        let battery = eventHub.lock.withLock { eventHub.battery }
+        return FakeEventHub.DeviceSnapshot(
+            battery: battery ?? .init(percent: -1, charging: false), clients: clients, freeMiB: freeBytes >> 20
+        )
     }
 
     /// Ends the streams, after a `shutdown` event when `reason` is set.
@@ -224,7 +258,7 @@ extension FakePak {
             let stream = eventHub.lock.withLock { eventHub.subscribers.removeValue(forKey: key)?.stream }
             stream?.finish()
         }
-        restartEventTimers()
+        afterStreamsChanged()
     }
 
     /// Ends the streams of a client (disconnected, forgotten, unpaired),
@@ -235,8 +269,7 @@ extension FakePak {
             return keys.compactMap { eventHub.subscribers.removeValue(forKey: $0)?.stream }
         }
         for stream in streams { stream.finish() }
-        restartEventTimers()
-        checkDeviceChange()
+        afterStreamsChanged()
     }
 
     // MARK: - Emission
@@ -340,14 +373,11 @@ extension FakePak {
     /// the free space (by 1 MiB at least) changed since the last look. The
     /// first look is the reference (no event).
     func checkDeviceChange() {
-        let clients = connectedClientsJSON().compactMap { $0["clientName"] as? String }
-        let battery = eventHub.lock.withLock { eventHub.battery }
-        let snapshot = FakeEventHub.DeviceSnapshot(
-            battery: battery ?? .init(percent: -1, charging: false), clients: clients, freeMiB: freeBytes >> 20
-        )
+        let snapshot = deviceSnapshot()
         let changed = eventHub.lock.withLock { () -> Bool in
-            defer { eventHub.lastDevice = snapshot }
-            guard let last = eventHub.lastDevice else { return false }
+            // No stream, no reference: the first stream sets it.
+            guard !eventHub.subscribers.isEmpty, let last = eventHub.lastDevice else { return false }
+            eventHub.lastDevice = snapshot
             return last != snapshot
         }
         guard changed else { return }

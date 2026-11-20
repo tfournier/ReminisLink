@@ -395,4 +395,29 @@ struct EventStreamTests {
         // One event, read when sent: the last battery, never 20.
         #expect(device.battery == .init(percent: 30, charging: true))
     }
+
+    @Test func noDeviceEventFollowsHello() async throws {
+        let pak = makePak()
+        pak.deviceEventInterval = 0
+        let client = try await pairedClient(pak)
+        // Its first signed request is the stream's: opening it changes the
+        // connected clients, which must not give a `device` event.
+        let bytes = try await client.openEvents()
+        _ = try await client.systems()
+        pak.sendEvent(type: "marker", json: [String: Any]())
+        var parser = SSEParser()
+        var types: [String] = []
+        while let byte = try await bytes.next() {
+            if case .event(let event)? = parser.feed(byte) {
+                types.append(event.type)
+                if event.type == "marker" { break }
+            }
+        }
+        // The presence of the new stream is the reference, not a change.
+        #expect(types == ["hello", "marker"])
+        // A real change still goes.
+        pak.setBattery(percent: 5, charging: false)
+        let device = try await read("device", count: 1, from: bytes)
+        #expect(device.count == 1)
+    }
 }

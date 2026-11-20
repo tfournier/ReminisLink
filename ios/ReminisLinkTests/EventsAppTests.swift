@@ -53,11 +53,11 @@ struct EventsAppTests {
         return app
     }
 
-    /// Opens the console and waits for its stream to be live.
+    /// Opens the console and waits for its stream to be live and caught up.
     func openLive(_ app: AppModel, _ pak: FakePak) async -> ConsoleSession {
         app.openConsole(pak.deviceId)
         let session = app.session(for: pak.deviceId)
-        await waitUntil { session.eventsLive }
+        await waitUntil { session.eventsLive && session.catchUpsDone >= 1 }
         #expect(session.state == .connected)
         #expect(session.eventsLive)
         return session
@@ -331,5 +331,59 @@ struct EventsAppTests {
         await waitUntil { session.status?.battery?.percent != 42 }
         try? await Task.sleep(for: .milliseconds(100))
         #expect(session.status?.battery == DeviceStatus.Battery(percent: 42, charging: true))
+    }
+
+    // MARK: - Review round 2
+
+    @Test func aChangeBeforeTheFirstHelloIsCaughtUp() async throws {
+        let pak = makePak()
+        // The first stream is slow to open: no `hello` before the app goes
+        // to the background.
+        let slow = pak.holdNextArrival(method: "GET", path: APIClient.apiPrefix + "/events")
+        let app = try await pairedApp(pak)
+        app.openConsole(pak.deviceId)
+        let session = app.session(for: pak.deviceId)
+        await waitUntil { slow.reached }
+        #expect(session.state == .connected)
+        app.enterBackground()
+        _ = try await otherClient(pak).deleteGame(id: Self.skyGarden, keepSave: false)
+        let revision = session.libraryRevision
+        app.becomeActive()
+        // The first `hello` of the session reloads too.
+        await waitUntil { session.catchUpsDone >= 1 }
+        #expect(session.libraryRevision > revision)
+        #expect(session.lastLibraryChange == nil)
+        slow.open()
+    }
+
+    @Test func anOlderCatchUpNeverOverwritesANewerOne() async throws {
+        let pak = makePak()
+        pak.deviceEventInterval = 3600
+        // The connection's `GET /device` goes; the first catch-up's waits.
+        pak.holdNextAnswer(method: "GET", path: APIClient.apiPrefix + "/device").open()
+        let firstCatchUp = pak.holdNextAnswer(method: "GET", path: APIClient.apiPrefix + "/device")
+        let app = try await pairedApp(pak)
+        app.openConsole(pak.deviceId)
+        let session = app.session(for: pak.deviceId)
+        await waitUntil { firstCatchUp.reached }
+        // The stream ends (no `shutdown`): the probe answers, a new stream
+        // and its catch-up follow. Meanwhile, with no stream open, the
+        // battery changes without an event.
+        pak.dropEventStreams()
+        pak.setBattery(percent: 60, charging: true)
+        await waitUntil { session.catchUpsDone >= 1 }
+        #expect(session.status?.battery?.percent == 60)
+        // The first catch-up's answer (78 %) arrives last.
+        firstCatchUp.open()
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(session.status?.battery == DeviceStatus.Battery(percent: 60, charging: true))
+    }
+
+    @Test func onlyTheLastLoadIsShown() {
+        var loads = LoadGeneration()
+        let first = loads.begin()
+        let second = loads.begin()
+        #expect(!loads.isCurrent(first))
+        #expect(loads.isCurrent(second))
     }
 }

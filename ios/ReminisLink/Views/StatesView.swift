@@ -38,6 +38,8 @@ struct StatesView: View {
     @State private var confirmation: Confirmation?
     /// A download in progress, cancelled when the screen goes away.
     @State private var downloadTask: Task<Void, Never>?
+    /// Only the last load shows its answer (M14: loads may overlap).
+    @State private var loads = LoadGeneration()
 
     private var session: ConsoleSession { app.session(for: route.deviceId) }
 
@@ -255,15 +257,18 @@ struct StatesView: View {
 
     private func load() async {
         let gameId = route.gameId
+        let generation = loads.begin()
         do {
             async let states = session.perform { try await $0.states(gameId: gameId) }
             async let resume = session.perform { try await $0.resumeHistory(gameId: gameId) }
             let (list, entries) = try await (states, resume)
+            guard loads.isCurrent(generation) else { return }
             restoredSlots.formUnion(list.slots.filter(\.wasRestored).map(\.slot))
             slots = list
             history = entries
             error = nil
         } catch {
+            guard loads.isCurrent(generation) else { return }
             show(error)
         }
     }

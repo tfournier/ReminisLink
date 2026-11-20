@@ -23,6 +23,9 @@ struct CheatsView: View {
     /// The shown error comes from a save: "Try Again" saves again (local
     /// changes are never dropped without "Discard Changes").
     @State private var saveFailed = false
+    /// Only the last read of the list is used (M14: a reload, a change on
+    /// the console and a save may overlap).
+    @State private var reads = LoadGeneration()
 
     private var session: ConsoleSession { app.session(for: route.deviceId) }
     private var hasChanges: Bool { editor?.hasChanges ?? false }
@@ -59,12 +62,14 @@ struct CheatsView: View {
         // read again; local edits are kept, and the user is told if they
         // can no longer be saved.
         .onChange(of: session.libraryRevision) { Task { await consoleMayHaveChanged() } }
-        .sheet(item: $editing) { cheat in
+        // M14: a newer list of the console held back while a sheet edits
+        // a cheat is shown once the sheet closes.
+        .sheet(item: $editing, onDismiss: applyHeldList) { cheat in
             CheatEditView(cheat: cheat) { description, code, enabled in
                 editor?.update(id: cheat.id, description: description, code: code, enabled: enabled) ?? false
             }
         }
-        .sheet(isPresented: $isAdding) {
+        .sheet(isPresented: $isAdding, onDismiss: applyHeldList) {
             CheatEditView(cheat: nil) { description, code, enabled in
                 editor?.add(description: description, code: code, enabled: enabled) ?? false
             }
@@ -89,7 +94,11 @@ struct CheatsView: View {
             Text("The cheat file of the game is deleted on the console; its previous content is kept there (.cht.bak).")
         }
         .confirmationDialog("Discard your changes?", isPresented: $confirmDiscard, titleVisibility: .visible) {
-            Button("Discard Changes", role: .destructive) { editor?.discardChanges() }
+            Button("Discard Changes", role: .destructive) {
+                // A newer list of the console, if one was reported, is shown.
+                editor?.discardChanges()
+                notice = nil
+            }
                 .accessibilityIdentifier("cheats.discardConfirm")
         } message: {
             Text("The list of the console stays as it is.")
@@ -192,8 +201,10 @@ struct CheatsView: View {
     private func load() async {
         let gameId = route.gameId
         saveFailed = false
+        let generation = reads.begin()
         do {
             let list = try await session.perform { try await $0.cheats(gameId: gameId) }
+            guard reads.isCurrent(generation) else { return }
             if editor == nil {
                 editor = CheatEditor(list)
             } else {
@@ -201,6 +212,7 @@ struct CheatsView: View {
             }
             error = nil
         } catch {
+            guard reads.isCurrent(generation) else { return }
             show(error)
         }
     }
@@ -208,10 +220,18 @@ struct CheatsView: View {
     private func consoleMayHaveChanged() async {
         guard editor != nil, !isWorking else { return }
         let gameId = route.gameId
-        guard let list = try? await session.perform({ try await $0.cheats(gameId: gameId) }) else { return }
-        if editor?.consoleChanged(list) == true {
+        let generation = reads.begin()
+        guard let list = try? await session.perform({ try await $0.cheats(gameId: gameId) }),
+              reads.isCurrent(generation)
+        else { return }
+        let canApply = editing == nil && !isAdding
+        if editor?.consoleChanged(list, canApply: canApply) == .conflict {
             notice = String(localized: "This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list.")
         }
+    }
+
+    private func applyHeldList() {
+        editor?.applyConsoleList()
     }
 
     private func show(_ error: Error) {
@@ -224,6 +244,8 @@ struct CheatsView: View {
         let gameId = route.gameId
         let update = editor.update()
         let etag = editor.etag
+        // A read sent before the save would show the list before it.
+        _ = reads.begin()
         isWorking = true
         defer { isWorking = false }
         error = nil
