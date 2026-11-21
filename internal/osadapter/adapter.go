@@ -221,6 +221,9 @@ type Adapter interface {
 	// IsGameFile reports whether a file with this name, in a system
 	// folder, is listed as a game (not hidden, not an ignored extension).
 	IsGameFile(name string) bool
+	// IsSystemGameFile reports whether a file named name, in a folder of
+	// sys, is listed as a game (Knulli: one of the system's extensions).
+	IsSystemGameFile(sys System, name string) bool
 
 	// SaveDir reads the save folder of a tag once, to find the save and
 	// the clock file of many games with the same rule as GameFiles (GET
@@ -230,6 +233,11 @@ type Adapter interface {
 	// StateFiles lists every save state of the card (all systems).
 	// StateFiles stops with ctx.Err() when ctx is done.
 	StateFiles(ctx context.Context) ([]StateRef, error)
+	// StateKey is the part of the state file names derived from a ROM
+	// name, as StateFiles reports it in StateRef.ROMName (NextUI: the ROM
+	// file name; Knulli: without its extension), so a listing of the
+	// states finds those of a game (M19).
+	StateKey(romName string) string
 
 	// Where each file of a game is (or would be) stored. The emulator data
 	// (save, states, cheats) depends only on g.System.Tag and g.ROMName,

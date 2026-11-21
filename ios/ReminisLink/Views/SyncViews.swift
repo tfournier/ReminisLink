@@ -59,6 +59,11 @@ struct SaveSyncSection: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+                    if progress.statesTotal > 0 {
+                        Text("States checked: \(progress.statesChecked) of \(progress.statesTotal)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("sync.progress")
@@ -111,14 +116,38 @@ struct SyncReportView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+            if let states = report.states {
+                if states.stored.isEmpty && states.listingError == nil {
+                    Text("States up to date · states checked: \(states.total)")
+                        .font(.footnote)
+                } else if !states.stored.isEmpty {
+                    Text("New state versions: \(states.stored.count) · states checked: \(states.total)")
+                        .font(.footnote)
+                }
+                if states.listingError != nil {
+                    Text("The states could not all be checked; the next sync tries again.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if states.truncated {
+                    Text("The console listed only its first 20,000 states.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("sync.report")
-        if !report.failures.isEmpty {
+        let failures = report.failures + (report.states?.failures ?? [])
+        if !failures.isEmpty {
             DisclosureGroup(isExpanded: $showFailures) {
-                ForEach(report.failures) { failure in
+                ForEach(failures) { failure in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(failure.gameName).font(.subheadline)
+                        if let slot = failure.slot {
+                            Text("\(failure.gameName) · state \(slot)").font(.subheadline)
+                        } else {
+                            Text(failure.gameName).font(.subheadline)
+                        }
                         Text(AppError.sync(failure.error.error).message)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -126,7 +155,7 @@ struct SyncReportView: View {
                     .accessibilityElement(children: .combine)
                 }
             } label: {
-                Label("\(report.failures.count) saves could not be copied", systemImage: "exclamationmark.triangle")
+                Label("\(failures.count) files could not be copied", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             }
             .accessibilityIdentifier("sync.failures")
@@ -208,6 +237,11 @@ struct SyncedSavesView: View {
                                         .font(.footnote)
                                         .foregroundStyle(.secondary)
                                 }
+                                if !game.stateSlots.isEmpty {
+                                    Text("States: \(game.stateSlots.count)")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .accessibilityElement(children: .combine)
                         }
@@ -251,6 +285,10 @@ struct SyncedGameView: View {
     @Environment(AppModel.self) private var app
     let route: SyncedGameRoute
     @State private var versions: [SaveVersion]?
+    /// M19: the state versions, by slot then last published first.
+    @State private var stateVersions: [StateVersion] = []
+    @State private var selectedState: StateVersion?
+    @State private var stateToRestore: StateVersion?
     @State private var error: AppError?
     @State private var notice: String?
     @State private var selected: SaveVersion?
@@ -303,6 +341,36 @@ struct SyncedGameView: View {
             } footer: {
                 Text("Up to 10 versions are kept; the oldest is removed when a new one is synced.")
             }
+            let slots = Dictionary(grouping: stateVersions, by: \.info.slot)
+            ForEach(slots.keys.sorted(), id: \.self) { slot in
+                Section {
+                    ForEach(Array((slots[slot] ?? []).enumerated()), id: \.element.id) { index, version in
+                        Button {
+                            selectedState = version
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text(version.info.syncedAt.formatted(date: .abbreviated, time: .standard))
+                                    if index == 0 {
+                                        Text("Latest")
+                                            .font(.caption)
+                                            .padding(.horizontal, 6)
+                                            .background(Capsule().fill(.tint.opacity(0.15)))
+                                    }
+                                }
+                                Text(verbatim: "\(version.info.state.name) · \(version.info.state.sizeBytes.byteString)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                        .tint(.primary)
+                        .accessibilityIdentifier("synced.state.\(slot).\(index)")
+                    }
+                } header: {
+                    Text("State \(slot)")
+                }
+            }
         }
         .overlay {
             if versions == nil && error == nil { ProgressView() }
@@ -328,6 +396,27 @@ struct SyncedGameView: View {
             Button("Share") { Task { await share(version) } }
                 .accessibilityIdentifier("synced.share")
         }
+        .confirmationDialog(
+            selectedState?.info.syncedAt.formatted(date: .abbreviated, time: .standard) ?? "",
+            isPresented: Binding(get: { selectedState != nil }, set: { if !$0 { selectedState = nil } }),
+            titleVisibility: .visible, presenting: selectedState
+        ) { version in
+            Button("Restore to the Console…") { stateToRestore = version }
+                .accessibilityIdentifier("synced.state.restore")
+            Button("Share") { Task { await share(version) } }
+                .accessibilityIdentifier("synced.state.share")
+        }
+        .alert(
+            "Restore this state?",
+            isPresented: Binding(get: { stateToRestore != nil }, set: { if !$0 { stateToRestore = nil } }),
+            presenting: stateToRestore
+        ) { version in
+            Button("Restore") { Task { await restore(version) } }
+                .accessibilityIdentifier("synced.state.restore.confirm")
+            Button("Cancel", role: .cancel) {}
+        } message: { version in
+            Text("State \(version.info.slot) of \(route.name) on the console will be replaced by the version of \(version.info.syncedAt.formatted(date: .abbreviated, time: .standard)). The console first moves its current state to its trash; a locked state is not replaced.")
+        }
         .alert(
             "Restore this version?",
             isPresented: Binding(get: { toRestore != nil }, set: { if !$0 { toRestore = nil } }),
@@ -347,6 +436,7 @@ struct SyncedGameView: View {
         do {
             let vault = await app.currentVault()
             versions = try await vault.versions(deviceId: route.deviceId, gameId: route.gameId)
+            stateVersions = try await vault.stateVersions(deviceId: route.deviceId, gameId: route.gameId)
             self.vault = vault
             error = nil
         } catch {
@@ -368,6 +458,38 @@ struct SyncedGameView: View {
             error = nil
         } catch {
             self.error = AppError.sync(error)
+        }
+    }
+
+    private func share(_ version: StateVersion) async {
+        guard let vault else { return }
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            let files = try await app.work.run {
+                try await vault.exportStateVerified(
+                    deviceId: route.deviceId, gameId: route.gameId, version: version, to: app.exportDirectory
+                )
+            }
+            exported = ExportedFile(file: DownloadedFile(url: files.state), others: files.thumbnail.map { [$0] } ?? [])
+            error = nil
+        } catch {
+            self.error = AppError.sync(error)
+        }
+    }
+
+    private func restore(_ version: StateVersion) async {
+        guard let vault else { return }
+        isWorking = true
+        defer { isWorking = false }
+        notice = nil
+        do {
+            _ = try await app.session(for: route.deviceId).restore(version, gameId: route.gameId, gameName: route.name, from: vault)
+            notice = String(localized: "The state is being sent to the console. Follow it in Transfers.")
+            error = nil
+        } catch {
+            let error = AppError.restore(error)
+            if !error.isCancellation { self.error = error }
         }
     }
 
@@ -413,13 +535,13 @@ struct AppSettingsView: View {
                     // Where they go now (the vault is chosen at each use).
                     switch app.vaultLocation {
                     case .iCloud:
-                        Text("The saves of a console (with their clock files) are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save.")
+                        Text("The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save and per state.")
                     case .local:
-                        Text("The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save.")
+                        Text("The saves of a console (with their clock files) and its states are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save and per state.")
                     case .demo:
-                        Text("Demo mode: the saves of the demo console are copied to a temporary folder, erased when you quit the demo. Up to 10 versions are kept per save.")
+                        Text("Demo mode: the saves and states of the demo console are copied to a temporary folder, erased when you quit the demo. Up to 10 versions are kept per save and per state.")
                     case nil:
-                        Text("The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save.")
+                        Text("The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save and per state.")
                     }
                     if let location = app.vaultLocation { VaultLocationNotice(location: location) }
                 }

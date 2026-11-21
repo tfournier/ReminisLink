@@ -10,6 +10,16 @@ public protocol SaveSyncSource: Sendable {
 
 extension APIClient: SaveSyncSource {}
 
+/// What the state sync needs from a console (M19). A ``SaveSyncSource``
+/// that is not one syncs the saves only.
+public protocol StateSyncSource: Sendable {
+    func allStates() async throws -> StateList
+    func downloadState(gameId: String, slot: Int, into directory: URL) async throws -> DownloadedFile
+    func downloadStateThumbnail(gameId: String, slot: Int, into directory: URL) async throws -> DownloadedFile
+}
+
+extension APIClient: StateSyncSource {}
+
 /// Where a sync stands.
 public struct SaveSyncProgress: Sendable, Equatable {
     /// Saves listed by the console.
@@ -20,15 +30,30 @@ public struct SaveSyncProgress: Sendable, Equatable {
     public var stored: Int
     /// The game being compared or downloaded.
     public var currentGame: String?
+    /// States listed by the console (M19; 0 for a pak without `GET /states`).
+    public var statesTotal: Int
+    /// States compared so far.
+    public var statesChecked: Int
+    /// New state versions stored so far.
+    public var statesStored: Int
 
-    public init(total: Int = 0, checked: Int = 0, stored: Int = 0, currentGame: String? = nil) {
+    public init(
+        total: Int = 0, checked: Int = 0, stored: Int = 0, currentGame: String? = nil,
+        statesTotal: Int = 0, statesChecked: Int = 0, statesStored: Int = 0
+    ) {
         self.total = total
         self.checked = checked
         self.stored = stored
         self.currentGame = currentGame
+        self.statesTotal = statesTotal
+        self.statesChecked = statesChecked
+        self.statesStored = statesStored
     }
 
-    public var fraction: Double { total == 0 ? 0 : Double(checked) / Double(total) }
+    public var fraction: Double {
+        let all = total + statesTotal
+        return all == 0 ? 0 : Double(checked + statesChecked) / Double(all)
+    }
 }
 
 /// Why the save of one game was not stored.
@@ -41,14 +66,17 @@ public enum SaveSyncError: Error, Equatable, Sendable {
 
 /// A game whose save could not be copied (the others go on).
 public struct SaveSyncFailure: Sendable, Equatable, Identifiable {
-    public var id: String { gameId }
+    public var id: String { slot.map { "\(gameId)/\($0)" } ?? gameId }
     public let gameId: String
     public let gameName: String
+    /// The state slot, for a state (M19); nil for a save.
+    public let slot: Int?
     public let error: SyncErrorBox
 
-    public init(gameId: String, gameName: String, error: any Error) {
+    public init(gameId: String, gameName: String, slot: Int? = nil, error: any Error) {
         self.gameId = gameId
         self.gameName = gameName
+        self.slot = slot
         self.error = SyncErrorBox(error)
     }
 }
@@ -75,6 +103,33 @@ public struct SaveSyncReport: Sendable, Equatable {
     /// The console listed only its first 10000 saves.
     public let truncated: Bool
     public let finishedAt: Date
+    /// M19: the states, nil when the pak has no `GET /states` (older pak).
+    public let states: StateSyncReport?
+}
+
+/// The outcome of the state part of a sync (M19).
+public struct StateSyncReport: Sendable, Equatable {
+    /// States listed by the console.
+    public let total: Int
+    /// States with a new version (`<gameId>/<slot>`).
+    public let stored: [String]
+    /// States identical to their newest version.
+    public let unchanged: Int
+    public let failures: [SaveSyncFailure]
+    /// The console listed only its first 20000 states.
+    public let truncated: Bool
+    /// The listing failed, or the console was lost during the states: the
+    /// states (or the rest of them) wait for the next sync.
+    public let listingError: SyncErrorBox?
+
+    public init(total: Int, stored: [String], unchanged: Int, failures: [SaveSyncFailure], truncated: Bool, listingError: SyncErrorBox? = nil) {
+        self.total = total
+        self.stored = stored
+        self.unchanged = unchanged
+        self.failures = failures
+        self.truncated = truncated
+        self.listingError = listingError
+    }
 }
 
 /// Copies the saves of a console that changed since their newest version
@@ -134,10 +189,133 @@ public struct SaveSync: Sendable {
             state.currentGame = nil
             progress(state)
         }
+
+        // States (M19), after the saves: whatever happens to them, the
+        // saves already copied are reported (Codex review). The same
+        // rules, one series of versions per slot.
+        var statesReport: StateSyncReport?
+        let listing = await listStates()
+        if case .failed(let error) = listing {
+            if error is CancellationError { throw error }
+            statesReport = StateSyncReport(total: 0, stored: [], unchanged: 0, failures: [], truncated: false, listingError: SyncErrorBox(error))
+        }
+        if case .listed(let stateList) = listing, let stateSource = source as? any StateSyncSource {
+            state.statesTotal = stateList.states.count
+            progress(state)
+            var stopped: SyncErrorBox?
+            var statesStored: [String] = []
+            var statesUnchanged = 0
+            var stateFailures: [SaveSyncFailure] = []
+            var latestByGame: [String: [Int: StateVersion]] = [:]
+            for summary in stateList.states where stopped == nil {
+                try Task.checkCancellation()
+                state.currentGame = summary.gameName
+                progress(state)
+                do {
+                    if latestByGame[summary.gameId] == nil {
+                        latestByGame[summary.gameId] = try await vault.latestStateVersions(deviceId: console.deviceId, gameId: summary.gameId)
+                    }
+                    let latest = latestByGame[summary.gameId]?[summary.slot]
+                    if Self.needsNewVersion(summary, latest: latest) {
+                        try await sync(summary, from: stateSource, systemName: labels[summary.systemId] ?? Self.systemName(fromStatePath: summary.path))
+                        statesStored.append(summary.id)
+                        state.statesStored += 1
+                    } else {
+                        statesUnchanged += 1
+                    }
+                } catch {
+                    if error is CancellationError { throw error }
+                    // Losing the console stops the states, not the report
+                    // of the saves.
+                    if Self.stopsSync(error) { stopped = SyncErrorBox(error) }
+                    stateFailures.append(SaveSyncFailure(gameId: summary.gameId, gameName: summary.gameName, slot: summary.slot, error: error))
+                }
+                state.statesChecked += 1
+                state.currentGame = nil
+                progress(state)
+            }
+            statesReport = StateSyncReport(
+                total: stateList.states.count, stored: statesStored, unchanged: statesUnchanged,
+                failures: stateFailures, truncated: stateList.truncated, listingError: stopped
+            )
+        }
         return SaveSyncReport(
             location: vault.location, total: list.saves.count, stored: stored, unchanged: unchanged,
-            failures: failures, truncated: list.truncated, finishedAt: Date()
+            failures: failures, truncated: list.truncated, finishedAt: Date(), states: statesReport
         )
+    }
+
+    private enum StateListing {
+        case unsupported
+        case listed(StateList)
+        case failed(any Error)
+    }
+
+    /// `GET /states`: unsupported when the source has no states or the pak
+    /// no route (`404`, `405`: a pak older than M19); a failure (a timeout,
+    /// the console lost) is reported with the saves, and the next sync
+    /// tries again.
+    private func listStates() async -> StateListing {
+        guard let stateSource = source as? any StateSyncSource else { return .unsupported }
+        do {
+            return .listed(try await stateSource.allStates())
+        } catch APIError.server(let error) where error.status == 404 || error.status == 405 {
+            return .unsupported
+        } catch APIError.unexpectedStatus(let status) where status == 404 || status == 405 {
+            return .unsupported
+        } catch {
+            return .failed(error)
+        }
+    }
+
+    /// Whether a state needs a new version: its SHA-256 or the SHA-256 of
+    /// its thumbnail differ from the newest version of its slot (or there
+    /// is none).
+    public static func needsNewVersion(_ state: StateSummary, latest: StateVersion?) -> Bool {
+        guard let latest else { return true }
+        return latest.info.state.sha256 != state.sha256.lowercased()
+            || latest.info.thumbnail?.sha256 != state.thumbnail?.sha256.lowercased()
+    }
+
+    /// Stores a new version of a state (and its thumbnail), each checked
+    /// against the listed SHA-256.
+    private func sync(_ summary: StateSummary, from stateSource: any StateSyncSource, systemName: String) async throws {
+        let folder = scratchDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let stateFile = try await stateSource.downloadState(gameId: summary.gameId, slot: summary.slot, into: folder)
+        let stateSHA = try await Self.checked(stateFile.url, expected: summary.sha256)
+        var thumbnailFile: NewVersionFile?
+        if let thumbnail = summary.thumbnail {
+            do {
+                let file = try await stateSource.downloadStateThumbnail(gameId: summary.gameId, slot: summary.slot, into: folder)
+                // Named after the state (a ".png"), never like the state itself.
+                let name = Self.thumbnailName(forState: stateFile.url.lastPathComponent)
+                thumbnailFile = NewVersionFile(url: file.url, name: name, sha256: try await Self.checked(file.url, expected: thumbnail.sha256))
+            } catch APIError.server(let error) where error.status == 404 {
+                // Removed since the listing: the state alone.
+            }
+        }
+        _ = try await vault.addStateVersion(
+            console: console,
+            game: VaultGameInfo(gameId: summary.gameId, systemId: summary.systemId, systemName: systemName, name: summary.gameName),
+            slot: summary.slot,
+            state: NewVersionFile(url: stateFile.url, name: stateFile.url.lastPathComponent, sha256: stateSHA),
+            thumbnail: thumbnailFile, modifiedAt: summary.modifiedAt
+        )
+    }
+
+    /// `Game.gba.st0.png` for `Game.gba.st0`.
+    static func thumbnailName(forState name: String) -> String { name + ".png" }
+
+    /// The tag of a state folder (`.userdata/shared/GBA-gpsp/Game.gba.st0`
+    /// gives `GBA`), else `_`.
+    static func systemName(fromStatePath path: String) -> String {
+        let parts = path.split(separator: "/")
+        guard parts.count >= 2 else { return "_" }
+        let folder = parts[parts.count - 2]
+        return String(folder.split(separator: "-").first ?? folder)
     }
 
     /// Whether a save needs a new version: its SHA-256 or the SHA-256 of

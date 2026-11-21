@@ -169,7 +169,20 @@ func findFold(dir, name string) string {
 		fa, errA := os.Lstat(filepath.Join(dir, match))
 		fb, errB := os.Lstat(filepath.Join(dir, name))
 		if errA != nil || errB != nil || !os.SameFile(fa, fb) {
-			return ""
+			match = ""
+		}
+	}
+	if match == "" {
+		// The file system may still find an entry under name that the
+		// names do not show (APFS: Café in NFD for Café in NFC; M19 final
+		// review): it is taken.
+		if fb, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			for _, d := range des {
+				if fa, err := os.Lstat(filepath.Join(dir, d.Name())); err == nil && os.SameFile(fa, fb) {
+					return d.Name()
+				}
+			}
+			return name
 		}
 	}
 	return match

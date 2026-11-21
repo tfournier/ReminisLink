@@ -141,6 +141,16 @@
         }
       }
     },
+    "%@ · state %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · état %2$lld"
+          }
+        }
+      }
+    },
     "%@/s" : {
       "localizations" : {
         "fr" : {
@@ -184,6 +194,166 @@
                 "stringUnit" : {
                   "state" : "translated",
                   "value" : "%lld codes de triche"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld files could not be copied" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file could not be copied"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files could not be copied"
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld fichier n’a pas pu être copié"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld fichiers n’ont pas pu être copiés"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld files of %@ will be replaced. The console first moves them to its trash, and keeps a copy of the save in its backup copies." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file of %@ will be replaced. The console first moves it to its trash, and keeps a copy of the save in its backup copies."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files of %@ will be replaced. The console first moves them to its trash, and keeps a copy of the save in its backup copies."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichier de %2$@ sera remplacé. La console le met d’abord dans sa corbeille et garde une copie de la sauvegarde dans ses copies de secours."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichiers de %2$@ seront remplacés. La console les met d’abord dans sa corbeille et garde une copie de la sauvegarde dans ses copies de secours."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld files of %@ will be replaced. The console first moves them to its trash." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file of %@ will be replaced. The console first moves it to its trash."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files of %@ will be replaced. The console first moves them to its trash."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichier de %2$@ sera remplacé. La console le met d’abord dans sa corbeille."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichiers de %2$@ seront remplacés. La console les met d’abord dans sa corbeille."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld files of %@ will be replaced. The console first moves them to its trash; if the game has a save, it also keeps a copy of it in its backup copies." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file of %@ will be replaced. The console first moves it to its trash; if the game has a save, it also keeps a copy of it in its backup copies."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files of %@ will be replaced. The console first moves them to its trash; if the game has a save, it also keeps a copy of it in its backup copies."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichier de %2$@ sera remplacé. La console le met d’abord dans sa corbeille ; si le jeu a une sauvegarde, elle en garde aussi une copie dans ses copies de secours."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichiers de %2$@ seront remplacés. La console les met d’abord dans sa corbeille ; si le jeu a une sauvegarde, elle en garde aussi une copie dans ses copies de secours."
                 }
               }
             }
@@ -271,46 +441,6 @@
         }
       }
     },
-    "%lld saves could not be copied" : {
-      "localizations" : {
-        "en" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld save could not be copied"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld saves could not be copied"
-                }
-              }
-            }
-          }
-        },
-        "fr" : {
-          "variations" : {
-            "plural" : {
-              "one" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld sauvegarde n’a pas pu être copiée"
-                }
-              },
-              "other" : {
-                "stringUnit" : {
-                  "state" : "translated",
-                  "value" : "%lld sauvegardes n’ont pas pu être copiées"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "%lld states" : {
       "localizations" : {
         "en" : {
@@ -377,6 +507,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld/%2$lld · Une copie de la sauvegarde actuelle est faite sur la console."
+          }
+        }
+      }
+    },
+    "A .reminislink.zip archive exported from a game of this console or another one. The console checks it before anything is written." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une archive .reminislink.zip exportée depuis un jeu de cette console ou d’une autre. La console la vérifie avant d’écrire quoi que ce soit."
           }
         }
       }
@@ -461,6 +601,16 @@
         }
       }
     },
+    "A new game in %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nouveau jeu dans %@"
+          }
+        }
+      }
+    },
     "A picture of the QR code shown by the console, taken with another device and sent with AirDrop, for example." : {
       "localizations" : {
         "fr" : {
@@ -487,6 +637,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Une archive zip installée sur la console comme outil ou émulateur. Un pak du même nom n’est jamais remplacé sans demander."
+          }
+        }
+      }
+    },
+    "A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this iPhone or import on another console." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this device or import on another console."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this iPhone or import on another console."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this device or import on another console."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this device or import on another console."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Un zip avec la sauvegarde, son fichier d’horloge, les états et leurs vignettes, les codes de triche et la jaquette, à garder sur cet appareil ou à importer sur une autre console."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Un zip avec la sauvegarde, son fichier d’horloge, les états et leurs vignettes, les codes de triche et la jaquette, à garder sur cet iPhone ou à importer sur une autre console."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Un zip avec la sauvegarde, son fichier d’horloge, les états et leurs vignettes, les codes de triche et la jaquette, à garder sur cet appareil ou à importer sur une autre console."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Un zip avec la sauvegarde, son fichier d’horloge, les états et leurs vignettes, les codes de triche et la jaquette, à garder sur cet appareil ou à importer sur une autre console."
+                }
+              }
+            }
           }
         }
       }
@@ -557,6 +771,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ajouter à la liste"
+          }
+        }
+      }
+    },
+    "Added" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouté"
           }
         }
       }
@@ -677,6 +901,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Apps"
+          }
+        }
+      }
+    },
+    "Archive" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive"
           }
         }
       }
@@ -821,6 +1055,16 @@
         }
       }
     },
+    "Before import" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avant import"
+          }
+        }
+      }
+    },
     "Before patch" : {
       "localizations" : {
         "fr" : {
@@ -917,6 +1161,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Annuler le téléchargement de %@"
+          }
+        }
+      }
+    },
+    "Cancel the export" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler l’export"
           }
         }
       }
@@ -1065,12 +1319,32 @@
         }
       }
     },
+    "Choose Another Archive…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir une autre archive…"
+          }
+        }
+      }
+    },
     "Choose Another File…" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisir un autre fichier…"
+          }
+        }
+      }
+    },
+    "Choose Another Game…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir un autre jeu…"
           }
         }
       }
@@ -1121,6 +1395,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisis une archive zip ou un dossier dont le nom finit par .pak."
+          }
+        }
+      }
+    },
+    "Choose an Archive…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir une archive…"
           }
         }
       }
@@ -1579,12 +1863,12 @@
         }
       }
     },
-    "Demo mode: the saves of the demo console are copied to a temporary folder, erased when you quit the demo. Up to 10 versions are kept per save." : {
+    "Demo mode: the saves and states of the demo console are copied to a temporary folder, erased when you quit the demo. Up to 10 versions are kept per save and per state." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mode démo : les sauvegardes de la console de démo sont copiées dans un dossier temporaire, effacé quand tu quittes la démo. Jusqu’à 10 versions sont gardées par sauvegarde."
+            "value" : "Mode démo : les sauvegardes et les états de la console de démo sont copiés dans un dossier temporaire, effacé quand tu quittes la démo. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
           }
         }
       }
@@ -1983,6 +2267,36 @@
         }
       }
     },
+    "Export the Game Data…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporter les données du jeu…"
+          }
+        }
+      }
+    },
+    "Export the data of %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporter les données de %@"
+          }
+        }
+      }
+    },
+    "Exported" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exportée le"
+          }
+        }
+      }
+    },
     "Extract the ROM first: the console does not patch an archive (.zip, .7z)." : {
       "localizations" : {
         "fr" : {
@@ -2029,6 +2343,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Fichiers"
+          }
+        }
+      }
+    },
+    "Files are matched by what they are, never by their path, and named as this console names them. A replaced file goes to the console's trash first; the save is also kept in its backup copies." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers sont associés selon ce qu’ils sont, jamais selon leur chemin, et nommés comme cette console les nomme. Un fichier remplacé va d’abord dans la corbeille de la console ; la sauvegarde est aussi gardée dans ses copies de secours."
           }
         }
       }
@@ -2119,6 +2443,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Libère l’espace tout de suite. Tout le contenu de la corbeille de la console est supprimé définitivement."
+          }
+        }
+      }
+    },
+    "From" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Depuis"
           }
         }
       }
@@ -2313,12 +2647,112 @@
         }
       }
     },
+    "Import Game Data" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer des données de jeu"
+          }
+        }
+      }
+    },
+    "Import Game Data…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer des données de jeu…"
+          }
+        }
+      }
+    },
     "Import a Picture" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Importer une image"
+          }
+        }
+      }
+    },
+    "Import an Archive…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer une archive…"
+          }
+        }
+      }
+    },
+    "Import as a New Game…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer comme nouveau jeu…"
+          }
+        }
+      }
+    },
+    "Import into That Game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer dans ce jeu"
+          }
+        }
+      }
+    },
+    "Import: %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import : %@"
+          }
+        }
+      }
+    },
+    "Imported: %lld files." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported: %lld file."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Imported: %lld files."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Importé : %lld fichier."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Importés : %lld fichiers."
+                }
+              }
+            }
           }
         }
       }
@@ -2429,6 +2863,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Installation sur la console…"
+          }
+        }
+      }
+    },
+    "Into" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vers"
           }
         }
       }
@@ -2747,6 +3191,16 @@
         }
       }
     },
+    "Move this game to another console, or keep its data: the save, the states, the cheats and the art in one file. On import, whatever is replaced goes to the console's trash first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplace ce jeu vers une autre console, ou garde ses données : la sauvegarde, les états, les codes de triche et la jaquette dans un seul fichier. À l’import, tout ce qui est remplacé va d’abord dans la corbeille de la console."
+          }
+        }
+      }
+    },
     "Move to Trash" : {
       "localizations" : {
         "fr" : {
@@ -2911,6 +3365,16 @@
         }
       }
     },
+    "New state versions: %lld · states checked: %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelles versions d’états : %1$lld · états vérifiés : %2$lld"
+          }
+        }
+      }
+    },
     "New versions: %lld · saves checked: %lld" : {
       "localizations" : {
         "fr" : {
@@ -3027,6 +3491,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun jeu dans ce dossier."
+          }
+        }
+      }
+    },
+    "No game of this console matches the archive. Choose the game its data go to." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun jeu de cette console ne correspond à l’archive. Choisis le jeu qui recevra ses données."
           }
         }
       }
@@ -3501,6 +3975,16 @@
         }
       }
     },
+    "Preparing the archive… %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Préparation de l’archive… %@"
+          }
+        }
+      }
+    },
     "Preparing the file…" : {
       "localizations" : {
         "fr" : {
@@ -3831,6 +4315,16 @@
         }
       }
     },
+    "Replace the data of this game?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer les données de ce jeu ?"
+          }
+        }
+      }
+    },
     "Replace the game?" : {
       "localizations" : {
         "fr" : {
@@ -3877,6 +4371,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer l’état de la console ?"
+          }
+        }
+      }
+    },
+    "Replaces the current file" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplace le fichier actuel"
           }
         }
       }
@@ -3967,6 +4471,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Restaurer cette copie ?"
+          }
+        }
+      }
+    },
+    "Restore this state?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer cet état ?"
           }
         }
       }
@@ -4325,6 +4839,16 @@
         }
       }
     },
+    "Sending the archive to the console…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi de l’archive à la console…"
+          }
+        }
+      }
+    },
     "Sending the patch… %@" : {
       "localizations" : {
         "fr" : {
@@ -4455,6 +4979,76 @@
         }
       }
     },
+    "Skipped" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignoré"
+          }
+        }
+      }
+    },
+    "Skipped: its state is not imported" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignoré : son état n’est pas importé"
+          }
+        }
+      }
+    },
+    "Skipped: no emulator for this system" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignoré : aucun émulateur pour ce système"
+          }
+        }
+      }
+    },
+    "Skipped: no game chosen" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignoré : aucun jeu choisi"
+          }
+        }
+      }
+    },
+    "Skipped: not supported by this console" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignoré : non pris en charge par cette console"
+          }
+        }
+      }
+    },
+    "Skipped: the game is already there" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignoré : le jeu est déjà là"
+          }
+        }
+      }
+    },
+    "Skipped: the state is locked" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignoré : l’état est verrouillé"
+          }
+        }
+      }
+    },
     "Slot %lld" : {
       "localizations" : {
         "fr" : {
@@ -4555,6 +5149,26 @@
         }
       }
     },
+    "State %lld of %@ on the console will be replaced by the version of %@. The console first moves its current state to its trash; a locked state is not replaced." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’état %1$lld de %2$@ sur la console sera remplacé par la version du %3$@. La console met d’abord son état actuel dans sa corbeille ; un état verrouillé n’est pas remplacé."
+          }
+        }
+      }
+    },
+    "State thumbnail" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vignette d’état"
+          }
+        }
+      }
+    },
     "States" : {
       "localizations" : {
         "fr" : {
@@ -4565,12 +5179,52 @@
         }
       }
     },
+    "States checked: %lld of %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "États vérifiés : %1$lld sur %2$lld"
+          }
+        }
+      }
+    },
+    "States up to date · states checked: %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "États à jour · états vérifiés : %lld"
+          }
+        }
+      }
+    },
+    "States: %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "États : %lld"
+          }
+        }
+      }
+    },
     "Storage" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Stockage"
+          }
+        }
+      }
+    },
+    "Suggested by the console from the name of the game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proposé par la console d’après le nom du jeu."
           }
         }
       }
@@ -4641,6 +5295,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Touche pour parcourir la carte SD (lecture seule)."
+          }
+        }
+      }
+    },
+    "Target" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Destination"
           }
         }
       }
@@ -4809,6 +5473,16 @@
         }
       }
     },
+    "The console checks the archive…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console vérifie l’archive…"
+          }
+        }
+      }
+    },
     "The console closed ReminisLink" : {
       "localizations" : {
         "fr" : {
@@ -4955,6 +5629,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console n’a listé que ses 10 000 premières sauvegardes."
+          }
+        }
+      }
+    },
+    "The console listed only its first 20,000 states." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console n’a listé que ses 20 000 premiers états."
           }
         }
       }
@@ -5669,6 +6353,26 @@
         }
       }
     },
+    "The previous save is in the backup copies of the game on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sauvegarde précédente est dans les copies de secours du jeu sur la console."
+          }
+        }
+      }
+    },
+    "The replaced files are in the console's trash." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers remplacés sont dans la corbeille de la console."
+          }
+        }
+      }
+    },
     "The request is too large for the console." : {
       "localizations" : {
         "fr" : {
@@ -5719,7 +6423,7 @@
         }
       }
     },
-    "The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save." : {
+    "The saves of a console (with their clock files) and its states are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save and per state." : {
       "localizations" : {
         "en" : {
           "variations" : {
@@ -5727,25 +6431,25 @@
               "ipad" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               },
               "iphone" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               },
               "mac" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               }
             }
@@ -5757,25 +6461,25 @@
               "ipad" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               },
               "iphone" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               },
               "mac" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               }
             }
@@ -5783,17 +6487,17 @@
         }
       }
     },
-    "The saves of a console (with their clock files) are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save." : {
+    "The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, never to the publisher of the app. Up to 10 versions are kept per save and per state." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+            "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés dans ton propre iCloud Drive, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
           }
         }
       }
     },
-    "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save." : {
+    "The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save and per state." : {
       "localizations" : {
         "en" : {
           "variations" : {
@@ -5801,25 +6505,25 @@
               "ipad" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               },
               "iphone" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               },
               "mac" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                  "value" : "The saves of a console (with their clock files) and its states are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save and per state."
                 }
               }
             }
@@ -5831,25 +6535,25 @@
               "ipad" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               },
               "iphone" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               },
               "mac" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) et ses états sont copiés dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde et par état."
                 }
               }
             }
@@ -5863,6 +6567,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L’état va dans la corbeille de la console, effacé automatiquement après 30 jours ou quand elle est vidée."
+          }
+        }
+      }
+    },
+    "The state is being sent to the console. Follow it in Transfers." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’état est en cours d’envoi vers la console. Suis-le dans Transferts."
+          }
+        }
+      }
+    },
+    "The states could not all be checked; the next sync tries again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les états n’ont pas tous pu être vérifiés ; la prochaine synchronisation réessaiera."
           }
         }
       }
@@ -6155,6 +6879,16 @@
         }
       }
     },
+    "This file is not a ReminisLink game archive, or it is damaged, or it was made by a newer version of ReminisLink." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier n’est pas une archive de jeu ReminisLink, ou elle est abîmée, ou elle a été faite par une version plus récente de ReminisLink."
+          }
+        }
+      }
+    },
     "This file is not a patch the console can apply. Choose an IPS, BPS or UPS patch." : {
       "localizations" : {
         "fr" : {
@@ -6195,6 +6929,16 @@
         }
       }
     },
+    "This game has no data to export." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu n’a aucune donnée à exporter."
+          }
+        }
+      }
+    },
     "This game has no save on the console." : {
       "localizations" : {
         "fr" : {
@@ -6221,6 +6965,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce jeu a plusieurs disques : un patch s’applique à un seul fichier ROM, donc les jeux multi-disques ne peuvent pas être patchés ici."
+          }
+        }
+      }
+    },
+    "This game is already on the console. Import the archive into that game instead." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce jeu est déjà sur la console. Importe plutôt l’archive dans ce jeu."
           }
         }
       }
@@ -6479,6 +7233,16 @@
         }
       }
     },
+    "Thumbnail of state %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vignette de l’état %lld"
+          }
+        }
+      }
+    },
     "Too many attempts. Try again in %lld seconds." : {
       "localizations" : {
         "en" : {
@@ -6709,6 +7473,16 @@
         }
       }
     },
+    "Update ReminisLink on the console to export and import game archives." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mets à jour ReminisLink sur la console pour exporter et importer des archives de jeu."
+          }
+        }
+      }
+    },
     "Update ReminisLink on the console to manage its apps and browse its SD card." : {
       "localizations" : {
         "fr" : {
@@ -6815,6 +7589,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Avec son fichier d’horloge"
+          }
+        }
+      }
+    },
+    "With the Game File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec le fichier du jeu"
+          }
+        }
+      }
+    },
+    "Without the Game File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sans le fichier du jeu"
           }
         }
       }

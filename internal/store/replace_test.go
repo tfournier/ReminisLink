@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -649,5 +650,94 @@ func TestTrashDirLinkIsNotFollowed(t *testing.T) {
 	}
 	if !exists(filepath.Join(sd, "Roms/GBA (GBA)/Game.gba")) || !exists(journal) {
 		t.Fatal("files lost")
+	}
+}
+
+// TestInstallsWithoutItemsAreJournaled (M19, Codex review): installs that
+// replace nothing are journaled too; a power cut after the first rename
+// is finished at the next start, and the journal, empty, is never listed.
+func TestInstallsWithoutItemsAreJournaled(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	rom := filepath.Join(sd, "Roms/GBA (GBA)/Game.gba")
+	save := filepath.Join(sd, "Saves/GBA/Game.gba.sav")
+	tmpROM := write(t, sd, ".userdata/shared/ReminisLink/uploads/ar_1.part", "rom")
+	tmpSave := write(t, sd, ".userdata/shared/ReminisLink/uploads/ar_2.part", "save")
+	installs := []Install{
+		{Src: tmpROM, Dst: rom, Size: 3, SHA256: sha("rom")},
+		{Src: tmpSave, Dst: save, Size: 4, SHA256: sha("save")},
+	}
+	// The power cut: the process stops right after the first rename
+	// (simulated by panicking out of the second one).
+	calls := 0
+	tr.rename = func(oldpath, newpath string) error {
+		calls++
+		if calls == 2 {
+			panic("power cut")
+		}
+		return os.Rename(oldpath, newpath)
+	}
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = tr.Replace(ReasonImportArchive, "Game", nil, installs)
+	}()
+	tr.mu = sync.Mutex{} // the lock died with the process
+	tr.rename = os.Rename
+	if !exists(rom) || exists(save) {
+		t.Fatal("not interrupted after the first rename")
+	}
+	if src := tr.PendingSources(); !src[tmpSave] {
+		t.Fatalf("the remaining temporary file is not protected: %v", src)
+	}
+	if entries, _, _ := tr.List(); len(entries) != 0 {
+		t.Fatalf("journal listed: %+v", entries)
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(save); string(data) != "save" {
+		t.Fatalf("installation not finished: %q", data)
+	}
+	if names, _ := os.ReadDir(tr.Dir()); len(names) != 0 {
+		t.Fatalf("journal left: %v", names)
+	}
+
+	// A completed one leaves nothing in the trash.
+	tmp := write(t, sd, ".userdata/shared/ReminisLink/uploads/ar_3.part", "art")
+	art := filepath.Join(sd, "Roms/GBA (GBA)/.media/Game.png")
+	if _, err := tr.Replace(ReasonImportArchive, "Game", nil, []Install{{Src: tmp, Dst: art, Size: 3}}); err != nil || !exists(art) {
+		t.Fatalf("install: %v", err)
+	}
+	if names, _ := os.ReadDir(tr.Dir()); len(names) != 0 {
+		t.Fatalf("journal left: %v", names)
+	}
+}
+
+// TestNewFoldersAreDurableBeforeTheJournalGoes (M19 Codex review 2): a
+// folder made for an install has its entry synced in its parent, at
+// every level made, before the journal is removed.
+func TestNewFoldersAreDurableBeforeTheJournalGoes(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	var synced []string
+	tr.syncDir = func(dir string) error {
+		synced = append(synced, dir)
+		return SyncDirChecked(dir)
+	}
+	tmp := write(t, sd, ".userdata/shared/ReminisLink/uploads/ar_1.part", "save")
+	dst := filepath.Join(sd, "saves", "gba", "deep", "Zelda.srm")
+	if _, err := tr.Replace(ReasonImportArchive, "Zelda", nil, []Install{{Src: tmp, Dst: dst, Size: 4, SHA256: sha("save")}}); err != nil {
+		t.Fatal(err)
+	}
+	has := func(dir string) bool {
+		for _, d := range synced {
+			if d == dir {
+				return true
+			}
+		}
+		return false
+	}
+	for _, parent := range []string{sd, filepath.Join(sd, "saves"), filepath.Join(sd, "saves", "gba"), filepath.Join(sd, "saves", "gba", "deep")} {
+		if !has(parent) {
+			t.Errorf("%s not synced: %v", parent, synced)
+		}
 	}
 }

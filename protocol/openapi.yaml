@@ -173,6 +173,8 @@ tags:
     description: Tool and emulator paks of the console (M12).
   - name: SD
     description: Read-only browser of the SD card (M12).
+  - name: Archives
+    description: A game's data as a zip archive, exported and imported between consoles (M19).
 
 paths:
   /hello:
@@ -415,8 +417,8 @@ paths:
           every 5 s.
         - `library`: `EventLibrary`, after any change of the SD card made
           through the API by any client (upload installed, deletion,
-          replacement, restore, patch, cheats, art, trash, restore from
-          the trash), so the app
+          replacement, restore, patch, archive import, cheats, art, trash,
+          restore from the trash), so the app
           refreshes what it shows. At most one every second (changes are
           merged).
         - `job`: a `Job`, when a job of any client changes state, and
@@ -627,6 +629,69 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /games/{gameId}/archive:
+    get:
+      tags: [Archives]
+      operationId: exportGameArchive
+      summary: Export the data of a game as a zip archive (M19)
+      description: |
+        Streams a zip archive of the game's data so the user can keep it on
+        the phone or import it on this console or another one
+        (`GET /archives/{stagingId}`, `POST /archives/{stagingId}/import`).
+        Built by the pak from the game's current files (same resolution
+        as `GET /games/{gameId}`): the save, its clock file (`.rtc`), every
+        state with its thumbnail, the cheats and the art; with `rom=true`,
+        the ROM too (single-file games only: an `m3u`, `folder-m3u` or
+        `folder-cue` game answers `422 unsupported_format` with `rom=true`).
+        Locked copies, the resume history and save backups are not
+        exported. Read route: never waits for a write (each file is read
+        through an open descriptor; the pak replaces files by renaming new
+        ones over them, so every file of the archive is whole). Files are
+        opened confined as in `GET /games/{gameId}/files/{fileId}` (no
+        link, under the folder of their role); a refused or vanished file
+        is left out of the archive. A game with nothing to export answers
+        `404 not_found`.
+
+        **Format** (`GameArchiveManifest`, version 1): a zip (stored or
+        deflated entries, zip64 when needed) whose `manifest.json` lists
+        every other file entry with its `role`, `slot` (states and
+        thumbnails), `sizeBytes` and `sha256`. Entry paths are informative
+        (`save/…`, `rtc/…`, `states/<slot>/…`, `cheats/…`, `art/…`,
+        `rom/…`): an importer maps each file by its role, never by its
+        path, to the names the target console uses for the target game.
+        The manifest is written last (its hashes are those of the bytes
+        streamed).
+
+        Response: `Content-Type: application/zip`, `Content-Disposition:
+        attachment; filename="<game name>.reminislink.zip"`; no
+        `Content-Length` (the archive is streamed as it is built). Written
+        in chunks of at most 32 KiB, each with a 60 s timeout, like the
+        other file downloads.
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - name: rom
+          in: query
+          required: false
+          description: Include the ROM (single-file games only). Default `false`.
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The archive.
+          headers:
+            Content-Disposition: { $ref: '#/components/headers/ContentDisposition' }
+          content:
+            application/zip:
+              schema: { type: string, contentMediaType: application/zip }
+              example: '<zip archive>'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1456,6 +1521,76 @@ paths:
         '503': { $ref: '#/components/responses/ShuttingDown' }
         '507': { $ref: '#/components/responses/InsufficientStorage' }
 
+  /states:
+    get:
+      tags: [States]
+      operationId: listAllStates
+      summary: List every state of every game (sync, M19)
+      description: |
+        M19. Read only. Every state of every game of every system, in one
+        request, with its size, date and SHA-256 (and those of its
+        thumbnail), so the app downloads (`GET /games/{gameId}/states/{slot}`,
+        `GET /games/{gameId}/states/{slot}/thumbnail`) only the states
+        whose `sha256` changed since its last sync, as `GET /saves` does
+        for the saves.
+
+        Same games as `GET /saves` (`file`, `m3u`, `folder-m3u` and
+        `folder-cue`, subfolders included) and same state resolution as
+        `GET /games/{gameId}/states` (state folder of the system's
+        emulator core, file named after the ROM, the `.m3u` or the `.cue`,
+        ignoring case where the file system does); one file per slot,
+        named as the OS writes it (NextUI: `<name>.st<slot>`, the slot in
+        decimal without leading zero, the suffix in any case on its exFAT
+        card: `.st01` is not slot 1; Knulli: `<name>.state<slot>`), the
+        very file `GET /games/{gameId}/states/{slot}` serves
+        and the archives export; two games of a system with the same ROM
+        file name share their states on NextUI and are both listed. Order: by
+        system, game, then slot. Locked copies and the resume history are
+        not listed.
+
+        Hashes: a state's hash is kept in memory while the file (device
+        and inode), its size, its modification time and, where the
+        platform has one, its status change time are unchanged, and only
+        when it was modified at least 3 s before the hash was computed:
+        NextUI does not run while the pak runs, and the pak replaces a
+        state by renaming a new file over it, so the first request after
+        the pak starts hashes every state and the next ones only the
+        changed ones. Files that are symbolic links, reached through one,
+        or outside the states folder (the thumbnails folder for a
+        thumbnail) are skipped; a thumbnail that is not a PNG is `null`.
+        One listing runs at a time (a second request waits); it stops if
+        the client goes away. At most 20000 states: beyond, `truncated` is
+        true and the app must not infer anything from a state missing
+        from the list. `path` is informative and never sent back;
+        `modifiedAt` comes from the device clock (informative): compare
+        `sha256`.
+      responses:
+        '200':
+          description: The states.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StateList' }
+              example:
+                states:
+                  - gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ
+                    systemId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKQ
+                    gameName: Sky Garden Quest
+                    fileName: Sky Garden Quest.gba
+                    slot: 0
+                    path: .userdata/shared/GBA-gpsp/Sky Garden Quest.gba.st0
+                    sizeBytes: 401408
+                    modifiedAt: '2026-11-18T16:55:00Z'
+                    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+                    thumbnail: { sizeBytes: 50211, sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752 }
+                truncated: false
+                generatedAt: '2026-11-21T10:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
   /games/{gameId}/states:
     get:
       tags: [States]
@@ -2136,6 +2271,229 @@ paths:
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
+  /archives/{stagingId}:
+    get:
+      tags: [Archives]
+      operationId: inspectGameArchive
+      summary: Check a game archive and preview its import (M19)
+      description: |
+        Read only. Checks the game archive of a staging entry (an upload
+        with `target.kind = "staging"`, whose `stagingId` the completion
+        returned) and says what `POST /archives/{stagingId}/import` would
+        do with the same target, computed by the same code: for each file
+        of the manifest, `create`, `replace` (the current file goes to the
+        trash first) or `skip` with a `reason`. Informative: the card can
+        change before the import, which computes everything again under
+        the write lock. Never waits for a write.
+
+        Target (query): `gameId` (the data go to this game; a ROM in the
+        archive is skipped, `game-exists`), or `systemId` with an optional
+        `folderId` (a new game is made from the archive's ROM, then
+        receives the data; the archive must hold a ROM, else
+        `422 unsupported_format`; its file name, `source.fileName` cleaned
+        like an upload, must be a game the system lists (Knulli: one of its
+        extensions), else `400 invalid_name`, and
+        free in the folder (as the file system finds it: APFS finds an NFD
+        spelling under its NFC name), and no file the new game would use,
+        whether the archive holds it or not (save, clock file, the states
+        and thumbnails of any slot, art, computed with the target OS's own
+        rules), may belong to another game of a system with the same tag
+        (NextUI: `A/Zelda.gba` and `B/Zelda.gba`; Knulli: `A/Zelda.gba` and
+        `B/Zelda.zip` share `Zelda.srm`), else
+        `409 conflict` with `details.existing` and, when it is a game,
+        `details.gameId`, which the app offers as the target). Without either, the pak suggests one: a
+        game of a system with the archive's tag whose data are named after
+        the same ROM file name (the exact name first; another case only
+        where the file system ignores case), else, when the archive
+        holds a ROM, the top folder of the first system with that tag;
+        `target` is `null` when nothing fits (every entry is then `skip`,
+        `no-target`) and the app asks the user to choose a game. `gameId`
+        and `systemId` together: `400 invalid_request`.
+
+        **Checks** (rule 2 of CLAUDE.md), the same for the import: the
+        central directory is bounded before it is read (at most 4 MiB),
+        at most 512 entries, then every entry: no absolute path, no `..`,
+        `.` or empty component, no backslash, NUL or control character,
+        valid UTF-8, components of at most 255 bytes and paths of at most
+        1024 bytes; no symbolic link nor anything that is neither a file
+        nor a folder; no encryption; stored or deflated only; no two
+        entries whose paths differ only by case; no entry of more than
+        1 MiB compressed more than 200 times. `manifest.json` (at most
+        1 MiB) must be readable, of `format` `reminislink-game-archive`
+        and `version` 1 (a higher version is refused: the archive comes
+        from a newer ReminisLink), and list every file entry of the
+        archive exactly once (an entry missing from the manifest, or a
+        manifest file missing from the archive, refuses it; `__MACOSX/`
+        and folders are ignored), each with a known `role`, a `slot` from
+        0 to 99 for `state` and `state-thumbnail` (none otherwise), the
+        announced `sizeBytes` of its entry and a `sha256`; at most one
+        `save`, `rtc`, `cheats`, `art` and `rom`, one `state` and one
+        `state-thumbnail` per slot. Sizes: a ROM at most 4 GiB, any other
+        file at most 256 MiB (art at most 4 MiB, cheats at most 1 MiB),
+        5 GiB in all; a `state-thumbnail` or `art` must start with the PNG
+        signature. The import also checks every byte it extracts against
+        the manifest's size and SHA-256. Refusals: `422 unsupported_format`
+        with an English `message`.
+
+        Skip reasons: `game-exists` (a ROM with a game target), `locked`
+        (the target slot is locked, M5), `unsupported-format` (the console
+        uses a save or state format the pak does not write, a thumbnail
+        for a slot this OS keeps none for, or a role this OS keeps no file
+        for: cheats on Knulli; the rest is imported), `no-state-folder` (no emulator
+        pak for the system), `no-state` (a thumbnail without its state, or
+        whose state is skipped), `no-target`.
+      parameters:
+        - $ref: '#/components/parameters/StagingId'
+        - name: gameId
+          in: query
+          required: false
+          description: Target game (its data are replaced).
+          schema: { $ref: '#/components/schemas/OpaqueId' }
+        - name: systemId
+          in: query
+          required: false
+          description: Target system of a new game made from the archive's ROM.
+          schema: { $ref: '#/components/schemas/OpaqueId' }
+        - name: folderId
+          in: query
+          required: false
+          description: Folder of the system for the new game (with `systemId`); its top folder when absent.
+          schema: { $ref: '#/components/schemas/OpaqueId' }
+      responses:
+        '200':
+          description: The archive is valid; what its import would do.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArchivePlan' }
+              example:
+                manifest:
+                  format: reminislink-game-archive
+                  version: 1
+                  createdAt: '2026-11-21T10:00:00Z'
+                  source:
+                    deviceName: Brick de Thomas
+                    os: nextui
+                    platform: tg5040
+                    pakVersion: 1.1.0
+                    systemTag: GBA
+                    systemLabel: Game Boy Advance
+                    gameName: Sky Garden Quest
+                    fileName: Sky Garden Quest.gba
+                    romName: Sky Garden Quest.gba
+                    kind: file
+                  files:
+                    - { path: save/Sky Garden Quest.gba.sav, role: save, sizeBytes: 131072, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 }
+                    - { path: states/0/Sky Garden Quest.gba.st0, role: state, slot: 0, sizeBytes: 401408, sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752 }
+                target: { gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ }
+                targetName: Sky Garden Quest
+                suggested: true
+                entries:
+                  - { role: save, slot: null, sizeBytes: 131072, action: replace, reason: null }
+                  - { role: state, slot: 0, sizeBytes: 401408, action: create, reason: null }
+                importBytes: 532480
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+    delete:
+      tags: [Archives]
+      operationId: deleteStagedArchive
+      summary: Delete an uploaded archive from the staging area (M19)
+      description: |
+        The app abandons an import (the preview is closed, or the archive
+        was refused): the staging entry is deleted at once rather than at
+        the 24 h purge, so that large archives do not fill the card. It
+        touches the pak's staging area only (no write lock is taken). An
+        import job still running on this entry: `409 conflict`. A staging
+        entry is also deleted by the success of its import.
+      parameters:
+        - $ref: '#/components/parameters/StagingId'
+      responses:
+        '204': { description: Staging entry deleted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /archives/{stagingId}/import:
+    post:
+      tags: [Archives]
+      operationId: importGameArchive
+      summary: Import a game archive (creates a job, M19)
+      description: |
+        Imports the game archive of a staging entry into the target game
+        (or into a new game made from its ROM), with the checks of
+        `GET /archives/{stagingId}`; a job of kind `archive-import` is
+        queued (`202`) once the request and the archive were checked
+        (`400`, `404` for an unknown staging entry or target,
+        `422 unsupported_format` for a refused archive or a system target
+        without a ROM in the archive).
+
+        The job extracts the files to import into the pak's own area
+        (never next to the game), checking each one against the size and
+        SHA-256 of the manifest (`422 unsupported_format` otherwise), after
+        checking the free space (`507`). Then, holding the write lock (see
+        "Writes one at a time"; the job checks again that its client was
+        not revoked), it computes again the destination of every file for
+        the target game, by role, with the names this console uses (save
+        and clock file named after the ROM, states in the state folder of
+        the system's emulator core, thumbnails, cheats, art), matching an
+        existing file ignoring case (exFAT); when the save or its clock file
+        is replaced, it backs up the current save (`before-import`, with
+        its clock file), then moves every file that
+        is replaced (and the thumbnail of a replaced state) to one trash
+        entry (reason `import-archive`, label: the game name) and renames
+        the new files into place, as one journaled replacement (M8, also
+        when nothing is replaced): a
+        failure puts everything back and fails the job; a power cut is
+        finished or rolled back when the pak starts again. Nothing else is
+        removed. Files that cannot be imported are skipped with the
+        reasons of `GET /archives/{stagingId}` (a locked state is never
+        replaced). A new game (system target) must not exist yet: a ROM
+        name (`source.fileName`, cleaned like an upload, and listed as a
+        game, else `400 invalid_name`) already taken in the folder fails
+        the job with `409 conflict` (`details.existing`); the app then
+        offers that game as the target. The staging entry is deleted when
+        the job succeeds.
+
+        Job result: `{ "gameId": "...", "imported": 4, "skipped":
+        [ { "role": "state", "slot": 0, "reason": "locked" } ],
+        "trashEntryId": "tr_…" | null, "saveBackupId": "bk_…" | null }`.
+        A `library` event follows (M14).
+      parameters:
+        - $ref: '#/components/parameters/StagingId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ArchiveImportRequest' }
+            example: { target: { gameId: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0LmdiYQ } }
+      responses:
+        '202':
+          description: Job created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobAccepted' }
+              example: { jobId: job_0123456789abcdef01234567 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
   /jobs:
     get:
       tags: [Jobs]
@@ -2577,6 +2935,13 @@ components:
       description: Pak identifier (opaque, from `GET /paks`).
       schema: { $ref: '#/components/schemas/OpaqueId' }
       example: pk_VG9vbHMvdGc1MDQwL0Nsb2NrLnBhaw
+    StagingId:
+      name: stagingId
+      in: path
+      required: true
+      description: Staging entry (`stagingId` returned by the completion of a `staging` upload).
+      schema: { $ref: '#/components/schemas/OpaqueId' }
+      example: st_20261121T100000Z_0a1b2c3d
     ConfirmEmptyTrash:
       name: X-RL-Confirm
       in: header
@@ -3088,13 +3453,15 @@ components:
           description: Wall clock time of the console when the entry was made (informative; the console clock may be wrong).
         reason:
           type: string
-          enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore, delete-backup, delete-pak, replace-pak]
+          enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore, delete-backup, delete-pak, replace-pak, import-archive]
           description: |
             `delete-backup`: a save backup deleted by the app or pushed out by
             the automatic limits (10 automatic backups per game, 5 resume
             history entries), never erased directly. `delete-pak` and
             `replace-pak` (M12): a pak folder deleted (`DELETE /paks/{pakId}`)
-            or replaced by an installation.
+            or replaced by an installation. `import-archive` (M19): the files
+            of a game replaced by the import of a game archive. Clients show
+            an unknown reason as a generic entry.
         label: { type: string }
         files:
           type: array
@@ -3204,7 +3571,10 @@ components:
         label: { type: [string, 'null'], maxLength: 80 }
         createdAt: { $ref: '#/components/schemas/Timestamp' }
         sizeBytes: { $ref: '#/components/schemas/Bytes' }
-        reason: { type: string, enum: [manual, before-replace, before-restore, before-delete, before-patch] }
+        reason:
+          type: string
+          enum: [manual, before-replace, before-restore, before-delete, before-patch, before-import]
+          description: '`before-import` (M19): the save before the import of a game archive.'
     BackupList:
       type: object
       required: [backups]
@@ -3258,6 +3628,128 @@ components:
           items: { $ref: '#/components/schemas/SaveSummary' }
         truncated: { type: boolean, description: 'More than 10000 saves: the list is incomplete.' }
         generatedAt: { $ref: '#/components/schemas/Timestamp' }
+
+    StateThumbnailFile:
+      type: object
+      required: [sizeBytes, sha256]
+      properties:
+        sizeBytes: { $ref: '#/components/schemas/Bytes' }
+        sha256: { $ref: '#/components/schemas/Sha256Hex' }
+    StateSummary:
+      type: object
+      required: [gameId, systemId, gameName, fileName, slot, path, sizeBytes, modifiedAt, sha256, thumbnail]
+      properties:
+        gameId: { $ref: '#/components/schemas/OpaqueId' }
+        systemId: { $ref: '#/components/schemas/OpaqueId' }
+        gameName: { type: string, description: 'Display name of the game (`name` of `Game`).' }
+        fileName: { type: string, description: '`fileName` of the game.' }
+        slot: { type: integer, minimum: 0, maximum: 99 }
+        path: { type: string, description: 'Informative, relative to the SD card root. Never sent back.' }
+        sizeBytes: { $ref: '#/components/schemas/Bytes' }
+        modifiedAt: { $ref: '#/components/schemas/Timestamp' }
+        sha256: { $ref: '#/components/schemas/Sha256Hex' }
+        thumbnail:
+          description: The thumbnail of the state (a PNG), null when there is none.
+          oneOf:
+            - $ref: '#/components/schemas/StateThumbnailFile'
+            - type: 'null'
+    StateList:
+      type: object
+      required: [states, truncated, generatedAt]
+      properties:
+        states:
+          type: array
+          items: { $ref: '#/components/schemas/StateSummary' }
+        truncated: { type: boolean, description: 'More than 20000 states: the list is incomplete.' }
+        generatedAt: { $ref: '#/components/schemas/Timestamp' }
+
+    ArchiveRole:
+      type: string
+      enum: [save, rtc, state, state-thumbnail, cheats, art, rom]
+      description: What a file of a game archive is; an importer maps it by role, never by its path.
+    GameArchiveSource:
+      type: object
+      required: [os, systemTag, systemLabel, gameName, fileName, romName, kind]
+      description: Where the archive comes from (informative; used to suggest a target).
+      properties:
+        deviceName: { type: [string, 'null'] }
+        os: { type: string, description: '`os` of `GET /hello` (`nextui`).' }
+        platform: { type: [string, 'null'] }
+        pakVersion: { type: [string, 'null'] }
+        systemTag: { type: string, description: 'Tag of the system folder (`GBA`).' }
+        systemLabel: { type: string }
+        gameName: { type: string }
+        fileName: { type: string, description: '`fileName` of the game; the file name of a new game made from the ROM.' }
+        romName: { type: string, description: 'The file the data were named after (ROM, `.m3u` or `.cue`).' }
+        kind: { type: string, description: '`kind` of the game (`file`, `m3u`, `folder-m3u`, `folder-cue`).' }
+    GameArchiveFile:
+      type: object
+      required: [path, role, sizeBytes, sha256]
+      properties:
+        path: { type: string, description: 'Entry path in the zip (informative, checked).' }
+        role: { $ref: '#/components/schemas/ArchiveRole' }
+        slot: { type: integer, minimum: 0, maximum: 99, description: '`state` and `state-thumbnail` only.' }
+        sizeBytes: { $ref: '#/components/schemas/Bytes' }
+        sha256: { $ref: '#/components/schemas/Sha256Hex' }
+    GameArchiveManifest:
+      type: object
+      required: [format, version, createdAt, source, files]
+      description: '`manifest.json` of a game archive (M19). Readers ignore unknown fields.'
+      properties:
+        format: { type: string, const: reminislink-game-archive }
+        version: { type: integer, minimum: 1, description: 'Format version: 1. An importer refuses a higher version.' }
+        createdAt: { $ref: '#/components/schemas/Timestamp' }
+        source: { $ref: '#/components/schemas/GameArchiveSource' }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/GameArchiveFile' }
+    ArchiveTarget:
+      type: object
+      description: 'Where to import: `gameId` (an existing game), or `systemId` and an optional `folderId` (a new game made from the ROM). Exactly one of `gameId` and `systemId`.'
+      properties:
+        gameId: { $ref: '#/components/schemas/OpaqueId' }
+        systemId: { $ref: '#/components/schemas/OpaqueId' }
+        folderId:
+          oneOf:
+            - $ref: '#/components/schemas/OpaqueId'
+            - type: 'null'
+    ArchivePlanEntry:
+      type: object
+      required: [role, slot, sizeBytes, action, reason]
+      properties:
+        role: { $ref: '#/components/schemas/ArchiveRole' }
+        slot: { type: [integer, 'null'], minimum: 0, maximum: 99 }
+        sizeBytes: { $ref: '#/components/schemas/Bytes' }
+        action: { type: string, enum: [create, replace, skip] }
+        reason:
+          type: [string, 'null']
+          enum: [game-exists, locked, unsupported-format, no-state-folder, no-state, no-target, null]
+          description: Why a file is skipped; null otherwise. Clients show an unknown reason as skipped.
+    ArchivePlan:
+      type: object
+      required: [manifest, target, targetName, suggested, entries, importBytes]
+      properties:
+        manifest: { $ref: '#/components/schemas/GameArchiveManifest' }
+        target:
+          description: The target used (given or suggested), null when none fits.
+          oneOf:
+            - $ref: '#/components/schemas/ArchiveTarget'
+            - type: 'null'
+        targetName:
+          type: [string, 'null']
+          description: The name of the target game, or the label of the target system for a new game.
+        suggested: { type: boolean, description: 'The pak chose the target (none was given).' }
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/ArchivePlanEntry' }
+        importBytes:
+          $ref: '#/components/schemas/Bytes'
+          description: Bytes of the files that would be imported (not skipped).
+    ArchiveImportRequest:
+      type: object
+      required: [target]
+      properties:
+        target: { $ref: '#/components/schemas/ArchiveTarget' }
 
     Slot:
       type: object
@@ -3529,8 +4021,8 @@ components:
         id: { $ref: '#/components/schemas/OpaqueId' }
         kind:
           type: string
-          enum: [patch, pak-install]
-          description: '`pak-install` (M12): `POST /paks/install`, or the completion of a `pak` upload.'
+          enum: [patch, pak-install, archive-import]
+          description: '`pak-install` (M12): `POST /paks/install`, or the completion of a `pak` upload. `archive-import` (M19): `POST /archives/{stagingId}/import`. Clients keep an unknown kind.'
         state: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
         progress:
           type: object
@@ -3546,7 +4038,7 @@ components:
         updatedAt: { $ref: '#/components/schemas/Timestamp' }
         result:
           type: [object, 'null']
-          description: "The created resource when `succeeded`, e.g. `{ \"gameId\": \"...\" }`; a patch job adds `verified` (boolean, `false` for IPS); a pak installation (a `pak-install` job, M12) gives `{ \"pakId\": \"...\" }`."
+          description: "The created resource when `succeeded`, e.g. `{ \"gameId\": \"...\" }`; a patch job adds `verified` (boolean, `false` for IPS); a pak installation (a `pak-install` job, M12) gives `{ \"pakId\": \"...\" }`; an `archive-import` job (M19) gives `gameId`, `imported`, `skipped`, `trashEntryId` and `saveBackupId`."
           additionalProperties: true
         error:
           description: Same object as in error responses, when `failed`.

@@ -608,6 +608,77 @@ public actor APIClient {
         try await signedJSON(method: "POST", segments: ["games", gameId, "resume-history", entryId, "restore"])
     }
 
+    /// How long `GET /states` may stay silent: the pak answers only once
+    /// it has listed (and, the first time, hashed) every state.
+    public static let statesTimeout: TimeInterval = 180
+
+    /// `GET /states` (M19): every state of the console, with its SHA-256.
+    /// An older pak without the route answers `404` or `405`.
+    public func allStates() async throws -> StateList {
+        try await signedJSON(method: "GET", segments: ["states"], timeout: Self.statesTimeout)
+    }
+
+    /// `GET .../states/{slot}/thumbnail` written to a new directory under
+    /// `directory` (`404` when there is none).
+    public func downloadStateThumbnail(gameId: String, slot: Int, into directory: URL) async throws -> DownloadedFile {
+        try await downloadSigned(
+            segments: ["games", gameId, "states", String(slot), "thumbnail"], fallbackName: "state\(slot).png", into: directory
+        )
+    }
+
+    // MARK: - Game archives (milestone M19)
+
+    /// `GET /games/{gameId}/archive`: the game's data as a zip, streamed to
+    /// disk into a new directory under `directory`. `includeROM`: the ROM
+    /// too (single-file games only, else `422 unsupported_format`).
+    /// `progress` gets the bytes received so far (no total: the archive is
+    /// built as it is sent).
+    public func downloadGameArchive(
+        gameId: String, includeROM: Bool, into directory: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) async throws -> DownloadedFile {
+        try await downloadSigned(
+            segments: ["games", gameId, "archive"], query: includeROM ? [("rom", "true")] : [],
+            fallbackName: "game" + GameArchiveManifest.fileSuffix, into: directory, progress: progress
+        )
+    }
+
+    /// `GET /archives/{stagingId}`: checks an uploaded archive and says what
+    /// its import into `target` would do (nil: the pak suggests a target).
+    public func inspectArchive(stagingId: String, target: ArchiveTarget?) async throws -> ArchivePlan {
+        try await signedJSON(method: "GET", segments: ["archives", stagingId], query: target?.query ?? [])
+    }
+
+    /// `DELETE /archives/{stagingId}`: the app abandons an import; the
+    /// archive leaves the console's staging area at once.
+    public func deleteStagedArchive(stagingId: String) async throws {
+        let (data, response) = try await performSigned(method: "DELETE", segments: ["archives", stagingId])
+        try check(response, data: data, accept: [204])
+    }
+
+    /// Whether the pak has the archive routes (M19), asked before an
+    /// archive is sent: a well-formed staging id that does not exist gets
+    /// `404 not_found` from an M19 pak, and `404 No such route` or `405`
+    /// from an older one.
+    public func supportsGameArchives() async throws -> Bool {
+        let (data, response) = try await performSigned(method: "GET", segments: ["archives", "st_19700101T000000Z_00000000"])
+        if response.statusCode == 405 { return false }
+        if response.statusCode == 404 {
+            let message = Self.serverError(response, data: data)?.message ?? ""
+            return !message.localizedCaseInsensitiveContains("route")
+        }
+        try check(response, data: data, accept: [200])
+        return true
+    }
+
+    /// `POST /archives/{stagingId}/import`: queues an `archive-import` job.
+    public func importArchive(stagingId: String, target: ArchiveTarget) async throws -> JobAccepted {
+        try await signedJSON(
+            method: "POST", segments: ["archives", stagingId, "import"],
+            body: ProtocolJSON.encoder().encode(ArchiveImportRequest(target: target))
+        )
+    }
+
     // MARK: - Cheats (milestone M5)
 
     public func cheats(gameId: String) async throws -> CheatList {
@@ -803,11 +874,11 @@ public actor APIClient {
     /// memory), moved into a new directory under `directory`, named after
     /// `Content-Disposition` (or `fallbackName`).
     private func downloadSigned(
-        segments: [String], fallbackName: String, into directory: URL,
+        segments: [String], query: [(name: String, value: String)] = [], fallbackName: String, into directory: URL,
         progress: (@Sendable (Int64, Int64?) -> Void)? = nil
     ) async throws -> DownloadedFile {
         let ((location, errorBody), response) = try await withSignedRequests(
-            method: "GET", segments: segments, query: [], headers: [:], body: nil, bodyFile: nil, bodyFileSHA256: nil
+            method: "GET", segments: segments, query: query, headers: [:], body: nil, bodyFile: nil, bodyFileSHA256: nil
         ) { request -> ((URL?, Data), HTTPURLResponse, Data) in
             let (location, response) = try await self.transportDownload(request, progress: progress)
             guard response.statusCode != 200 else { return ((location, Data()), response, Data()) }

@@ -21,6 +21,12 @@ struct GameDetailView: View {
     @State private var downloadTask: Task<Void, Never>?
     @State private var downloadError: AppError?
     @State private var exported: ExportedFile?
+    /// M19: the export of the game's data as an archive.
+    @State private var archiveDownload: FileDownload?
+    @State private var archiveTask: Task<Void, Never>?
+    @State private var archiveError: AppError?
+    @State private var askArchive = false
+    @State private var archiveImport: ArchiveImportContext?
 
     /// The Patch screen closed by itself on this game (docs/specs/06-app-ios.md §4.5).
     private var patchNotice: PatchNotice? {
@@ -141,6 +147,7 @@ struct GameDetailView: View {
                 } footer: {
                     Text("Download a file to keep a copy on this iPhone: Save to Files, AirDrop… The console keeps its file.")
                 }
+                archiveSection(detail)
                 Section {
                     Button("Delete…", role: .destructive) {
                         toDelete = DeleteTarget(deviceId: route.deviceId, gameId: route.gameId, name: detail.name)
@@ -158,7 +165,10 @@ struct GameDetailView: View {
             // Leaving the screen cancels the download; a change of layout
             // (M15: the Library columns collapsing or expanding) only moves
             // it, and the game stays the last screen of the path.
-            if app.path.last != .game(route) { cancelDownload() }
+            if app.path.last != .game(route) {
+                cancelDownload()
+                cancelArchive()
+            }
             if patchNotice != nil { app.patchNotice = nil }
         }
         // Said for a few seconds, then gone.
@@ -179,6 +189,19 @@ struct GameDetailView: View {
         }
         .sheet(item: $patch) { context in
             PatchView(context: context)
+        }
+        .sheet(item: $archiveImport) { context in
+            ArchiveImportView(context: context)
+        }
+        .confirmationDialog("Export the data of \(detail?.name ?? route.name)", isPresented: $askArchive, titleVisibility: .visible) {
+            Button("Without the Game File") { startArchive(includeROM: false) }
+                .accessibilityIdentifier("archive.export.data")
+            if detail?.kind == .file {
+                Button("With the Game File") { startArchive(includeROM: true) }
+                    .accessibilityIdentifier("archive.export.rom")
+            }
+        } message: {
+            Text("A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this iPhone or import on another console.")
         }
         .sheet(item: $toDelete, onDismiss: {
             // The game is gone: back to its folder.
@@ -219,6 +242,76 @@ struct GameDetailView: View {
                 }
             }
         }
+    }
+
+    /// The Archive section (M19): export the game's data as a zip, or
+    /// import one into this game.
+    @ViewBuilder
+    private func archiveSection(_ detail: GameDetail) -> some View {
+        Section {
+            if let archiveError {
+                ErrorView(error: archiveError)
+            }
+            if let archiveDownload {
+                HStack {
+                    ProgressView()
+                    Text("Preparing the archive… \(archiveDownload.received.byteString)")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(action: cancelArchive) {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(Text("Cancel the export"))
+                }
+                .accessibilityIdentifier("archive.exporting")
+            } else {
+                Button {
+                    askArchive = true
+                } label: {
+                    Label("Export the Game Data…", systemImage: "square.and.arrow.up")
+                }
+                .accessibilityIdentifier("game.archive.export")
+            }
+            Button {
+                archiveImport = ArchiveImportContext(deviceId: route.deviceId, gameId: route.gameId, gameName: detail.name)
+            } label: {
+                Label("Import an Archive…", systemImage: "square.and.arrow.down")
+            }
+            .accessibilityIdentifier("game.archive.import")
+        } header: {
+            Text("Archive")
+        } footer: {
+            Text("Move this game to another console, or keep its data: the save, the states, the cheats and the art in one file. On import, whatever is replaced goes to the console's trash first.")
+        }
+    }
+
+    private func startArchive(includeROM: Bool) {
+        archiveTask?.cancel()
+        let progress = FileDownload(fileId: "archive", expected: nil)
+        archiveDownload = progress
+        archiveError = nil
+        let session = app.session(for: route.deviceId)
+        let gameId = route.gameId
+        archiveTask = Task {
+            do {
+                let file = try await session.downloadGameArchive(gameId: gameId, includeROM: includeROM, progress: progress)
+                guard !Task.isCancelled, archiveDownload === progress else { return ExportedFiles.remove(file.file) }
+                archiveDownload = nil
+                exported = file
+            } catch {
+                guard archiveDownload === progress else { return }
+                archiveDownload = nil
+                let error = AppError(error)
+                if !error.isCancellation { archiveError = error }
+            }
+        }
+    }
+
+    private func cancelArchive() {
+        archiveTask?.cancel()
+        archiveTask = nil
+        archiveDownload = nil
     }
 
     private func cancelDownload() {

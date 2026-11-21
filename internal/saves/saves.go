@@ -45,6 +45,9 @@ const (
 	ReasonBeforeRestore = "before-restore"
 	ReasonBeforeDelete  = "before-delete"
 	ReasonBeforePatch   = "before-patch"
+	// ReasonBeforeImport (M19): the save before the import of a game
+	// archive.
+	ReasonBeforeImport = "before-import"
 )
 
 const (
@@ -112,6 +115,7 @@ func (m meta) public() Backup {
 
 var validReasons = map[string]bool{
 	ReasonManual: true, ReasonBeforeReplace: true, ReasonBeforeRestore: true, ReasonBeforeDelete: true, ReasonBeforePatch: true,
+	ReasonBeforeImport: true,
 }
 
 // Options are the dependencies of a Service.
@@ -631,6 +635,23 @@ func (s *Service) BackupLocked(g osadapter.Game, reason string) (*Backup, error)
 		return nil, nil
 	}
 	m, err := s.createLocked(g, files.Save.Path, rtcPath(files), reason, nil)
+	if err != nil {
+		return nil, err
+	}
+	b := m.public()
+	return &b, nil
+}
+
+// BackupFilesLocked is BackupLocked for a save found by its path (and its
+// clock file, "" when none) rather than through the game's files: a save
+// left by a deleted ROM that the import of a game archive replaces (M19,
+// Codex review), whose game does not exist yet. The save is read under the
+// same confinement as any backup; the copy goes with the backups of g.
+func (s *Service) BackupFilesLocked(g osadapter.Game, save, rtc, reason string) (*Backup, error) {
+	if reason == ReasonManual || !validReasons[reason] {
+		return nil, fmt.Errorf("save backup: invalid automatic reason %q", reason)
+	}
+	m, err := s.createLocked(g, save, rtc, reason, nil)
 	if err != nil {
 		return nil, err
 	}

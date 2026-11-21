@@ -533,6 +533,16 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             return systems()
         case ("GET", ["saves"]):
             return listSaves()
+        case ("GET", ["states"]):
+            return listAllStates()
+        case ("GET", let s) where s.count == 3 && s[0] == "games" && s[2] == "archive":
+            return exportArchive(gameId: s[1], params: params)
+        case ("GET", let s) where s.count == 2 && s[0] == "archives":
+            return inspectArchive(stagingId: s[1], params: params)
+        case ("POST", let s) where s.count == 3 && s[0] == "archives" && s[2] == "import":
+            return importArchive(stagingId: s[1], body: body)
+        case ("DELETE", let s) where s.count == 2 && s[0] == "archives":
+            return deleteStagedArchive(stagingId: s[1])
         case ("GET", let s) where s.count == 3 && s[0] == "systems" && s[2] == "games":
             return games(systemId: s[1], folderId: params["folderId"])
         case ("GET", ["games"]):
@@ -933,6 +943,8 @@ struct FakeJob {
     var cancelRequested = false
     /// What a `pak-install` job installs (milestone M12).
     var pakPlan: FakePakPlan? = nil
+    /// What an `archive-import` job imports (milestone M19).
+    var archive: FakeArchiveImport? = nil
 
     var json: [String: Any] {
         [
@@ -1072,7 +1084,10 @@ extension FakePak {
         let chunk = chunkSize
         lock.withLock {
             var upload = FakeUpload(target: target, sizeBytes: size, sha256: sha, onConflict: onConflict)
-            if case .staging = target, size <= 1 << 20 { upload.bytes = Data() }
+            if case .staging(let name) = target,
+               size <= 1 << 20 || (size <= Self.maxKeptArchiveBytes && GameArchiveManifest.isArchiveName(name ?? "")) {
+                upload.bytes = Data()
+            }
             uploads[id] = upload
         }
         return .json(201, [
@@ -1336,6 +1351,8 @@ extension FakePak {
             advancePatch(&job)
         } else if job.pakPlan != nil {
             advancePakInstall(&job)
+        } else if job.archive != nil {
+            advanceArchiveImport(&job)
         }
         job.updatedAt = Date()
         lock.withLock { jobs[id] = job }

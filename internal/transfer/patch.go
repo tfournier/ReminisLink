@@ -318,7 +318,7 @@ func (s *Service) runPatch(ctx context.Context, j patchJob, report func(int64, *
 		return nil, internal("Cannot read the patch")
 	}
 	dir := s.opts.Layout.UploadsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := s.dataDir(dir); err != nil {
 		return nil, internal("Cannot create the temporary file")
 	}
 	if apiErr := s.checkPatchSpace(dir, info.TargetSize); apiErr != nil {

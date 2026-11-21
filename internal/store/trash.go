@@ -55,12 +55,15 @@ const (
 	// or replaced by an installation.
 	ReasonDeletePak  = "delete-pak"
 	ReasonReplacePak = "replace-pak"
+	// ReasonImportArchive (M19): the files of a game replaced by the
+	// import of a game archive.
+	ReasonImportArchive = "import-archive"
 )
 
 var validReasons = map[string]bool{
 	ReasonDeleteGame: true, ReasonDeleteState: true, ReasonOverwrite: true,
 	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true, ReasonDeleteBackup: true,
-	ReasonDeletePak: true, ReasonReplacePak: true,
+	ReasonDeletePak: true, ReasonReplacePak: true, ReasonImportArchive: true,
 }
 
 // Errors of the trash.
@@ -385,7 +388,12 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 	var err error
 	if len(items) > 0 || len(installs) == 0 {
 		// A replacement without items journals its installs only.
-		if planned, err = t.plan(items); err != nil {
+		planned, err = t.plan(items)
+		if errors.Is(err, ErrNothingToMove) && len(installs) > 0 {
+			// Every item was already gone (M19): installs only.
+			planned, err = nil, nil
+		}
+		if err != nil {
 			return MoveResult{}, "", entryFile{}, err
 		}
 	}

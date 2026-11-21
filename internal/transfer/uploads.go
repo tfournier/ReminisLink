@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
 
@@ -196,7 +197,7 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 		target.FileName = &d.name // keep the cleaned name
 	}
 	dir := s.opts.Layout.UploadsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := s.dataDir(dir); err != nil {
 		return UploadCreated{}, nil, err
 	}
 
@@ -362,7 +363,7 @@ func (s *Service) verify(u *upload) {
 
 // hashPart hashes the first offset bytes of the .part file of an upload.
 func (s *Service) hashPart(ctx context.Context, id string, offset int64) (hash.Hash, error) {
-	f, err := os.Open(s.uploadPath(id, partExt))
+	f, err := os.OpenFile(s.uploadPath(id, partExt), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +495,9 @@ func (s *Service) WriteChunk(id string, offset, length int64, body io.Reader) (i
 		return 0, nil, err
 	}
 	partPath := s.uploadPath(id, partExt)
-	f, err := os.OpenFile(partPath, os.O_WRONLY, 0)
+	// Never written through a link (rule 2, M19 Codex review: a .part
+	// replaced by a link between two runs).
+	f, err := os.OpenFile(partPath, os.O_WRONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -661,6 +664,11 @@ func syncFile(path string) error {
 // deleted. Call it after Maintain.
 func (s *Service) LoadUploads() error {
 	dir := s.opts.Layout.UploadsDir()
+	if err := confine.CheckDir(s.opts.Layout.Root, dir); err != nil {
+		// Reached through a link: nothing is resumed from it (rule 2).
+		s.log.Error("uploads: folder reached through a link, no upload resumed", "error", err)
+		return nil
+	}
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -693,6 +701,17 @@ func (s *Service) LoadUploads() error {
 }
 
 func (s *Service) loadUpload(id string) (*upload, error) {
+	// The request and the partial file must be regular files of the
+	// folder, never links (an upload with a linked file is dropped).
+	for _, ext := range []string{metaExt, partExt} {
+		fi, err := os.Lstat(s.uploadPath(id, ext))
+		if err != nil {
+			return nil, err
+		}
+		if !fi.Mode().IsRegular() {
+			return nil, errors.New("upload file is not a regular file")
+		}
+	}
 	data, err := os.ReadFile(s.uploadPath(id, metaExt))
 	if err != nil {
 		return nil, err
@@ -704,7 +723,7 @@ func (s *Service) loadUpload(id string) (*upload, error) {
 	if m.Version != 1 || m.ID != id || !validSHA256(m.SHA256) || m.SizeBytes < 0 || !validConflict(m.OnConflict) {
 		return nil, errors.New("invalid upload file")
 	}
-	fi, err := os.Stat(s.uploadPath(id, partExt))
+	fi, err := os.Lstat(s.uploadPath(id, partExt))
 	if err != nil {
 		return nil, err
 	}
@@ -730,6 +749,12 @@ func (s *Service) loadUpload(id string) (*upload, error) {
 // installation marker).
 func (s *Service) purgeUploads(keep map[string]bool) error {
 	dir := s.opts.Layout.UploadsDir()
+	if err := confine.CheckDir(s.opts.Layout.Root, dir); err != nil {
+		// Never purged through a link; every use of the folder refuses
+		// it too.
+		s.log.Error("uploads: folder reached through a link, left as it is", "error", err)
+		return nil
+	}
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil

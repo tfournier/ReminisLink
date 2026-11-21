@@ -313,6 +313,7 @@ struct BackupRow: View {
         case .beforeRestore: String(localized: "Before restoration")
         case .beforeDelete: String(localized: "Before deletion")
         case .beforePatch: String(localized: "Before patch")
+        case .beforeImport: String(localized: "Before import")
         default: backup.label ?? String(localized: "Automatic copy")
         }
     }

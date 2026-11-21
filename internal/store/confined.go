@@ -113,10 +113,32 @@ func (t *Trash) mkdirInSD(dir string) error {
 	if err := checkNoLinks(root, rel); err != nil {
 		return err
 	}
+	// The folders about to be made, deepest first: their entries in their
+	// parents are synced once made, so that a file renamed into them is
+	// durable before a journal that names it goes (M19 Codex review: ext4
+	// may lose a new folder's entry after a power cut).
+	var made []string
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Lstat(d); err == nil || filepath.Dir(d) == d {
+			break
+		}
+		if r, err := t.sdRel(d); err != nil || r == "." {
+			break
+		}
+		made = append(made, d)
+	}
 	if err := root.MkdirAll(rel, 0o755); err != nil {
 		return err
 	}
-	return checkNoLinks(root, rel)
+	if err := checkNoLinks(root, rel); err != nil {
+		return err
+	}
+	for _, d := range made {
+		if err := t.syncDir(filepath.Dir(d)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // errNoReplaceUnsupported: the system cannot rename without replacing in

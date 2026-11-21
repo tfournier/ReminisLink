@@ -120,6 +120,13 @@ func checkPath(name string) error {
 	return nil
 }
 
+// CheckEntryPath checks the path of a zip entry with the rules of a pak
+// archive (no absolute path, no ".", ".." or empty component, no
+// backslash, control character or exFAT-forbidden character, valid
+// UTF-8, bounded lengths); refusals are FormatErrors. Also used for the
+// game archives (M19).
+func CheckEntryPath(name string) error { return checkPath(name) }
+
 // entry is a checked entry of the pak folder.
 type entry struct {
 	file *zip.File

@@ -57,8 +57,11 @@ const (
 var (
 	tagRe      = regexp.MustCompile(`\(([^()]*)\)\s*$`)
 	leadingNum = regexp.MustCompile(`^\d+[)._ -]+`)
-	// stateRe matches "<ROM file name>.st<slot>" (default stateFormat).
-	stateRe = regexp.MustCompile(`^(.+)\.st(\d{1,2})$`)
+	// stateRe matches "<ROM file name>.st<slot>" (default stateFormat),
+	// the suffix in any case: the card is exFAT, where the slot route
+	// finds ".ST1" as ".st1" (one rule for the listing, the download and
+	// the archives, M19 Codex review).
+	stateRe = regexp.MustCompile(`^(.+)\.(?i:st)(\d{1,2})$`)
 	// emuExeRe is the core line of an emulator pak launch.sh.
 	emuExeRe = regexp.MustCompile(`^\s*EMU_EXE=["']?([A-Za-z0-9_.+-]+)["']?\s*$`)
 	// formatRe reads saveFormat=N and stateFormat=N of minuisettings.txt.
@@ -488,7 +491,10 @@ func parseState(name string) (rom string, slot int, ok bool) {
 		return "", 0, false
 	}
 	slot, err := strconv.Atoi(m[2])
-	if err != nil {
+	// One file per slot, named as NextUI names it (".st%d", no leading
+	// zero, M19 Codex review): ".st01" is not slot 1, so the listing, the
+	// download, the export and the import all mean the same file.
+	if err != nil || strconv.Itoa(slot) != m[2] {
 		return "", 0, false
 	}
 	return m[1], slot, true

@@ -52,6 +52,14 @@ struct LibraryView: View {
                 }
                 .accessibilityIdentifier("library.add")
             }
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    app.showArchiveImport(deviceId: deviceId)
+                } label: {
+                    Label("Import Game Data…", systemImage: "square.and.arrow.down")
+                }
+                .accessibilityIdentifier("library.importArchive")
+            }
         }
         .task { if content == nil { await load() } }
         .refreshable { await load() }
