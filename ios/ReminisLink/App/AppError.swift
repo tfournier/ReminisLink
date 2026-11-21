@@ -101,6 +101,14 @@ enum AppError: Error, Equatable {
     case notAPak
     /// M12: the pak is older than M12 (`404` on `/paks` or `/sd/browse`).
     case needsNewerPak
+    /// M19: the file is not a game archive the console accepts.
+    case invalidArchive
+    /// M19: a new game cannot be made, its ROM name is taken.
+    case archiveGameExists
+    /// M19: the game has nothing to export.
+    case archiveEmpty
+    /// M19: a pak older than M19.
+    case archivesNeedNewerPak
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -198,6 +206,14 @@ enum AppError: Error, Equatable {
             String(localized: "Choose a zip archive or a folder whose name ends with .pak.")
         case .needsNewerPak:
             String(localized: "Update ReminisLink on the console to manage its apps and browse its SD card.")
+        case .invalidArchive:
+            String(localized: "This file is not a ReminisLink game archive, or it is damaged, or it was made by a newer version of ReminisLink.")
+        case .archiveGameExists:
+            String(localized: "This game is already on the console. Import the archive into that game instead.")
+        case .archiveEmpty:
+            String(localized: "This game has no data to export.")
+        case .archivesNeedNewerPak:
+            String(localized: "Update ReminisLink on the console to export and import game archives.")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -234,6 +250,7 @@ enum AppError: Error, Equatable {
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak: nil
+        case .invalidArchive, .archiveGameExists, .archiveEmpty, .archivesNeedNewerPak: nil
         case .pairingClosed, .unexpected: .retry
         }
     }

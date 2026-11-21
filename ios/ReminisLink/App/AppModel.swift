@@ -139,6 +139,8 @@ enum Sheet: Identifiable {
     case add(AddContext)
     /// A shared patch file: the Patch screen (milestone M6).
     case patch(PatchContext)
+    /// A shared game archive: the import screen (milestone M19).
+    case archiveImport(ArchiveImportContext)
 
     var id: String {
         switch self {
@@ -146,6 +148,7 @@ enum Sheet: Identifiable {
         case .pairing(let flow): "pairing-\(flow.id)"
         case .add(let context): "add-\(context.id)"
         case .patch(let context): "patch-\(context.id)"
+        case .archiveImport(let context): "archive-\(context.id)"
         }
     }
 
@@ -154,6 +157,7 @@ enum Sheet: Identifiable {
         switch self {
         case .add(let context): context.request?.id
         case .patch(let context): context.request?.id
+        case .archiveImport(let context): context.request?.id
         case .addConsole, .pairing: nil
         }
     }
@@ -440,6 +444,11 @@ final class AppModel {
 
     // MARK: - Add and share
 
+    /// Opens the import of a game archive for a console (M19).
+    func showArchiveImport(deviceId: String) {
+        sheet = .archiveImport(ArchiveImportContext(deviceId: deviceId))
+    }
+
     /// Opens the Add screen for a console.
     func showAdd(deviceId: String) {
         sheet = .add(AddContext(deviceId: deviceId))
@@ -468,6 +477,8 @@ final class AppModel {
         presentedShare = request
         if request.isSinglePatch {
             sheet = .patch(PatchContext(deviceId: deviceId, request: request))
+        } else if request.isSingleGameArchive {
+            sheet = .archiveImport(ArchiveImportContext(deviceId: deviceId, request: request))
         } else {
             sheet = .add(AddContext(deviceId: deviceId, request: request))
         }
@@ -924,5 +935,13 @@ final class UIKitBackgroundActivity: BackgroundActivity {
     func end(_ token: Int) {
         guard let identifier = tasks.removeValue(forKey: token) else { return }
         UIApplication.shared.endBackgroundTask(identifier)
+    }
+}
+
+extension ShareRequest {
+    /// One game archive (`*.reminislink.zip`) and nothing else: the share
+    /// opens the import of game archives (M19) instead of the Add screen.
+    var isSingleGameArchive: Bool {
+        files.count == 1 && files.allSatisfy(GameArchiveManifest.isArchiveName)
     }
 }

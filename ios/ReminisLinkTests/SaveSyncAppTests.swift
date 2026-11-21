@@ -58,7 +58,8 @@ struct SaveSyncAppTests {
         #expect(report.location == .local)
         #expect(app.vaultLocation == .local)
         let games = try await app.currentVault().games(deviceId: pak.deviceId)
-        #expect(games.count == 4)
+        // M19: games with state versions only are listed too.
+        #expect(games.filter { $0.latest != nil }.count == 4)
     }
 
     @Test func theSettingTurnsTheSyncOnConnectionOffAndIsKept() async throws {
