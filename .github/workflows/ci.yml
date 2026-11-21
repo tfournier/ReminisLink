@@ -87,6 +87,46 @@ jobs:
           path: dist/ReminisLink.pak.zip
           if-no-files-found: error
 
+      # Knulli (experimental, M20): built and kept as an artifact only; the
+      # release job does not publish it.
+      - name: Build the Knulli zip
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            make knulli-release VERSION="$GITHUB_REF_NAME"
+          else
+            make knulli-release VERSION="$(echo "$GITHUB_SHA" | cut -c1-7)"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reminislink-knulli
+          path: dist/ReminisLink.knulli.zip
+          if-no-files-found: error
+
+  emulation:
+    # M20: the pak headless on the card of each platform and of Knulli, in
+    # a userland with the glibc of each firmware (linux/arm64 containers,
+    # native on this runner), and the glibc the release binary needs
+    # (scripts/emulation/run.sh). The stock rootfs of the Brick is not
+    # available here: tg5040 is skipped.
+    needs: [build]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v8
+        with:
+          name: reminislink-pak
+          path: dist
+      - name: Release binary
+        run: |
+          unzip -q -o dist/ReminisLink.pak.zip ReminisLink.pak/reminislink -d build/zip
+          cp build/zip/ReminisLink.pak/reminislink build/reminislink
+      - name: Smoke test in each userland
+        run: make emulation
+
   ios:
     # Swift tools 6.2 and the iOS 18+ simulator: Xcode 26.
     runs-on: macos-26

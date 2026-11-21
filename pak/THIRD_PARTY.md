@@ -19,3 +19,4 @@ The `reminislink` binary includes:
 Shipped next to it:
 
 - **SDL2_gfx** (`resources/lib/libSDL2_gfx-1.0.so.0`, Debian 11 package) — Copyright (C) 2001-2012 Andreas Schiffler — zlib License — https://www.ferzkopp.net/wordpress/2016/01/02/sdl_gfx-sdl2_gfx/
+- **SDL2_ttf** (`resources/lib/h700/libSDL2_ttf-2.0.so.0`, Debian 11 package, loaded on h700 only) — Copyright (C) 1997-2020 Sam Lantinga — zlib License — https://github.com/libsdl-org/SDL_ttf

@@ -10,6 +10,11 @@ PAK_DIR="$(pwd)"
 
 # libSDL2_gfx is not shipped with NextUI: use the bundled copy.
 export LD_LIBRARY_PATH="$PAK_DIR/resources/lib:$LD_LIBRARY_PATH"
+# h700 (Anbernic, experimental): libSDL2_ttf is bundled too, as the Pak
+# Store does for this platform (its launch.sh and taskfile.yml).
+if [ "$PLATFORM" = "h700" ]; then
+	export LD_LIBRARY_PATH="$PAK_DIR/resources/lib/h700:$LD_LIBRARY_PATH"
+fi
 
 LOG_DIR="${LOGS_PATH:-/mnt/SDCARD/.userdata/$PLATFORM/logs}"
 mkdir -p "$LOG_DIR"
