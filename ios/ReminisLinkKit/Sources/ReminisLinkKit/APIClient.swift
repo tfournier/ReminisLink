@@ -61,9 +61,15 @@ public actor APIClient {
     /// The oldest pak this app can drive (M17), compared with the
     /// `pakVersion` of `/hello`. Raise it when the app needs something
     /// older paks do not have; the user is then asked to update
-    /// ReminisLink on the console. The pak's own minimum for the app is
-    /// `minClientVersion`.
+    /// ReminisLink on the console.
     public static let minPakVersion = "1.0.0"
+    /// The client protocol version of this app (M17), compared with the
+    /// `minClientVersion` of `/hello`: the same rule for every client (iOS,
+    /// Android, web), since the pak sends one minimum for all of them. It
+    /// is not the App Store version: raise it only when the app starts to
+    /// require or understand a change of the protocol that a pak may then
+    /// require in turn. Paks v1.0.x send `minClientVersion` 1.0.0.
+    public static let clientProtocolVersion = "1.0.0"
 
     public nonisolated let endpoint: Endpoint
     /// The device this client expects to talk to (checked on `/hello`).
@@ -76,7 +82,7 @@ public actor APIClient {
     private let platform: RequestPlatform?
     private let session: URLSession
     private let now: @Sendable () -> Date
-    private let appVersion: String
+    private let clientProtocolVersion: String
     /// Sees every error answer of the pak to a signed request, with the
     /// moment that request was sent (the session learns of
     /// `401 disconnected` and `503 shutting_down` whatever the screen or
@@ -103,14 +109,14 @@ public actor APIClient {
         credentials: DeviceCredentials? = nil,
         pin: String? = nil,
         platform: RequestPlatform? = nil,
-        appVersion: String = "1.0.0",
+        clientProtocolVersion: String = APIClient.clientProtocolVersion,
         session: URLSession = APIClient.makeSession(),
         now: @escaping @Sendable () -> Date = { Date() },
         errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
     ) {
         self.init(
             scheme: "https", endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials, pin: pin,
-            platform: platform, appVersion: appVersion, session: session, now: now, errorObserver: errorObserver
+            platform: platform, clientProtocolVersion: clientProtocolVersion, session: session, now: now, errorObserver: errorObserver
         )
     }
 
@@ -121,7 +127,7 @@ public actor APIClient {
         credentials: DeviceCredentials? = nil,
         pin: String? = nil,
         platform: RequestPlatform? = nil,
-        appVersion: String = "1.0.0",
+        clientProtocolVersion: String = APIClient.clientProtocolVersion,
         session: URLSession = APIClient.makeSession(),
         now: @escaping @Sendable () -> Date = { Date() },
         errorObserver: (@Sendable (ServerError, ContinuousClock.Instant) -> Void)? = nil
@@ -132,7 +138,7 @@ public actor APIClient {
         self.credentials = credentials
         self.pin = pin ?? credentials?.pin
         self.platform = platform
-        self.appVersion = appVersion
+        self.clientProtocolVersion = clientProtocolVersion
         self.session = session
         self.now = now
         self.errorObserver = errorObserver
@@ -171,22 +177,22 @@ public actor APIClient {
         if let expected = expectedDeviceId, hello.deviceId != expected {
             throw APIError.deviceMismatch(expected: expected, actual: hello.deviceId)
         }
-        if let incompatibility = Self.incompatibility(of: hello, appVersion: appVersion) {
+        if let incompatibility = Self.incompatibility(of: hello, clientProtocolVersion: clientProtocolVersion) {
             throw APIError.incompatible(incompatibility)
         }
         return hello
     }
 
-    /// Whether this app (version `appVersion`) and the pak that sent
-    /// `hello` can work together, and if not which one to update (M17).
-    /// A `pakVersion` that is not a version number (a development build)
-    /// is accepted.
+    /// Whether this app (client protocol `clientProtocolVersion`) and the
+    /// pak that sent `hello` can work together, and if not which one to
+    /// update (M17). A `pakVersion` that is not a version number (a
+    /// development build) is accepted.
     public static func incompatibility(
-        of hello: Hello, appVersion: String, minPakVersion: String = minPakVersion
+        of hello: Hello, clientProtocolVersion: String = clientProtocolVersion, minPakVersion: String = minPakVersion
     ) -> Incompatibility? {
         if hello.apiVersion < apiVersion { return .updatePak }
         if hello.apiVersion > apiVersion { return .updateApp }
-        if !AppVersion.isSupported(appVersion, minimum: hello.minClientVersion) { return .updateApp }
+        if !AppVersion.isSupported(clientProtocolVersion, minimum: hello.minClientVersion) { return .updateApp }
         if AppVersion.isVersionNumber(hello.pakVersion), !AppVersion.isSupported(hello.pakVersion, minimum: minPakVersion) {
             return .updatePak
         }
@@ -1195,7 +1201,8 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
     }
 }
 
-/// Dotted version comparison for `minClientVersion` and `minPakVersion`.
+/// Dotted version comparison for `minClientVersion` (against the client
+/// protocol version) and `minPakVersion` (against `pakVersion`).
 public enum AppVersion {
     /// Whether `version` is a version number (`1.0.1`, `1.1.0-beta.1`),
     /// not the name of a development build of the pak (`dev`, a commit

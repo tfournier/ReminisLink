@@ -35,11 +35,15 @@ func TestHello(t *testing.T) {
 	}
 }
 
-// TestMinClientVersionFormat: the app compares minClientVersion with its
-// own App Store version (M17), three numbers without a suffix.
+// TestMinClientVersionFormat: every client compares minClientVersion with
+// its client protocol version (M17), three numbers without a suffix; it
+// stays 1.0.0 until the pak requires a protocol change.
 func TestMinClientVersionFormat(t *testing.T) {
 	if !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`).MatchString(MinClientVersion) {
 		t.Errorf("MinClientVersion %q is not X.Y.Z", MinClientVersion)
+	}
+	if MinClientVersion != "1.0.0" {
+		t.Errorf("MinClientVersion %q: raising it refuses every client of protocol 1.0.0 (iOS and Android), update the specs (03 §9) and the clients first", MinClientVersion)
 	}
 }
 

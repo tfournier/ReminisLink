@@ -570,7 +570,7 @@ final class AppModel {
     ) -> APIClient {
         APIClient(
             endpoint: endpoint, expectedDeviceId: expectedDeviceId, credentials: credentials, pin: pin,
-            platform: Self.requestPlatform, appVersion: Self.appVersion, session: makeSession(),
+            platform: Self.requestPlatform, session: makeSession(),
             errorObserver: errorObserver
         )
     }

@@ -29,10 +29,11 @@ const (
 	// APIVersion is the version of the API: 2 since M13 (TLS, pairing v2,
 	// RL2-ED25519 signing). The path prefix stays /api/v1.
 	APIVersion = 2
-	// MinClientVersion is the oldest app version the pak supports (X.Y.Z,
-	// compared by the app with its App Store version, M17). Raise it when
-	// the pak drops something older apps need; the app then asks the user
-	// to update it.
+	// MinClientVersion is the oldest client protocol version the pak
+	// supports (X.Y.Z, M17): one value for every client (iOS, Android,
+	// web), compared by each with its own protocol version constant, not
+	// with an app store version. Raise it when the pak drops something
+	// older clients need; they then ask the user to update the app.
 	MinClientVersion = "1.0.0"
 	// MaxJSONBody is the largest JSON body of an unsigned route (/pair).
 	MaxJSONBody = 1 << 20

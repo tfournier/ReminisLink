@@ -198,9 +198,13 @@ paths:
         Compatibility (M17), checked by the app on every `/hello`, both
         ways, with versions compared number by number (a `-suffix` such as
         `-beta.1` is ignored):
-        - `minClientVersion` is the oldest app version (App Store version,
-          `X.Y.Z`) this pak supports. An older app asks the user to update
-          the app.
+        - `minClientVersion` is the oldest **client protocol version**
+          (`X.Y.Z`) this pak supports, one value for every client (iOS,
+          Android, web). It is not an app's store version: each client
+          compares it with its own protocol version constant (`1.0.0` so
+          far), raised only when the client starts to require or understand
+          a protocol change. An older client asks the user to update the
+          app. Paks v1.0.x send `1.0.0`.
         - The app knows the oldest pak it can drive (`minPakVersion`, in
           the app) and compares it with `pakVersion`. An older pak: the app
           asks the user to update ReminisLink on the console. A
@@ -2635,7 +2639,7 @@ components:
         minClientVersion:
           type: string
           pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
-          description: 'Oldest app version (App Store version, `X.Y.Z`) this pak supports. An older app asks the user to update the app (M17).'
+          description: 'Oldest client protocol version (`X.Y.Z`) this pak supports, the same for every client and not an app store version; each client compares it with its own protocol version constant (M17). `1.0.0` for paks v1.0.x.'
         serverTime: { $ref: '#/components/schemas/Timestamp' }
         pairingOpen: { type: boolean }
     PairRequest:
