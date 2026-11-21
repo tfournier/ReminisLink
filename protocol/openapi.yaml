@@ -2110,7 +2110,11 @@ paths:
         archive is skipped, `game-exists`), or `systemId` with an optional
         `folderId` (a new game is made from the archive's ROM, then
         receives the data; the archive must hold a ROM, else
-        `422 unsupported_format`). Without either, the pak suggests one: a
+        `422 unsupported_format`; its file name, `source.fileName` cleaned
+        like an upload, must be a game name, else `400 invalid_name`, and
+        free in the folder, else `409 conflict` with `details.existing` and,
+        when it is a game, `details.gameId`, which the app offers as the
+        target). Without either, the pak suggests one: a
         game of a system with the archive's tag whose data are named after
         the same ROM file name (ignoring case), else, when the archive
         holds a ROM, the top folder of the first system with that tag;
@@ -2201,6 +2205,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -2268,6 +2273,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
