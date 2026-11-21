@@ -246,17 +246,88 @@ struct MacPairingAppTests {
         await waitUntil { gate.reached }
         #expect(session.state == .connected)
 
+        // The held (old) answer was made before the entry below was
+        // added; the new connection's lists it: the shown trash tells which
+        // answer was published.
         let renewed = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        pak.addTrashEntry(reason: "delete", label: "After the change", trashedAt: Date())
         try deliver([Account.console(pak.deviceId), Account.identity(renewed.clientId)])
         mac.reloadPairings()
-        await waitUntil { session.state == .connected && session.client != nil }
+        let hasNewEntry = { session.trash?.entries.contains { $0.label == "After the change" } == true }
+        await waitUntil { hasNewEntry() }
+        #expect(hasNewEntry())
         gate.open()
-        try? await Task.sleep(for: .milliseconds(200))
+        // The old answer arrives: it must never replace the new content
+        // (watched until it has had every chance to be published).
+        await waitUntil(timeout: .milliseconds(500)) { !hasNewEntry() }
+        #expect(hasNewEntry())
         #expect(session.state == .connected)
         #expect(session.client != nil)
         #expect(pak.platforms(clientId: renewed.clientId).lastSeen != nil)
-        await session.refresh()
+    }
+
+    /// A save sync keeps no client of its own: once the pairing is
+    /// forgotten on another device, its next request is not sent.
+    @Test func aSaveSyncStopsWhenThePairingIsForgottenElsewhere() async throws {
+        let pak = makePak()
+        let mac = makeApp(pak, keychain: macKeychain)
+        mac.syncOnConnect = false
+        let iPhone = makeApp(pak, keychain: iPhoneKeychain)
+        try await iPhone.pairDirectly(with: pak)
+        try deliver(try iPhoneKeychain.allAccounts())
+        mac.reloadPairings()
+        show(mac, pak.deviceId)
+        let session = mac.session(for: pak.deviceId)
+        await waitUntil { session.state == .connected }
+        let gate = pak.holdNextAnswer(method: "GET", path: "/api/v1/saves")
+        mac.startSaveSync(deviceId: pak.deviceId)
+        await waitUntil { gate.reached }
+        try macKeychain.remove(account: Account.console(pak.deviceId))
+        mac.reloadPairings()
+        #expect(session.client == nil)
+        let requests = pak.log.count
+        gate.open()
+        let state = mac.saveSync(for: pak.deviceId)
+        await waitUntil { !state.isRunning }
+        #expect(!state.isRunning)
+        #expect(pak.log.count == requests)
+    }
+
+    /// A refresh answered after the session paused (new record without its
+    /// key) does not show the console as connected again.
+    @Test func aLateRefreshDoesNotUndoThePause() async throws {
+        let pak = makePak()
+        let (mac, iPhone, session, old) = try await connectedMac(pak)
+        let gate = pak.holdNextAnswer(method: "GET", path: "/api/v1/device")
+        let refresh = Task { await session.refresh() }
+        await waitUntil { gate.reached }
+        _ = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        try deliver([Account.console(pak.deviceId)])
+        mac.reloadPairings()
+        #expect(session.error == .pairingNotSynced)
+        gate.open()
+        await refresh.value
+        #expect(session.error == .pairingNotSynced)
+        #expect(session.client == nil)
+    }
+
+    /// A screen still shown while the app is in the background does not
+    /// connect.
+    @Test func nothingConnectsInTheBackground() async throws {
+        let pak = makePak()
+        let (mac, iPhone, session, old) = try await connectedMac(pak)
+        mac.enterBackground()
+        let renewed = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        try deliver([Account.console(pak.deviceId), Account.identity(renewed.clientId)])
+        mac.reloadPairings()
+        #expect(session.state == .idle)
+        await session.connectIfNeeded()
+        #expect(session.state == .idle)
+        #expect(pak.platforms(clientId: renewed.clientId).lastSeen == nil)
+        mac.becomeActive()
+        await session.connectIfNeeded()
         #expect(session.state == .connected)
+        #expect(pak.platforms(clientId: renewed.clientId).lastSeen != nil)
     }
 
     /// After a disconnection by the console, an automatic reconnection
@@ -342,6 +413,10 @@ struct MacPairingAppTests {
         #expect(AppError.noPairingCodeInPicture.action == nil)
         #expect(!AppError.noPairingCodeInPicture.message.isEmpty)
         #expect(AppError.pairingNotSynced.isPairingProblem)
+        // M15: a pointer whose key never arrived: reset from Settings.
+        #expect(AppError(DeviceStoreError.identityMissing) == .identityMissing)
+        #expect(AppError.identityMissing.action == .resetIdentity)
+        #expect(AppError(DeviceStoreError.identityNotArrived).action == .retry)
         #expect(!AppError.pairingNotSynced.message.contains("no longer"))
     }
 }

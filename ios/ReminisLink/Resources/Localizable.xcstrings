@@ -3081,6 +3081,16 @@
         }
       }
     },
+    "Only if pairing keeps saying that the identity of your Apple devices has not arrived on this device." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seulement si l’appairage indique toujours que l’identité de tes appareils Apple n’est pas arrivée sur cet appareil."
+          }
+        }
+      }
+    },
     "Open ReminisLink from the Tools menu of the console. If another device is already paired, open Settings > Pair a New Device." : {
       "localizations" : {
         "fr" : {
@@ -3707,6 +3717,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer…"
+          }
+        }
+      }
+    },
+    "Reset Identity" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinitialiser l’identité"
+          }
+        }
+      }
+    },
+    "Reset This Device's Identity…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinitialiser l’identité de cet appareil…"
+          }
+        }
+      }
+    },
+    "Reset this device's identity?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinitialiser l’identité de cet appareil ?"
           }
         }
       }
@@ -5195,12 +5235,32 @@
         }
       }
     },
+    "The identity could not be reset." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité n’a pas pu être réinitialisée."
+          }
+        }
+      }
+    },
     "The identity of your Apple devices has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet, then try again." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "L’identité de tes appareils Apple n’est pas encore entièrement arrivée sur cet appareil par le trousseau iCloud. Garde-le connecté à Internet, puis réessaie."
+          }
+        }
+      }
+    },
+    "The identity of your Apple devices has still not reached this device. If none of your devices can pair a console either, reset this device's identity." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité de tes appareils Apple n’est toujours pas arrivée sur cet appareil. Si aucun de tes appareils ne peut appairer de console non plus, réinitialise l’identité de cet appareil."
           }
         }
       }
@@ -6455,6 +6515,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tu peux fermer cet écran : la console continue. Suis-la dans Transferts."
+          }
+        }
+      }
+    },
+    "Your Apple devices will use a new identity for the consoles you pair from now on. Consoles already paired keep working wherever their pairing has arrived; a console that says its pairing has not arrived on this device must be paired again from here." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tes appareils Apple utiliseront une nouvelle identité pour les consoles que tu appaireras désormais. Les consoles déjà appairées continuent de fonctionner partout où leur appairage est arrivé ; une console qui indique que son appairage n’est pas arrivé sur cet appareil doit être appairée de nouveau depuis celui-ci."
           }
         }
       }

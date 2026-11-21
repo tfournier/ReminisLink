@@ -15,6 +15,10 @@ struct AddConsoleView: View {
     var repairing: String?
     /// The name of this app's identity on the consoles.
     @State private var pairingName = ""
+    /// The name put in the field when the screen opened: written back only
+    /// if the user changed it (M15: an untouched field never hides a name
+    /// that arrived meanwhile).
+    @State private var loadedName = ""
     /// A QR code that is not a pairing link this app can use.
     @State private var scanError: AppError?
     @State private var scanner = ScannerKind.current()
@@ -100,7 +104,10 @@ struct AddConsoleView: View {
                 }
                 #endif
             }
-            .onAppear { pairingName = app.store.pairingName() ?? "" }
+            .onAppear {
+                loadedName = app.store.pairingName() ?? ""
+                pairingName = loadedName
+            }
             .onDisappear {
                 acceptance.close()
                 savePairingName()
@@ -223,41 +230,39 @@ struct AddConsoleView: View {
     enum ImportOutcome: Equatable {
         case found(PairingCodeSearch)
         case failed(AppError)
+        case cancelled
     }
 
     /// Loads and reads a picture, off the main actor; bounded (bytes, then
     /// pixels, downsampled before Vision: ``QRCodeReader``).
     private static func read(_ request: ImportRequest) async -> ImportOutcome {
-        let data: Data
         do {
+            let payloads: [String]
             switch request.source {
             case .photo(let item):
-                guard let loaded = try await item.loadTransferable(type: Data.self) else { return .failed(.file) }
-                data = loaded
+                // A file, never the whole picture in memory: its size is
+                // checked before ImageIO reads it.
+                guard let picture = try await item.loadTransferable(type: ImportedPicture.self) else { return .failed(.file) }
+                defer { try? FileManager.default.removeItem(at: picture.url) }
+                try Task.checkCancellation()
+                payloads = try await Task.detached { try QRCodeReader.payloads(inImageAt: picture.url) }.value
             case .file(let url):
-                data = try await Task.detached { () throws -> Data in
+                payloads = try await Task.detached { () throws -> [String] in
                     let scoped = url.startAccessingSecurityScopedResource()
                     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= QRCodeReader.maxImageBytes else { throw QRCodeReader.ImageError.tooLarge }
-                    return try Data(contentsOf: url)
+                    try Task.checkCancellation()
+                    return try QRCodeReader.payloads(inImageAt: url)
                 }.value
             }
+            try Task.checkCancellation()
+            return .found(PairingCodeSearch(payloads: payloads))
+        } catch is CancellationError {
+            return .cancelled
         } catch QRCodeReader.ImageError.tooLarge {
             return .failed(.pictureTooLarge)
         } catch {
-            return .failed(.file)
+            return Task.isCancelled ? .cancelled : .failed(.file)
         }
-        try? Task.checkCancellation()
-        return await Task.detached { () -> ImportOutcome in
-            do {
-                return .found(PairingCodeSearch(payloads: try QRCodeReader.payloads(inImageData: data)))
-            } catch QRCodeReader.ImageError.tooLarge {
-                return .failed(.pictureTooLarge)
-            } catch {
-                return .failed(.file)
-            }
-        }.value
     }
 
     private func importFinished(_ outcome: ImportOutcome) {
@@ -271,13 +276,32 @@ struct AddConsoleView: View {
             if !acceptance.isClosed { scanError = .noPairingCodeInPicture }
         case .failed(let error):
             if !acceptance.isClosed { scanError = error }
+        case .cancelled:
+            break
         }
     }
 
     /// Keeps the typed name (sent at the next pairing); an empty field
     /// falls back on the model of this device.
     private func savePairingName() {
-        guard pairingName != (app.store.pairingName() ?? "") else { return }
+        guard pairingName != loadedName, pairingName != (app.store.pairingName() ?? "") else { return }
         try? app.store.setPairingName(pairingName)
+        loadedName = pairingName
+    }
+}
+
+/// A picture picked in Photos, received as a file (copied to a temporary
+/// place, removed once read).
+struct ImportedPicture: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .image) { received in
+            let copy = FileManager.default.temporaryDirectory
+                .appending(path: "qr-import-\(UUID().uuidString)")
+                .appendingPathExtension(received.file.pathExtension)
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return ImportedPicture(url: copy)
+        }
     }
 }

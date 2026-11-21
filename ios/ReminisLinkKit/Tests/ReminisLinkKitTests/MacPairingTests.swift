@@ -197,6 +197,81 @@ struct MacPairingTests {
         #expect(changes == 6)
     }
 
+    /// A pointer whose key exists nowhere: "arriving" for 10 minutes
+    /// (noted on this device), then "missing"; resetting this device's
+    /// identity replaces the pointer (the only path that does), keeps
+    /// every identity item, and new pairings work again.
+    @Test func anOrphanedPointerCanBeReset() throws {
+        let keychain = InMemorySecureStore()
+        let lost = ClientIdentity.generate()
+        try keychain.set(try JSONSerialization.data(withJSONObject: ["clientId": lost.clientId]), for: DeviceStore.identityAccount)
+        let clock = IdentityTestClock()
+        let defaults = makeDefaults()
+        let store = DeviceStore(secureStore: keychain, defaults: defaults, now: { clock.now })
+        let local = ClientIdentity.generate()
+        try keychain.set(identityItem(local), for: DeviceStore.account(clientId: local.clientId))
+        #expect(throws: DeviceStoreError.identityNotArrived) { try store.identity() }
+        clock.now += 9 * 60
+        #expect(throws: DeviceStoreError.identityNotArrived) { try store.identity() }
+        clock.now += 2 * 60
+        #expect(throws: DeviceStoreError.identityMissing) { try store.identity() }
+        // Another store on this device (a relaunch) remembers since when.
+        #expect(throws: DeviceStoreError.identityMissing) {
+            try DeviceStore(secureStore: keychain, defaults: defaults, now: { clock.now }).identity()
+        }
+
+        var changes = 0
+        store.onSharedItemsChange = { changes += 1 }
+        let fresh = try store.resetIdentity()
+        #expect(changes == 1)
+        #expect(fresh != local)
+        #expect(try store.identity() == fresh)
+        #expect(try keychain.data(for: DeviceStore.account(clientId: local.clientId)) != nil)
+        #expect(defaults.object(forKey: DeviceStore.missingSinceKey) == nil)
+    }
+
+    /// The address noted by a connection stays on this device: it never
+    /// recreates a pairing another device removed, never rewrites its
+    /// replacement, and is used only with the pin it was validated with.
+    @Test func aNotedAddressNeverRewritesTheSharedRecord() throws {
+        let keychain = InMemorySecureStore()
+        let store = DeviceStore(secureStore: keychain, defaults: makeDefaults())
+        let paired = Endpoint(host: "192.168.1.42", port: 47821)
+        try store.save(deviceId: deviceId, name: "Brick", model: .brick, pin: pin, endpoint: paired)
+        let record = try keychain.data(for: DeviceStore.account(deviceId: deviceId))
+        let moved = Endpoint(host: "192.168.1.50", port: 47821)
+        store.noteEndpoint(moved, for: deviceId)
+        #expect(store.lastEndpoint(for: deviceId) == moved)
+        #expect(try keychain.data(for: DeviceStore.account(deviceId: deviceId)) == record)
+        // Paired again elsewhere with another pin: the old note is ignored.
+        let otherPin = Base64URL.encode(Data(repeating: 9, count: 32))
+        try DeviceStore(secureStore: keychain, defaults: makeDefaults())
+            .save(deviceId: deviceId, name: "Brick", model: .brick, pin: otherPin, endpoint: paired)
+        #expect(store.lastEndpoint(for: deviceId) == paired)
+        // Removed elsewhere: noting an address or the console's name
+        // never brings the record back.
+        try keychain.remove(account: DeviceStore.account(deviceId: deviceId))
+        store.noteEndpoint(moved, for: deviceId)
+        store.noteConsoleName("Renamed", for: deviceId)
+        #expect(try keychain.data(for: DeviceStore.account(deviceId: deviceId)) == nil)
+    }
+
+    /// A Keychain read error keeps the list shown (never back to the
+    /// welcome screen for a transient error).
+    @Test func aReadErrorKeepsTheList() throws {
+        let keychain = ArrivingKeychain()
+        let store = DeviceStore(secureStore: keychain, defaults: makeDefaults())
+        try store.save(deviceId: deviceId, name: "Brick", model: .brick, pin: pin)
+        keychain.failsEnumeration = true
+        store.reload()
+        #expect(store.devices.map(\.id) == [deviceId])
+        #expect(store.lastReadFailed)
+        keychain.failsEnumeration = false
+        store.reload()
+        #expect(!store.lastReadFailed)
+        #expect(store.devices.map(\.id) == [deviceId])
+    }
+
     // MARK: - Key-value store marker
 
     @Test func theMarkerCountsChangesAndCarriesNothingElse() {
@@ -275,6 +350,11 @@ struct MacPairingTests {
         // A large picture is downsampled, and still read.
         let large = try Self.png(try Self.qrImage(Self.link, scale: 60))
         #expect(try QRCodeReader.payloads(inImageData: large) == [Self.link])
+        // From a file, size checked before anything is read.
+        let file = FileManager.default.temporaryDirectory.appending(path: "qr-\(UUID().uuidString).png")
+        try data.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(try QRCodeReader.payloads(inImageAt: file) == [Self.link])
     }
 
     /// Camera and imports share one acceptance point: the first link only,
@@ -340,6 +420,17 @@ final class ArrivingKeychain: SecureStore, @unchecked Sendable {
         beforeAdd?(account)
         return try base.add(data, for: account)
     }
+    func replace(_ data: Data, for account: String) throws -> Bool { try base.replace(data, for: account) }
     func remove(account: String) throws { try base.remove(account: account) }
-    func allAccounts() throws -> [String] { try base.allAccounts() }
+    /// The next enumerations fail (a transient Keychain error).
+    var failsEnumeration = false
+    func allAccounts() throws -> [String] {
+        if failsEnumeration { throw KeychainError.status(-25308) }
+        return try base.allAccounts()
+    }
+}
+
+/// A settable clock.
+final class IdentityTestClock: @unchecked Sendable {
+    var now = Date(timeIntervalSince1970: 1_000_000)
 }

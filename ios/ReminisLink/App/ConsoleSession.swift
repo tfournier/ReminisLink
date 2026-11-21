@@ -45,6 +45,9 @@ final class ConsoleSession {
     /// the user opens the console again.
     private(set) var closedByConsole = false
 
+    /// Uploads were paused because the credentials changed (M15).
+    @ObservationIgnored private var pausedForCredentials = false
+
     /// The credentials of the last connection (nil before one read them).
     @ObservationIgnored private(set) var signedWith: SigningKey?
 
@@ -132,7 +135,9 @@ final class ConsoleSession {
     }
 
     func connectIfNeeded() async {
-        guard !closedByConsole else { return }
+        // M15: a screen still shown while the app is in the background
+        // connects when it comes back (becomeActive).
+        guard !closedByConsole, !app.isInBackground else { return }
         if state == .idle || attempt != nil { await connect() }
     }
 
@@ -255,6 +260,12 @@ final class ConsoleSession {
             updateEventStream()
             // Uploads paused when the console closed ReminisLink go on (M11).
             transfers.resumeAfterReconnection()
+            // M15: uploads paused when the credentials changed go on with
+            // the new client.
+            if pausedForCredentials {
+                pausedForCredentials = false
+                if !app.isInBackground { transfers.resumeAfterSuspension() }
+            }
             // Milestone M9: copy the saves that changed (setting, default on).
             // A sync of the previous connection still running: this one
             // starts when it ends.
@@ -358,12 +369,19 @@ final class ConsoleSession {
         state = .failed(.api(.notPaired))
     }
 
+    /// Everything that signs stops: the connection in progress, the
+    /// client, the event stream, the save sync (its requests also check the
+    /// client, ``SessionSaveSource``), and uploads pause after their
+    /// current chunk until a new connection.
     private func dropConnection() {
         attempt?.task?.cancel()
         attempt = nil
         client = nil
         signedWith = nil
         stopEventStream()
+        app.cancelSaveSync(deviceId: deviceId)
+        transfers.suspend()
+        pausedForCredentials = true
     }
 
     /// Reloads the dashboard without searching the console again.
@@ -371,6 +389,9 @@ final class ConsoleSession {
         guard let client else { return await connect() }
         do {
             let status = try await client.device()
+            // M15: the client was dropped meanwhile (the Keychain changed):
+            // its late answer changes nothing.
+            guard self.client === client else { return }
             // M11: renamed on the console since the last answer.
             let renamed = self.status.map { $0.deviceName != status.deviceName } ?? false
             self.status = status
@@ -379,6 +400,7 @@ final class ConsoleSession {
             if renamed { app.store.noteConsoleName(status.deviceName, for: deviceId) }
             await loadTrash()
         } catch {
+            guard self.client === client else { return }
             let error = AppError(error)
             if case .api(let api) = error, app.meansConsoleClosed(api, deviceId: deviceId) {
                 return consoleClosed(client: client)

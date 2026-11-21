@@ -75,6 +75,8 @@ struct ErrorView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("error.updateApp")
+            case .resetIdentity:
+                ResetIdentityButton(prominent: true)
             case nil:
                 EmptyView()
             }
@@ -82,6 +84,43 @@ struct ErrorView: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("error")
+    }
+}
+
+/// "Reset This Device's Identity" (M15), after a confirmation that says
+/// what it does: the only way to replace the identity of the Apple account,
+/// for an identity whose key never reached this device.
+struct ResetIdentityButton: View {
+    @Environment(AppModel.self) private var app
+    var prominent = false
+    @State private var confirming = false
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if prominent {
+                button.buttonStyle(.borderedProminent)
+            } else {
+                button
+            }
+        }
+        .confirmationDialog("Reset this device's identity?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Reset Identity", role: .destructive) {
+                failed = (try? app.store.resetIdentity()) == nil
+            }
+            .accessibilityIdentifier("resetIdentity.confirm")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your Apple devices will use a new identity for the consoles you pair from now on. Consoles already paired keep working wherever their pairing has arrived; a console that says its pairing has not arrived on this device must be paired again from here.")
+        }
+        .alert("The identity could not be reset.", isPresented: $failed) {
+            Button("OK", role: .cancel) {}
+        }
+    }
+
+    private var button: some View {
+        Button("Reset This Device's Identity…", role: .destructive) { confirming = true }
+            .accessibilityIdentifier("resetIdentity")
     }
 }
 

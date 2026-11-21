@@ -15,6 +15,9 @@ enum RecoveryAction: Equatable {
     /// M17: ReminisLink on the console needs a newer app: a link to the App
     /// Store.
     case updateApp
+    /// M15: the identity the pointer names never arrived: give this device
+    /// a new identity (Settings), after a confirmation.
+    case resetIdentity
 }
 
 /// Where to update each side (M17).
@@ -53,6 +56,8 @@ enum AppError: Error, Equatable {
     /// M15: the pointer names the identity of the Apple account, but its
     /// key has not reached this device yet: no pairing with another one.
     case identityNotArrived
+    /// M15: still not after 10 minutes: its key may exist nowhere.
+    case identityMissing
     /// M15: no ReminisLink QR code in an imported picture.
     case noPairingCodeInPicture
     /// M15: an imported picture too large to be read.
@@ -134,6 +139,7 @@ enum AppError: Error, Equatable {
         case DeviceLookupError.localNetworkDenied: self = .localNetworkDenied
         case DeviceLookupError.notFound: self = .consoleNotFound
         case DeviceStoreError.identityNotArrived: self = .identityNotArrived
+        case DeviceStoreError.identityMissing: self = .identityMissing
         case is KeychainError, is DeviceStoreError: self = .storage
         case let error as PairingError: self = .api(.pairing(error))
         case let error as PairingLinkError: self = AppError(pairingLink: error)
@@ -162,6 +168,8 @@ enum AppError: Error, Equatable {
             String(localized: "The pairing of this console has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet: ReminisLink connects as soon as it arrives.")
         case .identityNotArrived:
             String(localized: "The identity of your Apple devices has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet, then try again.")
+        case .identityMissing:
+            String(localized: "The identity of your Apple devices has still not reached this device. If none of your devices can pair a console either, reset this device's identity.")
         case .pictureTooLarge:
             String(localized: "This picture is too large. Use a smaller picture of the QR code.")
         case .noPairingCodeInPicture:
@@ -256,6 +264,7 @@ enum AppError: Error, Equatable {
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak: nil
         case .pairingClosed, .pairingNotSynced, .identityNotArrived, .unexpected: .retry
         case .noPairingCodeInPicture, .pictureTooLarge: nil
+        case .identityMissing: .resetIdentity
         }
     }
 

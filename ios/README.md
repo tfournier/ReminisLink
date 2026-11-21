@@ -492,11 +492,16 @@ Macs*), then, with a TestFlight build on the Mac:
    read again at once and 5 s and 25 s later, and the periodic read runs
    every minute (none of them bounds iCloud's own delay), without closing
    the window. Forget the console on the iPhone while the Mac shows it: the
-   Mac closes it and says it was forgotten on another device. Open that console on the Mac
+   Mac closes it and says it was forgotten on another device (a save sync
+   in progress stops). Open a console just paired on the iPhone on the Mac
    right away: it connects, or says "has not fully reached this device"
    and connects by itself once the identity arrives; never "no longer
    recognizes this device" for a console that works on the iPhone.
-6. Also: windows of several sizes (the Library columns, the readable width),
+6. **Camera changes**: deny the camera, then allow it in System Settings and
+   come back: the scanner starts; unplug or move away the Continuity Camera
+   iPhone: the FaceTime camera takes over, or the screen says there is no
+   camera.
+7. Also: windows of several sizes (the Library columns, the readable width),
    a transfer while the window is resized, quitting with Cmd-Q during an
    upload (it resumes at the next launch).
 

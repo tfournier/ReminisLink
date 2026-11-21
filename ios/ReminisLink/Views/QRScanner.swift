@@ -139,7 +139,9 @@ final class CameraQRScanner: UIViewController {
     var onLink: ((Result<PairingLink, PairingLinkError>) -> Void)?
     var onUnavailable: ((Failure) -> Void)?
 
-    private let session = AVCaptureSession()
+    /// The capture session, touched only on ``queue`` (configuration,
+    /// start, stop), so a camera change, a restart and a stop never overlap.
+    private let capture = Capture()
     private let queue = DispatchQueue(label: "link.reminis.qr-camera")
     private let reader = FrameReader()
     private var preview: AVCaptureVideoPreviewLayer?
@@ -148,9 +150,13 @@ final class CameraQRScanner: UIViewController {
     /// Restarts after a runtime error, before giving up.
     private var restarts = 0
 
+    private nonisolated final class Capture: @unchecked Sendable {
+        let session = AVCaptureSession()
+    }
+
     /// The camera to use: a Mac's camera (front, or Continuity Camera),
     /// else the back camera, else any.
-    static func preferredCamera() -> AVCaptureDevice? {
+    nonisolated static func preferredCamera() -> AVCaptureDevice? {
         if ProcessInfo.processInfo.isiOSAppOnMac {
             return AVCaptureDevice.default(for: .video)
         }
@@ -187,8 +193,15 @@ final class CameraQRScanner: UIViewController {
         stopped = true
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
-        let session = session
-        queue.async { if session.isRunning { session.stopRunning() } }
+        let capture = capture
+        queue.async { if capture.session.isRunning { capture.session.stopRunning() } }
+    }
+
+    /// No camera could be used: stop and say so (on the main actor).
+    private func unavailable() {
+        guard !stopped else { return }
+        stop()
+        onUnavailable?(.noCamera)
     }
 
     /// A capture that fails (runtime error) is started again, twice at
@@ -198,7 +211,7 @@ final class CameraQRScanner: UIViewController {
     /// session resumes.
     private func observeCapture() {
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) {
+        observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: capture.session, queue: .main) {
             [weak self] _ in MainActor.assumeIsolated { self?.captureFailed() }
         })
         observers.append(center.addObserver(forName: AVCaptureDevice.wasDisconnectedNotification, object: nil, queue: .main) {
@@ -209,56 +222,68 @@ final class CameraQRScanner: UIViewController {
     private func captureFailed() {
         guard !stopped else { return }
         restarts += 1
-        guard restarts <= 2 else {
-            stop()
-            onUnavailable?(.noCamera)
-            return
-        }
-        let session = session
-        queue.async { session.startRunning() }
+        guard restarts <= 2 else { return unavailable() }
+        let capture = capture
+        queue.async { if !capture.session.isRunning { capture.session.startRunning() } }
     }
 
     private func cameraChanged() {
         guard !stopped else { return }
-        let inputs = session.inputs.compactMap { $0 as? AVCaptureDeviceInput }
-        guard inputs.contains(where: { !$0.device.isConnected }) || inputs.isEmpty else { return }
-        session.beginConfiguration()
-        for input in inputs { session.removeInput(input) }
-        guard let camera = Self.preferredCamera(), let input = try? AVCaptureDeviceInput(device: camera),
-              session.canAddInput(input)
-        else {
+        let capture = capture
+        queue.async { [weak self] in
+            let session = capture.session
+            let inputs = session.inputs.compactMap { $0 as? AVCaptureDeviceInput }
+            guard inputs.isEmpty || inputs.contains(where: { !$0.device.isConnected }) else { return }
+            session.beginConfiguration()
+            for input in inputs { session.removeInput(input) }
+            let replaced: Bool
+            if let camera = Self.preferredCamera(), let input = try? AVCaptureDeviceInput(device: camera),
+               session.canAddInput(input) {
+                session.addInput(input)
+                replaced = true
+            } else {
+                replaced = false
+            }
             session.commitConfiguration()
-            stop()
-            onUnavailable?(.noCamera)
-            return
+            if replaced, !session.isRunning { session.startRunning() }
+            if !replaced { Task { @MainActor in self?.unavailable() } }
         }
-        session.addInput(input)
-        session.commitConfiguration()
     }
 
     private func configure() {
         guard !stopped else { return }
-        guard let camera = Self.preferredCamera(), let input = try? AVCaptureDeviceInput(device: camera),
-              session.canAddInput(input)
-        else { return onUnavailable?(.noCamera) ?? () }
-        let output = AVCaptureVideoDataOutput()
-        output.alwaysDiscardsLateVideoFrames = true
-        output.setSampleBufferDelegate(reader, queue: queue)
-        guard session.canAddOutput(output) else { return onUnavailable?(.noCamera) ?? () }
-        session.beginConfiguration()
-        session.sessionPreset = .high
-        session.addInput(input)
-        session.addOutput(output)
-        session.commitConfiguration()
-
-        let preview = AVCaptureVideoPreviewLayer(session: session)
+        let preview = AVCaptureVideoPreviewLayer(session: capture.session)
         preview.videoGravity = .resizeAspectFill
         preview.frame = view.bounds
         view.layer.addSublayer(preview)
         self.preview = preview
         observeCapture()
-        let session = session
-        queue.async { session.startRunning() }
+        let capture = capture
+        let reader = reader
+        let queue = queue
+        queue.async { [weak self] in
+            let session = capture.session
+            guard let camera = Self.preferredCamera(), let input = try? AVCaptureDeviceInput(device: camera),
+                  session.canAddInput(input)
+            else {
+                Task { @MainActor in self?.unavailable() }
+                return
+            }
+            let output = AVCaptureVideoDataOutput()
+            output.alwaysDiscardsLateVideoFrames = true
+            output.setSampleBufferDelegate(reader, queue: queue)
+            session.beginConfiguration()
+            session.sessionPreset = .high
+            session.addInput(input)
+            guard session.canAddOutput(output) else {
+                session.commitConfiguration()
+                Task { @MainActor in self?.unavailable() }
+                return
+            }
+            session.addOutput(output)
+            session.commitConfiguration()
+            session.startRunning()
+        }
     }
 
     private func handle(_ payloads: [String]) {
@@ -268,7 +293,7 @@ final class CameraQRScanner: UIViewController {
     }
 
     /// Reads the frames on the capture queue, a few per second.
-    private final class FrameReader: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private nonisolated final class FrameReader: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
         var onPayloads: (@Sendable ([String]) -> Void)?
         private var lastRead = Date.distantPast
         private let lock = NSLock()

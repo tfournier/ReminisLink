@@ -318,6 +318,9 @@ final class AppModel {
     var sheet: Sheet?
     /// The app is active.
     @ObservationIgnored private(set) var isForeground = false
+    /// The app went to the background (and has not become active since):
+    /// screens still shown do not connect (M15).
+    @ObservationIgnored private(set) var isInBackground = false
     var linkError: AppError?
     /// A pairing with a console that is already paired, waiting for the
     /// user to confirm that it should be paired again.
@@ -506,6 +509,7 @@ final class AppModel {
     /// starts.
     func enterBackground() {
         isForeground = false
+        isInBackground = true
         for session in sessions.values {
             session.transfers.suspend()
             // Released unless a transfer is still running (M10).
@@ -516,6 +520,7 @@ final class AppModel {
     /// The app is active again: uploads go on or resume.
     func becomeActive() {
         isForeground = true
+        isInBackground = false
         // M13: another device of the Apple account may have paired or
         // forgotten a console (iCloud Keychain).
         reloadPairings()

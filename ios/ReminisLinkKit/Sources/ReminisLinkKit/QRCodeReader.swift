@@ -35,8 +35,23 @@ public enum QRCodeReader {
     /// ``decodedSide`` before Vision, never decoded at full size.
     public static func payloads(inImageData data: Data) throws -> [String] {
         guard data.count <= maxImageBytes else { throw ImageError.tooLarge }
-        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
-              CGImageSourceGetCount(source) > 0,
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { throw ImageError.notAPicture }
+        return try payloads(in: source)
+    }
+
+    /// The same, from a file, never read whole into memory: its size is
+    /// checked first.
+    public static func payloads(inImageAt url: URL) throws -> [String] {
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size <= maxImageBytes else { throw ImageError.tooLarge }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { throw ImageError.notAPicture }
+        return try payloads(in: source)
+    }
+
+    private static func payloads(in source: CGImageSource) throws -> [String] {
+        guard CGImageSourceGetCount(source) > 0,
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int

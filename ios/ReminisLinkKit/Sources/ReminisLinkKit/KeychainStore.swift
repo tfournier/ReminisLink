@@ -10,6 +10,9 @@ public protocol SecureStore: Sendable {
     /// when an item already exists, for example one that just arrived from
     /// another device through the iCloud Keychain.
     func add(_ data: Data, for account: String) throws -> Bool
+    /// Changes the item only if it exists (never creates one): false when
+    /// it is gone, for example removed by another device meanwhile.
+    func replace(_ data: Data, for account: String) throws -> Bool
     func remove(account: String) throws
     func allAccounts() throws -> [String]
 }
@@ -130,6 +133,15 @@ public struct KeychainStore: SecureStore {
         }
     }
 
+    public func replace(_ data: Data, for account: String) throws -> Bool {
+        let status = api.update(baseQuery(account: account), writeAttributes(data: data))
+        switch status {
+        case errSecSuccess: return true
+        case errSecItemNotFound: return false
+        default: throw KeychainError.status(status)
+        }
+    }
+
     public func remove(account: String) throws {
         let status = api.delete(baseQuery(account: account))
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.status(status) }
@@ -171,6 +183,14 @@ public final class InMemorySecureStore: SecureStore, @unchecked Sendable {
     public func add(_ data: Data, for account: String) throws -> Bool {
         lock.withLock {
             guard items[account] == nil else { return false }
+            items[account] = data
+            return true
+        }
+    }
+
+    public func replace(_ data: Data, for account: String) throws -> Bool {
+        lock.withLock {
+            guard items[account] != nil else { return false }
             items[account] = data
             return true
         }
