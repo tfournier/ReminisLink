@@ -1363,9 +1363,11 @@ paths:
         `folder-cue`, subfolders included) and same state resolution as
         `GET /games/{gameId}/states` (state folder of the system's
         emulator core, file named after the ROM, the `.m3u` or the `.cue`,
-        ignoring case); one file per slot, `<name>.st<slot>` with the slot
-        in decimal without leading zero as NextUI writes it (`.st01` is not
-        slot 1), the very file `GET /games/{gameId}/states/{slot}` serves
+        ignoring case where the file system does); one file per slot,
+        named as the OS writes it (NextUI: `<name>.st<slot>`, the slot in
+        decimal without leading zero, the suffix in any case on its exFAT
+        card: `.st01` is not slot 1; Knulli: `<name>.state<slot>`), the
+        very file `GET /games/{gameId}/states/{slot}` serves
         and the archives export; two games of a system with the same ROM
         file name share their states on NextUI and are both listed. Order: by
         system, game, then slot. Locked copies and the resume history are
@@ -2115,12 +2117,16 @@ paths:
         receives the data; the archive must hold a ROM, else
         `422 unsupported_format`; its file name, `source.fileName` cleaned
         like an upload, must be a game name, else `400 invalid_name`, and
-        free in the folder and not the ROM file name of another game of the
-        system (whose save, clock file and states it would share), else
+        free in the folder, and no file the new game would use (save, clock
+        file, the states and thumbnails of the archive, art, computed with
+        the target OS's own rules) may belong to another game of the system
+        (NextUI: `A/Zelda.gba` and `B/Zelda.gba`; Knulli: `A/Zelda.gba` and
+        `B/Zelda.zip` share `Zelda.srm`), else
         `409 conflict` with `details.existing` and, when it is a game,
         `details.gameId`, which the app offers as the target). Without either, the pak suggests one: a
         game of a system with the archive's tag whose data are named after
-        the same ROM file name (ignoring case), else, when the archive
+        the same ROM file name (the exact name first; another case only
+        where the file system ignores case), else, when the archive
         holds a ROM, the top folder of the first system with that tag;
         `target` is `null` when nothing fits (every entry is then `skip`,
         `no-target`) and the app asks the user to choose a game. `gameId`
@@ -2153,8 +2159,9 @@ paths:
 
         Skip reasons: `game-exists` (a ROM with a game target), `locked`
         (the target slot is locked, M5), `unsupported-format` (the console
-        uses a save or state format the pak does not write, or a thumbnail
-        for a slot this OS keeps none for), `no-state-folder` (no emulator
+        uses a save or state format the pak does not write, a thumbnail
+        for a slot this OS keeps none for, or a role this OS keeps no file
+        for: cheats on Knulli; the rest is imported), `no-state-folder` (no emulator
         pak for the system), `no-state` (a thumbnail without its state, or
         whose state is skipped), `no-target`.
       parameters:
