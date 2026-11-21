@@ -222,3 +222,42 @@ struct StorageBar: View {
         .accessibilityValue(Text("\(storage.usedBytes.byteString) used of \(storage.totalBytes.byteString)"))
     }
 }
+
+/// Large windows (iPad, Mac, the inner screen of an iPhone Duo; milestone
+/// M15): lists, forms and text keep a readable width, centred, while their
+/// background and scrolling stay edge to edge. Narrow windows (iPhone, Slide
+/// Over, a small Split View or Stage Manager window) are left as they are.
+/// Driven by the width of the window, never by the kind of device.
+struct ReadableWidth: ViewModifier {
+    /// About the width of `readableContentGuide` at the default text size.
+    nonisolated static let maxWidth: CGFloat = 700
+
+    @State private var inset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .safeAreaPadding(.horizontal, inset)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                Self.inset(forWidth: proxy.size.width)
+            } action: { inset = $0 }
+    }
+
+    /// The extra margin on each side for a window of this width.
+    nonisolated static func inset(forWidth width: CGFloat) -> CGFloat {
+        max(0, ((width - maxWidth) / 2).rounded(.down))
+    }
+}
+
+extension View {
+    /// See ``ReadableWidth``.
+    func readableWidth() -> some View {
+        modifier(ReadableWidth())
+    }
+}
+
+extension EnvironmentValues {
+    /// The selection of the Library column in a large window (M15): the
+    /// links of the library list set it instead of pushing a screen. Nil in
+    /// a narrow window, where they push as before.
+    @Entry var librarySelection: Binding<Route?>? = nil
+}

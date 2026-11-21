@@ -39,6 +39,7 @@ struct RootView: View {
                 } else {
                     NavigationStack(path: $app.listPath) {
                         ConsolesView()
+                            .readableWidth()
                             .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
                     }
                     .transition(.move(edge: .leading))
@@ -98,12 +99,17 @@ struct RootView: View {
     }
 }
 
-/// The screen of a navigation destination.
+/// The screen of a navigation destination, at a readable width in a large
+/// window (M15).
 struct RouteDestination: View {
     let route: Route
 
-    @ViewBuilder
     var body: some View {
+        screen.readableWidth()
+    }
+
+    @ViewBuilder
+    private var screen: some View {
         switch route {
         case .console(let id): ConsoleView(deviceId: id)
         case .library(let id): LibraryView(deviceId: id)
@@ -128,6 +134,12 @@ struct RouteDestination: View {
 /// The tabs of an open console (milestone M11): Console (dashboard),
 /// Library, Transfers and Trash, each with its own navigation. A button of
 /// each tab's first screen goes back to the list of consoles.
+///
+/// Large windows (M15): the tabs can become a sidebar (iPad, Mac), and the
+/// Library tab shows the list of games and the game side by side. What is
+/// shown stays in ``AppModel/tabPaths`` either way, so a window that changes
+/// size (Split View, Stage Manager, the screens of an iPhone Duo) keeps its
+/// navigation.
 struct ConsoleTabsView: View {
     @Environment(AppModel.self) private var app
     let deviceId: String
@@ -137,20 +149,25 @@ struct ConsoleTabsView: View {
         @Bindable var app = app
         let session = app.session(for: deviceId)
         TabView(selection: $app.consoleTab) {
-            tab(.console) { ConsoleView(deviceId: deviceId) }
-                .tabItem { Label("Console", systemImage: "gamecontroller") }
-                .accessibilityIdentifier("tab.console")
-            tab(.library) { LibraryView(deviceId: deviceId) }
-                .tabItem { Label("Library", systemImage: "square.grid.2x2") }
-                .accessibilityIdentifier("tab.library")
-            tab(.transfers) { TransfersView(deviceId: deviceId) }
-                .tabItem { Label("Transfers", systemImage: "arrow.up.arrow.down") }
-                .badge(activeTransfers(session))
-                .accessibilityIdentifier("tab.transfers")
-            tab(.trash) { TrashView(deviceId: deviceId) }
-                .tabItem { Label("Trash", systemImage: "trash") }
-                .accessibilityIdentifier("tab.trash")
+            Tab("Console", systemImage: "gamecontroller", value: ConsoleTab.console) {
+                tab(.console) { ConsoleView(deviceId: deviceId) }
+                    .accessibilityIdentifier("tab.console")
+            }
+            Tab("Library", systemImage: "square.grid.2x2", value: ConsoleTab.library) {
+                LibraryTab(deviceId: deviceId) { tab(.library) { LibraryView(deviceId: deviceId) } }
+                    .accessibilityIdentifier("tab.library")
+            }
+            Tab("Transfers", systemImage: "arrow.up.arrow.down", value: ConsoleTab.transfers) {
+                tab(.transfers) { TransfersView(deviceId: deviceId) }
+                    .accessibilityIdentifier("tab.transfers")
+            }
+            .badge(activeTransfers(session))
+            Tab("Trash", systemImage: "trash", value: ConsoleTab.trash) {
+                tab(.trash) { TrashView(deviceId: deviceId) }
+                    .accessibilityIdentifier("tab.trash")
+            }
         }
+        .tabViewStyle(.sidebarAdaptable)
         // Every tab needs the connection (the Trash tab only reads what it
         // loaded).
         .task { await session.connectIfNeeded() }
@@ -176,22 +193,121 @@ struct ConsoleTabsView: View {
             set: { app.tabPaths[tab] = $0 }
         )) {
             root()
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            app.closeConsole()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.backward").fontWeight(.semibold)
-                                Text("Consoles")
-                            }
-                        }
-                        .accessibilityLabel(Text("Consoles"))
-                        .accessibilityIdentifier("tab.consoles")
+                .readableWidth()
+                .consolesButton()
+                .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
+        }
+    }
+}
+
+/// The Library tab (M15). In a narrow window (iPhone, Slide Over, the outer
+/// screen of an iPhone Duo): one navigation stack, as before. In a wide one:
+/// the list of games in a column and the selected screen beside it. The
+/// first route of the tab's path is the selection (a game, or the systems of
+/// Browse by Console) and the rest is pushed in the detail column. Both
+/// layouts read and write the same path, so a change of width keeps the
+/// screen shown.
+struct LibraryTab<Stack: View>: View {
+    @Environment(AppModel.self) private var app
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    let deviceId: String
+    @ViewBuilder let stack: () -> Stack
+
+    private var path: [Route] { app.tabPaths[.library] ?? [] }
+
+    var body: some View {
+        if sizeClass == .regular {
+            split
+        } else {
+            stack()
+        }
+    }
+
+    private var split: some View {
+        NavigationSplitView {
+            LibraryView(deviceId: deviceId)
+                .consolesButton()
+                .environment(\.librarySelection, selection)
+                .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 480)
+        } detail: {
+            NavigationStack(path: Binding(
+                get: { LibraryColumns.detail(of: path) },
+                set: { app.tabPaths[.library] = LibraryColumns.path(path, detail: $0) }
+            )) {
+                Group {
+                    if let first = path.first {
+                        // A new selection is a new screen, with its own state.
+                        RouteDestination(route: first).id(first)
+                    } else {
+                        ContentUnavailableView("Select a game", systemImage: "square.grid.2x2")
+                            .accessibilityIdentifier("library.noSelection")
                     }
                 }
                 .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
+            }
         }
-        .tag(tab)
+    }
+
+    /// The first route of the path: what the list shows as selected.
+    private var selection: Binding<Route?> {
+        Binding(
+            get: { LibraryColumns.selection(of: path) },
+            set: { app.tabPaths[.library] = LibraryColumns.path(path, selecting: $0) }
+        )
+    }
+}
+
+/// The path of the Library tab seen as two columns (M15): the first route
+/// is selected in the list, the others are pushed beside it.
+enum LibraryColumns {
+    static func selection(of path: [Route]) -> Route? {
+        path.first
+    }
+
+    /// The screens pushed in the detail column.
+    static func detail(of path: [Route]) -> [Route] {
+        Array(path.dropFirst())
+    }
+
+    /// A row selected in the list: its screen alone, or the same path when
+    /// it is already the selection (screens pushed above it stay).
+    static func path(_ path: [Route], selecting route: Route?) -> [Route] {
+        guard route != path.first else { return path }
+        return route.map { [$0] } ?? []
+    }
+
+    /// The detail column pushed or went back.
+    static func path(_ path: [Route], detail: [Route]) -> [Route] {
+        guard let first = path.first else { return path }
+        return [first] + detail
+    }
+}
+
+extension View {
+    /// "Consoles", at the top left of the first screen of each tab (M11):
+    /// back to the list of consoles.
+    func consolesButton() -> some View {
+        modifier(ConsolesButton())
+    }
+}
+
+private struct ConsolesButton: ViewModifier {
+    @Environment(AppModel.self) private var app
+
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    app.closeConsole()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.backward").fontWeight(.semibold)
+                        Text("Consoles")
+                    }
+                }
+                .accessibilityLabel(Text("Consoles"))
+                .accessibilityIdentifier("tab.consoles")
+            }
+        }
     }
 }

@@ -903,10 +903,64 @@
     },
     "Changes are kept on this iPhone until you save them." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Changes are kept on this device until you save them."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Changes are kept on this iPhone until you save them."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Changes are kept on this device until you save them."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Changes are kept on this device until you save them."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les modifications restent sur cet iPhone tant que tu ne les as pas enregistrées."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les modifications restent sur cet appareil tant que tu ne les as pas enregistrées."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les modifications restent sur cet iPhone tant que tu ne les as pas enregistrées."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les modifications restent sur cet appareil tant que tu ne les as pas enregistrées."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les modifications restent sur cet appareil tant que tu ne les as pas enregistrées."
+                }
+              }
+            }
           }
         }
       }
@@ -1123,10 +1177,64 @@
     },
     "Console not found. Check that ReminisLink is open on the console, that the iPhone and the console are on the same Wi-Fi (not a guest network), and turn off your VPN." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console not found. Check that ReminisLink is open on the console, that this device and the console are on the same Wi-Fi (not a guest network), and turn off your VPN."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console not found. Check that ReminisLink is open on the console, that the iPhone and the console are on the same Wi-Fi (not a guest network), and turn off your VPN."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console not found. Check that ReminisLink is open on the console, that this device and the console are on the same Wi-Fi (not a guest network), and turn off your VPN."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console not found. Check that ReminisLink is open on the console, that this device and the console are on the same Wi-Fi (not a guest network), and turn off your VPN."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Console introuvable. Vérifie que ReminisLink est ouvert sur la console, que l’iPhone et la console sont sur le même Wi-Fi (pas un réseau invité), et désactive ton VPN."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console introuvable. Vérifie que ReminisLink est ouvert sur la console, que cet appareil et la console sont sur le même Wi-Fi (pas un réseau invité), et désactive ton VPN."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console introuvable. Vérifie que ReminisLink est ouvert sur la console, que l’iPhone et la console sont sur le même Wi-Fi (pas un réseau invité), et désactive ton VPN."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console introuvable. Vérifie que ReminisLink est ouvert sur la console, que cet appareil et la console sont sur le même Wi-Fi (pas un réseau invité), et désactive ton VPN."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Console introuvable. Vérifie que ReminisLink est ouvert sur la console, que cet appareil et la console sont sur le même Wi-Fi (pas un réseau invité), et désactive ton VPN."
+                }
+              }
+            }
           }
         }
       }
@@ -1503,10 +1611,64 @@
     },
     "Download a file to keep a copy on this iPhone: Save to Files, AirDrop… The console keeps its file." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Download a file to keep a copy on this device: Save to Files, AirDrop… The console keeps its file."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Download a file to keep a copy on this iPhone: Save to Files, AirDrop… The console keeps its file."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Download a file to keep a copy on this device: Save to Files, AirDrop… The console keeps its file."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Download a file to keep a copy on this device: Save to Files, AirDrop… The console keeps its file."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Télécharge un fichier pour en garder une copie sur cet iPhone : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Télécharge un fichier pour en garder une copie sur cet appareil : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Télécharge un fichier pour en garder une copie sur cet iPhone : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Télécharge un fichier pour en garder une copie sur cet appareil : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Télécharge un fichier pour en garder une copie sur cet appareil : Enregistrer dans Fichiers, AirDrop… La console garde son fichier."
+                }
+              }
+            }
           }
         }
       }
@@ -2313,10 +2475,64 @@
     },
     "Manage your handheld from your iPhone" : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Manage your handheld from this device"
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Manage your handheld from your iPhone"
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Manage your handheld from this device"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Manage your handheld from this device"
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gère ta console depuis ton iPhone"
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Gère ta console depuis cet appareil"
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Gère ta console depuis ton iPhone"
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Gère ta console depuis cet appareil"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Gère ta console depuis cet appareil"
+                }
+              }
+            }
           }
         }
       }
@@ -2413,10 +2629,64 @@
     },
     "Name on this iPhone" : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Name on this device"
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Name on this iPhone"
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Name on this device"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Name on this device"
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nom sur cet iPhone"
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Nom sur cet appareil"
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Nom sur cet iPhone"
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Nom sur cet appareil"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Nom sur cet appareil"
+                }
+              }
+            }
           }
         }
       }
@@ -3573,10 +3843,64 @@
     },
     "Saves on This iPhone" : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Saves on This Device"
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Saves on This iPhone"
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Saves on This Device"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Saves on This Device"
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sauvegardes sur cet iPhone"
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sauvegardes sur cet appareil"
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sauvegardes sur cet iPhone"
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sauvegardes sur cet appareil"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Sauvegardes sur cet appareil"
+                }
+              }
+            }
           }
         }
       }
@@ -3617,6 +3941,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Recherche de la console"
+          }
+        }
+      }
+    },
+    "Select a game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisis un jeu"
           }
         }
       }
@@ -4053,10 +4387,64 @@
     },
     "The clocks of the console and of this iPhone are too far apart." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The clocks of the console and of this device are too far apart."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The clocks of the console and of this iPhone are too far apart."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The clocks of the console and of this device are too far apart."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The clocks of the console and of this device are too far apart."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les horloges de la console et de cet iPhone sont trop décalées."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les horloges de la console et de cet appareil sont trop décalées."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les horloges de la console et de cet iPhone sont trop décalées."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les horloges de la console et de cet appareil sont trop décalées."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les horloges de la console et de cet appareil sont trop décalées."
+                }
+              }
+            }
           }
         }
       }
@@ -4333,10 +4721,64 @@
     },
     "The console will forget this iPhone. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The console will forget this device. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The console will forget this iPhone. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The console will forget this device. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The console will forget this device. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console oubliera cet iPhone. Pour te reconnecter, appaire-le à nouveau : sur la console, ouvre Réglages > Appairer un nouvel appareil et scanne le QR code."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La console oubliera cet appareil. Pour te reconnecter, appaire-le à nouveau : sur la console, ouvre Réglages > Appairer un nouvel appareil et scanne le QR code."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La console oubliera cet iPhone. Pour te reconnecter, appaire-le à nouveau : sur la console, ouvre Réglages > Appairer un nouvel appareil et scanne le QR code."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La console oubliera cet appareil. Pour te reconnecter, appaire-le à nouveau : sur la console, ouvre Réglages > Appairer un nouvel appareil et scanne le QR code."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La console oubliera cet appareil. Pour te reconnecter, appaire-le à nouveau : sur la console, ouvre Réglages > Appairer un nouvel appareil et scanne le QR code."
+                }
+              }
+            }
           }
         }
       }
@@ -4443,10 +4885,64 @@
     },
     "The demo uses a made-up console and games, on this iPhone only: nothing is sent or kept." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The demo uses a made-up console and games, on this device only: nothing is sent or kept."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The demo uses a made-up console and games, on this iPhone only: nothing is sent or kept."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The demo uses a made-up console and games, on this device only: nothing is sent or kept."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The demo uses a made-up console and games, on this device only: nothing is sent or kept."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La démo utilise une console et des jeux inventés, sur cet iPhone seulement : rien n’est envoyé ni gardé."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La démo utilise une console et des jeux inventés, sur cet appareil seulement : rien n’est envoyé ni gardé."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La démo utilise une console et des jeux inventés, sur cet iPhone seulement : rien n’est envoyé ni gardé."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La démo utilise une console et des jeux inventés, sur cet appareil seulement : rien n’est envoyé ni gardé."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "La démo utilise une console et des jeux inventés, sur cet appareil seulement : rien n’est envoyé ni gardé."
+                }
+              }
+            }
           }
         }
       }
@@ -4463,20 +4959,128 @@
     },
     "The file changed on this iPhone during the transfer. Add it again." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file changed on this device during the transfer. Add it again."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file changed on this iPhone during the transfer. Add it again."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file changed on this device during the transfer. Add it again."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file changed on this device during the transfer. Add it again."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le fichier a changé sur cet iPhone pendant le transfert. Ajoute-le à nouveau."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier a changé sur cet appareil pendant le transfert. Ajoute-le à nouveau."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier a changé sur cet iPhone pendant le transfert. Ajoute-le à nouveau."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier a changé sur cet appareil pendant le transfert. Ajoute-le à nouveau."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier a changé sur cet appareil pendant le transfert. Ajoute-le à nouveau."
+                }
+              }
+            }
           }
         }
       }
     },
     "The file could not be read on this iPhone." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file could not be read on this device."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file could not be read on this iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file could not be read on this device."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The file could not be read on this device."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le fichier n’a pas pu être lu sur cet iPhone."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier n’a pas pu être lu sur cet appareil."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier n’a pas pu être lu sur cet iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier n’a pas pu être lu sur cet appareil."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Le fichier n’a pas pu être lu sur cet appareil."
+                }
+              }
+            }
           }
         }
       }
@@ -4553,10 +5157,64 @@
     },
     "The pairing information could not be read or saved on this iPhone." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The pairing information could not be read or saved on this device."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The pairing information could not be read or saved on this iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The pairing information could not be read or saved on this device."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The pairing information could not be read or saved on this device."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les informations d’appairage n’ont pas pu être lues ou enregistrées sur cet iPhone."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les informations d’appairage n’ont pas pu être lues ou enregistrées sur cet appareil."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les informations d’appairage n’ont pas pu être lues ou enregistrées sur cet iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les informations d’appairage n’ont pas pu être lues ou enregistrées sur cet appareil."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les informations d’appairage n’ont pas pu être lues ou enregistrées sur cet appareil."
+                }
+              }
+            }
           }
         }
       }
@@ -4613,10 +5271,64 @@
     },
     "The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to this iPhone only, never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to this device only, never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet appareil seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              }
+            }
           }
         }
       }
@@ -4633,10 +5345,64 @@
     },
     "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this iPhone when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The saves of a console (with their clock files) are copied to your own iCloud Drive, or to this device when iCloud Drive is off; never to the publisher of the app. Up to 10 versions are kept per save."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet appareil quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
+                }
+              }
+            }
           }
         }
       }
@@ -4663,10 +5429,64 @@
     },
     "The synced saves could not be read or written on this iPhone." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The synced saves could not be read or written on this device."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The synced saves could not be read or written on this iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The synced saves could not be read or written on this device."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "The synced saves could not be read or written on this device."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les sauvegardes synchronisées n’ont pas pu être lues ou écrites sur cet iPhone."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes synchronisées n’ont pas pu être lues ou écrites sur cet appareil."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes synchronisées n’ont pas pu être lues ou écrites sur cet iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes synchronisées n’ont pas pu être lues ou écrites sur cet appareil."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Les sauvegardes synchronisées n’ont pas pu être lues ou écrites sur cet appareil."
+                }
+              }
+            }
           }
         }
       }
@@ -4783,10 +5603,64 @@
     },
     "This console no longer recognizes your iPhone." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This console no longer recognizes this device."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This console no longer recognizes your iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This console no longer recognizes this device."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This console no longer recognizes this device."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette console ne reconnaît plus ton iPhone."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette console ne reconnaît plus cet appareil."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette console ne reconnaît plus ton iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette console ne reconnaît plus cet appareil."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette console ne reconnaît plus cet appareil."
+                }
+              }
+            }
           }
         }
       }
@@ -5013,10 +5887,64 @@
     },
     "This version changed on this iPhone since it was shown. Nothing was sent to the console; open the list again." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This version changed on this device since it was shown. Nothing was sent to the console; open the list again."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This version changed on this iPhone since it was shown. Nothing was sent to the console; open the list again."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This version changed on this device since it was shown. Nothing was sent to the console; open the list again."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "This version changed on this device since it was shown. Nothing was sent to the console; open the list again."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette version a changé sur cet iPhone depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette version a changé sur cet appareil depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette version a changé sur cet iPhone depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette version a changé sur cet appareil depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Cette version a changé sur cet appareil depuis son affichage. Rien n’a été envoyé à la console ; rouvre la liste."
+                }
+              }
+            }
           }
         }
       }
@@ -5393,10 +6321,64 @@
     },
     "Your changes were not saved. Reloading shows the list of the console and discards your changes on this iPhone." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Your changes were not saved. Reloading shows the list of the console and discards your changes on this device."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Your changes were not saved. Reloading shows the list of the console and discards your changes on this iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Your changes were not saved. Reloading shows the list of the console and discards your changes on this device."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Your changes were not saved. Reloading shows the list of the console and discards your changes on this device."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tes modifications n’ont pas été enregistrées. Recharger affiche la liste de la console et abandonne tes modifications sur cet iPhone."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Tes modifications n’ont pas été enregistrées. Recharger affiche la liste de la console et abandonne tes modifications sur cet appareil."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Tes modifications n’ont pas été enregistrées. Recharger affiche la liste de la console et abandonne tes modifications sur cet iPhone."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Tes modifications n’ont pas été enregistrées. Recharger affiche la liste de la console et abandonne tes modifications sur cet appareil."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "Tes modifications n’ont pas été enregistrées. Recharger affiche la liste de la console et abandonne tes modifications sur cet appareil."
+                }
+              }
+            }
           }
         }
       }
@@ -5420,10 +6402,64 @@
     },
     "iCloud Drive is not available: saves are kept on this iPhone only (Files > On My iPhone > ReminisLink). Turn on iCloud Drive for ReminisLink in Settings to keep them in iCloud." : {
       "localizations" : {
+        "en" : {
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive is not available: saves are kept on this device only. Turn on iCloud Drive for ReminisLink in Settings to keep them in iCloud."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive is not available: saves are kept on this iPhone only (Files > On My iPhone > ReminisLink). Turn on iCloud Drive for ReminisLink in Settings to keep them in iCloud."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive is not available: saves are kept on this device only. Turn on iCloud Drive for ReminisLink in Settings to keep them in iCloud."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive is not available: saves are kept on this device only. Turn on iCloud Drive for ReminisLink in Settings to keep them in iCloud."
+                }
+              }
+            }
+          }
+        },
         "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "iCloud Drive n’est pas disponible : les sauvegardes sont gardées sur cet iPhone seulement (Fichiers > Sur mon iPhone > ReminisLink). Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
+          "variations" : {
+            "device" : {
+              "ipad" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive n’est pas disponible : les sauvegardes sont gardées sur cet appareil seulement. Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
+                }
+              },
+              "iphone" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive n’est pas disponible : les sauvegardes sont gardées sur cet iPhone seulement (Fichiers > Sur mon iPhone > ReminisLink). Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
+                }
+              },
+              "mac" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive n’est pas disponible : les sauvegardes sont gardées sur cet appareil seulement. Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "iCloud Drive n’est pas disponible : les sauvegardes sont gardées sur cet appareil seulement. Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
+                }
+              }
+            }
           }
         }
       }
