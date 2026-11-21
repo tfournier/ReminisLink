@@ -7,7 +7,10 @@
   "repo_url": "https://github.com/tfournier/ReminisLink",
   "release_filename": "ReminisLink.pak.zip",
   "platforms": [
-    "tg5040"
+    "tg5040",
+    "tg5050",
+    "h700",
+    "my355"
   ],
   "screenshots": [
     "docs/screenshots/pairing.png",
@@ -16,7 +19,7 @@
     "docs/screenshots/language.png"
   ],
   "changelog": {
-    "Unreleased": "Small improvements:\n- French interface: a non-breaking space before colons, question marks and percent signs, as French typography wants.\n- The presence check documents the oldest app this pak supports, so the app can say whether the app or ReminisLink on the handheld needs an update.",
+    "Unreleased": "Small improvements:\n- Experimental, looking for testers: TrimUI Smart Pro S (tg5050), Anbernic H700 handhelds (h700) and Miyoo Flip (my355) with NextUI. Not tested on these devices yet: please report how it goes.\n- French interface: a non-breaking space before colons, question marks and percent signs, as French typography wants.\n- The presence check documents the oldest app this pak supports, so the app can say whether the app or ReminisLink on the handheld needs an update.",
     "v1.0.1": "Maintenance release:\n- Updated libraries (DNS for Bonjour, image) with their security fixes; the handheld behaves the same.\n- The clock file of a save (.rtc) is documented and tested with every save operation: backed up and restored with the save, kept when a save is replaced, and moved to the trash when the game is deleted.",
     "v1.0.0": "First release:\n- Pair your iPhone with a QR code (no PIN). The connection is encrypted (HTTPS, pinned to the public-key fingerprint in the QR code); every request except the presence check and the pairing itself is signed. Several devices can be paired; your Apple devices share the pairing through iCloud Keychain.\n- Pairings made with earlier test builds are deleted at the first launch: pair again by scanning the QR code (Settings > Pair a New Device).\n- From the ReminisLink app: browse every game on the SD card, send games and box art, download any file of a game, back up and restore saves, lock save states, edit cheats and apply IPS, BPS and UPS patches.\n- Manage the tools and emulators installed on the handheld (install from a zip, replace, remove) and browse the SD card (read only).\n- The app updates live when the SD card changes and goes back to its list when you close ReminisLink.\n- Nothing is deleted without a copy: deleted and replaced files go to a trash, purged at launch after 30 days of counted age.\n- The handheld never connects to the internet.\n- Interface in English and French."
   }
