@@ -46,6 +46,12 @@ enum AppError: Error, Equatable {
     /// `pairingOpen: false` (or `401 pairing_failed` with pairing closed):
     /// the pairing screen is not shown on the console (M8, on demand).
     case pairingClosed
+    /// M15: the console is paired (by another device of the Apple account),
+    /// but the identity it knows has not reached this device through the
+    /// iCloud Keychain yet. Not a reason to pair again.
+    case pairingNotSynced
+    /// M15: no ReminisLink QR code in an imported picture.
+    case noPairingCodeInPicture
     case storage
     /// An upload stopped on the app side.
     case upload(UploadFailure)
@@ -146,6 +152,10 @@ enum AppError: Error, Equatable {
             String(localized: "This QR code comes from a newer version of ReminisLink. Update the app.")
         case .pairingClosed:
             String(localized: "On the console, open Settings > Pair a New Device, then scan the QR code shown.")
+        case .pairingNotSynced:
+            String(localized: "The pairing of this console has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet: ReminisLink connects as soon as it arrives.")
+        case .noPairingCodeInPicture:
+            String(localized: "No ReminisLink QR code was found in this picture. Use a sharp picture where the whole QR code shown by the console is visible.")
         case .storage:
             String(localized: "The pairing information could not be read or saved on this iPhone.")
         case .upload(.outcomeUnknown):
@@ -234,11 +244,23 @@ enum AppError: Error, Equatable {
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak: nil
-        case .pairingClosed, .unexpected: .retry
+        case .pairingClosed, .pairingNotSynced, .unexpected: .retry
+        case .noPairingCodeInPicture: nil
         }
     }
 
     var isCancellation: Bool { self == .cancelled }
+
+    /// The pairing cannot be used from this device: not found, identity not
+    /// arrived, or refused by the console (M15: opening the console again
+    /// reads the shared Keychain again before showing it).
+    var isPairingProblem: Bool {
+        switch self {
+        case .pairingNotSynced, .api(.notPaired): true
+        case .api(.server(let server)): server.code == .unknownClient || server.code == .badSignature
+        default: false
+        }
+    }
 
     /// `401 disconnected` (M10): the console disconnected this iPhone.
     var isDisconnected: Bool {

@@ -431,6 +431,16 @@
         }
       }
     },
+    "A picture of the QR code shown by the console, taken with another device and sent with AirDrop, for example." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une image du QR code affiché par la console, prise avec un autre appareil et envoyée par AirDrop, par exemple."
+          }
+        }
+      }
+    },
     "A zip archive holding one Name.pak folder, or a .pak folder." : {
       "localizations" : {
         "fr" : {
@@ -1021,6 +1031,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisir un fichier…"
+          }
+        }
+      }
+    },
+    "Choose a Photo of the QR Code" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir une photo du QR code"
+          }
+        }
+      }
+    },
+    "Choose a Picture File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir un fichier image"
           }
         }
       }
@@ -2053,6 +2083,16 @@
         }
       }
     },
+    "Hold the console in front of this Mac's camera, with the QR code facing it. You can also import a picture of the QR code, or pair from your iPhone or iPad: the pairing reaches this Mac through iCloud Keychain." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tiens la console devant la caméra de ce Mac, le QR code tourné vers elle. Tu peux aussi importer une image du QR code, ou appairer depuis ton iPhone ou ton iPad : l’appairage arrive sur ce Mac par le trousseau iCloud."
+          }
+        }
+      }
+    },
     "How to Update" : {
       "localizations" : {
         "fr" : {
@@ -2159,6 +2199,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Importer des codes de triche"
+          }
+        }
+      }
+    },
+    "Import a Picture" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer une image"
           }
         }
       }
@@ -2771,6 +2821,16 @@
         }
       }
     },
+    "No ReminisLink QR code was found in this picture. Use a sharp picture where the whole QR code shown by the console is visible." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun QR code ReminisLink n’a été trouvé dans cette image. Utilise une image nette où l’on voit tout le QR code affiché par la console."
+          }
+        }
+      }
+    },
     "No apps" : {
       "localizations" : {
         "fr" : {
@@ -2787,6 +2847,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucune copie de secours pour l’instant."
+          }
+        }
+      }
+    },
+    "No camera is available. Import a picture of the QR code, or pair the console from your iPhone or iPad: the pairing reaches this device through iCloud Keychain." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune caméra n’est disponible. Importe une image du QR code, ou appaire la console depuis ton iPhone ou ton iPad : l’appairage arrive sur cet appareil par le trousseau iCloud."
           }
         }
       }
@@ -3437,6 +3507,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ReminisLink se ferme sur la console."
+          }
+        }
+      }
+    },
+    "ReminisLink is not allowed to use the camera. Allow it in Settings, or import a picture of the QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink n’a pas accès à la caméra. Autorise-le dans Réglages, ou importe une image du QR code."
           }
         }
       }
@@ -5239,6 +5319,16 @@
         }
       }
     },
+    "The pairing of this console has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet: ReminisLink connects as soon as it arrives." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’appairage de cette console n’est pas encore entièrement arrivé sur cet appareil par le trousseau iCloud. Garde-le connecté à Internet : ReminisLink se connecte dès qu’il arrive."
+          }
+        }
+      }
+    },
     "The request is too large for the console." : {
       "localizations" : {
         "fr" : {
@@ -5423,16 +5513,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "The scanner is not available on this device. Scan the QR code with the Camera app." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le scanner n’est pas disponible sur cet appareil. Scanne le QR code avec l’app Appareil photo."
           }
         }
       }

@@ -45,6 +45,9 @@ final class ConsoleSession {
     /// the user opens the console again.
     private(set) var closedByConsole = false
 
+    /// The credentials of the last connection (nil before one read them).
+    @ObservationIgnored private(set) var signedWith: SigningKey?
+
     /// Strong (M16): a task of this session may outlive the app's list of
     /// sessions (a demo that ended); the app drops its sessions
     /// (``AppModel/shutDown()``, ``detach()``), which breaks the cycle.
@@ -111,6 +114,10 @@ final class ConsoleSession {
         case .idle, .connecting:
             _ = currentAttempt(explicit: true)
         case .failed(let error) where error.isDisconnected:
+            _ = currentAttempt(explicit: true)
+        case .failed(let error) where error.isPairingProblem:
+            // M15: read the shared Keychain again, the pairing may have
+            // arrived (or changed) since the failure.
             _ = currentAttempt(explicit: true)
         default:
             break
@@ -188,29 +195,37 @@ final class ConsoleSession {
             attempt.finish()
         }
         do {
-            guard let credentials = try app.store.credentials(for: deviceId) else {
-                throw AppError.api(.notPaired)
-            }
+            signedWith = nil
+            var credentials = try currentCredentials()
+            signedWith = SigningKey(credentials)
             let endpoint = try await app.endpoint(for: deviceId)
-            let observed = ObservedClient()
-            let client = app.makeClient(
-                endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials,
-                errorObserver: { [weak self] error, sentAt in
-                    Task { @MainActor in
-                        guard let client = observed.client else { return }
-                        self?.observe(error, sentAt: sentAt, from: client)
+            var client: APIClient
+            var status: DeviceStatus
+            var reread = false
+            while true {
+                client = makeClient(endpoint: endpoint, credentials: credentials)
+                do {
+                    hello = try await client.hello()
+                    do {
+                        status = try await client.device()
+                    } catch let error as APIError where error.isDisconnected && attempt.isExplicit {
+                        // Only after an explicit action of the user (M10).
+                        try await client.connectClient()
+                        status = try await client.device()
                     }
+                    break
+                } catch let error as APIError where error.code == .unknownClient && !reread {
+                    // M15: another device of the Apple account may have
+                    // paired this console again, with an identity whose
+                    // items arrived since: read the shared Keychain once
+                    // more before saying the console forgot this device.
+                    reread = true
+                    app.store.reload()
+                    guard let fresh = try app.store.credentials(for: deviceId), SigningKey(fresh) != SigningKey(credentials)
+                    else { throw error }
+                    credentials = fresh
+                    signedWith = SigningKey(fresh)
                 }
-            )
-            observed.client = client
-            hello = try await client.hello()
-            let status: DeviceStatus
-            do {
-                status = try await client.device()
-            } catch let error as APIError where error.isDisconnected && attempt.isExplicit {
-                // Only after an explicit action of the user (M10).
-                try await client.connectClient()
-                status = try await client.device()
             }
             self.status = status
             try Task.checkCancellation()
@@ -247,6 +262,67 @@ final class ConsoleSession {
             }
             state = error.isCancellation || Task.isCancelled ? .idle : .failed(error)
         }
+    }
+
+    /// The credentials of this console's pairing. M15: a pairing whose
+    /// identity has not reached this device through the iCloud Keychain yet
+    /// is not "forgotten by the console": it is said so, and the session
+    /// connects by itself once the identity arrives (``AppModel/reloadPairings()``).
+    private func currentCredentials() throws -> DeviceCredentials {
+        if let credentials = try app.store.credentials(for: deviceId) { return credentials }
+        if try app.store.pairingState(for: deviceId) == .awaitingIdentity { throw AppError.pairingNotSynced }
+        throw AppError.api(.notPaired)
+    }
+
+    private func makeClient(endpoint: Endpoint, credentials: DeviceCredentials) -> APIClient {
+        let observed = ObservedClient()
+        let client = app.makeClient(
+            endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials,
+            errorObserver: { [weak self] error, sentAt in
+                Task { @MainActor in
+                    guard let client = observed.client else { return }
+                    self?.observe(error, sentAt: sentAt, from: client)
+                }
+            }
+        )
+        observed.client = client
+        return client
+    }
+
+    /// The identity and pin a connection signs and pins with.
+    struct SigningKey: Equatable {
+        let clientId: String
+        let pin: String
+
+        init(_ credentials: DeviceCredentials) {
+            clientId = credentials.clientId
+            pin = credentials.pin
+        }
+    }
+
+    /// Whether this session works with other credentials than the shared
+    /// Keychain now holds (M15): it connected, or failed, with an identity
+    /// or a pin that another device of the Apple account replaced since, or
+    /// before the identity of its pairing arrived. Such a session is
+    /// replaced (a new connection reads the Keychain again). Never while a
+    /// connection is starting, nor for a console no longer paired, nor
+    /// after the console closed ReminisLink (M11: only the user reconnects).
+    func usesStaleCredentials(_ current: DeviceCredentials?) -> Bool {
+        guard let current, !closedByConsole else { return false }
+        switch state {
+        case .idle, .connecting: return false
+        case .connected, .failed: return signedWith != SigningKey(current)
+        }
+    }
+
+    /// Drops the client built with the older credentials and connects again
+    /// (automatic: never lifts a disconnection set from the console).
+    func restartWithFreshCredentials() {
+        client = nil
+        signedWith = nil
+        stopEventStream()
+        state = .idle
+        Task { await connect() }
     }
 
     /// Reloads the dashboard without searching the console again.

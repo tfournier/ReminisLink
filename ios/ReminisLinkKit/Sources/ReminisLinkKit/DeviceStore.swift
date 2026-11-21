@@ -78,6 +78,9 @@ public final class DeviceStore {
     static func account(clientId: String) -> String { identityPrefix + clientId }
 
     public private(set) var devices: [PairedDevice] = []
+    /// Called after this device wrote or removed a shared item (identity,
+    /// pointer, console): M15, the app signals the other devices.
+    @ObservationIgnored public var onSharedItemsChange: (@MainActor () -> Void)?
 
     @ObservationIgnored private let secureStore: SecureStore
     @ObservationIgnored private let defaults: UserDefaults
@@ -97,14 +100,35 @@ public final class DeviceStore {
     // MARK: - Identity
 
     /// The current identity of this app, for new pairings, shared through
-    /// the iCloud Keychain; created on first use (or when the pointer names
-    /// an identity whose item has not arrived).
+    /// the iCloud Keychain.
+    ///
+    /// Convergence (M15, a Mac or an iPad that opens the app before the
+    /// iCloud Keychain delivered everything):
+    /// - the identity the pointer names, when its item is here;
+    /// - else (no pointer, or a pointer whose identity item is still on its
+    ///   way) an identity item already here: the one most consoles were
+    ///   paired with, then the smallest `clientId` (every device picks the
+    ///   same);
+    /// - else a new identity.
+    ///
+    /// The pointer is written only when there is none: a pointer whose
+    /// identity has not arrived yet is never replaced, since the other
+    /// devices would then follow an identity they may not have yet, and
+    /// fork again.
     public func identity() throws -> ClientIdentity {
         let pointer = try currentPointer()
         if let pointer, let identity = try identity(clientId: pointer.clientId) { return identity }
-        let identity = ClientIdentity.generate()
-        try secureStore.set(try JSONEncoder().encode(IdentityRecord(identity: identity)), for: Self.account(clientId: identity.clientId))
-        try writePointer(Pointer(clientId: identity.clientId, name: pointer?.name))
+        let identity: ClientIdentity
+        if let stored = try bestStoredIdentity() {
+            identity = stored
+        } else {
+            identity = ClientIdentity.generate()
+            try secureStore.set(
+                try JSONEncoder().encode(IdentityRecord(identity: identity)), for: Self.account(clientId: identity.clientId)
+            )
+            sharedItemsChanged()
+        }
+        if pointer == nil { try writePointer(Pointer(clientId: identity.clientId, name: nil)) }
         return identity
     }
 
@@ -116,9 +140,29 @@ public final class DeviceStore {
     }
 
     /// Records the name typed for the identity (sent at the next pairing).
+    /// Only the name changes: the pointer keeps naming its identity, even
+    /// one whose item has not arrived yet.
     public func setPairingName(_ name: String) throws {
-        let identity = try identity()
-        try writePointer(Pointer(clientId: identity.clientId, name: Self.clean(name)))
+        let clientId = try currentPointer()?.clientId ?? identity().clientId
+        try writePointer(Pointer(clientId: clientId, name: Self.clean(name)))
+    }
+
+    /// The best identity item present (see ``identity()``), nil when there
+    /// is none. Unreadable items are skipped.
+    private func bestStoredIdentity() throws -> ClientIdentity? {
+        let accounts = try secureStore.allAccounts()
+        var pairings: [String: Int] = [:]
+        for account in accounts where account.hasPrefix(Self.consolePrefix) {
+            let id = String(account.dropFirst(Self.consolePrefix.count))
+            if let record = try? consoleRecord(id) { pairings[record.clientId, default: 0] += 1 }
+        }
+        let identities = accounts.filter { $0.hasPrefix(Self.identityPrefix) }
+            .compactMap { try? identity(clientId: String($0.dropFirst(Self.identityPrefix.count))) }
+        return identities.min { a, b in
+            let countA = pairings[a.clientId, default: 0]
+            let countB = pairings[b.clientId, default: 0]
+            return countA != countB ? countA > countB : a.clientId < b.clientId
+        }
     }
 
     /// The identity with this `clientId`, nil if its item is absent.
@@ -140,6 +184,14 @@ public final class DeviceStore {
 
     private func writePointer(_ pointer: Pointer) throws {
         try secureStore.set(try JSONEncoder().encode(pointer), for: Self.identityAccount)
+        sharedItemsChanged()
+    }
+
+    /// Tells the other devices of the Apple account that the shared items
+    /// changed (M15: the app sets a marker in the iCloud key-value store,
+    /// whose change notification makes them read the Keychain again).
+    private func sharedItemsChanged() {
+        onSharedItemsChange?()
     }
 
     // MARK: - Consoles
@@ -188,6 +240,25 @@ public final class DeviceStore {
         guard let record = try consoleRecord(deviceId) else { return nil }
         guard let identity = try identity(clientId: record.clientId) else { return nil }
         return DeviceCredentials(deviceId: deviceId, identity: identity, pin: record.pin)
+    }
+
+    /// What this device can do with a console's pairing.
+    public enum PairingState: Equatable, Sendable {
+        /// Not paired with an identity (never paired, forgotten, or paired
+        /// before M13).
+        case notPaired
+        /// Paired (by another device of the Apple account, or by this one),
+        /// but the identity the console knows has not reached this device
+        /// through the iCloud Keychain yet: nothing to sign with, and
+        /// nothing to pair again (the pairing works on the other devices).
+        case awaitingIdentity
+        case paired
+    }
+
+    /// The state of a console's pairing on this device (see ``PairingState``).
+    public func pairingState(for deviceId: String) throws -> PairingState {
+        guard let record = try consoleRecord(deviceId) else { return .notPaired }
+        return try identity(clientId: record.clientId) == nil ? .awaitingIdentity : .paired
     }
 
     /// The last address where the console presented its pinned certificate
@@ -239,6 +310,7 @@ public final class DeviceStore {
     /// and its entry.
     public func remove(_ deviceId: String) throws {
         try secureStore.remove(account: Self.account(deviceId: deviceId))
+        sharedItemsChanged()
         legacy.removeAll { $0.id == deviceId }
         persistLegacy()
         reload()
@@ -291,6 +363,7 @@ public final class DeviceStore {
 
     private func write(_ record: ConsoleRecord) throws {
         try secureStore.set(try JSONEncoder().encode(record), for: Self.account(deviceId: record.device.id))
+        sharedItemsChanged()
     }
 
     /// Changes the entry of a device, paired with this identity or waiting

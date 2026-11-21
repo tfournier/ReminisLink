@@ -413,6 +413,21 @@ layouts follow the size class and the width of the window.
   route and the first screen of each tab keep their content at 700 pt at
   most, centred, with the background and scrolling edge to edge (extra
   horizontal safe area). No effect below that width.
+- **Pairing on a Mac (fixes after the TestFlight 1.1.0 (8) trial)**:
+  without VisionKit's scanner (`ScannerKind`: VisionKit, else a camera, else
+  none; Debug `RL_UITEST_SCANNER=camera|none` for UI tests) the camera is
+  read with AVFoundation and Vision; a picture of the QR code can be
+  imported (Photos, Files). Every path ends in `PairingLink.parse`
+  (`PairingScanFilter`, `PairingCodeSearch` and `QRCodeReader` in
+  ReminisLinkKit, tested on macOS with Core Image QR codes; the simulator's
+  Vision cannot detect barcodes). The default name on the consoles is "Mac"
+  (`ProcessInfo.isiOSAppOnMac`). The shared Keychain is read again on
+  activation, every 60 s while active, and on the iCloud key-value store
+  marker `pairingsChanged` (`PairingChangeSignal`; entitlement
+  `com.apple.developer.ubiquity-kvstore-identifier`, part of the iCloud
+  capability already on the App ID: nothing to tick); sessions built with
+  older credentials are replaced. Identity convergence and the "pairing not
+  arrived yet" state: docs/specs/06-app-ios.md §6.
 - **Texts**: the strings that said "this iPhone" have device variations in
   `Localizable.xcstrings` (`iphone` as before; `ipad`, `mac` and `other` say
   "this device" / « cet appareil »). A variation missing for a device falls
@@ -451,10 +466,15 @@ Macs*), then, with a TestFlight build on the Mac:
    for the local network permission on the first browse (System Settings >
    Privacy & Security > Local Network). Denied, the list shows the same
    message as on iPhone.
-2. **QR code with the FaceTime camera**: *Add a Console* scans the QR code
-   (VisionKit). If the scanner is not available on the Mac, the screen says
-   so; pair on the iPhone or iPad instead: the pairing reaches the Mac
-   through iCloud Keychain (step 5).
+2. **QR code with the Mac's camera**: VisionKit's scanner is not supported
+   for iPad apps on a Mac, so *Add a Console* shows the fallback scanner
+   (AVFoundation camera + Vision, `QRScanner.swift`): macOS asks for the
+   camera permission, the preview shows the FaceTime (or Continuity) camera,
+   holding the console's QR code in front of it pairs. Also: *Choose a Photo
+   of the QR Code* and *Choose a Picture File* with a picture taken on the
+   iPhone and sent by AirDrop; the text under the scanner never mentions the
+   Camera app; camera access denied in System Settings shows the message and
+   *Open Settings*. The field *Name Shown on the Console* proposes "Mac".
 3. **Files**: Add from Files (the Mac open panel), download of a file of a
    game, a save, a state (the share sheet: *Save to Files*), a patch and a pak
    from Files.
@@ -462,7 +482,13 @@ Macs*), then, with a TestFlight build on the Mac:
    ReminisLink); the app opens on Add, prefilled.
 5. **iCloud Keychain**: a console paired on the iPhone appears on the Mac
    with the same pairing, and works (signed requests, pinned TLS); the
-   synced saves are in iCloud Drive.
+   synced saves are in iCloud Drive. With the Mac app open (window in the
+   background, not closed), pair or forget a console on the iPhone: the Mac
+   list follows within seconds (key-value store marker) or at most a minute
+   (periodic read), without closing the window. Open that console on the Mac
+   right away: it connects, or says "has not fully reached this device"
+   and connects by itself once the identity arrives; never "no longer
+   recognizes this device" for a console that works on the iPhone.
 6. Also: windows of several sizes (the Library columns, the readable width),
    a transfer while the window is resized, quitting with Cmd-Q during an
    upload (it resumes at the next launch).
