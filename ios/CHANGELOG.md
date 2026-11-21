@@ -21,6 +21,9 @@ goes to TestFlight only and needs no section of its own.
 
 ### English
 
+New:
+- Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
+
 Improvements:
 - After a patch is applied, the patch screen closes by itself.
 - The library no longer waits for the box art of a game scrolled out of view.
@@ -28,6 +31,9 @@ Improvements:
 - When this app and ReminisLink on the handheld are too far apart in version, the app says which one to update instead of showing an error.
 
 ### Français
+
+Nouveautés :
+- Restaurer depuis la corbeille : touche une entrée de l'onglet Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre, ou, pour une sauvegarde remplacée, à la place de la sauvegarde actuelle (gardée d'abord).
 
 Améliorations :
 - Après l'application d'un patch, l'écran du patch se ferme tout seul.

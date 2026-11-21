@@ -240,6 +240,9 @@ other = "Trash emptied"
 [notice_trash_entry_deleted]
 other = "Trash entry deleted"
 
+[notice_trash_restored]
+other = "Restored from the trash"
+
 [notice_with_name]
 other = "{{.Text}}: {{.Name}}"
 

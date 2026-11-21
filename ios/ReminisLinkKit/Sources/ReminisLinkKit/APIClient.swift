@@ -384,6 +384,22 @@ public actor APIClient {
         try await signedJSON(method: "DELETE", segments: ["trash", id], headers: ["X-RL-Confirm": "empty-trash"])
     }
 
+    /// `GET /trash/{entryId}/restore` (M18): what a restore would put back,
+    /// and where with a free name. Read only.
+    public func trashRestorePreview(id: String) async throws -> TrashRestorePreview {
+        try await signedJSON(method: "GET", segments: ["trash", id, "restore"])
+    }
+
+    /// `POST /trash/{entryId}/restore` (M18): the files go back to their
+    /// place. `.fail`: `409 conflict` (``ServerError/trashRestoreConflicts``)
+    /// when a place is taken; `.rename`: every file under a free name.
+    public func restoreTrashEntry(id: String, onConflict: TrashRestoreConflict) async throws -> TrashRestoreResult {
+        try await signedJSON(
+            method: "POST", segments: ["trash", id, "restore"],
+            body: ProtocolJSON.encoder().encode(TrashRestoreRequest(onConflict: onConflict))
+        )
+    }
+
     // MARK: - Library changes
 
     /// `GET /games/{gameId}/deletion` (M8): what ``deleteGame(id:keepSave:)``

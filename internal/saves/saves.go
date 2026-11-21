@@ -200,6 +200,9 @@ func (s *Service) SaveFile(g osadapter.Game) (osadapter.File, error) {
 // readMetas returns the complete backups of a folder (metadata and copy
 // present), newest (largest sequence) first.
 func (s *Service) readMetas(dir string) ([]meta, error) {
+	if err := s.checkBackupDir(dir); err != nil {
+		return nil, fmt.Errorf("save backups: %w", err)
+	}
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -297,7 +300,9 @@ func rtcPath(files osadapter.GameFiles) string {
 // createLocked copies src (and the clock file rtc, if not "") as a new
 // backup of g. Automatic backups past MaxAutoBackups go to the trash.
 // Called with the lock held.
-func (s *Service) createLocked(g osadapter.Game, src, rtc, reason string, label *string) (meta, error) {
+// keep are backups the automatic limit must not move to the trash in this
+// operation (the copy being restored: M18 review).
+func (s *Service) createLocked(g osadapter.Game, src, rtc, reason string, label *string, keep ...string) (meta, error) {
 	// The save is never read through a link, nor the copy written through
 	// one (rule 2).
 	if err := s.checkWriteDir(filepath.Dir(src)); err != nil {
@@ -348,7 +353,7 @@ func (s *Service) createLocked(g osadapter.Game, src, rtc, reason string, label 
 	}
 	s.o.Logger.Info("save backed up", "game", g.Path, "backup", id, "reason", reason, "bytes", size)
 	if reason != ReasonManual {
-		s.pruneLocked(g, dir, append([]meta{m}, metas...))
+		s.pruneLocked(g, dir, append([]meta{m}, metas...), keep...)
 	}
 	return m, nil
 }
@@ -357,10 +362,14 @@ func (s *Service) createLocked(g osadapter.Game, src, rtc, reason string, label 
 // trash (never erased: 05 §5.1 "supprimées" means moved to the trash, as
 // every deletion of ReminisLink). metas is newest first. Errors are
 // logged: the backup that triggered the limit is already safe.
-func (s *Service) pruneLocked(g osadapter.Game, dir string, metas []meta) {
+func (s *Service) pruneLocked(g osadapter.Game, dir string, metas []meta, keep ...string) {
+	kept := map[string]bool{}
+	for _, id := range keep {
+		kept[id] = true
+	}
 	auto := 0
 	for _, m := range metas {
-		if m.Reason == ReasonManual {
+		if m.Reason == ReasonManual || kept[m.ID] {
 			continue
 		}
 		auto++
@@ -394,6 +403,16 @@ func (s *Service) lookup(g osadapter.Game, id string) (meta, string, error) {
 		return meta{}, "", ErrInvalidBackupID
 	}
 	dir := s.dir(g)
+	// Nothing of a backup is read through a link (M18 review): its folder
+	// and its files stay in the ReminisLink data folder.
+	if err := s.checkBackupDir(dir); err != nil {
+		return meta{}, "", fmt.Errorf("save backup: %w", err)
+	}
+	for _, ext := range []string{metaExt, copyExt} {
+		if fi, err := os.Lstat(filepath.Join(dir, id+ext)); err == nil && !fi.Mode().IsRegular() {
+			return meta{}, "", fmt.Errorf("save backup: %w", errOutside)
+		}
+	}
 	m, err := readMeta(dir, id)
 	if err != nil {
 		return meta{}, "", ErrBackupNotFound
@@ -512,12 +531,16 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	if m.RTCSHA256 != "" {
 		rtcTmp = tmp + rtcExt
 		temps = append(temps, rtcTmp) // removed too when its copy is damaged
-		sum, _, err := store.CopyFileAtomic(filepath.Join(filepath.Dir(path), id+rtcExt), rtcTmp)
+		rtcCopy := filepath.Join(filepath.Dir(path), id+rtcExt)
+		if fi, err := os.Lstat(rtcCopy); err != nil || !fi.Mode().IsRegular() {
+			return nil, ErrCorruptBackup
+		}
+		sum, _, err := store.CopyFileAtomic(rtcCopy, rtcTmp)
 		if err != nil || sum != m.RTCSHA256 {
 			return nil, ErrCorruptBackup
 		}
 	}
-	res, err := s.installLocked(g, tmp, rtcTmp, ReasonBeforeRestore, nil)
+	res, err := s.installLocked(g, tmp, rtcTmp, ReasonBeforeRestore, nil, id)
 	pending = errors.Is(err, store.ErrReplaceFailed)
 	if err != nil {
 		return nil, err
@@ -584,7 +607,7 @@ func (s *Service) Replace(g osadapter.Game, tmp string) (*Backup, error) {
 // failure.
 func (s *Service) InstallLocked(g osadapter.Game, tmp string) (*Backup, error) {
 	label := LabelBeforeReplace
-	b, err := s.installLocked(g, tmp, "", ReasonBeforeReplace, &label)
+	b, err := s.installLocked(g, tmp, "", ReasonBeforeReplace, &label, "")
 	if err != nil {
 		return nil, err
 	}
@@ -628,7 +651,10 @@ func (s *Service) BackupLocked(g osadapter.Game, reason string) (*Backup, error)
 // (a restored backup that had one); otherwise the clock file in place is
 // left as it is (it is backed up with the save): a backup without clock
 // file never removes the current one.
-func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, label *string) (*Backup, error) {
+//
+// keep is the backup being restored ("" for none): the automatic limit
+// never moves it to the trash while it is restored (M18 review).
+func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, label *string, keep string) (*Backup, error) {
 	// Only the default save format is written (the error wraps
 	// osadapter.ErrUnsupportedFormat).
 	if err := s.o.Adapter.CheckSaveFormat(g); err != nil {
@@ -648,7 +674,7 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 	}
 	var backup *Backup
 	if files.Save != nil {
-		m, err := s.createLocked(g, files.Save.Path, rtcPath(files), reason, label)
+		m, err := s.createLocked(g, files.Save.Path, rtcPath(files), reason, label, keep)
 		if err != nil {
 			return nil, err
 		}
@@ -658,11 +684,6 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return nil, fmt.Errorf("save: %w", err)
 	}
-	// The clock file first: a power cut between the two renames leaves the
-	// previous save with the restored clock (the restore did not happen
-	// for the save, run it again), rather than the restored save with a
-	// clock of another save. Both previous files are in the backup just
-	// made.
 	if rtcTmp != "" {
 		// The clock file is named like the save with its extension
 		// replaced (NextUI: Game.gba.sav and Game.gba.rtc; Knulli:
@@ -671,22 +692,36 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 		if files.RTC != nil {
 			rtcDst = files.RTC.Path
 		}
-		if files.RTC != nil && files.Save == nil {
-			// A clock file without its save (the .sav was moved off the
-			// card): no backup was made above, so the current clock goes
-			// to the trash, as one journaled replacement (Codex review of
-			// M5; rule 1 of CLAUDE.md).
-			fi, err := os.Lstat(rtcTmp)
-			if err != nil {
-				return nil, fmt.Errorf("save: install the clock file: %w", err)
-			}
-			if _, err := s.o.Trash.Replace(store.ReasonRestore, g.Name, []store.MoveItem{{Path: files.RTC.Path}},
-				[]store.Install{{Src: rtcTmp, Dst: rtcDst, Size: fi.Size()}}); err != nil {
-				return nil, fmt.Errorf("save: install the clock file: %w", err)
-			}
-		} else if err := os.Rename(rtcTmp, rtcDst); err != nil {
-			return nil, fmt.Errorf("save: install the clock file: %w", err)
+		// The save and its clock file go in as one journaled replacement
+		// of the trash (M18 review): the current pair (already copied in
+		// the backup above) moves to a trash entry, the restored pair takes
+		// its place, and a power cut between the renames is finished (or
+		// rolled back) as a pair at the next start, never the save of one
+		// pair with the clock of the other.
+		var items []store.MoveItem
+		if files.Save != nil {
+			items = append(items, store.MoveItem{Path: files.Save.Path})
 		}
+		if files.RTC != nil {
+			items = append(items, store.MoveItem{Path: files.RTC.Path})
+		}
+		var installs []store.Install
+		for _, in := range [][2]string{{rtcTmp, rtcDst}, {tmp, dst}} {
+			fi, err := os.Lstat(in[0])
+			if err != nil {
+				return nil, fmt.Errorf("save: install: %w", err)
+			}
+			sum, _, err := store.HashFile(in[0])
+			if err != nil {
+				return nil, fmt.Errorf("save: install: %w", err)
+			}
+			installs = append(installs, store.Install{Src: in[0], Dst: in[1], Size: fi.Size(), SHA256: sum})
+		}
+		if _, err := s.o.Trash.Replace(store.ReasonRestore, g.Name, items, installs); err != nil {
+			return nil, fmt.Errorf("save: install: %w", err)
+		}
+		store.SyncDir(filepath.Dir(dst))
+		return backup, nil
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		return nil, fmt.Errorf("save: install: %w", err)

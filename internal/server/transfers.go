@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -152,6 +153,74 @@ func (s *Server) handleDeleteTrashEntry(w http.ResponseWriter, r *http.Request) 
 	default:
 		writeJSON(w, http.StatusOK, freedBytes{freed})
 	}
+}
+
+// handleTrashRestorePreview answers GET /trash/{entryId}/restore (M18).
+func (s *Server) handleTrashRestorePreview(w http.ResponseWriter, r *http.Request) {
+	p, err := s.opts.Transfers.PreviewTrashRestore(r.PathValue("entryId"))
+	switch {
+	case errors.Is(err, store.ErrInvalidTrashID):
+		auth.WriteError(w, http.StatusBadRequest, CodeInvalidID, "Invalid identifier", nil)
+	case errors.Is(err, store.ErrTrashNotFound), errors.Is(err, store.ErrNothingToMove):
+		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "Trash entry not found", nil)
+	case err != nil:
+		s.internal(w, r, err)
+	default:
+		writeJSON(w, http.StatusOK, p)
+	}
+}
+
+// handleTrashRestore answers POST /trash/{entryId}/restore (M18): the
+// body is optional; when present it is a JSON object whose onConflict, if
+// given, is "fail", "rename" or "replace" (never null).
+func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		OnConflict json.RawMessage `json:"onConflict"`
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Body unreadable", nil)
+		return
+	}
+	onConflict := store.RestoreFail
+	if trimmed := bytes.TrimSpace(body); len(trimmed) > 0 {
+		if trimmed[0] != '{' {
+			auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "The body must be a JSON object", nil)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if req.OnConflict != nil {
+			if err := json.Unmarshal(req.OnConflict, &onConflict); err != nil || bytes.Equal(bytes.TrimSpace(req.OnConflict), []byte("null")) {
+				auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "onConflict must be fail, rename or replace", nil)
+				return
+			}
+		}
+	}
+	if onConflict != store.RestoreFail && onConflict != store.RestoreRename && onConflict != store.RestoreReplace {
+		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "onConflict must be fail, rename or replace", nil)
+		return
+	}
+	res, apiErr, err := s.opts.Transfers.RestoreTrash(r.PathValue("entryId"), onConflict)
+	if apiErr != nil || err != nil {
+		s.transferError(w, r, apiErr, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+	if res.PakRestored {
+		s.events.Paks()
+	}
+}
+
+// trashLabel is the label of the {entryId} of the request ("" if none).
+func (s *Server) trashLabel(r *http.Request) string {
+	e, err := s.opts.Trash.Entry(r.PathValue("entryId"))
+	if err != nil {
+		return ""
+	}
+	return e.Label
 }
 
 // --- Uploads ---------------------------------------------------------------

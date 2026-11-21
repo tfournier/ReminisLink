@@ -169,3 +169,7 @@ func (a *Adapter) artFileName(g osadapter.Game) string {
 	}
 	return artName(g) + ".png"
 }
+
+// CaseFromFS reports whether names are compared as the file system of each
+// folder does (Knulli on ext4, M20) rather than always ignoring case.
+func (a *Adapter) CaseFromFS() bool { return a.layout.CaseFromFS }

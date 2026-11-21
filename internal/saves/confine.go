@@ -32,3 +32,11 @@ func (s *Service) checkWriteDir(dir string) error {
 	r := s.o.Adapter.Roots()
 	return confine.CheckDir(confine.Base(r.SD, r.Saves), dir)
 }
+
+// checkBackupDir refuses a read or a write of the backups of a game when a
+// folder between the card (or the ReminisLink data folder, when it is
+// elsewhere) and dir is a symbolic link (rule 2; M18 review: a copy is
+// never read from outside before being restored).
+func (s *Service) checkBackupDir(dir string) error {
+	return confine.CheckDir(confine.Base(s.o.Adapter.Roots().SD, s.o.Layout.Root), dir)
+}

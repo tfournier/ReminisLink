@@ -123,6 +123,19 @@ type entryFile struct {
 	// Installs are the new files of a replacement (Replace), relative to
 	// the SD card: renamed into place while the state is "installing".
 	Installs []installRecord `json:"installs,omitempty"`
+	// Returns are the places of the items of a restore (M18), relative to
+	// the SD card: renamed there while the state is "returning".
+	Returns []returnRecord `json:"returns,omitempty"`
+	// ReturnMode is the conflict rule of that restore ("fail", "rename",
+	// "replace"): Recover checks every place of Returns against it.
+	ReturnMode string `json:"returnMode,omitempty"`
+	// Displaced is the entry holding the files a "replace" restore moved
+	// out of the way first (the current save).
+	Displaced string `json:"displaced,omitempty"`
+	// RestoreOf, on such a displaced entry, is the entry whose restore
+	// moved these files: while that entry is still "done" (its restore
+	// never started), Recover puts them back.
+	RestoreOf string `json:"restoreOf,omitempty"`
 }
 
 // installRecord is an Install in entry.json, paths relative to the SD card.
@@ -183,6 +196,14 @@ type Trash struct {
 	rename    func(oldpath, newpath string) error
 	syncDir   func(dir string) error
 	saveEntry func(dir string, e entryFile) error
+	// renameExcl is the rename of a restore, which never replaces its
+	// destination (renameNoReplaceInSD; SetRename replaces it too).
+	renameExcl func(oldpath, newpath string) error
+	// caseFromFS: see SetCaseFromFS.
+	caseFromFS bool
+	// returnCheck and replaceSpec: see SetRestoreHooks.
+	returnCheck func(it RestoreItem) error
+	replaceSpec func(p RestorePlan) (*ReplaceSpec, error)
 
 	mu sync.Mutex // serializes the changes of the trash
 }
@@ -201,9 +222,10 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 	// Every rename of the trash stays inside the SD card, through no link
 	// (M12 review).
 	t.rename = t.renameInSD
+	t.renameExcl = t.renameNoReplaceInSD
 	// The journal is durable only once its folder is synced (and checked).
 	t.saveEntry = func(dir string, e entryFile) error {
-		return writeEntryWith(dir, e, func(d string) error { return t.syncDir(d) })
+		return t.writeEntryConfined(dir, e, func(d string) error { return t.syncDir(d) })
 	}
 	return t
 }
@@ -213,7 +235,7 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 func (t *Trash) SetRename(rename func(oldpath, newpath string) error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.rename = rename
+	t.rename, t.renameExcl = rename, rename
 }
 
 // SetSyncDir replaces SyncDirChecked for the trash (tests of other
@@ -358,10 +380,14 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 // marks it done); otherwise it is "done". On error nothing is moved: the
 // moved items are put back, or, if that fails, left in an entry that
 // Recover rolls back or keeps (never purged before). Called with t.mu held.
-func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []installRecord) (MoveResult, string, entryFile, error) {
-	planned, err := t.plan(items)
-	if err != nil {
-		return MoveResult{}, "", entryFile{}, err
+func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []installRecord, tags ...func(*entryFile)) (MoveResult, string, entryFile, error) {
+	var planned []plannedMove
+	var err error
+	if len(items) > 0 || len(installs) == 0 {
+		// A replacement without items journals its installs only.
+		if planned, err = t.plan(items); err != nil {
+			return MoveResult{}, "", entryFile{}, err
+		}
 	}
 	if err := t.mkdirInSD(t.dir); err != nil {
 		return MoveResult{}, "", entryFile{}, fmt.Errorf("trash: %w", err)
@@ -390,6 +416,9 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 	if credit != nil {
 		seconds := int64(*credit / time.Second)
 		e.Credit = &seconds
+	}
+	for _, tag := range tags {
+		tag(&e)
 	}
 	res := MoveResult{Moved: []string{}}
 	for _, p := range planned {
@@ -420,7 +449,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 		// stays "moving" and Recover handles it at the next start.
 		left := t.putBack(entryDir, moved)
 		if len(left) == 0 {
-			os.RemoveAll(entryDir)
+			t.removeEmptyEntry(entryDir, id)
 		} else {
 			recount(entryDir, &e, left)
 			e.Installs = nil
@@ -495,7 +524,7 @@ func (t *Trash) FindMove(reason, rel string) (string, bool) {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(names))) // ids start with their time
 	for _, name := range names {
-		e, err := readEntry(filepath.Join(t.dir, name))
+		e, err := t.readEntry(filepath.Join(t.dir, name))
 		if err != nil || e.State != stateDone || e.Reason != reason || e.ID != name {
 			continue
 		}
@@ -522,8 +551,13 @@ func (t *Trash) Undo(id string) error {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.undoLocked(id)
+}
+
+// undoLocked is Undo with t.mu held.
+func (t *Trash) undoLocked(id string) error {
 	dir := filepath.Join(t.dir, id)
-	e, err := readEntry(dir)
+	e, err := t.readEntry(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return ErrTrashNotFound
 	}
@@ -538,24 +572,25 @@ func (t *Trash) Undo(id string) error {
 	for _, rel := range e.Moves {
 		src := filepath.Join(dir, filepath.FromSlash(rel))
 		dst := filepath.Join(sd, filepath.FromSlash(rel))
-		if _, err := os.Lstat(src); err != nil {
+		gone, err := moved(src)
+		if err != nil {
+			left = append(left, rel) // unknown: kept
+			continue
+		}
+		if gone {
 			continue // already back
 		}
-		if !isUnder(sd, dst) || t.restoreItem(src, dst) != nil {
+		if !filepath.IsLocal(filepath.FromSlash(rel)) || !isUnder(sd, dst) || t.restoreItem(src, dst) != nil {
 			left = append(left, rel)
 			continue
 		}
 		t.log.Info("trash: put back", "entry", id, "file", rel)
 	}
+	e.RestoreOf = ""
+	// Removed only when its folder holds no file any more.
+	t.finishEntry(dir, &e, e.Moves)
 	if len(left) > 0 {
-		recount(dir, &e, left)
-		if err := writeEntry(dir, e); err != nil {
-			return err
-		}
 		return ErrNotPutBack
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("trash: remove the undone entry: %w", err)
 	}
 	return nil
 }
@@ -592,6 +627,7 @@ func (t *Trash) restoreItem(src, dst string) error {
 	return t.syncDir(filepath.Dir(src))
 }
 
+// writeEntry writes entry.json without confinement (tests only).
 func writeEntry(dir string, e entryFile) error { return writeEntryWith(dir, e, SyncDirChecked) }
 
 // writeEntryWith writes entry.json atomically and syncs its folder with
@@ -607,12 +643,18 @@ func writeEntryWith(dir string, e entryFile, syncDir func(string) error) error {
 	return nil
 }
 
+// readEntry reads entry.json without the confinement of Trash.readEntry
+// (tests only: the trash always reads through Trash.readEntry).
 func readEntry(dir string) (entryFile, error) {
-	var e entryFile
 	data, err := os.ReadFile(filepath.Join(dir, trashEntryFile))
 	if err != nil {
-		return e, err
+		return entryFile{}, err
 	}
+	return parseEntry(data)
+}
+
+func parseEntry(data []byte) (entryFile, error) {
+	var e entryFile
 	if err := json.Unmarshal(data, &e); err != nil {
 		return e, err
 	}
@@ -657,8 +699,9 @@ func (t *Trash) List() ([]TrashEntry, int64, error) {
 	var total int64
 	now, credit := t.now(), t.creditNow()
 	for _, name := range names {
-		e, err := readEntry(filepath.Join(t.dir, name))
-		if err != nil || e.State != stateDone || e.ID != name || !validReasons[e.Reason] {
+		e, err := t.readEntry(filepath.Join(t.dir, name))
+		if err != nil || e.State != stateDone || e.ID != name || !validReasons[e.Reason] || (len(e.Moves) == 0 && len(e.Installs) > 0) {
+			// Nor a journal of installs only (never an entry).
 			if err != nil {
 				t.log.Warn("trash: unreadable entry", "entry", name, "error", err)
 			}
@@ -720,7 +763,7 @@ func (t *Trash) Empty() (int64, error) {
 // pending reports whether an entry is a move or a replacement in progress
 // (state "moving" or "installing"). Called with t.mu held.
 func (t *Trash) pending(id string) bool {
-	e, err := readEntry(filepath.Join(t.dir, id))
+	e, err := t.readEntry(filepath.Join(t.dir, id))
 	return err == nil && e.State != stateDone
 }
 
@@ -735,7 +778,7 @@ func (t *Trash) erase(id, why string) (int64, error) {
 	// an entry without a readable entry.json counts its whole folder.
 	var files []string
 	var size int64
-	if e, err := readEntry(dir); err == nil && e.State == stateDone {
+	if e, err := t.readEntry(dir); err == nil && e.State == stateDone {
 		files, size = e.Files, e.SizeBytes
 	} else {
 		size = dirSize(dir)
@@ -807,21 +850,34 @@ func (t *Trash) Recover() error {
 	}
 	for _, name := range names {
 		dir := filepath.Join(t.dir, name)
-		e, err := readEntry(dir)
+		e, err := t.readEntry(dir)
 		if err != nil {
-			if !hasRegularFile(dir) {
-				// Created but nothing moved yet (entry.json never written).
-				if err := os.RemoveAll(dir); err == nil {
-					t.log.Info("trash: removed an empty entry", "entry", name)
-				}
+			// Created but nothing moved yet (entry.json never written):
+			// removed only when it surely holds no file.
+			if errors.Is(err, fs.ErrNotExist) && t.removeEmptyEntry(dir, name) {
+				t.log.Info("trash: removed an empty entry", "entry", name)
 			}
 			continue
 		}
 		if e.State == stateDone {
+			if len(e.Moves) == 0 && len(e.Installs) > 0 {
+				// A finished journal of installs only.
+				t.removeEmptyEntry(dir, name)
+				continue
+			}
+			if e.RestoreOf != "" {
+				t.recoverDisplaced(name, e)
+			}
 			continue
 		}
 		if e.State == stateInstalling {
 			if err := t.recoverInstall(dir, sd, &e); err != nil {
+				return err
+			}
+			continue
+		}
+		if e.State == stateReturning {
+			if err := t.recoverReturn(dir, sd, &e); err != nil {
 				return err
 			}
 			continue
@@ -842,9 +898,17 @@ func (t *Trash) Recover() error {
 			continue
 		}
 		var left []string
+		unknown := false
 		for _, rel := range e.Moves {
 			src := filepath.Join(dir, filepath.FromSlash(rel))
-			if _, err := os.Lstat(src); err != nil {
+			gone, err := moved(src)
+			if err != nil {
+				// Only a missing file means "never moved": keep it all.
+				unknown = true
+				left = append(left, rel)
+				continue
+			}
+			if gone {
 				continue // never moved
 			}
 			dst := filepath.Join(sd, filepath.FromSlash(rel))
@@ -858,14 +922,16 @@ func (t *Trash) Recover() error {
 			}
 			t.log.Info("trash: put back after an interrupted move", "entry", name, "file", rel)
 		}
+		if unknown {
+			t.log.Error("trash: interrupted move kept for the next start, its files cannot be read", "entry", name)
+			continue
+		}
 		if len(left) == 0 {
-			if err := os.RemoveAll(dir); err != nil {
-				t.log.Warn("trash: cannot remove a rolled back entry", "entry", name, "error", err)
-			}
+			t.removeEmptyEntry(dir, name)
 			continue
 		}
 		recount(dir, &e, left)
-		if err := writeEntry(dir, e); err != nil {
+		if err := t.saveEntry(dir, e); err != nil {
 			return err
 		}
 		t.log.Warn("trash: kept files of an interrupted move (their place is taken)", "entry", name, "files", e.Files)
@@ -903,18 +969,6 @@ func recount(dir string, e *entryFile, left []string) {
 	}
 }
 
-func hasRegularFile(dir string) bool {
-	found := false
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err == nil && d.Type().IsRegular() && d.Name() != trashEntryFile && d.Name() != trashEntryFile+".tmp" {
-			found = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return found
-}
-
 // Purge erases the entries whose credited age reached maxAge
 // (TrashRetention at launch) and returns the bytes freed. An entry without
 // a credit (unreadable entry.json, older version) is kept, and nothing is
@@ -932,7 +986,7 @@ func (t *Trash) Purge(maxAge time.Duration) (int64, error) {
 	now := t.credit.Now()
 	var freed int64
 	for _, name := range names {
-		e, err := readEntry(filepath.Join(t.dir, name))
+		e, err := t.readEntry(filepath.Join(t.dir, name))
 		if err != nil || e.Credit == nil {
 			t.log.Warn("trash: entry kept by the purge, no credited age", "entry", name, "error", err)
 			continue
