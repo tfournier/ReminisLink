@@ -244,7 +244,15 @@ submit_against_mock() {
 	rm -f "$tmp/port" "$tmp/state.json"
 	python3 "$fakes/asc_mock.py" "$scenario" "$tmp/port" "$tmp/state.json" &
 	pid=$!
-	for _ in $(seq 50); do [ -s "$tmp/port" ] && break; sleep 0.1; done
+	# Python can take several seconds to start on a busy CI runner: wait up
+	# to 30 s for the port, and fail clearly rather than call no server.
+	for _ in $(seq 300); do [ -s "$tmp/port" ] && break; sleep 0.1; done
+	if [ ! -s "$tmp/port" ]; then
+		echo "the App Store Connect mock did not start ($scenario)"
+		kill "$pid" 2>/dev/null
+		wait "$pid" 2>/dev/null
+		return 1
+	fi
 	port="$(cat "$tmp/port")"
 	run_ci submit_for_review.sh CI_WORKFLOW=Submit CI_TAG=ios-v1.1.0 CI_BUILD_NUMBER=50 \
 		ASC_TEST_MODE=1 ASC_API_BASE="http://127.0.0.1:$port" ASC_POLL_SECONDS=0 ASC_WAIT_MINUTES=1 \
