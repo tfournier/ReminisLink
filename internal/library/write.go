@@ -152,7 +152,11 @@ func (l *Library) selectDeletion(gameID string, keepSave bool) (deletion, error)
 		}
 	}
 	if files.Art != nil {
-		move(files.Art.Path, "art")
+		if shared[files.Art.Path] {
+			keep(files.Art.Path, "art")
+		} else {
+			move(files.Art.Path, "art")
+		}
 	}
 	data := move
 	if keepSave {
@@ -174,11 +178,14 @@ func (l *Library) selectDeletion(gameID string, keepSave bool) (deletion, error)
 	// The locks and the resume history go with the states; with keepSave
 	// they stay with them (docs/specs/04-api-v1.md).
 	var copies []string
-	if dir := findDirFold(l.layout.LocksDir(g.System.Tag), g.ROMName); dir != "" {
+	// Same rule as the states and saves services (store.FindFold): on a
+	// case-sensitive file system, the locks of game.gba are not those of
+	// Game.gba.
+	if dir := store.FindFold(l.layout.LocksDir(g.System.Tag), g.ROMName, true); dir != "" {
 		copies = append(copies, dir)
 	}
-	if romDir := findDirFold(l.layout.BackupsDir(g.System.Tag), g.ROMName); romDir != "" {
-		if dir := findDirFold(romDir, "resume"); dir != "" {
+	if romDir := store.FindFold(l.layout.BackupsDir(g.System.Tag), g.ROMName, true); romDir != "" {
+		if dir := store.FindFold(romDir, "resume", true); dir != "" {
 			copies = append(copies, dir)
 		}
 	}
@@ -284,28 +291,6 @@ func (l *Library) displayPath(g osadapter.Game, p string) string {
 		return filepath.ToSlash(rel)
 	}
 	return filepath.Base(p)
-}
-
-// findDirFold returns the path of the folder of dir named name ignoring
-// case (exFAT), or "".
-func findDirFold(dir, name string) string {
-	des, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	match := ""
-	for _, d := range des {
-		if !d.IsDir() {
-			continue
-		}
-		if d.Name() == name {
-			return filepath.Join(dir, name)
-		}
-		if match == "" && strings.EqualFold(d.Name(), name) {
-			match = filepath.Join(dir, d.Name())
-		}
-	}
-	return match
 }
 
 // GameSummary returns a game as GET /systems/{systemId}/games lists it.

@@ -276,6 +276,9 @@ func (l *Library) gameFiles(g osadapter.Game) ([]gameFile, error) {
 	saves := filepath.Join(roots.Saves, g.System.Tag)
 	var out []gameFile
 	add := func(role string, f osadapter.File, slot *int, root, within string) {
+		// Opened under the card: a link at the functional root itself is
+		// refused too (rule 2).
+		root = confine.Base(roots.SD, root)
 		out = append(out, gameFile{
 			GameFile: GameFile{FileID: EncodeID(f.Rel), Role: role, Slot: slot, Path: f.Rel, SizeBytes: f.Size, ModifiedAt: timestamp(f.ModTime)},
 			path:     f.Path,
@@ -403,7 +406,7 @@ func (l *Library) OpenArt(gameID string) (*os.File, fs.FileInfo, string, error) 
 	var fi fs.FileInfo
 	_, err = confine.RelToRoot(system, art.Path)
 	if err == nil {
-		file, fi, err = confine.OpenUnder(roots.Roms, art.Path)
+		file, fi, err = confine.OpenUnder(confine.Base(roots.SD, roots.Roms), art.Path)
 	}
 	switch {
 	case errors.Is(err, confine.ErrOutside):

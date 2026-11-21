@@ -451,14 +451,10 @@ func (s *Server) handleStateThumbnail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p, err := s.opts.States.Thumbnail(g, slot)
+	// The descriptor checked by OpenThumbnail is the one served.
+	f, _, err := s.opts.States.OpenThumbnail(g, slot)
 	if err != nil {
 		s.stateError(w, r, err)
-		return
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		s.stateError(w, r, states.ErrNoThumbnail)
 		return
 	}
 	s.sendFile(w, r, f, "", "image/png")
@@ -567,6 +563,8 @@ func (s *Server) cheatError(w http.ResponseWriter, r *http.Request, err error) {
 		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "Cheat file unreadable", nil)
 	case errors.Is(err, cheats.ErrNoCheat):
 		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "No cheat found", nil)
+	case errors.Is(err, osadapter.ErrUnsupportedFormat):
+		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "Cheats are not supported on this OS", nil)
 	default:
 		s.internal(w, r, err)
 	}

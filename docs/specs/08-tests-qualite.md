@@ -40,6 +40,15 @@ Les tests de patchs utilisent des fichiers générés par les tests eux-mêmes (
 - `make desktop` : le pak avec son interface, sur Mac, contre `testdata/sdcard` copiée dans un dossier temporaire.
 - `make headless` : serveur et annonce Bonjour seulement. Le simulateur iOS le trouve sur le Mac par Bonjour, ce qui permet de développer toute l'app sans console.
 
+### Plateformes sans console (M20)
+
+Sans les consoles tg5050, h700, my355 ni Knulli :
+
+- Tests Go des adaptateurs (`internal/osadapter/nextui/platform_test.go`, `internal/osadapter/knulli`) sur les cartes factices `testdata/sdcard` et `testdata/knulli`, reconstituées à partir du code source des firmwares (sources citées en 05 §3.2 et §3.3).
+- `TestSmokeLayouts` (`cmd/reminislink/smoke_layout_test.go`) : le vrai binaire en headless sur la carte de chaque plateforme et de Knulli ; appairage v2 à partir du lien imprimé, description de la console, bibliothèque, envoi d'un jeu vérifié sur la carte, copie de secours d'une save vérifiée dans la zone de copies. Sur macOS : système de fichiers insensible à la casse.
+- `make emulation` (`scripts/emulation/run.sh`), dans des conteneurs linux/arm64 (natif sur Mac Apple Silicon et sur le runner arm64 de la CI, qemu-user par binfmt sur une machine x86_64) : (1) contenu des deux zips (lanceurs, binaire, bibliothèques embarquées par plateforme) ; (2) tous les tests Go sur un système de fichiers sensible à la casse ; (3) le même smoke, compilé pour linux/arm64, dans un conteneur par plateforme : rootfs d'origine de la Brick pour tg5040 quand l'image est présente, sinon des images Debian ou Ubuntu épinglées avec la glibc du firmware ou une plus ancienne (tg5050 : glibc 2.31, h700 : 2.35, my355 : 2.28, Knulli : 2.36) ; (4) la glibc la plus récente que demandent le binaire de la version et les bibliothèques embarquées pour la plateforme, et chaque bibliothèque trouvée dans le système, le zip ou le firmware (hypothèses P3 et K2), sinon échec ; (5) le smoke à travers le lanceur du zip avec le binaire livré, le zip étant extrait tel quel dans `Tools/<plateforme>/ReminisLink.pak/` comme le fait le Pak Store (sans retirer de dossier : `launch.sh` doit être à la racine), dans le système complété par les SDL de sa distribution (h700 : sans SDL2_ttf, pour charger celle du zip ; tg5040 : dans le système Debian 11, le rootfs d'origine n'ayant pas de SDL). Avec `REQUIRE_ZIPS=1` (la CI), l'absence d'un des deux zips est un échec.
+- Limites assumées : ni écran, ni boutons, ni Wi-Fi, ni SDL réels ; les volontaires (voir `docs/appel-testeurs.md`) valident chaque console avant de l'annoncer comme prise en charge.
+
 ## 5. Tests sur console (manuels, à chaque jalon)
 
 Checklist dans `docs/specs/checklists/` (à créer au jalon M2) :
@@ -60,6 +69,7 @@ Checklist dans `docs/specs/checklists/` (à créer au jalon M2) :
 - Job Go : `make lint test` puis compilation ARM64 dans `debian:bullseye` (comme Cheat Manager), publication de `ReminisLink.pak.zip` sur tag.
 - Job iOS (runner macOS) : `swift test` pour `ReminisLinkKit`, `xcodebuild test` pour l'app.
 - Job contrat : vérifie que `openapi.yaml` est valide et que les vecteurs sont lisibles.
+- Job émulation (M20, runner `ubuntu-24.04-arm`) : `make emulation` avec le binaire du zip construit par le job de compilation (sans la Brick, dont le rootfs n'est pas dans la CI). Le job de compilation construit aussi `ReminisLink.knulli.zip`, gardé comme artefact (pas publié).
 
 ## 7. Qualité du code
 

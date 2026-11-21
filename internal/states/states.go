@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
@@ -519,7 +520,7 @@ func (s *Service) Open(g osadapter.Game, slot int) (*os.File, string, error) {
 	if !ok {
 		return nil, "", ErrNoState
 	}
-	f, err := os.Open(p)
+	f, _, err := confine.OpenUnder(s.cardRoot(p), p)
 	if err != nil {
 		return nil, "", fmt.Errorf("state: %w", err)
 	}
@@ -529,27 +530,44 @@ func (s *Service) Open(g osadapter.Game, slot int) (*os.File, string, error) {
 // Thumbnail returns the thumbnail of a slot (ErrNoThumbnail when the OS
 // keeps none, or the slot has none).
 func (s *Service) Thumbnail(g osadapter.Game, slot int) (string, error) {
+	f, p, err := s.OpenThumbnail(g, slot)
+	if err != nil {
+		return "", err
+	}
+	f.Close()
+	return p, nil
+}
+
+// OpenThumbnail opens the thumbnail of a slot for reading (confined, with
+// its PNG signature checked) and returns it positioned at its start, with
+// its path. The caller serves this descriptor, never the path again
+// (Codex review of M20: the file could be replaced in between).
+func (s *Service) OpenThumbnail(g osadapter.Game, slot int) (*os.File, string, error) {
 	if !ValidSlot(slot) {
-		return "", ErrInvalidSlot
+		return nil, "", ErrInvalidSlot
 	}
 	p := s.o.Adapter.StateThumbnailPath(g, slot)
 	if p == "" {
-		return "", ErrNoThumbnail
+		return nil, "", ErrNoThumbnail
 	}
 	if p = store.FindFold(filepath.Dir(p), filepath.Base(p), false); p == "" {
-		return "", ErrNoThumbnail
+		return nil, "", ErrNoThumbnail
 	}
 	// NextUI writes a PNG image in a ".bmp" file: check the signature.
-	f, err := os.Open(p)
+	f, _, err := confine.OpenUnder(s.cardRoot(p), p)
 	if err != nil {
-		return "", ErrNoThumbnail
+		return nil, "", ErrNoThumbnail
 	}
-	defer f.Close()
 	var sig [8]byte
 	if _, err := io.ReadFull(f, sig[:]); err != nil || string(sig[:]) != pngSignature {
-		return "", ErrNoThumbnail
+		f.Close()
+		return nil, "", ErrNoThumbnail
 	}
-	return p, nil
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		f.Close()
+		return nil, "", ErrNoThumbnail
+	}
+	return f, p, nil
 }
 
 // Delete moves the state of a slot to the trash (ErrLocked when locked).
@@ -605,6 +623,11 @@ func (s *Service) Lock(g osadapter.Game, slot int) (Slot, error) {
 		return Slot{}, fmt.Errorf("lock: %w", err)
 	}
 	dir := s.newLockDir(g)
+	// Never written through a link (rule 2): the lock folder, or a folder
+	// above it in the ReminisLink data area, may have been replaced by one.
+	if err := s.checkDataDir(dir); err != nil {
+		return Slot{}, fmt.Errorf("lock: %w", err)
+	}
 	// The side files first (thumbnail, disc of a multi-disc state), then
 	// the copy, which defines the lock (see the package comment).
 	for _, side := range s.o.Adapter.StateSideFiles(g, slot) {
@@ -895,6 +918,9 @@ func (s *Service) InstallLocked(g osadapter.Game, slot int, tmp string) (Slot, e
 		return Slot{}, err
 	}
 	p, exists := s.statePath(g, slot)
+	if err := confine.CheckDir(s.cardRoot(p), filepath.Dir(p)); err != nil {
+		return Slot{}, fmt.Errorf("state: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return Slot{}, fmt.Errorf("state: %w", err)
 	}
@@ -1022,6 +1048,9 @@ func (s *Service) archiveLocked(tag, rom, path string, hashAlways bool) (archive
 		return 0, err
 	}
 	dir := s.resumeDirOf(tag, rom)
+	if err := s.checkDataDir(dir); err != nil {
+		return 0, err
+	}
 	stateDir := filepath.Base(filepath.Dir(path))
 	metas := s.readResume(dir)
 	// An entry without folder (written before it was recorded) is of an
@@ -1354,4 +1383,24 @@ func (s *Service) checkLock(g osadapter.Game, dir string, slot int, r *Report) {
 	} else {
 		log.Info("maintenance: locked state was missing, copy restored", "copy", l.copy)
 	}
+}
+
+// cardRoot is the folder a state file p must be read under, with no link
+// below it (rule 2): the card, or the states or thumbnails folder when it
+// is elsewhere.
+func (s *Service) cardRoot(p string) string {
+	r := s.o.Adapter.Roots()
+	for _, root := range []string{r.SD, r.States, r.Minui} {
+		if _, err := confine.RelToRoot(root, p); root != "" && err == nil {
+			return root
+		}
+	}
+	return filepath.Dir(p)
+}
+
+// checkDataDir refuses a write in dir, a folder of the ReminisLink data
+// area, when a folder between the root of the area and dir is a symbolic
+// link (rule 2). The root itself is checked at start (app.Open).
+func (s *Service) checkDataDir(dir string) error {
+	return confine.CheckDir(s.o.Layout.Root, dir)
 }

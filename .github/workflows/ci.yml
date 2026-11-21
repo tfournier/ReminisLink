@@ -87,6 +87,51 @@ jobs:
           path: dist/ReminisLink.pak.zip
           if-no-files-found: error
 
+      # Knulli (experimental, M20): built and kept as an artifact only; the
+      # release job does not publish it.
+      - name: Build the Knulli zip
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            make knulli-release VERSION="$GITHUB_REF_NAME"
+          else
+            make knulli-release VERSION="$(echo "$GITHUB_SHA" | cut -c1-7)"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reminislink-knulli
+          path: dist/ReminisLink.knulli.zip
+          if-no-files-found: error
+
+  emulation:
+    # M20 (scripts/emulation/run.sh): the content of both zips, the unit
+    # tests on a case-sensitive file system, the pak headless on the card of
+    # each platform and of Knulli in a userland with the glibc of each
+    # firmware (linux/arm64 containers, native on this runner), what the
+    # shipped binary and its bundled libraries need, and the shipped binary
+    # started through each launcher. The stock rootfs of the Brick is not
+    # available here: tg5040 is skipped.
+    needs: [build]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # Both zips as built: their content is checked, and the shipped
+      # binary is started through each launcher (scripts/emulation/run.sh
+      # reads the binary from the NextUI zip).
+      - uses: actions/download-artifact@v8
+        with:
+          name: reminislink-pak
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: reminislink-knulli
+          path: dist
+      - name: Zips, case-sensitive unit tests and smoke tests in each userland
+        run: make emulation REQUIRE_ZIPS=1
+
   ios:
     # Swift tools 6.2 and the iOS 18+ simulator: Xcode 26.
     runs-on: macos-26
@@ -143,9 +188,9 @@ jobs:
   release:
     # refs/tags/v...: an app tag (refs/tags/ios-v...) can never match.
     if: startsWith(github.ref, 'refs/tags/v')
-    # The pak release depends on the pak jobs only: the iOS app has its own
-    # release path (M17).
-    needs: [go, contract, build]
+    # The pak release depends on the pak jobs only (emulation included,
+    # M20): the iOS app has its own release path (M17).
+    needs: [go, contract, build, emulation]
     runs-on: ubuntu-latest
     permissions:
       contents: write

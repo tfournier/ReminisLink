@@ -47,6 +47,19 @@ The screenshots come from the desktop mode (`make screenshots`); on the console 
 
 The pak needs NextUI on a TrimUI Brick (platform `tg5040`).
 
+### Other handhelds (experimental, looking for testers)
+
+Not supported yet: the pak is built and tested for these handhelds without the devices themselves (card layouts rebuilt from the firmware source code, the server run in each system under emulation), but the screen, the buttons and the Wi-Fi have never been tried on them. If you own one, your help is welcome: see the [call for testers](docs/appel-testeurs.md) (in French) or open an issue.
+
+| Firmware | Platform | Handhelds |
+|---|---|---|
+| NextUI | `tg5050` | TrimUI Smart Pro S |
+| NextUI | `h700` | Anbernic RG28XX, RG34XX, RG35XX Plus/H/Pro/SP, RG40XX H/V, RG CubeXX |
+| NextUI | `my355` | Miyoo Flip |
+| Knulli | — | Knulli handhelds (`ReminisLink.knulli.zip`, unzipped into `/userdata/roms/tools/`, then **Tools > ReminisLink**) |
+
+On NextUI, the same zip as the Brick is unzipped into `/Tools/<platform>/`. On Knulli, cheats and tool paks are not available, and the data of ReminisLink is in `/userdata/system/ReminisLink`.
+
 ### From the Pak Store
 
 Open **Pak Store** on your device and install **ReminisLink**.
@@ -151,7 +164,9 @@ make docker-release      # builds dist/ReminisLink.pak.zip
 | `make lint` | `gofmt` and `go vet`. |
 | `make fuzz` | Short fuzzing of the patch parsers (`FUZZTIME`). |
 | `make contract` | Validates `protocol/openapi.yaml` (Redocly in Docker) and checks the test vectors. |
-| `make build` / `pak` / `release` | Cross-compile, assemble the pak, build the zip. They need the toolchain of `scripts/setup-toolchain.sh`. |
+| `make build` / `pak` / `release` | Cross-compile, assemble the pak, build the zip (one ARM64 binary and one zip for every NextUI platform). They need the toolchain of `scripts/setup-toolchain.sh`. |
+| `make knulli-release` | Builds `dist/ReminisLink.knulli.zip` (experimental). |
+| `make emulation` | Runs the pak headless on the card layout of each platform and of Knulli, in a linux/arm64 container with the glibc of each firmware (Docker; `LAYOUTS="h700 knulli"` to choose). With `build/reminislink` present (`make docker-build`), also checks the glibc it needs. |
 | `make docker-<target>` | Runs any target inside the build image. |
 | `make vX.Y.Z` | Releases a version of the pak; `make vX.Y.Z-beta.N` a pre-release (see below). |
 | `make ios-vX.Y.Z` | Releases the iOS app; `make ios-vX.Y.Z-beta.N` a TestFlight pre-release, tagged `ios-beta-vX.Y.Z-beta.N` (see below). |
@@ -194,6 +209,8 @@ Only a pak release can be "Latest" on GitHub: app tags never start the GitHub wo
 
 1. Update the `"Unreleased"` entry in the `changelog` of `pak.json`, and commit it like any other change.
 2. From an up-to-date `main` branch with no uncommitted changes, run `make v1.2.3`. This runs the lint and the tests, renames `Unreleased` to `v1.2.3` in `pak.json`, sets `version`, commits as `Release v1.2.3`, tags `v1.2.3` and pushes both.
+
+`platforms` in `pak.json` lists only the platforms the latest published zip supports: the Pak Store reads `pak.json` from `main` and offers that zip on each platform listed. A new platform goes into `platforms` in the release commit of the first stable release whose zip supports it (tg5050, h700 and my355: the first release with milestone M20, v1.1.0), never before.
 
 The [CI workflow](.github/workflows/ci.yml) then builds the pak and publishes the GitHub release with `ReminisLink.pak.zip`. The Pak Store reads `pak.json` from this repository and downloads `<repo_url>/releases/download/<version>/<release_filename>`, which is why the tag, the `pak.json` version and the release file name must match.
 

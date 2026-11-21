@@ -116,7 +116,11 @@ func TestPatchNewFile(t *testing.T) {
 		t.Fatalf("named: %+v %+v", j, j.Error)
 	}
 	j = e.patchJob(courier, stagingPatch(stagingID), &PatchOutput{FileName: ptr("courier_ fr.GBA")})
-	if j.Result["gameId"] != gameID(gbaSystem+"/courier_ fr (2).GBA") {
+	wantNamed := gbaSystem + "/courier_ fr (2).GBA"
+	if !foldsCase(e.sd) {
+		wantNamed = gbaSystem + "/courier_ fr.GBA" // another file on a case-sensitive file system
+	}
+	if j.Result["gameId"] != gameID(wantNamed) {
 		t.Fatalf("named, case-insensitive conflict: %+v %+v", j, j.Error)
 	}
 	if entries, _, _ := e.trash.List(); len(entries) != 0 {

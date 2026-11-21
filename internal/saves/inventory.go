@@ -173,6 +173,9 @@ func (s *Service) ListAll(ctx context.Context) (Listing, error) {
 	l := &lister{s: s, ctx: ctx, seen: map[string]bool{}, done: map[string]hashResult{},
 		listing: Listing{Saves: []Summary{}, GeneratedAt: s.o.Now().UTC().Truncate(time.Second)}}
 	l.dir = s.o.Adapter.Roots().Saves
+	if s.checkWriteDir(l.dir) != nil {
+		return l.listing, nil // the saves folder is a link: no save is read through it (rule 2)
+	}
 	root, err := os.OpenRoot(l.dir)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

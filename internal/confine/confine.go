@@ -98,3 +98,52 @@ func OpenUnder(dir, p string) (*os.File, fs.FileInfo, error) {
 	defer root.Close()
 	return Open(root, rel)
 }
+
+// CheckDir returns an error wrapping ErrOutside when dir is not root or
+// under it, or when a folder between root (excluded: the card itself may
+// be reached through a mount link, as /mnt/SDCARD on h700) and dir
+// (included) is a symbolic link or not a folder. Folders that do not exist
+// yet end the check: the caller creates them as folders. Called before a
+// write into dir, so the write cannot leave root through a link (rule 2;
+// a link put in place after the check is a race on a card the user
+// controls, not a path from the network).
+func CheckDir(root, dir string) error {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || (rel != "." && !filepath.IsLocal(rel)) {
+		return ErrOutside
+	}
+	if rel == "." {
+		return nil
+	}
+	p := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		p = filepath.Join(p, part)
+		fi, err := os.Lstat(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if fi.Mode()&fs.ModeSymlink != 0 || !fi.IsDir() {
+			return fmt.Errorf("%w: %s", ErrOutside, filepath.ToSlash(rel))
+		}
+	}
+	return nil
+}
+
+// Base returns the folder a file of the functional root (saves, roms,
+// states, ReminisLink data...) is opened or written under: the card when
+// the root is on it, so that a link at the root itself (Saves -> elsewhere)
+// is refused like any link below it; the root otherwise (moved off the
+// card by a variable). Only the card itself may be reached through a link
+// (h700: /mnt/SDCARD -> /mnt/sdcard).
+func Base(card, root string) string {
+	if card == "" {
+		return root
+	}
+	if rel, err := filepath.Rel(card, root); err == nil && (rel == "." || filepath.IsLocal(rel)) {
+		return card
+	}
+	return root
+}
