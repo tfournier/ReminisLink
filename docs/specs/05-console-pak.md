@@ -142,7 +142,7 @@ Le pak ne tourne jamais en même temps qu'un jeu : il ne peut donc pas *empêche
    - Absent : la copie verrouillée est restaurée (`restored`).
 3. **Déverrouiller** : suppression de la copie et du verrou.
 
-L'app DOIT expliquer cette limite à l'utilisateur : « Le state est restauré à la prochaine ouverture de ReminisLink sur la console s'il a été écrasé en jeu. »
+L'app DOIT expliquer cette limite à l'utilisateur : « L'état est restauré à la prochaine ouverture de ReminisLink sur la console s'il a été écrasé en jeu. »
 
 ### 5.3 Historique du state de reprise
 
@@ -211,7 +211,7 @@ Interface gabagool, thème NextUI, mêmes principes que Cheat Manager. Toutes le
 - L'état **en haut à gauche** : `Prêt`, `Connecté` (une requête signée depuis moins de 30 s, ou un flux d'événements ouvert, M14), `Transfert en cours` ; la pastille ne chevauche jamais le titre.
 - **En haut à droite, le niveau de batterie** (pourcentage et indicateur de charge, source 05 §6), rafraîchi régulièrement ; sous 15 % et sans charge, affichage d'alerte et, pendant un transfert, bandeau « Batterie faible : branche la console » (M8, demande de la personne).
 - La liste des transferts et tâches en cours avec leur progression.
-- Un bandeau de notification bref quand une action modifie la carte SD (« Save restaurée : Sky Garden Quest »). M12 : « App installée », « Échec de l'installation de l'app » et « App mise à la corbeille », avec le nom du pak ; une installation en cours apparaît dans la liste des tâches.
+- Un bandeau de notification bref quand une action modifie la carte SD (« Sauvegarde restaurée : Sky Garden Quest »). M12 : « App installée », « Échec de l'installation de l'app » et « App mise à la corbeille », avec le nom du pak ; une installation en cours apparaît dans la liste des tâches.
 
 ### 7.2 Réglages (Y)
 

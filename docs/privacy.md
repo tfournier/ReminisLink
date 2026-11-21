@@ -204,10 +204,10 @@ sur toi ni sur ton utilisation de l’app.
   fin du transfert. L’app ne garde pas sa file de transferts d’un lancement à
   l’autre : elles sont supprimées au plus tard au lancement suivant.
 - **Les fichiers que tu télécharges** depuis ta console (un fichier d’un jeu,
-  un fichier de la carte SD) ou depuis tes copies de sauvegardes : écrits
-  dans un dossier temporaire de l’app, puis enregistrés seulement là où tu le
-  choisis (Fichiers, AirDrop, une autre app). Le dossier temporaire est vidé
-  à chaque lancement de l’app.
+  un fichier de la carte SD) ou depuis les copies de tes sauvegardes :
+  écrits dans un dossier temporaire de l’app, puis enregistrés seulement là
+  où tu le choisis (Fichiers, AirDrop, une autre app). Le dossier temporaire
+  est vidé à chaque lancement de l’app.
 - **Le mode démo** (Essayer sans console) fonctionne avec une console
   inventée, dans l’app : il ne communique jamais avec une console ni avec
   aucun serveur, et ne met rien dans le trousseau ni dans iCloud Drive. Les
@@ -247,8 +247,8 @@ appairages continuent de fonctionner.
 ### Copies de tes sauvegardes (iCloud Drive)
 
 ReminisLink peut copier les sauvegardes de tes consoles (avec leurs fichiers
-d’horloge) sur ton iPhone : avec le bouton **Synchroniser les saves** d’une
-console, et automatiquement à chaque connexion (désactivable dans les
+d’horloge) sur ton iPhone : avec le bouton **Synchroniser les sauvegardes**
+d’une console, et automatiquement à chaque connexion (désactivable dans les
 réglages de l’app). Jusqu’à 10 versions de chaque sauvegarde sont gardées. À
 côté des copies, de petits fichiers notent l’identifiant et le nom de la
 console, l’identifiant, le nom et le système du jeu, et pour chaque version
@@ -283,7 +283,8 @@ l’empreinte de la clé publique figure dans le QR code scanné.
 - **Après l’appairage**, toutes les autres requêtes sont signées avec la clé
   privée de l’app, et indiquent le type d’appareil (iPhone, iPad ou Mac).
 - **Les fichiers que tu choisis d’envoyer** : jeux, sauvegardes, états de
-  jeu, patchs, fichiers de cheats, images de jeux et apps pour la console.
+  jeu, patchs, fichiers de codes de triche, images de jeux et apps pour la
+  console.
 
 ### Sur la carte SD de ta console
 

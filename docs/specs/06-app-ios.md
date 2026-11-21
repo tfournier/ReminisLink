@@ -77,7 +77,7 @@ Appairage v2 (M13, [03 §3](03-protocole.md#3-appairage)) : QR code seulement, p
 
 ### 4.3 Tableau de bord
 
-Onglet **Console** (M11). Aucun ajout de fichier depuis cet onglet : l'ajout reste dans Bibliothèque et Transferts ; la corbeille a son onglet. Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés (champ `connectedClients` de `GET /device`). Actions : **Se désappairer**. L'onglet **Corbeille** liste les entrées avec taille et date d'expiration (suppression d'une entrée, **Vider la corbeille** avec confirmation). Section **Synchronisation des saves** (M9, §8) : bouton **Synchroniser les saves**, progression avec **Annuler**, compte rendu de la dernière sync (nouvelles versions, saves vérifiées, saves en échec avec leur message), lien **Saves sur cet iPhone**, et l'emplacement (iCloud Drive, ou avertissement « iCloud Drive n'est pas disponible » quand les saves restent sur l'iPhone).
+Onglet **Console** (M11). Aucun ajout de fichier depuis cet onglet : l'ajout reste dans Bibliothèque et Transferts ; la corbeille a son onglet. Nom, modèle, OS et version, version du pak, IP, batterie, stockage (barre de remplissage, avec la part occupée par la corbeille), appareils connectés (champ `connectedClients` de `GET /device`). Actions : **Se désappairer**. L'onglet **Corbeille** liste les entrées avec taille et date d'expiration (suppression d'une entrée, **Vider la corbeille** avec confirmation). Section **Synchronisation des sauvegardes** (M9, §8) : bouton **Synchroniser les sauvegardes**, progression avec **Annuler**, compte rendu de la dernière sync (nouvelles versions, saves vérifiées, saves en échec avec leur message), lien **Sauvegardes sur cet iPhone**, et l'emplacement (iCloud Drive, ou avertissement « iCloud Drive n'est pas disponible » quand les saves restent sur l'iPhone).
 
 ### 4.4 Bibliothèque
 
@@ -93,7 +93,7 @@ Onglet **Console** (M11). Aucun ajout de fichier depuis cet onglet : l'ajout res
 - **States** : un rang par emplacement (vignette, date, taille, cadenas). Actions : télécharger, verrouiller / déverrouiller, restaurer, supprimer. Section **Historique de reprise**. Texte d'aide sur le fonctionnement des verrous (voir [05 §5.2](05-console-pak.md#52-verrous-de-states)).
 - **Cheats** : liste avec interrupteurs, ajout, modification (description, code, activé), suppression, réordonnancement, import (Fichiers, fichier de la carte SD ; fusion ou remplacement).
 - **Patch** : choisir le patch (Fichiers, carte SD), choisir la sortie (nouveau fichier avec un nom proposé, ou remplacer), suivre la tâche. Une fois le patch appliqué, l'écran Patch se ferme de lui-même sur le jeu (la nouvelle ROM, ouverte, ou le jeu patché en place), qui l'indique quelques secondes (« Patch appliqué… ») ; seul un IPS dont la ROM source n'a pu être vérifiée garde l'écran, pour son avertissement (**Terminé** / **Ouvrir le nouveau jeu**). Si l'écran a déjà été fermé (la console continue), rien ne change.
-- **Supprimer** : feuille de confirmation qui liste exactement ce qui sera supprimé et indique que tout part dans la corbeille de la console pendant au moins 30 jours, et que l'espace ne sera libéré qu'en vidant la corbeille. Option « Garder la save et les states ». Après la suppression, un bouton **Vider la corbeille maintenant** (avec confirmation) permet de libérer l'espace tout de suite.
+- **Supprimer** : feuille de confirmation qui liste exactement ce qui sera supprimé et indique que tout part dans la corbeille de la console pendant au moins 30 jours, et que l'espace ne sera libéré qu'en vidant la corbeille. Option « Garder la sauvegarde et les états ». Après la suppression, un bouton **Vider la corbeille maintenant** (avec confirmation) permet de libérer l'espace tout de suite.
 
 ### 4.6 Ajouter
 
@@ -114,7 +114,7 @@ Liste des envois et des tâches : progression, vitesse, temps restant, annulatio
 
 ### 4.9 Réglages de l'app
 
-Langue (suivre le système par défaut), consoles appairées (supprimer), à propos (versions, licence, lien du dépôt). **Synchroniser les saves à la connexion** (activé par défaut, M9) et **Saves sur cet iPhone** (toutes les consoles). Écran ouvert par la roue dentée de la liste des consoles.
+Langue (suivre le système par défaut), consoles appairées (supprimer), à propos (versions, licence, lien du dépôt). **Synchroniser les sauvegardes à la connexion** (activé par défaut, M9) et **Sauvegardes sur cet iPhone** (toutes les consoles). Écran ouvert par la roue dentée de la liste des consoles.
 
 ## 5. Erreurs à présenter
 

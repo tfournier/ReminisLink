@@ -204,6 +204,46 @@ But : une seule app, un seul binaire, sur iPhone, iPad et Mac à puce Apple (mê
 
 **Fait quand** : l'app passe ses tests sur iPhone, iPad et iPhone Duo, s'ouvre et fonctionne sur un Mac à puce Apple (appairage, bibliothèque, transfert), et les captures iPad sont prêtes.
 
+## Plan après la v1.0.0 (décidé le 21/11/2026)
+
+Ordre : M17, M15, M18, M19, M20, M21. Puis v1.5 (interface web), puis v2.0.
+
+## M18 — Restaurer depuis la corbeille
+
+- Nouvelle route de restauration d'une entrée de corbeille (contrat d'abord) : les fichiers reviennent à leur place d'origine, sans jamais écraser un fichier présent (conflit → `409` avec le détail, ou restauration sous un nom libre si la personne le choisit). Le `.rtc`, les states, cheats et jaquette d'un jeu supprimé reviennent avec lui.
+- App : bouton « Restaurer » sur une entrée de l'onglet Corbeille, avec l'aperçu de ce qui revient ; événement `library` pour les autres appareils.
+
+**Fait quand** : un jeu supprimé, une save remplacée et un pak supprimé reviennent depuis l'app, sans perte ni écrasement, tests et smoke compris.
+
+## M19 — Données d'un jeu en archive, synchronisation des états
+
+- Export : une archive zip d'un jeu (save, `.rtc`, states et leurs vignettes, cheats, jaquette, et la ROM en option) téléchargée sur l'iPhone ; import : la même archive renvoyée vers la même console ou une autre, avec copie de sécurité de tout ce qui serait remplacé.
+- Synchronisation des états vers le coffre iCloud Drive (M9 ne couvre que les saves), mêmes règles de versions et de convergence entre appareils.
+
+**Fait quand** : un jeu passe d'une console à l'autre par une archive, et les états d'un jeu sont versionnés dans iCloud Drive comme ses saves.
+
+## M20 — Autres consoles et Knulli
+
+- Plateformes NextUI `tg5050`, `h700` et `my355` (chemins, `PLATFORM`, binaire et pak par plateforme, `pak.json`), puis un adaptateur pour le firmware **Knulli** (autre arborescence, autre lanceur).
+- **Tests sans les consoles** (la personne n'en a pas) : dispositions de carte reconstituées à partir du code source de chaque firmware, binaire de chaque plateforme exécuté dans son rootfs sous émulation (qemu-user, comme pour la Brick en M7), tests d'intégration et smoke sur chaque disposition. Limite assumée : ni écran, ni boutons, ni Wi-Fi réels ; une phase de test par des volontaires possédant ces consoles est prévue avant de les annoncer comme prises en charge.
+
+**Fait quand** : le pak se construit et passe les tests et le smoke pour chaque plateforme et pour Knulli en émulation, et au moins un volontaire a validé chaque console.
+
+## M21 — App Android
+
+- App Android native (Kotlin, Jetpack Compose) qui parle la même API (`protocol/openapi.yaml`, vecteurs de test partagés) : découverte NSD (mDNS), appairage par QR (CameraX), TLS épinglé, signature RL2-ED25519 (clé dans Android Keystore), bibliothèque, transferts, saves, states, cheats, patchs, apps, corbeille, mode démo. Les dépendances tierces seront proposées à la personne avant d'être ajoutées, et **aucune dépendance Google propriétaire** (ni Google Play Services, ni ML Kit ; QR code avec une bibliothèque libre comme ZXing) : l'app doit pouvoir être publiée sur F-Droid comme sur Google Play.
+- Publication d'abord sur F-Droid et en APK sur les releases GitHub, puis sur Google Play avec un compte d'organisation (D-U-N-S de la société, pas de test fermé obligatoire), créé seulement quand l'app est prête (les comptes inutilisés sont fermés) ; mention des marques Google Play sur le site.
+
+**Fait quand** : l'app Android passe les vecteurs de test et les mêmes parcours que l'app iOS contre le pak headless et le mode démo.
+
+## v1.5 — Interface web
+
+L'interface web (voir « Interface web servie par le pak » ci-dessous) : web app statique sur GitHub Pages, WebCrypto, découverte façon Synology ou par `reminislink-N.local`, appairage par PIN (PAKE).
+
+## v2.0
+
+Les fonctions de l'app sur l'écran de la console ; le pak en arrière-plan pendant le jeu (revue de la spec sécurité) ; le widget iOS ; l'envoi visible dans la Dynamic Island ; la mise à jour du pak depuis l'app (releases GitHub). Détails ci-dessous.
+
 ## Après la v1 (idées, non engagées)
 
 - Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli.

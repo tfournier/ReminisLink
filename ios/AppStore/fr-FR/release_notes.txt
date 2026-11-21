@@ -1,5 +1,5 @@
 Première version de ReminisLink.
 • Appaire ta console en scannant son QR code
-• Parcours ta bibliothèque et ajoute tes propres jeux, saves, patchs et fichiers de cheats
-• Sauvegarde et restaure tes saves, verrouille tes states, modifie tes cheats et applique des patchs IPS, BPS et UPS
-• Rien ne se perd : les jeux supprimés vont dans la corbeille de la console, les saves remplacées gardent une copie de sauvegarde
+• Parcours ta bibliothèque et ajoute tes propres jeux, sauvegardes, patchs et fichiers de codes de triche
+• Copie et restaure tes sauvegardes, verrouille tes états de jeu, modifie tes codes de triche et applique des patchs IPS, BPS et UPS
+• Rien ne se perd : les jeux supprimés vont dans la corbeille de la console, les sauvegardes remplacées gardent une copie de secours

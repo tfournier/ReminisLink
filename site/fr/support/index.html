@@ -105,7 +105,7 @@
 
           <details id="busy">
             <summary>« La console est occupée par une autre modification »</summary>
-            <p>La console fait les modifications (envoi, suppression, remplacement, restauration, patch, cheats…) une par une, même quand plusieurs appareils sont connectés. Si l’une d’elles attend plus de 10 secondes que la précédente se termine, elle est refusée et rien n’est modifié. Patiente un instant et réessaie.</p>
+            <p>La console fait les modifications (envoi, suppression, remplacement, restauration, patch, codes de triche…) une par une, même quand plusieurs appareils sont connectés. Si l’une d’elles attend plus de 10 secondes que la précédente se termine, elle est refusée et rien n’est modifié. Patiente un instant et réessaie.</p>
           </details>
 
           <details id="back-to-list">
@@ -115,7 +115,7 @@
 
           <details id="sauvegardes-icloud">
             <summary>Mes sauvegardes sont-elles copiées sur mon iPhone ou dans iCloud ?</summary>
-            <p>Oui, si tu le veux. L’app copie les sauvegardes de ta console (avec leurs fichiers d’horloge) : avec <strong>Synchroniser les saves</strong> dans l’onglet Console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Elle garde jusqu’à 10 versions de chaque sauvegarde, et tu peux en restaurer une sur la console ; la console garde d’abord une copie de sa sauvegarde actuelle.</p>
+            <p>Oui, si tu le veux. L’app copie les sauvegardes de ta console (avec leurs fichiers d’horloge) : avec <strong>Synchroniser les sauvegardes</strong> dans l’onglet Console, et automatiquement à chaque connexion (désactivable dans les réglages de l’app). Elle garde jusqu’à 10 versions de chaque sauvegarde, et tu peux en restaurer une sur la console ; la console garde d’abord une copie de sa sauvegarde actuelle.</p>
             <p>Si iCloud Drive est activé, les copies vont dans le dossier ReminisLink de ton propre iCloud Drive (app Fichiers). Sinon, elles restent sur l’iPhone (<strong>Fichiers &gt; Sur mon iPhone &gt; ReminisLink</strong>). Les états de jeu ne sont pas copiés.</p>
           </details>
 
@@ -128,14 +128,14 @@
 
           <details id="trash">
             <summary>Où vont les fichiers supprimés ? (la corbeille)</summary>
-            <p>ReminisLink n’efface jamais tes fichiers directement. Un jeu supprimé, un jeu patché sur place, un état de jeu remplacé, un ancien fichier de cheats, une image de jeu retirée ou un pak supprimé ou remplacé va dans la corbeille de la console, sur la carte SD, où il reste jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu vides la corbeille. Remplacer ou restaurer une sauvegarde fait aussi d’abord une copie de secours.</p>
+            <p>ReminisLink n’efface jamais tes fichiers directement. Un jeu supprimé, un jeu patché sur place, un état de jeu remplacé, un ancien fichier de codes de triche, une image de jeu retirée ou un pak supprimé ou remplacé va dans la corbeille de la console, sur la carte SD, où il reste jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu vides la corbeille. Remplacer ou restaurer une sauvegarde fait aussi d’abord une copie de secours.</p>
             <p>L’onglet <strong>Corbeille</strong> de l’app liste son contenu, avec la taille et la date de suppression. L’espace n’est libéré qu’à la suppression des entrées : depuis cet onglet (une entrée, ou <strong>Vider la corbeille</strong>), ce qui est définitif, ou automatiquement. Les entrées sont purgées au lancement une fois 30 jours d’âge comptabilisé atteints. L’horloge de la console n’est pas fiable : elle compte le temps pendant lequel ReminisLink tourne, plus 7 jours au plus pour chaque intervalle entre deux lancements. Une entrée peut donc rester plus de 30 jours du calendrier.</p>
             <p>L’app ne sait pas encore remettre un fichier en place. Pour récupérer un fichier à la main, regarde dans le dossier <code>/.userdata/shared/ReminisLink/trash/</code> de la carte SD : chaque entrée garde les fichiers sous leur chemin d’origine.</p>
           </details>
 
           <details id="formats">
             <summary>« Ce jeu utilise un réglage de NextUI que ReminisLink ne gère pas encore »</summary>
-            <p>NextUI peut enregistrer les sauvegardes et les états de jeu dans plusieurs formats, choisis dans ses réglages. ReminisLink 1.0 ne gère que les formats par défaut. Avec un autre format, ou quand NextUI nomme les sauvegardes d’après le fichier contenu dans une archive zip, ReminisLink refuse de modifier les sauvegardes et les états de jeu des jeux concernés et ne change rien. Les jeux, les cheats et les patchs fonctionnent toujours.</p>
+            <p>NextUI peut enregistrer les sauvegardes et les états de jeu dans plusieurs formats, choisis dans ses réglages. ReminisLink 1.0 ne gère que les formats par défaut. Avec un autre format, ou quand NextUI nomme les sauvegardes d’après le fichier contenu dans une archive zip, ReminisLink refuse de modifier les sauvegardes et les états de jeu des jeux concernés et ne change rien. Les jeux, les codes de triche et les patchs fonctionnent toujours.</p>
             <p>Changer ce réglage dans NextUI change l’endroit où tes sauvegardes sont cherchées : garde-le si tu en as besoin. La prise en charge des autres formats est prévue.</p>
           </details>
 
@@ -146,7 +146,7 @@
 
           <details id="games">
             <summary>Où trouver des jeux ?</summary>
-            <p>ReminisLink liste les jeux de ta carte SD, mais ne fournit aucun jeu, n’a aucun catalogue à télécharger et n’indique pas où en trouver. Apporte tes propres fichiers : les jeux, sauvegardes, patchs et fichiers de cheats que tu possèdes déjà, depuis l’app Fichiers ou le menu de partage d’une autre app. Un fichier du web se télécharge d’abord sur ton iPhone (il va dans l’app Fichiers), puis s’ajoute : la console ne télécharge jamais rien elle-même.</p>
+            <p>ReminisLink liste les jeux de ta carte SD, mais ne fournit aucun jeu, n’a aucun catalogue à télécharger et n’indique pas où en trouver. Apporte tes propres fichiers : les jeux, sauvegardes, patchs et fichiers de codes de triche que tu possèdes déjà, depuis l’app Fichiers ou le menu de partage d’une autre app. Un fichier du web se télécharge d’abord sur ton iPhone (il va dans l’app Fichiers), puis s’ajoute : la console ne télécharge jamais rien elle-même.</p>
           </details>
 
           <details id="install">

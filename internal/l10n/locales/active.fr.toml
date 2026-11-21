@@ -191,7 +191,7 @@ other = "Jaquette mise à la corbeille"
 other = "Jaquette modifiée"
 
 [notice_cheats_updated]
-other = "Cheats modifiés"
+other = "Codes de triche modifiés"
 
 
 
@@ -220,19 +220,19 @@ other = "Patch appliqué"
 other = "Jeu ajouté"
 
 [notice_save_replaced]
-other = "Save remplacée"
+other = "Sauvegarde remplacée"
 
 [notice_save_restored]
-other = "Save restaurée"
+other = "Sauvegarde restaurée"
 
 [notice_state_deleted]
-other = "State mis à la corbeille"
+other = "État mis à la corbeille"
 
 [notice_state_replaced]
-other = "State remplacé"
+other = "État remplacé"
 
 [notice_state_restored]
-other = "State restauré"
+other = "État restauré"
 
 [notice_trash_emptied]
 other = "Corbeille vidée"

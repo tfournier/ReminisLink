@@ -40,7 +40,7 @@ func TestBuildMainFrench(t *testing.T) {
 	st.Notice = &app.Notice{Kind: server.ChangeSaveRestored, Name: "Sky Garden Quest"}
 	v := BuildMain(st, now, true, false)
 	want := MainView{
-		State: "Transfert en cours", Banner: "Save restaurée\u00a0: Sky Garden Quest", ShowQR: true,
+		State: "Transfert en cours", Banner: "Sauvegarde restaurée\u00a0: Sky Garden Quest", ShowQR: true,
 		QRLink: "reminislink://pair?v=2", Hint: "Scanne avec l'app ReminisLink",
 		Items: []Item{
 			{"QR code", "Expire dans 9 min"},

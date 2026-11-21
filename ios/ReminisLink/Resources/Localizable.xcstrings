@@ -177,13 +177,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld cheat"
+                  "value" : "%lld code de triche"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld cheats"
+                  "value" : "%lld codes de triche"
                 }
               }
             }
@@ -257,13 +257,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld state verrouillé"
+                  "value" : "%lld état verrouillé"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld states verrouillés"
+                  "value" : "%lld états verrouillés"
                 }
               }
             }
@@ -297,13 +297,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld save n’a pas pu être copiée"
+                  "value" : "%lld sauvegarde n’a pas pu être copiée"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld saves n’ont pas pu être copiées"
+                  "value" : "%lld sauvegardes n’ont pas pu être copiées"
                 }
               }
             }
@@ -337,13 +337,13 @@
               "one" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld state"
+                  "value" : "%lld état"
                 }
               },
               "other" : {
                 "stringUnit" : {
                   "state" : "translated",
-                  "value" : "%lld states"
+                  "value" : "%lld états"
                 }
               }
             }
@@ -376,7 +376,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$lld/%2$lld · Une copie de la save actuelle est faite sur la console."
+            "value" : "%1$lld/%2$lld · Une copie de la sauvegarde actuelle est faite sur la console."
           }
         }
       }
@@ -386,7 +386,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un fichier de cheats RetroArch (.cht). Il est envoyé à la console, puis importé."
+            "value" : "Un fichier de codes de triche RetroArch (.cht). Il est envoyé à la console, puis importé."
           }
         }
       }
@@ -426,7 +426,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un verrou garde une copie du state sur la console. Il ne peut pas empêcher un jeu d’écraser le state : le state est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu."
+            "value" : "Un verrou garde une copie de l’état sur la console. Il ne peut pas empêcher un jeu d’écraser l’état : l’état est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu."
           }
         }
       }
@@ -496,7 +496,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajouter un cheat…"
+            "value" : "Ajouter un code de triche…"
           }
         }
       }
@@ -706,7 +706,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copies de sauvegarde"
+            "value" : "Copies de secours"
           }
         }
       }
@@ -716,7 +716,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copie de sauvegarde"
+            "value" : "Copie de secours"
           }
         }
       }
@@ -726,7 +726,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copie de sauvegarde créée."
+            "value" : "Copie de secours créée."
           }
         }
       }
@@ -776,7 +776,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avant de remplacer ou de restaurer la save, la console copie toujours la save actuelle (copie de sauvegarde)."
+            "value" : "Avant de remplacer ou de restaurer la sauvegarde, la console copie toujours la sauvegarde actuelle (copie de secours)."
           }
         }
       }
@@ -916,7 +916,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cheats"
+            "value" : "Codes de triche"
           }
         }
       }
@@ -926,7 +926,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cheats enregistrés."
+            "value" : "Codes de triche enregistrés."
           }
         }
       }
@@ -986,7 +986,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choisis des jeux, des saves (.sav, .srm), des patchs (.ips, .bps, .ups) ou des cheats (.cht) dans Fichiers."
+            "value" : "Choisis des jeux, des sauvegardes (.sav, .srm), des patchs (.ips, .bps, .ups) ou des codes de triche (.cht) dans Fichiers."
           }
         }
       }
@@ -1046,7 +1046,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Horloge de la save"
+            "value" : "Horloge de la sauvegarde"
           }
         }
       }
@@ -1186,7 +1186,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Copie restaurée. La save précédente a été gardée en copie de sauvegarde."
+            "value" : "Copie restaurée. La sauvegarde précédente a été gardée en copie de secours."
           }
         }
       }
@@ -1206,7 +1206,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Save actuelle"
+            "value" : "Sauvegarde actuelle"
           }
         }
       }
@@ -1296,7 +1296,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les states supprimés vont dans la corbeille de la console, effacés automatiquement après 30 jours ou quand elle est vidée."
+            "value" : "Les états supprimés vont dans la corbeille de la console, effacés automatiquement après 30 jours ou quand elle est vidée."
           }
         }
       }
@@ -1356,7 +1356,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mode démo : les saves sont copiées dans un dossier temporaire de l’app, effacé quand tu quittes la démo. Rien ne va dans iCloud Drive."
+            "value" : "Mode démo : les sauvegardes sont copiées dans un dossier temporaire de l’app, effacé quand tu quittes la démo. Rien ne va dans iCloud Drive."
           }
         }
       }
@@ -1376,7 +1376,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Mode démo : les saves de la console de démo sont copiées dans un dossier temporaire, effacé quand tu quittes la démo. Jusqu’à 10 versions sont gardées par save."
+            "value" : "Mode démo : les sauvegardes de la console de démo sont copiées dans un dossier temporaire, effacé quand tu quittes la démo. Jusqu’à 10 versions sont gardées par sauvegarde."
           }
         }
       }
@@ -1456,7 +1456,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les disques qu’une autre playlist du système liste encore restent sur la carte SD, de même que la sauvegarde et les states si vous les gardez."
+            "value" : "Les disques qu’une autre playlist du système liste encore restent sur la carte SD, de même que la sauvegarde et les états si tu les gardes."
           }
         }
       }
@@ -1536,7 +1536,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "À chaque ouverture de ReminisLink sur la console, le state de reprise est archivé s’il a changé. Les 5 dernières versions sont conservées."
+            "value" : "À chaque ouverture de ReminisLink sur la console, l’état de reprise est archivé s’il a changé. Les 5 dernières versions sont conservées."
           }
         }
       }
@@ -1546,7 +1546,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modifier le cheat"
+            "value" : "Modifier le code de triche"
           }
         }
       }
@@ -1556,7 +1556,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Modifie ce cheat"
+            "value" : "Modifie ce code de triche"
           }
         }
       }
@@ -1856,7 +1856,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avec des cheats"
+            "value" : "Avec des codes de triche"
           }
         }
       }
@@ -1866,7 +1866,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avec des states"
+            "value" : "Avec des états"
           }
         }
       }
@@ -1876,7 +1876,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avec une save"
+            "value" : "Avec une sauvegarde"
           }
         }
       }
@@ -1886,7 +1886,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Possède une save"
+            "value" : "Possède une sauvegarde"
           }
         }
       }
@@ -1986,7 +1986,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importer des cheats"
+            "value" : "Importer des codes de triche"
           }
         }
       }
@@ -1996,7 +1996,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Importés : %1$lld. Cheats dans la liste : %2$lld."
+            "value" : "Importés : %1$lld. Codes de triche dans la liste : %2$lld."
           }
         }
       }
@@ -2146,7 +2146,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Garder la save et les states"
+            "value" : "Garder la sauvegarde et les états"
           }
         }
       }
@@ -2246,7 +2246,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "État du verrou inconnu de cette version de l’app : ce state n’est peut-être pas protégé."
+            "value" : "Statut du verrou inconnu de cette version de l’app : cet état n’est peut-être pas protégé."
           }
         }
       }
@@ -2266,7 +2266,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un state verrouillé ne peut pas être supprimé : déverrouille-le d’abord."
+            "value" : "Un état verrouillé ne peut pas être supprimé : déverrouille-le d’abord."
           }
         }
       }
@@ -2296,7 +2296,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Faire une copie de sauvegarde…"
+            "value" : "Faire une copie de secours…"
           }
         }
       }
@@ -2316,7 +2316,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Absent de la console. La copie verrouillée est conservée : restaure-la pour récupérer le state."
+            "value" : "Absent de la console. La copie verrouillée est conservée : restaure-la pour récupérer l’état."
           }
         }
       }
@@ -2426,7 +2426,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nouvelle copie de sauvegarde"
+            "value" : "Nouvelle copie de secours"
           }
         }
       }
@@ -2436,7 +2436,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nouveau cheat"
+            "value" : "Nouveau code de triche"
           }
         }
       }
@@ -2456,7 +2456,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nouvelles versions : %1$lld · saves vérifiées : %2$lld"
+            "value" : "Nouvelles versions : %1$lld · sauvegardes vérifiées : %2$lld"
           }
         }
       }
@@ -2466,7 +2466,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "NextUI écrit le state de reprise automatique quand la console se met en veille ou s’éteint pendant une partie."
+            "value" : "NextUI écrit l’état de reprise automatique quand la console se met en veille ou s’éteint pendant une partie."
           }
         }
       }
@@ -2506,7 +2506,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucune copie de sauvegarde pour l’instant."
+            "value" : "Aucune copie de secours pour l’instant."
           }
         }
       }
@@ -2516,7 +2516,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun cheat pour ce jeu. Ajoutes-en un, ou importe un fichier de cheats RetroArch (.cht)."
+            "value" : "Aucun code de triche pour ce jeu. Ajoutes-en un, ou importe un fichier de codes de triche RetroArch (.cht)."
           }
         }
       }
@@ -2526,7 +2526,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun cheat n’a été trouvé dans ce fichier. Choisis un fichier de cheats RetroArch (.cht). Rien n’a été modifié."
+            "value" : "Aucun code de triche n’a été trouvé dans ce fichier. Choisis un fichier de codes de triche RetroArch (.cht). Rien n’a été modifié."
           }
         }
       }
@@ -2616,7 +2616,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun state pour ce jeu sur la console."
+            "value" : "Aucun état pour ce jeu sur la console."
           }
         }
       }
@@ -2626,7 +2626,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucune save synchronisée"
+            "value" : "Aucune sauvegarde synchronisée"
           }
         }
       }
@@ -3276,7 +3276,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Remplacer la save de la console ?"
+            "value" : "Remplacer la sauvegarde de la console ?"
           }
         }
       }
@@ -3286,7 +3286,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Remplacer la save ?"
+            "value" : "Remplacer la sauvegarde ?"
           }
         }
       }
@@ -3296,7 +3296,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Remplacer le state de la console ?"
+            "value" : "Remplacer l’état de la console ?"
           }
         }
       }
@@ -3396,7 +3396,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restaure cette version du state de reprise"
+            "value" : "Restaure cette version de l’état de reprise"
           }
         }
       }
@@ -3436,7 +3436,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "State de reprise restauré."
+            "value" : "État de reprise restauré."
           }
         }
       }
@@ -3456,7 +3456,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Save"
+            "value" : "Sauvegarde"
           }
         }
       }
@@ -3466,7 +3466,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchronisation des saves"
+            "value" : "Synchronisation des sauvegardes"
           }
         }
       }
@@ -3486,7 +3486,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Save remplacée."
+            "value" : "Sauvegarde remplacée."
           }
         }
       }
@@ -3496,7 +3496,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Save remplacée. La save précédente a été gardée en copie de sauvegarde."
+            "value" : "Sauvegarde remplacée. La sauvegarde précédente a été gardée en copie de secours."
           }
         }
       }
@@ -3516,7 +3516,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les saves sont copiées dans ton iCloud Drive, dans le dossier ReminisLink de l’app Fichiers."
+            "value" : "Les sauvegardes sont copiées dans ton iCloud Drive, dans le dossier ReminisLink de l’app Fichiers."
           }
         }
       }
@@ -3526,7 +3526,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Saves vérifiées : %1$lld sur %2$lld"
+            "value" : "Sauvegardes vérifiées : %1$lld sur %2$lld"
           }
         }
       }
@@ -3536,7 +3536,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Saves sur cet iPhone"
+            "value" : "Sauvegardes sur cet iPhone"
           }
         }
       }
@@ -3616,7 +3616,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le renvoyer remplace la save de la console, même si elle était déjà arrivée et que tu as joué depuis. La save actuelle est d’abord gardée en copie de sauvegarde."
+            "value" : "Le renvoyer remplace la sauvegarde de la console, même si elle était déjà arrivée et que tu as joué depuis. La sauvegarde actuelle est d’abord gardée en copie de secours."
           }
         }
       }
@@ -3626,7 +3626,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le renvoyer remplace ce state sur la console, même s’il était déjà arrivé. Le state actuel part d’abord dans la corbeille."
+            "value" : "Le renvoyer remplace cet état sur la console, même s’il était déjà arrivé. L’état actuel part d’abord dans la corbeille."
           }
         }
       }
@@ -3666,7 +3666,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Envoyé. La save précédente a été gardée en copie de sauvegarde."
+            "value" : "Envoyé. La sauvegarde précédente a été gardée en copie de secours."
           }
         }
       }
@@ -3826,7 +3826,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "State"
+            "value" : "État"
           }
         }
       }
@@ -3836,7 +3836,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "State %lld"
+            "value" : "État %lld"
           }
         }
       }
@@ -3846,7 +3846,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "States"
+            "value" : "États"
           }
         }
       }
@@ -3866,7 +3866,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchroniser les saves"
+            "value" : "Synchroniser les sauvegardes"
           }
         }
       }
@@ -3876,7 +3876,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchroniser les saves à la connexion"
+            "value" : "Synchroniser les sauvegardes à la connexion"
           }
         }
       }
@@ -3886,7 +3886,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchronise les saves d’une console depuis son tableau de bord."
+            "value" : "Synchronise les sauvegardes d’une console depuis son tableau de bord."
           }
         }
       }
@@ -3896,7 +3896,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchronise les saves de cette console depuis son tableau de bord."
+            "value" : "Synchronise les sauvegardes de cette console depuis son tableau de bord."
           }
         }
       }
@@ -3906,7 +3906,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Synchronisation des saves…"
+            "value" : "Synchronisation des sauvegardes…"
           }
         }
       }
@@ -4006,7 +4006,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le fichier de cheats du jeu est supprimé sur la console ; son contenu précédent y est gardé (.cht.bak)."
+            "value" : "Le fichier de codes de triche du jeu est supprimé sur la console ; son contenu précédent y est gardé (.cht.bak)."
           }
         }
       }
@@ -4026,7 +4026,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le code s’écrit comme dans un fichier de cheats RetroArch (par exemple plusieurs codes reliés par +)."
+            "value" : "Le code s’écrit comme dans un fichier de codes de triche RetroArch (par exemple plusieurs codes reliés par +)."
           }
         }
       }
@@ -4186,7 +4186,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console n’a listé que ses 10 000 premières saves."
+            "value" : "La console n’a listé que ses 10 000 premières sauvegardes."
           }
         }
       }
@@ -4306,7 +4306,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La copie part dans la corbeille de la console. La save actuelle ne change pas."
+            "value" : "La copie part dans la corbeille de la console. La sauvegarde actuelle ne change pas."
           }
         }
       }
@@ -4316,7 +4316,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les cheats actuels sont remplacés par ceux importés. Le fichier précédent est gardé sur la console (.cht.bak)."
+            "value" : "Les codes de triche actuels sont remplacés par ceux importés. Le fichier précédent est gardé sur la console (.cht.bak)."
           }
         }
       }
@@ -4326,7 +4326,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les cheats actuels sont remplacés. Le fichier précédent est gardé sur la console (.cht.bak)."
+            "value" : "Les codes de triche actuels sont remplacés. Le fichier précédent est gardé sur la console (.cht.bak)."
           }
         }
       }
@@ -4346,7 +4346,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le state de reprise actuel est d’abord archivé, puis remplacé par la version du %@."
+            "value" : "L’état de reprise actuel est d’abord archivé, puis remplacé par la version du %@."
           }
         }
       }
@@ -4356,7 +4356,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La save actuelle est d’abord copiée (copie de sauvegarde), puis remplacée par la copie du %@."
+            "value" : "La sauvegarde actuelle est d’abord copiée (copie de secours), puis remplacée par la copie du %@."
           }
         }
       }
@@ -4366,7 +4366,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La save actuelle est d’abord copiée (copie de sauvegarde)."
+            "value" : "La sauvegarde actuelle est d’abord copiée (copie de secours)."
           }
         }
       }
@@ -4376,7 +4376,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le state actuel va dans la corbeille de la console, puis la copie verrouillée le remplace."
+            "value" : "L’état actuel va dans la corbeille de la console, puis la copie verrouillée le remplace."
           }
         }
       }
@@ -4446,7 +4446,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les cheats importés sont ajoutés après les cheats actuels."
+            "value" : "Les codes de triche importés sont ajoutés après les codes actuels."
           }
         }
       }
@@ -4486,7 +4486,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La copie verrouillée est supprimée. Le state lui-même ne change pas, mais il ne sera plus restauré si un jeu l’écrase."
+            "value" : "La copie verrouillée est supprimée. L’état lui-même ne change pas, mais il ne sera plus restauré si un jeu l’écrase."
           }
         }
       }
@@ -4496,7 +4496,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La copie verrouillée est la seule version restante, ou diffère du state : elle part dans la corbeille de la console. Le state lui-même ne change pas."
+            "value" : "La copie verrouillée est la seule version restante, ou diffère de l’état : elle part dans la corbeille de la console. L’état lui-même ne change pas."
           }
         }
       }
@@ -4506,7 +4506,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La ROM d’origine part dans la corbeille de la console. La save, les states et les cheats sont conservés."
+            "value" : "La ROM d’origine part dans la corbeille de la console. La sauvegarde, les états et les codes de triche sont conservés."
           }
         }
       }
@@ -4536,7 +4536,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La save a changé sur la console pendant la synchronisation, ou est arrivée abîmée. Elle n’a pas été gardée ; la prochaine synchronisation réessaiera."
+            "value" : "La sauvegarde a changé sur la console pendant la synchronisation, ou est arrivée abîmée. Elle n’a pas été gardée ; la prochaine synchronisation réessaiera."
           }
         }
       }
@@ -4546,7 +4546,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La save dépasse 64 Mo : elle est envoyée dans Transferts. La save actuelle est d’abord copiée."
+            "value" : "La sauvegarde dépasse 64 Mo : elle est envoyée dans Transferts. La sauvegarde actuelle est d’abord copiée."
           }
         }
       }
@@ -4556,7 +4556,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La save de %1$@ sur la console sera remplacée par la version du %2$@. La console garde d’abord une copie de sa save actuelle (Avant remplacement). Le fichier d’horloge de la console est conservé tel quel."
+            "value" : "La sauvegarde de %1$@ sur la console sera remplacée par la version du %2$@. La console garde d’abord une copie de sa sauvegarde actuelle (Avant remplacement). Le fichier d’horloge de la console est conservé tel quel."
           }
         }
       }
@@ -4566,7 +4566,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La save, son fichier d’horloge, les states, leurs verrous et l’historique de reprise restent en place sur la carte SD."
+            "value" : "La sauvegarde, son fichier d’horloge, les états, leurs verrous et l’historique de reprise restent en place sur la carte SD."
           }
         }
       }
@@ -4576,7 +4576,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
+            "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées sur cet iPhone seulement, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
           }
         }
       }
@@ -4586,7 +4586,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
+            "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
           }
         }
       }
@@ -4596,7 +4596,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les saves d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par save."
+            "value" : "Les sauvegardes d’une console (avec leurs fichiers d’horloge) sont copiées dans ton propre iCloud Drive, ou sur cet iPhone quand iCloud Drive est désactivé ; jamais chez l’éditeur de l’app. Jusqu’à 10 versions sont gardées par sauvegarde."
           }
         }
       }
@@ -4616,7 +4616,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le state va dans la corbeille de la console, effacé automatiquement après 30 jours ou quand elle est vidée."
+            "value" : "L’état va dans la corbeille de la console, effacé automatiquement après 30 jours ou quand elle est vidée."
           }
         }
       }
@@ -4626,7 +4626,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les saves synchronisées n’ont pas pu être lues ou écrites sur cet iPhone."
+            "value" : "Les sauvegardes synchronisées n’ont pas pu être lues ou écrites sur cet iPhone."
           }
         }
       }
@@ -4726,7 +4726,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce cheat a d’autres réglages venant de son fichier. Ils sont conservés tels quels."
+            "value" : "Ce code de triche a d’autres réglages venant de son fichier. Ils sont conservés tels quels."
           }
         }
       }
@@ -4826,7 +4826,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce jeu n’a pas de save sur la console."
+            "value" : "Ce jeu n’a pas de sauvegarde sur la console."
           }
         }
       }
@@ -4836,7 +4836,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce jeu n’a pas encore de save : le fichier devient sa save."
+            "value" : "Ce jeu n’a pas encore de sauvegarde : le fichier devient sa sauvegarde."
           }
         }
       }
@@ -4876,7 +4876,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce jeu utilise un réglage de NextUI que ReminisLink ne gère pas encore (format de save ou de state). Rien n’a été modifié."
+            "value" : "Ce jeu utilise un réglage de NextUI que ReminisLink ne gère pas encore (format de sauvegarde ou d’état). Rien n’a été modifié."
           }
         }
       }
@@ -4966,7 +4966,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce state est verrouillé sur la console. Déverrouille-le d’abord."
+            "value" : "Cet état est verrouillé sur la console. Déverrouille-le d’abord."
           }
         }
       }
@@ -5136,7 +5136,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Active ou désactive un cheat, touche-le pour le modifier, et utilise Modifier pour réordonner ou supprimer. Le fichier précédent est gardé sur la console (.cht.bak)."
+            "value" : "Active ou désactive un code de triche, touche-le pour le modifier, et utilise Modifier pour réordonner ou supprimer. Le fichier précédent est gardé sur la console (.cht.bak)."
           }
         }
       }
@@ -5226,7 +5226,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "À jour · saves vérifiées : %lld"
+            "value" : "À jour · sauvegardes vérifiées : %lld"
           }
         }
       }
@@ -5276,7 +5276,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Version restaurée. La save précédente est dans les copies de sauvegarde du jeu sur la console."
+            "value" : "Version restaurée. La sauvegarde précédente est dans les copies de secours du jeu sur la console."
           }
         }
       }
@@ -5393,7 +5393,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "iCloud Drive n’est pas disponible : les saves sont gardées sur cet iPhone seulement (Fichiers > Sur mon iPhone > ReminisLink). Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
+            "value" : "iCloud Drive n’est pas disponible : les sauvegardes sont gardées sur cet iPhone seulement (Fichiers > Sur mon iPhone > ReminisLink). Active iCloud Drive pour ReminisLink dans Réglages pour les garder dans iCloud."
           }
         }
       }
@@ -5403,7 +5403,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "« %1$@ » devient la save de %2$@, qui n’en a pas encore."
+            "value" : "« %1$@ » devient la sauvegarde de %2$@, qui n’en a pas encore."
           }
         }
       }
@@ -5413,7 +5413,7 @@
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "« %1$@ » remplace la save de %2$@. La save actuelle est d’abord copiée (copie de sauvegarde)."
+            "value" : "« %1$@ » remplace la sauvegarde de %2$@. La sauvegarde actuelle est d’abord copiée (copie de secours)."
           }
         }
       }
