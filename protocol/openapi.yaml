@@ -2116,10 +2116,13 @@ paths:
         `folderId` (a new game is made from the archive's ROM, then
         receives the data; the archive must hold a ROM, else
         `422 unsupported_format`; its file name, `source.fileName` cleaned
-        like an upload, must be a game name, else `400 invalid_name`, and
-        free in the folder, and no file the new game would use (save, clock
-        file, the states and thumbnails of the archive, art, computed with
-        the target OS's own rules) may belong to another game of the system
+        like an upload, must be a game the system lists (Knulli: one of its
+        extensions), else `400 invalid_name`, and
+        free in the folder (as the file system finds it: APFS finds an NFD
+        spelling under its NFC name), and no file the new game would use,
+        whether the archive holds it or not (save, clock file, the states
+        and thumbnails of any slot, art, computed with the target OS's own
+        rules), may belong to another game of a system with the same tag
         (NextUI: `A/Zelda.gba` and `B/Zelda.gba`; Knulli: `A/Zelda.gba` and
         `B/Zelda.zip` share `Zelda.srm`), else
         `409 conflict` with `details.existing` and, when it is a game,
