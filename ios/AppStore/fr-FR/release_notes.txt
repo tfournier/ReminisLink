@@ -1,3 +1,6 @@
+Nouveautés :
+• Restaurer depuis la corbeille : touche une entrée de l'onglet Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre.
+
 Améliorations :
 • Après l'application d'un patch, l'écran du patch se ferme tout seul.
 • La bibliothèque n'attend plus la jaquette d'un jeu sorti de l'écran.

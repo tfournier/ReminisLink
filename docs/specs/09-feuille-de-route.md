@@ -225,6 +225,8 @@ Ordre : M17, M15, M18, M19, M20, M21. Puis v1.5 (interface web), puis v2.0.
 
 **Fait quand** : un jeu supprimé, une save remplacée et un pak supprimé reviennent depuis l'app, sans perte ni écrasement, tests et smoke compris.
 
+Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{entryId}/restore` (04) — aperçu, `onConflict` `fail` (`409`, `details.conflicts`) ou `rename` (un même nom libre ` (N)` pour tous les fichiers de l'entrée), comparaison sans casse (exFAT), restauration journalisée (état `returning` terminé au lancement suivant), jamais purgée ni supprimée pendant une restauration, dossiers de paks soumis aux vérifications d'une installation (`422`), événements `library` et `paks`. App : feuille **Restaurer** de l'onglet Corbeille (aperçu, conflit, nom libre), faux pak du mode démo. Smoke : `scripts/smoke-trash.sh` (jeu supprimé avec `.rtc`, states, cheats et jaquette ; save remplacée ; pak d'émulateur supprimé ; conflit puis nom libre ; coupure de courant).
+
 ## M19 — Données d'un jeu en archive, synchronisation des états
 
 - Export : une archive zip d'un jeu (save, `.rtc`, states et leurs vignettes, cheats, jaquette, et la ROM en option) téléchargée sur l'iPhone ; import : la même archive renvoyée vers la même console ou une autre, avec copie de sécurité de tout ce qui serait remplacé.

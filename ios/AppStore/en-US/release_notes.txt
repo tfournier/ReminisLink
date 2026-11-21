@@ -1,3 +1,6 @@
+New:
+• Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead.
+
 Improvements:
 • After a patch is applied, the patch screen closes by itself.
 • The library no longer waits for the box art of a game scrolled out of view.

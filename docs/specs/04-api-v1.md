@@ -22,6 +22,7 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | GET | `/trash` | Contenu et taille de la corbeille |
 | DELETE | `/trash` | Vider la corbeille |
 | DELETE | `/trash/{entryId}` | Supprimer définitivement une entrée de la corbeille |
+| GET / POST | `/trash/{entryId}/restore` | Aperçu / restauration d'une entrée de la corbeille (M18) |
 | GET | `/saves` | Toutes les saves de la console, avec SHA-256 (sync, M9) |
 | GET / PUT | `/games/{gameId}/save` | Télécharger / remplacer la save |
 | GET | `/games/{gameId}/save/rtc` | Télécharger le fichier d'horloge de la save (M9) |
@@ -147,7 +148,7 @@ Chaque événement : `id: <n>` (croissant dans le flux, à partir de 1), `event:
 |---|---|---|
 | `hello` | `{ serverTime, keepAliveSeconds }` | Premier événement, à l'ouverture |
 | `library` | `{ systemIds }` | Après toute modification de la carte faite par l'API, quel que soit le client : envoi installé (pas un envoi vers la zone d'attente), suppression d'un jeu, jaquette, corbeille, save remplacée, copie de save créée, supprimée ou restaurée, state supprimé, verrouillé, déverrouillé ou restauré, historique de reprise restauré, cheats, et tâche de patch réussie. `systemIds` nomme les systèmes touchés ; **vide** quand ils ne sont pas connus (corbeille) : l'app rafraîchit tout. Au plus un par seconde : les changements entre deux événements sont fusionnés (un « inconnu » l'emporte). |
-| `paks` | `{}` (M12) | Après l'installation (tâche `pak-install` réussie) ou la suppression d'un pak, quel que soit le client : l'app relit `GET /paks`. Au plus un par seconde (fusionnés). Un changement de pak n'envoie pas `library`. |
+| `paks` | `{}` (M12) | Après l'installation (tâche `pak-install` réussie), la suppression d'un pak ou sa restauration depuis la corbeille (M18, avec `library`), quel que soit le client : l'app relit `GET /paks`. Au plus un par seconde (fusionnés). Un changement de pak n'envoie pas `library`, sauf la restauration. |
 | `job` | un `Job` ([03 §8](03-protocole.md#8-tâches-opérations-longues-côté-console)) | À chaque changement d'état d'une tâche (ou de `cancelRequested`), aussitôt ; pendant qu'elle avance, au plus une fois par seconde par tâche (le dernier état l'emporte). Tâches de tous les clients. |
 | `device` | `{ battery, connectedClients, storage }` (mêmes champs que `GET /device`) | Quand la batterie (pourcentage ou charge), l'ensemble des clients connectés (pas leur `lastSeenAt`) ou l'espace libre (d'au moins 1 Mio, le journal le change sans cesse) change ; lu toutes les 5 s, et seulement tant qu'au moins un flux est ouvert ; un client qui devient connecté ou est révoqué (déconnecté, oublié, désappairé) déclenche aussi l'événement, sans attendre le relevé. Au plus un toutes les 5 s par flux, comptées depuis l'écriture du précédent. L'événement est construit au moment où il est écrit : batterie et espace du dernier relevé, `connectedClients` de cet instant (un client retiré par une révocation n'y revient jamais). |
 | `shutdown` | `{ reason }` : `quit` (l'utilisateur quitte ReminisLink sur la console) ou `stopped` (le système arrête le pak : extinction, signal) | Au début de la fermeture du pak, avant l'arrêt du serveur HTTP ; puis le flux se termine. L'adieu Bonjour n'attend ni les flux ni les requêtes en cours. |
@@ -368,7 +369,16 @@ Une entrée regroupe tout ce qu'une même opération a mis à la corbeille. `rea
 
 Suppression **définitive**, seule route qui efface réellement des données de l'utilisateur. Exige l'en-tête `X-RL-Confirm: empty-trash` (sinon `400 invalid_request`), en plus de la signature. Réponse : `{ "freedBytes": 17377096 }`.
 
-La restauration depuis la corbeille n'est pas dans la v1 (voir [09](09-feuille-de-route.md)) ; les fichiers restent récupérables à la main dans `/.userdata/shared/ReminisLink/trash/`.
+### `GET` et `POST /trash/{entryId}/restore` (M18)
+
+Remettre une entrée de la corbeille à sa place. Seul l'identifiant opaque de l'entrée vient du réseau : le pak lit les emplacements d'origine dans l'entrée elle-même (`entry.json`), jamais dans la requête, et vérifie qu'ils restent sur la carte SD.
+
+- **`GET`** (aperçu, lecture seule, n'attend jamais le verrou d'écriture) : `{ "entryId", "reason", "label", "conflict", "items": [{ "name", "size", "conflict", "freeName" }], "restoredBytes" }`. `items` : les fichiers de l'utilisateur (dossiers développés), `name` relatif à la carte SD ; les copies de ReminisLink de l'entrée (verrous, historique de reprise) reviennent aussi mais ne sont pas listées. `conflict` : l'emplacement est pris. `freeName` : où le fichier irait avec `onConflict: rename` (`name` sans conflit). Calculé par le même code que la restauration ; un autre client peut changer la carte entre les deux (risque accepté : rien n'est jamais écrasé).
+- **`POST`**, corps facultatif `{ "onConflict": "fail" | "rename" }` (`fail` par défaut). Chaque élément de l'entrée revient à sa place par un renommage sur la même carte : un jeu supprimé revient avec sa save, son `.rtc`, ses states, ses cheats, sa jaquette, ses verrous et son historique de reprise ; un pak supprimé ou remplacé revient dans le dossier des paks. Réponse `200` : `{ "restored": [noms relatifs à la carte], "restoredBytes", "renamed" }` ; l'entrée quitte `GET /trash`.
+- **Jamais d'écrasement** : un emplacement est pris quand un fichier ou un dossier du même nom y existe, **casse ignorée** (exFAT), ou qu'un élément du chemin n'est pas un dossier. Avec `fail` : `409 conflict`, `details.conflicts` (emplacements pris, relatifs à la carte), rien ne change. Avec `rename` : tous les éléments reviennent sous le **même** nom libre, ` (N)` (N à partir de 2) inséré après le nom du jeu, avant ses extensions (`Sky Garden Quest (2).gba`, `Sky Garden Quest (2).gba.sav`, `Clock (2).pak`), pour que les fichiers d'un jeu restent ensemble ; les playlists (`.m3u`, `.cue`) ne sont pas réécrites.
+- **Pak** : un dossier qui revient dans un dossier des paks passe les vérifications d'une installation (`launch.sh` à sa racine, ni lien ni fichier spécial, limites de `POST /paks/install`) : refusé, `422 unsupported_format`, il reste dans la corbeille.
+- **Tout ou rien, journalisé** : l'entrée passe à l'état `returning` avec la destination de chaque élément avant le premier renommage ; tout échec remet dans l'entrée ce qui était déjà revenu ; une coupure de courant est terminée au lancement suivant (chaque élément va à sa destination si elle est encore libre, le reste reste dans l'entrée). Une entrée `returning` n'est ni listée, ni supprimée, ni purgée : la purge des 30 jours, `DELETE /trash` et `DELETE /trash/{entryId}` ne tournent jamais pendant une restauration (même verrou).
+- **Écriture** sous le verrou par action (`429 device_busy` si une autre écriture tourne) ; événement `library` (`systemIds` vide), et `paks` si un pak est revenu. `404` : entrée inconnue (restaurée, supprimée ou purgée entre-temps).
 
 ---
 
