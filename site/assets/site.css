@@ -256,14 +256,6 @@ code {
 }
 
 /* Neutral placeholder: not a link, not a fake store badge. */
-.soon {
-  display: inline-block;
-  padding: 0.6rem 1.15rem;
-  border-radius: 999px;
-  border: 2px dashed rgba(255, 255, 255, 0.75);
-  color: var(--hero-text);
-  font-weight: 600;
-}
 
 /* Content */
 

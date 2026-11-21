@@ -13,6 +13,7 @@
 </p>
 
 <p align="center">
+  <a href="https://apps.apple.com/us/app/reminislink/id6837216406">App Store</a> ·
   <a href="https://reminis.link">Website</a> ·
   <a href="https://reminis.link/install/">Installation</a> ·
   <a href="https://reminis.link/support/">Support</a>
