@@ -5,16 +5,18 @@
 //   prepare   --bundle-id ID --version X.Y.Z --whats-new en-US=FILE [--whats-new fr-FR=FILE]
 //             Creates the App Store version X.Y.Z if needed (released
 //             automatically after approval) and sets its "What's New".
-//   submit    (same options) [--wait-minutes N]
-//             --tag ios-vX.Y.Z --release-workflow NAME, or --build-number N
+//   submit    (same options) --tag ios-vX.Y.Z --release-workflow NAME
+//             [--build-number N] [--wait-minutes N]
 //             prepare, then waits for the build of that exact release: the
 //             build of the Xcode Cloud run of the Release workflow on the
-//             tag (or the build number given), never just the newest upload
-//             of X.Y.Z (a TestFlight beta has the same version). Checks that
-//             it is processed and App Store eligible, attaches it and
-//             submits the version to App Review, alone: a draft submission
-//             holding anything else stops it. Does nothing when the version
-//             is already submitted.
+//             tag, found through the Xcode Cloud API (the newest run, or the
+//             run numbered N), never just the newest upload of X.Y.Z (a
+//             TestFlight beta or a manual upload has the same version).
+//             Checks that it is processed and App Store eligible, attaches
+//             it and submits the version to App Review, alone: a draft
+//             submission holding anything else, before or right before the
+//             submission, stops it. Does nothing when the version is
+//             already submitted.
 //   selftest  offline checks: key parsing and ES256 JWT.
 //
 // The key comes from the environment: ASC_KEY_ID, ASC_ISSUER_ID and
@@ -23,7 +25,9 @@
 // the body of an answer (errors: status, code and title only).
 //
 // Tests only: ASC_TEST_MODE=1 with ASC_API_BASE on a local address and a key
-// id starting with TEST (a mock of the API, fake key); ASC_POLL_SECONDS.
+// id starting with TEST (a mock of the API); the token is then signed with an
+// ephemeral key made in the process, ASC_PRIVATE_KEY and ASC_PRIVATE_KEY_PATH
+// are never read. ASC_POLL_SECONDS.
 
 import CryptoKit
 import Foundation
@@ -149,7 +153,32 @@ final class AppStoreConnect {
         if !query.isEmpty {
             components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
-        var request = URLRequest(url: components.url!)
+        return try await send(method, components.url!, label: path, body: body)
+    }
+
+    /// Every page of a list (`links.next`), `maxPages` at most: the data
+    /// and the included resources of all pages. A next link to another
+    /// host than the API is refused (the token never leaves it).
+    func all(_ path: String, query: [String: String], maxPages: Int = 20) async throws -> (data: [JSON], included: [JSON]) {
+        var page = try await call("GET", path, query: query)
+        var items = data(page)
+        var included = page["included"] as? [JSON] ?? []
+        var pages = 1
+        while let next = (page["links"] as? JSON)?["next"] as? String, !next.isEmpty {
+            guard pages < maxPages else { throw Failure("GET \(path): more than \(maxPages) pages") }
+            guard let url = URL(string: next), url.scheme == base.scheme, url.host == base.host, url.port == base.port else {
+                throw Failure("GET \(path): the next page is not on the App Store Connect API")
+            }
+            page = try await send("GET", url, label: path, body: nil)
+            items += data(page)
+            included += page["included"] as? [JSON] ?? []
+            pages += 1
+        }
+        return (items, included)
+    }
+
+    private func send(_ method: String, _ url: URL, label path: String, body: JSON?) async throws -> JSON {
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 60
         request.setValue("Bearer \(try token())", forHTTPHeaderField: "Authorization")
@@ -265,34 +294,34 @@ struct Release {
         return (app, versionId)
     }
 
-    /// The Xcode Cloud run of `workflow` on `tag` (the newest one when the
-    /// run was started again); nil while there is none.
-    func releaseRun(app: String, tag: String, workflow: String) async throws -> JSON? {
+    /// The Xcode Cloud runs of `workflow` on `tag` (more than one when the
+    /// run was started again), newest first; every page is read.
+    func releaseRuns(app: String, tag: String, workflow: String) async throws -> [JSON] {
         let product: JSON
         do {
             product = try await api.call("GET", "/v1/apps/\(app)/ciProduct")
         } catch {
-            throw Failure("Xcode Cloud cannot be read with this key (\(error)): set ASC_BUILD_NUMBER to the build number of the \(workflow) run of \(tag)")
+            throw Failure("Xcode Cloud cannot be read with this key (\(error)): give the key the App Manager or Admin access, or submit by hand (asc.sh instructions)")
         }
         guard let productId = data(product).first.map(id), !productId.isEmpty else { throw Failure("no Xcode Cloud product for this app") }
-        let workflows = try await api.call("GET", "/v1/ciProducts/\(productId)/workflows", query: ["limit": "50"])
-        guard let workflowId = data(workflows).first(where: { attributes($0)["name"] as? String == workflow }).map(id) else {
+        let workflows = try await api.all("/v1/ciProducts/\(productId)/workflows", query: ["limit": "50"])
+        guard let workflowId = workflows.data.first(where: { attributes($0)["name"] as? String == workflow }).map(id) else {
             throw Failure("no Xcode Cloud workflow named \(workflow)")
         }
-        let runs = try await api.call("GET", "/v1/ciWorkflows/\(workflowId)/buildRuns", query: [
+        let runs = try await api.all("/v1/ciWorkflows/\(workflowId)/buildRuns", query: [
             "limit": "50", "include": "sourceBranchOrTag",
         ])
-        let references = (runs["included"] as? [JSON] ?? []).filter { $0["type"] as? String == "scmGitReferences" }
-        let tagReferences = Set(references.filter { reference in
+        let tagReferences = Set(runs.included.filter { reference in
             let a = attributes(reference)
-            return a["kind"] as? String == "TAG" && (a["name"] as? String == tag || a["canonicalName"] as? String == "refs/tags/\(tag)")
+            return reference["type"] as? String == "scmGitReferences" && a["kind"] as? String == "TAG"
+                && (a["name"] as? String == tag || a["canonicalName"] as? String == "refs/tags/\(tag)")
         }.map(id))
-        return data(runs)
+        return runs.data
             .filter { run in
                 let reference = ((run["relationships"] as? JSON)?["sourceBranchOrTag"] as? JSON)?["data"] as? JSON
                 return reference.map(id).map(tagReferences.contains) ?? false
             }
-            .max { (attributes($0)["number"] as? Int ?? 0) < (attributes($1)["number"] as? Int ?? 0) }
+            .sorted { (attributes($0)["number"] as? Int ?? 0) > (attributes($1)["number"] as? Int ?? 0) }
     }
 
     /// The build of X.Y.Z with this build number, if uploaded.
@@ -306,60 +335,71 @@ struct Release {
         return matches.first
     }
 
-    /// The build of this release once processed, waiting for it: the
-    /// build number given, or the build of the Release run of the tag.
+    /// The build of this release once processed, waiting for it: always a
+    /// build uploaded by a run of the Release workflow on the tag, found
+    /// through the Xcode Cloud API (the newest run, or the run whose
+    /// number is the build number given). A build of any other origin (a
+    /// beta, a manual upload) is never returned.
     func processedBuild(app: String, selector: BuildSelector, waitMinutes: Int) async throws -> JSON {
+        let (tag, workflow, given) = (selector.tag, selector.workflow, selector.buildNumber)
         let deadline = Date().addingTimeInterval(TimeInterval(waitMinutes * 60))
         while true {
-            var number: String?
-            var runBuildIds: Set<String>?
-            switch selector {
-            case .number(let given):
-                number = given
-            case .releaseRun(let tag, let workflow):
-                if let run = try await releaseRun(app: app, tag: tag, workflow: workflow) {
-                    let a = attributes(run)
-                    let runNumber = a["number"] as? Int ?? 0
-                    switch (a["executionProgress"] as? String, a["completionStatus"] as? String) {
-                    case ("COMPLETE", "SUCCEEDED"):
-                        number = String(runNumber)
-                        let builds = try await api.call("GET", "/v1/ciBuildRuns/\(id(run))/builds", query: ["limit": "10"])
-                        runBuildIds = Set(data(builds).map(id))
-                    case ("COMPLETE", let status):
-                        throw Failure("the \(workflow) run \(runNumber) of \(tag) ended \(status ?? "without a status"): nothing to submit")
-                    default:
-                        log("the \(workflow) run \(runNumber) of \(tag) is still running")
-                    }
-                } else {
-                    log("no \(workflow) run of \(tag) in Xcode Cloud yet")
+            let runs = try await releaseRuns(app: app, tag: tag, workflow: workflow)
+            let run: JSON?
+            if let given {
+                // The number only chooses among the runs of the tag.
+                guard let numbered = runs.first(where: { String(attributes($0)["number"] as? Int ?? 0) == given }) else {
+                    let known = runs.map { String(attributes($0)["number"] as? Int ?? 0) }
+                    throw Failure("build \(given) is not the build of a \(workflow) run of \(tag) (runs of the tag: \(known.isEmpty ? "none" : known.joined(separator: ", "))): a build of another origin is never submitted. Nothing was submitted.")
                 }
+                run = numbered
+            } else {
+                run = runs.first
             }
-            if let number {
-                if let build = try await build(app: app, number: number) {
-                    // The build must be the one the run uploaded.
-                    if let runBuildIds, !runBuildIds.contains(id(build)) {
-                        log("build \(number) of \(version) is not yet listed by its Xcode Cloud run")
-                    } else {
-                        let a = attributes(build)
-                        switch a["processingState"] as? String {
-                        case "VALID":
-                            try Self.checkEligible(build, number: number, version: version)
-                            log("build \(number) of \(version) is processed and App Store eligible")
-                            return build
-                        case "FAILED", "INVALID":
-                            throw Failure("build \(number) of \(version) was refused by App Store Connect processing")
-                        default:
-                            log("build \(number) of \(version) is still being processed")
-                        }
-                    }
-                } else {
-                    log("build \(number) of \(version) is not in App Store Connect yet")
+            if let run {
+                let a = attributes(run)
+                let number = String(a["number"] as? Int ?? 0)
+                switch (a["executionProgress"] as? String, a["completionStatus"] as? String) {
+                case ("COMPLETE", "SUCCEEDED"):
+                    if let build = try await runBuild(app: app, run: run, number: number) { return build }
+                case ("COMPLETE", let status):
+                    throw Failure("the \(workflow) run \(number) of \(tag) ended \(status ?? "without a status"): nothing to submit")
+                default:
+                    log("the \(workflow) run \(number) of \(tag) is still running")
                 }
+            } else {
+                log("no \(workflow) run of \(tag) in Xcode Cloud yet")
             }
             guard Date() < deadline else {
                 throw Failure("no processed build of this release of \(version) after \(waitMinutes) minutes: run the Submit workflow again later, or submit by hand")
             }
             try await Task.sleep(nanoseconds: AppStoreConnect.pollSeconds * 1_000_000_000)
+        }
+    }
+
+    /// The build `number` of a succeeded run, once that run lists it and
+    /// App Store Connect has processed it; nil while waiting.
+    func runBuild(app: String, run: JSON, number: String) async throws -> JSON? {
+        let runBuilds = try await api.all("/v1/ciBuildRuns/\(id(run))/builds", query: ["limit": "10"])
+        guard let build = try await build(app: app, number: number) else {
+            log("build \(number) of \(version) is not in App Store Connect yet")
+            return nil
+        }
+        // The build must be the one the run uploaded.
+        guard runBuilds.data.map(id).contains(id(build)) else {
+            log("build \(number) of \(version) is not yet listed by its Xcode Cloud run")
+            return nil
+        }
+        switch attributes(build)["processingState"] as? String {
+        case "VALID":
+            try Self.checkEligible(build, number: number, version: version)
+            log("build \(number) of \(version) is processed and App Store eligible")
+            return build
+        case "FAILED", "INVALID":
+            throw Failure("build \(number) of \(version) was refused by App Store Connect processing")
+        default:
+            log("build \(number) of \(version) is still being processed")
+            return nil
         }
     }
 
@@ -373,6 +413,15 @@ struct Release {
         }
         guard a["usesNonExemptEncryption"] is Bool else {
             throw Failure("build \(number) of \(version) has no export compliance answer")
+        }
+    }
+
+    /// The app store versions linked by the items of a review submission
+    /// (nil for an item that is not an App Store version), every page.
+    func linkedVersions(submission: String) async throws -> [String?] {
+        let items = try await api.all("/v1/reviewSubmissions/\(submission)/items", query: ["include": "appStoreVersion", "limit": "50"])
+        return items.data.map { item in
+            (((item["relationships"] as? JSON)?["appStoreVersion"] as? JSON)?["data"] as? JSON).map(id)
         }
     }
 
@@ -391,10 +440,7 @@ struct Release {
         var hasVersion = false
         if let draft = data(drafts).first {
             submissionId = id(draft)
-            let items = try await api.call("GET", "/v1/reviewSubmissions/\(submissionId)/items", query: ["include": "appStoreVersion", "limit": "50"])
-            let linked = data(items).map { item in
-                (((item["relationships"] as? JSON)?["appStoreVersion"] as? JSON)?["data"] as? JSON).map(id)
-            }
+            let linked = try await linkedVersions(submission: submissionId)
             let foreign = linked.filter { $0 != versionId }.count
             guard foreign == 0 else {
                 throw Failure("a draft submission in App Store Connect already holds \(foreign) other item(s): submit or remove them by hand (App Store Connect > the app > App Review), then run Submit again. Nothing was submitted.")
@@ -425,6 +471,12 @@ struct Release {
                 ],
             ] as JSON])
         }
+        // Read the whole draft again right before submitting it: an item
+        // added meanwhile (by hand in App Store Connect) stops everything.
+        let final = try await linkedVersions(submission: submissionId)
+        guard !final.isEmpty, final.allSatisfy({ $0 == versionId }) else {
+            throw Failure("the draft submission now holds \(final.filter { $0 != versionId }.count) other item(s) (changed in App Store Connect while Submit ran): remove them by hand, then run Submit again. Nothing was submitted.")
+        }
         try await api.call("PATCH", "/v1/reviewSubmissions/\(submissionId)", body: ["data": [
             "type": "reviewSubmissions", "id": submissionId, "attributes": ["submitted": true],
         ] as JSON])
@@ -432,12 +484,13 @@ struct Release {
     }
 }
 
-/// Which build a submission takes.
-enum BuildSelector {
-    /// The build uploaded by the Xcode Cloud run of this workflow on this tag.
-    case releaseRun(tag: String, workflow: String)
-    /// A build number read in TestFlight (by hand).
-    case number(String)
+/// Which build a submission takes: always the build uploaded by a run of
+/// the Release workflow on the release tag; a build number (read in
+/// TestFlight) only chooses which run of that tag.
+struct BuildSelector {
+    let tag: String
+    let workflow: String
+    let buildNumber: String?
 }
 
 // MARK: - Command line
@@ -483,11 +536,17 @@ struct Options {
     }
 }
 
-func tokenMaker() throws -> TokenMaker {
-    let environment = ProcessInfo.processInfo.environment
+func tokenMaker(_ environment: [String: String] = ProcessInfo.processInfo.environment) throws -> TokenMaker {
     guard let keyId = environment["ASC_KEY_ID"], !keyId.isEmpty,
           let issuerId = environment["ASC_ISSUER_ID"], !issuerId.isEmpty
     else { throw Failure("ASC_KEY_ID and ASC_ISSUER_ID are needed") }
+    // A test address (refused unless it is a valid test setup) gets a
+    // throwaway key: the real key is never read, so it cannot sign a
+    // token for a mock.
+    _ = try AppStoreConnect.baseURL(environment)
+    if let override = environment["ASC_API_BASE"], !override.isEmpty {
+        return TokenMaker(keyId: keyId, issuerId: issuerId, key: P256.Signing.PrivateKey())
+    }
     var raw = environment["ASC_PRIVATE_KEY"] ?? ""
     if raw.isEmpty, let path = environment["ASC_PRIVATE_KEY_PATH"], !path.isEmpty {
         raw = try String(contentsOfFile: (path as NSString).expandingTildeInPath, encoding: .utf8)
@@ -547,6 +606,21 @@ func selftest() throws {
     guard (try? AppStoreConnect.baseURL(["ASC_API_BASE": "http://127.0.0.1:1", "ASC_TEST_MODE": "1", "ASC_KEY_ID": "TESTKEY"])) != nil else {
         throw Failure("test base URL refused")
     }
+    // Test mode: an ephemeral key, the real key variables never read.
+    let testEnvironment = [
+        "ASC_API_BASE": "http://127.0.0.1:1", "ASC_TEST_MODE": "1", "ASC_KEY_ID": "TESTKEY", "ASC_ISSUER_ID": "x",
+        "ASC_PRIVATE_KEY": pem, "ASC_PRIVATE_KEY_PATH": "/nonexistent/AuthKey.p8",
+    ]
+    let testKey = try tokenMaker(testEnvironment).key
+    guard testKey.publicKey.rawRepresentation != key.publicKey.rawRepresentation else {
+        throw Failure("test mode signed with ASC_PRIVATE_KEY")
+    }
+    guard (try? tokenMaker(testEnvironment.merging(["ASC_PRIVATE_KEY": "not a key"]) { $1 })) != nil else {
+        throw Failure("test mode read ASC_PRIVATE_KEY")
+    }
+    if (try? tokenMaker(testEnvironment.merging(["ASC_API_BASE": "https://example.com"]) { $1 })) != nil {
+        throw Failure("test mode accepted a remote ASC_API_BASE")
+    }
     // Only App Store eligible, processed builds with export compliance.
     try Release.checkEligible(["attributes": ["buildAudienceType": "APP_STORE_ELIGIBLE", "usesNonExemptEncryption": false, "expired": false]], number: "1", version: "1.0.0")
     for attributes: JSON in [
@@ -559,7 +633,7 @@ func selftest() throws {
             throw Failure("ineligible build accepted: \(attributes)")
         }
     }
-    log("selftest passed (key parsing, ES256 JWT, API address guard, build eligibility)")
+    log("selftest passed (key parsing, ES256 JWT, API address guard, test-mode key, build eligibility)")
 }
 
 do {
@@ -575,14 +649,11 @@ do {
         if options.command == "prepare" {
             _ = try await release.prepare()
         } else {
-            let selector: BuildSelector
-            if !options.buildNumber.isEmpty {
-                selector = .number(options.buildNumber)
-            } else if options.tag == "ios-v\(options.version)", !options.releaseWorkflow.isEmpty {
-                selector = .releaseRun(tag: options.tag, workflow: options.releaseWorkflow)
-            } else {
-                throw Failure("submit needs --tag ios-v\(options.version) and --release-workflow, or --build-number")
+            guard options.tag == "ios-v\(options.version)", !options.releaseWorkflow.isEmpty else {
+                throw Failure("submit needs --tag ios-v\(options.version) and --release-workflow (--build-number only chooses among the builds of that workflow's runs on the tag)")
             }
+            let selector = BuildSelector(tag: options.tag, workflow: options.releaseWorkflow,
+                                         buildNumber: options.buildNumber.isEmpty ? nil : options.buildNumber)
             try await release.submit(selector: selector, waitMinutes: options.waitMinutes)
         }
     default:

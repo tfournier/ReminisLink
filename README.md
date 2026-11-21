@@ -170,7 +170,7 @@ The pak and the iOS app are released from this repository with their own version
 |---|---|---|
 | `vX.Y.Z` | the pak: GitHub release marked "Latest", read by the Pak Store | GitHub Actions |
 | `vX.Y.Z-beta.N`, `vX.Y.Z-rc.N` | a pak pre-release for testers: GitHub "Pre-release", ignored by the Pak Store | GitHub Actions |
-| `ios-vX.Y.Z` | the app: App Store version `X.Y.Z`, submitted to App Review, released automatically once approved | Xcode Cloud |
+| `ios-vX.Y.Z` | the app: App Store version `X.Y.Z`, submitted to App Review (Submit workflow started by hand), released automatically once approved | Xcode Cloud |
 | `ios-beta-vX.Y.Z-beta.N`, `ios-beta-vX.Y.Z-rc.N` | an app pre-release: TestFlight only (App Store version `X.Y.Z`, a new build number) | Xcode Cloud |
 
 Only a pak release can be "Latest" on GitHub: app tags never start the GitHub workflow, and its release job refuses any tag that is not a pak version (`make release-checks` tests these rules). The app's changelog is [ios/CHANGELOG.md](ios/CHANGELOG.md) and its release procedure, Xcode Cloud setup included, is in [ios/README.md](ios/README.md#release-testflight-and-app-store).
@@ -191,7 +191,7 @@ A pre-release: with an `"Unreleased"` entry in `pak.json`, run `make v1.2.3-beta
 Update the `## Unreleased` section of `ios/CHANGELOG.md` (English and French, the App Store "What's New") with each change of the app, and run `ios/ci_scripts/release_notes.sh sync` (the CI checks it). Then, from `main`:
 
 - `make ios-v1.2.3-beta.1`: tags `ios-beta-v1.2.3-beta.1` and pushes it; Xcode Cloud sends version 1.2.3 to TestFlight.
-- `make ios-v1.2.3`: renames `## Unreleased` to `## 1.2.3`, syncs the App Store texts, commits as `Release app 1.2.3`, tags and pushes; Xcode Cloud builds it, prepares the App Store version and submits it to App Review.
+- `make ios-v1.2.3`: renames `## Unreleased` to `## 1.2.3`, syncs the App Store texts, commits as `Release app 1.2.3`, tags `ios-v1.2.3` and pushes; the Xcode Cloud Release workflow builds it and prepares the App Store version. Once TestFlight shows that build, start the Submit workflow by hand on the tag: it submits the build of the Release run to App Review (see [ios/README.md](ios/README.md), "Xcode Cloud").
 
 ## Documentation
 

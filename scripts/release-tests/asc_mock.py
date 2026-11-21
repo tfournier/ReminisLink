@@ -12,10 +12,18 @@ Scenarios (version 1.1.0, tag ios-v1.1.0):
                  already there, and a failed Release run 41 of the beta tag;
                  the Release run 42 of the tag is running, then succeeds; its
                  build 42 is processing, then VALID and App Store eligible.
-  number         as release, but the build is chosen by number (42).
+  number         as release; the build number given (42) is the Release run's.
+  number-foreign as release, but build 41 is an App Store eligible upload of
+                 1.1.0 not made by a Release run of the tag (given: 41).
+  paged          as release, but the build runs come in two pages and the
+                 run of the tag is on the second one (links.next).
   internal       the Release run's build 42 is internal-only.
   foreign-draft  a draft submission already holds another item.
   own-draft      a draft submission holds this version only.
+  late-foreign   as own-draft, but another item is added to the draft after
+                 it was first read (when the build is attached).
+  error-detail   GET /v1/apps fails with an error whose detail holds a
+                 sentinel and the request's token (must never be printed).
   submitted      the version is already waiting for review.
 """
 import json
@@ -34,24 +42,29 @@ state = {
     "subs": [],
     "items": [],
     "submitted": False,
+    "second_pages": 0,
     "requests": [],
 }
 if scenario == "submitted":
     state["versions"].append({"type": "appStoreVersions", "id": "ver-1", "attributes": {
         "versionString": VERSION, "appVersionState": "WAITING_FOR_REVIEW", "releaseType": "AFTER_APPROVAL"}})
-if scenario in ("foreign-draft", "own-draft"):
+OWN_DRAFT = scenario in ("own-draft", "late-foreign")
+if scenario == "foreign-draft" or OWN_DRAFT:
     state["subs"].append({"type": "reviewSubmissions", "id": "sub-1", "attributes": {"state": "READY_FOR_REVIEW"}})
-    linked = {"type": "appStoreVersions", "id": "ver-1"} if scenario == "own-draft" else None
+    linked = {"type": "appStoreVersions", "id": "ver-1"} if OWN_DRAFT else None
     state["items"].append({"type": "reviewSubmissionItems", "id": "item-0",
                            "relationships": {"appStoreVersion": {"data": linked}}})
-    if scenario == "own-draft":
+    if OWN_DRAFT:
         state["versions"].append({"type": "appStoreVersions", "id": "ver-1", "attributes": {
             "versionString": VERSION, "appVersionState": "READY_FOR_REVIEW", "releaseType": "AFTER_APPROVAL"}})
 
 
 def beta_build():
+    # number-foreign: an upload of the same version that App Review could
+    # take, but not from a Release run of the tag.
+    audience = "APP_STORE_ELIGIBLE" if scenario == "number-foreign" else "INTERNAL_ONLY"
     return {"type": "builds", "id": "build-41", "attributes": {
-        "version": "41", "processingState": "VALID", "buildAudienceType": "INTERNAL_ONLY",
+        "version": "41", "processingState": "VALID", "buildAudienceType": audience,
         "expired": False, "usesNonExemptEncryption": False}}
 
 
@@ -94,6 +107,9 @@ class Handler(BaseHTTPRequestHandler):
         b = self.body() if method in ("POST", "PATCH") else None
         state["requests"].append(f"{method} {p}")
 
+        if method == "GET" and p == "/v1/apps" and scenario == "error-detail":
+            return self.send(403, {"errors": [{"code": "FORBIDDEN_ERROR", "title": "not allowed",
+                                               "detail": "SECRET-DETAIL " + auth}]})
         if method == "GET" and p == "/v1/apps":
             return self.send(200, {"data": [{"type": "apps", "id": "app-1", "attributes": {"bundleId": q.get("filter[bundleId]")}}]})
         if method == "GET" and p == "/v1/apps/app-1/appStoreVersions":
@@ -124,26 +140,32 @@ class Handler(BaseHTTPRequestHandler):
                 {"type": "ciWorkflows", "id": "wf-beta", "attributes": {"name": "Beta"}},
                 {"type": "ciWorkflows", "id": "wf-release", "attributes": {"name": "Release"}}]})
         if method == "GET" and p == "/v1/ciWorkflows/wf-release/buildRuns":
-            state["polls"] += 1
-            runs = [{"type": "ciBuildRuns", "id": "run-41", "attributes": {
+            page2 = q.get("cursor") == "2"
+            if not page2:
+                state["polls"] += 1
+            run41 = {"type": "ciBuildRuns", "id": "run-41", "attributes": {
                 "number": 41, "executionProgress": "COMPLETE", "completionStatus": "FAILED"},
-                "relationships": {"sourceBranchOrTag": {"data": {"type": "scmGitReferences", "id": "ref-beta"}}}}]
+                "relationships": {"sourceBranchOrTag": {"data": {"type": "scmGitReferences", "id": "ref-beta"}}}}
             running = state["polls"] == 1
-            runs.append({"type": "ciBuildRuns", "id": "run-42", "attributes": {
+            run42 = {"type": "ciBuildRuns", "id": "run-42", "attributes": {
                 "number": 42, "executionProgress": "RUNNING" if running else "COMPLETE",
                 "completionStatus": None if running else "SUCCEEDED"},
-                "relationships": {"sourceBranchOrTag": {"data": {"type": "scmGitReferences", "id": "ref-release"}}}})
-            included = [
-                {"type": "scmGitReferences", "id": "ref-beta", "attributes": {"kind": "TAG", "name": TAG + "-beta.1", "canonicalName": "refs/tags/" + TAG + "-beta.1"}},
-                {"type": "scmGitReferences", "id": "ref-release", "attributes": {"kind": "TAG", "name": TAG, "canonicalName": "refs/tags/" + TAG}}]
-            return self.send(200, {"data": runs, "included": included})
+                "relationships": {"sourceBranchOrTag": {"data": {"type": "scmGitReferences", "id": "ref-release"}}}}
+            ref_beta = {"type": "scmGitReferences", "id": "ref-beta", "attributes": {"kind": "TAG", "name": TAG + "-beta.1", "canonicalName": "refs/tags/" + TAG + "-beta.1"}}
+            ref_release = {"type": "scmGitReferences", "id": "ref-release", "attributes": {"kind": "TAG", "name": TAG, "canonicalName": "refs/tags/" + TAG}}
+            if scenario != "paged":
+                return self.send(200, {"data": [run41, run42], "included": [ref_beta, ref_release]})
+            if page2:
+                state["second_pages"] += 1
+                return self.send(200, {"data": [run42], "included": [ref_release], "links": {"self": self.path}})
+            host = self.headers.get("Host")
+            nxt = f"http://{host}{p}?cursor=2&include=sourceBranchOrTag&limit=50"
+            return self.send(200, {"data": [run41], "included": [ref_beta], "links": {"self": self.path, "next": nxt}})
         if method == "GET" and p == "/v1/ciBuildRuns/run-42/builds":
             build = release_build()
             return self.send(200, {"data": [build] if build else []})
 
         if method == "GET" and p == "/v1/builds":
-            if scenario == "number":
-                state["polls"] += 1
             builds = [beta_build()]
             if release_build():
                 builds.append(release_build())
@@ -153,6 +175,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {"data": [x for x in builds if x["attributes"]["version"] == wanted]})
         if method == "PATCH" and p == "/v1/appStoreVersions/ver-1/relationships/build":
             state["attached"] = b["data"]["id"]
+            if scenario == "late-foreign":
+                # Someone adds an in-app event to the draft by hand.
+                state["items"].append({"type": "reviewSubmissionItems", "id": "item-9",
+                                       "relationships": {"appStoreVersion": {"data": None}}})
             return self.send(204)
 
         if method == "GET" and p == "/v1/reviewSubmissions":

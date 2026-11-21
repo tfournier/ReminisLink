@@ -7,12 +7,16 @@
 #   export ASC_PRIVATE_KEY_PATH="$HOME/keys/AuthKey_ABC123DEFG.p8"
 #   CI_TAG='ios-v1.0.1' ASC_BUILD_NUMBER='42' ios/ci_scripts/submit_for_review.sh
 #
+# ASC_BUILD_NUMBER is optional: it only chooses among the builds of the
+# Release runs of the tag (a build of any other origin is refused).
+#
 # Waits (ASC_WAIT_MINUTES, default 90) for the build of this release: the
-# build of the Xcode Cloud run of the Release workflow on the tag, or build
-# ASC_BUILD_NUMBER (never just the newest upload of X.Y.Z: a beta has the
-# same version), processed and App Store eligible; attaches it to the App
-# Store version (created if needed, with its "What's New") and submits the
-# version alone (a draft submission holding anything else stops it). A
+# build of the Xcode Cloud run of the Release workflow on the tag, found
+# through the Xcode Cloud API (never just the newest upload of X.Y.Z: a beta
+# or a manual upload has the same version), processed and App Store
+# eligible; attaches it to the App Store version (created if needed, with
+# its "What's New") and submits the version alone (a draft submission
+# holding anything else, read again right before submitting, stops it). A
 # pre-release tag submits nothing; without the API key the steps to do by
 # hand are printed. Never prints a key or a token.
 set -euo pipefail

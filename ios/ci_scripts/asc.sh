@@ -9,9 +9,11 @@
 #   asc.sh selftest                      offline checks: key parsing, JWT, API address guard, build eligibility
 #
 # submit takes the build of the Xcode Cloud run of the Release workflow
-# (RL_RELEASE_WORKFLOW) on the tag CI_TAG (ios-vX.Y.Z), or, when
-# ASC_BUILD_NUMBER is set, that build number (read in TestFlight). Never
-# just the newest upload of X.Y.Z: a TestFlight beta has the same version.
+# (RL_RELEASE_WORKFLOW) on the tag CI_TAG (ios-vX.Y.Z), found through the
+# Xcode Cloud API: the newest run of the tag or, when ASC_BUILD_NUMBER is
+# set, the run of the tag with that number (it only chooses among those
+# runs; any other build is refused). Never just the newest upload of X.Y.Z:
+# a TestFlight beta or a manual upload has the same version.
 #
 # The API key comes from the environment (secret variables of the Xcode
 # Cloud workflow, or set by hand): ASC_KEY_ID, ASC_ISSUER_ID, and
@@ -38,7 +40,7 @@ instructions)
 	needs_version
 	build="${3:-}"
 	if [ -n "$build" ]; then
-		build_line="choose build $build of version $version (the build of the $RL_RELEASE_WORKFLOW run of ios-v$version), once Apple has processed it."
+		build_line="choose build $build of version $version, after checking in Xcode Cloud that it is the build of the $RL_RELEASE_WORKFLOW run of ios-v$version, once Apple has processed it."
 	else
 		build_line="choose the build of the $RL_RELEASE_WORKFLOW run of ios-v$version (its build number is shown in Xcode Cloud), once Apple has processed it; not a beta build of the same version."
 	fi
@@ -51,7 +53,8 @@ ReminisLink: in App Store Connect (https://appstoreconnect.apple.com), app Remin
   4. Build: $build_line
   5. "Add for Review", then "Submit for Review" (check that the submission holds nothing else).
 Or set the App Store Connect API key (ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY) and run
-ios/ci_scripts/submit_for_review.sh with CI_TAG=ios-v$version (see ios/README.md, "Release").
+ios/ci_scripts/submit_for_review.sh with CI_TAG=ios-v$version (ASC_BUILD_NUMBER, optional, only
+chooses among the builds of the $RL_RELEASE_WORKFLOW runs of that tag; see ios/README.md, "Release").
 EOF
 	;;
 prepare | submit)
@@ -65,12 +68,11 @@ prepare | submit)
 		args+=(--whats-new "$lang=$notes/$lang.txt")
 	done
 	if [ "$command" = submit ]; then
-		if [ -n "${ASC_BUILD_NUMBER:-}" ]; then
-			args+=(--build-number "$ASC_BUILD_NUMBER")
-		else
-			[ "${CI_TAG:-}" = "ios-v$version" ] || rl_fail "submit needs CI_TAG=ios-v$version (or ASC_BUILD_NUMBER)"
-			args+=(--tag "$CI_TAG" --release-workflow "$RL_RELEASE_WORKFLOW")
-		fi
+		# The Release run of the tag is always checked; a build number only
+		# chooses among its builds.
+		[ "${CI_TAG:-}" = "ios-v$version" ] || rl_fail "submit needs CI_TAG=ios-v$version"
+		args+=(--tag "$CI_TAG" --release-workflow "$RL_RELEASE_WORKFLOW")
+		[ -z "${ASC_BUILD_NUMBER:-}" ] || args+=(--build-number "$ASC_BUILD_NUMBER")
 	fi
 	swift_tool "$command" --bundle-id "$bundle_id" --version "$version" \
 		--wait-minutes "${ASC_WAIT_MINUTES:-90}" "${args[@]}"

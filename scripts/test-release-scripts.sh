@@ -19,7 +19,11 @@ set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 ci="$root/ios/ci_scripts"
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/rl-release-tests.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/rl-release-tests.XXXXXX")" || {
+	echo "cannot create a temporary directory" >&2
+	exit 1
+}
+[ -d "$tmp" ] || exit 1
 trap 'rm -r "$tmp"' EXIT
 failures=0
 
@@ -83,7 +87,6 @@ publish() {
 		"$root/scripts/publish-pak-release.sh" "$1" "$tmp/ReminisLink.pak.zip"
 }
 logged() { grep -Fxq -- "$1" "$tmp/fake.log"; }
-not_logged_in_out() { ! grep -Fq -- "$1" "$tmp/out"; }
 not_logged() { ! grep -Fq -- "$1" "$tmp/fake.log"; }
 touch "$tmp/ReminisLink.pak.zip"
 if command -v jq >/dev/null 2>&1; then
@@ -168,8 +171,14 @@ expect "  no MARKETING_VERSION (Config.xcconfig's)" 0 xcconfig_lacks MARKETING_V
 expect "Submit workflow, pre-release tag: nothing submitted, success" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Submit CI_TAG=ios-beta-v1.2.0-beta.1 CI_BUILD_NUMBER=27
 expect "Submit workflow, no API key: instructions, success" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Submit CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=28
 expect "  the instructions name the version" 0 grep -q "version 1.2.0" "$tmp/out"
-expect "Release post-xcodebuild, archive result unknown: nothing prepared, success" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_ACTION=archive
-expect "  says so" 0 grep -q "nothing prepared" "$tmp/out"
+expect "Release post-xcodebuild, archive result unknown: refused" 1 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_ACTION=archive
+expect "  says why" 0 grep -q "CI_XCODEBUILD_EXIT_CODE is not set" "$tmp/out"
+expect "tag archive without CI_WORKFLOW, post-xcodebuild: refused" 1 run_ci ci_post_xcodebuild.sh CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_ACTION=archive CI_XCODEBUILD_EXIT_CODE=0
+expect "  says why" 0 grep -q "CI_WORKFLOW is not set" "$tmp/out"
+expect "Release post-xcodebuild without CI_BUILD_NUMBER: refused" 1 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_XCODEBUILD_ACTION=archive CI_XCODEBUILD_EXIT_CODE=0
+expect "  says why" 0 grep -q "CI_BUILD_NUMBER" "$tmp/out"
+expect "tag without CI_XCODEBUILD_ACTION, post-xcodebuild: refused" 1 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_EXIT_CODE=0
+expect "no tag, no CI_WORKFLOW, post-xcodebuild archive: does nothing" 0 run_ci ci_post_xcodebuild.sh CI_XCODEBUILD_ACTION=archive
 expect "Release post-xcodebuild, archive failed: nothing prepared" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_ACTION=archive CI_XCODEBUILD_EXIT_CODE=65
 expect "  says so" 0 grep -q "nothing prepared" "$tmp/out"
 expect "Release post-xcodebuild, no API key: instructions, success" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_ACTION=archive CI_XCODEBUILD_EXIT_CODE=0
@@ -194,21 +203,26 @@ make_app_release() {
 	cp "$root/Makefile" "$root/pak.json" "$copy/"
 	cp -R "$root/ios/ci_scripts" "$root/ios/AppStore" "$copy/ios/"
 	cp "$root/ios/CHANGELOG.md" "$copy/ios/"
+	# The release test needs an Unreleased section: add one to the copy
+	# when the real changelog has none right now.
+	if ! grep -q '^## Unreleased$' "$copy/ios/CHANGELOG.md"; then
+		awk 'BEGIN { done = 0 }
+			!done && /^## / { print "## Unreleased\n\n### English\n\n- A test change.\n\n### Français\n\n- Un changement de test.\n"; done = 1 }
+			{ print }' "$copy/ios/CHANGELOG.md" >"$copy/ios/CHANGELOG.md.tmp"
+		mv "$copy/ios/CHANGELOG.md.tmp" "$copy/ios/CHANGELOG.md"
+	fi
+	cp "$copy/ios/CHANGELOG.md" "$tmp/CHANGELOG-copy.md"
 	: >"$tmp/fake.log"
 	env FAKE_LOG="$tmp/fake.log" make -s -C "$copy" "$1" GIT="$fakes/fake-git"
 }
-if grep -q '^## Unreleased$' "$root/ios/CHANGELOG.md"; then
-	expect "make ios-v9.8.7: a release" 0 make_app_release ios-v9.8.7
-	expect "  Unreleased renamed to 9.8.7" 0 grep -qx '## 9.8.7' "$tmp/repo/ios/CHANGELOG.md"
-	expect "  App Store notes synced" 0 env RL_CHANGELOG="$tmp/repo/ios/CHANGELOG.md" RL_APPSTORE_DIR="$tmp/repo/ios/AppStore" "$tmp/repo/ios/ci_scripts/release_notes.sh" check
-	expect "  committed as Release app 9.8.7" 0 grep -q '^git commit -q -m Release app 9.8.7 -- ios/CHANGELOG.md ios/AppStore$' "$tmp/fake.log"
-	expect "  tagged ios-v9.8.7" 0 grep -q '^git tag -a ios-v9.8.7 -m App release ios-v9.8.7$' "$tmp/fake.log"
-	expect "  pushed with the commit" 0 grep -q '^git push --atomic origin HEAD refs/tags/ios-v9.8.7$' "$tmp/fake.log"
-else
-	echo "skip  make ios-vX.Y.Z release (no Unreleased section right now)"
-fi
+expect "make ios-v9.8.7: a release" 0 make_app_release ios-v9.8.7
+expect "  Unreleased renamed to 9.8.7" 0 grep -qx '## 9.8.7' "$tmp/repo/ios/CHANGELOG.md"
+expect "  App Store notes synced" 0 env RL_CHANGELOG="$tmp/repo/ios/CHANGELOG.md" RL_APPSTORE_DIR="$tmp/repo/ios/AppStore" "$tmp/repo/ios/ci_scripts/release_notes.sh" check
+expect "  committed as Release app 9.8.7" 0 grep -q '^git commit -q -m Release app 9.8.7 -- ios/CHANGELOG.md ios/AppStore$' "$tmp/fake.log"
+expect "  tagged ios-v9.8.7" 0 grep -q '^git tag -a ios-v9.8.7 -m App release ios-v9.8.7$' "$tmp/fake.log"
+expect "  pushed with the commit" 0 grep -q '^git push --atomic origin HEAD refs/tags/ios-v9.8.7$' "$tmp/fake.log"
 expect "make ios-v9.8.7-beta.2: a pre-release" 0 make_app_release ios-v9.8.7-beta.2
-expect "  changelog untouched" 0 cmp -s "$root/ios/CHANGELOG.md" "$tmp/repo/ios/CHANGELOG.md"
+expect "  changelog untouched" 0 cmp -s "$tmp/CHANGELOG-copy.md" "$tmp/repo/ios/CHANGELOG.md"
 expect "  nothing committed" 0 not_logged "git commit"
 expect "  tagged ios-beta-v9.8.7-beta.2 (the Beta workflow's prefix)" 0 grep -q '^git tag -a ios-beta-v9.8.7-beta.2 ' "$tmp/fake.log"
 expect "  tag pushed alone" 0 grep -q '^git push origin refs/tags/ios-beta-v9.8.7-beta.2$' "$tmp/fake.log"
@@ -222,7 +236,8 @@ done
 # --- App Store Connect client (Mac only: Swift and CryptoKit) ---------------
 
 # submit_against_mock <scenario> [VAR=value...]: submit_for_review.sh for
-# ios-v1.1.0 against the mock, with a throwaway key.
+# ios-v1.1.0 against the mock. No key is needed: in test mode the client
+# signs with a throwaway key of its own and never reads ASC_PRIVATE_KEY.
 submit_against_mock() {
 	local scenario="$1" pid port
 	shift
@@ -234,7 +249,7 @@ submit_against_mock() {
 	run_ci submit_for_review.sh CI_WORKFLOW=Submit CI_TAG=ios-v1.1.0 CI_BUILD_NUMBER=50 \
 		ASC_TEST_MODE=1 ASC_API_BASE="http://127.0.0.1:$port" ASC_POLL_SECONDS=0 ASC_WAIT_MINUTES=1 \
 		ASC_KEY_ID=TESTKEY ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000 \
-		ASC_PRIVATE_KEY="$(cat "$tmp/AuthKey_TEST.p8")" RL_CHANGELOG="$tmp/CHANGELOG-1.1.0.md" "$@"
+		RL_CHANGELOG="$tmp/CHANGELOG-1.1.0.md" "$@"
 	local status=$?
 	kill "$pid" 2>/dev/null
 	wait "$pid" 2>/dev/null
@@ -247,14 +262,30 @@ if command -v xcrun >/dev/null 2>&1; then
 	openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$tmp/AuthKey_TEST.p8" 2>/dev/null
 	sed 's/^## 1.2.0$/## 1.1.0/' "$changelog" >"$tmp/CHANGELOG-1.1.0.md"
 
-	expect "mock: Release build arriving after a VALID beta of 1.1.0" 0 submit_against_mock release
+	# A real-looking key in the environment: test mode must ignore it, and
+	# neither it nor a token may ever be printed.
+	key_line="$(sed -n 2p "$tmp/AuthKey_TEST.p8")"
+	no_secret_in() {
+		! grep -Fq -e "PRIVATE KEY" -e "$key_line" -e "eyJ" -e "SECRET-DETAIL" "$1"
+	}
+	expect "mock: Release build arriving after a VALID beta of 1.1.0" 0 submit_against_mock release \
+		ASC_PRIVATE_KEY="$(cat "$tmp/AuthKey_TEST.p8")"
+	cp "$tmp/out" "$tmp/submit-release.out"
 	expect "  the build of the Release run is attached (42), not the beta (41)" 0 test "$(state 's["attached"]')" = build-42
 	expect "  submitted" 0 test "$(state 's["submitted"]')" = True
 	expect "  What's New set in both languages" 0 test "$(state 'len([l for l in s["locs"] if l["attributes"]["whatsNew"]])')" = 2
-	expect "  the key never printed" 0 not_logged_in_out "PRIVATE KEY"
-	expect "mock: build chosen by number (ASC_BUILD_NUMBER=42)" 0 submit_against_mock number ASC_BUILD_NUMBER=42
+	expect "  neither the key nor a token printed" 0 no_secret_in "$tmp/submit-release.out"
+	expect "mock: test mode never reads ASC_PRIVATE_KEY (a malformed one is ignored)" 0 submit_against_mock release \
+		ASC_PRIVATE_KEY="not a key" ASC_PRIVATE_KEY_PATH=/nonexistent/AuthKey.p8
+	expect "mock: build runs on two pages, the run of the tag on the second" 0 submit_against_mock paged
+	expect "  second page read" 0 test "$(state 's["second_pages"] > 0')" = True
 	expect "  build 42 attached and submitted" 0 test "$(state 's["attached"], s["submitted"]')" = "('build-42', True)"
-	expect "  Xcode Cloud not queried" 0 test "$(state 'len([r for r in s["requests"] if "ci" in r])')" = 0
+	expect "mock: build chosen by number, the Release run's (ASC_BUILD_NUMBER=42)" 0 submit_against_mock number ASC_BUILD_NUMBER=42
+	expect "  build 42 attached and submitted" 0 test "$(state 's["attached"], s["submitted"]')" = "('build-42', True)"
+	expect "  the Release run checked in Xcode Cloud" 0 test "$(state '"GET /v1/ciBuildRuns/run-42/builds" in s["requests"]')" = True
+	expect "mock: a build number not from the Release run (41, App Store eligible) is refused" 1 submit_against_mock number-foreign ASC_BUILD_NUMBER=41
+	expect "  says why" 0 grep -q "build 41 is not the build of a Release run of ios-v1.1.0" "$tmp/out"
+	expect "  nothing attached or submitted" 0 test "$(state 's["attached"], s["submitted"]')" = "(None, False)"
 	expect "mock: an internal-only build is refused" 1 submit_against_mock internal
 	expect "  says why" 0 grep -q "internal-only build cannot be submitted" "$tmp/out"
 	expect "  nothing attached or submitted" 0 test "$(state 's["attached"], s["submitted"]')" = "(None, False)"
@@ -263,6 +294,13 @@ if command -v xcrun >/dev/null 2>&1; then
 	expect "  nothing attached or submitted" 0 test "$(state 's["attached"], s["submitted"]')" = "(None, False)"
 	expect "mock: a draft holding this version only is submitted" 0 submit_against_mock own-draft
 	expect "  no item added twice" 0 test "$(state 'len(s["items"]), s["submitted"]')" = "(1, True)"
+	expect "mock: another item added to the draft after it was read: not submitted" 1 submit_against_mock late-foreign
+	expect "  says why" 0 grep -q "now holds 1 other item" "$tmp/out"
+	expect "  nothing submitted" 0 test "$(state 's["submitted"]')" = False
+	expect "mock: an API error with a detail" 1 submit_against_mock error-detail ASC_PRIVATE_KEY="$(cat "$tmp/AuthKey_TEST.p8")"
+	cp "$tmp/out" "$tmp/submit-error.out"
+	expect "  shows the status, code and title" 0 grep -q "HTTP 403 - FORBIDDEN_ERROR: not allowed" "$tmp/submit-error.out"
+	expect "  never the detail, the key or the token" 0 no_secret_in "$tmp/submit-error.out"
 	expect "mock: version already waiting for review: nothing done" 0 submit_against_mock submitted
 	expect "  nothing attached" 0 test "$(state 's["attached"]')" = None
 	expect "ASC_API_BASE without ASC_TEST_MODE: refused before any request" 1 env -u ASC_TEST_MODE \

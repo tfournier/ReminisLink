@@ -122,7 +122,12 @@ rl_write_xcconfig() {
 }
 
 # rl_has_asc_key: whether the App Store Connect API key is set (secret
-# environment variables of the Xcode Cloud workflow).
+# environment variables of the Xcode Cloud workflow). Tests against a local
+# mock (ASC_TEST_MODE=1 and ASC_API_BASE) need no key: AppStoreConnect.swift
+# then signs with a throwaway key and checks the address itself.
 rl_has_asc_key() {
-	[ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] && { [ -n "${ASC_PRIVATE_KEY:-}" ] || [ -n "${ASC_PRIVATE_KEY_PATH:-}" ]; }
+	[ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ] && {
+		[ -n "${ASC_PRIVATE_KEY:-}" ] || [ -n "${ASC_PRIVATE_KEY_PATH:-}" ] ||
+			{ [ "${ASC_TEST_MODE:-}" = 1 ] && [ -n "${ASC_API_BASE:-}" ]; }
+	}
 }

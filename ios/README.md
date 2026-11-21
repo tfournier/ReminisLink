@@ -175,12 +175,10 @@ Tags (from `main`, `make ios-vX.Y.Z` or `make ios-vX.Y.Z-beta.N`, which tags
 never overlap, because Xcode Cloud tag conditions are prefixes only: each tag
 starts one workflow.
 
-
-
 | Tag | Workflow | Result |
 |---|---|---|
 | `ios-beta-v1.1.0-beta.1`, `ios-beta-v1.1.0-rc.1` | Beta | version 1.1.0, new build, TestFlight only |
-| `ios-v1.1.0` | Release, then Submit | version 1.1.0 prepared, submitted to App Review, released automatically once approved |
+| `ios-v1.1.0` | Release (then Submit, started by hand) | version 1.1.0 prepared; once Submit has run, submitted to App Review and released automatically once approved |
 
 The scripts of `ci_scripts/` (Xcode Cloud runs them by name; nothing to
 set in Xcode):
@@ -191,29 +189,36 @@ set in Xcode):
   `CI_BUILD_NUMBER`. They stop the build when the tag is malformed, when the
   **Release** workflow gets a pre-release tag (a beta never reaches App
   Review), when the **Beta** workflow gets a release tag, and when
-  `CHANGELOG.md` has no `## X.Y.Z` section for a release. Xcode Cloud's tag
-  patterns cannot exclude a suffix: a beta tag also starts the Release
-  workflow, which fails at once on purpose (red run, nothing built or
-  uploaded). Ignore it.
+  `CHANGELOG.md` has no `## X.Y.Z` section for a release. A tag
+  `ios-beta-v…` starts the Beta workflow only (the prefix `ios-v` of Release
+  cannot match it); these checks are a second guard.
 - `ci_post_xcodebuild.sh` (Release workflow, after the archive): creates the
   App Store version `X.Y.Z` if needed, sets its "What's New" (English and
   French, from `CHANGELOG.md`) and "Automatically release this version",
-  through the App Store Connect API.
+  through the App Store Connect API. For a tagged archive it fails when
+  Xcode Cloud's metadata (`CI_WORKFLOW`, `CI_BUILD_NUMBER`,
+  `CI_XCODEBUILD_EXIT_CODE`) is missing; a failed archive prepares nothing.
 - **Why a separate Submit workflow**: the archive is uploaded to App Store
   Connect by Xcode Cloud *after* `ci_post_xcodebuild.sh`, and Apple then
   processes it (5 to 30 minutes), so the Release workflow cannot attach and
-  submit its own build. The Submit workflow runs `submit_for_review.sh`
-  from `ci_post_clone.sh`. It waits (90 minutes at most,
+  submit its own build. The Submit workflow, started by hand on the release
+  tag once TestFlight shows the build of the Release run, runs
+  `submit_for_review.sh` from `ci_post_clone.sh`. It waits (90 minutes at most,
   `ASC_WAIT_MINUTES`) for **the build of the Release run of that tag**:
   through the Xcode Cloud API it finds the newest run of the Release
   workflow on `ios-vX.Y.Z`, waits for it to succeed, and takes the build
   that run uploaded (its build number is the run number), never just the
-  newest upload of `X.Y.Z` (a TestFlight beta has the same version). The
+  newest upload of `X.Y.Z` (a TestFlight beta or a manual upload has the
+  same version). `ASC_BUILD_NUMBER`, when set, only chooses which Release
+  run of the tag (a re-run): a number that is not the build of a Release run
+  of the tag is refused, nothing is attached or submitted. The
   build must be processed, App Store eligible (not TestFlight internal
   only), not expired, with its export compliance answered. It then attaches
   the build and submits the version alone: if a draft submission of the app
   already holds anything else, it stops without submitting (submit or remove
-  those items by hand first). It does nothing for a pre-release tag, and
+  those items by hand first). It reads the draft's items again right before
+  submitting and stops if anything else appeared: **nobody should edit the
+  app's draft submission in App Store Connect while Submit runs**. It does nothing for a pre-release tag, and
   nothing when the version is already submitted. Its build action only
   carries the script.
 - Without the API key, these scripts print the steps to do by hand in App
@@ -230,16 +235,20 @@ run by the CI) tests the scripts with fake `CI_TAG`, `CI_WORKFLOW` and
 publication with a fake `gh`, and, on a Mac, the API client: its offline
 self-test and whole submissions against a local mock of the API
 (`scripts/release-tests/asc_mock.py`: a Release build arriving after a
-processed beta of the same version, an internal-only build, a draft
-submission holding another item).
+processed beta of the same version, runs on two pages, a build number of the
+Release run and one of another origin, an internal-only build, a draft
+submission holding another item before or right before submitting, an error
+whose detail must not be printed). In that test mode the client signs with a
+throwaway key it makes itself and never reads `ASC_PRIVATE_KEY`.
 
 **One-time setup (by the account holder):**
 
 1. **App Store Connect API key.** App Store Connect > *Users and Access >
    Integrations > App Store Connect API > Team Keys > +*: name
    "ReminisLink Xcode Cloud", access **App Manager** (it must read Xcode
-   Cloud builds; if the Submit workflow reports it cannot, use **Admin**, or
-   set `ASC_BUILD_NUMBER`, see below). Download the `.p8`
+   Cloud builds; if the Submit workflow reports it cannot, use **Admin**:
+   Submit always checks the Release run through the Xcode Cloud API).
+   Download the `.p8`
    file (only once) and note the *Key ID* and the *Issuer ID*. Keep the file
    out of the repository.
 2. **Xcode Cloud and GitHub.** In Xcode, *Integrate > Create Workflow* (or
@@ -269,12 +278,11 @@ submission holding another item).
      `ASC_PRIVATE_KEY` (the whole content of the `.p8` file, line breaks
      included or not).
 6. **Workflow "Submit"**:
-   - Start condition: *Manual Start*, tags with the prefix `ios-v` allowed
-     (Xcode Cloud needs a start condition). Once TestFlight shows the build
-     of the Release run, *Start Build* by hand on the tag. A *Tag Changes*
-     condition on the prefix `ios-v` instead submits with no manual step,
-     but the run waits for the Release build, using up to about an hour of
-     Xcode Cloud compute per release.
+   - Start condition: *Manual Start* only, tags with the prefix `ios-v`
+     allowed (Xcode Cloud needs a start condition). Once TestFlight shows
+     the build of the Release run, *Start Build* by hand on the release tag.
+     No *Tag Changes* condition: it would start Submit together with Release
+     on the same tag.
    - Action: *Build*, iOS (the cheapest action; only the script matters).
    - The same three secret environment variables.
 7. **App Review information** (notes, contact, demo mode) is copied by App
@@ -283,9 +291,10 @@ submission holding another item).
 
 By hand on a Mac, the same submission. Replace the values (the Key ID, the
 Issuer ID and the path of the `.p8` file); the key itself stays in its file.
-`ASC_BUILD_NUMBER` is the build number of the Release run of the tag (shown
-in Xcode Cloud and in TestFlight); without it the script finds that run
-through the Xcode Cloud API:
+The script always finds the Release run of the tag through the Xcode Cloud
+API. `ASC_BUILD_NUMBER` is optional: the build number of one Release run of
+the tag (shown in Xcode Cloud), to choose it when the tag was built more than
+once; any other number is refused:
 
 ```sh
 export ASC_KEY_ID='ABC123DEFG'
