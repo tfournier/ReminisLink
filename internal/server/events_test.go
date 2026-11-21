@@ -224,6 +224,7 @@ var changeExempt = map[string]bool{
 	"POST " + Prefix + "/paks/install":   true, // the job publishes on success
 	// M19: the import job publishes on success (its result has a gameId).
 	"POST " + Prefix + "/archives/{stagingId}/import": true,
+	"DELETE " + Prefix + "/archives/{stagingId}":      true, // the staging area only
 }
 
 // Every write route (M13: every former M10 write route) publishes a library

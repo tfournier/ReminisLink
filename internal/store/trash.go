@@ -363,6 +363,10 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 // Recover rolls back or keeps (never purged before). Called with t.mu held.
 func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []installRecord) (MoveResult, string, entryFile, error) {
 	planned, err := t.plan(items)
+	if errors.Is(err, ErrNothingToMove) && len(installs) > 0 {
+		// A journal of installs only (M19): nothing is moved.
+		planned, err = nil, nil
+	}
 	if err != nil {
 		return MoveResult{}, "", entryFile{}, err
 	}
@@ -821,6 +825,11 @@ func (t *Trash) Recover() error {
 			continue
 		}
 		if e.State == stateDone {
+			if len(e.Moves) == 0 && len(e.Installs) > 0 {
+				// The journal of an installation that replaced nothing
+				// (M19), left by a stop before its removal.
+				t.removeInstallJournal(dir, e)
+			}
 			continue
 		}
 		if e.State == stateInstalling {

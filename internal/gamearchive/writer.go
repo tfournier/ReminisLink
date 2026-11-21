@@ -2,6 +2,7 @@ package gamearchive
 
 import (
 	"archive/zip"
+	"compress/flate"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -50,15 +51,68 @@ func (w *Writer) entryPath(role string, slot *int, name string) string {
 	return p
 }
 
+// AddFile writes the first size bytes of r as a file of the archive,
+// deflated unless that would compress it more than an import accepts
+// (MaxRatio, Codex review: a big state full of zeros), then stored.
+func (w *Writer) AddFile(role string, slot *int, name string, modified time.Time, r io.ReadSeeker, size int64) (File, error) {
+	method := methodFor(role)
+	if method == zip.Deflate && size > RatioMinBytes {
+		compressed, err := deflatedSize(io.LimitReader(r, size))
+		if err != nil {
+			return File{}, err
+		}
+		if _, err := r.Seek(0, io.SeekStart); err != nil {
+			return File{}, err
+		}
+		if compressed*MaxRatio < size {
+			method = zip.Store
+		}
+	}
+	return w.add(role, slot, name, modified, io.LimitReader(r, size), method)
+}
+
 // Add writes the content of r as a file of the archive. name is its name
-// on the console (informative); modified its date.
+// on the console (informative); modified its date. Use AddFile for a file
+// larger than RatioMinBytes.
 func (w *Writer) Add(role string, slot *int, name string, modified time.Time, r io.Reader) (File, error) {
+	return w.add(role, slot, name, modified, r, methodFor(role))
+}
+
+// methodFor is the compression of a role: none for what is already
+// compressed (images) or large (ROM).
+func methodFor(role string) uint16 {
+	if role == RoleROM || role == RoleArt || role == RoleStateThumbnail {
+		return zip.Store
+	}
+	return zip.Deflate
+}
+
+// deflatedSize is the size of r once deflated (what the zip writer makes).
+func deflatedSize(r io.Reader) (int64, error) {
+	var c countWriter
+	fw, err := flate.NewWriter(&c, flate.DefaultCompression)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := io.Copy(fw, r); err != nil {
+		return 0, err
+	}
+	if err := fw.Close(); err != nil {
+		return 0, err
+	}
+	return int64(c), nil
+}
+
+type countWriter int64
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	*c += countWriter(len(p))
+	return len(p), nil
+}
+
+func (w *Writer) add(role string, slot *int, name string, modified time.Time, r io.Reader, method uint16) (File, error) {
 	if !knownRole(role) || slotted(role) != (slot != nil) {
 		return File{}, fmt.Errorf("gamearchive: invalid role %q", role)
-	}
-	method := zip.Deflate
-	if role == RoleROM || role == RoleArt || role == RoleStateThumbnail {
-		method = zip.Store // already compressed, or large
 	}
 	p := w.entryPath(role, slot, name)
 	hdr := &zip.FileHeader{Name: p, Method: method, Modified: modified.UTC()}

@@ -32,6 +32,12 @@ const (
 // (archive/zip reads headers until a bad one and only compares the
 // count modulo 65536). A file without an end record is not a zip.
 func CheckDirectory(r io.ReaderAt, size int64) error {
+	return CheckDirectoryLimit(r, size, MaxEntries)
+}
+
+// CheckDirectoryLimit is CheckDirectory with another entry limit (the
+// game archives of M19 allow fewer entries).
+func CheckDirectoryLimit(r io.ReaderAt, size int64, maxEntries uint64) error {
 	endAt, end, err := findEnd(r, size)
 	if err != nil {
 		return err
@@ -53,8 +59,8 @@ func CheckDirectory(r io.ReaderAt, size int64) error {
 	}
 	// archive/zip preallocates from the declared count (when the file
 	// could hold it): never more than the entries allowed.
-	if entries > MaxEntries && entries != 0xffff {
-		return refuse("more than %d entries", MaxEntries)
+	if entries > maxEntries && entries != 0xffff {
+		return refuse("more than %d entries", maxEntries)
 	}
 	if dirSize > 1<<62 || dirOffset > 1<<62 {
 		return refuse("not a zip archive")
@@ -68,17 +74,17 @@ func CheckDirectory(r io.ReaderAt, size int64) error {
 	// header parses there, else at the recomputed one: both candidates
 	// are walked, so whichever it reads is bounded.
 	if base > 0 && int64(dirOffset) < size && isDirHeader(r, int64(dirOffset)) {
-		if err := walkDirectory(r, size, int64(dirOffset)); err != nil {
+		if err := walkDirectory(r, size, int64(dirOffset), maxEntries); err != nil {
 			return err
 		}
 	}
-	return walkDirectory(r, size, start)
+	return walkDirectory(r, size, start, maxEntries)
 }
 
 // walkDirectory counts the central directory headers from start as
 // archive/zip reads them (until a bad one), reading at most one header
 // beyond MaxDirectoryBytes.
-func walkDirectory(r io.ReaderAt, size, start int64) error {
+func walkDirectory(r io.ReaderAt, size, start int64, maxEntries uint64) error {
 	limit := min(size-start, int64(MaxDirectoryBytes+dirHeaderLen+1))
 	br := bufio.NewReader(io.NewSectionReader(r, start, limit))
 	var count, total int64
@@ -93,8 +99,8 @@ func walkDirectory(r io.ReaderAt, size, start int64) error {
 		if total > MaxDirectoryBytes {
 			return refuse("central directory larger than %d bytes", MaxDirectoryBytes)
 		}
-		if count++; count > MaxEntries {
-			return refuse("more than %d entries", MaxEntries)
+		if count++; uint64(count) > maxEntries {
+			return refuse("more than %d entries", maxEntries)
 		}
 		if _, err := br.Discard(int(n)); err != nil {
 			break // truncated: archive/zip stops there too

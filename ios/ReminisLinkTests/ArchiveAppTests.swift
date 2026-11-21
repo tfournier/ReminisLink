@@ -104,6 +104,11 @@ struct ArchiveAppTests {
         await waitFor(flow) { !$0.isFailed && $0 != .ready }
         #expect(flow.step == .failed(.invalidArchive))
         #expect(!AppError.invalidArchive.message.isEmpty && AppError.invalidArchive.action == nil)
+        // The refused archive leaves the console at once (Codex review).
+        for _ in 0..<100 where !pak.log.contains(where: { $0.method == "DELETE" && $0.path.contains("/archives/") }) {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(pak.log.contains { $0.method == "DELETE" && $0.path.contains("/archives/") })
     }
 
     @Test func theSyncVersionsTheStatesWithTheSaves() async throws {
@@ -129,6 +134,23 @@ struct ArchiveAppTests {
         let unlocked = try #require(versions.first { $0.info.slot != 0 } ?? versions.first)
         let item = try await app.session(for: pak.deviceId).restore(unlocked, gameId: skyGarden, gameName: "Thistledown Isles", from: vault)
         #expect(item.target == .state(gameId: skyGarden, slot: unlocked.info.slot))
+    }
+
+    @Test func closingThePreviewDeletesTheArchive() async throws {
+        let pak = makePak()
+        let app = try await app([pak])
+        let session = app.session(for: pak.deviceId)
+        let exported = try await session.downloadGameArchive(gameId: skyGarden, includeROM: false, progress: FileDownload(fileId: "a", expected: nil))
+        let flow = ArchiveImportFlow(session: session, target: nil)
+        flow.start(with: try await PickedFile.copy(exported.file.url, into: app.transferDirectory))
+        await waitFor(flow) { $0 != .ready && !$0.isFailed }
+        #expect(flow.step == .ready)
+        flow.abandon()
+        for _ in 0..<100 where !pak.log.contains(where: { $0.method == "DELETE" && $0.path.contains("/archives/") }) {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(pak.log.contains { $0.method == "DELETE" && $0.path.contains("/archives/") })
+        #expect(BackupRow.title(SaveBackup(id: "b", label: nil, createdAt: Date(), sizeBytes: 1, reason: .beforeImport)) == String(localized: "Before import"))
     }
 
     @Test func aSharedArchiveOpensTheImportScreen() async throws {

@@ -633,6 +633,28 @@ public actor APIClient {
         try await signedJSON(method: "GET", segments: ["archives", stagingId], query: target?.query ?? [])
     }
 
+    /// `DELETE /archives/{stagingId}`: the app abandons an import; the
+    /// archive leaves the console's staging area at once.
+    public func deleteStagedArchive(stagingId: String) async throws {
+        let (data, response) = try await performSigned(method: "DELETE", segments: ["archives", stagingId])
+        try check(response, data: data, accept: [204])
+    }
+
+    /// Whether the pak has the archive routes (M19), asked before an
+    /// archive is sent: a well-formed staging id that does not exist gets
+    /// `404 not_found` from an M19 pak, and `404 No such route` or `405`
+    /// from an older one.
+    public func supportsGameArchives() async throws -> Bool {
+        let (data, response) = try await performSigned(method: "GET", segments: ["archives", "st_19700101T000000Z_00000000"])
+        if response.statusCode == 405 { return false }
+        if response.statusCode == 404 {
+            let message = Self.serverError(response, data: data)?.message ?? ""
+            return !message.localizedCaseInsensitiveContains("route")
+        }
+        try check(response, data: data, accept: [200])
+        return true
+    }
+
     /// `POST /archives/{stagingId}/import`: queues an `archive-import` job.
     public func importArchive(stagingId: String, target: ArchiveTarget) async throws -> JobAccepted {
         try await signedJSON(

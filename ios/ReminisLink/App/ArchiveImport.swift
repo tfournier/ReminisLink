@@ -139,6 +139,12 @@ final class ArchiveImportFlow {
         let session = session
         task = Task { [weak self] in
             do {
+                // A pak older than M19 says so before the archive is sent
+                // (Codex review).
+                guard try await session.perform({ try await $0.supportsGameArchives() }) else {
+                    file.remove()
+                    throw AppError.archivesNeedNewerPak
+                }
                 let id = try await session.stageArchive(file) { [weak self] offset in
                     await self?.reportSent(offset, of: size)
                 }
@@ -228,11 +234,31 @@ final class ArchiveImportFlow {
         }
         let error = AppError.archive(error)
         if !error.isCancellation { step = .failed(error) }
+        // A refused archive will not be imported: off the card at once.
+        if error == .invalidArchive { discardStaging() }
     }
 
-    func cancel() {
+    /// The screen closes: whatever runs on the app side stops, and an
+    /// archive sent but not imported leaves the console's staging area
+    /// (`DELETE /archives/{stagingId}`, Codex review). A running import
+    /// keeps it (the console deletes it when the import succeeds).
+    func abandon() {
         task?.cancel()
         task = nil
+        switch step {
+        case .succeeded, .starting, .importing: return
+        default: discardStaging()
+        }
+    }
+
+    private func discardStaging() {
+        guard let stagingId else { return }
+        self.stagingId = nil
+        let session = session
+        Task {
+            // Best effort: the console purges its staging area after 24 h.
+            _ = try? await session.perform { try await $0.deleteStagedArchive(stagingId: stagingId) }
+        }
     }
 }
 

@@ -377,6 +377,7 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/games/{gameId}/archive", auth.RouteJSON, s.handleExportArchive)
 	signed("GET "+Prefix+"/archives/{stagingId}", auth.RouteJSON, s.handleInspectArchive)
 	reg("POST "+Prefix+"/archives/{stagingId}/import", auth.RouteJSON, writeInstall, false, s.handleImportArchive)
+	reg("DELETE "+Prefix+"/archives/{stagingId}", auth.RouteJSON, writeStaging, false, s.handleDeleteArchive)
 
 	// Paks (M12). The deletion runs under the write lock; an installation
 	// is a job that waits for it at its install step. Both publish a paks

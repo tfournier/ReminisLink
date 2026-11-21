@@ -37,7 +37,10 @@ var ErrReplaceFailed = errors.New("trash: replacement left for the next start")
 // error, everything is put back before returning; if even that fails,
 // ErrReplaceFailed is returned and the next start finishes the job.
 //
-// Without items (nothing to replace), the installs are plain renames.
+// Without items (nothing to replace), the installs are journaled the
+// same way (M19, Codex review: a power cut between two renames must not
+// leave half of them in place); the entry, empty, is removed once every
+// install is in place, and never listed.
 // The installs must not overwrite an existing file that is not in items.
 func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Install) (MoveResult, error) {
 	if !validReasons[reason] {
@@ -61,15 +64,6 @@ func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Insta
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(items) == 0 {
-		for i, r := range records {
-			if renamed, err := t.installOne(sd, r); err != nil {
-				t.uninstall(sd, records[:doneUpTo(i, renamed)])
-				return MoveResult{}, err
-			}
-		}
-		return MoveResult{Moved: []string{}}, nil
-	}
 	res, entryDir, e, err := t.moveLocked(reason, label, items, records)
 	if err != nil {
 		return MoveResult{}, err
@@ -91,6 +85,12 @@ func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Insta
 		}
 		t.log.Error("trash: replacement interrupted, finished at the next start", "entry", e.ID, "error", err)
 		return MoveResult{}, fmt.Errorf("%w: install %s: %v", ErrReplaceFailed, r.Dst, err)
+	}
+	if len(e.Moves) == 0 {
+		// Nothing was replaced: the journal is no longer needed.
+		t.removeInstallJournal(entryDir, e)
+		t.log.Info("installed", "reason", reason, "label", label, "installed", len(records))
+		return MoveResult{Moved: []string{}}, nil
 	}
 	e.State = stateDone
 	if err := t.saveEntry(entryDir, e); err != nil {
@@ -252,6 +252,11 @@ func (t *Trash) recoverInstall(dir, sd string, e *entryFile) error {
 		}
 	}
 	if finish {
+		if len(e.Moves) == 0 {
+			t.removeInstallJournal(dir, *e)
+			t.log.Info("trash: interrupted installation finished", "entry", e.ID)
+			return nil
+		}
 		e.State = stateDone
 		if err := t.saveEntry(dir, *e); err != nil {
 			return err
@@ -308,4 +313,16 @@ func (t *Trash) PendingSources() map[string]bool {
 		}
 	}
 	return out
+}
+
+// removeInstallJournal removes the journal of a replacement that moved
+// nothing (only installs), once every install is in place: such an entry
+// is never listed. A failure leaves it "installing" (or "done" with
+// nothing moved), which Recover finishes or removes at the next start.
+func (t *Trash) removeInstallJournal(entryDir string, e entryFile) {
+	if err := os.RemoveAll(entryDir); err != nil {
+		t.log.Warn("trash: cannot remove the journal of an installation", "entry", e.ID, "error", err)
+		return
+	}
+	_ = t.syncDir(filepath.Dir(entryDir))
 }

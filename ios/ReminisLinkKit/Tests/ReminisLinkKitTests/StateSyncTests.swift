@@ -246,3 +246,72 @@ struct StateSyncTests {
         #expect(FileSaveVault.stateVersionName(Date(timeIntervalSince1970: 0), slot: 4, timeZone: TimeZone(identifier: "UTC")!) == "1970-01-01 00.00.00 state 4")
     }
 }
+
+/// Codex review of M19: the states come after the saves; their failure
+/// never loses the saves already copied.
+@Suite("State sync failures (M19)")
+struct StateSyncFailureTests {
+    @Test func aStateListingTimeoutKeepsTheSaves() async throws {
+        let sandbox = try VaultSandbox()
+        let source = StubStateSource(saves: [.entry("g1", name: "Sky", save: "s")], states: [])
+        source.listingError = .network(.timedOut)
+        let report = try await SaveSync(console: brick, source: source, vault: sandbox.vault(), scratchDirectory: sandbox.base.appending(path: "Scratch")).run()
+        #expect(report.stored == ["g1"])
+        #expect(report.states?.listingError != nil && report.states?.stored.isEmpty == true)
+    }
+}
+
+/// Codex review of M19: a vault written by builds before and after M19.
+@Suite("Mixed vault (M9 and M19 builds)")
+struct MixedVaultTests {
+    let game = VaultGameInfo(gameId: "g1", systemId: "sys-gba", systemName: "Game Boy Advance (GBA)", name: "Sky")
+
+    func folder(_ sandbox: borrowing VaultSandbox) -> URL {
+        sandbox.root.appending(path: "My Brick/Game Boy Advance (GBA)/Sky")
+    }
+
+    /// A pre-M19 build only knows `.version.json`: its save rotation never
+    /// counts nor deletes a state version (no `.version.json` in it).
+    @Test func aSaveRotationLeavesTheStateVersions() async throws {
+        let sandbox = try VaultSandbox()
+        let clock = TestClock()
+        let vault = sandbox.vault(maxVersions: 2, clock: clock)
+        for n in 0..<2 {
+            _ = try await vault.addStateVersion(console: brick, game: game, slot: 0, state: try sandbox.input("Sky.gba.st0", "s\(n)"), thumbnail: nil, modifiedAt: nil)
+        }
+        for n in 0..<5 {
+            _ = try await vault.addVersion(console: brick, game: game, save: try sandbox.input("Sky.gba.sav", "v\(n)"), rtc: nil, modifiedAt: nil)
+        }
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder(sandbox).path)
+        #expect(names.filter { $0.hasSuffix(" state 0") }.count == 2)
+        #expect(try await vault.versions(deviceId: brick.deviceId, gameId: "g1").count == 2)
+        // A state manifest is no save version for the old reader.
+        for name in names where name.hasSuffix(" state 0") {
+            #expect(!FileManager.default.fileExists(atPath: folder(sandbox).appending(path: "\(name)/.version.json").path))
+        }
+    }
+
+    /// An M19 rotation keeps an old state version not downloaded yet
+    /// (iCloud placeholder) and one whose thumbnail was changed by hand.
+    @Test func aStateRotationKeepsWhatItCannotCheck() async throws {
+        let sandbox = try VaultSandbox()
+        let clock = TestClock()
+        let vault = sandbox.vault(maxVersions: 2, clock: clock)
+        let first = try await vault.addStateVersion(console: brick, game: game, slot: 0, state: try sandbox.input("Sky.gba.st0", "a"),
+                                                    thumbnail: try sandbox.input("Sky.gba.st0.png", "pa"), modifiedAt: nil)
+        let second = try await vault.addStateVersion(console: brick, game: game, slot: 0, state: try sandbox.input("Sky.gba.st0", "b"),
+                                                     thumbnail: try sandbox.input("Sky.gba.st0.png", "pb"), modifiedAt: nil)
+        // The first: its state is an iCloud placeholder (not downloaded).
+        let firstFolder = folder(sandbox).appending(path: first.id)
+        try FileManager.default.removeItem(at: firstFolder.appending(path: "Sky.gba.st0"))
+        try Data().write(to: firstFolder.appending(path: ".Sky.gba.st0.icloud"))
+        // The second: its thumbnail changed by hand.
+        try Data("edited".utf8).write(to: folder(sandbox).appending(path: "\(second.id)/Sky.gba.st0.png"))
+        for n in 0..<3 {
+            _ = try await vault.addStateVersion(console: brick, game: game, slot: 0, state: try sandbox.input("Sky.gba.st0", "c\(n)"), thumbnail: nil, modifiedAt: nil)
+        }
+        let names = try FileManager.default.contentsOfDirectory(atPath: folder(sandbox).path)
+        #expect(names.contains(first.id) && names.contains(second.id))
+        #expect(names.filter { $0.hasSuffix(" state 0") }.count == 4) // 2 kept + the 2 newest
+    }
+}

@@ -534,6 +534,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             return inspectArchive(stagingId: s[1], params: params)
         case ("POST", let s) where s.count == 3 && s[0] == "archives" && s[2] == "import":
             return importArchive(stagingId: s[1], body: body)
+        case ("DELETE", let s) where s.count == 2 && s[0] == "archives":
+            return deleteStagedArchive(stagingId: s[1])
         case ("GET", let s) where s.count == 3 && s[0] == "systems" && s[2] == "games":
             return games(systemId: s[1], folderId: params["folderId"])
         case ("GET", ["games"]):

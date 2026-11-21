@@ -117,12 +117,17 @@ struct SyncReportView: View {
                     .foregroundStyle(.secondary)
             }
             if let states = report.states {
-                if states.stored.isEmpty {
+                if states.stored.isEmpty && states.listingError == nil {
                     Text("States up to date · states checked: \(states.total)")
                         .font(.footnote)
-                } else {
+                } else if !states.stored.isEmpty {
                     Text("New state versions: \(states.stored.count) · states checked: \(states.total)")
                         .font(.footnote)
+                }
+                if states.listingError != nil {
+                    Text("The states could not all be checked; the next sync tries again.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 if states.truncated {
                     Text("The console listed only its first 20,000 states.")

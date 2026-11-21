@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/gamearchive"
 	"github.com/tfournier/ReminisLink/internal/library"
@@ -313,3 +314,125 @@ func TestArchiveExportLeavesOutWhatAnImportRefuses(t *testing.T) {
 		t.Errorf("roles %v", got)
 	}
 }
+
+// archiveOf builds a game archive with the writer of the pak.
+func archiveOf(t *testing.T, src gamearchive.Source, files map[string][]byte, slots map[string]int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := gamearchive.NewWriter(&buf)
+	for role, data := range files {
+		var slot *int
+		if s, ok := slots[role]; ok {
+			slot = &s
+		}
+		r := role
+		if strings.HasPrefix(role, "state") {
+			r = strings.SplitN(role, "#", 2)[0]
+		}
+		if _, err := w.Add(r, slot, "x", time.Now(), bytes.NewReader(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(src, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func starlightSource() gamearchive.Source {
+	return gamearchive.Source{OS: "nextui", SystemTag: "GBA", SystemLabel: "Game Boy Advance",
+		GameName: "Starlight Courier", FileName: "Starlight Courier.gba", RomName: "Starlight Courier.gba", Kind: "file"}
+}
+
+// TestArchiveReviewFixes covers the Codex review of M19: the clock file
+// alone is backed up with its save, a new game never takes over the data
+// of a game of another folder, an abandoned archive can be deleted, a
+// game with nothing importable answers 404.
+func TestArchiveReviewFixes(t *testing.T) {
+	f := newFixture(t)
+	gameID := library.EncodeID(starlight)
+	rtcPath := "Saves/GBA/Starlight Courier.gba.rtc"
+	os.WriteFile(filepath.Join(f.sd, rtcPath), []byte("old clock"), 0o644)
+
+	// Only the clock file: the save/clock pair is backed up first.
+	id := f.stageFile("a.reminislink.zip", archiveOf(t, starlightSource(), map[string][]byte{"rtc": []byte("new clock")}, nil))
+	var accepted struct{ JobID string }
+	f.importArchive(id, map[string]any{"gameId": gameID}, http.StatusAccepted).JSON(t, &accepted)
+	j := f.waitJob(accepted.JobID)
+	if j.State != "succeeded" || j.Result["saveBackupId"] == nil {
+		t.Fatalf("clock only: %+v", j)
+	}
+	if f.read(rtcPath) != "new clock" {
+		t.Error("clock not imported")
+	}
+
+	// A new game in another folder whose ROM name is the one of an
+	// existing game: 409 with that game (they would share their data).
+	rom := []byte("rom bytes")
+	data := archiveOf(t, starlightSource(), map[string][]byte{"rom": rom, "save": []byte("s")}, nil)
+	id = f.stageFile("b.reminislink.zip", data)
+	hacks := library.EncodeID(gbaFolder + "/Hacks")
+	r := f.do(http.MethodGet, "/api/v1/archives/"+id+"?systemId="+url.QueryEscape(library.EncodeID(gbaFolder))+"&folderId="+url.QueryEscape(hacks), inspectPath, nil, http.StatusConflict)
+	if !strings.Contains(string(r.Body), gameID) {
+		t.Errorf("409 without the game sharing the data: %s", r.Body)
+	}
+
+	// The abandoned archive is deleted; a second delete is 404.
+	f.do(http.MethodDelete, "/api/v1/archives/"+id, inspectPath, nil, http.StatusNoContent)
+	f.do(http.MethodDelete, "/api/v1/archives/"+id, inspectPath, nil, http.StatusNotFound)
+	f.inspect(id, nil, http.StatusNotFound)
+
+	// Nothing importable (only an art that is not a PNG): 404, before any
+	// archive byte.
+	lantern := gbaFolder + "/Lantern Keeper [b1].gba"
+	os.WriteFile(filepath.Join(f.sd, "Roms", gbaFolder, ".media", "Lantern Keeper [b1].png"), []byte("GIF89a"), 0o644)
+	f.get(gamePath(lantern)+"/archive", archivePath, http.StatusNotFound)
+}
+
+// TestArchiveImportNeverWritesThroughALink: a folder of a destination
+// that is a link out of the card (desktop pak) is never followed.
+func TestArchiveImportNeverWritesThroughALink(t *testing.T) {
+	f := newFixture(t)
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	media := filepath.Join(f.sd, "Roms", gbaFolder, ".media")
+	os.RemoveAll(media)
+	if err := os.Symlink(outside, media); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	id := f.stageFile("c.reminislink.zip", archiveOf(t, starlightSource(), map[string][]byte{"art": png1x1}, nil))
+	var accepted struct{ JobID string }
+	f.importArchive(id, map[string]any{"gameId": library.EncodeID(starlight)}, http.StatusAccepted).JSON(t, &accepted)
+	if j := f.waitJob(accepted.JobID); j.State == "succeeded" {
+		t.Errorf("imported through a link: %+v", j)
+	}
+	if _, err := os.Lstat(outside); err == nil {
+		t.Error("a folder was made outside the card")
+	}
+}
+
+// TestStateSlotNamesAreCanonical: ".st01" is not slot 1, so the listing
+// announces the SHA-256 of the file the download serves.
+func TestStateSlotNamesAreCanonical(t *testing.T) {
+	f := newFixture(t)
+	os.WriteFile(filepath.Join(f.sd, ".userdata/shared/GBA-gpsp/Starlight Courier.gba.st01"), []byte("not slot 1"), 0o644)
+	var l struct {
+		States []struct {
+			GameID string `json:"gameId"`
+			Slot   int    `json:"slot"`
+			SHA256 string `json:"sha256"`
+		} `json:"states"`
+	}
+	f.get("/api/v1/states", "/states", http.StatusOK).JSON(t, &l)
+	for _, s := range l.States {
+		if s.GameID == library.EncodeID(starlight) && s.Slot == 1 && s.SHA256 != sha([]byte(f.read(starlightSt1))) {
+			t.Error("slot 1 hashed from another file than .st1")
+		}
+	}
+	arch, _ := f.export(starlight, false)
+	if !roles(arch)["state/1"] {
+		t.Error("state 1 missing")
+	}
+}
+
+// png1x1 starts with the PNG signature (what an import checks).
+var png1x1 = append([]byte("\x89PNG\r\n\x1a\n"), "IHDR"...)

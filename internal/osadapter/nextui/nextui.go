@@ -470,7 +470,10 @@ func parseState(name string) (rom string, slot int, ok bool) {
 		return "", 0, false
 	}
 	slot, err := strconv.Atoi(m[2])
-	if err != nil {
+	// One file per slot, named as NextUI names it (".st%d", no leading
+	// zero, M19 Codex review): ".st01" is not slot 1, so the listing, the
+	// download, the export and the import all mean the same file.
+	if err != nil || strconv.Itoa(slot) != m[2] {
 		return "", 0, false
 	}
 	return m[1], slot, true

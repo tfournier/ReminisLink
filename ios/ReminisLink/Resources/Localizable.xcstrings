@@ -905,6 +905,16 @@
         }
       }
     },
+    "Before import" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avant import"
+          }
+        }
+      }
+    },
     "Before patch" : {
       "localizations" : {
         "fr" : {
@@ -6067,6 +6077,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L’état est en cours d’envoi vers la console. Suis-le dans Transferts."
+          }
+        }
+      }
+    },
+    "The states could not all be checked; the next sync tries again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les états n’ont pas tous pu être vérifiés ; la prochaine synchronisation réessaiera."
           }
         }
       }

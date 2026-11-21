@@ -152,6 +152,7 @@ struct ArchiveImportView: View {
 
     private func makeFlow() -> ArchiveImportFlow? {
         guard let deviceId else { return nil }
+        flow?.abandon() // another archive: the previous one is dropped
         let target: ArchiveTarget? = context.gameId.map { .game(gameId: $0) }
         let next = ArchiveImportFlow(session: app.session(for: deviceId), target: target)
         flow = next
@@ -202,7 +203,7 @@ struct ArchiveImportView: View {
     }
 
     private func close() {
-        flow?.cancel()
+        flow?.abandon()
         pendingFile?.remove()
         dismiss()
     }

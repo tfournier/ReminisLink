@@ -118,6 +118,18 @@ public struct StateSyncReport: Sendable, Equatable {
     public let failures: [SaveSyncFailure]
     /// The console listed only its first 20000 states.
     public let truncated: Bool
+    /// The listing failed, or the console was lost during the states: the
+    /// states (or the rest of them) wait for the next sync.
+    public let listingError: SyncErrorBox?
+
+    public init(total: Int, stored: [String], unchanged: Int, failures: [SaveSyncFailure], truncated: Bool, listingError: SyncErrorBox? = nil) {
+        self.total = total
+        self.stored = stored
+        self.unchanged = unchanged
+        self.failures = failures
+        self.truncated = truncated
+        self.listingError = listingError
+    }
 }
 
 /// Copies the saves of a console that changed since their newest version
@@ -146,8 +158,6 @@ public struct SaveSync: Sendable {
     public func run(progress: @escaping @Sendable (SaveSyncProgress) -> Void = { _ in }) async throws -> SaveSyncReport {
         let list = try await source.saves()
         try Task.checkCancellation()
-        let stateList = try await listStates()
-        try Task.checkCancellation()
         // Folder names of the systems: label and tag, as two systems can
         // share a label (GBA and MGBA are both "Game Boy Advance"). Without
         // the list (a busy pak), the tag of the saves folder (`Saves/<TAG>/...`).
@@ -155,7 +165,7 @@ public struct SaveSync: Sendable {
             (try? await source.systems())?.map { ($0.id, Self.systemName($0)) } ?? [], uniquingKeysWith: { a, _ in a }
         )
 
-        var state = SaveSyncProgress(total: list.saves.count, statesTotal: stateList?.states.count ?? 0)
+        var state = SaveSyncProgress(total: list.saves.count)
         progress(state)
         var stored: [String] = []
         var unchanged = 0
@@ -180,14 +190,24 @@ public struct SaveSync: Sendable {
             progress(state)
         }
 
-        // States (M19): the same rules, one series of versions per slot.
+        // States (M19), after the saves: whatever happens to them, the
+        // saves already copied are reported (Codex review). The same
+        // rules, one series of versions per slot.
         var statesReport: StateSyncReport?
-        if let stateList, let stateSource = source as? any StateSyncSource {
+        let listing = await listStates()
+        if case .failed(let error) = listing {
+            if error is CancellationError { throw error }
+            statesReport = StateSyncReport(total: 0, stored: [], unchanged: 0, failures: [], truncated: false, listingError: SyncErrorBox(error))
+        }
+        if case .listed(let stateList) = listing, let stateSource = source as? any StateSyncSource {
+            state.statesTotal = stateList.states.count
+            progress(state)
+            var stopped: SyncErrorBox?
             var statesStored: [String] = []
             var statesUnchanged = 0
             var stateFailures: [SaveSyncFailure] = []
             var latestByGame: [String: [Int: StateVersion]] = [:]
-            for summary in stateList.states {
+            for summary in stateList.states where stopped == nil {
                 try Task.checkCancellation()
                 state.currentGame = summary.gameName
                 progress(state)
@@ -204,7 +224,10 @@ public struct SaveSync: Sendable {
                         statesUnchanged += 1
                     }
                 } catch {
-                    if Self.stopsSync(error) { throw error }
+                    if error is CancellationError { throw error }
+                    // Losing the console stops the states, not the report
+                    // of the saves.
+                    if Self.stopsSync(error) { stopped = SyncErrorBox(error) }
                     stateFailures.append(SaveSyncFailure(gameId: summary.gameId, gameName: summary.gameName, slot: summary.slot, error: error))
                 }
                 state.statesChecked += 1
@@ -213,7 +236,7 @@ public struct SaveSync: Sendable {
             }
             statesReport = StateSyncReport(
                 total: stateList.states.count, stored: statesStored, unchanged: statesUnchanged,
-                failures: stateFailures, truncated: stateList.truncated
+                failures: stateFailures, truncated: stateList.truncated, listingError: stopped
             )
         }
         return SaveSyncReport(
@@ -222,17 +245,26 @@ public struct SaveSync: Sendable {
         )
     }
 
-    /// `GET /states`, nil when the source has no states, the pak no route
-    /// (`404`, `405`: a pak older than M19) or the listing failed without
-    /// ending the sync (the saves are still synced; the next sync tries
-    /// again).
-    private func listStates() async throws -> StateList? {
-        guard let stateSource = source as? any StateSyncSource else { return nil }
+    private enum StateListing {
+        case unsupported
+        case listed(StateList)
+        case failed(any Error)
+    }
+
+    /// `GET /states`: unsupported when the source has no states or the pak
+    /// no route (`404`, `405`: a pak older than M19); a failure (a timeout,
+    /// the console lost) is reported with the saves, and the next sync
+    /// tries again.
+    private func listStates() async -> StateListing {
+        guard let stateSource = source as? any StateSyncSource else { return .unsupported }
         do {
-            return try await stateSource.allStates()
+            return .listed(try await stateSource.allStates())
+        } catch APIError.server(let error) where error.status == 404 || error.status == 405 {
+            return .unsupported
+        } catch APIError.unexpectedStatus(let status) where status == 404 || status == 405 {
+            return .unsupported
         } catch {
-            if Self.stopsSync(error) { throw error }
-            return nil
+            return .failed(error)
         }
     }
 

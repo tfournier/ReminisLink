@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -99,7 +98,38 @@ func (s *Server) handleExportArchive(w http.ResponseWriter, r *http.Request) {
 		}
 		files = append(files, archiveFile{role: f.Role, slot: f.Slot, fileID: f.FileID})
 	}
-	if len(files) == 0 {
+	roots := s.opts.Adapter.Roots()
+	open := func(af archiveFile) (*os.File, os.FileInfo, string, error) {
+		if af.thumb != "" {
+			f, fi, err := confine.OpenUnder(roots.Minui, af.thumb)
+			return f, fi, filepath.Base(af.thumb), err
+		}
+		return s.opts.Library.OpenFile(gameID, af.fileID)
+	}
+	// What an import would accept (size limit of its role, PNG images,
+	// readable cheats, the total), chosen before the status: a game with
+	// nothing importable answers 404 (Codex review).
+	var kept []archiveFile
+	var total int64
+	for _, af := range files {
+		f, fi, _, err := open(af)
+		if err != nil {
+			// Gone or refused since the listing: left out.
+			if errors.Is(err, confine.ErrOutside) {
+				s.log.Warn("archive: file refused", "role", af.role)
+			}
+			continue
+		}
+		ok := gamearchive.Exportable(af.role, fi.Size(), f) && total+fi.Size() <= gamearchive.MaxTotalBytes
+		f.Close()
+		if !ok {
+			s.log.Warn("archive: file left out", "role", af.role)
+			continue
+		}
+		total += fi.Size()
+		kept = append(kept, af)
+	}
+	if len(kept) == 0 {
 		auth.WriteError(w, http.StatusNotFound, CodeNotFound, "Nothing to export", nil)
 		return
 	}
@@ -122,38 +152,23 @@ func (s *Server) handleExportArchive(w http.ResponseWriter, r *http.Request) {
 	iw := &idleWriter{w: w, ctl: http.NewResponseController(w), timeout: s.timeouts.sendIdle}
 	defer func() { _ = iw.ctl.SetWriteDeadline(time.Time{}) }() // the connection may be reused
 	zw := gamearchive.NewWriter(iw)
-	roots := s.opts.Adapter.Roots()
-	var total int64
-	for _, af := range files {
+	total = 0
+	for _, af := range kept {
 		if r.Context().Err() != nil {
 			return
 		}
-		var f *os.File
-		var fi os.FileInfo
-		var fname string
-		if af.thumb != "" {
-			f, fi, err = confine.OpenUnder(roots.Minui, af.thumb)
-			fname = filepath.Base(af.thumb)
-		} else {
-			f, fi, fname, err = s.opts.Library.OpenFile(gameID, af.fileID)
-		}
+		f, fi, fname, err := open(af)
 		if err != nil {
-			// Gone or refused since the listing: left out.
-			if errors.Is(err, confine.ErrOutside) {
-				s.log.Warn("archive: file refused", "role", af.role)
-			}
 			continue
 		}
-		// A file an import would refuse (too large, an image that is not
-		// a PNG, an unreadable cheat file) is left out, as is anything
-		// beyond the total an import accepts.
+		// Checked again: the file may have changed since the first pass.
 		if !gamearchive.Exportable(af.role, fi.Size(), f) || total+fi.Size() > gamearchive.MaxTotalBytes {
 			f.Close()
 			s.log.Warn("archive: file left out", "role", af.role)
 			continue
 		}
 		total += fi.Size()
-		_, err = zw.Add(af.role, af.slot, fname, fi.ModTime(), io.LimitReader(f, fi.Size()))
+		_, err = zw.AddFile(af.role, af.slot, fname, fi.ModTime(), f, fi.Size())
 		f.Close()
 		if err != nil {
 			s.log.Warn("archive export interrupted", "error", err)
@@ -215,4 +230,15 @@ func (s *Server) handleImportArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.jobStarted(w, r, id)
+}
+
+// handleDeleteArchive is DELETE /archives/{stagingId}: the app abandons an
+// import.
+func (s *Server) handleDeleteArchive(w http.ResponseWriter, r *http.Request) {
+	apiErr, err := s.opts.Transfers.DeleteStagedArchive(r.PathValue("stagingId"))
+	if apiErr != nil || err != nil {
+		s.transferError(w, r, apiErr, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -18,26 +18,31 @@ struct FakeArchiveImport {
 
 /// A minimal zip writer and reader (stored entries only).
 enum FakeZip {
-    static func write(_ entries: [(name: String, data: Data)]) -> Data {
+    /// `deflate`: entries are deflated (as the real pak does for saves,
+    /// states, cheats and the manifest).
+    static func write(_ entries: [(name: String, data: Data)], deflate: Bool = false) -> Data {
         var out = Data()
         var central = Data()
         for entry in entries {
             let name = Data(entry.name.utf8)
             let crc = crc32(entry.data)
             let offset = UInt32(out.count)
+            let packed = deflate ? ((try? (entry.data as NSData).compressed(using: .zlib) as Data) ?? entry.data) : entry.data
+            let method: UInt16 = deflate && packed != entry.data ? 8 : 0
+            let body = method == 8 ? packed : entry.data
             var local = Data()
             local.append(le32(0x0403_4b50))
-            local.append(le16(20)); local.append(le16(0x0800)); local.append(le16(0)) // version, UTF-8 flag, stored
+            local.append(le16(20)); local.append(le16(0x0800)); local.append(le16(method)) // version, UTF-8 flag, method
             local.append(le16(0)); local.append(le16(0x21)) // time, date (1980-01-01)
-            local.append(le32(crc)); local.append(le32(UInt32(entry.data.count))); local.append(le32(UInt32(entry.data.count)))
+            local.append(le32(crc)); local.append(le32(UInt32(body.count))); local.append(le32(UInt32(entry.data.count)))
             local.append(le16(UInt16(name.count))); local.append(le16(0))
             local.append(name)
             out.append(local)
-            out.append(entry.data)
+            out.append(body)
             central.append(le32(0x0201_4b50))
-            central.append(le16(20)); central.append(le16(20)); central.append(le16(0x0800)); central.append(le16(0))
+            central.append(le16(20)); central.append(le16(20)); central.append(le16(0x0800)); central.append(le16(method))
             central.append(le16(0)); central.append(le16(0x21))
-            central.append(le32(crc)); central.append(le32(UInt32(entry.data.count))); central.append(le32(UInt32(entry.data.count)))
+            central.append(le32(crc)); central.append(le32(UInt32(body.count))); central.append(le32(UInt32(entry.data.count)))
             central.append(le16(UInt16(name.count))); central.append(le16(0)); central.append(le16(0))
             central.append(le16(0)); central.append(le16(0)); central.append(le32(0o100644 << 16))
             central.append(le32(offset))
@@ -52,29 +57,49 @@ enum FakeZip {
         return out
     }
 
-    /// The entries of a zip of stored entries, nil when it is not one.
+    /// The entries of a zip (stored or deflated entries, sizes from the
+    /// central directory, as the real pak exports them), nil when it is
+    /// not one or is damaged: never traps on a truncated or hostile file.
     static func read(_ data: Data) -> [String: Data]? {
         let bytes = [UInt8](data)
+        func u16(_ i: Int) -> Int? { i >= 0 && i + 2 <= bytes.count ? Int(bytes[i]) | Int(bytes[i + 1]) << 8 : nil }
+        func u32(_ i: Int) -> Int? {
+            guard let lo = u16(i), let hi = u16(i + 2) else { return nil }
+            return lo | hi << 16
+        }
         guard bytes.count >= 22 else { return nil }
-        func u16(_ i: Int) -> Int { i + 2 <= bytes.count ? Int(bytes[i]) | Int(bytes[i + 1]) << 8 : -1 }
-        func u32(_ i: Int) -> Int { i + 4 <= bytes.count ? u16(i) | u16(i + 2) << 16 : -1 }
-        guard let end = stride(from: bytes.count - 22, through: max(0, bytes.count - 22 - 65_535), by: -1)
-            .first(where: { u32($0) == 0x0605_4b50 }) else { return nil }
-        let count = u16(end + 10)
-        var p = u32(end + 16)
+        let lowest = max(0, bytes.count - 22 - 65_535)
+        guard let end = stride(from: bytes.count - 22, through: lowest, by: -1).first(where: { u32($0) == 0x0605_4b50 }),
+              let count = u16(end + 10), var p = u32(end + 16), count <= 512 else { return nil }
         var entries: [String: Data] = [:]
         for _ in 0..<count {
-            guard p >= 0, u32(p) == 0x0201_4b50 else { return nil }
-            let method = u16(p + 10), size = u32(p + 20), nameLength = u16(p + 28)
-            let extra = u16(p + 30), comment = u16(p + 32), local = u32(p + 42)
-            guard method == 0, p + 46 + nameLength <= bytes.count, local >= 0, u32(local) == 0x0403_4b50 else { return nil }
-            guard let name = String(bytes: bytes[(p + 46)..<(p + 46 + nameLength)], encoding: .utf8) else { return nil }
-            let start = local + 30 + u16(local + 26) + u16(local + 28)
-            guard start >= 0, start + size <= bytes.count, entries[name] == nil else { return nil }
-            entries[name] = Data(bytes[start..<(start + size)])
+            guard u32(p) == 0x0201_4b50, let method = u16(p + 10), let compressed = u32(p + 20), let size = u32(p + 24),
+                  let nameLength = u16(p + 28), let extra = u16(p + 30), let comment = u16(p + 32), let local = u32(p + 42),
+                  method == 0 || method == 8, size <= 64 << 20,
+                  p + 46 + nameLength <= bytes.count,
+                  let name = String(bytes: bytes[(p + 46)..<(p + 46 + nameLength)], encoding: .utf8),
+                  u32(local) == 0x0403_4b50, let localName = u16(local + 26), let localExtra = u16(local + 28)
+            else { return nil }
+            let start = local + 30 + localName + localExtra
+            guard start >= 0, compressed >= 0, start <= bytes.count, compressed <= bytes.count - start, entries[name] == nil else { return nil }
+            let raw = Data(bytes[start..<(start + compressed)])
+            if method == 0 {
+                guard compressed == size else { return nil }
+                entries[name] = raw
+            } else {
+                guard let inflated = inflate(raw, size: size) else { return nil }
+                entries[name] = inflated
+            }
             p += 46 + nameLength + extra + comment
         }
         return entries
+    }
+
+    /// Raw DEFLATE data inflated to exactly `size` bytes, nil otherwise.
+    private static func inflate(_ raw: Data, size: Int) -> Data? {
+        if size == 0 { return raw.isEmpty || raw == Data([0x03, 0x00]) ? Data() : nil }
+        guard let out = try? (raw as NSData).decompressed(using: .zlib) as Data, out.count == size else { return nil }
+        return out
     }
 
     static func crc32(_ data: Data) -> UInt32 {
@@ -313,6 +338,11 @@ extension FakePak {
         }
         guard let body = try? ProtocolJSON.encoder().encode(plan) else { return .error(500, code: "internal", message: "Internal error") }
         return FakeResponse(status: 200, headers: ["Content-Type": "application/json"], body: body)
+    }
+
+    func deleteStagedArchive(stagingId: String) -> FakeResponse {
+        let removed = lock.withLock { stagedFiles.removeValue(forKey: stagingId) != nil }
+        return removed ? FakeResponse(status: 204) : .error(404, code: "not_found", message: "Staging file not found")
     }
 
     func importArchive(stagingId: String, body: Data) -> FakeResponse {

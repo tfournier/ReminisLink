@@ -1,5 +1,5 @@
 import Foundation
-import ReminisLinkDemo
+@testable import ReminisLinkDemo
 import Testing
 @testable import ReminisLinkKit
 
@@ -120,5 +120,55 @@ struct ArchiveFakePakTests {
             let file = try await client.downloadStateThumbnail(gameId: skyGarden, slot: 0, into: folder)
             #expect(try FileDigest.sha256Sync(of: file.url) == thumbnail.sha256)
         }
+    }
+}
+
+/// Codex review of M19: the demo reads the archives of a real pak, never
+/// traps on a damaged one, and an abandoned archive is deleted.
+@Suite("Game archives: review fixes (M19)")
+struct ArchiveReviewTests {
+    /// An archive written by the pak's own writer (deflated save, state
+    /// and manifest, data descriptors).
+    static let realPakArchive = Data(base64Encoded: "UEsDBBQACAAIAABQdV0AAAAAAAAAAAAAAAAeAAkAc2F2ZS9UaGlzdGxlZG93biBJc2xlcy5oYWIuc2F2VVQFAAGgawFrKk4sS1UYJUaJUWJYE4ABAFBLBwgwLntkEAAAAOgDAABQSwMEFAAIAAgAAFB1XQAAAAAAAAAAAAAAACIACQBzdGF0ZXMvMi9UaGlzdGxlZG93biBJc2xlcy5oYWIuc3QyVVQFAAGgawFrKi5JLElVGCVHyVFylBwlR8mRSQIGAFBLBwgCQo4YFgAAAAgHAABQSwMEFAAIAAgAAFB1XQAAAAAAAAAAAAAAAA0ACQBtYW5pZmVzdC5qc29uVVQFAAGgawFrjJJPb9QwEMXv+yksn9nWfxon2dtyAglxWnEAcZjY48ZaJ6lib6Cgfnc02YQWKSsh5eLnN8/vN8rvHWPcD2MHmR8YH7ELfUgx9Of9I3S4h9G2YUL+jnwTjikMPT8wOZ/tiJDRHedRJZTZS7lX8iTFQdD39TqWhstokR8YPcYYdzgFi5+hI62/xEguxviQKKfHn/kS+KI9RchU71/nE5y//O3yJiE9p4zdCR4p6MNxDbnKn6DBOF9A71qMjh3dBL3F1UbASyt+akPKEd3wo2cfU8S0mnyIt013LTSrcRy6//KdQ++oFQXzHWMvpM8nWse3eQ3Xxc3guSVzggnvN2PvEkxL9Fwi4up/VVP4he+f8/yAFEK8XrSgCkMDRW0kaGudk8pKX1uPpnLSKrBNhdqYsrAPUOi6csZoLBsljVZWSFXqslENkSwsW/UzZEz36hZCVhsINPOGIQ7026ltqGoTSjqBvlbSKI+1A6i086KEqsDS6kKWdW0fbF01tRdGF+B0hZX10DjA0jjpF6gdY993L38GAFBLBwjhdUoakwEAADoDAABQSwECFAMUAAgACAAAUHVdMC57ZBAAAADoAwAAHgAJAAAAAAAAAAAApIEAAAAAc2F2ZS9UaGlzdGxlZG93biBJc2xlcy5oYWIuc2F2VVQFAAGgawFrUEsBAhQDFAAIAAgAAFB1XQJCjhgWAAAACAcAACIACQAAAAAAAAAAAKSBZQAAAHN0YXRlcy8yL1RoaXN0bGVkb3duIElzbGVzLmhhYi5zdDJVVAUAAaBrAWtQSwECFAMUAAgACAAAUHVd4XVKGpMBAAA6AwAADQAJAAAAAAAAAAAApIHUAAAAbWFuaWZlc3QuanNvblVUBQABoGsBa1BLBQYAAAAAAwADAPIAAACrAgAAAAA=")!
+
+    @Test func theDemoReadsAnArchiveOfARealPak() throws {
+        let entries = try #require(FakeZip.read(Self.realPakArchive))
+        #expect(entries["manifest.json"] != nil)
+        #expect(entries.values.contains(Data(String(repeating: "save ", count: 200).utf8)))
+        // Deflated by the fake pak too, and read back.
+        let written = FakeZip.write([("a", Data(repeating: 7, count: 5000)), ("b", Data("short".utf8))], deflate: true)
+        #expect(FakeZip.read(written)?["a"] == Data(repeating: 7, count: 5000))
+    }
+
+    @Test func aDamagedArchiveNeverTraps() {
+        let data = Self.realPakArchive
+        for n in stride(from: 0, to: data.count, by: 3) {
+            _ = FakeZip.read(data.prefix(n))
+        }
+        var flipped = data
+        for i in stride(from: 0, to: flipped.count, by: 5) {
+            flipped[i] ^= 0xFF
+            _ = FakeZip.read(flipped)
+            flipped[i] ^= 0xFF
+        }
+    }
+
+    @Test func anImportIntoTheDemoOfARealPakArchive() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let stagingId = try await PatchFakePakTests().stage(Self.realPakArchive, name: "Thistledown Isles.reminislink.zip", client: client)
+        let plan = try await client.inspectArchive(stagingId: stagingId, target: nil)
+        #expect(plan.target == .game(gameId: skyGarden))
+        // Abandoned: deleted at once; the probe of the routes still works.
+        try await client.deleteStagedArchive(stagingId: stagingId)
+        await #expect(throws: APIError.self) { try await client.inspectArchive(stagingId: stagingId, target: nil) }
+        #expect(try await client.supportsGameArchives())
+    }
+
+    @Test func anOlderPakHasNoArchiveRoutes() async throws {
+        let client = stubClient { _, _ in .error(404, code: "not_found", message: "No such route") }
+        #expect(try await !client.supportsGameArchives())
+        let other = stubClient { _, _ in FakeResponse(status: 405) }
+        #expect(try await !other.supportsGameArchives())
     }
 }

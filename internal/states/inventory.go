@@ -232,7 +232,14 @@ func (r *inventoryRun) game(g osadapter.Game, refs []osadapter.StateRef) error {
 		if len(r.listing.States) >= maxListedStates {
 			return errListFull
 		}
-		fi, sum, err := r.hash(roots.States, ref.File.Path, false)
+		// The file the download of this slot serves (statePath: the
+		// adapter's name, matched ignoring case), so that the SHA-256
+		// listed is the one of the bytes downloaded (Codex review).
+		p, found := r.s.statePath(g, slot)
+		if !found {
+			continue
+		}
+		fi, sum, err := r.hash(roots.States, p, false)
 		if errors.Is(err, errFileSkipped) {
 			continue
 		}

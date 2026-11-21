@@ -57,7 +57,7 @@ func (a *Archive) Find(role string, slot *int) *Entry {
 func Open(r io.ReaderAt, size int64) (*Archive, error) {
 	// The central directory is bounded (entries and size, read from the
 	// end records) before archive/zip reads it.
-	if err := paks.CheckDirectory(r, size); err != nil {
+	if err := paks.CheckDirectoryLimit(r, size, MaxEntries); err != nil {
 		if fe, ok := paks.IsFormatError(err); ok {
 			return nil, refuse("%s", fe.Reason)
 		}
@@ -69,6 +69,9 @@ func Open(r io.ReaderAt, size int64) (*Archive, error) {
 	}
 	if len(zr.File) > MaxEntries {
 		return nil, refuse("more than %d entries", MaxEntries)
+	}
+	if err := checkLayout(r, size, zr.File); err != nil {
+		return nil, err
 	}
 	files := map[string]*zip.File{} // lowercase path → file entry
 	seen := map[string]bool{}       // lowercase path of every entry
@@ -184,6 +187,9 @@ func readManifest(f *zip.File) (Manifest, error) {
 	// (a newer version adds them), but every known one must have its type.
 	if err := json.Unmarshal(data, &m); err != nil {
 		return m, refuse("unreadable %s", ManifestName)
+	}
+	if err := checkRequired(data); err != nil {
+		return m, err
 	}
 	switch {
 	case m.Format != FormatName:
@@ -336,3 +342,40 @@ func (a *Archive) Extract(ctx context.Context, e Entry, dst string, progress fun
 
 // PNG reports whether data starts with the PNG signature.
 func PNG(data []byte) bool { return bytes.HasPrefix(data, []byte(pngSignature)) }
+
+// checkRequired checks that the required fields of the manifest are
+// present and not null (GameArchiveManifest, GameArchiveSource,
+// GameArchiveFile): a missing field would read as its zero value (Codex
+// review).
+func checkRequired(data []byte) error {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(data, &top); err != nil {
+		return refuse("unreadable %s", ManifestName)
+	}
+	present := func(o map[string]json.RawMessage, keys ...string) bool {
+		for _, k := range keys {
+			if v, ok := o[k]; !ok || string(v) == "null" {
+				return false
+			}
+		}
+		return true
+	}
+	if !present(top, "format", "version", "createdAt", "source", "files") {
+		return refuse("a required field is missing in %s", ManifestName)
+	}
+	var source map[string]json.RawMessage
+	if json.Unmarshal(top["source"], &source) != nil ||
+		!present(source, "os", "systemTag", "systemLabel", "gameName", "fileName", "romName", "kind") {
+		return refuse("a required field is missing in %s", ManifestName)
+	}
+	var files []map[string]json.RawMessage
+	if json.Unmarshal(top["files"], &files) != nil {
+		return refuse("unreadable %s", ManifestName)
+	}
+	for _, f := range files {
+		if !present(f, "path", "role", "sizeBytes", "sha256") {
+			return refuse("a required field is missing in %s", ManifestName)
+		}
+	}
+	return nil
+}

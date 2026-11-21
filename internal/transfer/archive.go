@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -54,6 +55,41 @@ const (
 
 // archiveTempPrefix names the extracted files in the uploads folder.
 const archiveTempPrefix = "ar_"
+
+// busyArchives are the staging entries an import job is using (a
+// DELETE /archives/{stagingId} then answers 409).
+var (
+	busyArchivesMu sync.Mutex
+	busyArchives   = map[string]int{}
+)
+
+func markArchive(stagingID string, delta int) {
+	busyArchivesMu.Lock()
+	defer busyArchivesMu.Unlock()
+	if busyArchives[stagingID] += delta; busyArchives[stagingID] <= 0 {
+		delete(busyArchives, stagingID)
+	}
+}
+
+// DeleteStagedArchive deletes a staging entry the app abandoned
+// (DELETE /archives/{stagingId}): 404 when unknown, 409 while an import
+// job uses it.
+func (s *Service) DeleteStagedArchive(stagingID string) (*Error, error) {
+	p, err := s.StagingFile(stagingID)
+	if err != nil {
+		return notFound("Staging file not found"), nil
+	}
+	busyArchivesMu.Lock()
+	defer busyArchivesMu.Unlock()
+	if busyArchives[stagingID] > 0 {
+		return newError(http.StatusConflict, CodeConflict, "An import is using this archive"), nil
+	}
+	if err := os.RemoveAll(filepath.Dir(p)); err != nil {
+		return nil, fmt.Errorf("staging: %w", err)
+	}
+	s.log.Info("staged archive deleted", "staging", stagingID)
+	return nil, nil
+}
 
 // ArchiveTarget is where an archive is imported (ArchiveTarget).
 type ArchiveTarget struct {
@@ -379,7 +415,25 @@ func (s *Service) romConflict(t *archiveTarget) *Error {
 	}
 	existing := findFold(t.dir, t.game.FileName)
 	if existing == "" {
-		return nil
+		// The data of a game are named after its ROM file name, whatever
+		// its folder: on NextUI, A/Zelda.gba and B/Zelda.gba of a system
+		// share their save, clock file and states. A new game must not
+		// take over the data of another one (Codex review): 409 with the
+		// game already tied to those data.
+		var other *osadapter.Game
+		_ = s.opts.Adapter.WalkGames(context.Background(), t.game.System, func(g osadapter.Game) error {
+			if strings.EqualFold(g.ROMName, t.game.ROMName) {
+				other = &g
+				return errFound
+			}
+			return nil
+		})
+		if other == nil {
+			return nil
+		}
+		e := s.conflictError(filepath.Join(s.opts.Adapter.Roots().Roms, filepath.FromSlash(other.Path)))
+		e.Details["gameId"] = library.EncodeID(other.Path)
+		return e
 	}
 	e := s.conflictError(filepath.Join(t.dir, existing))
 	if rel, err := s.opts.Library.RelToRoms(filepath.Join(t.dir, existing)); err == nil {
@@ -445,10 +499,13 @@ func (s *Service) StartArchiveImport(stagingID string, req ArchiveImportRequest,
 		return "", apiErr, nil
 	}
 	target := *req.Target
+	markArchive(stagingID, 1)
 	id, apiErr, err := s.submitGuarded(JobArchiveImport, t.label, guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
+		defer markArchive(stagingID, -1)
 		return s.runArchiveImport(ctx, stagingID, target, report)
 	})
 	if apiErr != nil || err != nil {
+		markArchive(stagingID, -1)
 		return "", apiErr, err
 	}
 	s.log.Info("archive import queued", "job", id, "game", t.game.Path, "new", t.newGame)
@@ -563,9 +620,12 @@ func (s *Service) runArchiveImport(ctx context.Context, stagingID string, target
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	// The staging entry is no longer needed.
+	// The staging entry is no longer needed; a failure to delete it is
+	// logged (the purge removes it after 24 h).
 	if p, err := s.StagingFile(stagingID); err == nil {
-		os.RemoveAll(filepath.Dir(p))
+		if err := os.RemoveAll(filepath.Dir(p)); err != nil {
+			s.log.Warn("archive import: cannot delete the staging entry", "staging", stagingID, "error", err)
+		}
 	}
 	return result, nil
 }
@@ -613,12 +673,13 @@ func (s *Service) installArchive(a *gamearchive.Archive, target ArchiveTarget, t
 				items = append(items, store.MoveItem{Path: p})
 			}
 		}
-		if it.entry.Role == gamearchive.RoleSave && it.plan.Action == ArchiveReplace {
+		// The save and its clock file are one pair: replacing either
+		// backs up both first (before-import, Codex review).
+		if (it.entry.Role == gamearchive.RoleSave || it.entry.Role == gamearchive.RoleRTC) && it.plan.Action == ArchiveReplace {
 			saveReplaced = true
 		}
-		if err := os.MkdirAll(filepath.Dir(it.dst), 0o755); err != nil {
-			return nil, nil, false, err
-		}
+		// The folders of the destination are made by Trash.Replace,
+		// confined to the card (never through a link, Codex review).
 		installs = append(installs, store.Install{Src: tmp, Dst: it.dst, Size: it.entry.SizeBytes, SHA256: it.entry.SHA256})
 	}
 	// A destination that is also moved away (a stale thumbnail of a state
