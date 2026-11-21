@@ -145,11 +145,13 @@ final class PatchUITests: XCTestCase {
                                     file: StaticString = #filePath, line: UInt = #line) {
         let title = app.staticTexts.matching(NSPredicate(format: "identifier == 'game.title' AND label == %@", name)).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: timeout), "not on the game \(name)", file: file, line: line)
-        XCTAssertTrue(app.buttons["patch.close"].waitForNonExistence(timeout: 10), "Patch screen still shown",
-                      file: file, line: line)
+        // The notice shows for 5 s only: look for it first, as soon as the
+        // game is shown (a slow CI runner spent that long on the next check).
         let notice = app.descendants(matching: .any)["notice"].firstMatch
         XCTAssertTrue(notice.waitForExistence(timeout: 3), "no notice", file: file, line: line)
         XCTAssertTrue(notice.label.contains("Patch applied"), notice.label, file: file, line: line)
+        XCTAssertTrue(app.buttons["patch.close"].waitForNonExistence(timeout: 10), "Patch screen still shown",
+                      file: file, line: line)
     }
 
     @MainActor
