@@ -35,7 +35,10 @@ final class PatchUITests: XCTestCase {
         // The patch of this game, replacing it.
         GameDataUITest.button(app, "patch.sdFile", containing: "Thistledown Isles (Translation).bps").tap()
         XCTAssertFalse(error.exists, "error kept after a new choice")
-        app.buttons["Replace the Game"].firstMatch.tapAfterWaiting()
+        // Below the fold in the shorter sheet of an iPad (M15).
+        let replace = app.buttons["Replace the Game"].firstMatch
+        XCTAssertTrue(GameDataUITest.scrollTo(replace, in: app), "no Replace the Game")
+        replace.tapAfterWaiting()
         XCTAssertTrue(app.descendants(matching: .any)["patch.replaceWarning"].firstMatch.waitForExistence(timeout: 5))
         app.buttons["patch.apply"].tapWhenEnabled()
         app.dialogButton("patch.replaceConfirm").tapAfterWaiting()

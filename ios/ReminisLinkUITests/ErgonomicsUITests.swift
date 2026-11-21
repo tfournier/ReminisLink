@@ -24,10 +24,10 @@ final class ErgonomicsUITests: XCTestCase {
     @MainActor
     func testTabBarOfAnOpenConsoleInDemoMode() throws {
         let app = launchPaired()
-        let tabs = app.tabBars.firstMatch
+        let tabs = app.consoleTabs
         XCTAssertTrue(tabs.waitForExistence(timeout: 15), "no tab bar")
         for name in ["Console", "Library", "Transfers", "Trash"] {
-            XCTAssertTrue(tabs.buttons[name].exists, "no \(name) tab")
+            XCTAssertTrue(tabs[name].exists, "no \(name) tab")
         }
         // The Console tab: the dashboard, without adding (M11).
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
@@ -36,11 +36,11 @@ final class ErgonomicsUITests: XCTestCase {
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Add Files'")).firstMatch.isHittable)
         attachScreenshot(of: app, named: "tab-console")
 
-        tabs.buttons["Library"].tap()
+        tabs["Library"].tap()
         XCTAssertTrue(app.buttons["library.add"].waitForExistence(timeout: 10), "adding stays in the Library")
-        tabs.buttons["Transfers"].tap()
+        tabs["Transfers"].tap()
         XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout: 10))
-        tabs.buttons["Trash"].tap()
+        tabs["Trash"].tap()
         XCTAssertTrue(app.navigationBars["Trash"].waitForExistence(timeout: 10))
         attachScreenshot(of: app, named: "tab-trash")
 
@@ -49,8 +49,8 @@ final class ErgonomicsUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Consoles"].waitForExistence(timeout: 10))
         XCTAssertFalse(tabs.exists, "the list has no tab bar")
         app.buttons["console.\(PairingUITests.demoDeviceId)"].tapAfterWaiting()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertTrue(app.tabBars.buttons["Console"].isSelected)
+        XCTAssertTrue(app.consoleTabs.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.consoleTabs["Console"].isSelected)
     }
 
     @MainActor
@@ -110,12 +110,12 @@ final class ErgonomicsUITests: XCTestCase {
         // The fake pak quits on the flat library's request, then opens
         // again 5 seconds later.
         let app = launchPaired(["RL_UITEST_PAK_CLOSES_ON": "GET /games"])
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 15))
-        app.tabBars.buttons["Library"].tap()
+        XCTAssertTrue(app.consoleTabs.waitForExistence(timeout: 15))
+        app.consoleTabs["Library"].tap()
         let notice = app.descendants(matching: .any)["consoles.closedNotice"].firstMatch
         XCTAssertTrue(notice.waitForExistence(timeout: 15), "not back to the list")
         XCTAssertTrue(notice.label.contains("The console closed ReminisLink"), notice.label)
-        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertFalse(app.consoleTabs.exists)
         XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
         attachScreenshot(of: app, named: "console-closed")
 
@@ -125,7 +125,7 @@ final class ErgonomicsUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
             .waitForExistence(timeout: 15), "not connected again")
         XCTAssertFalse(notice.exists)
-        app.tabBars.buttons["Library"].tap()
+        app.consoleTabs["Library"].tap()
         XCTAssertTrue(app.buttons["game.Thistledown Isles"].waitForExistence(timeout: 10))
     }
     /// Against a real pak (`make headless` on a copy of testdata/sdcard):
@@ -172,7 +172,7 @@ final class ErgonomicsUITests: XCTestCase {
         attachScreenshot(of: app, named: "library-headless-rom")
 
         // The cheats file of another game.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.goBack()
         let field = app.searchFields.firstMatch
         field.tapAfterWaiting(timeout: 10)
         let clear = field.buttons["Clear text"].firstMatch
@@ -198,14 +198,14 @@ final class ErgonomicsUITests: XCTestCase {
         app.launch()
         app.open(link)
         app.buttons["pairing.done"].tapAfterWaiting(timeout: 30)
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 30))
-        XCTAssertTrue(app.tabBars.buttons["Console"].isSelected)
+        XCTAssertTrue(app.consoleTabs.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.consoleTabs["Console"].isSelected)
         attachScreenshot(of: app, named: "closing-dashboard")
 
         let notice = app.descendants(matching: .any)["consoles.closedNotice"].firstMatch
         XCTAssertTrue(notice.waitForExistence(timeout: 90), "not back to the list")
         XCTAssertTrue(notice.label.contains("The console closed ReminisLink"), notice.label)
-        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertFalse(app.consoleTabs.exists)
         XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
         attachScreenshot(of: app, named: "closing-headless")
     }

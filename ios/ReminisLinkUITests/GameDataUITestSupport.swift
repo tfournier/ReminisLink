@@ -60,7 +60,7 @@ enum GameDataUITest {
     /// The Library tab of the open console (M11).
     @MainActor
     static func openLibraryTab(_ app: XCUIApplication, timeout: TimeInterval) {
-        app.tabBars.buttons["Library"].tapWhenEnabled(timeout: timeout)
+        app.consoleTabs["Library"].tapWhenEnabled(timeout: timeout)
     }
 
     /// From the open console to a game: the flat library (searched by
@@ -165,6 +165,59 @@ enum GameDataUITest {
     @MainActor
     static func button(_ app: XCUIApplication, _ identifier: String, containing text: String) -> XCUIElement {
         app.buttons.matching(identifier: identifier).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+    }
+}
+
+/// The tabs of an open console (M11): the tab bar at the bottom of an
+/// iPhone, or the floating bar at the top of an iPad window (M15), whose
+/// buttons are named after their symbol and not grouped in a tab bar.
+@MainActor
+struct ConsoleTabBar {
+    let app: XCUIApplication
+
+    /// The symbol of each tab and its labels (English, French: some tests
+    /// run in the language of the simulator).
+    static let tabs: [String: (symbol: String, labels: [String])] = [
+        "Console": ("gamecontroller", ["Console"]),
+        "Library": ("square.grid.2x2", ["Library", "Bibliothèque"]),
+        "Transfers": ("arrow.up.arrow.down", ["Transfers", "Transferts"]),
+        "Trash": ("trash", ["Trash", "Corbeille"]),
+    ]
+
+    static let order = ["Console", "Library", "Transfers", "Trash"]
+
+    /// The tests run on iPhone and iPad simulators (M15).
+    static var isBottomBar: Bool { UIDevice.current.userInterfaceIdiom == .phone }
+
+    /// A tab by its English name, whatever the language on iPad.
+    subscript(name: String) -> XCUIElement {
+        if Self.isBottomBar {
+            // By position, whatever the language.
+            guard let index = Self.order.firstIndex(of: name) else { return app.tabBars.buttons[name] }
+            return app.tabBars.buttons.element(boundBy: index)
+        }
+        let tab = Self.tabs[name] ?? (name, [name])
+        return app.buttons.matching(NSPredicate(format: "identifier == %@ AND label IN %@", tab.symbol, tab.labels)).firstMatch
+    }
+
+    /// The bar itself (iPhone), or its first tab (iPad).
+    var element: XCUIElement { Self.isBottomBar ? app.tabBars.firstMatch : self["Console"] }
+    var exists: Bool { element.exists }
+
+    func waitForExistence(timeout: TimeInterval) -> Bool {
+        element.waitForExistence(timeout: timeout)
+    }
+}
+
+extension XCUIApplication {
+    var consoleTabs: ConsoleTabBar { ConsoleTabBar(app: self) }
+
+    /// The back button of the screen shown: in a wide window the Library
+    /// column has a navigation bar of its own (M15), so the button is
+    /// found by its identifier first.
+    func goBack() {
+        let back = navigationBars.buttons["BackButton"].firstMatch
+        (back.exists ? back : navigationBars.buttons.element(boundBy: 0)).tap()
     }
 }
 

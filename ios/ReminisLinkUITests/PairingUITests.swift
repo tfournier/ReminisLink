@@ -198,7 +198,7 @@ final class PairingUITests: XCTestCase {
         done.tap()
         // Pairing opens the console (M11: its tabs); going back shows it
         // in the list.
-        XCTAssertTrue(app.tabBars.buttons.element(boundBy: 1).waitForExistence(timeout: timeout))
+        XCTAssertTrue(app.consoleTabs["Library"].waitForExistence(timeout: timeout))
         app.buttons["tab.consoles"].tapAfterWaiting(timeout: timeout)
         app.buttons["console.\(deviceId)"].tapAfterWaiting(timeout: timeout)
     }

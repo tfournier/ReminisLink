@@ -27,7 +27,7 @@ final class DemoModeUITests: XCTestCase {
         let banner = app.otherElements["demo.banner"].firstMatch
         XCTAssertTrue(app.buttons["demo.quit"].waitForExistence(timeout: 10), "no Quit")
         XCTAssertTrue(banner.exists || app.staticTexts["Demo Mode"].exists, "no demo banner")
-        XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.consoleTabs["Library"].waitForExistence(timeout: 10))
 
         // A feature: the states of a demo game (made-up name).
         GameDataUITest.openLibraryGame(app, system: "HA", game: GameDataUITest.demoGame, timeout: 15)
@@ -38,7 +38,7 @@ final class DemoModeUITests: XCTestCase {
         attachScreenshot(of: app, named: "demo-states")
 
         // A download never reaches the share sheet in the demo.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.goBack()
         app.buttons["game.save"].tapAfterWaiting(timeout: 15)
         app.buttons["save.download"].tapAfterWaiting(timeout: 15)
         let downloaded = app.alerts.firstMatch
@@ -47,7 +47,7 @@ final class DemoModeUITests: XCTestCase {
         downloaded.dialogButton("demo.export.ok").tap()
 
         // The console list of the demo: the demo console, no Add a Console.
-        app.tabBars.buttons["Console"].tap()
+        app.consoleTabs["Console"].tap()
         app.buttons["tab.consoles"].tapAfterWaiting()
         XCTAssertTrue(app.staticTexts["Demo Brick"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["consoles.add"].exists, "Add a Console in the demo")
@@ -83,7 +83,7 @@ final class DemoModeUITests: XCTestCase {
         XCTAssertTrue(GameDataUITest.scrollTo(tryDemo, in: app), "no Try Without a Console in the list")
         tryDemo.tap()
         XCTAssertTrue(app.buttons["demo.quit"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.consoleTabs["Library"].waitForExistence(timeout: 10))
         app.buttons["demo.quit"].tap()
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the real console is gone")
         XCTAssertFalse(app.buttons["demo.quit"].exists)
