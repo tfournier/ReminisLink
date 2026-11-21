@@ -328,7 +328,8 @@ extension FakePak {
             guard let state = currentData(system: system, game: game).slots[slot]?.state else {
                 return .error(404, code: "not_found", message: "State not found")
             }
-            return fileResponse(name: "\(game.fileName).st\(slot)", size: state.size)
+            // The bytes GET /states hashes (M19).
+            return fileResponse(name: "\(game.fileName).st\(slot)", content: state.content)
         case ("DELETE", let r) where r.count == 2 && r[0] == "states":
             guard let slot = slotNumber(r[1]) else { return .error(400, code: "invalid_request", message: "Invalid slot") }
             return deleteState(system: system, game: game, gameId: gameId, slot: slot)
@@ -385,7 +386,7 @@ extension FakePak {
         ], body: content)
     }
 
-    private func trash(reason: String, label: String, files: [String], bytes: Int64) -> [String: Any] {
+    func trash(reason: String, label: String, files: [String], bytes: Int64) -> [String: Any] {
         let now = Date()
         let id = "tr_\(Self.stamp(now))_\(UUID().uuidString.prefix(4).lowercased())"
         let entry: [String: Any] = [
@@ -406,7 +407,7 @@ extension FakePak {
     }
 
     /// Adds a backup copy (automatic ones are limited to 10 per game).
-    private static func addBackup(_ data: inout FakeGameData, blob: FakeBlob, label: String?, reason: String) -> FakeBackup {
+    static func addBackup(_ data: inout FakeGameData, blob: FakeBlob, label: String?, reason: String) -> FakeBackup {
         let now = Date()
         let backup = FakeBackup(
             id: "bk_\(stamp(now))_\(UUID().uuidString.prefix(4).lowercased())",

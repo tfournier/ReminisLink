@@ -43,7 +43,8 @@ public actor FileSaveVault: SaveVault {
 
     static let consoleFile = ".console.json"
     static let gameFile = ".game.json"
-    static let versionFile = ".version.json"
+    static let versionFile = SaveVersionInfo.manifestName
+    static let stateVersionFile = StateVersionInfo.manifestName
 
     public init(
         location: SaveVaultLocation, root: URL, stagingDirectory: URL,
@@ -77,9 +78,15 @@ public actor FileSaveVault: SaveVault {
         for (_, folders) in try loadGameIndex(deviceId: deviceId) {
             guard let folder = folders.first, let info: VaultGameInfo = readJSON(folder.appending(path: Self.gameFile)) else { continue }
             let versions = Self.shown(try storedVersions(in: folders))
-            guard !versions.isEmpty else { continue }
+            let states = Self.shownBySeries(try stored(StateVersionInfo.self, in: folders))
+            guard !versions.isEmpty || !states.isEmpty else { continue }
             let path = folder.deletingLastPathComponent().lastPathComponent + "/" + folder.lastPathComponent
-            games.append(VaultGame(info: info, folderPath: path, latest: versions.first?.version, versionCount: versions.count))
+            let slots = Array(Set(states.map(\.info.slot))).sorted()
+            let latestState = states.max { $0.info.syncedAt < $1.info.syncedAt }.map { StateVersion(id: $0.id, info: $0.info) }
+            games.append(VaultGame(
+                info: info, folderPath: path, latest: versions.first?.version, versionCount: versions.count,
+                stateSlots: slots, latestState: latestState
+            ))
         }
         return games.sorted {
             let system = $0.info.systemName.localizedStandardCompare($1.info.systemName)
@@ -104,20 +111,42 @@ public actor FileSaveVault: SaveVault {
     /// candidate again after reloading the folders from disk. Never
     /// returns bytes that are not those of `version`.
     public func export(deviceId: String, gameId: String, version: SaveVersion, to directory: URL) throws -> ExportedVersion {
+        let copied = try exportRecord(deviceId: deviceId, gameId: gameId, info: version.info, id: version.id, to: directory)
+        return ExportedVersion(save: copied[0], rtc: copied.count > 1 ? copied[1] : nil)
+    }
+
+    public func stateVersions(deviceId: String, gameId: String) throws -> [StateVersion] {
+        Self.shownBySeries(try stored(StateVersionInfo.self, in: currentGameFolders(deviceId: deviceId, gameId: gameId, name: nil)))
+            .sorted { $0.info.slot != $1.info.slot ? $0.info.slot < $1.info.slot : Self.publishedAfter($0, $1) }
+            .map { StateVersion(id: $0.id, info: $0.info) }
+    }
+
+    public func exportState(deviceId: String, gameId: String, version: StateVersion, to directory: URL) throws -> ExportedStateVersion {
+        let copied = try exportRecord(deviceId: deviceId, gameId: gameId, info: version.info, id: version.id, to: directory)
+        return ExportedStateVersion(state: copied[0], thumbnail: copied.count > 1 ? copied[1] : nil)
+    }
+
+    /// The version is found by what it is (its manifest), wherever it is
+    /// now: a version moved since it was listed is still found. The copy
+    /// is checked (SHA-256) against `info`: when it does not match (a file
+    /// changed by hand), an identical version is tried, then every
+    /// candidate again after reloading the folders from disk. Never
+    /// returns bytes that are not those of `info`. Returns the copies of
+    /// its files, in the order of ``VaultVersionRecord/files``.
+    private func exportRecord<I: VaultVersionRecord>(deviceId: String, gameId: String, info: I, id: String, to directory: URL) throws -> [URL] {
         /// A verified copy, or whether a candidate (or a folder with the
-        /// identifier of `version`) was seen.
-        func attempt(_ folders: [URL]) throws -> (copy: ExportedVersion?, seen: Bool) {
-            let stored = try storedVersions(in: folders)
-            let candidates = stored.filter { $0.version.info == version.info }
-                + stored.filter { $0.version.info != version.info && Self.sameContent($0.version.info, version.info) }
+        /// identifier of the version) was seen.
+        func attempt(_ folders: [URL]) throws -> (copy: [URL]?, seen: Bool) {
+            let stored = try stored(I.self, in: folders)
+            let candidates = stored.filter { $0.info == info }
+                + stored.filter { $0.info != info && Self.sameContent($0.info, info) }
             for candidate in candidates {
                 guard let copy = try? copyFiles(of: candidate, to: directory) else { continue }
-                let save = try? FileDigest.sha256Sync(of: copy.save)
-                let rtc = try? copy.rtc.map { try FileDigest.sha256Sync(of: $0) }
-                if save == version.info.save.sha256, rtc == version.info.rtc?.sha256 { return (copy, true) }
-                try? FileManager.default.removeItem(at: copy.directory)
+                let sums = copy.map { try? FileDigest.sha256Sync(of: $0) }
+                if sums == info.files.map(\.sha256) { return (copy, true) }
+                try? FileManager.default.removeItem(at: copy[0].deletingLastPathComponent())
             }
-            return (nil, !candidates.isEmpty || stored.contains { $0.version.id == version.id })
+            return (nil, !candidates.isEmpty || stored.contains { $0.id == id })
         }
         let first = try attempt(currentGameFolders(deviceId: deviceId, gameId: gameId, name: nil))
         if let copy = first.copy { return copy }
@@ -128,21 +157,21 @@ public actor FileSaveVault: SaveVault {
         throw first.seen || second.seen ? SaveVaultError.versionMismatch : SaveVaultError.versionNotFound
     }
 
-    private func copyFiles(of stored: StoredVersion, to directory: URL) throws -> ExportedVersion {
-        let info = stored.version.info
+    private func copyFiles<I: VaultVersionRecord>(of stored: StoredRecord<I>, to directory: URL) throws -> [URL] {
         let destination = directory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         let manager = FileManager.default
         try manager.createDirectory(at: destination, withIntermediateDirectories: true)
         do {
             var copied: [URL] = []
-            for file in [info.save, info.rtc].compactMap({ $0 }) {
+            for file in stored.info.files {
                 let target = destination.appending(path: file.name)
                 try coordinateReading(stored.folder.appending(path: file.name)) { url in
                     try manager.copyItem(at: url, to: target)
                 }
                 copied.append(target)
             }
-            return ExportedVersion(save: copied[0], rtc: copied.count > 1 ? copied[1] : nil)
+            guard !copied.isEmpty else { throw SaveVaultError.versionNotFound }
+            return copied
         } catch {
             try? manager.removeItem(at: destination)
             throw error
@@ -155,50 +184,82 @@ public actor FileSaveVault: SaveVault {
         console: VaultConsoleInfo, game: VaultGameInfo,
         save: NewVersionFile, rtc: NewVersionFile?, modifiedAt: Date?
     ) throws -> SaveVersion {
-        let saveName = try Self.checkedFileName(save.name)
-        let rtcName = try rtc.map { try Self.checkedFileName($0.name) }
-        if let rtcName, rtcName.lowercased() == saveName.lowercased() { throw SaveVaultError.invalidName(rtcName) }
+        let (id, info) = try publish(
+            console: console, game: game, series: "save", files: [save] + (rtc.map { [$0] } ?? []),
+            folderName: { Self.versionName($0, timeZone: self.timeZone) }
+        ) { sequence, syncedAt, files in
+            SaveVersionInfo(
+                gameId: game.gameId, sequence: sequence, syncedAt: syncedAt, modifiedAt: modifiedAt,
+                save: files[0], rtc: files.count > 1 ? files[1] : nil
+            )
+        }
+        return SaveVersion(id: id, info: info)
+    }
 
-        // 1. Assemble the version outside the vault, numbered after the
-        //    versions already there (in every folder of the game, as on
-        //    disk now: another instance or device may have written since).
+    public func addStateVersion(
+        console: VaultConsoleInfo, game: VaultGameInfo, slot: Int,
+        state: NewVersionFile, thumbnail: NewVersionFile?, modifiedAt: Date?
+    ) throws -> StateVersion {
+        let (id, info) = try publish(
+            console: console, game: game, series: "state/\(slot)", files: [state] + (thumbnail.map { [$0] } ?? []),
+            folderName: { Self.stateVersionName($0, slot: slot, timeZone: self.timeZone) }
+        ) { sequence, syncedAt, files in
+            StateVersionInfo(
+                gameId: game.gameId, slot: slot, sequence: sequence, syncedAt: syncedAt, modifiedAt: modifiedAt,
+                state: files[0], thumbnail: files.count > 1 ? files[1] : nil
+            )
+        }
+        return StateVersion(id: id, info: info)
+    }
+
+    /// Publishes a new version of a series of a game (the files are moved
+    /// in): assembled outside the vault, numbered after the versions of the
+    /// series already there (in every folder of the game, as on disk now:
+    /// another instance or device may have written since), moved into the
+    /// game folder in one rename, then the series is rotated.
+    private func publish<I: VaultVersionRecord>(
+        console: VaultConsoleInfo, game: VaultGameInfo, series: String, files: [NewVersionFile],
+        folderName: (Date) -> String,
+        makeInfo: (_ sequence: Int, _ syncedAt: Date, _ files: [SaveVersionFile]) -> I
+    ) throws -> (id: String, info: I) {
+        let names = try files.map { try Self.checkedFileName($0.name) }
+        if Set(names.map { $0.lowercased() }).count != names.count { throw SaveVaultError.invalidName(names.last ?? "") }
+
+        // 1. Assemble the version outside the vault.
         var folders = try currentGameFolders(deviceId: console.deviceId, gameId: game.gameId, name: game.name)
         if folders.isEmpty { folders = [try ensureGameFolder(console: console, game: game)] }
         let gameFolder = folders[0]
-        let sequence = (try storedVersions(in: folders).map(\.version.info.sequence).max() ?? 0) + 1
+        let sequence = (try stored(I.self, in: folders).filter { $0.info.series == series }.map(\.info.sequence).max() ?? 0) + 1
         let manager = FileManager.default
         let stage = stagingDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try manager.createDirectory(at: stage, withIntermediateDirectories: true)
         defer { try? manager.removeItem(at: stage) }
-        let saveFile = try stageFile(save, as: saveName, in: stage)
-        let rtcFile = try rtc.map { try stageFile($0, as: rtcName!, in: stage) }
-        let info = SaveVersionInfo(
-            gameId: game.gameId, sequence: sequence, syncedAt: now(), modifiedAt: modifiedAt, save: saveFile, rtc: rtcFile
-        )
-        try Self.writeSynced(Self.encoder().encode(info), to: stage.appending(path: Self.versionFile))
+        let staged = try zip(files, names).map { try stageFile($0, as: $1, in: stage) }
+        let info = makeInfo(sequence, now(), staged)
+        try Self.writeSynced(Self.encoder().encode(info), to: stage.appending(path: I.manifestName))
 
         // 2. Move it into the game folder in one rename.
-        let name = try uniqueName(Self.versionName(info.syncedAt, timeZone: timeZone), in: gameFolder)
+        let name = try uniqueName(folderName(info.syncedAt), in: gameFolder)
         let destination = gameFolder.appending(path: name, directoryHint: .isDirectory)
         try coordinateMove(from: stage, to: destination)
 
         // 3. Only then, rotate (the new version has the highest sequence;
         //    it is also excluded by its folder, whatever happens).
-        try rotate(folders, keeping: destination)
-        return SaveVersion(id: name, info: info)
+        try rotate(I.self, series: series, in: folders, keeping: destination)
+        return (name, info)
     }
 
-    /// Deletes the versions beyond the limit (the M9 retention policy),
-    /// counted as shown (identical versions published one after the other
-    /// count once), oldest published first, in every folder of the game.
-    /// Never `kept`, never the newest restorable version (files present,
-    /// downloaded and matching their SHA-256), and only a version whose
-    /// folder holds exactly its listed files, downloaded and matching
-    /// (checked again inside the coordinated deletion): anything else
-    /// (a placeholder, a file changed or added by hand, a folder that
+    /// Deletes the versions of a series beyond the limit (the M9 retention
+    /// policy), counted as shown (identical versions published one after
+    /// the other count once), oldest published first, in every folder of
+    /// the game. Never `kept`, never the newest restorable version (files
+    /// present, downloaded and matching their SHA-256), and only a version
+    /// whose folder holds exactly its listed files, downloaded and
+    /// matching (checked again inside the coordinated deletion): anything
+    /// else (a placeholder, a file changed or added by hand, a folder that
     /// cannot be read) is kept.
-    private func rotate(_ folders: [URL], keeping kept: URL) throws {
-        let stored = try storedVersions(in: folders)
+    private func rotate<I: VaultVersionRecord>(_ type: I.Type, series: String, in folders: [URL], keeping kept: URL) throws {
+        let stored = try stored(I.self, in: folders).filter { $0.info.series == series }
         let groups = Self.groups(stored)
         guard groups.count > maxVersions else { return }
         let restorable = stored.first { checkVersion($0).restorable }
@@ -349,22 +410,32 @@ public actor FileSaveVault: SaveVault {
     }
 
     /// A version and the folder holding it.
-    struct StoredVersion {
-        let version: SaveVersion
+    struct StoredRecord<Info: VaultVersionRecord> {
+        /// The name of its folder (the canonical game folder), or its path
+        /// in the vault (another folder of the game).
+        let id: String
+        let info: Info
         let folder: URL
     }
 
-    /// The versions of the folders of one game, last published first.
-    /// A version of the canonical folder (the first) is identified by its
-    /// folder name; one of another folder by its path in the vault, so
-    /// that identifiers stay unique.
+    typealias StoredVersion = StoredRecord<SaveVersionInfo>
+
+    /// The save versions of the folders of one game, last published first.
     func storedVersions(in games: [URL]) throws -> [StoredVersion] {
-        var stored: [StoredVersion] = []
+        try stored(SaveVersionInfo.self, in: games)
+    }
+
+    /// The versions of one kind of the folders of one game, last published
+    /// first. A version of the canonical folder (the first) is identified
+    /// by its folder name; one of another folder by its path in the vault,
+    /// so that identifiers stay unique.
+    func stored<I: VaultVersionRecord>(_ type: I.Type, in games: [URL]) throws -> [StoredRecord<I>] {
+        var stored: [StoredRecord<I>] = []
         for (index, game) in games.enumerated() {
             for folder in try subfolders(of: game) {
-                guard let info: SaveVersionInfo = readJSON(folder.appending(path: Self.versionFile)) else { continue }
+                guard let info: I = readJSON(folder.appending(path: I.manifestName)) else { continue }
                 let id = index == 0 ? folder.lastPathComponent : relativePath(folder)
-                stored.append(StoredVersion(version: SaveVersion(id: id, info: info), folder: folder))
+                stored.append(StoredRecord(id: id, info: info, folder: folder))
             }
         }
         return stored.sorted { Self.publishedAfter($0, $1) }
@@ -373,26 +444,21 @@ public actor FileSaveVault: SaveVault {
     /// Publication order: sequence, then sync date, then version folder
     /// name, then the manifest: nothing that changes when a version moves
     /// to another game folder.
-    nonisolated static func publishedAfter(_ a: StoredVersion, _ b: StoredVersion) -> Bool {
-        let x = a.version.info, y = b.version.info
+    nonisolated static func publishedAfter<I>(_ a: StoredRecord<I>, _ b: StoredRecord<I>) -> Bool {
+        let x = a.info, y = b.info
         if x.sequence != y.sequence { return x.sequence > y.sequence }
         if x.syncedAt != y.syncedAt { return x.syncedAt > y.syncedAt }
         let nx = a.folder.lastPathComponent, ny = b.folder.lastPathComponent
         if nx != ny { return nx > ny }
-        return manifestKey(x) > manifestKey(y)
-    }
-
-    nonisolated static func manifestKey(_ info: SaveVersionInfo) -> String {
-        [info.save, info.rtc].map { file in file.map { "\($0.sha256)/\($0.sizeBytes)/\($0.name)" } ?? "-" }.joined(separator: "|")
-            + "|\(info.modifiedAt?.timeIntervalSince1970 ?? 0)"
+        return x.manifestKey > y.manifestKey
     }
 
     /// Versions in publication order, those identical to the version just
     /// before them grouped with it.
-    nonisolated static func groups(_ stored: [StoredVersion]) -> [[StoredVersion]] {
-        var groups: [[StoredVersion]] = []
+    nonisolated static func groups<I>(_ stored: [StoredRecord<I>]) -> [[StoredRecord<I>]] {
+        var groups: [[StoredRecord<I>]] = []
         for version in stored {
-            if let first = groups.last?.first, sameContent(first.version.info, version.version.info) {
+            if let first = groups.last?.first, sameContent(first.info, version.info) {
                 groups[groups.count - 1].append(version)
             } else {
                 groups.append([version])
@@ -402,13 +468,20 @@ public actor FileSaveVault: SaveVault {
     }
 
     /// One version per group (the last published).
-    nonisolated static func shown(_ stored: [StoredVersion]) -> [StoredVersion] {
+    nonisolated static func shown<I>(_ stored: [StoredRecord<I>]) -> [StoredRecord<I>] {
         groups(stored).map { $0[0] }
     }
 
-    /// Whether two versions hold the same files (names, sizes, SHA-256).
-    nonisolated static func sameContent(_ a: SaveVersionInfo, _ b: SaveVersionInfo) -> Bool {
-        a.gameId == b.gameId && a.save == b.save && a.rtc == b.rtc
+    /// ``shown(_:)`` for each series (state slot), in publication order.
+    nonisolated static func shownBySeries<I>(_ stored: [StoredRecord<I>]) -> [StoredRecord<I>] {
+        let series = Dictionary(grouping: stored, by: \.info.series)
+        return series.values.flatMap { shown($0) }.sorted { publishedAfter($0, $1) }
+    }
+
+    /// Whether two versions hold the same files (names, sizes, SHA-256) of
+    /// the same series of the same game.
+    nonisolated static func sameContent<I: VaultVersionRecord>(_ a: I, _ b: I) -> Bool {
+        a.gameId == b.gameId && a.series == b.series && a.files == b.files
     }
 
     private func relativePath(_ url: URL) -> String {
@@ -580,6 +653,12 @@ public actor FileSaveVault: SaveVault {
         )
     }
 
+    /// `2026-11-19 15.42.10 state 3`: the folder of a state version (M19),
+    /// next to the save versions of the game.
+    public static func stateVersionName(_ date: Date, slot: Int, timeZone: TimeZone) -> String {
+        "\(versionName(date, timeZone: timeZone)) state \(slot)"
+    }
+
     /// A name made safe for a folder in Files and iCloud Drive: no path
     /// separator or reserved character, no leading dot, not empty, at most
     /// 100 characters.
@@ -599,9 +678,13 @@ public actor FileSaveVault: SaveVault {
     /// A file name taken from the console: a single, visible path component.
     static func checkedFileName(_ name: String) throws -> String {
         let safe = ContentDisposition.safe(name) ?? ""
-        guard !safe.isEmpty, safe == name, !name.hasPrefix("."), name != Self.versionFile else {
+        guard !safe.isEmpty, safe == name, !name.hasPrefix("."), name != Self.versionFile, name != Self.stateVersionFile else {
             throw SaveVaultError.invalidName(name)
         }
         return name
     }
+}
+
+extension FileSaveVault.StoredRecord where Info == SaveVersionInfo {
+    var version: SaveVersion { SaveVersion(id: id, info: info) }
 }

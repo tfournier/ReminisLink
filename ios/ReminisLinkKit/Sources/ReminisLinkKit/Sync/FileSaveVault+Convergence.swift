@@ -388,16 +388,16 @@ extension FileSaveVault {
     }
 
     /// Deletes a version beyond the limit (publication only). Inside the
-    /// coordinated deletion, its `.version.json` must still be the one
-    /// listed, and the folder must hold exactly its listed files,
-    /// downloaded and matching their size and SHA-256; otherwise it stays.
-    func deleteVersion(_ version: StoredVersion) throws {
+    /// coordinated deletion, its manifest must still be the one listed,
+    /// and the folder must hold exactly its listed files, downloaded and
+    /// matching their size and SHA-256; otherwise it stays.
+    func deleteVersion<I: VaultVersionRecord>(_ version: StoredRecord<I>) throws {
         var coordinationError: NSError?
         var bodyError: Error?
         NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: version.folder, options: .forDeleting, error: &coordinationError) { url in
-            guard let data = try? Data(contentsOf: url.appending(path: Self.versionFile)),
-                  let info = try? ProtocolJSON.decoder().decode(SaveVersionInfo.self, from: data),
-                  info == version.version.info, Self.versionCheck(url, info).exact else { return }
+            guard let data = try? Data(contentsOf: url.appending(path: I.manifestName)),
+                  let info = try? ProtocolJSON.decoder().decode(I.self, from: data),
+                  info == version.info, Self.versionCheck(url, info).exact else { return }
             do { try FileManager.default.removeItem(at: url) } catch { bodyError = error }
         }
         if let bodyError { throw bodyError }
@@ -405,20 +405,20 @@ extension FileSaveVault {
     }
 
     /// ``versionCheck(_:_:)`` in a coordinated read.
-    func checkVersion(_ version: StoredVersion) -> (restorable: Bool, exact: Bool) {
+    func checkVersion<I: VaultVersionRecord>(_ version: StoredRecord<I>) -> (restorable: Bool, exact: Bool) {
         var result = (restorable: false, exact: false)
-        try? coordinateReading(version.folder) { url in result = Self.versionCheck(url, version.version.info) }
+        try? coordinateReading(version.folder) { url in result = Self.versionCheck(url, version.info) }
         return result
     }
 
     /// `restorable`: the listed files are there, downloaded, with their
     /// size and SHA-256. `exact`: also nothing else in the folder but the
-    /// `.version.json` (and `.DS_Store`). A folder that cannot be read is
+    /// manifest (and `.DS_Store`). A folder that cannot be read is
     /// neither.
-    nonisolated static func versionCheck(_ folder: URL, _ info: SaveVersionInfo) -> (restorable: Bool, exact: Bool) {
+    nonisolated static func versionCheck<I: VaultVersionRecord>(_ folder: URL, _ info: I) -> (restorable: Bool, exact: Bool) {
         let manager = FileManager.default
         guard let names = try? manager.contentsOfDirectory(atPath: folder.path(percentEncoded: false)) else { return (false, false) }
-        for file in [info.save, info.rtc].compactMap({ $0 }) {
+        for file in info.files {
             let url = folder.appending(path: file.name)
             guard names.contains(file.name), !isDirectory(url),
                   (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]).ubiquitousItemDownloadingStatus) != .notDownloaded,
@@ -426,7 +426,7 @@ extension FileSaveVault {
                   (try? FileDigest.sha256Sync(of: url)) == file.sha256
             else { return (false, false) }
         }
-        let expected = Set([versionFile, finderFile, info.save.name] + (info.rtc.map { [$0.name] } ?? []))
+        let expected = Set([I.manifestName, finderFile] + info.files.map(\.name))
         return (true, names.allSatisfy { expected.contains($0) })
     }
 
