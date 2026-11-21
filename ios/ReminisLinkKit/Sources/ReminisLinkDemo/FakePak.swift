@@ -199,7 +199,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         trashPayloads["tr_20261118T170000Z_a1b2"] = .game(
             systemFolder: "Handheld Advance (HA)",
             game: DemoLibrary.Game(path: "Old Prototype.hab", sizeBytes: 17_246_024, modifiedAt: Date(timeIntervalSince1970: 1_790_000_000), hasSave: true),
-            data: nil
+            data: nil, keptSave: false
         )
     }
 
@@ -1265,7 +1265,9 @@ extension FakePak {
             }
             trashEntries.insert(entry, at: 0)
             // With keepSave the save and the states stayed in place.
-            trashPayloads[id] = .game(systemFolder: system.folder, game: game, data: keepSave ? nil : before)
+            // With keepSave only the cheats went to the trash: they come back
+            // alone (the save and states stayed in place).
+            trashPayloads[id] = .game(systemFolder: system.folder, game: game, data: before, keptSave: keepSave)
         }
         return ["trashEntryId": id, "moved": moved, "movedBytes": bytes]
     }

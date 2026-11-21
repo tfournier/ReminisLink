@@ -199,6 +199,8 @@ type Trash struct {
 	// renameExcl is the rename of a restore, which never replaces its
 	// destination (renameNoReplaceInSD; SetRename replaces it too).
 	renameExcl func(oldpath, newpath string) error
+	// caseFromFS: see SetCaseFromFS.
+	caseFromFS bool
 	// returnCheck and replaceSpec: see SetRestoreHooks.
 	returnCheck func(it RestoreItem) error
 	replaceSpec func(p RestorePlan) (*ReplaceSpec, error)
@@ -379,9 +381,13 @@ func (t *Trash) Move(reason, label string, items []MoveItem) (MoveResult, error)
 // moved items are put back, or, if that fails, left in an entry that
 // Recover rolls back or keeps (never purged before). Called with t.mu held.
 func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []installRecord, tags ...func(*entryFile)) (MoveResult, string, entryFile, error) {
-	planned, err := t.plan(items)
-	if err != nil {
-		return MoveResult{}, "", entryFile{}, err
+	var planned []plannedMove
+	var err error
+	if len(items) > 0 || len(installs) == 0 {
+		// A replacement without items journals its installs only.
+		if planned, err = t.plan(items); err != nil {
+			return MoveResult{}, "", entryFile{}, err
+		}
 	}
 	if err := t.mkdirInSD(t.dir); err != nil {
 		return MoveResult{}, "", entryFile{}, fmt.Errorf("trash: %w", err)
@@ -694,7 +700,8 @@ func (t *Trash) List() ([]TrashEntry, int64, error) {
 	now, credit := t.now(), t.creditNow()
 	for _, name := range names {
 		e, err := t.readEntry(filepath.Join(t.dir, name))
-		if err != nil || e.State != stateDone || e.ID != name || !validReasons[e.Reason] {
+		if err != nil || e.State != stateDone || e.ID != name || !validReasons[e.Reason] || (len(e.Moves) == 0 && len(e.Installs) > 0) {
+			// Nor a journal of installs only (never an entry).
 			if err != nil {
 				t.log.Warn("trash: unreadable entry", "entry", name, "error", err)
 			}
@@ -853,6 +860,11 @@ func (t *Trash) Recover() error {
 			continue
 		}
 		if e.State == stateDone {
+			if len(e.Moves) == 0 && len(e.Installs) > 0 {
+				// A finished journal of installs only.
+				t.removeEmptyEntry(dir, name)
+				continue
+			}
 			if e.RestoreOf != "" {
 				t.recoverDisplaced(name, e)
 			}

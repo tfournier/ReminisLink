@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/saves"
@@ -92,75 +94,65 @@ func (s *Service) restoreCheck(it store.RestoreItem) error {
 	return paks.CheckFolder(context.Background(), it.Src)
 }
 
-// replaceSpec computes a "replace" restore with the rules of the OS: the
-// entry must hold only the save (".sav") and the clock file (".rtc") of
-// one game that still exists, in its save folder; they go to the names
-// the game uses now (the current files, matched ignoring case like the
-// adapter does, or the names the adapter gives), after the current save
-// and clock file went to the trash.
+// replaceSpec computes a "replace" restore with the rules of the adapter
+// (NextUI: Saves/<TAG>/<ROM file>.sav; Knulli: saves/<system>/<ROM name
+// without extension>.srm; both with a .rtc of the same stem): the entry
+// must hold only the save (and the clock file) of one game that still
+// exists, recognised by the save path the adapter gives that game, names
+// compared with the case rule of the folder (M20); they go to the names
+// the game uses now (its current files, or the adapter's names), after
+// the current save and clock file went to the trash. It runs for the
+// preview, the request and the recovery at the start alike.
 func (s *Service) replaceSpec(p store.RestorePlan) (*store.ReplaceSpec, error) {
 	refuse := func(reason string) (*store.ReplaceSpec, error) {
 		return nil, &store.NotReplaceableError{Reason: reason}
 	}
-	saves := s.opts.Adapter.Roots().Saves
 	sd := s.opts.Adapter.Roots().SD
-	tag, romName, hasSave := "", "", false
+	var saveItem, rtcItem string
 	for _, it := range p.Items {
 		if it.Dir || it.Internal {
 			return refuse("not-a-save")
 		}
-		abs := filepath.Join(sd, filepath.FromSlash(it.Rel))
-		rel, err := filepath.Rel(saves, abs)
-		if err != nil || !filepath.IsLocal(rel) {
+		if strings.EqualFold(filepath.Ext(it.Rel), ".rtc") && rtcItem == "" {
+			rtcItem = it.Rel
+		} else if saveItem == "" {
+			saveItem = it.Rel
+		} else {
 			return refuse("not-a-save")
-		}
-		parts := strings.Split(filepath.ToSlash(rel), "/")
-		if len(parts) != 2 {
-			return refuse("not-a-save")
-		}
-		ext := strings.ToLower(filepath.Ext(parts[1]))
-		if ext != ".sav" && ext != ".rtc" {
-			return refuse("not-a-save")
-		}
-		name := parts[1][:len(parts[1])-len(ext)]
-		if (tag != "" && tag != parts[0]) || (romName != "" && !strings.EqualFold(romName, name)) || name == "" {
-			return refuse("not-a-save")
-		}
-		tag, hasSave = parts[0], hasSave || ext == ".sav"
-		if romName == "" || ext == ".sav" {
-			romName = name
 		}
 	}
-	if !hasSave {
+	if saveItem == "" {
 		return refuse("not-a-save")
 	}
-	if !s.opts.Adapter.GameExists(tag, romName) {
-		return refuse("game-missing")
+	g, ok := s.gameOfSave(filepath.Join(sd, filepath.FromSlash(saveItem)))
+	if !ok {
+		return refuse("not-a-save")
 	}
-	g := osadapter.Game{System: osadapter.System{Tag: tag}, ROMName: romName}
+	if rtcItem != "" && !s.samePlace(filepath.Join(sd, filepath.FromSlash(rtcItem)), rtcOf(s.opts.Adapter.SavePath(g))) {
+		return refuse("not-a-save")
+	}
 	if err := s.opts.Adapter.CheckSaveFormat(g); err != nil {
 		return refuse("save-format")
 	}
-	save, rtc := s.opts.Adapter.SaveDir(tag).Files(g)
+	save, rtc := s.opts.Adapter.SaveDir(g.System.Tag).Files(g)
 	savePath := s.opts.Adapter.SavePath(g)
 	if save != nil {
 		savePath = save.Path
 	}
-	rtcPath := strings.TrimSuffix(savePath, filepath.Ext(savePath)) + ".rtc"
+	rtcPath := rtcOf(savePath)
 	if rtc != nil {
 		rtcPath = rtc.Path
 	}
-	spec := &store.ReplaceSpec{Targets: map[string]string{}, Label: strings.TrimSuffix(romName, filepath.Ext(romName))}
-	for _, it := range p.Items {
-		target := savePath
-		if strings.EqualFold(filepath.Ext(it.Rel), ".rtc") {
-			target = rtcPath
+	spec := &store.ReplaceSpec{Targets: map[string]string{}, Label: g.Name}
+	for item, target := range map[string]string{saveItem: savePath, rtcItem: rtcPath} {
+		if item == "" {
+			continue
 		}
 		rel, err := filepath.Rel(sd, target)
 		if err != nil || !filepath.IsLocal(rel) {
 			return refuse("not-a-save")
 		}
-		spec.Targets[it.Rel] = filepath.ToSlash(rel)
+		spec.Targets[item] = filepath.ToSlash(rel)
 	}
 	if save != nil {
 		spec.Displace = append(spec.Displace, save.Path)
@@ -170,6 +162,87 @@ func (s *Service) replaceSpec(p store.RestorePlan) (*store.ReplaceSpec, error) {
 	}
 	return spec, nil
 }
+
+// rtcOf is the clock file next to a save: the save path without its
+// extension, then ".rtc" (Game.gba.sav: Game.gba.rtc; Game.srm: Game.rtc).
+func rtcOf(save string) string { return strings.TrimSuffix(save, filepath.Ext(save)) + ".rtc" }
+
+// samePlace reports whether a and b (absolute) name the same file: equal,
+// or equal ignoring case in a folder that ignores case (the M20 rule,
+// store.FindFold). A missing file is compared by name in its folder.
+func (s *Service) samePlace(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if !strings.EqualFold(a, b) {
+		return false
+	}
+	if !s.caseFromFS {
+		return true // NextUI: exFAT ignores case
+	}
+	if fa, err := os.Lstat(a); err == nil {
+		fb, err := os.Lstat(b)
+		return err == nil && os.SameFile(fa, fb)
+	}
+	return store.FindFold(filepath.Dir(b), filepath.Base(a), false) != "" || foldsDir(filepath.Dir(b))
+}
+
+// foldsDir reports whether the folder dir ignores case (one of its
+// entries is found under another case); true when it cannot tell.
+func foldsDir(dir string) bool {
+	des, err := os.ReadDir(dir)
+	if err != nil {
+		return true
+	}
+	for _, d := range des {
+		other := strings.Map(func(r rune) rune {
+			if unicode.IsUpper(r) {
+				return unicode.ToLower(r)
+			}
+			return unicode.ToUpper(r)
+		}, d.Name())
+		if other == d.Name() {
+			continue
+		}
+		fa, errA := os.Lstat(filepath.Join(dir, d.Name()))
+		fb, errB := os.Lstat(filepath.Join(dir, other))
+		return errA == nil && errB == nil && os.SameFile(fa, fb)
+	}
+	return true
+}
+
+// gameOfSave returns the game whose save, by the adapter's rules, is the
+// file save (an exact name first, another case only in a folder that
+// ignores case).
+func (s *Service) gameOfSave(save string) (osadapter.Game, bool) {
+	systems, err := s.opts.Adapter.Systems()
+	if err != nil {
+		return osadapter.Game{}, false
+	}
+	var fold osadapter.Game
+	foundFold := false
+	for _, sys := range systems {
+		var exact osadapter.Game
+		found := false
+		_ = s.opts.Adapter.WalkGames(context.Background(), sys, func(g osadapter.Game) error {
+			sp := s.opts.Adapter.SavePath(g)
+			switch {
+			case sp == save:
+				exact, found = g, true
+				return errStopWalk
+			case !foundFold && strings.EqualFold(sp, save) && s.samePlace(save, sp):
+				fold, foundFold = g, true
+			}
+			return nil
+		})
+		if found {
+			return exact, true
+		}
+	}
+	return fold, foundFold
+}
+
+var errStopWalk = errors.New("stop")
 
 // PreviewTrashRestore is GET /trash/{entryId}/restore: the plan of the
 // store, with "replace" also computed for the backup copy of a save
@@ -294,9 +367,12 @@ func (s *Service) backupEntry(p store.RestorePlan) (backupOfSave, bool) {
 	if rtc != nil {
 		b.rtcPath = rtc.Path
 	}
-	// Anything else at those places (a folder, a link) would make the
-	// restore fail after the copy came back.
-	if (save == nil && occupied(b.savePath)) || (clocks > 0 && rtc == nil && occupied(b.rtcPath)) {
+	// Anything else at those places (a folder, a link), or a link on the
+	// way to the save folder, would make the restore fail after the copy
+	// came back.
+	r := s.opts.Adapter.Roots()
+	if confine.CheckDir(confine.Base(r.SD, r.Saves), filepath.Dir(b.savePath)) != nil ||
+		(save == nil && occupied(b.savePath)) || (clocks > 0 && rtc == nil && occupied(b.rtcPath)) {
 		b.refusal = store.ReplacePlaceBlocked
 		return b, true
 	}
@@ -315,53 +391,49 @@ func (s *Service) backupEntry(p store.RestorePlan) (backupOfSave, bool) {
 	return b, true
 }
 
-// occupied reports whether something has the name of p in its folder,
-// ignoring case (exFAT), or the folder cannot be read.
+// occupied reports whether something holds the place p: the file
+// system finds it (ignoring case on exFAT, exactly on ext4: the M20 rule),
+// or the folder cannot be read.
 func occupied(p string) bool {
-	des, err := os.ReadDir(filepath.Dir(p))
-	if errors.Is(err, fs.ErrNotExist) {
-		return false
-	}
-	if err != nil {
-		return true
-	}
-	for _, d := range des {
-		if strings.EqualFold(d.Name(), filepath.Base(p)) {
-			return true
-		}
-	}
-	return false
+	_, err := os.Lstat(p)
+	return err == nil || !errors.Is(err, fs.ErrNotExist)
 }
 
-// findGame returns the game of a tag whose ROM file name is romName,
-// ignoring case (the first one, as the adapter pairs its data).
-func (s *Service) findGame(tag, romName string) (osadapter.Game, bool) {
-	if !s.opts.Adapter.GameExists(tag, romName) {
-		return osadapter.Game{}, false
-	}
+// findGame returns the game of a tag whose backups are in the folder
+// romDir of the backups of that tag: the game of that exact ROM file name,
+// or of another case only when the backups folder of the game resolves to
+// romDir by the case rule of its folder (store.FindFold: never on ext4,
+// where Game.gba and game.gba are two games).
+func (s *Service) findGame(tag, romDir string) (osadapter.Game, bool) {
 	systems, err := s.opts.Adapter.Systems()
 	if err != nil {
 		return osadapter.Game{}, false
 	}
-	var found osadapter.Game
-	ok := false
-	stop := errors.New("found")
+	tagDir := s.opts.Layout.BackupsDir(tag)
+	want := filepath.Join(tagDir, romDir)
+	var fold osadapter.Game
+	foundFold := false
 	for _, sys := range systems {
 		if sys.Tag != tag {
 			continue
 		}
+		var exact osadapter.Game
+		found := false
 		_ = s.opts.Adapter.WalkGames(context.Background(), sys, func(g osadapter.Game) error {
-			if strings.EqualFold(g.ROMName, romName) {
-				found, ok = g, true
-				return stop
+			switch {
+			case g.ROMName == romDir:
+				exact, found = g, true
+				return errStopWalk
+			case !foundFold && strings.EqualFold(g.ROMName, romDir) && (!s.caseFromFS || store.FindFold(tagDir, g.ROMName, true) == want):
+				fold, foundFold = g, true
 			}
 			return nil
 		})
-		if ok {
-			break
+		if found {
+			return exact, true
 		}
 	}
-	return found, ok
+	return fold, foundFold
 }
 
 // replaceWithBackup restores the backup copy of a save in place of the

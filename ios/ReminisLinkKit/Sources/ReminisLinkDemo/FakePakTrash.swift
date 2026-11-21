@@ -25,9 +25,10 @@ import ReminisLinkKit
 
 /// What a trash entry of the fake pak puts back.
 enum FakeTrashPayload {
-    /// A deleted game; `data` nil when its save and states stayed in place
-    /// (`keepSave`), or for a game never read (made from its counters).
-    case game(systemFolder: String, game: DemoLibrary.Game, data: FakeGameData?)
+    /// A deleted game and its data as they were (nil for a game never
+    /// read: made from its counters); `keptSave`: deleted with keepSave,
+    /// only its cheats went to the trash and come back.
+    case game(systemFolder: String, game: DemoLibrary.Game, data: FakeGameData?, keptSave: Bool)
     case pak(FakeInstalledPak)
     /// A backup copy of the save of the game whose data key is `key`.
     case backup(key: String, backup: FakeBackup)
@@ -79,7 +80,7 @@ extension FakePak {
     private func taken(_ payload: FakeTrashPayload, number: Int?) -> Bool {
         let suffix = number.map { " (\($0))" } ?? ""
         switch payload {
-        case .game(let folder, let game, _):
+        case .game(let folder, let game, _, _):
             guard let system = _library.systems.first(where: { $0.folder == folder }) else { return false }
             let ext = game.fileName.dropFirst(game.name.count)
             let name = (game.name + suffix + ext).lowercased()
@@ -118,7 +119,7 @@ extension FakePak {
             return plan
         }
         switch payload {
-        case .game(let folder, let game, _):
+        case .game(let folder, let game, _, _):
             plan.stem = game.name
             if taken(payload, number: nil) { plan.conflicts = ["Roms/\(folder)/\(game.path)"] }
         case .pak(let pak):
@@ -196,7 +197,7 @@ extension FakePak {
             }
             let suffix = renamed ? " (\(plan.free!))" : ""
             switch plan.payload {
-            case .game(let folder, let game, let data)?:
+            case .game(let folder, let game, let data, let keptSave)?:
                 if let index = _library.systems.firstIndex(where: { $0.folder == folder }) {
                     let ext = game.fileName.dropFirst(game.name.count)
                     let fileName = game.name + suffix + ext
@@ -207,8 +208,14 @@ extension FakePak {
                         cheatCount: game.cheatCount, hasArt: game.hasArt, hasClock: game.hasClock
                     )
                     _library.systems[index].games.append(back)
-                    if let data {
-                        gameData[Self.dataKey(system: _library.systems[index], game: back)] = data
+                    let key = Self.dataKey(system: _library.systems[index], game: back)
+                    if let data, keptSave {
+                        // The save and states stayed: only the cheats come back.
+                        var current = gameData[key] ?? Self.seed(game: back)
+                        current.cheats = data.cheats
+                        gameData[key] = current
+                    } else if let data {
+                        gameData[key] = data
                     }
                 }
             case .pak(var pak)?:

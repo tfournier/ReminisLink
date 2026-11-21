@@ -625,3 +625,89 @@ func TestRestoreRefusesALinkInsideAFolder(t *testing.T) {
 		t.Fatal("restored with a link inside")
 	}
 }
+
+// Final review of M18.
+
+func TestRecoverRefusesALinkAddedInsideAFolder(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, "Roms/PS (PS)/Multi/Multi.m3u", "x")
+	res, err := tr.Move(ReasonDeleteGame, "Multi", []MoveItem{
+		{Path: filepath.Join(sd, "Roms/PS (PS)/Multi")}, {Path: write(t, sd, "Saves/PS/Multi.m3u.sav", "s")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := entryJSON(t, tr, res.Entry.ID)
+	ef.State, ef.ReturnMode = stateReturning, RestoreFail
+	ef.Returns = []returnRecord{{Move: "Saves/PS/Multi.m3u.sav", Target: "Saves/PS/Multi.m3u.sav"}, {Move: "Roms/PS (PS)/Multi", Target: "Roms/PS (PS)/Multi"}}
+	saveJSON(t, tr, ef)
+	os.Rename(filepath.Join(tr.Dir(), res.Entry.ID, "Saves/PS/Multi.m3u.sav"), filepath.Join(sd, "Saves/PS/Multi.m3u.sav"))
+	if err := os.Symlink(t.TempDir(), filepath.Join(tr.Dir(), res.Entry.ID, "Roms/PS (PS)/Multi/bonus")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(sd, "Roms/PS (PS)/Multi")) {
+		t.Fatal("folder with a link restored at the start")
+	}
+}
+
+func TestRecoverKeepsTheJournalUntilThePlaylistIsRenamed(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes everywhere")
+	}
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, "Roms/PS (PS)/Multi/Multi.m3u", "Multi (Disc 1).bin\n")
+	res, err := tr.Move(ReasonDeleteGame, "Multi", []MoveItem{{Path: filepath.Join(sd, "Roms/PS (PS)/Multi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := entryJSON(t, tr, res.Entry.ID)
+	ef.State, ef.ReturnMode = stateReturning, RestoreRename
+	ef.Returns = []returnRecord{{Move: "Roms/PS (PS)/Multi", Target: "Roms/PS (PS)/Multi (2)"}}
+	saveJSON(t, tr, ef)
+	folder := filepath.Join(sd, "Roms/PS (PS)/Multi (2)")
+	if err := os.Rename(filepath.Join(tr.Dir(), res.Entry.ID, "Roms/PS (PS)/Multi"), folder); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(folder, 0o555) // the playlist cannot be renamed at this start
+	defer os.Chmod(folder, 0o755)
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if got := entryJSON(t, tr, res.Entry.ID); got.State != stateReturning {
+		t.Fatalf("journal dropped before the playlist rename: %s", got.State)
+	}
+	os.Chmod(folder, 0o755)
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(filepath.Join(folder, "Multi (2).m3u")) || exists(filepath.Join(tr.Dir(), res.Entry.ID)) {
+		t.Fatal("playlist not renamed at the next start")
+	}
+}
+
+func TestRestoreOnACaseSensitiveFolder(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, "probe", "")
+	if exists(filepath.Join(sd, "PROBE")) {
+		t.Skip("the temporary folder ignores case: run on Linux")
+	}
+	tr.SetCaseFromFS(true) // Knulli
+	res, err := tr.Move(ReasonOverwrite, "Game", []MoveItem{{Path: write(t, sd, "saves/gba/Game.srm", "mine")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, sd, "saves/gba/game.srm", "another game")
+	p, err := tr.PlanRestore(res.Entry.ID)
+	if err != nil || p.Conflict {
+		t.Fatalf("false conflict %+v %v", p, err)
+	}
+	if _, err := tr.Restore(res.Entry.ID, RestoreFail, nil); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(sd, "saves/gba/Game.srm")) != "mine" || read(t, filepath.Join(sd, "saves/gba/game.srm")) != "another game" {
+		t.Fatal("files")
+	}
+}

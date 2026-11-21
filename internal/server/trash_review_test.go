@@ -268,3 +268,33 @@ func TestBackupReplaceIsExactAboutWhatMoves(t *testing.T) {
 		t.Fatalf("422 %s", r.Body)
 	}
 }
+
+// The live save folder is a link to an empty folder: the preview never
+// announces a replace the request would refuse (M18 final review).
+func TestBackupReplaceRefusedThroughALinkedSaveFolder(t *testing.T) {
+	f := newFixture(t)
+	id, _ := f.trashedBackup()
+	saves := filepath.Join(f.sd, "Saves", "GBA")
+	empty := filepath.Join(f.sd, "Elsewhere")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(saves); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(empty, saves); err != nil {
+		t.Skipf("no symbolic links: %v", err)
+	}
+	var p struct {
+		Replaceable        bool    `json:"replaceable"`
+		ReplaceUnavailable *string `json:"replaceUnavailable"`
+	}
+	f.get(f.restoreURL(id), restorePath, http.StatusOK).JSON(t, &p)
+	if p.Replaceable || p.ReplaceUnavailable == nil || *p.ReplaceUnavailable != "place-blocked" {
+		t.Fatalf("preview %+v", p)
+	}
+	f.do(http.MethodPost, f.restoreURL(id), restorePath, []byte(`{"onConflict":"replace"}`), http.StatusUnprocessableEntity)
+	if entries, _ := os.ReadDir(empty); len(entries) != 0 {
+		t.Fatal("written through the link")
+	}
+}

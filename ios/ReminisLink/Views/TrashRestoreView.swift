@@ -99,7 +99,7 @@ struct TrashRestoreView: View {
                 }
             }
             replaceSection(preview)
-        } else if preview.replaceable && !preview.replaceDisplaced.isEmpty {
+        } else if preview.replaceable {
             Section {
                 Button {
                     Task { await restore(.fail) }
@@ -142,33 +142,47 @@ struct TrashRestoreView: View {
             }
         }
         if preview.replaceable {
+            // Nothing in place (the game lost its save and clock file):
+            // the action only installs this save.
+            let installOnly = preview.replaceDisplaced.isEmpty
+            let title: LocalizedStringKey = installOnly ? "Make It the Game's Save" : "Replace the Current Save"
             Section {
-                Button(role: .destructive) {
+                Button(role: installOnly ? nil : .destructive) {
                     confirmReplace = true
                 } label: {
-                    working("Replace the Current Save")
+                    working(title)
                 }
                 .disabled(isWorking)
                 .accessibilityIdentifier("trashRestore.replace")
             } footer: {
-                Text(replaceExplanation(preview.keptAs))
+                Text(replaceExplanation(preview))
             }
-            .confirmationDialog("Replace the current save?", isPresented: $confirmReplace, titleVisibility: .visible) {
-                Button("Replace the Current Save", role: .destructive) {
+            .confirmationDialog(installOnly ? "Make it the game's save?" : "Replace the current save?",
+                                isPresented: $confirmReplace, titleVisibility: .visible) {
+                Button(title, role: installOnly ? nil : .destructive) {
                     Task { await restore(.replace) }
                 }
                 .accessibilityIdentifier("trashRestore.replaceConfirm")
             } message: {
-                Text(replaceExplanation(preview.keptAs))
+                Text(replaceExplanation(preview))
             }
         }
     }
 
-    private func replaceExplanation(_ keptAs: TrashReplaceKeptAs?) -> LocalizedStringKey {
-        switch keptAs {
-        case .backup?: "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen); it does not go to the trash."
-        case nil: "The game has no save on the console now: this save becomes its save."
-        default: "This save becomes the save of the game. The current save goes to the trash of the console first."
+    /// Says exactly where the current files go (the pak's answer, and the
+    /// clock file of the copy: a pair goes in as one journaled replacement,
+    /// which also puts the current pair in the trash).
+    private func replaceExplanation(_ preview: TrashRestorePreview) -> LocalizedStringKey {
+        let withClock = preview.items.contains { $0.name.lowercased().hasSuffix(".rtc") }
+        switch preview.keptAs {
+        case .backup? where withClock:
+            return "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen); as part of the safe replacement, the current save and its clock file are also placed in the trash of the console."
+        case .backup?:
+            return "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen)."
+        case nil:
+            return "The game has no save on the console now: this save becomes its save."
+        default:
+            return "This save becomes the save of the game. The current save goes to the trash of the console first."
         }
     }
 

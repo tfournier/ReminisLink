@@ -2573,12 +2573,32 @@
         }
       }
     },
+    "Make It the Game's Save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En faire la sauvegarde du jeu"
+          }
+        }
+      }
+    },
     "Make a Backup Copy…" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Faire une copie de secours…"
+          }
+        }
+      }
+    },
+    "Make it the game's save?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En faire la sauvegarde du jeu ?"
           }
         }
       }
@@ -6135,12 +6155,22 @@
         }
       }
     },
-    "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen); it does not go to the trash." : {
+    "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen)." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu (écran Sauvegarde) ; elle ne part pas à la corbeille."
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu (écran Sauvegarde)."
+          }
+        }
+      }
+    },
+    "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen); as part of the safe replacement, the current save and its clock file are also placed in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu (écran Sauvegarde) ; pour un remplacement sûr, la sauvegarde actuelle et son fichier d’horloge sont aussi placés dans la corbeille de la console."
           }
         }
       }

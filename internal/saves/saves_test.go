@@ -574,3 +574,74 @@ func TestRestoringTheOldestAutomaticCopyKeepsIt(t *testing.T) {
 		t.Fatalf("restored copy pushed out: %+v", list)
 	}
 }
+
+// TestRestoreOfAPairWithoutLiveFilesIsJournaled: with neither the save
+// nor the clock file in place, the pair still goes in as one journaled
+// installation; a cut between the renames is finished as a pair (M18
+// final review).
+func TestRestoreOfAPairWithoutLiveFilesIsJournaled(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.sav", "save A")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock A")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.sav"))
+	os.Remove(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.rtc"))
+	calls := 0
+	e.trash.SetRename(func(o, n string) error {
+		calls++
+		if calls > 1 {
+			return errors.New("power cut")
+		}
+		return os.Rename(o, n)
+	})
+	if _, err := e.svc.Restore(g, b.ID); err == nil {
+		t.Fatal("restore did not fail")
+	}
+	if e.exists("Saves/GBA/Starlight Courier.gba.sav") || !e.exists("Saves/GBA/Starlight Courier.gba.rtc") {
+		t.Fatal("not cut between the renames")
+	}
+	e.trash.SetRename(os.Rename)
+	if err := e.trash.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.sav") != "save A" || e.read("Saves/GBA/Starlight Courier.gba.rtc") != "clock A" {
+		t.Fatal("pair not finished at the start")
+	}
+	if entries, _, _ := e.trash.List(); len(entries) != 0 {
+		t.Fatalf("a journal of installs is listed: %+v", entries)
+	}
+}
+
+// TestRestoreNeverReadsABackupThroughALink: a backups folder linked to
+// another folder holding a valid copy is refused before anything is read
+// (M18 final review).
+func TestRestoreNeverReadsABackupThroughALink(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.sd, filepath.FromSlash(backupsDir))
+	outside := filepath.Join(t.TempDir(), "saves")
+	if err := os.Rename(dir, outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Skipf("no symbolic links: %v", err)
+	}
+	os.WriteFile(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.sav"), []byte("current"), 0o644)
+	if _, err := e.svc.Restore(g, b.ID); err == nil {
+		t.Fatal("backup read through a link")
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.sav") != "current" {
+		t.Fatal("save replaced from outside")
+	}
+	if _, err := e.svc.List(g); err == nil {
+		t.Fatal("backups listed through a link")
+	}
+}

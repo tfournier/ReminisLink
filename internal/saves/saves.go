@@ -200,6 +200,9 @@ func (s *Service) SaveFile(g osadapter.Game) (osadapter.File, error) {
 // readMetas returns the complete backups of a folder (metadata and copy
 // present), newest (largest sequence) first.
 func (s *Service) readMetas(dir string) ([]meta, error) {
+	if err := s.checkBackupDir(dir); err != nil {
+		return nil, fmt.Errorf("save backups: %w", err)
+	}
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -400,6 +403,16 @@ func (s *Service) lookup(g osadapter.Game, id string) (meta, string, error) {
 		return meta{}, "", ErrInvalidBackupID
 	}
 	dir := s.dir(g)
+	// Nothing of a backup is read through a link (M18 review): its folder
+	// and its files stay in the ReminisLink data folder.
+	if err := s.checkBackupDir(dir); err != nil {
+		return meta{}, "", fmt.Errorf("save backup: %w", err)
+	}
+	for _, ext := range []string{metaExt, copyExt} {
+		if fi, err := os.Lstat(filepath.Join(dir, id+ext)); err == nil && !fi.Mode().IsRegular() {
+			return meta{}, "", fmt.Errorf("save backup: %w", errOutside)
+		}
+	}
 	m, err := readMeta(dir, id)
 	if err != nil {
 		return meta{}, "", ErrBackupNotFound
@@ -518,7 +531,11 @@ func (s *Service) Restore(g osadapter.Game, id string) (*Backup, error) {
 	if m.RTCSHA256 != "" {
 		rtcTmp = tmp + rtcExt
 		temps = append(temps, rtcTmp) // removed too when its copy is damaged
-		sum, _, err := store.CopyFileAtomic(filepath.Join(filepath.Dir(path), id+rtcExt), rtcTmp)
+		rtcCopy := filepath.Join(filepath.Dir(path), id+rtcExt)
+		if fi, err := os.Lstat(rtcCopy); err != nil || !fi.Mode().IsRegular() {
+			return nil, ErrCorruptBackup
+		}
+		sum, _, err := store.CopyFileAtomic(rtcCopy, rtcTmp)
 		if err != nil || sum != m.RTCSHA256 {
 			return nil, ErrCorruptBackup
 		}

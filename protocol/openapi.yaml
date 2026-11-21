@@ -1072,8 +1072,11 @@ paths:
         `rename` answers `409` too, with `details.freeNameUnavailable`.
 
         `onConflict: replace` (an entry holding only the save, and its
-        clock file, of a game that still exists, or the backup copy of
-        such a save, see below; anything else answers
+        clock file, of a game that still exists, recognised by the rules
+        of the OS adapter: NextUI `Saves/<TAG>/<ROM file>.sav`, Knulli
+        `saves/<system>/<ROM name>.srm`, names compared with the case rule
+        of each folder; or the backup copy of such a save, see below;
+        anything else answers
         `422 unsupported_format` with `details.reason`, as
         `replaceUnavailable` of the preview: `not-a-save`, `game-missing`,
         `save-format`, `place-blocked` or `backup-taken`): the current save and clock file

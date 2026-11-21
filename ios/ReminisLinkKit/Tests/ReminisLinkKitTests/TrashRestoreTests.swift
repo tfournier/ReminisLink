@@ -97,6 +97,18 @@ struct TrashRestoreReplaceTests {
         #expect(try await client.states(gameId: skyGarden).slots.contains { $0.slot == slot.slot })
     }
 
+    @Test func aGameDeletedKeepingItsSaveGetsItsCheatsBack() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let cheats = try await client.cheats(gameId: skyGarden).cheats.count
+        let save = try await client.saveBackups(gameId: skyGarden).count
+        #expect(cheats > 0)
+        let moved = try await client.deleteGame(id: skyGarden, keepSave: true)
+        _ = try await client.restoreTrashEntry(id: moved.trashEntryId, onConflict: .fail)
+        #expect(try await client.cheats(gameId: skyGarden).cheats.count == cheats)
+        #expect(try await client.saveBackups(gameId: skyGarden).count == save)
+    }
+
     @Test func anEntryTheFakeDoesNotModelNeverClaimsARestore() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

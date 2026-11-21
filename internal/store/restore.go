@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Restore from the trash (M18, protocol/openapi.yaml
@@ -358,17 +359,7 @@ func (t *Trash) planRestore(id string) (RestorePlan, error) {
 		}
 		if fi.IsDir() {
 			// Nor anywhere inside a folder (walked without following).
-			bad := false
-			werr := fs.WalkDir(root.FS(), filepath.ToSlash(srcRel), func(_ string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if !d.IsDir() && !d.Type().IsRegular() {
-					bad = true
-					return fs.SkipAll
-				}
-				return nil
-			})
+			bad, werr := linkInside(root, srcRel)
 			if werr != nil {
 				return RestorePlan{}, fmt.Errorf("trash: read entry %s: %w", id, withoutPathErr(werr))
 			}
@@ -377,7 +368,7 @@ func (t *Trash) planRestore(id string) (RestorePlan, error) {
 				return RestorePlan{}, ErrEntryDamaged
 			}
 		}
-		target, taken, _, err := resolveFold(root, rel)
+		target, taken, _, err := resolveFold(root, rel, t.caseFromFS)
 		if err != nil {
 			return RestorePlan{}, fmt.Errorf("trash: %w", err)
 		}
@@ -445,6 +436,24 @@ func (t *Trash) planRestore(id string) (RestorePlan, error) {
 
 func ptr[T any](v T) *T { return &v }
 
+// linkInside reports whether the folder rel of root holds a link or a
+// special file anywhere (walked without following): such an item never
+// goes back, by a request or at the start.
+func linkInside(root *os.Root, rel string) (bool, error) {
+	bad := false
+	err := fs.WalkDir(root.FS(), filepath.ToSlash(rel), func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && !d.Type().IsRegular() {
+			bad = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return bad, err
+}
+
 // srcRelOf returns abs relative to sd (OS separators).
 func srcRelOf(sd, abs string) string {
 	rel, err := filepath.Rel(sd, abs)
@@ -495,12 +504,12 @@ func (t *Trash) displayName(sd, rel string, internal bool) string {
 // component, or that a component on the way is not a folder; blocked
 // reports the latter (no name in that folder can be used). A folder that
 // cannot be read is an error, never "free".
-func resolveFold(root *os.Root, rel string) (target string, taken, blocked bool, err error) {
+func resolveFold(root *os.Root, rel string, fromFS bool) (target string, taken, blocked bool, err error) {
 	parts := strings.Split(rel, "/")
 	dir := "."
 	out := make([]string, 0, len(parts))
 	for i, c := range parts {
-		match, mode, found, err := findAny(root, dir, c)
+		match, mode, found, err := findAny(root, dir, c, fromFS)
 		if err != nil {
 			return "", false, false, err
 		}
@@ -525,7 +534,7 @@ func resolveFold(root *os.Root, rel string) (target string, taken, blocked bool,
 // findAny returns the entry of dir (relative to root) named name ignoring
 // case (any type, an exact match wins) and its type. A missing dir holds
 // nothing; any other read error is returned.
-func findAny(root *os.Root, dir, name string) (string, fs.FileMode, bool, error) {
+func findAny(root *os.Root, dir, name string, fromFS bool) (string, fs.FileMode, bool, error) {
 	des, err := fs.ReadDir(root.FS(), dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", 0, false, nil
@@ -542,7 +551,83 @@ func findAny(root *os.Root, dir, name string) (string, fs.FileMode, bool, error)
 			match, mode, found = d.Name(), d.Type(), true
 		}
 	}
+	if found && fromFS && !sameEntryIn(root, dir, match, name) {
+		// A case-sensitive folder (Knulli on ext4, M20): another case is
+		// another file, the place is free.
+		return "", 0, false, nil
+	}
 	return match, mode, found, nil
+}
+
+// SetCaseFromFS sets the case rule of the restore (M20): false (NextUI,
+// exFAT) compares names ignoring case everywhere; true (Knulli on ext4)
+// compares them as the file system of each folder does.
+func (t *Trash) SetCaseFromFS(fromFS bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.caseFromFS = fromFS
+}
+
+// sameEntryIn reports whether the names a and b (equal ignoring case) of
+// the folder dir of root reach the same entry: the file system ignores
+// case there (exFAT), as the M20 case rule (store.FindFold).
+func sameEntryIn(root *os.Root, dir, a, b string) bool {
+	fa, err := root.Lstat(path.Join(dir, a))
+	if err != nil {
+		return false
+	}
+	fb, err := root.Lstat(path.Join(dir, b))
+	return err == nil && os.SameFile(fa, fb)
+}
+
+// foldsIn reports whether the folder dir of root (a "/" path) compares
+// names ignoring case: one of its entries is found under another case, or,
+// when it has none to try, its own name in its parent. Unknown: true (the
+// exFAT card of NextUI).
+func foldsIn(root *os.Root, dir string, fromFS bool) bool {
+	if !fromFS {
+		return true
+	}
+	des, err := fs.ReadDir(root.FS(), dir)
+	if err == nil {
+		for _, d := range des {
+			if other := swapCase(d.Name()); other != d.Name() {
+				return sameEntryIn(root, dir, d.Name(), other)
+			}
+		}
+	}
+	if parent, base := path.Split(dir); base != "" && base != "." {
+		if other := swapCase(base); other != base {
+			return sameEntryIn(root, parentDir(strings.TrimSuffix(parent, "/")), base, other)
+		}
+	}
+	return true
+}
+
+// swapCase swaps the case of the letters of s.
+func swapCase(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsUpper(r):
+			return unicode.ToLower(r)
+		case unicode.IsLower(r):
+			return unicode.ToUpper(r)
+		}
+		return r
+	}, s)
+}
+
+// samePlace reports whether the "/" paths a and b of root name the same
+// place: equal, or equal ignoring case in a folder that ignores case.
+func samePlace(root *os.Root, a, b string, fromFS bool) bool {
+	if a == b {
+		return true
+	}
+	if !strings.EqualFold(a, b) {
+		return false
+	}
+	pa, _ := splitRel(a)
+	return foldsIn(root, parentDir(pa), fromFS)
 }
 
 // freeNames returns the targets of items under the first free name
@@ -550,7 +635,7 @@ func findAny(root *os.Root, dir, name string) (string, fs.FileMode, bool, error)
 // stay together, or nil and why when none is free up to maxFreeName.
 func (t *Trash) freeNames(root *os.Root, items []RestoreItem) ([]string, string, error) {
 	for _, it := range items {
-		if _, _, blocked, err := resolveFold(root, it.Target); err != nil {
+		if _, _, blocked, err := resolveFold(root, it.Target, t.caseFromFS); err != nil {
 			return nil, "", err
 		} else if blocked {
 			return nil, NoFreeNamePathBlocked, nil
@@ -574,7 +659,7 @@ func (t *Trash) freeNames(root *os.Root, items []RestoreItem) ([]string, string,
 				break
 			}
 			seen[key] = true
-			_, taken, _, err := resolveFold(root, target)
+			_, taken, _, err := resolveFold(root, target, t.caseFromFS)
 			if err != nil {
 				return nil, "", err
 			}
@@ -692,9 +777,54 @@ func validTarget(mode, move, target string, stems []string) bool {
 		// The same game: the save and clock file of the entry go to the
 		// save and clock file of the game they belong to, whose name
 		// differs at most by case (the adapter pairs them ignoring case).
-		ext := strings.ToLower(filepath.Ext(mBase))
-		return (ext == ".sav" || ext == ".rtc") && strings.EqualFold(filepath.Ext(tBase), ext) &&
-			strings.EqualFold(strings.TrimSuffix(mBase, filepath.Ext(mBase)), strings.TrimSuffix(tBase, filepath.Ext(tBase)))
+		ext := filepath.Ext(mBase)
+		return ext != "" && strings.EqualFold(filepath.Ext(tBase), ext) &&
+			strings.EqualFold(strings.TrimSuffix(mBase, ext), strings.TrimSuffix(tBase, filepath.Ext(tBase)))
+	}
+	return false
+}
+
+// recoveryTarget checks a journaled place at the start against the place
+// the rule gives now, recomputed (never the journal alone): with "fail",
+// the original place resolved on the card; with "rename", a free name
+// " (N)" of it; with "replace", the save or clock file the hook of
+// SetRestoreHooks gives for the item (the adapter's rules: NextUI or
+// Knulli names, case rule per folder). Names compare exactly, or ignoring
+// case in a folder that ignores case. items are the journaled items.
+func (t *Trash) recoveryTarget(root *os.Root, mode, move, target string, items []RestoreItem) bool {
+	if !validTarget(mode, move, target, nameStems(items)) {
+		return false
+	}
+	resolved, _, _, err := resolveFold(root, move, t.caseFromFS)
+	if err != nil {
+		return false
+	}
+	switch mode {
+	case RestoreFail, "":
+		return samePlace(root, resolved, target, t.caseFromFS)
+	case RestoreRename:
+		parent, base := splitRel(resolved)
+		stems := nameStems(items)
+		for n := 2; n <= maxFreeName; n++ {
+			want := withNumber(base, stems, n)
+			if parent != "" {
+				want = parent + "/" + want
+			}
+			if samePlace(root, want, target, t.caseFromFS) {
+				return true
+			}
+		}
+		return false
+	case RestoreReplace:
+		if t.replaceSpec == nil {
+			return false
+		}
+		spec, err := t.replaceSpec(RestorePlan{Items: items})
+		if err != nil || spec == nil {
+			return false
+		}
+		want, ok := spec.Targets[move]
+		return ok && samePlace(root, want, target, t.caseFromFS)
 	}
 	return false
 }
@@ -765,7 +895,7 @@ func (t *Trash) checkReplace(p RestorePlan, spec *ReplaceSpec) error {
 	}
 	defer root.Close()
 	for _, target := range spec.Targets {
-		resolved, taken, blocked, err := resolveFold(root, target)
+		resolved, taken, blocked, err := resolveFold(root, target, t.caseFromFS)
 		if err != nil {
 			return err
 		}
@@ -776,7 +906,7 @@ func (t *Trash) checkReplace(p RestorePlan, spec *ReplaceSpec) error {
 			continue
 		}
 		parent, base := splitRel(resolved)
-		match, mode, _, err := findAny(root, parentDir(parent), base)
+		match, mode, _, err := findAny(root, parentDir(parent), base, t.caseFromFS)
 		if err != nil {
 			return err
 		}
@@ -1027,7 +1157,7 @@ func (t *Trash) returnOne(sd, src, dst, target, move string, dir bool) error {
 	if err != nil {
 		return err
 	}
-	_, taken, _, err := resolveFold(root, target)
+	_, taken, _, err := resolveFold(root, target, t.caseFromFS)
 	root.Close()
 	if err != nil {
 		return err
@@ -1166,9 +1296,8 @@ func (t *Trash) recoverReturn(dir, sd string, e *entryFile) error {
 	}
 	var items []RestoreItem
 	for _, r := range e.Returns {
-		items = append(items, RestoreItem{Rel: r.Move})
+		items = append(items, RestoreItem{Rel: r.Move, Internal: internal[r.Move]})
 	}
-	stems := nameStems(items)
 	anyMoved, unknown := false, false
 	for _, r := range e.Returns {
 		if !inMoves[r.Move] || !filepath.IsLocal(filepath.FromSlash(r.Move)) {
@@ -1200,24 +1329,33 @@ func (t *Trash) recoverReturn(dir, sd string, e *entryFile) error {
 		}
 		return nil
 	}
+	root, err := t.openSD()
+	if err != nil {
+		t.log.Error("trash: restore kept for the next start, the card cannot be read", "entry", e.ID, "error", err)
+		return nil
+	}
+	defer root.Close()
 	var left []string
+	retry := false
 	for _, r := range e.Returns {
 		src := filepath.Join(dir, filepath.FromSlash(r.Move))
 		if gone, err := moved(src); err != nil || gone {
 			// Already back (or unknown: kept below by finishEntry). A
 			// folder game back under a free name may still have its
-			// playlist under the old name: finish that step too.
-			if err == nil && e.ReturnMode == RestoreRename && inMoves[r.Move] && validTarget(e.ReturnMode, r.Move, r.Target, stems) {
+			// playlist under the old name: that step is part of the
+			// restore, the journal stays until it is done.
+			if err == nil && e.ReturnMode == RestoreRename && inMoves[r.Move] && validTarget(e.ReturnMode, r.Move, r.Target, nameStems(items)) {
 				dst := filepath.Join(sd, filepath.FromSlash(r.Target))
 				if fi, err := os.Lstat(dst); err == nil && fi.IsDir() {
 					if err := t.renamePlaylist(dst, r.Move, r.Target, false); err != nil {
-						t.log.Error("trash: playlist of a restored folder game not renamed", "entry", e.ID, "folder", r.Target, "error", err)
+						t.log.Error("trash: playlist of a restored folder game not renamed, tried again at the next start", "entry", e.ID, "folder", r.Target, "error", err)
+						retry = true
 					}
 				}
 			}
 			continue
 		}
-		if !inMoves[r.Move] || !validTarget(e.ReturnMode, r.Move, r.Target, stems) {
+		if !inMoves[r.Move] || !t.recoveryTarget(root, e.ReturnMode, r.Move, r.Target, items) {
 			t.log.Error("trash: journaled place refused, the item stays in the trash", "entry", e.ID, "file", r.Move, "target", r.Target)
 			left = append(left, r.Move)
 			continue
@@ -1226,6 +1364,20 @@ func (t *Trash) recoverReturn(dir, sd string, e *entryFile) error {
 		if err != nil || (!fi.IsDir() && !fi.Mode().IsRegular()) {
 			left = append(left, r.Move)
 			continue
+		}
+		if fi.IsDir() {
+			// The same walk as a request: no link anywhere inside.
+			srcRel, err := t.confinedRel(root, src)
+			bad := err != nil
+			if !bad {
+				bad, err = linkInside(root, srcRel)
+				bad = bad || err != nil
+			}
+			if bad {
+				t.log.Error("trash: a folder of the entry holds a link, it stays in the trash", "entry", e.ID, "file", r.Move)
+				left = append(left, r.Move)
+				continue
+			}
 		}
 		dst := filepath.Join(sd, filepath.FromSlash(r.Target))
 		it := RestoreItem{Src: src, Dst: dst, Rel: r.Move, Target: r.Target, Dir: fi.IsDir(), Internal: internal[r.Move]}
@@ -1237,6 +1389,9 @@ func (t *Trash) recoverReturn(dir, sd string, e *entryFile) error {
 			}
 		}
 		if err := t.returnOne(sd, src, dst, r.Target, r.Move, it.Dir); err != nil {
+			if gone, _ := moved(src); gone {
+				retry = true // moved, but a later step (its playlist) failed
+			}
 			left = append(left, r.Move)
 			continue
 		}
@@ -1251,6 +1406,10 @@ func (t *Trash) recoverReturn(dir, sd string, e *entryFile) error {
 		if !journaled[m] {
 			left = append(left, m)
 		}
+	}
+	if retry {
+		// Still "returning": the next start finishes it.
+		return nil
 	}
 	if e.Displaced != "" {
 		t.clearRestoreOf(e.Displaced)
