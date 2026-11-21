@@ -770,6 +770,10 @@ extension AppModel {
             if let n = environment["RL_UITEST_SAVE_CHANGES_ON_LISTING"].flatMap(Int.init) {
                 pak.changeSaveOnListing = n
             }
+            // UI tests (M17): an older pak (`RL_UITEST_PAK_VERSION=0.9.0`),
+            // or a pak that needs a newer app (`RL_UITEST_MIN_CLIENT_VERSION`).
+            if let version = environment["RL_UITEST_PAK_VERSION"] { pak.pakVersion = version }
+            if let version = environment["RL_UITEST_MIN_CLIENT_VERSION"] { pak.minClientVersion = version }
             // UI tests (M11): `RL_UITEST_PAK_CLOSES_ON="GET /games"` makes the
             // fake pak quit on that request, and open again 5 seconds later.
             if let spec = environment["RL_UITEST_PAK_CLOSES_ON"] {

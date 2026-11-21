@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,14 @@ func TestHello(t *testing.T) {
 	}
 	if !strings.Contains(string(r.Body), `"osVersion":null`) {
 		t.Errorf("osVersion must be null: %s", r.Body)
+	}
+}
+
+// TestMinClientVersionFormat: the app compares minClientVersion with its
+// own App Store version (M17), three numbers without a suffix.
+func TestMinClientVersionFormat(t *testing.T) {
+	if !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`).MatchString(MinClientVersion) {
+		t.Errorf("MinClientVersion %q is not X.Y.Z", MinClientVersion)
 	}
 }
 

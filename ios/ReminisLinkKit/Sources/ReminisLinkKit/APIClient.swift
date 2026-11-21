@@ -58,6 +58,12 @@ public actor APIClient {
     public static let apiPrefix = "/api/v1"
     /// `apiVersion` of the paks this app speaks to (M13).
     public static let apiVersion = 2
+    /// The oldest pak this app can drive (M17), compared with the
+    /// `pakVersion` of `/hello`. Raise it when the app needs something
+    /// older paks do not have; the user is then asked to update
+    /// ReminisLink on the console. The pak's own minimum for the app is
+    /// `minClientVersion`.
+    public static let minPakVersion = "1.0.0"
 
     public nonisolated let endpoint: Endpoint
     /// The device this client expects to talk to (checked on `/hello`).
@@ -165,10 +171,26 @@ public actor APIClient {
         if let expected = expectedDeviceId, hello.deviceId != expected {
             throw APIError.deviceMismatch(expected: expected, actual: hello.deviceId)
         }
-        guard hello.apiVersion == Self.apiVersion, AppVersion.isSupported(appVersion, minimum: hello.minClientVersion) else {
-            throw APIError.incompatible(apiVersion: hello.apiVersion, minClientVersion: hello.minClientVersion)
+        if let incompatibility = Self.incompatibility(of: hello, appVersion: appVersion) {
+            throw APIError.incompatible(incompatibility)
         }
         return hello
+    }
+
+    /// Whether this app (version `appVersion`) and the pak that sent
+    /// `hello` can work together, and if not which one to update (M17).
+    /// A `pakVersion` that is not a version number (a development build)
+    /// is accepted.
+    public static func incompatibility(
+        of hello: Hello, appVersion: String, minPakVersion: String = minPakVersion
+    ) -> Incompatibility? {
+        if hello.apiVersion < apiVersion { return .updatePak }
+        if hello.apiVersion > apiVersion { return .updateApp }
+        if !AppVersion.isSupported(appVersion, minimum: hello.minClientVersion) { return .updateApp }
+        if AppVersion.isVersionNumber(hello.pakVersion), !AppVersion.isSupported(hello.pakVersion, minimum: minPakVersion) {
+            return .updatePak
+        }
+        return nil
     }
 
     /// `POST /pair` (pairing v2), then checks the device proof. Returns the
@@ -1173,8 +1195,19 @@ final class PakLimitedDataDelegate: PakTaskDelegate, URLSessionDataDelegate, @un
     }
 }
 
-/// Dotted version comparison for `minClientVersion`.
+/// Dotted version comparison for `minClientVersion` and `minPakVersion`.
 public enum AppVersion {
+    /// Whether `version` is a version number (`1.0.1`, `1.1.0-beta.1`),
+    /// not the name of a development build of the pak (`dev`, a commit
+    /// hash).
+    public static func isVersionNumber(_ version: String) -> Bool {
+        let core = version.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        let parts = core.split(separator: ".", omittingEmptySubsequences: false)
+        return !parts.isEmpty && parts.allSatisfy { part in
+            !part.isEmpty && part.unicodeScalars.allSatisfy { ("0"..."9").contains($0) }
+        }
+    }
+
     /// Whether `version` is at least `minimum` (numeric, component by
     /// component; missing components are 0; a suffix after `-` is ignored).
     public static func isSupported(_ version: String, minimum: String) -> Bool {

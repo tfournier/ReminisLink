@@ -307,6 +307,44 @@ struct AppLogicTests {
         #expect(pak.log.count == requests)
     }
 
+    // MARK: 5b. Compatibility (M17)
+
+    /// A paired console whose pak became too old for the app (or needs a
+    /// newer app) says which one to update, with a link, instead of a
+    /// generic error.
+    @Test func incompatibleConsoleSaysWhichSideToUpdate() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+
+        pak.pakVersion = "0.9.0"
+        await session.connect()
+        #expect(session.state == .failed(.api(.incompatible(.updatePak))))
+        #expect(AppError.api(.incompatible(.updatePak)).action == .updatePak)
+
+        pak.pakVersion = "1.0.0"
+        pak.minClientVersion = "99.0.0"
+        await session.connect()
+        #expect(session.state == .failed(.api(.incompatible(.updateApp))))
+        #expect(AppError.api(.incompatible(.updateApp)).action == .updateApp)
+
+        // A development build of the pak is not refused.
+        pak.pakVersion = "dev"
+        pak.minClientVersion = "1.0.0"
+        await session.connect()
+        #expect(session.state == .connected)
+    }
+
+    @Test func incompatibilityMessagesNameTheSideToUpdate() {
+        let pakMessage = AppError.api(.incompatible(.updatePak)).message
+        #expect(pakMessage.contains("Update the ReminisLink pak on the console") || pakMessage.contains("Mets à jour le pak ReminisLink sur la console"))
+        let appMessage = AppError.api(.incompatible(.updateApp)).message
+        #expect(appMessage.contains("Update the ReminisLink app") || appMessage.contains("Mets à jour l’app ReminisLink"))
+        #expect(UpdateLinks.installPage.absoluteString.hasPrefix("https://reminis.link/"))
+        #expect(UpdateLinks.installPage.absoluteString.hasSuffix("/install/"))
+        #expect(UpdateLinks.appStore.host == "apps.apple.com")
+    }
+
     // MARK: 6. Shared connection
 
     @Test func requestsDuringAConnectionWaitForIt() async throws {

@@ -148,4 +148,14 @@ struct ModelsTests {
         #expect(!AppVersion.isSupported("1.0.0", minimum: "2"))
         #expect(AppVersion.isSupported("1.0.0-beta", minimum: "1.0.0"))
     }
+
+    /// M17: development builds of the pak are not version numbers.
+    @Test func versionNumbers() {
+        for version in ["1.0.0", "1.1.0-beta.1", "2", "10.20.30"] {
+            #expect(AppVersion.isVersionNumber(version), "\(version)")
+        }
+        for version in ["dev", "223a63f", "", "1..0", "1.0.x", "v1.0.0", "-beta.1", "١.٠"] {
+            #expect(!AppVersion.isVersionNumber(version), "\(version)")
+        }
+    }
 }
