@@ -131,11 +131,12 @@ type layoutPak struct {
 	logs bytes.Buffer
 	mu   sync.Mutex
 	link chan string
+	eof  chan struct{} // closed when the standard output closes (exit)
 }
 
 func startLayoutPak(t *testing.T, bin, sd string, port int, env []string) *layoutPak {
 	t.Helper()
-	p := &layoutPak{t: t, link: make(chan string, 1)}
+	p := &layoutPak{t: t, link: make(chan string, 1), eof: make(chan struct{})}
 	p.cmd = exec.Command(bin, "--headless", "--sd", sd, "--port", strconv.Itoa(port), "--name", "Smoke layout")
 	p.cmd.Env = append(os.Environ(), env...)
 	p.cmd.Stderr = &lockedWriter{mu: &p.mu, w: &p.logs}
@@ -147,6 +148,7 @@ func startLayoutPak(t *testing.T, bin, sd string, port int, env []string) *layou
 		t.Fatal(err)
 	}
 	go func() {
+		defer close(p.eof)
 		sc := bufio.NewScanner(out)
 		for sc.Scan() {
 			// The link holds the pairing secret: it is never logged.
@@ -285,6 +287,8 @@ func runLayoutSmoke(t *testing.T, bin string, l smokeLayout) {
 	var link string
 	select {
 	case link = <-p.link:
+	case <-p.eof:
+		t.Fatalf("the headless pak exited before printing a pairing link:\n%s", p.stderr())
 	case <-time.After(30 * time.Second):
 		t.Fatalf("no pairing link from the headless pak:\n%s", p.stderr())
 	}
