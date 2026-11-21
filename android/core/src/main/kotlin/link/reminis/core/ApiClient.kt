@@ -343,9 +343,21 @@ class ApiClient(
         throw if (e.causeChain().any { it is PinMismatchException }) ApiException.IdentityChanged() else ApiException.Network(e)
     }
 
-    private inline fun <reified T> decode(response: Response, accept: Int): T = response.use {
+    /**
+     * The body as text, read off the caller's thread: OkHttp streams the body
+     * from the socket, and the caller may be Android's main thread.
+     */
+    private suspend fun bodyText(response: Response): String? = withContext(Dispatchers.IO) {
+        try {
+            response.body?.string()
+        } catch (e: IOException) {
+            throw ApiException.Network(e)
+        }
+    }
+
+    private suspend inline fun <reified T> decode(response: Response, accept: Int): T = response.use {
         if (it.code != accept) throw serverError(it)
-        val text = it.body?.string() ?: throw ApiException.InvalidResponse("empty body")
+        val text = bodyText(it) ?: throw ApiException.InvalidResponse("empty body")
         try {
             ProtocolJson.decodeFromString<T>(text)
         } catch (e: SerializationException) {
@@ -355,8 +367,12 @@ class ApiClient(
         }
     }
 
-    private fun serverError(response: Response): ApiException = response.use {
-        val text = it.body?.string().orEmpty()
+    private suspend fun serverError(response: Response): ApiException = response.use {
+        val text = try {
+            bodyText(it).orEmpty()
+        } catch (_: ApiException.Network) {
+            ""
+        }
         val envelope = runCatching { ProtocolJson.decodeFromString<ErrorEnvelope>(text) }.getOrNull()
             ?: return ApiException.UnexpectedStatus(it.code)
         ApiException.Server(
