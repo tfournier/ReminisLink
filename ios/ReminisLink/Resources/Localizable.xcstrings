@@ -421,12 +421,12 @@
         }
       }
     },
-    "A file with the same name is already on the SD card. ReminisLink never replaces it." : {
+    "A file with the same name is already on the SD card. ReminisLink never replaces it without asking." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un fichier du même nom est déjà sur la carte SD. ReminisLink ne le remplace jamais."
+            "value" : "Un fichier du même nom est déjà sur la carte SD. ReminisLink ne le remplace jamais sans te demander."
           }
         }
       }
@@ -5033,6 +5033,16 @@
         }
       }
     },
+    "The current save cannot be replaced now: something else holds the place of the save or of its copy on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sauvegarde actuelle ne peut pas être remplacée pour l’instant : autre chose occupe la place de la sauvegarde ou de sa copie sur la carte SD."
+          }
+        }
+      }
+    },
     "The current save is first copied (backup copy), then replaced by the copy of %@." : {
       "localizations" : {
         "fr" : {
@@ -5291,6 +5301,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les fichiers sont revenus sous un nom libre : ceux déjà sur la carte SD n’ont pas été modifiés."
+          }
+        }
+      }
+    },
+    "The game has no save on the console now: this save becomes its save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le jeu n’a plus de sauvegarde sur la console : cette sauvegarde devient la sienne."
           }
         }
       }
@@ -6115,12 +6135,12 @@
         }
       }
     },
-    "This save becomes the save of the game. The current save is kept first as a backup copy of the game." : {
+    "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen); it does not go to the trash." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu."
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu (écran Sauvegarde) ; elle ne part pas à la corbeille."
           }
         }
       }
@@ -6135,12 +6155,12 @@
         }
       }
     },
-    "This save is now the save of the game. The previous save is kept as a backup copy of the game." : {
+    "This save is now the save of the game. The previous save is kept as a backup copy of the game (Save screen)." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette sauvegarde est maintenant celle du jeu. La sauvegarde précédente est gardée comme copie de secours du jeu."
+            "value" : "Cette sauvegarde est maintenant celle du jeu. La sauvegarde précédente est gardée comme copie de secours du jeu (écran Sauvegarde)."
           }
         }
       }

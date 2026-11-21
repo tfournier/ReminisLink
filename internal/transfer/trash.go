@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,7 +31,11 @@ type TrashRestoreResult struct {
 func (s *Service) RestoreTrash(id, onConflict string) (TrashRestoreResult, *Error, error) {
 	if onConflict == store.RestoreReplace {
 		if p, err := s.opts.Trash.PlanRestore(id); err == nil {
-			if b, ok := s.backupEntry(p); ok {
+			if b, isBackup := s.backupEntry(p); isBackup {
+				if b.refusal != "" {
+					return TrashRestoreResult{}, &Error{Status: http.StatusUnprocessableEntity, Code: CodeUnsupportedFormat,
+						Message: "Only the save of an existing game can replace the current one", Details: map[string]any{"reason": b.refusal}}, nil
+				}
 				return s.replaceWithBackup(id, b)
 			}
 		}
@@ -166,42 +172,40 @@ func (s *Service) replaceSpec(p store.RestorePlan) (*store.ReplaceSpec, error) {
 }
 
 // PreviewTrashRestore is GET /trash/{entryId}/restore: the plan of the
-// store, with "replace" also offered for the backup copy of a save
-// (backupEntry), which then goes through internal/saves.
+// store, with "replace" also computed for the backup copy of a save
+// (backupEntry), which then goes through internal/saves. What it says is
+// exact: replaceable only when the restore would succeed now, the files
+// that would really move away, and where they are kept.
 func (s *Service) PreviewTrashRestore(id string) (store.RestorePlan, error) {
 	p, err := s.opts.Trash.PlanRestore(id)
 	if err != nil || p.Replaceable {
 		return p, err
 	}
-	b, ok := s.backupEntry(p)
-	if !ok {
+	b, isBackup := s.backupEntry(p)
+	if !isBackup {
 		return p, nil
 	}
-	p.Replaceable, p.ReplaceKeptAs = true, ptr(store.ReplaceKeptBackup)
-	save, rtc := s.opts.Adapter.SaveDir(b.game.System.Tag).Files(b.game)
+	if b.refusal != "" {
+		p.ReplaceUnavailable = ptr(b.refusal)
+		return p, nil
+	}
 	sd := s.opts.Adapter.Roots().SD
-	savePath := s.opts.Adapter.SavePath(b.game)
-	for _, f := range []*osadapter.File{save, rtc} {
-		if f != nil {
-			if rel, err := filepath.Rel(sd, f.Path); err == nil {
-				p.ReplaceDisplaced = append(p.ReplaceDisplaced, filepath.ToSlash(rel))
-			}
+	p.Replaceable, p.ReplaceUnavailable, p.ReplaceKeptAs = true, nil, b.keptAs
+	p.ReplaceDisplaced = []string{}
+	for _, d := range b.displaced {
+		if rel, err := filepath.Rel(sd, d); err == nil {
+			p.ReplaceDisplaced = append(p.ReplaceDisplaced, filepath.ToSlash(rel))
 		}
 	}
-	if save != nil {
-		savePath = save.Path
-	}
-	rtcPath := strings.TrimSuffix(savePath, filepath.Ext(savePath)) + ".rtc"
-	if rtc != nil {
-		rtcPath = rtc.Path
-	}
 	for i, f := range p.Files {
-		target := savePath
+		target := b.savePath
 		if strings.EqualFold(filepath.Ext(f.Name), ".rtc") {
-			target = rtcPath
+			target = b.rtcPath
 		}
 		if rel, err := filepath.Rel(sd, target); err == nil {
 			p.Files[i].ReplaceName = ptr(filepath.ToSlash(rel))
+		} else {
+			p.Files[i].ReplaceName = nil
 		}
 	}
 	return p, nil
@@ -216,15 +220,25 @@ func ptr[T any](v T) *T { return &v }
 type backupOfSave struct {
 	game osadapter.Game
 	id   string
+	// refusal is why it cannot replace the current save now ("" when it
+	// can): game-missing, save-format, backup-taken, place-blocked.
+	refusal string
+	// savePath and rtcPath are where the copy and its clock file go;
+	// displaced the current files the restore moves away (the clock file
+	// only when the copy has one: internal/saves leaves it otherwise);
+	// keptAs where they are kept (nil when nothing moves).
+	savePath, rtcPath string
+	displaced         []string
+	keptAs            *string
 }
 
-// backupEntry recognises such an entry whose game still exists and whose
-// save format the pak writes.
+// backupEntry recognises such an entry (false otherwise) and computes what
+// a replace would do now.
 func (s *Service) backupEntry(p store.RestorePlan) (backupOfSave, bool) {
 	sd := s.opts.Adapter.Roots().SD
 	backups := filepath.Dir(s.opts.Layout.BackupsDir("x"))
 	tag, romDir, id := "", "", ""
-	copies := 0
+	copies, clocks := 0, 0
 	for _, it := range p.Items {
 		if it.Dir {
 			return backupOfSave{}, false
@@ -245,7 +259,9 @@ func (s *Service) backupEntry(p store.RestorePlan) (backupOfSave, bool) {
 		switch {
 		case ext == ".sav" && !it.Internal:
 			copies++
-		case ext == ".rtc" && !it.Internal, ext == ".json" && it.Internal:
+		case ext == ".rtc" && !it.Internal:
+			clocks++
+		case ext == ".json" && it.Internal:
 		default:
 			return backupOfSave{}, false
 		}
@@ -254,11 +270,67 @@ func (s *Service) backupEntry(p store.RestorePlan) (backupOfSave, bool) {
 	if copies != 1 {
 		return backupOfSave{}, false
 	}
+	b := backupOfSave{id: id}
 	g, ok := s.findGame(tag, romDir)
-	if !ok || s.opts.Adapter.CheckSaveFormat(g) != nil {
-		return backupOfSave{}, false
+	switch {
+	case !ok:
+		b.refusal = "game-missing"
+		return b, true
+	case s.opts.Adapter.CheckSaveFormat(g) != nil:
+		b.refusal = "save-format"
+		return b, true
+	case p.Conflict:
+		// The copy cannot go back to the backups of the game first.
+		b.refusal = "backup-taken"
+		return b, true
 	}
-	return backupOfSave{game: g, id: id}, true
+	b.game = g
+	save, rtc := s.opts.Adapter.SaveDir(g.System.Tag).Files(g)
+	b.savePath = s.opts.Adapter.SavePath(g)
+	if save != nil {
+		b.savePath = save.Path
+	}
+	b.rtcPath = strings.TrimSuffix(b.savePath, filepath.Ext(b.savePath)) + ".rtc"
+	if rtc != nil {
+		b.rtcPath = rtc.Path
+	}
+	// Anything else at those places (a folder, a link) would make the
+	// restore fail after the copy came back.
+	if (save == nil && occupied(b.savePath)) || (clocks > 0 && rtc == nil && occupied(b.rtcPath)) {
+		b.refusal = store.ReplacePlaceBlocked
+		return b, true
+	}
+	if save != nil {
+		b.displaced = append(b.displaced, save.Path)
+	}
+	if rtc != nil && clocks > 0 {
+		b.displaced = append(b.displaced, rtc.Path)
+	}
+	switch {
+	case save != nil:
+		b.keptAs = ptr(store.ReplaceKeptBackup)
+	case len(b.displaced) > 0:
+		b.keptAs = ptr(store.ReplaceKeptTrash)
+	}
+	return b, true
+}
+
+// occupied reports whether something has the name of p in its folder,
+// ignoring case (exFAT), or the folder cannot be read.
+func occupied(p string) bool {
+	des, err := os.ReadDir(filepath.Dir(p))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if err != nil {
+		return true
+	}
+	for _, d := range des {
+		if strings.EqualFold(d.Name(), filepath.Base(p)) {
+			return true
+		}
+	}
+	return false
 }
 
 // findGame returns the game of a tag whose ROM file name is romName,
@@ -295,10 +367,12 @@ func (s *Service) findGame(tag, romName string) (osadapter.Game, bool) {
 // replaceWithBackup restores the backup copy of a save in place of the
 // current save: the copy first goes back to the backups of its game (a
 // plain restore, never over a present file), then internal/saves restores
-// it, keeping the current save (and clock file) as a "before-restore"
-// backup copy first (rule 1 of CLAUDE.md), journaled by the store like any
-// save restore. If that second step fails, the copy stays listed in the
-// backups of the game (nothing is lost) and the error says so.
+// it: the current save is kept as a "before-restore" backup copy, and the
+// save and its clock file go in as one journaled replacement of the trash
+// (a power cut never leaves the save of one pair with the clock of the
+// other); the restored copy stays among the backups. If that second step
+// fails, the copy stays listed in the backups of the game (nothing is
+// lost) and the error says so.
 func (s *Service) replaceWithBackup(id string, b backupOfSave) (TrashRestoreResult, *Error, error) {
 	s.installMu.Lock()
 	res, err := s.opts.Trash.Restore(id, store.RestoreFail, nil)
@@ -306,24 +380,22 @@ func (s *Service) replaceWithBackup(id string, b backupOfSave) (TrashRestoreResu
 	if err != nil {
 		return s.restoreOutcome(res, err)
 	}
-	before, _ := s.opts.Adapter.SaveDir(b.game.System.Tag).Files(b.game)
-	backup, err := s.opts.Saves.Restore(b.game, b.id)
-	if err != nil {
+	if _, err := s.opts.Saves.Restore(b.game, b.id); err != nil {
 		s.log.Error("trash: backup copy restored to the backups, but the save was not replaced", "entry", id, "backup", b.id, "error", err)
 		return TrashRestoreResult{}, nil, fmt.Errorf("the backup copy is back in the backups of the game, but the save was not replaced: %w", err)
 	}
 	sd := s.opts.Adapter.Roots().SD
-	out := store.RestoreResult{Restored: []string{}, Replaced: []string{}, RestoredBytes: res.RestoredBytes, ReplacedKeptAs: ptr(store.ReplaceKeptBackup)}
+	out := store.RestoreResult{Restored: []string{}, Replaced: []string{}, RestoredBytes: res.RestoredBytes, ReplacedKeptAs: b.keptAs}
 	if f, _ := s.opts.Adapter.SaveDir(b.game.System.Tag).Files(b.game); f != nil {
 		if rel, err := filepath.Rel(sd, f.Path); err == nil {
 			out.Restored = append(out.Restored, filepath.ToSlash(rel))
 		}
 	}
-	if before != nil {
-		if rel, err := filepath.Rel(sd, before.Path); err == nil {
+	for _, d := range b.displaced {
+		if rel, err := filepath.Rel(sd, d); err == nil {
 			out.Replaced = append(out.Replaced, filepath.ToSlash(rel))
 		}
 	}
-	s.log.Info("trash: save replaced by a restored backup copy", "entry", id, "game", b.game.Path, "backup", b.id, "keptAs", backup)
+	s.log.Info("trash: save replaced by a restored backup copy", "entry", id, "game", b.game.Path, "backup", b.id, "keptAs", b.keptAs)
 	return TrashRestoreResult{RestoreResult: out}, nil, nil
 }

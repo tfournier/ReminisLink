@@ -104,6 +104,9 @@ public struct TrashRestorePreview: Codable, Sendable, Equatable {
     public let replaceDisplaced: [String]
     /// Raw `replaceKeptAs` (see ``keptAs``).
     public let replaceKeptAs: String?
+    /// Why `replace` is not possible now (`place-blocked`, `backup-taken`...),
+    /// nil when it is.
+    public let replaceUnavailable: String?
 
     /// Why no free name exists, nil when one does (or no conflict).
     public var noFreeName: TrashRestoreNoFreeName? { freeNameUnavailable.map(TrashRestoreNoFreeName.init(rawValue:)) }
@@ -113,7 +116,8 @@ public struct TrashRestorePreview: Codable, Sendable, Equatable {
     public var canRename: Bool { conflict && freeNameUnavailable == nil }
 
     public init(entryId: String, reason: String, label: String, conflict: Bool, items: [TrashRestoreItem], restoredBytes: Int64,
-                freeNameUnavailable: String? = nil, replaceable: Bool = false, replaceDisplaced: [String] = [], replaceKeptAs: String? = nil) {
+                freeNameUnavailable: String? = nil, replaceable: Bool = false, replaceDisplaced: [String] = [], replaceKeptAs: String? = nil,
+                replaceUnavailable: String? = nil) {
         self.entryId = entryId
         self.reason = reason
         self.label = label
@@ -124,10 +128,12 @@ public struct TrashRestorePreview: Codable, Sendable, Equatable {
         self.replaceable = replaceable
         self.replaceDisplaced = replaceDisplaced
         self.replaceKeptAs = replaceKeptAs
+        self.replaceUnavailable = replaceUnavailable
     }
 
     private enum CodingKeys: String, CodingKey {
         case entryId, reason, label, conflict, items, restoredBytes, freeNameUnavailable, replaceable, replaceDisplaced, replaceKeptAs
+        case replaceUnavailable
     }
 
     /// Lenient: a pak of the first M18 build has no rename and replace fields.
@@ -143,6 +149,7 @@ public struct TrashRestorePreview: Codable, Sendable, Equatable {
         replaceable = try c.decodeIfPresent(Bool.self, forKey: .replaceable) ?? false
         replaceDisplaced = try c.decodeIfPresent([String].self, forKey: .replaceDisplaced) ?? []
         replaceKeptAs = try c.decodeIfPresent(String.self, forKey: .replaceKeptAs)
+        replaceUnavailable = try c.decodeIfPresent(String.self, forKey: .replaceUnavailable)
     }
 }
 

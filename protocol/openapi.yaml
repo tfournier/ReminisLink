@@ -1040,6 +1040,7 @@ paths:
                 replaceable: false
                 replaceDisplaced: []
                 replaceKeptAs: null
+                replaceUnavailable: not-a-save
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1073,8 +1074,9 @@ paths:
         `onConflict: replace` (an entry holding only the save, and its
         clock file, of a game that still exists, or the backup copy of
         such a save, see below; anything else answers
-        `422 unsupported_format` with `details.reason`: `not-a-save`,
-        `game-missing` or `save-format`): the current save and clock file
+        `422 unsupported_format` with `details.reason`, as
+        `replaceUnavailable` of the preview: `not-a-save`, `game-missing`,
+        `save-format`, `place-blocked` or `backup-taken`): the current save and clock file
         of the game (names compared ignoring case) are first moved to a new
         trash entry (reason `restore`, `replacedEntryId`), then the items
         go back under the exact names the game uses. Journaled like the
@@ -1086,8 +1088,13 @@ paths:
         backups of its game (as with `fail`), then it is restored like
         `POST /games/{gameId}/save/backups/{backupId}/restore`, the current
         save being kept as a `before-restore` backup copy
-        (`replacedKeptAs: backup`). If that second step fails, the copy
-        stays in the backups of the game and the answer is `500`.
+        (`replacedKeptAs: backup`; the automatic limit never moves the
+        restored copy to the trash in that operation). A copy with a
+        clock file goes in with it as one journaled replacement (the
+        current pair also goes to a trash entry, reason `restore`): a
+        power cut is finished or rolled back as a pair. If that second
+        step fails, the copy stays in the backups of the game and the
+        answer is `500`.
 
         All or nothing: on an error every item already restored goes back
         to the entry; a request that fails before the first item went back
@@ -1415,9 +1422,13 @@ paths:
         save with the chosen backup. The response carries that safety copy
         (null if there was no current save). The clock file of the game
         (`.rtc`) is backed up with the save and restored with it when the
-        backup has one (renamed before the save); a backup without clock
-        file (made when the game had none) restores the save only and
+        backup has one: the pair goes in as one journaled replacement (the
+        current pair also goes to a trash entry, reason `restore`; M18), so
+        a power cut is finished or rolled back as a pair; a backup without
+        clock file (made when the game had none) restores the save only and
         leaves the current clock file in place (it is in the safety copy).
+        The automatic limit never moves the restored backup to the trash
+        in that operation.
         `409 conflict` when the backup does not match its checksum (nothing
         is changed).
       parameters:
@@ -3131,7 +3142,7 @@ components:
           description: 'Where it goes with `onConflict: replace` (the live name of the save), null when the entry cannot replace.'
     TrashRestorePreview:
       type: object
-      required: [entryId, reason, label, conflict, items, restoredBytes, freeNameUnavailable, replaceable, replaceDisplaced, replaceKeptAs]
+      required: [entryId, reason, label, conflict, items, restoredBytes, freeNameUnavailable, replaceable, replaceDisplaced, replaceKeptAs, replaceUnavailable]
       properties:
         entryId: { $ref: '#/components/schemas/OpaqueId' }
         reason: { type: string, description: 'The `reason` of the `TrashEntry`.' }
@@ -3153,7 +3164,11 @@ components:
         replaceKeptAs:
           type: [string, 'null']
           enum: [trash, backup, null]
-          description: 'Where those current files are kept with `replace`: `trash` (a new trash entry, for a save in the save folder) or `backup` (a "before-restore" backup copy of the save, for the backup copy of a save); null when not replaceable.' 
+          description: 'Where those current files are kept with `replace`: `trash` (a new trash entry) or `backup` (a "before-restore" backup copy of the save, when the entry is the backup copy of a save and the game has a save); null when nothing would move away (or not replaceable).'
+        replaceUnavailable:
+          type: [string, 'null']
+          enum: [not-a-save, game-missing, save-format, place-blocked, backup-taken, null]
+          description: 'Why `replace` is not possible now (null when it is): not the save of a game (or its backup copy), the game is gone, a save format the pak does not write, a place of the save held by something `replace` does not move (a folder), or the backup copy cannot go back to the backups of its game (a file of its name is there).' 
     TrashRestoreResult:
       type: object
       required: [restored, restoredBytes, renamed, replacedEntryId, replaced, replacedKeptAs]

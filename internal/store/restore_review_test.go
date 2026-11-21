@@ -487,3 +487,141 @@ func TestReplaceIsRefusedForOtherEntries(t *testing.T) {
 		t.Fatal("restored")
 	}
 }
+
+// Codex review of M18, round 2.
+
+func TestReplaceRecoveryNeverSendsAFileToAnotherGame(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	res, err := tr.Move(ReasonOverwrite, "A", []MoveItem{
+		{Path: write(t, sd, "Saves/GBA/A.gba.sav", "save A")},
+		{Path: write(t, sd, "Saves/GBA/A.gba.rtc", "clock A")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := entryJSON(t, tr, res.Entry.ID)
+	ef.State, ef.ReturnMode = stateReturning, RestoreReplace
+	ef.Returns = []returnRecord{
+		{Move: "Saves/GBA/A.gba.sav", Target: "Saves/GBA/A.gba.sav"},
+		{Move: "Saves/GBA/A.gba.rtc", Target: "Saves/GBA/B.gba.rtc"}, // tampered
+	}
+	saveJSON(t, tr, ef)
+	os.Rename(filepath.Join(tr.Dir(), res.Entry.ID, "Saves/GBA/A.gba.sav"), filepath.Join(sd, "Saves/GBA/A.gba.sav"))
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(sd, "Saves/GBA/B.gba.rtc")) {
+		t.Fatal("clock file sent to another game")
+	}
+	if read(t, filepath.Join(tr.Dir(), res.Entry.ID, "Saves/GBA/A.gba.rtc")) != "clock A" {
+		t.Fatal("clock file not kept in the trash")
+	}
+	if !validTarget(RestoreReplace, "Saves/GBA/A.gba.sav", "Saves/GBA/a.GBA.sav", nil) || validTarget(RestoreReplace, "Saves/GBA/A.gba.sav", "Saves/GBA/B.gba.sav", nil) {
+		t.Fatal("replace rule")
+	}
+}
+
+func TestRecoverKeepsAMoveWhoseFilesCannotBeRead(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads everything")
+	}
+	tr, sd, _, _ := newTestTrash(t)
+	res, err := tr.Move(ReasonRestore, "Game", []MoveItem{{Path: write(t, sd, "Saves/GBA/Game.gba.sav", "only copy")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := entryJSON(t, tr, res.Entry.ID)
+	ef.State = stateMoving
+	saveJSON(t, tr, ef)
+	saves := filepath.Join(tr.Dir(), res.Entry.ID, "Saves")
+	os.Chmod(saves, 0)
+	defer os.Chmod(saves, 0o755)
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(saves, 0o755)
+	if read(t, filepath.Join(saves, "GBA/Game.gba.sav")) != "only copy" {
+		t.Fatal("the only copy of the save was lost")
+	}
+}
+
+func TestReplaceIsRefusedWhenAFolderHoldsThePlace(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	res, err := tr.Move(ReasonOverwrite, "Game", []MoveItem{{Path: write(t, sd, "Saves/GBA/Game.gba.sav", "old")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, sd, "Saves/GBA/GAME.gba.sav/inside", "a folder")
+	tr.SetRestoreHooks(nil, replaceHook(sd))
+	p, err := tr.PlanRestore(res.Entry.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Replaceable || p.ReplaceUnavailable == nil || *p.ReplaceUnavailable != ReplacePlaceBlocked {
+		t.Fatalf("plan %+v", p)
+	}
+	var nr *NotReplaceableError
+	if _, err := tr.Restore(res.Entry.ID, RestoreReplace, nil); !errors.As(err, &nr) || nr.Reason != ReplacePlaceBlocked {
+		t.Fatalf("restore: %v", err)
+	}
+	if read(t, filepath.Join(sd, "Saves/GBA/GAME.gba.sav/inside")) != "a folder" {
+		t.Fatal("folder changed")
+	}
+	if entries, _, _ := tr.List(); len(entries) != 1 {
+		t.Fatalf("trash %+v", entries)
+	}
+}
+
+func TestRecoverFinishesThePlaylistOfAFolderGame(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, "Roms/PS (PS)/Multi/Multi.m3u", "Multi (Disc 1).bin\n")
+	write(t, sd, "Roms/PS (PS)/Multi/Multi (Disc 1).bin", "disc")
+	res, err := tr.Move(ReasonDeleteGame, "Multi", []MoveItem{
+		{Path: filepath.Join(sd, "Roms/PS (PS)/Multi")}, {Path: write(t, sd, "Saves/PS/Multi.m3u.sav", "s")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ef := entryJSON(t, tr, res.Entry.ID)
+	ef.State, ef.ReturnMode = stateReturning, RestoreRename
+	ef.Returns = []returnRecord{
+		{Move: "Roms/PS (PS)/Multi", Target: "Roms/PS (PS)/Multi (2)"},
+		{Move: "Saves/PS/Multi.m3u.sav", Target: "Saves/PS/Multi (2).m3u.sav"},
+	}
+	saveJSON(t, tr, ef)
+	// Cut after the folder rename, before its playlist rename.
+	if err := os.Rename(filepath.Join(tr.Dir(), res.Entry.ID, "Roms/PS (PS)/Multi"), filepath.Join(sd, "Roms/PS (PS)/Multi (2)")); err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, filepath.Join(sd, "Roms/PS (PS)/Multi (2)/Multi (2).m3u")) != "Multi (Disc 1).bin\n" || exists(filepath.Join(sd, "Roms/PS (PS)/Multi (2)/Multi.m3u")) {
+		t.Fatal("playlist not renamed by the recovery")
+	}
+	if read(t, filepath.Join(sd, "Saves/PS/Multi (2).m3u.sav")) != "s" {
+		t.Fatal("restore not finished")
+	}
+}
+
+func TestRestoreRefusesALinkInsideAFolder(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	write(t, sd, "Roms/PS (PS)/Multi/Multi.m3u", "x")
+	res, err := tr.Move(ReasonDeleteGame, "Multi", []MoveItem{{Path: filepath.Join(sd, "Roms/PS (PS)/Multi")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(tr.Dir(), res.Entry.ID, "Roms/PS (PS)/Multi/bonus")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tr.PlanRestore(res.Entry.ID); !errors.Is(err, ErrEntryDamaged) {
+		t.Fatalf("plan: %v", err)
+	}
+	if _, err := tr.Restore(res.Entry.ID, RestoreFail, nil); !errors.Is(err, ErrEntryDamaged) {
+		t.Fatalf("restore: %v", err)
+	}
+	if exists(filepath.Join(sd, "Roms/PS (PS)/Multi")) {
+		t.Fatal("restored with a link inside")
+	}
+}

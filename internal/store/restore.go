@@ -64,6 +64,10 @@ const (
 	ReplaceKeptBackup = "backup"
 )
 
+// ReplacePlaceBlocked: something the rule does not move away (a folder,
+// another file) holds a place of a "replace" (NotReplaceableError).
+const ReplacePlaceBlocked = "place-blocked"
+
 // Errors of a restore.
 var (
 	// ErrEntryDamaged: the entry holds files its journal does not list,
@@ -160,6 +164,9 @@ type RestorePlan struct {
 	// ReplaceKeptTrash (a new trash entry) or ReplaceKeptBackup (a backup
 	// copy of the save, internal/saves); nil when not replaceable.
 	ReplaceKeptAs *string `json:"replaceKeptAs"`
+	// ReplaceUnavailable says why "replace" is not possible (nil when it
+	// is): the Reason of a NotReplaceableError.
+	ReplaceUnavailable *string `json:"replaceUnavailable"`
 	// Items go to their original place, or to their free name or their
 	// replace target once the rule is applied.
 	Items   []RestoreItem `json:"-"`
@@ -348,6 +355,27 @@ func (t *Trash) planRestore(id string) (RestorePlan, error) {
 		if !fi.IsDir() && !fi.Mode().IsRegular() {
 			// Never a link nor a special file (rule 2 of CLAUDE.md).
 			return RestorePlan{}, ErrEntryDamaged
+		}
+		if fi.IsDir() {
+			// Nor anywhere inside a folder (walked without following).
+			bad := false
+			werr := fs.WalkDir(root.FS(), filepath.ToSlash(srcRel), func(_ string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() && !d.Type().IsRegular() {
+					bad = true
+					return fs.SkipAll
+				}
+				return nil
+			})
+			if werr != nil {
+				return RestorePlan{}, fmt.Errorf("trash: read entry %s: %w", id, withoutPathErr(werr))
+			}
+			if bad {
+				t.log.Error("trash: a folder of the entry holds a link or a special file", "entry", id, "file", rel)
+				return RestorePlan{}, ErrEntryDamaged
+			}
 		}
 		target, taken, _, err := resolveFold(root, rel)
 		if err != nil {
@@ -661,8 +689,12 @@ func validTarget(mode, move, target string, stems []string) bool {
 			}
 		}
 	case RestoreReplace:
+		// The same game: the save and clock file of the entry go to the
+		// save and clock file of the game they belong to, whose name
+		// differs at most by case (the adapter pairs them ignoring case).
 		ext := strings.ToLower(filepath.Ext(mBase))
-		return (ext == ".sav" || ext == ".rtc") && strings.EqualFold(filepath.Ext(tBase), ext)
+		return (ext == ".sav" || ext == ".rtc") && strings.EqualFold(filepath.Ext(tBase), ext) &&
+			strings.EqualFold(strings.TrimSuffix(mBase, filepath.Ext(mBase)), strings.TrimSuffix(tBase, filepath.Ext(tBase)))
 	}
 	return false
 }
@@ -671,13 +703,26 @@ func validTarget(mode, move, target string, stems []string) bool {
 // a plan from the hook (nothing without one). Called with t.mu held.
 func (t *Trash) planReplace(p *RestorePlan) {
 	if t.replaceSpec == nil {
+		p.ReplaceUnavailable = ptr("not-a-save")
 		return
 	}
 	spec, err := t.replaceSpec(*p)
-	if err != nil || spec == nil || t.checkReplace(*p, spec) != nil {
+	if err == nil && spec != nil {
+		err = t.checkReplace(*p, spec)
+	}
+	if err != nil || spec == nil {
+		var nr *NotReplaceableError
+		if errors.As(err, &nr) {
+			p.ReplaceUnavailable = ptr(nr.Reason)
+		} else {
+			p.ReplaceUnavailable = ptr("not-a-save")
+		}
 		return
 	}
-	p.Replaceable, p.replace, p.ReplaceKeptAs = true, spec, ptr(ReplaceKeptTrash)
+	p.Replaceable, p.replace = true, spec
+	if len(spec.Displace) > 0 {
+		p.ReplaceKeptAs = ptr(ReplaceKeptTrash)
+	}
 	sd, _ := filepath.Abs(t.sd)
 	for _, d := range spec.Displace {
 		if r, err := filepath.Rel(sd, d); err == nil {
@@ -703,12 +748,52 @@ func (t *Trash) checkReplace(p RestorePlan, spec *ReplaceSpec) error {
 			return &NotReplaceableError{Reason: "not-a-save"}
 		}
 	}
+	displaced := map[string]bool{}
 	for _, d := range spec.Displace {
-		if _, err := t.sdRel(d); err != nil {
+		rel, err := t.sdRel(d)
+		if err != nil {
 			return &NotReplaceableError{Reason: "not-a-save"}
+		}
+		displaced[strings.ToLower(filepath.ToSlash(rel))] = true
+	}
+	// Each place must be free once the displaced files are gone: anything
+	// else there (a folder, a file the rule does not move) would make the
+	// restore fail after the current save moved.
+	root, err := t.openSD()
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	for _, target := range spec.Targets {
+		resolved, taken, blocked, err := resolveFold(root, target)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return &NotReplaceableError{Reason: ReplacePlaceBlocked}
+		}
+		if !taken {
+			continue
+		}
+		parent, base := splitRel(resolved)
+		match, mode, _, err := findAny(root, parentDir(parent), base)
+		if err != nil {
+			return err
+		}
+		key := strings.ToLower(path.Join(parent, match))
+		if !mode.IsRegular() || !displaced[key] {
+			return &NotReplaceableError{Reason: ReplacePlaceBlocked}
 		}
 	}
 	return nil
+}
+
+// parentDir is the folder of a "/" path for findAny ("." at the top).
+func parentDir(p string) string {
+	if p == "" {
+		return "."
+	}
+	return p
 }
 
 // Restore puts every item of the entry id back (RestoreFail: refused with
@@ -792,7 +877,7 @@ func (t *Trash) Restore(id, onConflict string, check func(RestorePlan) error) (R
 		displaced = de.ID
 		res.ReplacedEntryID, res.Replaced = ptr(de.ID), moved.Moved
 	}
-	if p.Mode == RestoreReplace {
+	if displaced != "" {
 		res.ReplacedKeptAs = ptr(ReplaceKeptTrash)
 	}
 	if err := t.returnItems(&p, displaced); err != nil {
@@ -905,16 +990,7 @@ func (t *Trash) finishEntry(dir string, e *entryFile, left []string) {
 		return
 	}
 	if len(payload) == 0 {
-		doomed := filepath.Join(t.dir, trashDeletingPrefix+e.ID)
-		if err := os.Rename(dir, doomed); err != nil {
-			t.log.Warn("trash: restored entry left for the next start", "entry", e.ID, "error", err)
-			return
-		}
-		SyncDir(t.dir)
-		if err := os.RemoveAll(doomed); err != nil {
-			t.log.Warn("trash: cannot remove a restored entry", "entry", e.ID, "error", err)
-		}
-		SyncDir(t.dir)
+		t.removeEmptyEntry(dir, e.ID)
 		return
 	}
 	keep := map[string]bool{}
@@ -1128,7 +1204,18 @@ func (t *Trash) recoverReturn(dir, sd string, e *entryFile) error {
 	for _, r := range e.Returns {
 		src := filepath.Join(dir, filepath.FromSlash(r.Move))
 		if gone, err := moved(src); err != nil || gone {
-			continue // already back (or unknown: kept below by finishEntry)
+			// Already back (or unknown: kept below by finishEntry). A
+			// folder game back under a free name may still have its
+			// playlist under the old name: finish that step too.
+			if err == nil && e.ReturnMode == RestoreRename && inMoves[r.Move] && validTarget(e.ReturnMode, r.Move, r.Target, stems) {
+				dst := filepath.Join(sd, filepath.FromSlash(r.Target))
+				if fi, err := os.Lstat(dst); err == nil && fi.IsDir() {
+					if err := t.renamePlaylist(dst, r.Move, r.Target, false); err != nil {
+						t.log.Error("trash: playlist of a restored folder game not renamed", "entry", e.ID, "folder", r.Target, "error", err)
+					}
+				}
+			}
+			continue
 		}
 		if !inMoves[r.Move] || !validTarget(e.ReturnMode, r.Move, r.Target, stems) {
 			t.log.Error("trash: journaled place refused, the item stays in the trash", "entry", e.ID, "file", r.Move, "target", r.Target)
@@ -1190,4 +1277,42 @@ func (t *Trash) recoverDisplaced(name string, e entryFile) {
 		return
 	}
 	t.log.Info("trash: put back the save of a restore that never started", "entry", name)
+}
+
+// removeEmptyEntry removes an entry folder only when it holds no file
+// (entry.json and its temporary file aside), read through the SD card
+// root: an entry whose content cannot be read, or that holds a file, is
+// kept (reported false). Called with t.mu held.
+func (t *Trash) removeEmptyEntry(dir, id string) bool {
+	root, err := t.openSD()
+	if err != nil {
+		t.log.Error("trash: entry kept, the card cannot be read", "entry", id, "error", err)
+		return false
+	}
+	rel, err := t.confinedRel(root, dir)
+	if err != nil {
+		root.Close()
+		t.log.Error("trash: entry kept, reached through a link", "entry", id, "error", err)
+		return false
+	}
+	payload, err := entryPayload(root, rel)
+	root.Close()
+	if err != nil || len(payload) > 0 {
+		t.log.Error("trash: entry kept, it may still hold files", "entry", id, "files", payload, "error", err)
+		return false
+	}
+	doomed := filepath.Join(t.dir, trashDeletingPrefix+id)
+	if err := os.Rename(dir, doomed); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return true
+		}
+		t.log.Warn("trash: empty entry left for the next start", "entry", id, "error", err)
+		return false
+	}
+	SyncDir(t.dir)
+	if err := os.RemoveAll(doomed); err != nil {
+		t.log.Warn("trash: cannot remove an empty entry", "entry", id, "error", err)
+	}
+	SyncDir(t.dir)
+	return true
 }

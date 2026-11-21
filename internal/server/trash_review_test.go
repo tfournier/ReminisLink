@@ -212,3 +212,59 @@ func TestRenamedGameIsReadAgainWithItsData(t *testing.T) {
 		t.Fatal("present game changed")
 	}
 }
+
+// trashedBackup replaces the save of Starlight Courier, then deletes the
+// before-replace copy: the trash entry of a replaced save.
+func (f *fixture) trashedBackup() (entryID, backupID string) {
+	f.t.Helper()
+	g := gamePath(starlight)
+	var put struct {
+		Backup *backupJSON `json:"backup"`
+	}
+	f.do(http.MethodPut, g+"/save", "/games/{gameId}/save", []byte("new save"), http.StatusOK).JSON(f.t, &put)
+	f.do(http.MethodDelete, g+"/save/backups/"+put.Backup.ID, "/games/{gameId}/save/backups/{backupId}", nil, http.StatusNoContent)
+	entries, _, _ := f.trash.List()
+	for _, e := range entries {
+		if e.Reason == store.ReasonDeleteBackup {
+			return e.ID, put.Backup.ID
+		}
+	}
+	f.t.Fatal("no delete-backup entry")
+	return "", ""
+}
+
+func TestBackupReplaceIsExactAboutWhatMoves(t *testing.T) {
+	// The game has no save any more: nothing is displaced, nothing kept.
+	f := newFixture(t)
+	id, _ := f.trashedBackup()
+	if err := os.Remove(filepath.Join(f.sd, "Saves", "GBA", "Starlight Courier.gba.sav")); err != nil {
+		t.Fatal(err)
+	}
+	var p replacePreview
+	f.get(f.restoreURL(id), restorePath, http.StatusOK).JSON(t, &p)
+	if !p.Replaceable || p.ReplaceKeptAs != nil || len(p.ReplaceDisplaced) != 0 {
+		t.Fatalf("preview without a save %+v", p)
+	}
+	var res replaceResult
+	f.do(http.MethodPost, f.restoreURL(id), restorePath, []byte(`{"onConflict":"replace"}`), http.StatusOK).JSON(t, &res)
+	if res.ReplacedKeptAs != nil || len(res.Replaced) != 0 || f.read("Saves/GBA/Starlight Courier.gba.sav") == "new save" {
+		t.Fatalf("result %+v", res)
+	}
+
+	// A file of the copy's name among the backups: refused, not promised.
+	f2 := newFixture(t)
+	id2, bid := f2.trashedBackup()
+	f2.writeSD(".userdata/shared/ReminisLink/backups/GBA/Starlight Courier.gba/saves/"+bid+".sav", "squatter")
+	var p2 struct {
+		Replaceable        bool    `json:"replaceable"`
+		ReplaceUnavailable *string `json:"replaceUnavailable"`
+	}
+	f2.get(f2.restoreURL(id2), restorePath, http.StatusOK).JSON(t, &p2)
+	if p2.Replaceable || p2.ReplaceUnavailable == nil || *p2.ReplaceUnavailable != "backup-taken" {
+		t.Fatalf("preview %+v", p2)
+	}
+	r := f2.do(http.MethodPost, f2.restoreURL(id2), restorePath, []byte(`{"onConflict":"replace"}`), http.StatusUnprocessableEntity)
+	if !strings.Contains(string(r.Body), `"backup-taken"`) || f2.read("Saves/GBA/Starlight Courier.gba.sav") != "new save" {
+		t.Fatalf("422 %s", r.Body)
+	}
+}

@@ -443,7 +443,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 		// stays "moving" and Recover handles it at the next start.
 		left := t.putBack(entryDir, moved)
 		if len(left) == 0 {
-			os.RemoveAll(entryDir)
+			t.removeEmptyEntry(entryDir, id)
 		} else {
 			recount(entryDir, &e, left)
 			e.Installs = nil
@@ -845,11 +845,10 @@ func (t *Trash) Recover() error {
 		dir := filepath.Join(t.dir, name)
 		e, err := t.readEntry(dir)
 		if err != nil {
-			if !hasRegularFile(dir) {
-				// Created but nothing moved yet (entry.json never written).
-				if err := os.RemoveAll(dir); err == nil {
-					t.log.Info("trash: removed an empty entry", "entry", name)
-				}
+			// Created but nothing moved yet (entry.json never written):
+			// removed only when it surely holds no file.
+			if errors.Is(err, fs.ErrNotExist) && t.removeEmptyEntry(dir, name) {
+				t.log.Info("trash: removed an empty entry", "entry", name)
 			}
 			continue
 		}
@@ -887,9 +886,17 @@ func (t *Trash) Recover() error {
 			continue
 		}
 		var left []string
+		unknown := false
 		for _, rel := range e.Moves {
 			src := filepath.Join(dir, filepath.FromSlash(rel))
-			if _, err := os.Lstat(src); err != nil {
+			gone, err := moved(src)
+			if err != nil {
+				// Only a missing file means "never moved": keep it all.
+				unknown = true
+				left = append(left, rel)
+				continue
+			}
+			if gone {
 				continue // never moved
 			}
 			dst := filepath.Join(sd, filepath.FromSlash(rel))
@@ -903,10 +910,12 @@ func (t *Trash) Recover() error {
 			}
 			t.log.Info("trash: put back after an interrupted move", "entry", name, "file", rel)
 		}
+		if unknown {
+			t.log.Error("trash: interrupted move kept for the next start, its files cannot be read", "entry", name)
+			continue
+		}
 		if len(left) == 0 {
-			if err := os.RemoveAll(dir); err != nil {
-				t.log.Warn("trash: cannot remove a rolled back entry", "entry", name, "error", err)
-			}
+			t.removeEmptyEntry(dir, name)
 			continue
 		}
 		recount(dir, &e, left)
@@ -946,18 +955,6 @@ func recount(dir string, e *entryFile, left []string) {
 			return nil
 		})
 	}
-}
-
-func hasRegularFile(dir string) bool {
-	found := false
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
-		if err == nil && d.Type().IsRegular() && d.Name() != trashEntryFile && d.Name() != trashEntryFile+".tmp" {
-			found = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return found
 }
 
 // Purge erases the entries whose credited age reached maxAge

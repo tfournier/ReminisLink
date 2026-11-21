@@ -70,7 +70,7 @@ struct TrashRestoreView: View {
                 Label {
                     Text(conflictAppeared
                         ? "A file appeared on the SD card where this entry goes back. Nothing was changed."
-                        : "A file with the same name is already on the SD card. ReminisLink never replaces it.")
+                        : "A file with the same name is already on the SD card. ReminisLink never replaces it without asking.")
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
@@ -134,6 +134,13 @@ struct TrashRestoreView: View {
     /// save goes.
     @ViewBuilder
     private func replaceSection(_ preview: TrashRestorePreview) -> some View {
+        if !preview.replaceable, preview.replaceUnavailable == "place-blocked" || preview.replaceUnavailable == "backup-taken" {
+            Section {
+                Text("The current save cannot be replaced now: something else holds the place of the save or of its copy on the SD card.")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("trashRestore.replaceUnavailable")
+            }
+        }
         if preview.replaceable {
             Section {
                 Button(role: .destructive) {
@@ -158,9 +165,11 @@ struct TrashRestoreView: View {
     }
 
     private func replaceExplanation(_ keptAs: TrashReplaceKeptAs?) -> LocalizedStringKey {
-        keptAs == .backup
-            ? "This save becomes the save of the game. The current save is kept first as a backup copy of the game."
-            : "This save becomes the save of the game. The current save goes to the trash of the console first."
+        switch keptAs {
+        case .backup?: "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen); it does not go to the trash."
+        case nil: "The game has no save on the console now: this save becomes its save."
+        default: "This save becomes the save of the game. The current save goes to the trash of the console first."
+        }
     }
 
     private func doneSection(_ result: TrashRestoreResult) -> some View {
@@ -174,7 +183,7 @@ struct TrashRestoreView: View {
             Text("Back on the SD card")
         } footer: {
             if result.keptAs == .backup {
-                Text("This save is now the save of the game. The previous save is kept as a backup copy of the game.")
+                Text("This save is now the save of the game. The previous save is kept as a backup copy of the game (Save screen).")
             } else if result.keptAs != nil {
                 Text("This save is now the save of the game. The previous save is in the trash of the console.")
             } else if result.renamed {

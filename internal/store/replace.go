@@ -165,7 +165,11 @@ func (t *Trash) rollback(entryDir, sd string, e *entryFile) bool {
 		if !isUnder(sd, dst) {
 			return false
 		}
-		if _, err := os.Lstat(src); err == nil {
+		gone, err := moved(src)
+		if err != nil {
+			return false // unknown: kept as it is
+		}
+		if !gone {
 			if t.restoreItem(src, dst) != nil {
 				return false
 			}
@@ -182,11 +186,9 @@ func (t *Trash) rollback(entryDir, sd string, e *entryFile) bool {
 			return false
 		}
 	}
-	// Every file is back and durable: the journal can go.
-	if err := os.RemoveAll(entryDir); err != nil {
-		t.log.Warn("trash: cannot remove a rolled back entry", "entry", e.ID, "error", err)
-	}
-	return true
+	// Every file is back and durable: the journal can go (only once the
+	// folder surely holds no file).
+	return t.removeEmptyEntry(entryDir, e.ID)
 }
 
 // installed reports whether the install r is complete at its destination.

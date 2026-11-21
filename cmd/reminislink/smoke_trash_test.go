@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -83,6 +85,14 @@ func TestSmokeTrash(t *testing.T) {
 		var l trashList
 		call(t, c, http.MethodGet, "/api/v1/trash", nil, http.StatusOK, &l)
 		return l
+	}
+	listed := func(l trashList, id string) bool {
+		for _, e := range l.Entries {
+			if e.ID == id {
+				return true
+			}
+		}
+		return false
 	}
 	type result struct {
 		Restored []string `json:"restored"`
@@ -244,7 +254,7 @@ func TestSmokeTrash(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(sd, filepath.FromSlash(lantern))); err == nil {
 		t.Fatal("a restore that never started was finished")
 	}
-	if l := trash(); len(l.Entries) != 1 {
+	if l := trash(); !listed(l, deleted.TrashEntryID) {
 		t.Fatalf("trash after the cancel: %+v", l)
 	}
 	t.Log("restore cut before its first rename: cancelled at the next start, the entry is listed again")
@@ -265,7 +275,7 @@ func TestSmokeTrash(t *testing.T) {
 	if got, _ := os.ReadFile(filepath.Join(sd, filepath.FromSlash(lantern))); string(got) != string(lanternBytes) {
 		t.Fatal("ROM changed")
 	}
-	if l := trash(); len(l.Entries) != 0 {
+	if l := trash(); listed(l, deleted.TrashEntryID) {
 		t.Fatalf("trash after the recovery: %+v", l)
 	}
 	t.Log("restore cut after a rename: finished at the next start, bytes unchanged")
@@ -293,7 +303,7 @@ func TestSmokeTrash(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(roots.Data, "trash", deleted.TrashEntryID, filepath.FromSlash(lantern))); err != nil || string(got) != string(lanternBytes) {
 		t.Fatalf("ROM not kept in the trash: %v", err)
 	}
-	if l := trash(); len(l.Entries) != 1 {
+	if l := trash(); !listed(l, deleted.TrashEntryID) {
 		t.Fatalf("trash after a refused journal: %+v", l)
 	}
 	t.Log("tampered journal (a game sent to the tools): refused at the next start, the ROM stays in the trash")
@@ -361,6 +371,44 @@ func TestSmokeTrash(t *testing.T) {
 		t.Fatal("current clock not in the trash")
 	}
 	call(t, c, http.MethodPost, "/api/v1/trash/"+backupEntryOr(t, trash().Entries, "delete-game")+"/restore", map[string]any{"onConflict": "replace"}, http.StatusUnprocessableEntity, nil)
+
+	// 7. A power cut between the two renames of a pair (the clock file of
+	// the restored copy in place, its save not yet): the next start
+	// finishes the pair, never the save of one pair with the clock of the
+	// other.
+	p.stop()
+	liveSave := filepath.Join(sd, "Saves", "GBA", "Starlight Courier (2).gba.sav")
+	liveRTC := filepath.Join(sd, "Saves", "GBA", "Starlight Courier (2).gba.rtc")
+	cutID := "tr_20261102T120000Z_c0de"
+	cutDir := filepath.Join(roots.Data, "trash", cutID)
+	writeSD(t, sd, ".userdata/shared/ReminisLink/trash/"+cutID+"/Saves/GBA/Starlight Courier (2).gba.sav", "pair B save")
+	writeSD(t, sd, ".userdata/shared/ReminisLink/trash/"+cutID+"/Saves/GBA/Starlight Courier (2).gba.rtc", "pair B clock")
+	os.Remove(liveSave)
+	writeSD(t, sd, "Saves/GBA/Starlight Courier (2).gba.rtc", "pair A clock")          // already installed
+	writeSD(t, sd, ".userdata/shared/ReminisLink/uploads/cut-save.tmp", "pair A save") // not yet
+	sum := func(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+	writeEntry(filepath.Join(cutDir, "entry.json"), map[string]any{
+		"version": 1, "state": "installing", "id": cutID, "trashedAt": "2026-11-02T12:00:00Z", "reason": "restore",
+		"label":     "Starlight Courier (2)",
+		"files":     []string{"Saves/GBA/Starlight Courier (2).gba.sav", "Saves/GBA/Starlight Courier (2).gba.rtc"},
+		"moves":     []string{"Saves/GBA/Starlight Courier (2).gba.sav", "Saves/GBA/Starlight Courier (2).gba.rtc"},
+		"sizeBytes": 23,
+		"installs": []map[string]any{
+			{"src": ".userdata/shared/ReminisLink/uploads/cut-rtc.tmp", "dst": "Saves/GBA/Starlight Courier (2).gba.rtc", "size": 12, "sha256": sum("pair A clock")},
+			{"src": ".userdata/shared/ReminisLink/uploads/cut-save.tmp", "dst": "Saves/GBA/Starlight Courier (2).gba.sav", "size": 11, "sha256": sum("pair A save")},
+		},
+	})
+	p.start()
+	gotSave, _ := os.ReadFile(liveSave)
+	gotRTC, _ := os.ReadFile(liveRTC)
+	if string(gotSave) != "pair A save" || string(gotRTC) != "pair A clock" {
+		t.Fatalf("pair after the start: %q %q", gotSave, gotRTC)
+	}
+	if got, _ := os.ReadFile(filepath.Join(cutDir, "Saves", "GBA", "Starlight Courier (2).gba.sav")); string(got) != "pair B save" {
+		t.Fatal("previous pair not kept in the trash")
+	}
+	t.Log("power cut between the two renames of a pair: finished as a pair at the next start, the previous pair in the trash")
+
 	p.stop()
 	if !strings.Contains(p.logs.String(), "interrupted restore finished") || !strings.Contains(p.logs.String(), "journaled place refused") {
 		t.Errorf("recovery not logged:\n%s", p.logs.String())

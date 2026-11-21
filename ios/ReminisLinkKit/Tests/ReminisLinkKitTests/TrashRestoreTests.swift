@@ -106,6 +106,12 @@ struct TrashRestoreReplaceTests {
             guard case .server(let e) = error as? APIError else { return false }
             return e.status == 409
         }
+        let preview = try await client.trashRestorePreview(id: entry.id)
+        #expect(preview.conflict && !preview.canRename && !preview.replaceable)
+        await #expect { try await client.restoreTrashEntry(id: entry.id, onConflict: .rename) } throws: { error in
+            guard case .server(let e) = error as? APIError else { return false }
+            return e.status == 409
+        }
         #expect(try await client.trash().entries.contains { $0.id == entry.id })
     }
 

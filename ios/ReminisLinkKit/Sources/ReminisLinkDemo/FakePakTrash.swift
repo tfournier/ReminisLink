@@ -16,8 +16,10 @@ import ReminisLinkKit
 // does); anything else answers `422`. An entry without a payload (made by
 // a test, or files the fake does not model: a locked copy, a replaced
 // ROM) has its place taken, as these entries replaced a file that is
-// still there: `409`, or a free name the app does not show. The fake
-// never claims a restore of data it did not put back. The `library` event
+// still there: `409`. The fake never offers nor performs an action it
+// cannot show: no free name for a state, a backup copy or an entry it
+// does not model (their free name is a file the app never lists), so
+// `freeNameUnavailable` says none exists and `rename` answers `409`. The `library` event
 // follows any restore (the `trash` path), and a `paks` event a restored
 // pak.
 
@@ -45,6 +47,8 @@ extension FakePak {
         var bytes: Int64
         /// Where the current save goes with `replace` (nil: not replaceable).
         var replace: (target: String, displaced: [String])?
+        /// Why `replace` is not possible (nil when it is).
+        var replaceUnavailable: String?
 
         func freeName(_ path: String) -> String {
             guard let free else { return path }
@@ -107,9 +111,10 @@ extension FakePak {
         let files = entry["files"] as? [String] ?? []
         var plan = FakeRestorePlan(entry: entry, payload: payload, stem: "", conflicts: [], free: nil, bytes: Self.size(entry["sizeBytes"]))
         guard let payload else {
-            // Not modelled: the file it replaced is still there.
+            // Not modelled: the file it replaced is still there, and no
+            // free name the app could show.
             plan.conflicts = files.isEmpty ? [entry["label"] as? String ?? id] : files
-            plan.free = 2
+            plan.replaceUnavailable = "not-a-save"
             return plan
         }
         switch payload {
@@ -122,12 +127,24 @@ extension FakePak {
         case .backup(let key, _):
             if taken(payload, number: nil) { plan.conflicts = files }
             if let (system, game) = gameOf(key: key) {
-                let save = Self.savePath(system, game)
-                plan.replace = (save, gameData[key]?.save != nil || game.hasSave ? [save] : [])
+                if plan.conflicts.isEmpty {
+                    let save = Self.savePath(system, game)
+                    let hasSave = gameData[key].map { $0.save != nil } ?? game.hasSave
+                    plan.replace = (save, hasSave ? [save] : [])
+                } else {
+                    plan.replaceUnavailable = "backup-taken"
+                }
+            } else {
+                plan.replaceUnavailable = "game-missing"
             }
+            // A free name would be a file the backups never list.
+            return plan
         case .state(_, _, _):
             if taken(payload, number: nil) { plan.conflicts = files }
+            plan.replaceUnavailable = "not-a-save"
+            return plan
         }
+        plan.replaceUnavailable = "not-a-save"
         if !plan.conflicts.isEmpty {
             plan.free = (2...999).first { !taken(payload, number: $0) }
         }
@@ -143,7 +160,9 @@ extension FakePak {
             "entryId": id, "reason": plan.entry["reason"] as? String ?? "", "label": plan.entry["label"] as? String ?? "",
             "conflict": !plan.conflicts.isEmpty, "items": plan.items, "restoredBytes": plan.bytes,
             "freeNameUnavailable": unavailable, "replaceable": plan.replace != nil,
-            "replaceDisplaced": plan.replace?.displaced ?? [], "replaceKeptAs": plan.replace == nil ? NSNull() : "backup",
+            "replaceDisplaced": plan.replace?.displaced ?? [],
+            "replaceKeptAs": plan.replace.map { $0.displaced.isEmpty ? NSNull() : "backup" as Any } ?? NSNull(),
+            "replaceUnavailable": plan.replaceUnavailable.map { $0 as Any } ?? NSNull(),
         ])
     }
 
@@ -196,14 +215,12 @@ extension FakePak {
                 pak.name += suffix
                 paksState.paks.append(pak)
                 pakRestored = true
-            case .backup(let key, let backup)? where !renamed:
+            case .backup(let key, let backup)?:
                 gameData[key]?.backups.insert(backup, at: 0)
-            case .state(let key, let slot, let entry)? where !renamed:
+            case .state(let key, let slot, let entry)?:
                 gameData[key]?.slots[slot] = entry
-            default:
-                // Under a free name the app does not show (a state, a
-                // backup copy, a file the fake does not model).
-                break
+            case nil:
+                break // never reached: a conflict without a free name
             }
             trashEntries.removeAll { $0["id"] as? String == id }
             trashPayloads[id] = nil
@@ -223,9 +240,8 @@ extension FakePak {
     private func replaceWithBackup(id: String, plan: FakeRestorePlan) -> FakeResponse {
         guard case .backup(let key, let backup)? = plan.payload, let replace = plan.replace,
               let (system, game) = gameOf(key: key) else {
-            let reason = if case .backup? = plan.payload { "game-missing" } else { "not-a-save" }
             return .error(422, code: "unsupported_format", message: "Only the save of an existing game can replace the current one",
-                          details: ["reason": reason])
+                          details: ["reason": plan.replaceUnavailable ?? "not-a-save"])
         }
         var data = gameData[key] ?? Self.seed(game: game)
         if let current = data.save {
@@ -240,7 +256,8 @@ extension FakePak {
         trashEntries.removeAll { $0["id"] as? String == id }
         trashPayloads[id] = nil
         return .json(200, ["restored": [Self.savePath(system, game)], "restoredBytes": plan.bytes, "renamed": false,
-                           "replacedEntryId": NSNull(), "replaced": replace.displaced, "replacedKeptAs": "backup"])
+                           "replacedEntryId": NSNull(), "replaced": replace.displaced,
+                           "replacedKeptAs": replace.displaced.isEmpty ? NSNull() : "backup" as Any])
     }
 }
 
