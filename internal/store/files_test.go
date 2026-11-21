@@ -64,10 +64,44 @@ func TestStampIDAndFindFold(t *testing.T) {
 	dir := t.TempDir()
 	os.Mkdir(filepath.Join(dir, "Game.GBA"), 0o755)
 	os.WriteFile(filepath.Join(dir, "Slot1.st"), nil, 0o644)
-	if FindFold(dir, "game.gba", true) != filepath.Join(dir, "Game.GBA") || FindFold(dir, "game.gba", false) != "" {
-		t.Fatal("folder")
+	// Another case is found where the file system ignores case (exFAT,
+	// APFS); on a case-sensitive one it is another entry
+	// (TestFindFoldCaseSensitive).
+	if _, err := os.Lstat(filepath.Join(dir, "GAME.GBA")); err == nil {
+		if FindFold(dir, "game.gba", true) != filepath.Join(dir, "Game.GBA") || FindFold(dir, "game.gba", false) != "" {
+			t.Fatal("folder")
+		}
+		if FindFold(dir, "slot1.st", false) != filepath.Join(dir, "Slot1.st") {
+			t.Fatal("file")
+		}
 	}
-	if FindFold(dir, "slot1.st", false) != filepath.Join(dir, "Slot1.st") || FindFold(dir, "nope", false) != "" {
-		t.Fatal("file")
+	if FindFold(dir, "Game.GBA", true) != filepath.Join(dir, "Game.GBA") || FindFold(dir, "Slot1.st", false) != filepath.Join(dir, "Slot1.st") || FindFold(dir, "nope", false) != "" {
+		t.Fatal("exact")
+	}
+}
+
+// On a case-sensitive file system (Knulli on ext4, M20), an entry of
+// another case is another file: FindFold does not take it.
+func TestFindFoldCaseSensitive(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "game.gba"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "GAME.GBA")); err == nil {
+		// Case-insensitive (macOS): the entry of another case is the one
+		// the file system opens.
+		if got := FindFold(dir, "Game.gba", false); got != filepath.Join(dir, "game.gba") {
+			t.Fatalf("case-insensitive: %q", got)
+		}
+		return
+	}
+	if got := FindFold(dir, "Game.gba", false); got != "" {
+		t.Fatalf("case-sensitive: %q", got)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "Game.gba"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := FindFold(dir, "Game.gba", true); got != filepath.Join(dir, "Game.gba") {
+		t.Fatalf("exact folder: %q", got)
 	}
 }

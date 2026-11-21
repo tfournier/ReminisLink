@@ -122,7 +122,12 @@ func (s *Service) path(g osadapter.Game) (string, bool, error) {
 	if files.Cheats != nil {
 		return files.Cheats.Path, true, nil
 	}
-	return s.o.Adapter.CheatPath(g), false, nil
+	p := s.o.Adapter.CheatPath(g)
+	if p == "" {
+		// An OS without a cheat file the pak can name (Knulli, M20).
+		return "", false, fmt.Errorf("%w: no cheat file on this OS", osadapter.ErrUnsupportedFormat)
+	}
+	return p, false, nil
 }
 
 // readCurrent returns the content of the cheat file of g (nil when it

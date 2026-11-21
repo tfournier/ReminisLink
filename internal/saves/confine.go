@@ -20,6 +20,15 @@ var openConfined = confine.Open
 // openSavesFile opens the file p (an absolute path given by the adapter)
 // with openConfined under the saves folder of the adapter.
 func (s *Service) openSavesFile(p string) (*os.File, error) {
-	f, _, err := confine.OpenUnder(s.o.Adapter.Roots().Saves, p)
+	r := s.o.Adapter.Roots()
+	f, _, err := confine.OpenUnder(confine.Base(r.SD, r.Saves), p)
 	return f, err
+}
+
+// checkWriteDir refuses a read or a write in dir when a folder between the root of
+// the card (or the saves folder, when it is elsewhere) and dir is a
+// symbolic link (rule 2): the write would land elsewhere on the volume.
+func (s *Service) checkWriteDir(dir string) error {
+	r := s.o.Adapter.Roots()
+	return confine.CheckDir(confine.Base(r.SD, r.Saves), dir)
 }

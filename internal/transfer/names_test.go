@@ -54,8 +54,11 @@ func TestFreeNameAndFindFold(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := findFold(dir, "GAME.gba"); got != "Game.gba" {
-		t.Errorf("findFold = %q", got)
+	// Another case is the same file on exFAT (the NextUI card) and APFS;
+	// on a case-sensitive file system (Knulli on ext4) it is another one.
+	folds := foldsCase(dir)
+	if got, want := findFold(dir, "GAME.gba"), map[bool]string{true: "Game.gba", false: ""}[folds]; got != want {
+		t.Errorf("findFold = %q, want %q", got, want)
 	}
 	if got := findFold(dir, "Other.gba"); got != "" {
 		t.Errorf("findFold missing = %q", got)
@@ -63,8 +66,8 @@ func TestFreeNameAndFindFold(t *testing.T) {
 	if got := findFold(filepath.Join(dir, "nope"), "x"); got != "" {
 		t.Errorf("findFold in missing dir = %q", got)
 	}
-	if got := freeName(dir, "Game.gba"); got != "Game (3).gba" {
-		t.Errorf("freeName = %q", got)
+	if got, want := freeName(dir, "Game.gba"), map[bool]string{true: "Game (3).gba", false: "Game (2).gba"}[folds]; got != want {
+		t.Errorf("freeName = %q, want %q", got, want)
 	}
 	if got := freeName(dir, "New.gba"); got != "New.gba" {
 		t.Errorf("freeName free = %q", got)
@@ -92,4 +95,40 @@ func TestNamesAreNormalizedToNFC(t *testing.T) {
 	if got, err := CleanFileName(nfc); err != nil || got != nfc {
 		t.Fatalf("CleanFileName(NFC) = %q %v", got, err)
 	}
+}
+
+// Codex review of M20: on a case-sensitive file system (Knulli on ext4),
+// Game.gba and game.gba are two files: no conflict, and an overwrite
+// never trashes the other one.
+func TestUploadNextToAnotherCase(t *testing.T) {
+	e := newEnv(t)
+	probe := e.path("Roms/" + gbaSystem + "/Starlight Courier.gba")
+	if _, err := os.Lstat(strings.ToUpper(probe[:len(probe)-4]) + ".GBA"); err == nil {
+		t.Skip("the temporary folder ignores case: run on Linux (make emulation)")
+	}
+	if got := findFold(filepath.Dir(probe), "starlight courier.gba"); got != "" {
+		t.Fatalf("findFold took %q", got)
+	}
+	for _, rule := range []string{"", ConflictOverwrite} {
+		id := e.uploaded(romTarget("STARLIGHT COURIER.gba"), []byte("other game "+rule), rule)
+		e.complete(id)
+	}
+	if e.read("Roms/"+gbaSystem+"/Starlight Courier.gba") == "" || !e.exists("Roms/"+gbaSystem+"/STARLIGHT COURIER.gba") {
+		t.Fatal("the games of two cases do not coexist")
+	}
+	if entries, _, _ := e.trash.List(); len(entries) != 1 {
+		// Only the second upload replaces the first one of the same name.
+		t.Fatalf("trash: %+v", entries)
+	}
+}
+
+// foldsCase reports whether the file system of dir ignores case.
+func foldsCase(dir string) bool {
+	probe := filepath.Join(dir, "case-probe")
+	if err := os.WriteFile(probe, nil, 0o644); err != nil {
+		return true
+	}
+	defer os.Remove(probe)
+	_, err := os.Lstat(filepath.Join(dir, "CASE-PROBE"))
+	return err == nil
 }

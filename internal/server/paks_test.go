@@ -221,8 +221,13 @@ func TestSelfPakIsProtected(t *testing.T) {
 	}
 	r := f.do(http.MethodDelete, "/api/v1/paks/"+self.ID, "/paks/{pakId}", nil, http.StatusConflict)
 	wantCode(t, r, "conflict")
-	// Neither replaced (whatever the case of its name).
-	j := f.waitJob(f.uploadPak(pakZip(t, "reminislink.PAK/launch.sh", "evil"), map[string]any{}, "overwrite"))
+	// Neither replaced (whatever the case of its name, on exFAT; on a
+	// case-sensitive file system another case is another folder).
+	name := "reminislink.PAK"
+	if _, err := os.Lstat(filepath.Join(f.sd, "TOOLS")); err != nil {
+		name = "ReminisLink.pak"
+	}
+	j := f.waitJob(f.uploadPak(pakZip(t, name+"/launch.sh", "evil"), map[string]any{}, "overwrite"))
 	if j.State != "failed" || j.Error.Code != "conflict" || j.Error.Details["self"] != true {
 		t.Fatalf("self replaced: %+v", j)
 	}

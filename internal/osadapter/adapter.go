@@ -32,7 +32,11 @@ type Roots struct {
 	Userdata string // userdata of the platform (logs...)
 	Shared   string // userdata shared between platforms
 	Data     string // ReminisLink data (config, clients, backups...)
-	Logs     string // log folder
+	// Pak is the folder of the installed pak when it is not a pak folder
+	// the OS manages (Knulli: roms/tools/.ReminisLink); "" otherwise. The
+	// SD browser hides it like Data.
+	Pak  string
+	Logs string // log folder
 }
 
 // System is a folder of Roms/ with a "(TAG)" suffix.
@@ -210,8 +214,9 @@ type Adapter interface {
 	// lists and the tracks of their .cue sheets.
 	ROMFiles(g Game) map[string]bool
 	// SharedFiles returns the files of g (absolute paths) that another
-	// playlist (.m3u) of its system also lists: deleting g keeps them, so
-	// the other game stays playable.
+	// playlist (.m3u) of its system also lists, and its art when another
+	// game of the system is given the same art file: deleting g keeps
+	// them, so the other game stays playable and keeps its art.
 	SharedFiles(g Game) map[string]bool
 	// IsGameFile reports whether a file with this name, in a system
 	// folder, is listed as a game (not hidden, not an ignored extension).

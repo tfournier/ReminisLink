@@ -33,6 +33,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
@@ -301,7 +302,15 @@ func rtcPath(files osadapter.GameFiles) string {
 // backup of g. Automatic backups past MaxAutoBackups go to the trash.
 // Called with the lock held.
 func (s *Service) createLocked(g osadapter.Game, src, rtc, reason string, label *string) (meta, error) {
+	// The save is never read through a link, nor the copy written through
+	// one (rule 2).
+	if err := s.checkWriteDir(filepath.Dir(src)); err != nil {
+		return meta{}, fmt.Errorf("save backup: %w", err)
+	}
 	dir := s.dir(g)
+	if err := confine.CheckDir(s.o.Layout.Root, dir); err != nil {
+		return meta{}, fmt.Errorf("save backup: %w", err)
+	}
 	metas, err := s.readMetas(dir)
 	if err != nil {
 		return meta{}, err
@@ -421,7 +430,7 @@ func (s *Service) OpenSave(g osadapter.Game) (*os.File, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	f, err := os.Open(save.Path)
+	f, err := s.openSavesFile(save.Path)
 	if err != nil {
 		return nil, "", fmt.Errorf("save: %w", err)
 	}
@@ -634,9 +643,15 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 		return nil, fmt.Errorf("save: %w", err)
 	}
 	dst := s.o.Adapter.SavePath(g)
-	var backup *Backup
 	if files.Save != nil {
 		dst = files.Save.Path
+	}
+	// Before anything is read or written there: no link on the way.
+	if err := s.checkWriteDir(filepath.Dir(dst)); err != nil {
+		return nil, fmt.Errorf("save: %w", err)
+	}
+	var backup *Backup
+	if files.Save != nil {
 		m, err := s.createLocked(g, files.Save.Path, rtcPath(files), reason, label)
 		if err != nil {
 			return nil, err
@@ -653,7 +668,10 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 	// clock of another save. Both previous files are in the backup just
 	// made.
 	if rtcTmp != "" {
-		rtcDst := strings.TrimSuffix(dst, copyExt) + rtcExt
+		// The clock file is named like the save with its extension
+		// replaced (NextUI: Game.gba.sav and Game.gba.rtc; Knulli:
+		// Game.srm and Game.rtc).
+		rtcDst := strings.TrimSuffix(dst, filepath.Ext(dst)) + rtcExt
 		if files.RTC != nil {
 			rtcDst = files.RTC.Path
 		}

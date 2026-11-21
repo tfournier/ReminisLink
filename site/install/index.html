@@ -69,7 +69,7 @@
           <h2 id="handheld">1. Install the pak on the handheld</h2>
           <ol>
             <li>Download <code>ReminisLink.pak.zip</code> from the <a href="https://github.com/tfournier/ReminisLink/releases">releases page on GitHub</a> (take the latest one).</li>
-            <li>Put the SD card of the handheld in your computer and unzip the archive into the folder <code>/Tools/tg5040/</code> of the card. You should get <code>/Tools/tg5040/ReminisLink.pak/launch.sh</code>: the folder must be named <code>ReminisLink.pak</code>, directly inside <code>tg5040</code>.</li>
+            <li>Put the SD card of the handheld in your computer and unzip the archive on your computer: Finder or Windows creates a folder named <code>ReminisLink.pak</code> (if your tool extracts the files loose, create a <code>ReminisLink.pak</code> folder and put them in it). Copy that folder into <code>/Tools/tg5040/</code> on the card. You should get <code>/Tools/tg5040/ReminisLink.pak/launch.sh</code>: the folder must be named <code>ReminisLink.pak</code>, directly inside <code>tg5040</code>.</li>
             <li>Eject the card properly, put it back in the handheld and turn it on.</li>
             <li>Turn on Wi-Fi in the NextUI settings and join your network.</li>
             <li>Open <strong>Tools &gt; ReminisLink</strong>.</li>
@@ -123,7 +123,7 @@
           <h2 id="update">Update the pak</h2>
           <ol>
             <li>Read the release notes of the new version on the <a href="https://github.com/tfournier/ReminisLink/releases">releases page</a>.</li>
-            <li>With the SD card in your computer, delete the folder <code>/Tools/tg5040/ReminisLink.pak/</code>, then unzip the new <code>ReminisLink.pak.zip</code> into <code>/Tools/tg5040/</code>, as for the first installation. ReminisLink cannot replace itself from the app while it runs.</li>
+            <li>With the SD card in your computer, delete the folder <code>/Tools/tg5040/ReminisLink.pak/</code>, then unzip the new <code>ReminisLink.pak.zip</code> on your computer and copy its <code>ReminisLink.pak</code> folder into <code>/Tools/tg5040/</code>, as for the first installation. ReminisLink cannot replace itself from the app while it runs.</li>
             <li>Your settings, backups, locked states and trash are in another folder (see below): they are kept. Paired devices are kept too, unless the new version changes how pairing works: it then deletes the old pairings at its first launch, and the release notes say so.</li>
             <li>Update the iPhone app too. If the app shows <strong>Pair Again</strong> next to the handheld, pair again by scanning a new QR code (<strong>Settings &gt; Pair a New Device</strong> on the handheld).</li>
           </ol>
