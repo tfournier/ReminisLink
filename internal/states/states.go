@@ -205,6 +205,9 @@ type Service struct {
 	// ctx is the context of a running Maintain (nil otherwise), read with
 	// the lock held.
 	ctx context.Context
+	// inventory caches the hashes of GET /states (M19).
+	inventory     *stateHashes
+	inventoryOnce sync.Once
 }
 
 // context returns the context the long reads stop with.

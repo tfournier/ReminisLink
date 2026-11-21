@@ -314,3 +314,7 @@ func (l *lister) skip(p, why string) error {
 	l.s.o.Logger.Warn("list saves: file skipped", "file", filepath.Base(p), "reason", why)
 	return errSkip
 }
+
+// ChangeTime returns the status change time of fi where the platform has
+// one (shared with the state listing of GET /states, M19).
+func ChangeTime(fi fs.FileInfo) (time.Time, bool) { return statusChange(fi) }
