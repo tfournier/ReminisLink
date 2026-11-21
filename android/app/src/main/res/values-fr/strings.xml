@@ -199,7 +199,7 @@
     <string name="save_replace_message_none">«\u00A0%1$s\u00A0» devient la sauvegarde de %2$s, qui n’en a pas encore.</string>
     <string name="save_replaced">Sauvegarde remplacée.</string>
     <string name="save_replaced_kept">Sauvegarde remplacée. L’ancienne sauvegarde est gardée en copie de secours.</string>
-    <string name="save_replace_queued">La sauvegarde dépasse 64\u00A0Mo : elle est envoyée dans Transferts. La sauvegarde actuelle est copiée d’abord.</string>
+    <string name="save_replace_queued">La sauvegarde dépasse 64\u00A0Mio : elle est envoyée dans Transferts. La sauvegarde actuelle est copiée d’abord.</string>
     <string name="backups_title">Copies de secours</string>
     <string name="backups_none">Aucune copie de secours pour l’instant.</string>
     <string name="backups_footer">Les copies automatiques sont limitées à 10 par jeu : les plus anciennes sont supprimées. Les copies que tu fais toi-même sont gardées.</string>
@@ -260,7 +260,7 @@
     <string name="error_device_busy">La console est occupée par une autre modification. Rien n’a été modifié. Réessaie dans %1$d secondes.</string>
     <string name="error_conflict">Un fichier de ce nom est déjà sur la console.</string>
     <string name="error_checksum">Le fichier est arrivé abîmé sur la console et a été supprimé. Envoie-le de nouveau.</string>
-    <string name="error_state_locked">Cet état est verrouillé : déverrouille-le d’abord.</string>
+    <string name="error_state_locked">Cet état est verrouillé. Déverrouille-le avant de le supprimer.</string>
     <string name="error_too_large">Ce fichier est trop gros pour la console.</string>
     <string name="error_invalid_name">La console n’accepte pas ce nom de fichier.</string>
     <string name="error_unsupported_format">La console n’accepte pas ce format de fichier.</string>
@@ -271,4 +271,6 @@
     <string name="error_cancel_not_confirmed">L’annulation n’a pas atteint la console. Reprends le transfert ou annule-le de nouveau.</string>
     <string name="error_too_many_restarts">La console recommence sans cesse ce transfert. Réessaie plus tard.</string>
     <string name="error_file">Ce fichier n’a pas pu être lu ou écrit sur ce téléphone.</string>
+    <string name="error_partial_document">Le fichier partiel n’a pas pu être supprimé de ce téléphone\u00A0: supprime-le toi-même dans tes fichiers.</string>
+    <string name="error_console_forgotten">Cette console a été oubliée sur ce téléphone\u00A0: le transfert a été arrêté.</string>
 </resources>

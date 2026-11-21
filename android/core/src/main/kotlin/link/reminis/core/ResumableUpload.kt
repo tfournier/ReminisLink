@@ -242,8 +242,8 @@ class ResumableUpload(
                     if (e is ApiException.Server && !isTransient(e) && (e.code != ErrorCodes.NOT_FOUND || !sentBefore)) {
                         completeSent = false
                     }
-                    // Refused before it started (device busy): nothing was written, sent again.
-                    if (e is ApiException.Server && e.code == ErrorCodes.DEVICE_BUSY) completeSent = sentBefore
+                    // Refused before it started (device busy, either form): nothing was written, sent again.
+                    if (e is ApiException.Server && e.isDeviceBusy) completeSent = sentBefore
                     throw e
                 }
                 completeSent = false

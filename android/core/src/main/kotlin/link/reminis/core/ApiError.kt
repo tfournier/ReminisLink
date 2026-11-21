@@ -35,7 +35,20 @@ sealed class ApiException(message: String, cause: Throwable? = null) : Exception
         val serverMessage: String,
         val details: Map<String, JsonElement> = emptyMap(),
         val retryAfter: Int? = null,
-    ) : ApiException("HTTP $status $code: $serverMessage")
+    ) : ApiException("HTTP $status $code: $serverMessage") {
+        /**
+         * A write that waited 10 s for the one in progress (`429 device_busy`):
+         * nothing was changed. A pak from M13 answered `429 too_many_attempts`
+         * with the message `Device busy` instead, still recognized.
+         */
+        val isDeviceBusy: Boolean
+            get() = status == 429 &&
+                (code == ErrorCodes.DEVICE_BUSY || (code == ErrorCodes.TOO_MANY_ATTEMPTS && serverMessage == LEGACY_DEVICE_BUSY))
+
+        companion object {
+            const val LEGACY_DEVICE_BUSY = "Device busy"
+        }
+    }
 
     class UnexpectedStatus(val status: Int) : ApiException("unexpected HTTP status $status")
 

@@ -73,6 +73,8 @@ fun errorMessage(context: Context, error: Throwable): String = when (error) {
         UploadFailure.Reason.PAUSED -> context.getString(R.string.transfer_paused)
     }
     is LocalFileException, is UnreadablePictureException -> context.getString(R.string.error_file)
+    is link.reminis.core.PartialDocumentException -> context.getString(R.string.error_partial_document)
+    is link.reminis.core.ConsoleForgottenException -> context.getString(R.string.error_console_forgotten)
     is java.security.GeneralSecurityException, is java.io.IOException -> context.getString(R.string.error_storage)
     else -> context.getString(R.string.error_generic, error.javaClass.simpleName)
 }

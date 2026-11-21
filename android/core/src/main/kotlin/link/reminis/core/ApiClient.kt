@@ -4,8 +4,9 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -238,41 +239,60 @@ class ApiClient(
         out: java.io.OutputStream,
         onProgress: (Long, Long?) -> Unit = { _, _ -> },
     ): Long {
-        val response = signedResponse { request("GET", source.segments, signed = true) }
+        var call: Call? = null
+        val response = signedResponse(onCall = { call = it }) { request("GET", source.segments, signed = true) }
         return response.use {
             if (it.code != 200) throw serverError(it)
             val body = it.body ?: throw ApiException.InvalidResponse("empty body")
             val total = body.contentLength().takeIf { n -> n >= 0 }
-            val job = currentCoroutineContext()[Job]
-            // A read blocked on a stalled connection ends when the coroutine is cancelled.
-            val handle = job?.invokeOnCompletion { _ -> runCatching { it.close() } }
-            try {
-                withContext(Dispatchers.IO) {
-                    val input = body.byteStream()
-                    val buffer = ByteArray(64 * 1024)
-                    var written = 0L
-                    onProgress(0, total)
-                    while (true) {
-                        ensureActive()
-                        val n = try {
-                            input.read(buffer)
-                        } catch (e: IOException) {
-                            ensureActive()
-                            throw ApiException.Network(e)
-                        }
-                        if (n < 0) break
-                        out.write(buffer, 0, n)
-                        written += n
-                        onProgress(written, total)
+            coroutineScope {
+                // A read blocked on a stalled connection must end as soon as the
+                // coroutine is cancelled: this child is cancelled at once with its
+                // parent, and cancelling the OkHttp call closes the socket.
+                val finished = java.util.concurrent.atomic.AtomicBoolean(false)
+                val watcher = launch {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        if (!finished.get()) call?.cancel()
                     }
-                    if (total != null && written != total) throw ApiException.Network(IOException("truncated download"))
-                    out.flush()
-                    written
                 }
-            } finally {
-                handle?.dispose()
+                try {
+                    readBody(body, out, total, onProgress)
+                } finally {
+                    finished.set(true)
+                    watcher.cancel()
+                }
             }
         }
+    }
+
+    private suspend fun readBody(
+        body: okhttp3.ResponseBody,
+        out: java.io.OutputStream,
+        total: Long?,
+        onProgress: (Long, Long?) -> Unit,
+    ): Long = withContext(Dispatchers.IO) {
+        val input = body.byteStream()
+        val buffer = ByteArray(64 * 1024)
+        var written = 0L
+        onProgress(0, total)
+        while (true) {
+            ensureActive()
+            val n = try {
+                input.read(buffer)
+            } catch (e: IOException) {
+                ensureActive()
+                throw ApiException.Network(e)
+            }
+            if (n < 0) break
+            out.write(buffer, 0, n)
+            written += n
+            onProgress(written, total)
+        }
+        if (total != null && written != total) throw ApiException.Network(IOException("truncated download"))
+        out.flush()
+        written
     }
 
     // MARK: plumbing
@@ -282,11 +302,11 @@ class ApiClient(
      * `/hello` corrects the offset and the request is built and signed
      * again, once. Any other answer is returned as is (the caller closes it).
      */
-    private suspend fun signedResponse(build: () -> Request): Response {
+    private suspend fun signedResponse(onCall: ((Call) -> Unit)? = null, build: () -> Request): Response {
         if (signer == null) throw ApiException.NotPaired()
         var retried = false
         while (true) {
-            val response = execute(build())
+            val response = execute(build(), onCall)
             if (response.code == 401 && !retried) {
                 val error = serverError(response)
                 if (error is ApiException.Server && error.code == ErrorCodes.CLOCK_SKEW) {
@@ -337,8 +357,8 @@ class ApiClient(
         return builder.build()
     }
 
-    private suspend fun execute(request: Request): Response = try {
-        http.newCall(request).await()
+    private suspend fun execute(request: Request, onCall: ((Call) -> Unit)? = null): Response = try {
+        http.newCall(request).also { onCall?.invoke(it) }.await()
     } catch (e: IOException) {
         throw if (e.causeChain().any { it is PinMismatchException }) ApiException.IdentityChanged() else ApiException.Network(e)
     }

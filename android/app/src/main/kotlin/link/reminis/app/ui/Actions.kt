@@ -105,15 +105,44 @@ class DocumentCreator(private val launch: (String) -> Unit, private val setPendi
     }
 }
 
+/**
+ * Actions waiting for a system picker's result, by an opaque key. Kept in a
+ * ViewModel: an activity recreated while the picker is open (rotation,
+ * dark mode...) still runs the action. When the action is gone (the process
+ * died meanwhile), the document the picker just created is deleted instead
+ * of being left empty.
+ */
+class PendingActions<T> {
+    private val actions = mutableMapOf<String, (T) -> Unit>()
+
+    fun put(key: String, action: (T) -> Unit) {
+        actions[key] = action
+    }
+
+    /** Runs the action waiting for [key] with [result]; an orphan result goes to [orphan]. */
+    fun complete(key: String, result: T?, orphan: (T) -> Unit) {
+        val action = actions.remove(key)
+        if (result == null) return
+        if (action != null) action(result) else orphan(result)
+    }
+}
+
+class DocumentRequests : androidx.lifecycle.ViewModel() {
+    val pending = PendingActions<Uri>()
+}
+
 @Composable
 fun rememberDocumentCreator(): DocumentCreator {
-    var pending by remember { mutableStateOf<((Uri) -> Unit)?>(null) }
+    val context = LocalContext.current.applicationContext
+    // Scoped to the screen's back stack entry: it survives an activity recreation.
+    val requests: DocumentRequests = androidx.lifecycle.viewmodel.compose.viewModel()
+    val key = androidx.compose.runtime.saveable.rememberSaveable { java.util.UUID.randomUUID().toString() }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        val action = pending
-        pending = null
-        if (uri != null) action?.invoke(uri)
+        requests.pending.complete(key, uri) { orphan ->
+            Thread { link.reminis.app.DocumentSink.deleteDocument(context, orphan) }.start()
+        }
     }
-    return remember(launcher) { DocumentCreator({ launcher.launch(it) }, { pending = it }) }
+    return remember(launcher, key) { DocumentCreator({ launcher.launch(it) }, { requests.pending.put(key, it) }) }
 }
 
 /** A date of the console (RFC 3339), in the phone's time zone and locale. */

@@ -197,7 +197,7 @@
     <string name="save_replace_message_none">“%1$s” becomes the save of %2$s, which has none yet.</string>
     <string name="save_replaced">Save replaced.</string>
     <string name="save_replaced_kept">Save replaced. The previous save was kept as a backup copy.</string>
-    <string name="save_replace_queued">The save is larger than 64 MB: it is being sent in Transfers. The current save is copied first.</string>
+    <string name="save_replace_queued">The save is larger than 64 MiB: it is being sent in Transfers. The current save is copied first.</string>
     <string name="backups_title">Backup Copies</string>
     <string name="backups_none">No backup copy yet.</string>
     <string name="backups_footer">Automatic copies are limited to 10 per game: the oldest ones are deleted. Copies you make yourself are kept.</string>
@@ -258,7 +258,7 @@
     <string name="error_device_busy">The console is busy with another change. Nothing was changed. Try again in %1$d seconds.</string>
     <string name="error_conflict">A file with this name is already on the console.</string>
     <string name="error_checksum">The file arrived damaged on the console and was deleted. Send it again.</string>
-    <string name="error_state_locked">This state is locked: unlock it first.</string>
+    <string name="error_state_locked">This state is locked. Unlock it before deleting it.</string>
     <string name="error_too_large">This file is too large for the console.</string>
     <string name="error_invalid_name">The console does not accept this file name.</string>
     <string name="error_unsupported_format">The console does not accept this file format.</string>
@@ -269,4 +269,6 @@
     <string name="error_cancel_not_confirmed">The cancellation did not reach the console. Resume the transfer or cancel it again.</string>
     <string name="error_too_many_restarts">The console keeps restarting this transfer. Try again later.</string>
     <string name="error_file">This file could not be read or written on this phone.</string>
+    <string name="error_partial_document">The partial file could not be deleted from this phone: delete it yourself in your files.</string>
+    <string name="error_console_forgotten">This console was forgotten on this phone: the transfer was stopped.</string>
 </resources>

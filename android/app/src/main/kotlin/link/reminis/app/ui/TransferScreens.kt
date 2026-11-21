@@ -78,7 +78,10 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
         title = stringResource(R.string.transfers_title),
         onBack = onBack,
         actions = {
-            if (items.any { it.phase.isFinished }) {
+            val clearable = items.any {
+                it.phase.isFinished || (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD)
+            }
+            if (clearable) {
                 TextButton(onClick = { queue.clearFinished(deviceId) }, modifier = Modifier.testTag("clearFinished")) {
                     Text(stringResource(R.string.transfers_clear))
                 }
@@ -138,8 +141,7 @@ private fun TransferRow(item: TransferItem, onCancel: () -> Unit, onResume: () -
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            val cancellable = !item.phase.isFinished && !item.isCompleting && item.phase != TransferPhase.CANCELLING
-            if (cancellable) {
+            if (item.canCancel) {
                 IconButton(onClick = onCancel, modifier = Modifier.testTag("cancelTransfer")) {
                     Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.transfer_cancel))
                 }
@@ -162,7 +164,7 @@ private fun TransferRow(item: TransferItem, onCancel: () -> Unit, onResume: () -
                 OutlinedButton(onClick = { onRetry(OnConflict.RENAME) }) { Text(stringResource(R.string.transfer_keep_both)) }
                 OutlinedButton(onClick = { onRetry(OnConflict.OVERWRITE) }) { Text(stringResource(R.string.transfer_replace)) }
             }
-            item.phase == TransferPhase.PAUSED || item.phase == TransferPhase.FAILED ->
+            item.canResume ->
                 OutlinedButton(onClick = onResume, modifier = Modifier.testTag("resumeTransfer")) {
                     Text(stringResource(if (item.phase == TransferPhase.PAUSED) R.string.transfer_resume else R.string.action_retry))
                 }

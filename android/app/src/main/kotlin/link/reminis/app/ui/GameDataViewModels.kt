@@ -323,13 +323,15 @@ class AddFilesViewModel(app: Application, deviceId: String?, private val shareTo
         if (_games.value is Load.Loaded || _games.value == Load.Loading) return
         _games.value = Load.Loading
         viewModelScope.launch {
-            _games.value = try {
+            val result = try {
                 Load.Loaded(container.client(deviceId).allGames().games)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Load.Failed(e)
             }
+            // Another console chosen meanwhile: its games are loaded by its own request.
+            if (_state.value.deviceId == deviceId) _games.value = result
         }
     }
 

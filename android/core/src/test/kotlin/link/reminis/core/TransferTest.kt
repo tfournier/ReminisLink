@@ -370,17 +370,20 @@ class TransferTest {
 
     // MARK: queue
 
-    private class MemorySink : DownloadSink {
+    private open class MemorySink(private val deletes: Boolean = true) : DownloadSink {
         val out = ByteArrayOutputStream()
-        var discarded = false
+        @Volatile var discarded = false
+        @Volatile var opened = false
 
         override fun open(): OutputStream {
+            opened = true
             out.reset()
             return out
         }
 
-        override fun discard() {
+        override fun discard(): Boolean {
             discarded = true
+            return deletes
         }
     }
 
@@ -389,100 +392,223 @@ class TransferTest {
     private suspend fun TransferQueue.waitFor(id: String, predicate: (TransferItem) -> Boolean): TransferItem =
         withTimeout(10_000) { items.first { list -> list.firstOrNull { it.id == id }?.let(predicate) == true } }.first { it.id == id }
 
-    @Test
-    fun queueUploadsAndDeletesItsCopy() = runBlocking {
+    private fun TransferQueue.item(id: String) = items.value.first { it.id == id }
+
+    private fun withScope(block: suspend (CoroutineScope) -> Unit) = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val bytes = "abcdef".toByteArray()
-            val dir = temp.newFolder()
-            val copy = File(dir, "file").apply { writeBytes(bytes) }
-            server.enqueue(created(chunk = 4))
-            server.enqueue(chunkStored(4))
-            server.enqueue(chunkStored(6))
-            server.enqueue(json("""{"gameId":"g"}"""))
-            val q = queue(scope)
-            val id = q.enqueueUpload(deviceId, copy, "Moss Lantern.gba", UploadTarget.Rom("s", "Moss Lantern.gba"), "Pocket", ownsFile = true)
-            val done = q.waitFor(id) { it.phase == TransferPhase.DONE }
-            assertEquals("g", done.result?.gameId)
-            assertEquals(6L, done.doneBytes)
-            withTimeout(5_000) { while (dir.exists()) kotlinx.coroutines.delay(20) }
-            assertTrue(!q.isBusy.value)
+            block(scope)
         } finally {
             scope.cancel()
         }
     }
 
     @Test
-    fun queuePausesOnLostConnectionAndResumes() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val bytes = "abcd".toByteArray()
-            server.enqueue(created(chunk = 4))
-            // Every retry of the run fails (4 delays, then paused).
-            repeat(5) { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)) }
-            val q = queue(scope)
-            val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "Pocket", ownsFile = false)
-            val paused = q.waitFor(id) { it.phase == TransferPhase.PAUSED }
-            assertTrue(paused.failure is ApiException.Network)
-            server.enqueue(json("""{"uploadId":"up_1","offset":0,"sizeBytes":4}"""))
-            server.enqueue(chunkStored(4))
-            server.enqueue(json("""{"gameId":"g"}"""))
-            q.resumePaused(deviceId)
-            assertEquals("g", q.waitFor(id) { it.phase == TransferPhase.DONE }.result?.gameId)
-        } finally {
-            scope.cancel()
-        }
+    fun queueUploadsAndDeletesItsCopy() = withScope { scope ->
+        val bytes = "abcdef".toByteArray()
+        val dir = temp.newFolder()
+        val copy = File(dir, "file").apply { writeBytes(bytes) }
+        server.enqueue(created(chunk = 4))
+        server.enqueue(chunkStored(4))
+        server.enqueue(chunkStored(6))
+        server.enqueue(json("""{"gameId":"g"}"""))
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, copy, "Moss Lantern.gba", UploadTarget.Rom("s", "Moss Lantern.gba"), "Pocket", ownsFile = true)
+        val done = q.waitFor(id) { it.phase == TransferPhase.DONE }
+        assertEquals("g", done.result?.gameId)
+        assertEquals(6L, done.doneBytes)
+        withTimeout(5_000) { while (dir.exists()) kotlinx.coroutines.delay(20) }
+        assertTrue(!q.isBusy.value)
     }
 
     @Test
-    fun queueRetriesANameConflictWithAnotherRule() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val bytes = "abcd".toByteArray()
-            server.enqueue(created(id = "up_1", chunk = 4))
-            server.enqueue(chunkStored(4))
-            server.enqueue(error("conflict", 409, """{"existing":"a.gba"}"""))
-            val q = queue(scope)
-            val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "Pocket", ownsFile = false)
-            assertTrue(q.waitFor(id) { it.phase == TransferPhase.FAILED }.isNameConflict)
-            server.enqueue(MockResponse().setResponseCode(204))
-            server.enqueue(created(id = "up_2", chunk = 4))
-            server.enqueue(chunkStored(4))
-            server.enqueue(json("""{"gameId":"g2"}"""))
-            q.retry(id, OnConflict.RENAME)
-            assertEquals("g2", q.waitFor(id) { it.phase == TransferPhase.DONE }.result?.gameId)
-            repeat(3) { server.takeRequest() }
-            assertEquals("DELETE /api/v1/uploads/up_1", server.takeRequest().let { "${it.method} ${it.path}" })
-            val create = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
-            assertEquals("rename", create["onConflict"]!!.jsonPrimitive.content)
-        } finally {
-            scope.cancel()
-        }
+    fun queuePausesOnLostConnectionAndResumes() = withScope { scope ->
+        val bytes = "abcd".toByteArray()
+        server.enqueue(created(chunk = 4))
+        // Every retry of the run fails (4 delays, then paused).
+        repeat(5) { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)) }
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "Pocket", ownsFile = false)
+        val paused = q.waitFor(id) { it.phase == TransferPhase.PAUSED }
+        assertTrue(paused.failure is ApiException.Network)
+        server.enqueue(json("""{"uploadId":"up_1","offset":0,"sizeBytes":4}"""))
+        server.enqueue(chunkStored(4))
+        server.enqueue(json("""{"gameId":"g"}"""))
+        q.resumePaused(deviceId)
+        assertEquals("g", q.waitFor(id) { it.phase == TransferPhase.DONE }.result?.gameId)
     }
 
     @Test
-    fun queueDownloadsAndCancelDiscards() = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val bytes = ByteArray(1000) { it.toByte() }
-            server.enqueue(MockResponse().setResponseCode(200).setBody(okio.Buffer().write(bytes)))
-            val q = queue(scope)
-            val sink = MemorySink()
-            val id = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "Moss Lantern.sav", "Moss Lantern", sink)
-            assertEquals(1000L, q.waitFor(id) { it.phase == TransferPhase.DONE }.sizeBytes)
-            assertArrayEquals(bytes, sink.out.toByteArray())
+    fun cancelBetweenSelectionAndStartIsHonoured() = withScope { scope ->
+        val q = queue(scope)
+        val reached = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        q.beforeStartForTests = { reached.complete(Unit); release.await() }
+        val sink = MemorySink()
+        val id = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "a.sav", "A", sink)
+        withTimeout(5_000) { reached.await() }
+        // Selected and marked started, its job not started yet.
+        assertEquals(TransferPhase.RUNNING, q.item(id).phase)
+        q.cancel(id)
+        release.complete(Unit)
+        assertEquals(TransferPhase.CANCELLED, q.waitFor(id) { it.phase == TransferPhase.CANCELLED }.phase)
+        assertTrue(sink.discarded)
+        assertTrue("the download started after its cancel", !sink.opened)
+        assertEquals(0, server.requestCount)
+    }
 
-            // A download that never ends, cancelled: its document is removed.
-            server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Length", "100000").setBody("ab").throttleBody(1, 10, java.util.concurrent.TimeUnit.SECONDS))
-            val slow = MemorySink()
-            val id2 = q.enqueueDownload(deviceId, DownloadSource.State("g1", 0), "s.st0", "Moss Lantern", slow)
-            q.waitFor(id2) { it.phase == TransferPhase.RUNNING }
-            q.cancel(id2)
-            assertEquals(TransferPhase.CANCELLED, q.waitFor(id2) { it.phase == TransferPhase.CANCELLED }.phase)
-            withTimeout(5_000) { while (!slow.discarded) kotlinx.coroutines.delay(20) }
-        } finally {
-            scope.cancel()
+    @Test
+    fun pauseBetweenSelectionAndStartIsHonoured() = withScope { scope ->
+        val q = queue(scope)
+        val reached = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        q.beforeStartForTests = { reached.complete(Unit); release.await() }
+        val id = q.enqueueUpload(deviceId, file("abcd".toByteArray()), "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = false)
+        withTimeout(5_000) { reached.await() }
+        q.pauseAll()
+        release.complete(Unit)
+        q.waitFor(id) { it.phase == TransferPhase.PAUSED }
+        kotlinx.coroutines.delay(300)
+        assertEquals(TransferPhase.PAUSED, q.item(id).phase)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun conflictRuleIsReservedUntilApplied() = withScope { scope ->
+        val bytes = "abcd".toByteArray()
+        server.enqueue(created(id = "up_1", chunk = 4))
+        server.enqueue(chunkStored(4))
+        server.enqueue(error("conflict", 409, """{"existing":"a.gba"}"""))
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "Pocket", ownsFile = false)
+        assertTrue(q.waitFor(id) { it.phase == TransferPhase.FAILED }.isNameConflict)
+
+        val reached = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        q.beforeRuleAppliedForTests = { reached.complete(Unit); release.await() }
+        q.retry(id, OnConflict.RENAME)
+        withTimeout(5_000) { reached.await() }
+        // Chosen, not applied yet: nothing else is accepted.
+        val reserved = q.item(id)
+        assertTrue(reserved.isReserved && !reserved.canResume && !reserved.canCancel && !reserved.isNameConflict)
+        q.resume(id)
+        q.resumePaused(deviceId)
+        q.retry(id, OnConflict.OVERWRITE)
+        q.cancel(id)
+        kotlinx.coroutines.delay(200)
+        assertEquals(TransferPhase.FAILED, q.item(id).phase)
+        assertEquals(3, server.requestCount)
+
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(created(id = "up_2", chunk = 4))
+        server.enqueue(chunkStored(4))
+        server.enqueue(json("""{"gameId":"g2"}"""))
+        release.complete(Unit)
+        assertEquals("g2", q.waitFor(id) { it.phase == TransferPhase.DONE }.result?.gameId)
+        repeat(3) { server.takeRequest() }
+        assertEquals("DELETE /api/v1/uploads/up_1", server.takeRequest().let { "${it.method} ${it.path}" })
+        val create = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals("rename", create["onConflict"]!!.jsonPrimitive.content)
+        assertEquals(7, server.requestCount)
+    }
+
+    @Test
+    fun downloadSucceedsOnlyOnceTheDocumentIsCommitted() = withScope { scope ->
+        val bytes = ByteArray(1000) { it.toByte() }
+        server.enqueue(MockResponse().setResponseCode(200).setBody(okio.Buffer().write(bytes)))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(okio.Buffer().write(bytes)))
+        val q = queue(scope)
+        val sink = MemorySink()
+        val id = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "Moss Lantern.sav", "Moss Lantern", sink)
+        assertEquals(1000L, q.waitFor(id) { it.phase == TransferPhase.DONE }.sizeBytes)
+        assertArrayEquals(bytes, sink.out.toByteArray())
+        assertTrue(!sink.discarded)
+
+        // The provider refuses the document when it is closed: failed, partial document deleted.
+        val refusing = object : MemorySink() {
+            override fun finish(out: OutputStream) = throw java.io.IOException("commit refused")
         }
+        val id2 = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "Moss Lantern.sav", "Moss Lantern", refusing)
+        val failed = q.waitFor(id2) { it.phase == TransferPhase.FAILED || it.phase == TransferPhase.DONE }
+        assertEquals(TransferPhase.FAILED, failed.phase)
+        assertTrue(refusing.discarded)
+        assertTrue(!failed.canResume)
+    }
+
+    @Test
+    fun cancelledDownloadStopsAndDeletesBeforeShowingCancelled() = withScope { scope ->
+        val q = queue(scope)
+        // A body that would take 100 000 s: only a cancelled call ends it.
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(okio.Buffer().write(ByteArray(100_000)))
+                .throttleBody(1, 1, java.util.concurrent.TimeUnit.SECONDS),
+        )
+        val sink = MemorySink()
+        val id = q.enqueueDownload(deviceId, DownloadSource.State("g1", 0), "s.st0", "Moss Lantern", sink)
+        // After the headers: the length is known.
+        q.waitFor(id) { it.sizeBytes == 100_000L }
+        val start = System.nanoTime()
+        q.cancel(id)
+        assertEquals(TransferPhase.CANCELLING, q.item(id).phase)
+        assertTrue(q.isBusy.value)
+        val cancelled = q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
+        assertTrue("deleted before shown cancelled", sink.discarded)
+        assertTrue("the blocked read was not interrupted", System.nanoTime() - start < 5_000_000_000L)
+        assertEquals(TransferPhase.CANCELLED, cancelled.phase)
+        assertTrue(!q.isBusy.value)
+
+        // A provider refusing the deletion: reported, not shown cancelled.
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(okio.Buffer().write(ByteArray(100_000)))
+                .throttleBody(1, 1, java.util.concurrent.TimeUnit.SECONDS),
+        )
+        val stuck = MemorySink(deletes = false)
+        val id2 = q.enqueueDownload(deviceId, DownloadSource.State("g1", 1), "s.st1", "Moss Lantern", stuck)
+        q.waitFor(id2) { it.sizeBytes == 100_000L }
+        q.cancel(id2)
+        val kept = q.waitFor(id2) { it.phase == TransferPhase.FAILED || it.phase == TransferPhase.CANCELLED }
+        assertEquals(TransferPhase.FAILED, kept.phase)
+        assertTrue(kept.failure is PartialDocumentException)
+    }
+
+    @Test
+    fun forgottenConsoleStopsItsTransfers() = withScope { scope ->
+        val bytes = "abcdefgh".toByteArray()
+        server.enqueue(created(chunk = 4))
+        // The first chunk's answer takes a while: the console is forgotten meanwhile.
+        server.enqueue(chunkStored(4).setHeadersDelay(2, java.util.concurrent.TimeUnit.SECONDS))
+        server.enqueue(chunkStored(8))
+        server.enqueue(json("""{"gameId":"g"}"""))
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = false)
+        q.waitFor(id) { it.phase == TransferPhase.RUNNING && server.requestCount >= 2 }
+        q.dropConsole(deviceId)
+        val dropped = q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
+        assertTrue(dropped.isDropped && !dropped.canResume)
+        kotlinx.coroutines.delay(2_500)
+        q.resume(id)
+        q.resumePaused(deviceId)
+        kotlinx.coroutines.delay(300)
+        // Never completed, never sent again.
+        assertEquals(2, server.requestCount)
+        assertEquals(TransferPhase.CANCELLED, q.item(id).phase)
+    }
+
+    @Test
+    fun legacyBusyCompleteIsARefusalNotAnUnknownOutcome() = runBlocking {
+        val bytes = "abcd".toByteArray()
+        server.enqueue(created(id = "up_1", chunk = 4))
+        server.enqueue(chunkStored(4))
+        // A pak from M13: too_many_attempts with the message "Device busy".
+        server.enqueue(json("""{"error":{"code":"too_many_attempts","message":"Device busy","details":{}}}""", 429).setHeader("Retry-After", "1"))
+        // Purged before the new attempt.
+        server.enqueue(error("not_found", 404))
+        server.enqueue(created(id = "up_2", chunk = 4))
+        server.enqueue(chunkStored(4))
+        server.enqueue(json("""{"gameId":"g"}"""))
+        val upload = ResumableUpload(file(bytes), 4, sha(bytes), UploadTarget.Rom("s", "a.gba"), retry = RetryPolicy.immediate)
+        assertEquals("g", upload.run(client()).gameId)
+        assertEquals(7, server.requestCount)
     }
 
     // MARK: small pieces

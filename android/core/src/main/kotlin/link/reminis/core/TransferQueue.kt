@@ -6,8 +6,10 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -33,7 +35,10 @@ enum class TransferPhase {
     PAUSED,
     FAILED,
 
-    /** A cancel waits for the console's answer: the item and its local copy stay. */
+    /**
+     * A cancel is in progress: an upload waits for the console's answer, a
+     * download for its call to stop and its partial document to be deleted.
+     */
     CANCELLING,
     DONE,
     CANCELLED,
@@ -50,9 +55,24 @@ interface DownloadSink {
     /** Opens the document for writing, truncated. */
     fun open(): OutputStream
 
-    /** Removes the partial document (cancelled or cleared). Best effort. */
-    fun discard()
+    /**
+     * Commits what was written: the download only succeeds if this returns
+     * (a provider may refuse the document only when it is closed).
+     */
+    fun finish(out: OutputStream) {
+        out.flush()
+        out.close()
+    }
+
+    /** Deletes the partial document (cancelled, failed or dropped); false when it could not be deleted. */
+    fun discard(): Boolean
 }
+
+/** A cancelled or failed download whose partial document could not be deleted. */
+class PartialDocumentException : Exception("partial document not deleted")
+
+/** The console was forgotten on this phone while the transfer was waiting or running. */
+class ConsoleForgottenException : Exception("console forgotten")
 
 /** A transfer as shown: an immutable snapshot of the queue. */
 data class TransferItem(
@@ -76,6 +96,10 @@ data class TransferItem(
     val isCompleting: Boolean,
     val result: UploadResult?,
     val target: UploadTarget?,
+    /** A new conflict rule is being applied: no other action until it is. */
+    val isReserved: Boolean = false,
+    /** Its console was forgotten: it never starts again. */
+    val isDropped: Boolean = false,
 ) {
     /** 0..1 of the current step (hashing, then transfer); null when the size is unknown. */
     val fraction: Float?
@@ -88,8 +112,21 @@ data class TransferItem(
 
     /** The upload stopped on `409 conflict` at completion: retry with another rule. */
     val isNameConflict: Boolean
-        get() = direction == TransferDirection.UPLOAD && phase == TransferPhase.FAILED &&
+        get() = direction == TransferDirection.UPLOAD && phase == TransferPhase.FAILED && !isReserved && !isDropped &&
             failure?.serverCode == ErrorCodes.CONFLICT && target is UploadTarget.Rom
+
+    /**
+     * Resume (paused) or try again (a failed upload). A failed download is
+     * final: its partial document was deleted, the user downloads again.
+     */
+    val canResume: Boolean
+        get() = !isReserved && !isDropped && (
+            phase == TransferPhase.PAUSED || (phase == TransferPhase.FAILED && direction == TransferDirection.UPLOAD)
+            )
+
+    val canCancel: Boolean
+        get() = !phase.isFinished && !isCompleting && !isReserved && phase != TransferPhase.CANCELLING &&
+            !(phase == TransferPhase.FAILED && direction == TransferDirection.DOWNLOAD)
 }
 
 /**
@@ -105,7 +142,14 @@ data class TransferItem(
  * process alive with a foreground service while transfers run).
  *
  * Downloads stream into a document chosen by the user ([DownloadSink]),
- * never through memory; a cancelled download removes its partial document.
+ * never through memory; a download succeeds only once the document is
+ * committed, and a cancelled or failed download deletes its partial
+ * document before it is shown cancelled or failed.
+ *
+ * Every state change happens under one lock: a worker selects a waiting
+ * transfer, marks it started and installs its job in the same critical
+ * section, and each later step checks the transfer was not cancelled,
+ * paused or dropped meanwhile.
  */
 class TransferQueue(
     private val scope: CoroutineScope,
@@ -141,7 +185,11 @@ class TransferQueue(
         var job: Job? = null
         var pauseFlag = AtomicBoolean(false)
         var refreshClient = false
+        var reserved = false
+        var dropped = false
         val rate = TransferRate()
+
+        val isStarted: Boolean get() = phase == TransferPhase.HASHING || phase == TransferPhase.RUNNING
     }
 
     private val lock = Any()
@@ -154,13 +202,19 @@ class TransferQueue(
 
     private val _busy = MutableStateFlow(false)
 
-    /** Transfers in progress or waiting. */
+    /** Transfers in progress, waiting, or being cancelled (cleanup included). */
     val isBusy: StateFlow<Boolean> = _busy.asStateFlow()
 
     private val _finished = MutableSharedFlow<TransferItem>(extraBufferCapacity = 64)
 
     /** Every transfer that reached `DONE` (screens reload what it changed). */
     val finished: SharedFlow<TransferItem> = _finished.asSharedFlow()
+
+    /** Tests only: runs between a transfer marked started and its job starting. */
+    internal var beforeStartForTests: (suspend (String) -> Unit)? = null
+
+    /** Tests only: runs between a new conflict rule chosen and applied. */
+    internal var beforeRuleAppliedForTests: (suspend (String) -> Unit)? = null
 
     // MARK: adding
 
@@ -211,31 +265,27 @@ class TransferQueue(
     // MARK: actions
 
     /**
-     * Cancels a transfer. Ignored while `complete` is in flight. An upload
-     * known to the console is `CANCELLING` until the console answers:
-     * confirmed, `CANCELLED` (local copy deleted); no definite answer,
-     * `FAILED` with [UploadFailure.Reason.CANCEL_NOT_CONFIRMED], kept to
-     * resume or cancel again; gone after a `complete` whose answer was lost,
-     * `FAILED` with [UploadFailure.Reason.OUTCOME_UNKNOWN].
+     * Cancels a transfer. Ignored while `complete` is in flight or while a
+     * new conflict rule is applied. An upload known to the console is
+     * `CANCELLING` until the console answers: confirmed, `CANCELLED` (local
+     * copy deleted); no definite answer, `FAILED` with
+     * [UploadFailure.Reason.CANCEL_NOT_CONFIRMED], kept to resume or cancel
+     * again; gone after a `complete` whose answer was lost, `FAILED` with
+     * [UploadFailure.Reason.OUTCOME_UNKNOWN]. A download is `CANCELLING`
+     * until its call stopped and its partial document is deleted.
      */
     fun cancel(id: String) {
         val entry: Entry
         val upload: ResumableUpload?
         synchronized(lock) {
             entry = entries.firstOrNull { it.id == id } ?: return
-            if (entry.phase.isFinished || entry.isCompleting || entry.phase == TransferPhase.CANCELLING) return
-            entry.failure = null
+            if (entry.phase.isFinished || entry.isCompleting || entry.phase == TransferPhase.CANCELLING || entry.reserved) return
             if (entry.direction == TransferDirection.DOWNLOAD) {
-                entry.phase = TransferPhase.CANCELLED
-                val job = entry.job
-                job?.cancel()
-                publish()
-                scope.launch(Dispatchers.IO) {
-                    job?.join()
-                    runCatching { entry.sink?.discard() }
-                }
+                if (entry.phase == TransferPhase.FAILED) return
+                cancelDownloadLocked(entry, failureIfKept = PartialDocumentException())
                 return
             }
+            entry.failure = null
             upload = entry.upload
             if (upload == null || (upload.uploadId == null && !upload.completeSent)) {
                 // Nothing on the console yet.
@@ -281,7 +331,34 @@ class TransferQueue(
         }
     }
 
-    /** Resumes a paused or failed transfer (a download starts again from the beginning). */
+    /**
+     * `CANCELLING` until the job stopped (its call cancelled) and the partial
+     * document is deleted; then `CANCELLED`, or `FAILED` with
+     * [PartialDocumentException] when the provider refused the deletion.
+     */
+    private fun cancelDownloadLocked(entry: Entry, failureIfKept: Throwable) {
+        entry.phase = TransferPhase.CANCELLING
+        entry.failure = null
+        val job = entry.job
+        job?.cancel()
+        publish()
+        scope.launch(Dispatchers.IO) {
+            job?.join()
+            val deleted = runCatching { entry.sink?.discard() ?: true }.getOrDefault(false)
+            synchronized(lock) {
+                if (entry.phase != TransferPhase.CANCELLING) return@launch
+                if (deleted) {
+                    entry.phase = TransferPhase.CANCELLED
+                } else {
+                    entry.phase = TransferPhase.FAILED
+                    entry.failure = failureIfKept
+                }
+                publish()
+            }
+        }
+    }
+
+    /** Resumes a paused transfer, or tries a failed upload again. */
     fun resume(id: String) = synchronized(lock) {
         val entry = entries.firstOrNull { it.id == id } ?: return
         resumeLocked(entry)
@@ -289,7 +366,10 @@ class TransferQueue(
     }
 
     private fun resumeLocked(entry: Entry) {
-        if (entry.phase != TransferPhase.PAUSED && entry.phase != TransferPhase.FAILED) return
+        if (entry.reserved || entry.dropped) return
+        val resumable = entry.phase == TransferPhase.PAUSED ||
+            (entry.phase == TransferPhase.FAILED && entry.direction == TransferDirection.UPLOAD)
+        if (!resumable) return
         entry.phase = TransferPhase.WAITING
         entry.failure = null
         pump(entry.direction)
@@ -303,26 +383,34 @@ class TransferQueue(
 
     /**
      * Starts a failed upload again with another conflict rule ("Keep Both"
-     * is `rename`, "Replace" is `overwrite`); the previous upload is
-     * cancelled on the console, best effort.
+     * is `rename`, "Replace" is `overwrite`). The entry is reserved until the
+     * rule is applied (no resume, no cancel, no second choice meanwhile); the
+     * previous upload is cancelled on the console, best effort.
      */
     fun retry(id: String, onConflict: OnConflict) {
         val entry = synchronized(lock) {
             val e = entries.firstOrNull { it.id == id } ?: return
-            if (e.direction != TransferDirection.UPLOAD) return
+            if (e.direction != TransferDirection.UPLOAD || e.reserved || e.dropped) return
             if (e.phase != TransferPhase.FAILED && e.phase != TransferPhase.PAUSED) return
+            e.reserved = true
             e.onConflict = onConflict
-            // Not WAITING yet: nothing may start before the rule changed.
-            e.phase = TransferPhase.PAUSED
             publish()
             e
         }
         scope.launch {
-            val previous = entry.upload?.restart(onConflict)
-            if (previous != null) {
-                runCatching { client(entry.deviceId, false).cancelUpload(previous) }
+            try {
+                beforeRuleAppliedForTests?.invoke(id)
+                val previous = entry.upload?.restart(onConflict)
+                if (previous != null) {
+                    runCatching { client(entry.deviceId, false).cancelUpload(previous) }
+                }
+            } finally {
+                synchronized(lock) {
+                    entry.reserved = false
+                    resumeLocked(entry)
+                    publish()
+                }
             }
-            resume(id)
         }
     }
 
@@ -345,9 +433,41 @@ class TransferQueue(
         publish()
     }
 
+    /**
+     * The console was forgotten on this phone: its transfers stop and never
+     * start again. Uploads are cancelled locally (the console purges a
+     * partial upload after 24 h; this phone no longer signs for it),
+     * downloads delete their partial document. An upload whose `complete` is
+     * already in flight keeps its real outcome.
+     */
+    fun dropConsole(deviceId: String) = synchronized(lock) {
+        for (entry in entries.filter { it.deviceId == deviceId && !it.phase.isFinished }) {
+            entry.dropped = true
+            if (entry.isCompleting) continue
+            when {
+                entry.direction == TransferDirection.DOWNLOAD -> when (entry.phase) {
+                    TransferPhase.CANCELLING -> Unit
+                    TransferPhase.FAILED -> entry.phase = TransferPhase.CANCELLED
+                    else -> cancelDownloadLocked(entry, failureIfKept = PartialDocumentException())
+                }
+                entry.phase == TransferPhase.CANCELLING -> Unit
+                else -> {
+                    entry.phase = TransferPhase.CANCELLED
+                    entry.failure = null
+                    entry.job?.cancel()
+                    cleanUp(entry)
+                }
+            }
+        }
+        publish()
+    }
+
     /** Removes the finished transfers of a console (all consoles when null) from the list. */
     fun clearFinished(deviceId: String? = null) = synchronized(lock) {
-        entries.removeAll { it.phase.isFinished && (deviceId == null || it.deviceId == deviceId) }
+        entries.removeAll {
+            val finished = it.phase.isFinished || (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD)
+            finished && (deviceId == null || it.deviceId == deviceId)
+        }
         publish()
     }
 
@@ -358,21 +478,55 @@ class TransferQueue(
         if (entries.none { it.direction == direction && it.phase == TransferPhase.WAITING }) return
         workers[direction] = scope.launch {
             while (true) {
-                val entry = synchronized(lock) {
-                    entries.firstOrNull { it.direction == direction && it.phase == TransferPhase.WAITING }
-                        ?: run { workers.remove(direction); null }
+                // Selected, marked started and given its job in one critical section:
+                // a cancel or a pause from now on sees a started transfer and its job.
+                val (entry, job) = synchronized(lock) {
+                    val next = entries.firstOrNull { it.direction == direction && it.phase == TransferPhase.WAITING }
+                    if (next == null) {
+                        workers.remove(direction)
+                        null
+                    } else {
+                        next.phase = when {
+                            direction == TransferDirection.DOWNLOAD -> TransferPhase.RUNNING
+                            next.sha256 == null -> TransferPhase.HASHING
+                            else -> TransferPhase.RUNNING
+                        }
+                        next.failure = null
+                        next.hashedBytes = if (next.phase == TransferPhase.HASHING) 0 else next.hashedBytes
+                        if (direction == TransferDirection.DOWNLOAD) next.doneBytes = 0
+                        next.rate.reset()
+                        next.pauseFlag = AtomicBoolean(false)
+                        val job = launch(start = CoroutineStart.LAZY) {
+                            if (direction == TransferDirection.UPLOAD) processUpload(next) else processDownload(next)
+                        }
+                        next.job = job
+                        publish()
+                        next to job
+                    }
                 } ?: break
-                val job = launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
-                    if (direction == TransferDirection.UPLOAD) processUpload(entry) else processDownload(entry)
-                }
-                synchronized(lock) {
-                    entry.job = job
-                    entry.pauseFlag = AtomicBoolean(false)
-                }
+                beforeStartForTests?.invoke(entry.id)
+                // A job cancelled before this never runs its body.
                 job.start()
                 job.join()
+                synchronized(lock) {
+                    // Cancelled (or paused) before it could settle its own phase.
+                    if (entry.isStarted) {
+                        entry.phase = TransferPhase.PAUSED
+                        entry.isCompleting = false
+                        entry.inFlightBytes = 0
+                        publish()
+                    }
+                }
             }
         }
+    }
+
+    /** Moves a started transfer to [phase]; false (nothing changed) when it was cancelled, paused or dropped meanwhile. */
+    private fun advance(entry: Entry, phase: TransferPhase): Boolean = synchronized(lock) {
+        if (!entry.isStarted || entry.dropped) return false
+        entry.phase = phase
+        publish()
+        true
     }
 
     private suspend fun processUpload(entry: Entry) {
@@ -380,10 +534,6 @@ class TransferQueue(
         val file = entry.file ?: return
         try {
             if (entry.sha256 == null) {
-                update(entry) {
-                    it.phase = TransferPhase.HASHING
-                    it.hashedBytes = 0
-                }
                 val sha = FileDigest.sha256(file, shouldPause = { flag.get() }) { bytes ->
                     entry.hashedBytes = bytes
                     publishProgress()
@@ -391,13 +541,12 @@ class TransferQueue(
                 entry.sha256 = sha
             }
             if (flag.get()) throw UploadFailure(UploadFailure.Reason.PAUSED)
-            val upload = entry.upload ?: ResumableUpload(
-                file, entry.sizeBytes ?: file.length(), entry.sha256!!, entry.target!!, entry.onConflict, retry,
-            ).also { entry.upload = it }
-            update(entry) {
-                it.phase = TransferPhase.RUNNING
-                it.rate.reset()
+            val upload = synchronized(lock) {
+                entry.upload ?: ResumableUpload(
+                    file, entry.sizeBytes ?: file.length(), entry.sha256!!, entry.target!!, entry.onConflict, retry,
+                ).also { entry.upload = it }
             }
+            if (!advance(entry, TransferPhase.RUNNING)) return
             val api = client(entry.deviceId, entry.refreshClient)
             entry.refreshClient = false
             val result = upload.run(
@@ -413,7 +562,14 @@ class TransferQueue(
                     entry.inFlightBytes = maxOf(entry.inFlightBytes, bytes)
                     publishProgress()
                 },
-                willComplete = { update(entry) { it.isCompleting = true } },
+                willComplete = {
+                    synchronized(lock) {
+                        // Cancelled, paused or dropped since the last chunk: `complete` is never sent.
+                        if (!entry.isStarted || entry.dropped) throw CancellationException("transfer stopped")
+                        entry.isCompleting = true
+                        publish()
+                    }
+                },
             )
             val done = synchronized(lock) {
                 entry.isCompleting = false
@@ -444,14 +600,10 @@ class TransferQueue(
         val source = entry.source ?: return
         val sink = entry.sink ?: return
         try {
-            update(entry) {
-                it.phase = TransferPhase.RUNNING
-                it.doneBytes = 0
-                it.rate.reset()
-            }
             val api = client(entry.deviceId, entry.refreshClient)
             entry.refreshClient = false
             val out = withContext(Dispatchers.IO) { sink.open() }
+            var committed = false
             try {
                 api.download(source, out) { written, total ->
                     entry.doneBytes = written
@@ -459,11 +611,14 @@ class TransferQueue(
                     entry.rate.record(written)
                     publishProgress()
                 }
+                // Success only once the provider accepted the document.
+                withContext(Dispatchers.IO) { sink.finish(out) }
+                committed = true
             } finally {
-                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { out.close() } }
+                if (!committed) withContext(NonCancellable + Dispatchers.IO) { runCatching { out.close() } }
             }
             val done = synchronized(lock) {
-                if (entry.phase == TransferPhase.CANCELLED) return
+                if (!entry.isStarted) return
                 entry.phase = TransferPhase.DONE
                 entry.sizeBytes = entry.doneBytes
                 publish()
@@ -471,11 +626,16 @@ class TransferQueue(
             }
             _finished.tryEmit(done)
         } catch (e: Throwable) {
-            synchronized(lock) {
-                if (entry.phase == TransferPhase.CANCELLED) return
+            val discard = synchronized(lock) {
+                if (!entry.isStarted) return
                 failed(entry, e)
-                publish()
+                entry.phase == TransferPhase.FAILED
             }
+            if (discard) {
+                // A failed download is final: its partial document is deleted before it shows failed.
+                withContext(NonCancellable + Dispatchers.IO) { runCatching { sink.discard() } }
+            }
+            synchronized(lock) { publish() }
             if (e is CancellationException && !scopeActive()) throw e
         }
     }
@@ -501,6 +661,11 @@ class TransferQueue(
                 entry.failure = e
             }
         }
+        if (entry.dropped && entry.phase == TransferPhase.PAUSED) {
+            // Its console is forgotten: it will never resume.
+            entry.phase = TransferPhase.FAILED
+            entry.failure = ConsoleForgottenException()
+        }
     }
 
     private fun scopeActive(): Boolean = scope.coroutineContext[Job]?.isActive != false
@@ -509,11 +674,6 @@ class TransferQueue(
         if (!entry.ownsFile) return
         val directory = entry.file?.parentFile ?: return
         scope.launch(Dispatchers.IO) { directory.deleteRecursively() }
-    }
-
-    private inline fun update(entry: Entry, change: (Entry) -> Unit) = synchronized(lock) {
-        change(entry)
-        publish()
     }
 
     /** Progress is published at most every 100 ms; phase changes at once. */
@@ -540,6 +700,7 @@ class TransferQueue(
             hashedBytes = e.hashedBytes, bytesPerSecond = rate,
             secondsRemaining = if (rate != null && rate > 0 && size != null) ((size - e.doneBytes) / rate).toLong() else null,
             failure = e.failure, isCompleting = e.isCompleting, result = e.result, target = e.target,
+            isReserved = e.reserved, isDropped = e.dropped,
         )
     }
 }

@@ -218,9 +218,17 @@ class AppContainer(context: Context) {
         clients.remove(console.deviceId)
     }
 
-    fun forget(deviceId: String) = synchronized(pairingLock) {
-        consoles.remove(deviceId)
-        clients.remove(deviceId)
+    /**
+     * Forgets a console on this phone. Its transfers stop and never start
+     * again (a running one may hold a client already obtained); an upload
+     * whose `complete` is in flight keeps its real outcome.
+     */
+    fun forget(deviceId: String) {
+        synchronized(pairingLock) {
+            consoles.remove(deviceId)
+            clients.remove(deviceId)
+        }
+        transfers.dropConsole(deviceId)
     }
 
     /**

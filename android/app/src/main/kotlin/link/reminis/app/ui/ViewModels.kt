@@ -404,7 +404,15 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
      * the trash of the console.
      */
     fun setArt(picture: android.net.Uri) = perform(Notice(R.string.art_set)) {
-        val png = withContext(Dispatchers.IO) { ArtImage.png(getApplication<Application>().contentResolver, picture) }
+        val png = withContext(Dispatchers.IO) {
+            try {
+                ArtImage.png(getApplication<Application>().contentResolver, picture)
+            } catch (e: java.io.IOException) {
+                throw link.reminis.app.LocalFileException(e)
+            } catch (e: SecurityException) {
+                throw link.reminis.app.LocalFileException(e)
+            }
+        }
         container.client(deviceId).setGameArt(gameId, png)
         refresh(quiet = true)
     }

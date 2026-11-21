@@ -79,8 +79,27 @@ class DocumentSink(private val context: Context, private val uri: Uri) : Downloa
         throw LocalFileException(e)
     }
 
-    override fun discard() {
-        runCatching { DocumentsContract.deleteDocument(context.contentResolver, uri) }
+    /** Flushed, synced to storage when the provider gives a file, then closed: any failure fails the download. */
+    override fun finish(out: OutputStream) = try {
+        out.flush()
+        (out as? java.io.FileOutputStream)?.fd?.sync()
+        out.close()
+    } catch (e: Exception) {
+        throw LocalFileException(e)
+    }
+
+    override fun discard(): Boolean = deleteDocument(context, uri)
+
+    companion object {
+        /** Deletes a document; true when it is gone (deleted, or already missing). */
+        fun deleteDocument(context: Context, uri: Uri): Boolean = try {
+            DocumentsContract.deleteDocument(context.contentResolver, uri)
+        } catch (_: FileNotFoundException) {
+            true
+        } catch (_: Exception) {
+            // Not a document URI (e.g. MediaStore): delete through the resolver.
+            runCatching { context.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false)
+        }
     }
 }
 

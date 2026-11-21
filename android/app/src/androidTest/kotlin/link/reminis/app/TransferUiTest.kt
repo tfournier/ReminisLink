@@ -73,6 +73,7 @@ class TransferUiTest {
     private lateinit var server: MockWebServer
     private val requests = CopyOnWriteArrayList<RecordedRequest>()
     private val received = java.io.ByteArrayOutputStream()
+    private val art = java.io.ByteArrayOutputStream()
     private val backups = CopyOnWriteArrayList<String>()
     @Volatile private var slotLocked = false
     private val created = mutableListOf<Uri>()
@@ -157,6 +158,11 @@ class TransferUiTest {
                 json(slot)
             }
             path == "/api/v1/games/$gameId/save" -> MockResponse().setResponseCode(200).setBody("SAV")
+            path == "/api/v1/games/$gameId/files/cm9t" -> MockResponse().setResponseCode(200).setBody("ROM!")
+            path == "/api/v1/games/$gameId/art" && request.method == "PUT" -> {
+                synchronized(art) { art.write(request.body.readByteArray()) }
+                json("""{"id":"$gameId","name":"Moss Lantern","hasArt":true}""")
+            }
             path == "/api/v1/uploads" -> json("""{"uploadId":"up_1","chunkSize":4,"offset":0,"expiresAt":"2026-11-22T10:00:00Z"}""", 201)
             path == "/api/v1/uploads/up_1" && request.method == "PUT" -> {
                 synchronized(received) { received.write(request.body.readByteArray()) }
@@ -261,5 +267,102 @@ class TransferUiTest {
         withTimeout(30_000) { queue.items.first { list -> list.any { it.id == id && it.phase == TransferPhase.DONE } } }
         val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
         assertArrayEquals("SAV".toByteArray(), bytes)
+    }
+
+    /** A real picture (a large JPEG and a small PNG): scaled to 1024 px, PNG of at most 4 MiB. */
+    @Test
+    fun boxArtIsScaledAndSent() {
+        fun picture(name: String, width: Int, height: Int, format: android.graphics.Bitmap.CompressFormat): Uri {
+            val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+            android.graphics.Canvas(bitmap).drawColor(android.graphics.Color.rgb(40, 120, 80))
+            val out = java.io.ByteArrayOutputStream()
+            bitmap.compress(format, 90, out)
+            return document(name, out.toByteArray())
+        }
+        val jpeg = picture("fern-cover.jpg", 3000, 2000, android.graphics.Bitmap.CompressFormat.JPEG)
+        val png = picture("fern-cover.png", 200, 300, android.graphics.Bitmap.CompressFormat.PNG)
+        for ((uri, longer) in listOf(jpeg to 1024, png to 300)) {
+            val bytes = ArtImage.png(context.contentResolver, uri)
+            assertTrue(bytes.size <= ArtImage.MAX_BYTES)
+            assertArrayEquals(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte()), bytes.copyOf(4))
+            val decoded = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            assertEquals(longer, maxOf(decoded.width, decoded.height))
+        }
+
+        // Through the game screen's view model, as after choosing the picture.
+        val app = context.applicationContext as android.app.Application
+        val vm = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().let { inst ->
+            var created: link.reminis.app.ui.GameViewModel? = null
+            inst.runOnMainSync { created = link.reminis.app.ui.GameViewModel(app, deviceId, gameId) }
+            created!!
+        }
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync { vm.setArt(jpeg) }
+        runBlocking {
+            withTimeout(30_000) { vm.notice.first { it != null || vm.error.value != null } }
+        }
+        assertEquals(null, vm.error.value)
+        assertEquals(R.string.art_set, vm.notice.value?.id)
+        val put = requests.first { it.method == "PUT" && it.path == "/api/v1/games/$gameId/art" }
+        assertEquals("image/png", put.getHeader("Content-Type"))
+        assertTrue(put.getHeader("X-RL-Content-SHA256") != "UNSIGNED")
+        val sent = synchronized(art) { art.toByteArray() }
+        assertEquals(1024, android.graphics.BitmapFactory.decodeByteArray(sent, 0, sent.size).width)
+    }
+
+    /**
+     * The save-as picker stays open while the activity is recreated (a
+     * configuration change): the download still goes to the queue and
+     * fills the document chosen.
+     */
+    @Test
+    fun downloadSurvivesRecreationDuringThePicker() {
+        val queue = context.container.transfers
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shell(command: String) = automation.executeShellCommand(command).use { pfd ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+        }
+        val created = mutableListOf<MainActivity>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { created += it }
+            openGame()
+            compose.onAllNodesWithText(context.getString(R.string.action_download))[0].performClick()
+            // The system picker is in front; a configuration change recreates the activity behind it.
+            Thread.sleep(3_000)
+            shell("cmd uimode night yes")
+            try {
+                Thread.sleep(1_000)
+                // Tap Save in the picker (found in the window hierarchy).
+                var tapped = false
+                repeat(15) {
+                    if (tapped) return@repeat
+                    val root = automation.rootInActiveWindow
+                    val save = root?.findAccessibilityNodeInfosByViewId("android:id/button1")?.firstOrNull()
+                    if (save != null && save.packageName?.contains("documentsui") == true) {
+                        tapped = save.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+                    }
+                    if (!tapped) Thread.sleep(1_000)
+                }
+                assertTrue("the picker's Save button was not found", tapped)
+                // A document of that name left by an earlier run: confirm the overwrite.
+                Thread.sleep(1_000)
+                automation.rootInActiveWindow?.takeIf { it.packageName?.contains("documentsui") == true }
+                    ?.findAccessibilityNodeInfosByViewId("android:id/button1")?.firstOrNull()
+                    ?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+                val deadline = System.currentTimeMillis() + 20_000
+                var item: link.reminis.core.TransferItem? = null
+                while (System.currentTimeMillis() < deadline) {
+                    item = queue.items.value.firstOrNull {
+                        it.deviceId == deviceId && it.fileName == "Moss Lantern.gba" && it.phase == TransferPhase.DONE
+                    }
+                    if (item != null) break
+                    Thread.sleep(200)
+                }
+                assertTrue("no download after the recreation", item != null)
+                scenario.onActivity { created += it }
+                assertTrue("the activity was not recreated", created.first() !== created.last())
+            } finally {
+                shell("cmd uimode night no")
+            }
+        }
     }
 }

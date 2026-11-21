@@ -20,7 +20,9 @@ object ArtImage {
 
     fun png(resolver: ContentResolver, uri: Uri): ByteArray {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: throw FileNotFoundException("picture")
+        // With inJustDecodeBounds, decodeStream returns null by design: the size is in the options.
+        val input = resolver.openInputStream(uri) ?: throw FileNotFoundException("picture")
+        input.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw UnreadablePictureException()
         // Decoded at a power-of-two reduction close to the target, never the full picture.
         var sample = 1
