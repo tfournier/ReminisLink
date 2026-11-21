@@ -38,6 +38,7 @@ func TestRoots(t *testing.T) {
 		SD: "/userdata", Roms: "/userdata/roms", Saves: "/userdata/saves", States: "/userdata/saves",
 		Cheats: "/userdata/cheats", Userdata: "/userdata/system", Shared: "/userdata/system",
 		Data: "/userdata/system/ReminisLink", Logs: "/userdata/system/logs",
+		Pak: "/userdata/roms/tools/.ReminisLink",
 	}
 	if r != want {
 		t.Fatalf("roots = %+v\nwant %+v", r, want)
@@ -227,8 +228,15 @@ func TestCaseSensitivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if files.Save == nil || filepath.Base(files.Save.Path) != "starlight courier.srm" {
-		t.Fatalf("save %+v", files.Save)
+	// On a file system that ignores case (exFAT, APFS), the OS finds the
+	// save under the other case: so does the pak. On ext4, RetroArch
+	// would not read it: it is not the save of the game.
+	if caseInsensitive(t, saves) {
+		if files.Save == nil || filepath.Base(files.Save.Path) != "starlight courier.srm" {
+			t.Fatalf("save %+v", files.Save)
+		}
+	} else if files.Save != nil {
+		t.Fatalf("case-sensitive: save %+v", files.Save)
 	}
 	if _, err := a.System("GBA"); !errors.Is(err, osadapter.ErrNotFound) {
 		t.Fatalf("GBA: %v", err)
@@ -306,5 +314,161 @@ func TestBoards(t *testing.T) {
 		if Boards[board] != model {
 			t.Errorf("%s: %q", board, Boards[board])
 		}
+	}
+}
+
+func caseInsensitive(t *testing.T, dir string) bool {
+	t.Helper()
+	_, err := os.Lstat(filepath.Join(dir, "STARLIGHT COURIER.RTC"))
+	return err == nil
+}
+
+func write(t *testing.T, p, data string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// newCaseSensitive is newAdapter on a case-sensitive file system (ext4).
+func newCaseSensitive(t *testing.T) (Adapter, string) {
+	t.Helper()
+	sd, env := testutil.CopyKnulli(t, testutil.CaseSensitiveDir(t))
+	return New(RootsForSD(sd), func(k string) string { return env[k] }), sd
+}
+
+// Codex review of M20: on ext4, Game.gba and game.gba are two games; each
+// gets only the files spelled like it (states, thumbnails, automatic
+// state, save, clock), so deleting one never takes the other's.
+func TestTwoGamesDifferingByCase(t *testing.T) {
+	a, sd := newCaseSensitive(t)
+	saves := filepath.Join(sd, "saves", "gba")
+	write(t, filepath.Join(sd, "roms", "gba", "starlight courier.gba"), "other rom")
+	for _, n := range []string{"starlight courier.state1", "starlight courier.state1.png", "starlight courier.state.auto", "starlight courier.rtc"} {
+		write(t, filepath.Join(saves, n), "other")
+	}
+	files := func(rel string) osadapter.GameFiles {
+		t.Helper()
+		g, err := a.Game(rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := a.GameFiles(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	names := func(f osadapter.GameFiles) []string {
+		var out []string
+		for _, s := range f.States {
+			out = append(out, filepath.Base(s.Path))
+		}
+		for _, s := range f.StateSide {
+			out = append(out, filepath.Base(s.Path))
+		}
+		for _, s := range []*osadapter.File{f.Save, f.RTC} {
+			if s != nil {
+				out = append(out, filepath.Base(s.Path))
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+	upper := names(files("gba/Starlight Courier.gba"))
+	for _, n := range upper {
+		if n[0] == 's' {
+			t.Errorf("Starlight Courier.gba takes %s", n)
+		}
+	}
+	lower := names(files("gba/starlight courier.gba"))
+	want := []string{"starlight courier.rtc", "starlight courier.state.auto", "starlight courier.state1", "starlight courier.state1.png"}
+	if !reflect.DeepEqual(lower, want) {
+		t.Errorf("starlight courier.gba: %v, want %v", lower, want)
+	}
+	// Without its own save, a game never takes the other's.
+	if err := os.Remove(filepath.Join(saves, "Starlight Courier.rtc")); err != nil {
+		t.Fatal(err)
+	}
+	if f := files("gba/Starlight Courier.gba"); f.RTC != nil {
+		t.Errorf("RTC of the other game: %+v", f.RTC)
+	}
+	// The listing counts each game's states only.
+	sys, _ := a.System("gba")
+	l, err := a.ListFolder(sys, "gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range l.Games {
+		switch g.FileName {
+		case "starlight courier.gba":
+			if g.StateCount != 1 || g.HasSave {
+				t.Errorf("%s: %+v", g.FileName, g)
+			}
+		case "Starlight Courier.gba":
+			if !g.HasSave {
+				t.Errorf("%s: %+v", g.FileName, g)
+			}
+		}
+	}
+}
+
+// A folder of the states reached through a symbolic link: the states are
+// neither listed, read nor written (rule 2, Codex review of M20).
+func TestStatesThroughALink(t *testing.T) {
+	a, sd := newAdapter(t)
+	saves := filepath.Join(sd, "saves", "gba")
+	outside := filepath.Join(filepath.Dir(sd), "elsewhere")
+	if err := os.Rename(saves, outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, saves); err != nil {
+		t.Skipf("no symbolic links: %v", err)
+	}
+	g, _ := a.Game("gba/Starlight Courier.gba")
+	if p := a.StatePath(g, 1); p != "" {
+		t.Errorf("StatePath through a link: %s", p)
+	}
+	if p := a.StateThumbnailPath(g, 1); p != "" {
+		t.Errorf("StateThumbnailPath through a link: %s", p)
+	}
+	files, err := a.GameFiles(g)
+	if err != nil || len(files.States) != 0 || len(files.StateSide) != 0 {
+		t.Errorf("states through a link: %+v %v", files.States, err)
+	}
+	refs, _ := a.StateFiles(context.Background())
+	for _, r := range refs {
+		if r.Tag == "gba" {
+			t.Errorf("state through a link listed: %+v", r)
+		}
+	}
+}
+
+// Two ROMs of the same name in two folders of a system get the same art
+// (roms/<system>/images, EmulationStation findLocalArt): deleting one
+// keeps it for the other.
+func TestSharedArt(t *testing.T) {
+	a, sd := newAdapter(t)
+	write(t, filepath.Join(sd, "roms", "gba", "Hacks", "Starlight Courier.gba"), "hack")
+	for _, rel := range []string{"gba/Starlight Courier.gba", "gba/Hacks/Starlight Courier.gba"} {
+		g, err := a.Game(rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		art := a.ArtPath(g)
+		if art != filepath.Join(sd, "roms", "gba", "images", "Starlight Courier-image.png") {
+			t.Errorf("%s: art %s", rel, art)
+		}
+		if !a.SharedFiles(g)[art] {
+			t.Errorf("%s: art not shared", rel)
+		}
+	}
+	g, _ := a.Game("gba/Pixel Garden.gba")
+	write(t, filepath.Join(sd, "roms", "gba", "images", "Pixel Garden-image.png"), "png")
+	if len(a.SharedFiles(g)) != 0 {
+		t.Errorf("Pixel Garden: %v", a.SharedFiles(g))
 	}
 }

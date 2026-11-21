@@ -15,8 +15,9 @@
 // extensions), board/*/fsoverlay/etc/init.d/rcS (/boot/boot/knulli.board),
 // package/system/knulli-scripts/scripts/knulli-version
 // (/usr/share/knulli/knulli.version), board/fsoverlay/usr/bin/knulli-battery-check
-// (battery); github.com/knulli-cfw/batocera-emulationstation 10834d00
-// es-app/src/FileData.cpp findLocalArt (art).
+// (battery); github.com/knulli-cfw/batocera-emulationstation f7c5ae10
+// es-app/src/FileData.cpp:170 findLocalArt (art), SystemData.cpp:278 and
+// es-core/src/utils/FileSystemUtil.cpp:1096 (hidden files).
 package knulli
 
 import (
@@ -126,6 +127,7 @@ func RootsFromEnv(env nextui.Env) osadapter.Roots {
 		Userdata: system,
 		Shared:   system,
 		Data:     filepath.Join(system, DataDirName),
+		Pak:      filepath.Join(or("ROMS_PATH", filepath.Join(sd, "roms")), "tools", "."+DataDirName),
 		Logs:     or("LOGS_PATH", filepath.Join(system, "logs")),
 		// No paks on Knulli: Minui, System, Emus and Tools stay empty
 		// (GET /paks lists nothing, an installation is refused).
@@ -184,8 +186,10 @@ func New(roots osadapter.Roots, env nextui.Env) Adapter {
 			_, ok := systems[tag]
 			return ok
 		},
-		Skip:     func(name string) bool { return mediaFolders[strings.ToLower(name)] },
-		GameFile: gameFile,
+		Skip: func(name string) bool { return mediaFolders[strings.ToLower(name)] },
+		// /userdata may be ext4 (case-sensitive) or exFAT.
+		CaseFromFS: true,
+		GameFile:   gameFile,
 		// RetroArch names the save after the content without its last
 		// extension (savefile_directory = /userdata/saves/<system>).
 		SaveName: func(rom string) string { return stem(rom) + ".srm" },
@@ -199,7 +203,9 @@ func New(roots osadapter.Roots, env nextui.Env) Adapter {
 		NoCheats: true,
 		ArtDir: func(sys osadapter.System, _ string) string {
 			// EmulationStation looks for local art in the images folder of
-			// the system root only (findLocalArt, mStartPath).
+			// the system root only (findLocalArt, mStartPath): two ROMs of
+			// the same name in two folders share it (SharedFiles keeps it
+			// when one is deleted).
 			return filepath.Join(roots.Roms, sys.Folder, "images")
 		},
 		ArtName:    func(g osadapter.Game) string { return stem(path.Base(g.Path)) + "-image.png" },
@@ -284,8 +290,11 @@ func (s states) Side(key string, slot int) []string    { return []string{s.Thumb
 
 // IsSide: the thumbnails of the states of key and its automatic state
 // (with its thumbnail), which go with the game when it is deleted.
-func (s states) IsSide(name, key string) bool {
-	n, k := strings.ToLower(name), strings.ToLower(key)+".state"
+func (s states) IsSide(name, key string, exact bool) bool {
+	n, k := name, key+".state"
+	if !exact {
+		n, k = strings.ToLower(n), strings.ToLower(k)
+	}
 	rest, ok := strings.CutPrefix(n, k)
 	if !ok {
 		return false

@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
@@ -519,7 +520,7 @@ func (s *Service) Open(g osadapter.Game, slot int) (*os.File, string, error) {
 	if !ok {
 		return nil, "", ErrNoState
 	}
-	f, err := os.Open(p)
+	f, _, err := confine.OpenUnder(s.cardRoot(p), p)
 	if err != nil {
 		return nil, "", fmt.Errorf("state: %w", err)
 	}
@@ -540,7 +541,7 @@ func (s *Service) Thumbnail(g osadapter.Game, slot int) (string, error) {
 		return "", ErrNoThumbnail
 	}
 	// NextUI writes a PNG image in a ".bmp" file: check the signature.
-	f, err := os.Open(p)
+	f, _, err := confine.OpenUnder(s.cardRoot(p), p)
 	if err != nil {
 		return "", ErrNoThumbnail
 	}
@@ -1354,4 +1355,17 @@ func (s *Service) checkLock(g osadapter.Game, dir string, slot int, r *Report) {
 	} else {
 		log.Info("maintenance: locked state was missing, copy restored", "copy", l.copy)
 	}
+}
+
+// cardRoot is the folder a state file p must be read under, with no link
+// below it (rule 2): the card, or the states or thumbnails folder when it
+// is elsewhere.
+func (s *Service) cardRoot(p string) string {
+	r := s.o.Adapter.Roots()
+	for _, root := range []string{r.SD, r.States, r.Minui} {
+		if _, err := confine.RelToRoot(root, p); root != "" && err == nil {
+			return root
+		}
+	}
+	return filepath.Dir(p)
 }

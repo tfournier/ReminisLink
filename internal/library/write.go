@@ -152,7 +152,11 @@ func (l *Library) selectDeletion(gameID string, keepSave bool) (deletion, error)
 		}
 	}
 	if files.Art != nil {
-		move(files.Art.Path, "art")
+		if shared[files.Art.Path] {
+			keep(files.Art.Path, "art")
+		} else {
+			move(files.Art.Path, "art")
+		}
 	}
 	data := move
 	if keepSave {

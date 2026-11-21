@@ -46,6 +46,14 @@ func TestParseFlags(t *testing.T) {
 	if o, err := parseFlags(nil, &stderr); err != nil || o.os != "knulli" {
 		t.Fatalf("REMINISLINK_OS: %+v, %v", o, err)
 	}
+	// The launchers pass --os: it wins over the environment, and an --os
+	// given after it (a manual launch through the script) wins over it.
+	if o, err := parseFlags([]string{"--os", "nextui"}, &stderr); err != nil || o.os != "nextui" {
+		t.Fatalf("launch.sh with REMINISLINK_OS=knulli: %+v, %v", o, err)
+	}
+	if o, err := parseFlags([]string{"--os", "nextui", "--os", "knulli"}, &stderr); err != nil || o.os != "knulli" {
+		t.Fatalf("manual --os after the launcher's: %+v, %v", o, err)
+	}
 	t.Setenv("REMINISLINK_OS", "")
 	for _, args := range [][]string{{"--os", "batocera"}, {"--port", "70000"}, {"--port", "-1"}, {"extra"}, {"--nope"},
 		{"--desktop"}, {"--desktop", "--headless", "--sd", "/x"}, {"--pairing-open"}, {"--desktop", "--sd", "/x", "--pairing-open"}} {

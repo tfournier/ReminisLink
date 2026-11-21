@@ -26,7 +26,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"unicode"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 )
 
@@ -398,10 +400,13 @@ func (a *Adapter) countGames(sys osadapter.System, dir string, entries []fs.DirE
 // systemIndex holds one directory read of each data folder of a system, so
 // a listing never stats the save, states or cheats of each game.
 type systemIndex struct {
-	saves  map[string]bool         // folded file names of Saves/<TAG>
-	states map[string]map[int]bool // folded ROM file name -> slots
-	cheats map[string]string       // folded file name -> file name in Cheats/<TAG>
-	media  map[string]bool         // folded file names of <folder>/.media
+	saves  map[string]bool         // keys of the file names of Saves/<TAG>
+	states map[string]map[int]bool // key of the state key -> slots
+	cheats map[string]string       // key of the file name -> file name in Cheats/<TAG>
+	media  map[string]bool         // keys of the file names of <folder>/.media
+	// The key of a name in each folder (nameKey): folded when the folder
+	// ignores case.
+	saveKey, stateKey, cheatKey, mediaKey func(string) string
 }
 
 func readNames(dir string) []fs.DirEntry {
@@ -413,16 +418,18 @@ func readNames(dir string) []fs.DirEntry {
 }
 
 func (a *Adapter) index(sys osadapter.System, dir string) systemIndex {
-	return a.dataIndex(sys).withMedia(a.mediaDir(sys, dir))
+	return a.withMedia(a.dataIndex(sys), a.mediaDir(sys, dir))
 }
 
 // withMedia returns idx with the art found in media, the art folder of
 // the entries of a folder (one read); the data maps are shared.
-func (idx systemIndex) withMedia(media string) systemIndex {
+func (a *Adapter) withMedia(idx systemIndex, media string) systemIndex {
 	idx.media = map[string]bool{}
-	for _, e := range readNames(media) {
+	entries := readNames(media)
+	idx.mediaKey = a.nameKey(media, entries)
+	for _, e := range entries {
 		if e.Type().IsRegular() {
-			idx.media[fold(e.Name())] = true
+			idx.media[idx.mediaKey(e.Name())] = true
 		}
 	}
 	return idx
@@ -435,9 +442,12 @@ func (a *Adapter) dataIndex(sys osadapter.System) systemIndex {
 		states: map[string]map[int]bool{},
 		cheats: map[string]string{},
 	}
-	for _, e := range readNames(filepath.Join(a.roots.Saves, sys.Tag)) {
+	savesDir := filepath.Join(a.roots.Saves, sys.Tag)
+	saveEntries := readNames(savesDir)
+	idx.saveKey = a.nameKey(savesDir, saveEntries)
+	for _, e := range saveEntries {
 		if e.Type().IsRegular() {
-			idx.saves[fold(e.Name())] = true
+			idx.saves[idx.saveKey(e.Name())] = true
 		}
 	}
 	statesDir := a.statesDir(sys.Tag)
@@ -445,22 +455,27 @@ func (a *Adapter) dataIndex(sys osadapter.System) systemIndex {
 	if statesDir != "" {
 		stateEntries = readNames(statesDir)
 	}
+	idx.stateKey = a.nameKey(statesDir, stateEntries)
 	for _, e := range stateEntries {
 		if !e.Type().IsRegular() {
 			continue
 		}
 		if rom, slot, ok := a.parseState(e.Name()); ok {
-			k := fold(rom)
+			k := idx.stateKey(rom)
 			if idx.states[k] == nil {
 				idx.states[k] = map[int]bool{}
 			}
 			idx.states[k][slot] = true
 		}
 	}
+	idx.cheatKey = fold
 	if !a.layout.NoCheats {
-		for _, e := range readNames(filepath.Join(a.roots.Cheats, sys.Tag)) {
+		cheatsDir := filepath.Join(a.roots.Cheats, sys.Tag)
+		entries := readNames(cheatsDir)
+		idx.cheatKey = a.nameKey(cheatsDir, entries)
+		for _, e := range entries {
 			if e.Type().IsRegular() {
-				idx.cheats[fold(e.Name())] = e.Name()
+				idx.cheats[idx.cheatKey(e.Name())] = e.Name()
 			}
 		}
 	}
@@ -678,7 +693,7 @@ func (a *Adapter) WalkSummaries(ctx context.Context, sys osadapter.System, fn fu
 }
 
 func (a *Adapter) walkSummaries(ctx context.Context, sys osadapter.System, data systemIndex, cache dirCache, dir, rel string, entries []fs.DirEntry, depth int, fn func(string, osadapter.GameSummary) error) error {
-	idx := data.withMedia(a.mediaDir(sys, dir))
+	idx := a.withMedia(data, a.mediaDir(sys, dir))
 	discs, err := m3uSiblingsCtx(ctx, dir, entries)
 	if err != nil {
 		return err
@@ -711,12 +726,12 @@ func (a *Adapter) walkSummaries(ctx context.Context, sys osadapter.System, data 
 
 func (idx systemIndex) summary(a *Adapter, g osadapter.Game) osadapter.GameSummary {
 	s := osadapter.GameSummary{Game: g}
-	s.HasSave = idx.saves[fold(a.saveName(g.ROMName))]
-	s.StateCount = len(idx.states[fold(a.stateKey(g.ROMName))])
-	if name, ok := idx.cheats[fold(a.cheatName(g.ROMName))]; ok {
+	s.HasSave = idx.saves[idx.saveKey(a.saveName(g.ROMName))]
+	s.StateCount = len(idx.states[idx.stateKey(a.stateKey(g.ROMName))])
+	if name, ok := idx.cheats[idx.cheatKey(a.cheatName(g.ROMName))]; ok {
 		s.CheatFile = filepath.Join(a.roots.Cheats, g.System.Tag, name)
 	}
-	s.HasArt = idx.media[fold(a.artFileName(g))]
+	s.HasArt = idx.media[idx.mediaKey(a.artFileName(g))]
 	return s
 }
 
@@ -896,6 +911,14 @@ func (a *Adapter) pakCore(tag string) (core string, found bool) {
 // core is never guessed (Codex review of M5); the states of the tag are
 // neither written nor restored.
 func (a *Adapter) statesDir(tag string) string {
+	dir := a.statesDirOf(tag)
+	if dir != "" && a.linkBelowRoot(dir) != nil {
+		return "" // reached through a link: neither read nor written (rule 2)
+	}
+	return dir
+}
+
+func (a *Adapter) statesDirOf(tag string) string {
 	if a.layout.States != nil {
 		if !validTag(tag) {
 			return ""
@@ -1044,7 +1067,7 @@ func (a *Adapter) GameExists(tag, romName string) bool {
 				}
 				return nil
 			}
-			if d.Type().IsRegular() && fold(d.Name()) == want {
+			if d.Type().IsRegular() && (d.Name() == romName || (fold(d.Name()) == want && a.sameName(filepath.Dir(p), d.Name(), romName))) {
 				found = true
 				return filepath.SkipAll
 			}
@@ -1219,13 +1242,18 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 	default:
 		return files, fmt.Errorf("game files: unknown kind %q", g.Kind)
 	}
+	// A file reached through a symbolic link below the root of the card
+	// is listed, but never opened (confine.OpenUnder) nor written through
+	// (confine.CheckDir) by the services (rule 2).
 	files.Save = a.findFold(filepath.Join(a.roots.Saves, g.System.Tag), a.saveName(g.ROMName))
 	files.RTC = a.findFold(filepath.Join(a.roots.Saves, g.System.Tag), a.rtcName(g.ROMName))
 	if st := a.layout.States; st != nil {
 		if dir := a.statesDir(g.System.Tag); dir != "" {
 			key := st.Key(g.ROMName)
-			for _, e := range readNames(dir) {
-				if e.Type().IsRegular() && st.IsSide(e.Name(), key) {
+			entries := readNames(dir)
+			exact := !a.foldsIn(dir, entries)
+			for _, e := range entries {
+				if e.Type().IsRegular() && st.IsSide(e.Name(), key, exact) {
 					if f, err := a.fileAt(filepath.Join(dir, e.Name())); err == nil {
 						files.StateSide = append(files.StateSide, f)
 					}
@@ -1250,17 +1278,18 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 	// left out of the list (GET /games/{gameId}/art reports the error).
 	files.Art, _ = a.ArtFile(g)
 	statesDir := a.statesDir(g.System.Tag)
-	want := fold(a.stateKey(g.ROMName))
 	var stateEntries []fs.DirEntry
 	if statesDir != "" {
 		stateEntries = readNames(statesDir)
 	}
+	stateKey := a.nameKey(statesDir, stateEntries)
+	want := stateKey(a.stateKey(g.ROMName))
 	for _, e := range stateEntries {
 		if !e.Type().IsRegular() {
 			continue
 		}
 		rom, slot, ok := a.parseState(e.Name())
-		if !ok || fold(rom) != want {
+		if !ok || stateKey(rom) != want {
 			continue
 		}
 		if f, err := a.fileAt(filepath.Join(statesDir, e.Name())); err == nil {
@@ -1315,6 +1344,46 @@ func (a *Adapter) ROMFiles(g osadapter.Game) map[string]bool {
 // lists (two playlists can share a disc). Only an m3u or folder game has
 // any; the whole system folder is read, which is fine for a deletion.
 func (a *Adapter) SharedFiles(g osadapter.Game) map[string]bool {
+	out := a.sharedROMFiles(g)
+	if art := a.sharedArt(g); art != "" {
+		if out == nil {
+			out = map[string]bool{}
+		}
+		out[art] = true
+	}
+	return out
+}
+
+// sharedArt returns the art file of g when another game of its system is
+// given the same one ("" otherwise): NextUI names the art after the entry
+// without its last extension (Game.gba and Game.zip of a folder), Knulli
+// after the file name in the images folder of the system root
+// (EmulationStation findLocalArt), whatever the subfolder.
+func (a *Adapter) sharedArt(g osadapter.Game) string {
+	art, err := a.ArtFile(g)
+	if err != nil || art == nil {
+		return ""
+	}
+	key := a.nameKey(filepath.Dir(art.Path), readNames(filepath.Dir(art.Path)))
+	shared := false
+	_ = a.WalkGames(context.Background(), g.System, func(o osadapter.Game) error {
+		if o.Path == g.Path {
+			return nil
+		}
+		p := a.ArtPath(o)
+		if filepath.Dir(p) == filepath.Dir(art.Path) && key(filepath.Base(p)) == key(filepath.Base(art.Path)) {
+			shared = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if shared {
+		return art.Path
+	}
+	return ""
+}
+
+func (a *Adapter) sharedROMFiles(g osadapter.Game) map[string]bool {
 	if g.Kind == osadapter.KindFile {
 		return nil
 	}
@@ -1569,11 +1638,11 @@ func (a *Adapter) pickFold(dir string, entries []fs.DirEntry, name string) *osad
 // pickName is the selection rule of every file of a game: the regular
 // entry whose folded name is fold(name), the exact spelling first, else
 // the first in listing order ("" when none).
-func pickName(entries []fs.DirEntry, name string) string {
-	want := fold(name)
+func pickName(entries []fs.DirEntry, name string, key func(string) string) string {
+	want := key(name)
 	var match string
 	for _, e := range entries {
-		if !e.Type().IsRegular() || fold(e.Name()) != want {
+		if !e.Type().IsRegular() || key(e.Name()) != want {
 			continue
 		}
 		if match == "" || e.Name() == name {
@@ -1586,7 +1655,7 @@ func pickName(entries []fs.DirEntry, name string) string {
 // pickFoldErr is pickFold that tells an absent file (nil, nil: no entry,
 // or the entry gone or no longer a regular file) from an I/O error.
 func (a *Adapter) pickFoldErr(dir string, entries []fs.DirEntry, name string) (*osadapter.File, error) {
-	match := pickName(entries, name)
+	match := pickName(entries, name, a.nameKey(dir, entries))
 	if match == "" {
 		return nil, nil
 	}
@@ -1623,14 +1692,17 @@ type saveDir struct {
 	a     *Adapter
 	dir   string
 	files map[string][]fs.DirEntry
+	key   func(string) string
 }
 
 // SaveDir reads Saves/<TAG> once.
 func (a *Adapter) SaveDir(tag string) osadapter.SaveDir {
 	d := &saveDir{a: a, dir: filepath.Join(a.roots.Saves, tag), files: map[string][]fs.DirEntry{}}
-	for _, e := range readNames(d.dir) {
+	entries := readNames(d.dir)
+	d.key = a.nameKey(d.dir, entries)
+	for _, e := range entries {
 		if e.Type().IsRegular() {
-			k := fold(e.Name())
+			k := d.key(e.Name())
 			d.files[k] = append(d.files[k], e)
 		}
 	}
@@ -1638,7 +1710,7 @@ func (a *Adapter) SaveDir(tag string) osadapter.SaveDir {
 }
 
 func (d *saveDir) Files(g osadapter.Game) (save, rtc *osadapter.File) {
-	find := func(name string) *osadapter.File { return d.a.pickFold(d.dir, d.files[fold(name)], name) }
+	find := func(name string) *osadapter.File { return d.a.pickFold(d.dir, d.files[d.key(name)], name) }
 	return find(d.a.saveName(g.ROMName)), find(d.a.rtcName(g.ROMName))
 }
 
@@ -1781,4 +1853,84 @@ func DefaultDeviceName(model, deviceID string) string {
 		return label
 	}
 	return label + " " + deviceID[len(deviceID)-4:]
+}
+
+// nameKey returns how the names of the folder dir (listed in entries) are
+// compared with the names the adapter builds: ignoring case on the NextUI
+// card (exFAT) and on a folder whose file system ignores case, exactly
+// otherwise (Knulli on ext4: Game.srm and game.srm belong to two games).
+func (a *Adapter) nameKey(dir string, entries []fs.DirEntry) func(string) string {
+	if a.foldsIn(dir, entries) {
+		return fold
+	}
+	return func(s string) string { return s }
+}
+
+// foldsIn reports whether names of dir are compared ignoring case.
+func (a *Adapter) foldsIn(dir string, entries []fs.DirEntry) bool {
+	return !a.layout.CaseFromFS || caseInsensitiveDir(dir, entries)
+}
+
+// caseInsensitiveDir reports whether the file system of dir ignores case:
+// an entry is found again under another case. Without an entry whose name
+// has a letter, the answer does not matter (no two names differ by case).
+func caseInsensitiveDir(dir string, entries []fs.DirEntry) bool {
+	for _, e := range entries {
+		other := swapCase(e.Name())
+		if other == e.Name() {
+			continue
+		}
+		return sameEntry(dir, e.Name(), other)
+	}
+	return true
+}
+
+// sameName reports whether name and other (equal ignoring case) name the
+// same entry of dir: the file system ignores case there.
+func (a *Adapter) sameName(dir, name, other string) bool {
+	return name == other || !a.layout.CaseFromFS || sameEntry(dir, name, other)
+}
+
+func sameEntry(dir, name, other string) bool {
+	fa, err := os.Lstat(filepath.Join(dir, name))
+	if err != nil {
+		return false
+	}
+	fb, err := os.Lstat(filepath.Join(dir, other))
+	return err == nil && os.SameFile(fa, fb)
+}
+
+func swapCase(s string) string {
+	return strings.Map(func(r rune) rune {
+		if u := unicode.ToUpper(r); u != r {
+			return u
+		}
+		return unicode.ToLower(r)
+	}, s)
+}
+
+// linkBelowRoot returns an error wrapping confine.ErrOutside when a folder
+// between the root of the card and dir (dir included) is a symbolic link.
+// The root itself may be one (h700: /mnt/SDCARD -> /mnt/sdcard). Folders
+// that do not exist yet end the check: they are created as folders. A
+// folder outside the card (a root moved by a variable) is checked from
+// the deepest root that holds it.
+func (a *Adapter) linkBelowRoot(dir string) error {
+	under := func(root, p string) bool {
+		rel, err := filepath.Rel(root, p)
+		return root != "" && err == nil && (rel == "." || filepath.IsLocal(rel))
+	}
+	base := ""
+	for _, r := range []string{a.roots.SD, a.roots.Roms, a.roots.Saves, a.roots.States, a.roots.Minui, a.roots.Cheats} {
+		if under(r, dir) && len(r) > len(base) {
+			base = r
+		}
+	}
+	if base == "" {
+		return nil
+	}
+	if under(a.roots.SD, base) {
+		base = a.roots.SD
+	}
+	return confine.CheckDir(base, dir)
 }

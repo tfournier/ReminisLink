@@ -8,8 +8,6 @@
 DIR="$(cd "$(dirname "$0")/.ReminisLink" && pwd)" || exit 1
 cd "$DIR" || exit 1
 
-# The pak reads the Knulli layout (/userdata) instead of NextUI's.
-export REMINISLINK_OS=knulli
 # libSDL2_gfx is bundled, as on NextUI.
 export LD_LIBRARY_PATH="$DIR/lib:$LD_LIBRARY_PATH"
 
@@ -18,4 +16,6 @@ mkdir -p "$LOG_DIR"
 
 # stdout is never redirected (see pak/launch.sh): only stderr goes to a
 # file; the pak writes its own log to $LOG_DIR/ReminisLink.txt.
-exec ./reminislink "$@" 2>>"$LOG_DIR/ReminisLink.stderr.txt"
+# --os knulli: the pak reads the Knulli layout (/userdata); an --os given
+# to this script comes later and wins (manual launch).
+exec ./reminislink --os knulli "$@" 2>>"$LOG_DIR/ReminisLink.stderr.txt"

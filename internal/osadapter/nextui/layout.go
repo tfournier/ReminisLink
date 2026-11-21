@@ -39,6 +39,12 @@ type Layout struct {
 	// "<ROM file name>.st<N>", thumbnails in .minui).
 	States StateRules
 
+	// CaseFromFS: names are compared as the file system of each folder
+	// does (Knulli: /userdata may be ext4, case-sensitive, or exFAT). When
+	// false, names are always compared ignoring case (NextUI: the card is
+	// exFAT, and the tests run on any file system).
+	CaseFromFS bool
+
 	// NoCheats: the OS has no per-game cheat file the pak can write;
 	// CheatPath is then "" and GameFiles finds none.
 	NoCheats bool
@@ -79,8 +85,9 @@ type StateRules interface {
 	// existing or not.
 	Side(key string, slot int) []string
 	// IsSide reports whether a file name of the state folder is a side
-	// file of key (GameFiles lists them).
-	IsSide(name, key string) bool
+	// file of key (GameFiles lists them), comparing exactly when exact
+	// (a case-sensitive folder) and ignoring case otherwise.
+	IsSide(name, key string, exact bool) bool
 	// ResumeSlot is the slot the OS writes on its own (ok false: none).
 	ResumeSlot() (slot int, ok bool)
 }

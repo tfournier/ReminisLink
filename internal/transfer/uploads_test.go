@@ -383,7 +383,12 @@ func TestUploadSaveStateStaging(t *testing.T) {
 	}
 
 	// A locked slot is refused, at creation and at completion.
-	lockDir := filepath.Join(e.layout.LocksDir(gbaTag), "starlight courier.gba")
+	// Another case of the ROM name where the file system ignores it (exFAT).
+	lockName := "starlight courier.gba"
+	if _, err := os.Lstat(filepath.Join(e.sd, "ROMS")); err != nil {
+		lockName = "Starlight Courier.gba"
+	}
+	lockDir := filepath.Join(e.layout.LocksDir(gbaTag), lockName)
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

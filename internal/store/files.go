@@ -133,7 +133,9 @@ func NewStampID(prefix string, at time.Time, random io.Reader, taken func(id str
 
 // FindFold returns the entry of dir named name ignoring case (exFAT; an
 // exact match wins), or "". dirs selects folders (true) or regular files
-// (false).
+// (false). An entry of another case is taken only when the file system of
+// dir finds it under name too: on a case-sensitive one (Knulli on ext4,
+// M20), Game.gba and game.gba are two games and keep apart.
 func FindFold(dir, name string, dirs bool) string {
 	des, err := os.ReadDir(dir)
 	if err != nil {
@@ -149,6 +151,13 @@ func FindFold(dir, name string, dirs bool) string {
 		}
 		if match == "" && strings.EqualFold(d.Name(), name) {
 			match = filepath.Join(dir, d.Name())
+		}
+	}
+	if match != "" {
+		fa, errA := os.Lstat(match)
+		fb, errB := os.Lstat(filepath.Join(dir, name))
+		if errA != nil || errB != nil || !os.SameFile(fa, fb) {
+			return ""
 		}
 	}
 	return match

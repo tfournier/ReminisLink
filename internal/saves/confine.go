@@ -23,3 +23,15 @@ func (s *Service) openSavesFile(p string) (*os.File, error) {
 	f, _, err := confine.OpenUnder(s.o.Adapter.Roots().Saves, p)
 	return f, err
 }
+
+// checkWriteDir refuses a read or a write in dir when a folder between the root of
+// the card (or the saves folder, when it is elsewhere) and dir is a
+// symbolic link (rule 2): the write would land elsewhere on the volume.
+func (s *Service) checkWriteDir(dir string) error {
+	r := s.o.Adapter.Roots()
+	root := r.Saves
+	if rel, err := confine.RelToRoot(r.SD, r.Saves); r.SD != "" && err == nil && rel != "" {
+		root = r.SD
+	}
+	return confine.CheckDir(root, dir)
+}
