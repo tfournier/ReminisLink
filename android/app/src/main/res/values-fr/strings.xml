@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tutoiement, comme l'app iOS ; espace insécable avant « : ? ! % ». -->
+<resources>
+    <!-- Common -->
+    <string name="action_back">Retour</string>
+    <string name="action_cancel">Annuler</string>
+    <string name="action_retry">Réessayer</string>
+    <string name="action_continue">Continuer</string>
+    <string name="loading">Chargement…</string>
+
+    <!-- Consoles -->
+    <string name="consoles_title">Consoles</string>
+    <string name="add_console">Ajouter une console</string>
+    <string name="welcome_title">Gère ta console rétro depuis ton téléphone</string>
+    <string name="welcome_step_install">Installe ReminisLink sur la console : voir le guide d’installation sur reminis.link.</string>
+    <string name="welcome_step_open">Ouvre ReminisLink depuis le menu Tools de la console.</string>
+    <string name="welcome_step_scan">Scanne le QR code affiché sur la console.</string>
+    <string name="status_online">En ligne</string>
+    <string name="status_offline">Hors ligne</string>
+    <string name="forget">Oublier</string>
+    <string name="forget_title">Oublier cette console ?</string>
+    <string name="forget_message">%1$s sera retirée de cette liste. Pour l’utiliser de nouveau, scanne son QR code. Pour retirer aussi ce téléphone de la console, ouvre Réglages > Appareils sur la console.</string>
+
+    <!-- Add a console -->
+    <string name="client_name_label">Nom affiché sur la console</string>
+    <string name="client_name_help">Ce nom identifie ce téléphone sur l’écran Appareils de la console.</string>
+    <string name="add_console_help">Sur la console, ouvre Réglages > Appairer un nouvel appareil, puis scanne le QR code affiché.</string>
+    <string name="scan_qr">Scanner le QR code</string>
+    <string name="paste_link_label">Ou colle un lien d’appairage</string>
+    <string name="paste_link_action">Appairer avec ce lien</string>
+
+    <!-- Scanner -->
+    <string name="scan_title">Scanner le QR code</string>
+    <string name="scan_hint">Scanne le QR code affiché sur la console.</string>
+    <string name="camera_permission_needed">ReminisLink a besoin de l’appareil photo pour scanner le QR code affiché par ta console. Tu peux aussi coller le lien d’appairage.</string>
+    <string name="camera_permission_grant">Autoriser l’appareil photo</string>
+    <string name="camera_unavailable">L’appareil photo n’est pas disponible sur cet appareil. Colle plutôt le lien d’appairage.</string>
+
+    <!-- Pairing -->
+    <string name="pairing_title">Appairage</string>
+    <string name="pairing_step_search">Recherche de la console</string>
+    <string name="pairing_step_pair">Appairage</string>
+    <string name="pairing_step_done">Terminé</string>
+    <string name="pairing_done">%1$s est appairée avec ce téléphone.</string>
+    <string name="pairing_open_console">Ouvrir la console</string>
+    <string name="already_paired_title">Cette console est déjà appairée. Refaire l’appairage ?</string>
+    <string name="already_paired_message">Son appairage sera remplacé. La console doit présenter la même identité que son QR code.</string>
+    <string name="pair_again">Refaire l’appairage</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_model">Modèle</string>
+    <string name="dashboard_os">Système</string>
+    <string name="dashboard_pak">Version de ReminisLink</string>
+    <string name="dashboard_ip">Adresse IP</string>
+    <string name="battery">Batterie</string>
+    <string name="battery_percent">%1$d %%</string>
+    <string name="battery_charging">%1$d %%, en charge</string>
+    <string name="battery_unknown">Inconnue</string>
+    <string name="storage">Stockage</string>
+    <string name="storage_free">%1$s libres sur %2$s</string>
+    <string name="connected_devices">Appareils connectés</string>
+    <string name="library">Bibliothèque</string>
+    <string name="refresh">Actualiser</string>
+
+    <!-- Library -->
+    <string name="search_games">Rechercher un jeu</string>
+    <string name="library_empty">Aucun jeu sur cette console pour l’instant.</string>
+    <string name="library_no_match">Aucun jeu ne correspond à ta recherche.</string>
+    <string name="library_truncated">La console a trop de jeux pour tous les lister ici.</string>
+    <string name="has_save">Sauvegarde</string>
+    <plurals name="state_count">
+        <item quantity="one">%d état</item>
+        <item quantity="many">%d états</item>
+        <item quantity="other">%d états</item>
+    </plurals>
+    <plurals name="cheat_count">
+        <item quantity="one">%d code de triche</item>
+        <item quantity="many">%d codes de triche</item>
+        <item quantity="other">%d codes de triche</item>
+    </plurals>
+
+    <!-- Game -->
+    <string name="game_file">Fichier</string>
+    <string name="game_size">Taille</string>
+    <string name="game_save">Sauvegarde</string>
+    <string name="game_save_yes">Oui</string>
+    <string name="game_save_no">Ce jeu n’a pas de sauvegarde sur la console.</string>
+    <string name="game_states">États</string>
+    <string name="game_cheats">Codes de triche</string>
+    <string name="game_files">Fichiers</string>
+    <string name="role_rom">Jeu</string>
+    <string name="role_save">Sauvegarde</string>
+    <string name="role_rtc">Horloge de la sauvegarde</string>
+    <string name="role_state">État %1$d</string>
+    <string name="role_state_noslot">État</string>
+    <string name="role_cheats">Codes de triche</string>
+    <string name="role_art">Jaquette</string>
+
+    <!-- Errors -->
+    <string name="error_not_found">Console introuvable. Vérifie que ReminisLink est ouvert sur la console, que ce téléphone et la console sont sur le même Wi-Fi, puis réessaie.</string>
+    <string name="error_network">La console ne répond pas. Vérifie que ReminisLink est ouvert sur la console et que ce téléphone est sur le même Wi-Fi.</string>
+    <string name="error_identity_changed">L’identité de cette console a changé : ce n’est pas la console appairée avec cette app, ou elle a été réinitialisée. Rien n’a été envoyé. Appaire-la de nouveau avec son QR code.</string>
+    <string name="error_invalid_link">Ce lien n’est pas un lien d’appairage ReminisLink valide.</string>
+    <string name="error_outdated_pak">Ce QR code vient d’une ancienne version de ReminisLink. Mets à jour ReminisLink sur la console, puis scanne le nouveau QR code.</string>
+    <string name="error_newer_link">Ce QR code vient d’une version plus récente de ReminisLink. Mets à jour cette app.</string>
+    <string name="error_incompatible">Cette console utilise une version de ReminisLink que cette app ne prend pas en charge. Mets à jour ReminisLink sur la console et cette app.</string>
+    <string name="error_device_mismatch">Une autre console a répondu à cette adresse.</string>
+    <string name="error_pairing_closed">L’appairage n’est pas ouvert sur la console. Ouvre Réglages > Appairer un nouvel appareil, puis scanne le nouveau QR code.</string>
+    <string name="error_pairing_failed">L’appairage a échoué. Le code a peut-être expiré : affiche un nouveau QR code sur la console et réessaie.</string>
+    <string name="error_pairing_proof">La console n’a pas pu prouver son identité. L’appairage a été annulé.</string>
+    <string name="error_too_many_attempts">Trop d’essais. Attends un instant, puis réessaie.</string>
+    <string name="error_unknown_client">La console ne connaît plus ce téléphone. Appaire-le de nouveau avec son QR code.</string>
+    <string name="error_disconnected">La console a déconnecté ce téléphone. Reconnecte-le depuis l’écran Appareils de la console.</string>
+    <string name="error_shutting_down">ReminisLink se ferme sur la console.</string>
+    <string name="error_storage">Les informations d’appairage n’ont pas pu être lues ou enregistrées sur ce téléphone.</string>
+    <string name="error_generic">Une erreur est survenue (%1$s).</string>
+    <string name="error_link_gone">Ce lien d’appairage n’est plus disponible. Scanne de nouveau le QR code de la console.</string>
+    <string name="external_link_title">Appairer avec cette console\u00A0?</string>
+    <string name="external_link_message">Un lien d’appairage a été ouvert depuis une autre app. N’appaire ce téléphone que s’il s’agit de ta console et que son écran affiche ce QR code.</string>
+    <string name="external_link_console">Console\u00A0: %1$s</string>
+    <string name="external_link_address">Adresse\u00A0: %1$s</string>
+    <string name="external_link_unnamed">Console sans nom</string>
+    <string name="pair">Appairer</string>
+</resources>

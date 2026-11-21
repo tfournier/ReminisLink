@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed (monochrome) icon: the foreground shapes in one color
+     (Android tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group
+        android:scaleX="0.8"
+        android:scaleY="0.8"
+        android:pivotX="512"
+        android:pivotY="512">
+        <group
+            android:rotation="-45"
+            android:pivotX="512"
+            android:pivotY="512">
+            <path
+                android:strokeColor="#FF000000"
+                android:strokeWidth="76"
+                android:pathData="M352,382H442A130,130 0,0 1,442 642H352A130,130 0,0 1,352 382Z" />
+            <path
+                android:strokeColor="#FF000000"
+                android:strokeWidth="76"
+                android:pathData="M582,382H672A130,130 0,0 1,672 642H582A130,130 0,0 1,582 382Z" />
+        </group>
+        <path android:fillColor="#FF000000" android:pathData="M236,236h64v64h-64z" />
+        <path android:fillColor="#FF000000" android:pathData="M172,324h40v40h-40z" />
+        <path android:fillColor="#FF000000" android:pathData="M324,172h40v40h-40z" />
+    </group>
+</vector>

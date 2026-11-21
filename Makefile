@@ -17,6 +17,8 @@
 #   make build           cross-compile the binary for tg5040 (ARM64)
 #   make pak             assemble the pak folder in build/pak
 #   make release         build the release zip in dist/
+#   make android-test    run the Android unit tests (:core with the shared vectors, :app) (JDK 17+, Android SDK)
+#   make android-build   build the Android debug APK (android/app/build/outputs/apk/debug)
 #   make docker-<target> run <target> inside the build image
 #   make vX.Y.Z          release a version: bump pak.json, commit, tag and push
 #   make vX.Y.Z-beta.N   pre-release (also -rc.N): tag and push only, pak.json unchanged
@@ -76,7 +78,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version release-checks clean docker-image FORCE
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version release-checks clean docker-image android-test android-build FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -212,6 +214,16 @@ ios-v% ios-beta-v%: FORCE ## Release the iOS app (make ios-v1.2.3: App Review) o
 	$(GIT) tag -a "$$V" -m "App release $$V"; \
 	$(GIT) push --atomic origin HEAD "refs/tags/$$V"; \
 	echo "Released app $$X: Xcode Cloud (Release workflow) builds it and prepares the App Store version."
+
+# Android app (milestone M21): Gradle wrapper in android/. Needs a JDK (17+)
+# and the Android SDK (ANDROID_HOME or android/local.properties).
+GRADLEW       := cd android && ./gradlew --console=plain
+
+android-test: ## Run the Android unit tests (:core reads protocol/test-vectors in place)
+	$(GRADLEW) :core:test :app:testDebugUnitTest
+
+android-build: ## Build the Android debug APK
+	$(GRADLEW) :app:assembleDebug
 
 clean: ## Remove build outputs
 	rm -rf $(BUILD_DIR) $(DIST_DIR)

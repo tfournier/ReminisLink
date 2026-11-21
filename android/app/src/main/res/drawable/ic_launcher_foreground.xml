@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Foreground of the app icon, from ios/Design/AppIcon/icon.svg (same
+    1024 coordinates): two links, the left one over the right one at the
+    bottom, and a pixel trail. Scaled to 80 % so it stays inside the
+    adaptive icon's safe zone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group
+        android:scaleX="0.8"
+        android:scaleY="0.8"
+        android:pivotX="512"
+        android:pivotY="512">
+        <group
+            android:rotation="-45"
+            android:pivotX="512"
+            android:pivotY="512">
+            <path
+                android:strokeColor="#FFFFFFFF"
+                android:strokeWidth="76"
+                android:pathData="M352,382H442A130,130 0,0 1,442 642H352A130,130 0,0 1,352 382Z" />
+            <path
+                android:strokeColor="#FFA7F3E4"
+                android:strokeWidth="76"
+                android:pathData="M582,382H672A130,130 0,0 1,672 642H582A130,130 0,0 1,582 382Z" />
+            <group>
+                <clip-path android:pathData="M420,512h200v200h-200z" />
+                <path
+                    android:strokeColor="#FFFFFFFF"
+                    android:strokeWidth="76"
+                    android:pathData="M352,382H442A130,130 0,0 1,442 642H352A130,130 0,0 1,352 382Z" />
+            </group>
+        </group>
+        <path android:fillColor="#FFFFD66B" android:pathData="M236,236h64v64h-64z" />
+        <path android:fillColor="#FFFFE9A8" android:pathData="M172,324h40v40h-40z" />
+        <path android:fillColor="#FFFFE9A8" android:pathData="M324,172h40v40h-40z" />
+    </group>
+</vector>
