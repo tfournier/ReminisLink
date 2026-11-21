@@ -100,6 +100,32 @@ jobs:
             -destination "id=$udid" \
             CODE_SIGNING_ALLOWED=NO
 
+  android:
+    # Android app (M21): :core unit tests (shared test vectors, pinning and
+    # signing against MockWebServer) and the debug APK. No emulator here:
+    # the instrumented and end-to-end tests run on a Mac (android/scripts/pak-e2e.sh).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Android SDK platform 36
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0" > /dev/null
+      - name: Unit tests
+        run: make android-test
+      - name: Debug APK
+        run: make android-build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reminislink-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     # The pak release depends on the pak jobs only: the iOS app has its own

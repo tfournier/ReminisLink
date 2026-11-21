@@ -236,6 +236,8 @@ Ordre : M17, M15, M18, M19, M20, M21. Puis v1.5 (interface web), puis v2.0.
 
 **Fait quand** : l'app Android passe les vecteurs de test et les mêmes parcours que l'app iOS contre le pak headless et le mode démo.
 
+**Premier incrément (21/11/2026, branche `m21-android`)** : projet `android/` (modules `:core` en Kotlin/JVM pur et `:app` en Compose), dépendances approuvées le 21/11/2026, détails dans [10](10-app-android.md). Fait : tous les vecteurs partagés, TLS épinglé, signature, appairage v2 (QR avec CameraX et ZXing, lien collé, lien ouvert depuis une autre app), découverte NSD avec repli après 3 s, tableau de bord, bibliothèque en lecture seule, fiche d'un jeu ; clé Ed25519 dans l'Android Keystore (API 33+) ou graine Tink chiffrée par le Keystore ; tests unitaires (CI), tests instrumentés sur émulateur API 35 et test de bout en bout contre le pak headless (`android/scripts/pak-e2e.sh`). Incréments suivants proposés : (2) transferts (envois reprenables, téléchargements, ouverture depuis le partage Android) ; (3) sauvegardes et états ; (4) codes de triche et patchs ; (5) apps (paks), carte SD et corbeille ; (6) événements SSE et désappairage ; (7) mode démo ; (8) publication F-Droid et APK des releases. L'équivalent de la synchronisation iCloud (M9) reste à décider (dossier choisi par l'utilisateur via le Storage Access Framework, sans service Google).
+
 ## v1.5 — Interface web
 
 L'interface web (voir « Interface web servie par le pak » ci-dessous) : web app statique sur GitHub Pages, WebCrypto, découverte façon Synology ou par `reminislink-N.local`, appairage par PIN (PAKE).

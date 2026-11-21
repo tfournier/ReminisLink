@@ -100,7 +100,8 @@ ReminisLink/
 ├── pak/                   # launch.sh and files shipped in the pak
 ├── pak.json               # Pak Store manifest (version, changelog)
 ├── ios/                   # Xcode project of the iOS app (SwiftUI)
-├── protocol/              # OpenAPI contract and shared test vectors (Go <-> Swift)
+├── android/               # Gradle project of the Android app (Kotlin, Compose; milestone M21, in progress)
+├── protocol/              # OpenAPI contract and shared test vectors (Go, Swift, Kotlin)
 ├── scripts/               # toolchain setup, screenshots, device checks
 ├── docs/specs/            # functional and technical specifications (French)
 └── prompts/               # prompts for the AI coding agents (French)
@@ -155,6 +156,18 @@ make docker-release      # builds dist/ReminisLink.pak.zip
 | `make vX.Y.Z` | Releases a version (see below). |
 
 iOS: `cd ios/ReminisLinkKit && swift test`, and `cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16'`.
+
+### Android app (in progress)
+
+The Android app (milestone M21, `docs/specs/10-app-android.md`) lives in `android/`: a pure Kotlin `:core` module (protocol, signing, pairing, TLS pin, API client) and a Jetpack Compose `:app` module. It uses no proprietary Google library (no Play Services, ML Kit or Firebase), so it can be published on F-Droid. The first increment pairs with a console (QR code or pasted link), shows its dashboard and browses its library read-only.
+
+Needs a JDK 17+ and the Android SDK (`ANDROID_HOME`, or `sdk.dir` in `android/local.properties`):
+
+```sh
+make android-test              # :core unit tests (reads protocol/test-vectors in place) and :app unit tests
+make android-build             # debug APK in android/app/build/outputs/apk/debug/
+android/scripts/pak-e2e.sh     # with an emulator running: pair with `make headless` and browse its library
+```
 
 ### Translations
 

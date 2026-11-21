@@ -17,6 +17,8 @@
 #   make build           cross-compile the binary for tg5040 (ARM64)
 #   make pak             assemble the pak folder in build/pak
 #   make release         build the release zip in dist/
+#   make android-test    run the Android unit tests (:core with the shared vectors, :app) (JDK 17+, Android SDK)
+#   make android-build   build the Android debug APK (android/app/build/outputs/apk/debug)
 #   make docker-<target> run <target> inside the build image
 #   make vX.Y.Z          release a version: bump pak.json, commit, tag and push
 
@@ -70,7 +72,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version clean docker-image FORCE
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version clean docker-image android-test android-build FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -163,6 +165,16 @@ v%: FORCE ## Release a version, e.g. make v1.2.3 (pak.json must have its changel
 	git tag -a "$$V" -m "Release $$V"; \
 	git push --atomic origin HEAD "refs/tags/$$V"; \
 	echo "Released $$V: the CI will publish the GitHub release."
+
+# Android app (milestone M21): Gradle wrapper in android/. Needs a JDK (17+)
+# and the Android SDK (ANDROID_HOME or android/local.properties).
+GRADLEW       := cd android && ./gradlew --console=plain
+
+android-test: ## Run the Android unit tests (:core reads protocol/test-vectors in place)
+	$(GRADLEW) :core:test :app:testDebugUnitTest
+
+android-build: ## Build the Android debug APK
+	$(GRADLEW) :app:assembleDebug
 
 clean: ## Remove build outputs
 	rm -rf $(BUILD_DIR) $(DIST_DIR)
