@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
@@ -16,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import link.reminis.app.DiscoveryEvent
+import link.reminis.app.Generations
 import link.reminis.app.container
 import link.reminis.core.ApiException
 import link.reminis.core.DeviceStatus
@@ -48,9 +48,11 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Generation of each announcement (service name), bumped by every Found
      * and Lost: a validation publishes its result only if its announcement is
-     * still the current one (not lost, not superseded). Main thread only.
+     * still the current one (not lost, not superseded). Found and Lost arrive
+     * in order: [link.reminis.app.Discovery] never emits a stale Found after
+     * the Lost that superseded it.
      */
-    private val generations = HashMap<String, Long>()
+    private val generations = Generations<String>()
     private val _online = MutableStateFlow<Set<String>>(emptySet())
     val online: StateFlow<Set<String>> = _online.asStateFlow()
     private var browsing: Job? = null
@@ -72,13 +74,13 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
                     when (event) {
                         is DiscoveryEvent.Found -> {
                             val c = event.console
-                            val generation = bump(c.serviceName)
+                            val generation = generations.next(c.serviceName)
                             // A new announcement replaces the previous one until validated.
                             setValidated { it - c.serviceName }
                             if (container.consoles.get(c.deviceId) != null) {
                                 launch {
                                     val ok = container.validates(c.deviceId, c.endpoint)
-                                    if (ok && generations[c.serviceName] == generation) {
+                                    if (ok && generations.isCurrent(c.serviceName, generation)) {
                                         setValidated { it + (c.serviceName to c.deviceId) }
                                         reload()
                                     }
@@ -86,7 +88,7 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
                             }
                         }
                         is DiscoveryEvent.Lost -> {
-                            bump(event.serviceName)
+                            generations.invalidate(event.serviceName)
                             setValidated { it - event.serviceName }
                         }
                     }
@@ -98,14 +100,8 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
     fun stopBrowsing() {
         browsing?.cancel()
         browsing = null
-        generations.keys.toList().forEach(::bump)
+        generations.invalidateAll()
         setValidated { emptyMap() }
-    }
-
-    private fun bump(serviceName: String): Long {
-        val next = (generations[serviceName] ?: 0) + 1
-        generations[serviceName] = next
-        return next
     }
 
     private fun setValidated(change: (Map<String, String>) -> Map<String, String>) {
@@ -160,11 +156,15 @@ class PairingCancelledException : java.io.IOException("pairing cancelled before 
  *   console's proof is checked before anything is stored.
  * - The commit point is explicit: the moment OkHttp is about to write
  *   `POST /pair` on the pinned connection ([link.reminis.core.ApiClient.pair]
- *   `beforeSend`), an atomic state moves from WAITING to SENT. [cancel]
- *   (screen button, system back, or the ViewModel being cleared) moves it
- *   from WAITING to CANCELLED. Whichever comes first wins: cancelled, the
- *   request is never written; sent, the exchange runs to its end in the
- *   application scope and the pairing is stored even if the screen is gone.
+ *   `beforeSend`), the attempt moves from WAITING to SENT ([PairingAttempts]).
+ *   [cancel] (screen button, system back, or the ViewModel being cleared)
+ *   closes the screen: a WAITING attempt is cancelled and the request is never
+ *   written; a SENT one runs to its end in the application scope and the
+ *   pairing is stored even if the screen is gone.
+ * - A failed attempt (before or after `POST /pair`) can be retried with the
+ *   same in-memory link. The link is dropped from
+ *   [link.reminis.app.PendingLinks] on success and whenever the screen is
+ *   left, as soon as no attempt is in flight.
  */
 class PairingViewModel(app: Application, private val token: String) : AndroidViewModel(app) {
     private val container = app.container
@@ -173,9 +173,8 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
     private val _state = MutableStateFlow(initialState())
     val state: StateFlow<PairingState> = _state.asStateFlow()
     private var job: Job? = null
+    private val attempts = PairingAttempts()
 
-    /** WAITING → SENT (POST /pair written) or WAITING → CANCELLED, once. */
-    private val sendState = AtomicInteger(WAITING)
     @Volatile
     private var exchange: Deferred<*>? = null
 
@@ -198,8 +197,7 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
     /** The user confirmed (external link, or replacing an existing pairing), or retries after an error. */
     fun start() {
         val link = link ?: return
-        if (job?.isActive == true || _state.value.step == PairingStep.DONE) return
-        if (sendState.get() != WAITING) return
+        val id = attempts.begin() ?: return
         _state.value = _state.value.copy(step = PairingStep.SEARCHING, error = null)
         job = viewModelScope.launch {
             try {
@@ -221,35 +219,43 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
                 ensureActive()
                 _state.value = _state.value.copy(step = PairingStep.PAIRING, deviceName = hello.deviceName)
                 val deferred = container.scope.async {
-                    container.pairingGateForTests?.invoke()
-                    val response = client.pair(attempt) {
-                        // The commit point: only from here may the console pair.
-                        if (!sendState.compareAndSet(WAITING, SENT)) throw PairingCancelledException()
+                    var success = false
+                    try {
+                        val response = client.pair(attempt) {
+                            container.pairingGateForTests?.invoke()
+                            // The commit point: only from here may the console pair.
+                            if (!attempts.commit(id)) throw PairingCancelledException()
+                        }
+                        withContext(Dispatchers.IO) {
+                            container.replacePairing(
+                                PairedConsole(
+                                    deviceId = response.deviceId,
+                                    deviceName = response.deviceName,
+                                    model = hello.model,
+                                    pin = link.pin,
+                                    lastEndpoint = endpoint,
+                                    pairedAt = System.currentTimeMillis(),
+                                ),
+                            )
+                        }
+                        success = true
+                        response
+                    } finally {
+                        // Runs even when the screen is gone: the link never outlives the exchange.
+                        if (attempts.end(id, success)) container.pendingLinks.remove(token)
                     }
-                    withContext(Dispatchers.IO) {
-                        container.replacePairing(
-                            PairedConsole(
-                                deviceId = response.deviceId,
-                                deviceName = response.deviceName,
-                                model = hello.model,
-                                pin = link.pin,
-                                lastEndpoint = endpoint,
-                                pairedAt = System.currentTimeMillis(),
-                            ),
-                        )
-                    }
-                    container.pendingLinks.remove(token)
-                    response
                 }
                 exchange = deferred
                 // cancel() may have run between ensureActive() and here.
-                if (sendState.get() == CANCELLED) deferred.cancel()
+                if (attempts.current == PairingAttempts.State.CLOSED) deferred.cancel()
                 val response = deferred.await()
                 _state.value = PairingState(PairingStep.DONE, response.deviceName, response.deviceId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 cancel()
                 throw e
             } catch (e: Exception) {
+                // Back to IDLE (no-op if the exchange already ended it): Retry begins a fresh attempt.
+                if (attempts.end(id, success = false)) container.pendingLinks.remove(token)
                 _state.value = _state.value.copy(error = e)
             }
         }
@@ -257,25 +263,20 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
 
     /**
      * The user declined or left (screen button, system back, ViewModel
-     * cleared): cancels everything unless `POST /pair` is already written.
+     * cleared): cancels everything unless `POST /pair` is already written,
+     * and drops the link once no attempt is in flight.
      */
     fun cancel() {
-        if (sendState.compareAndSet(WAITING, CANCELLED)) {
+        val close = attempts.close()
+        if (close.cancelAttempt) {
             job?.cancel()
             exchange?.cancel()
-            container.pendingLinks.remove(token)
         }
+        if (close.releaseLink) container.pendingLinks.remove(token)
     }
 
     override fun onCleared() {
         cancel()
-        if (sendState.get() != SENT) container.pendingLinks.remove(token)
-    }
-
-    private companion object {
-        const val WAITING = 0
-        const val SENT = 1
-        const val CANCELLED = 2
     }
 }
 

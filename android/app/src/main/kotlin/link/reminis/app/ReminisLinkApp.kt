@@ -64,6 +64,10 @@ class PendingLinks {
     fun remove(token: String) {
         links.remove(token)
     }
+
+    /** Tests only: how many links are held. */
+    @androidx.annotation.VisibleForTesting
+    val size: Int get() = links.size
 }
 
 /** Long-lived objects of the app. */
@@ -96,10 +100,20 @@ class AppContainer(context: Context) {
      */
     private val pairingLock = Any()
 
-    /** Tests only: suspends a pairing after the hand-off, before `POST /pair` may be written. */
+    /**
+     * Tests only: runs on the network interceptor thread right before the
+     * commit point of `POST /pair` (blocking it holds the request unwritten).
+     */
     @androidx.annotation.VisibleForTesting
     @Volatile
-    var pairingGateForTests: (suspend () -> Unit)? = null
+    var pairingGateForTests: (() -> Unit)? = null
+
+    /**
+     * Probe generation of each console (device id): a `/hello` probe saves its
+     * address only if no newer probe of the same console started meanwhile,
+     * checked and saved under this object's lock.
+     */
+    private val probes = Generations<String>()
 
     fun newClient(endpoint: Endpoint, deviceId: String, pin: String, credentials: DeviceCredentials? = null) = ApiClient(
         endpoint = endpoint,
@@ -141,17 +155,26 @@ class AppContainer(context: Context) {
         return now.pin == console.pin && now.pairedAt == console.pairedAt
     }
 
-    /** Whether the console answers `/hello` at [endpoint] with its pinned certificate (for the Online state). */
+    /**
+     * Whether the console answers `/hello` at [endpoint] with its pinned
+     * certificate (for the Online state). A probe superseded by a newer probe
+     * of the same console answers false and saves nothing, so an older
+     * address finishing late never overwrites the newer one.
+     */
     suspend fun validates(deviceId: String, endpoint: Endpoint): Boolean {
         val console = consoles.get(deviceId) ?: return false
+        val probe = probes.next(deviceId)
         return try {
             val hello = newClient(endpoint, deviceId, console.pin).hello()
             withContext(Dispatchers.IO) {
-                synchronized(pairingLock) {
-                    if (!isCurrent(console)) return@withContext false
-                    remember(console, endpoint, hello.deviceName, hello.model)
-                    true
-                }
+                // Still the newest probe and the same pairing, checked and saved atomically.
+                probes.ifCurrent(deviceId, probe) {
+                    synchronized(pairingLock) {
+                        if (!isCurrent(console)) return@synchronized false
+                        remember(console, endpoint, hello.deviceName, hello.model)
+                        true
+                    }
+                } ?: false
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
