@@ -63,8 +63,8 @@ struct APIClientTests {
 
     @Test func helloRejectsATooOldApp() async throws {
         let pak = makePak(minClientVersion: "2.0.0")
-        let client = APIClient(endpoint: pak.endpoint, appVersion: "1.0.0", session: pak.makeSession())
-        await #expect(throws: APIError.incompatible(apiVersion: 2, minClientVersion: "2.0.0")) {
+        let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
+        await #expect(throws: APIError.incompatible(.updateApp)) {
             try await client.hello()
         }
     }
@@ -74,9 +74,72 @@ struct APIClientTests {
     @Test func helloRejectsAnRL1Pak() async throws {
         let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", apiVersion: 1)
         let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
-        await #expect(throws: APIError.incompatible(apiVersion: 1, minClientVersion: "1.0.0")) {
+        await #expect(throws: APIError.incompatible(.updatePak)) {
             try await client.hello()
         }
+    }
+
+    /// M17: a pak older than the app's `minPakVersion`: update the pak.
+    @Test func helloRejectsATooOldPak() async throws {
+        let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", pakVersion: "0.9.0")
+        let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
+        await #expect(throws: APIError.incompatible(.updatePak)) {
+            try await client.hello()
+        }
+    }
+
+    /// M17: a newer API than the app's: update the app.
+    @Test func helloRejectsANewerAPI() async throws {
+        let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", apiVersion: APIClient.apiVersion + 1)
+        let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
+        await #expect(throws: APIError.incompatible(.updateApp)) {
+            try await client.hello()
+        }
+    }
+
+    /// M17: pre-releases and development builds of the pak are accepted.
+    @Test(arguments: ["1.0.0", "1.0.1", "1.1.0-beta.1", "dev", "223a63f", "1.0.1-5-g223a63fc-dirty"])
+    func helloAcceptsPakVersion(_ version: String) async throws {
+        let pak = FakePak(host: "pak-\(UUID().uuidString.lowercased()).test", pakVersion: version)
+        let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
+        let hello = try await client.hello()
+        #expect(hello.pakVersion == version)
+    }
+
+    /// M17: minClientVersion is a client protocol version, the same for
+    /// every client, compared with the app's constant, not with its App
+    /// Store version; paks v1.0.x (minClientVersion 1.0.0) are accepted.
+    @Test func minClientVersionIsAProtocolVersion() async throws {
+        #expect(APIClient.clientProtocolVersion == "1.0.0")
+        #expect(AppVersion.isVersionNumber(APIClient.clientProtocolVersion))
+        let pak = makePak(minClientVersion: "1.0.0")
+        let client = APIClient(endpoint: pak.endpoint, session: pak.makeSession())
+        _ = try await client.hello()
+        // A pak requiring protocol 1.1.0 refuses this app whatever its
+        // App Store version.
+        let newer = makePak(minClientVersion: "1.1.0")
+        await #expect(throws: APIError.incompatible(.updateApp)) {
+            try await APIClient(endpoint: newer.endpoint, session: newer.makeSession()).hello()
+        }
+        let updated = APIClient(endpoint: newer.endpoint, clientProtocolVersion: "1.1.0", session: newer.makeSession())
+        _ = try await updated.hello()
+    }
+
+    /// M17: both minimums, a suffix ignored on either side.
+    @Test func incompatibilityRules() throws {
+        func hello(pak: String, minClient: String = "1.0.0", api: Int = APIClient.apiVersion) -> Hello {
+            Hello(
+                deviceId: "d", deviceName: "n", model: .brick, platform: "tg5040", os: "nextui", osVersion: nil,
+                pakVersion: pak, apiVersion: api, minClientVersion: minClient, serverTime: Date(), pairingOpen: true
+            )
+        }
+        #expect(APIClient.incompatibility(of: hello(pak: "1.1.0-beta.1"), clientProtocolVersion: "1.0.0", minPakVersion: "1.1.0") == nil)
+        #expect(APIClient.incompatibility(of: hello(pak: "1.0.9"), clientProtocolVersion: "1.0.0", minPakVersion: "1.1.0") == .updatePak)
+        #expect(APIClient.incompatibility(of: hello(pak: "dev"), clientProtocolVersion: "1.0.0", minPakVersion: "9.0.0") == nil)
+        #expect(APIClient.incompatibility(of: hello(pak: "1.2.0", minClient: "1.1.0"), clientProtocolVersion: "1.0.5") == .updateApp)
+        #expect(APIClient.incompatibility(of: hello(pak: "1.2.0", minClient: "1.1.0"), clientProtocolVersion: "1.1.0") == nil)
+        #expect(APIClient.incompatibility(of: hello(pak: "1.2.0", api: 1), clientProtocolVersion: "1.0.0") == .updatePak)
+        #expect(APIClient.incompatibility(of: hello(pak: "1.2.0", api: 3), clientProtocolVersion: "1.0.0") == .updateApp)
     }
 
     /// Every request goes over HTTPS, and says which kind of device sends

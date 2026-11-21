@@ -4,7 +4,7 @@
 
 - Pak de type `TOOL`, affiché **ReminisLink** dans le menu Outils de NextUI.
 - Emplacement : `/Tools/<platform>/ReminisLink.pak/` (ex. `/Tools/tg5040/ReminisLink.pak/launch.sh`).
-- Archive de publication : `ReminisLink.pak.zip`, publiée par la CI sur un tag `vX.Y.Z`, lue par le Pak Store (même chaîne que Cheat Manager : `pak.json`, Makefile, workflow).
+- Archive de publication : `ReminisLink.pak.zip`, publiée par la CI sur un tag `vX.Y.Z`, lue par le Pak Store (un tag `vX.Y.Z-beta.N` ou `-rc.N` donne une « Pre-release » GitHub que le Pak Store ignore, M17) (même chaîne que Cheat Manager : `pak.json`, Makefile, workflow).
 - `launch.sh` : comme celui de Cheat Manager (bibliothèques embarquées dans `resources/lib`, journal d'erreurs dans `$LOGS_PATH/ReminisLink.stderr.txt`, `sync` à la fin). Il DOIT commencer par `cd "$(dirname "$0")"` : NextUI le lance avec `eval` depuis le dossier de `MinUI.pak`, au premier plan et en root (code NextUI `MinUI.pak/launch.sh:182-196`, `nextui.c:1220-1230`).
 - Ne rien écrire dans `/.system/` : ce dossier est remplacé à chaque mise à jour de NextUI (`PAKS.md:5`).
 

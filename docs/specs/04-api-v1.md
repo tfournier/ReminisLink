@@ -74,6 +74,8 @@ Sert à vérifier qu'on parle bien à la bonne console, à mesurer l'écart d'ho
 }
 ```
 
+Compatibilité (M17, [03 §9](03-protocole.md#9-versions)) : `minClientVersion` (`X.Y.Z`) est la plus ancienne version du protocole client acceptée par le pak, la même pour tous les clients (iOS, Android, web) et non une version commerciale d'app : chaque client la compare à sa constante de version de protocole (`1.0.0` aujourd'hui) ; l'app compare aussi `pakVersion` (le tag sans le `v`, par exemple `1.0.1` ou `1.1.0-beta.1` ; `dev` ou une empreinte de commit pour un build de développement, toujours accepté) à sa propre `minPakVersion`. Suffixe ignoré dans les deux comparaisons. En cas d'écart, l'app dit quel côté mettre à jour (le pak sur la console, ou l'app), avec un lien, au lieu d'une erreur.
+
 `apiVersion` vaut `2` depuis M13 (TLS épinglé, appairage v2, signature RL2-ED25519). Une app appairée à un pak plus ancien (RL1) qui lit `2` propose de réappairer : le pak a effacé les appairages RL1. Elle peut lire `/hello` sans épinglage dans ce seul but ([03 §1](03-protocole.md#1-transport)). `writerHeld` (M10) est retiré avec le bail d'écriture.
 
 Aucune autre information (pas de liste de jeux, pas de clients). Limitée à 10 requêtes par seconde par IP (au-delà : `429 too_many_attempts`).

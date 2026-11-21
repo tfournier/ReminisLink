@@ -1,5 +1,5 @@
-Première version de ReminisLink.
-• Appaire ta console en scannant son QR code
-• Parcours ta bibliothèque et ajoute tes propres jeux, sauvegardes, patchs et fichiers de codes de triche
-• Copie et restaure tes sauvegardes, verrouille tes états de jeu, modifie tes codes de triche et applique des patchs IPS, BPS et UPS
-• Rien ne se perd : les jeux supprimés vont dans la corbeille de la console, les sauvegardes remplacées gardent une copie de secours
+Améliorations :
+• Après l'application d'un patch, l'écran du patch se ferme tout seul.
+• La bibliothèque n'attend plus la jaquette d'un jeu sorti de l'écran.
+• L'interface en français n'emploie plus que des mots français.
+• Si l'app et ReminisLink sur la console ont des versions trop éloignées, l'app indique laquelle mettre à jour au lieu d'afficher une erreur.

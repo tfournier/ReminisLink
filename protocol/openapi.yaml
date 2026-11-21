@@ -194,6 +194,27 @@ paths:
         `apiVersion` is `2` since M13 (TLS, pairing v2, RL2-ED25519
         signing). An app paired with an older pak (RL1) that sees `2` offers
         to pair again: the pak erased its RL1 pairings.
+
+        Compatibility (M17), checked by the app on every `/hello`, both
+        ways, with versions compared number by number (a `-suffix` such as
+        `-beta.1` is ignored):
+        - `minClientVersion` is the oldest **client protocol version**
+          (`X.Y.Z`) this pak supports, one value for every client (iOS,
+          Android, web). It is not an app's store version: each client
+          compares it with its own protocol version constant (`1.0.0` so
+          far), raised only when the client starts to require or understand
+          a protocol change. An older client asks the user to update the
+          app. Paks v1.0.x send `1.0.0`.
+        - The app knows the oldest pak it can drive (`minPakVersion`, in
+          the app) and compares it with `pakVersion`. An older pak: the app
+          asks the user to update ReminisLink on the console. A
+          `pakVersion` that is not a version number (a development build:
+          `dev` or a commit hash) is accepted.
+        - An `apiVersion` other than the app's: lower, update the pak;
+          higher, update the app.
+
+        Changes that keep both sides working need none of this: new fields
+        and routes stay optional for the other side.
       security: []
       responses:
         '200':
@@ -2611,9 +2632,14 @@ components:
         osVersion:
           type: [string, 'null']
           description: 'OS release as NextUI shows it (lines of `.system/version.txt` joined), e.g. `NextUI-20261013-039a06de`; null when unknown.'
-        pakVersion: { type: string }
+        pakVersion:
+          type: string
+          description: 'Version of the pak: its tag without the `v` (e.g. `1.0.1`, `1.1.0-beta.1`); `dev` or a commit hash for a development build. Compared with the app''s `minPakVersion` (M17).'
         apiVersion: { type: integer, minimum: 1, description: '2 since M13 (TLS, pairing v2, RL2-ED25519).' }
-        minClientVersion: { type: string, description: Oldest app version supported. }
+        minClientVersion:
+          type: string
+          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          description: 'Oldest client protocol version (`X.Y.Z`) this pak supports, the same for every client and not an app store version; each client compares it with its own protocol version constant (M17). `1.0.0` for paks v1.0.x.'
         serverTime: { $ref: '#/components/schemas/Timestamp' }
         pairingOpen: { type: boolean }
     PairRequest:

@@ -59,7 +59,20 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public let host: String
     public let port: UInt16
     public var library: DemoLibrary { lock.withLock { _library } }
-    public let minClientVersion: String
+    /// `minClientVersion` of `/hello`; changeable (UI tests, M17: a pak
+    /// that needs a newer app).
+    public var minClientVersion: String {
+        get { lock.withLock { _minClientVersion } }
+        set { lock.withLock { _minClientVersion = newValue } }
+    }
+    private var _minClientVersion: String
+    /// `pakVersion` of `/hello` and of the Bonjour record; changeable (UI
+    /// tests, M17: a pak older than the app's `minPakVersion`).
+    public var pakVersion: String {
+        get { lock.withLock { _pakVersion } }
+        set { lock.withLock { _pakVersion = newValue } }
+    }
+    private var _pakVersion: String
     public let apiVersion: Int
 
     let lock = NSLock()
@@ -157,6 +170,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         port: UInt16 = FakePak.demoPort,
         library: DemoLibrary = .sample,
         minClientVersion: String = "1.0.0",
+        pakVersion: String = "1.0.0",
         apiVersion: Int = APIClient.apiVersion
     ) {
         self.deviceId = deviceId
@@ -167,7 +181,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         self.host = host
         self.port = port
         self._library = library
-        self.minClientVersion = minClientVersion
+        self._minClientVersion = minClientVersion
+        self._pakVersion = pakVersion
         self.apiVersion = apiVersion
         trashEntries = [[
             "id": "tr_20261118T170000Z_a1b2",
@@ -219,7 +234,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     public var discoveredDevice: DiscoveredDevice {
         DiscoveredDevice(
             id: deviceId, name: deviceName, model: model, platform: "tg5040", os: "nextui",
-            osVersion: "DemoOS-20261013", pakVersion: "1.0.0", apiVersion: apiVersion,
+            osVersion: "DemoOS-20261013", pakVersion: pakVersion, apiVersion: apiVersion,
             service: BonjourService(name: deviceName), fixedEndpoint: endpoint
         )
     }
@@ -661,7 +676,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         }
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
-            "platform": "tg5040", "os": "nextui", "osVersion": "DemoOS-20261013", "pakVersion": "1.0.0",
+            "platform": "tg5040", "os": "nextui", "osVersion": "DemoOS-20261013", "pakVersion": pakVersion,
             "apiVersion": apiVersion, "minClientVersion": minClientVersion,
             "serverTime": ProtocolJSON.formatDate(now()), "pairingOpen": pairingOpen,
         ])
@@ -734,7 +749,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         let connected = connectedClientsJSON()
         return .json(200, [
             "deviceId": deviceId, "deviceName": deviceName, "model": model.rawValue,
-            "platform": "tg5040", "os": "nextui", "osVersion": "DemoOS-20261013", "pakVersion": "1.0.0",
+            "platform": "tg5040", "os": "nextui", "osVersion": "DemoOS-20261013", "pakVersion": pakVersion,
             "network": ["ipv4": "192.168.1.42", "ssid": "DemoNet"],
             "battery": batteryJSON,
             "storage": storageJSON,

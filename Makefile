@@ -19,6 +19,9 @@
 #   make release         build the release zip in dist/
 #   make docker-<target> run <target> inside the build image
 #   make vX.Y.Z          release a version: bump pak.json, commit, tag and push
+#   make vX.Y.Z-beta.N   pre-release (also -rc.N): tag and push only, pak.json unchanged
+#   make ios-vX.Y.Z      release the iOS app (ios-vX.Y.Z-beta.N: TestFlight only, tag ios-beta-vX.Y.Z-beta.N); Xcode Cloud builds the tag
+#   make release-checks  test the release scripts (pak tags, Xcode Cloud scripts, app release notes)
 
 APP           := reminislink
 PAK_NAME      := ReminisLink
@@ -27,7 +30,8 @@ PLATFORM      := tg5040
 PAK_VERSION   := $(shell sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
 RELEASE_FILE  := $(shell sed -n 's/.*"release_filename": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
 TAG           ?=
-VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo $(PAK_VERSION))
+# Pak tags only (vX.Y.Z...): the app's ios-v* and ios-beta-v* tags never name a pak build.
+VERSION       ?= $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo $(PAK_VERSION))
 
 GO_SOURCES    := cmd internal protocol scripts
 GO_VERSION    := $(shell sed -n 's/^go \([0-9.]*\)$$/\1/p' go.mod)
@@ -59,6 +63,8 @@ HEADLESS_ARGS ?=
 DESKTOP_ARGS  ?=
 
 RELEASE_BRANCH ?= main
+# Overridden by scripts/test-release-scripts.sh (a fake git).
+GIT ?= git
 
 DOCKER        ?= docker
 DOCKER_IMAGE  ?= reminislink-build
@@ -70,7 +76,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version clean docker-image FORCE
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version release-checks clean docker-image FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -130,6 +136,11 @@ pak: build ## Assemble the pak folder in build/pak
 	rm -rf $(PAK_DIR)
 	mkdir -p $(PAK_DIR)/resources/lib
 	cp pak/launch.sh $(BIN) pak.json $(PAK_DIR)/
+	# A pre-release leaves pak.json unchanged in the repository (the Pak
+	# Store reads it there): only the copy in the zip names the tag.
+	@if [ -n "$(TAG)" ]; then \
+		sed "s/^\(  \"version\": *\"\)[^\"]*\"/\1$(TAG)\"/" pak.json > $(PAK_DIR)/pak.json; \
+	fi
 	cp README.md LICENSE $(PAK_DIR)/
 	cp pak/THIRD_PARTY.md $(PAK_DIR)/resources/
 	cp -L $(SDL_GFX_LIB) $(PAK_DIR)/resources/lib/
@@ -142,27 +153,65 @@ release: check-version pak ## Build the release zip (Pak Store format) in dist/
 	cd $(BUILD_DIR) && rm -rf "$(PAK_NAME).pak" && mv pak "$(PAK_NAME).pak" && zip -qr "$(CURDIR)/$(RELEASE_ZIP)" "$(PAK_NAME).pak"
 	@ls -l $(DIST_DIR)
 
-check-version: ## Check that TAG (when set, e.g. by the CI) matches pak.json and has a changelog entry
+check-version: ## Check TAG (when set, e.g. by the CI) against pak.json: version and changelog entry ("Unreleased" for a pre-release)
 	@if [ -n "$(TAG)" ]; then \
-		[ "$(TAG)" = "$(PAK_VERSION)" ] || { echo "Tag $(TAG) does not match pak.json version $(PAK_VERSION)"; exit 1; }; \
-		grep -q '^    "$(TAG)":' pak.json || { echo "pak.json has no changelog entry for $(TAG)"; exit 1; }; \
+		kind="$$(scripts/pak-release-kind.sh "$(TAG)")" || exit 1; \
+		if [ "$$kind" = latest ]; then \
+			[ "$(TAG)" = "$(PAK_VERSION)" ] || { echo "Tag $(TAG) does not match pak.json version $(PAK_VERSION)"; exit 1; }; \
+			grep -q '^    "$(TAG)":' pak.json || { echo "pak.json has no changelog entry for $(TAG)"; exit 1; }; \
+		else \
+			grep -q '^    "Unreleased":' pak.json || { echo "Pre-release $(TAG): pak.json needs an \"Unreleased\" changelog entry (its release notes)"; exit 1; }; \
+		fi; \
 	fi
 
-v%: FORCE ## Release a version, e.g. make v1.2.3 (pak.json must have its changelog entry)
+release-checks: ## Test the release scripts: pak tags, Xcode Cloud scripts, app release notes
+	scripts/test-release-scripts.sh
+
+v%: FORCE ## Release a version (make v1.2.3) or a pre-release (make v1.2.3-beta.1, -rc.1); pak.json needs its changelog entry
 	@set -e; V="$@"; \
-	echo "$$V" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$$' || { echo "Invalid version $$V (expected vX.Y.Z)"; exit 1; }; \
+	scripts/pak-release-kind.sh "$$V" >/dev/null || exit 1; \
 	[ "$$(git rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
 	[ -z "$$(git status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
 	if git rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
 	grep -q "\"Unreleased\":" pak.json || grep -q "^    \"$$V\":" pak.json || { echo "Add a changelog entry (Unreleased or $$V) in pak.json first"; exit 1; }
 	$(MAKE) lint test
 	@set -e; V="$@"; \
+	if [ "$$(scripts/pak-release-kind.sh "$$V")" = prerelease ]; then \
+		grep -q '^    "Unreleased":' pak.json || { echo "A pre-release takes its notes from the \"Unreleased\" entry of pak.json: add it first"; exit 1; }; \
+		git tag -a "$$V" -m "Pre-release $$V"; \
+		git push origin "refs/tags/$$V"; \
+		echo "Pre-release $$V tagged, pak.json unchanged: the CI will publish a GitHub pre-release, ignored by the Pak Store."; \
+		exit 0; \
+	fi; \
 	sed "s/\"Unreleased\":/\"$$V\":/" pak.json > pak.json.tmp && mv pak.json.tmp pak.json; \
 	sed "s/^\(  \"version\": *\"\)[^\"]*\"/\1$$V\"/" pak.json > pak.json.tmp && mv pak.json.tmp pak.json; \
 	if ! git diff --quiet -- pak.json; then git commit -q -m "Release $$V" -- pak.json; fi; \
 	git tag -a "$$V" -m "Release $$V"; \
 	git push --atomic origin HEAD "refs/tags/$$V"; \
 	echo "Released $$V: the CI will publish the GitHub release."
+
+ios-v% ios-beta-v%: FORCE ## Release the iOS app (make ios-v1.2.3: App Review) or a TestFlight pre-release (make ios-v1.2.3-beta.1, tagged ios-beta-v1.2.3-beta.1); Xcode Cloud builds the tag
+	@set -e; \
+	parsed="$$(bash -c '. ios/ci_scripts/common.sh && T="$$(rl_tag_name "$$0")" && rl_parse_tag "$$T" && echo "$$RL_KIND $$RL_VERSION $$T"' "$@")" || { echo "Invalid app tag $@ (expected ios-vX.Y.Z, ios-vX.Y.Z-beta.N or ios-vX.Y.Z-rc.N)"; exit 1; }; \
+	set -- $$parsed; KIND="$$1"; X="$$2"; V="$$3"; \
+	[ "$$($(GIT) rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
+	[ -z "$$($(GIT) status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
+	if $(GIT) rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
+	if [ "$$KIND" = beta ]; then \
+		$(GIT) tag -a "$$V" -m "App pre-release $$V (TestFlight)"; \
+		$(GIT) push origin "refs/tags/$$V"; \
+		echo "Pre-release $$V tagged: Xcode Cloud (Beta workflow) sends version $$X to TestFlight."; \
+		exit 0; \
+	fi; \
+	if ! ios/ci_scripts/release_notes.sh has "$$X"; then \
+		ios/ci_scripts/release_notes.sh has Unreleased || { echo "Add a '## Unreleased' or '## $$X' section to ios/CHANGELOG.md first"; exit 1; }; \
+		sed "s/^## Unreleased$$/## $$X/" ios/CHANGELOG.md > ios/CHANGELOG.md.tmp && mv ios/CHANGELOG.md.tmp ios/CHANGELOG.md; \
+	fi; \
+	ios/ci_scripts/release_notes.sh sync; \
+	if ! $(GIT) diff --quiet -- ios/CHANGELOG.md ios/AppStore; then $(GIT) commit -q -m "Release app $$X" -- ios/CHANGELOG.md ios/AppStore; fi; \
+	$(GIT) tag -a "$$V" -m "App release $$V"; \
+	$(GIT) push --atomic origin HEAD "refs/tags/$$V"; \
+	echo "Released app $$X: Xcode Cloud (Release workflow) builds it and prepares the App Store version."
 
 clean: ## Remove build outputs
 	rm -rf $(BUILD_DIR) $(DIST_DIR)

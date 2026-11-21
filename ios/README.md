@@ -10,6 +10,8 @@
 | `ReminisLinkShare/` | Share extension: copies shared files into the app group inbox, then opens the app on Add (it never uploads; web links are not accepted) |
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
 | `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
+| `CHANGELOG.md` | Changelog of the app (English and French), the source of the App Store "What's New" |
+| `ci_scripts/` | Xcode Cloud scripts: version from the `ios-v*` tag, App Store Connect API steps (see "Release", step 7) |
 | `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync, tabs, flat library, file download, console closing, apps and SD browser) |
 | `ReminisLinkKit/` | Swift package: `ReminisLinkKit` (signing, pairing, API client, discovery, stores, `Events/`: the event stream of milestone M14 (SSE parser, typed events, liveness and reconnection), `Transfers/`: resumable uploads, streamed SHA-256, queue, share inbox; `CheatEditor`; `Sync/`: save vault and save sync) and `ReminisLinkDemo` (fake pak, M4 to M14 routes included, M12 paks and SD browser: `GET /events` with keep-alives, `library`/`job`/`device`/`shutdown` events and a mode without the route) |
 
@@ -27,7 +29,9 @@ set `DEVELOPMENT_TEAM` in `Config/Local.xcconfig` (see "Release" below).
 
 The identifiers are fixed in `Config/Config.xcconfig` (app `link.reminis.app`,
 from the product domain reminis.link); the signing team is not in the
-repository. Nothing is ever uploaded by a script of the repository.
+repository. Since milestone M17, releases are built by Xcode Cloud from the
+tags `ios-vX.Y.Z` (App Store) and `ios-beta-vX.Y.Z-beta.N` (TestFlight only):
+see step 7. Steps 1 to 6 are the one-time setup and the manual path.
 
 ### 1. Identifiers and team
 
@@ -93,10 +97,18 @@ the privacy policy (step 5) and "Data Not Collected" for App Privacy.
 
 ### 3. Versions
 
-`MARKETING_VERSION` (shown on the App Store, `1.0`) and
-`CURRENT_PROJECT_VERSION` (build number, `1`) are in `Config/Config.xcconfig`
-and shared by the app and the extension. Increase the build number for every
-upload, the version for every release.
+`MARKETING_VERSION` (shown on the App Store) and `CURRENT_PROJECT_VERSION`
+(build number) are in `Config/Config.xcconfig` and shared by the app and the
+extension; they apply to local builds and archives made by hand (increase the
+build number for every upload, the version for every release). Xcode Cloud
+builds take both from the tag and from its own build number instead
+(`Config/CI.xcconfig`, written by `ci_scripts/`, step 7): the project is never
+changed for a release.
+
+The app's changelog is `CHANGELOG.md` (English and French, one section per
+App Store version, `## Unreleased` first); its first section is the App Store
+"What's New", copied to `AppStore/*/release_notes.txt` by
+`ci_scripts/release_notes.sh sync` (checked by the CI).
 
 ### 4. Archive and upload
 
@@ -155,6 +167,145 @@ App Store screenshots and a review video made from the demo are in
 `docs/screenshots/appstore/`. The demo video does not show pairing with a
 real handheld: for that part Apple asks for a video filmed with a physical
 Apple device (to be made with the hardware, not in the repository).
+
+### 7. Xcode Cloud: tags, TestFlight and App Review (milestone M17)
+
+Tags (from `main`, `make ios-vX.Y.Z` or `make ios-vX.Y.Z-beta.N`, which tags
+`ios-beta-vX.Y.Z-beta.N`; see the main README, "Releasing"). The two prefixes
+never overlap, because Xcode Cloud tag conditions are prefixes only: each tag
+starts one workflow.
+
+| Tag | Workflow | Result |
+|---|---|---|
+| `ios-beta-v1.1.0-beta.1`, `ios-beta-v1.1.0-rc.1` | Beta | version 1.1.0, new build, TestFlight only |
+| `ios-v1.1.0` | Release (then Submit, started by hand) | version 1.1.0 prepared; once Submit has run, submitted to App Review and released automatically once approved |
+
+The scripts of `ci_scripts/` (Xcode Cloud runs them by name; nothing to
+set in Xcode):
+
+- `ci_post_clone.sh` and `ci_pre_xcodebuild.sh` write `Config/CI.xcconfig`:
+  `MARKETING_VERSION` from `CI_TAG` (prefix and suffix removed: the App
+  Store takes `X.Y.Z` only) and `CURRENT_PROJECT_VERSION` from
+  `CI_BUILD_NUMBER`. They stop the build when the tag is malformed, when the
+  **Release** workflow gets a pre-release tag (a beta never reaches App
+  Review), when the **Beta** workflow gets a release tag, and when
+  `CHANGELOG.md` has no `## X.Y.Z` section for a release. A tag
+  `ios-beta-v…` starts the Beta workflow only (the prefix `ios-v` of Release
+  cannot match it); these checks are a second guard.
+- `ci_post_xcodebuild.sh` (Release workflow, after the archive): creates the
+  App Store version `X.Y.Z` if needed, sets its "What's New" (English and
+  French, from `CHANGELOG.md`) and "Automatically release this version",
+  through the App Store Connect API. For a tagged archive it fails when
+  Xcode Cloud's metadata (`CI_WORKFLOW`, `CI_BUILD_NUMBER`,
+  `CI_XCODEBUILD_EXIT_CODE`) is missing; a failed archive prepares nothing.
+- **Why a separate Submit workflow**: the archive is uploaded to App Store
+  Connect by Xcode Cloud *after* `ci_post_xcodebuild.sh`, and Apple then
+  processes it (5 to 30 minutes), so the Release workflow cannot attach and
+  submit its own build. The Submit workflow, started by hand on the release
+  tag once TestFlight shows the build of the Release run, runs
+  `submit_for_review.sh` from `ci_post_clone.sh`. It waits (90 minutes at most,
+  `ASC_WAIT_MINUTES`) for **the build of the Release run of that tag**:
+  through the Xcode Cloud API it finds the newest run of the Release
+  workflow on `ios-vX.Y.Z`, waits for it to succeed, and takes the build
+  that run uploaded (its build number is the run number), never just the
+  newest upload of `X.Y.Z` (a TestFlight beta or a manual upload has the
+  same version). `ASC_BUILD_NUMBER`, when set, only chooses which Release
+  run of the tag (a re-run): a number that is not the build of a Release run
+  of the tag is refused, nothing is attached or submitted. The
+  build must be processed, App Store eligible (not TestFlight internal
+  only), not expired, with its export compliance answered. It then attaches
+  the build and submits the version alone: if a draft submission of the app
+  already holds anything else, it stops without submitting (submit or remove
+  those items by hand first). It reads the draft's items again right before
+  submitting and stops if anything else appeared: **nobody should edit the
+  app's draft submission in App Store Connect while Submit runs**. It does nothing for a pre-release tag, and
+  nothing when the version is already submitted. Its build action only
+  carries the script.
+- Without the API key, these scripts print the steps to do by hand in App
+  Store Connect and succeed.
+
+The scripts call the API with `ci_scripts/AppStoreConnect.swift` (Foundation
+and CryptoKit, run with the Swift of Xcode; ES256 tokens of 15 minutes); the
+key and the tokens are never printed, nor the body of an answer (errors show
+the status, code and title only). `ASC_API_BASE` (another address for the
+API) is refused unless `ASC_TEST_MODE=1`, the address is local and the key id
+starts with `TEST`: it exists for the tests only. `make release-checks` (also
+run by the CI) tests the scripts with fake `CI_TAG`, `CI_WORKFLOW` and
+`CI_BUILD_NUMBER` values, the `make` recipes with a fake git, the pak
+publication with a fake `gh`, and, on a Mac, the API client: its offline
+self-test and whole submissions against a local mock of the API
+(`scripts/release-tests/asc_mock.py`: a Release build arriving after a
+processed beta of the same version, runs on two pages, a build number of the
+Release run and one of another origin, an internal-only build, a draft
+submission holding another item before or right before submitting, an error
+whose detail must not be printed). In that test mode the client signs with a
+throwaway key it makes itself and never reads `ASC_PRIVATE_KEY`.
+
+**One-time setup (by the account holder):**
+
+1. **App Store Connect API key.** App Store Connect > *Users and Access >
+   Integrations > App Store Connect API > Team Keys > +*: name
+   "ReminisLink Xcode Cloud", access **App Manager** (it must read Xcode
+   Cloud builds; if the Submit workflow reports it cannot, use **Admin**:
+   Submit always checks the Release run through the Xcode Cloud API).
+   Download the `.p8`
+   file (only once) and note the *Key ID* and the *Issuer ID*. Keep the file
+   out of the repository.
+2. **Xcode Cloud and GitHub.** In Xcode, *Integrate > Create Workflow* (or
+   App Store Connect > the app > *Xcode Cloud > Get Started*), product
+   ReminisLink, project `ios/ReminisLink.xcodeproj`, scheme `ReminisLink`.
+   Grant Xcode Cloud access to the GitHub repository when asked (it
+   installs the Xcode Cloud GitHub app; the repository only, read access to
+   the code). No key or secret goes to GitHub.
+3. **Build number.** *Xcode Cloud > Settings > Build Number*: set the next
+   build number above the last upload by hand (build 5 of 1.0.0), e.g. 6.
+4. **Workflow "Beta"** (the name matters: the scripts read `CI_WORKFLOW`):
+   - Start condition: *Tag Changes*, custom tag prefix `ios-beta-v`; *Auto-cancel
+     builds* off.
+   - Environment: latest release Xcode, latest macOS.
+   - Action: *Archive*, platform iOS, *Deployment Preparation: TestFlight
+     (Internal Testing Only)*: such a build can never be submitted to App
+     Review, a second guard after the scripts.
+   - Post-action: *TestFlight Internal Testing*, the internal testers group.
+5. **Workflow "Release"**:
+   - Start condition: *Tag Changes*, custom tag prefix `ios-v` (it never
+     matches a beta tag; the scripts refuse one anyway).
+   - Action: *Archive*, iOS, *Deployment Preparation: TestFlight and App
+     Store*.
+   - Post-action: *TestFlight Internal Testing* (the build also goes to the
+     testers; optional).
+   - Environment variables, all **Secret**: `ASC_KEY_ID`, `ASC_ISSUER_ID`,
+     `ASC_PRIVATE_KEY` (the whole content of the `.p8` file, line breaks
+     included or not).
+6. **Workflow "Submit"**:
+   - Start condition: *Manual Start* only, tags with the prefix `ios-v`
+     allowed (Xcode Cloud needs a start condition). Once TestFlight shows
+     the build of the Release run, *Start Build* by hand on the release tag.
+     No *Tag Changes* condition: it would start Submit together with Release
+     on the same tag.
+   - Action: *Build*, iOS (the cheapest action; only the script matters).
+   - The same three secret environment variables.
+7. **App Review information** (notes, contact, demo mode) is copied by App
+   Store Connect from the previous version: check it once on the first
+   automatic release.
+
+By hand on a Mac, the same submission. Replace the values (the Key ID, the
+Issuer ID and the path of the `.p8` file); the key itself stays in its file.
+The script always finds the Release run of the tag through the Xcode Cloud
+API. `ASC_BUILD_NUMBER` is optional: the build number of one Release run of
+the tag (shown in Xcode Cloud), to choose it when the tag was built more than
+once; any other number is refused:
+
+```sh
+export ASC_KEY_ID='ABC123DEFG'
+export ASC_ISSUER_ID='00000000-0000-0000-0000-000000000000'
+export ASC_PRIVATE_KEY_PATH="$HOME/keys/AuthKey_ABC123DEFG.p8"
+CI_TAG='ios-v1.1.0' ASC_BUILD_NUMBER='42' ios/ci_scripts/submit_for_review.sh
+```
+
+Not verifiable from the repository (to check on the first real tags): the
+Xcode Cloud workflows themselves, the `CI_*` values Xcode Cloud passes, and
+the App Store Connect API calls (tested against a local mock only).
 
 ### App icon and launch screen
 

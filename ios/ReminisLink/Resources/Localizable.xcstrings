@@ -1891,6 +1891,16 @@
         }
       }
     },
+    "How to Update" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comment mettre à jour"
+          }
+        }
+      }
+    },
     "IP address" : {
       "localizations" : {
         "fr" : {
@@ -2751,6 +2761,16 @@
         }
       }
     },
+    "Open the App Store" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir l’App Store"
+          }
+        }
+      }
+    },
     "Open the Console" : {
       "localizations" : {
         "fr" : {
@@ -3147,6 +3167,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ReminisLink se ferme sur la console."
+          }
+        }
+      }
+    },
+    "ReminisLink on the console is too old for this app. Update the ReminisLink pak on the console, then open it again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink sur la console est trop ancien pour cette app. Mets à jour le pak ReminisLink sur la console, puis rouvre-le."
+          }
+        }
+      }
+    },
+    "ReminisLink on the console needs a newer version of this app. Update the ReminisLink app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink sur la console demande une version plus récente de cette app. Mets à jour l’app ReminisLink."
           }
         }
       }
@@ -4987,16 +5027,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette version de ReminisLink s’appaire autrement : mets à jour ReminisLink sur la console, puis scanne de nouveau son QR code."
-          }
-        }
-      }
-    },
-    "This version of the app is not compatible with the ReminisLink version on the console. Update both." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cette version de l’app n’est pas compatible avec la version de ReminisLink sur la console. Mets les deux à jour."
           }
         }
       }

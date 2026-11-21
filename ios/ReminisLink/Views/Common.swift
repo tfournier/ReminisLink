@@ -63,6 +63,18 @@ struct ErrorView: View {
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("error.reconnect")
                 }
+            case .updatePak:
+                Link(destination: UpdateLinks.installPage) {
+                    Text("How to Update")
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("error.updatePak")
+            case .updateApp:
+                Link(destination: UpdateLinks.appStore) {
+                    Text("Open the App Store")
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("error.updateApp")
             case nil:
                 EmptyView()
             }

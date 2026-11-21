@@ -1,0 +1,8 @@
+#!/bin/bash
+# A stand-in for the GitHub CLI in scripts/test-release-scripts.sh: logs every
+# call to $FAKE_LOG; "gh release view" succeeds when FAKE_RELEASE_EXISTS=1.
+echo "gh $*" >>"$FAKE_LOG"
+case "$1 $2" in
+"release view") [ "${FAKE_RELEASE_EXISTS:-0}" = 1 ] ;;
+*) exit 0 ;;
+esac

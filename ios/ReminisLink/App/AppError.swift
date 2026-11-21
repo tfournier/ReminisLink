@@ -9,6 +9,25 @@ enum RecoveryAction: Equatable {
     /// `401 disconnected` (M10): "Reconnect", which lifts the
     /// disconnection set from the console.
     case reconnect
+    /// M17: ReminisLink on the console is too old for this app: a link to
+    /// the install page.
+    case updatePak
+    /// M17: ReminisLink on the console needs a newer app: a link to the App
+    /// Store.
+    case updateApp
+}
+
+/// Where to update each side (M17).
+enum UpdateLinks {
+    /// The install page of the website, in the language of the app.
+    static var installPage: URL {
+        Bundle.main.preferredLocalizations.first == "fr"
+            ? URL(string: "https://reminis.link/fr/install/")!
+            : URL(string: "https://reminis.link/install/")!
+    }
+
+    /// The app on the App Store.
+    static let appStore = URL(string: "https://apps.apple.com/app/id6837216406")!
 }
 
 /// Every error the screens show, with its translated message.
@@ -203,7 +222,9 @@ enum AppError: Error, Equatable {
             // M13: the console's certificate changed (SD card reformatted,
             // or another device): pair again, scanning its QR code.
             case .identityChanged: .repair
-            case .incompatible, .pairing: nil
+            case .incompatible(.updatePak): .updatePak
+            case .incompatible(.updateApp): .updateApp
+            case .pairing: nil
             default: .retry
             }
         case .upload(.outcomeUnknown), .upload(.paused), .upload(.fileChanged), .upload(.cancelNotConfirmed), .file: nil
@@ -353,8 +374,10 @@ enum AppError: Error, Equatable {
             return String(localized: "The console is not responding.")
         case .deviceMismatch:
             return String(localized: "Another console answered at this address.")
-        case .incompatible:
-            return String(localized: "This version of the app is not compatible with the ReminisLink version on the console. Update both.")
+        case .incompatible(.updatePak):
+            return String(localized: "ReminisLink on the console is too old for this app. Update the ReminisLink pak on the console, then open it again.")
+        case .incompatible(.updateApp):
+            return String(localized: "ReminisLink on the console needs a newer version of this app. Update the ReminisLink app.")
         case .notPaired:
             return String(localized: "This console no longer recognizes your iPhone.")
         case .identityChanged:

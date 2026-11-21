@@ -107,6 +107,17 @@ public struct ServerError: Error, Sendable, Equatable {
     public static let legacyDeviceBusyMessage = "Device busy"
 }
 
+/// Why the app and the pak cannot work together (M17, checked on `/hello`):
+/// the side the user has to update.
+public enum Incompatibility: Sendable, Equatable {
+    /// The pak is older than this app can drive: its `pakVersion` is below
+    /// ``APIClient/minPakVersion``, or its `apiVersion` is lower.
+    case updatePak
+    /// The pak needs a newer app: this app's version is below its
+    /// `minClientVersion`, or its `apiVersion` is higher.
+    case updateApp
+}
+
 /// Everything ``APIClient`` can throw.
 public enum APIError: Error, Sendable, Equatable {
     /// The pak answered with an error body.
@@ -119,8 +130,9 @@ public enum APIError: Error, Sendable, Equatable {
     case network(URLError.Code)
     /// `/hello` answered for another device than the expected one.
     case deviceMismatch(expected: String, actual: String)
-    /// The pak speaks another major API version, or needs a newer app.
-    case incompatible(apiVersion: Int, minClientVersion: String)
+    /// The app and the pak cannot work together (`/hello`, M17): which
+    /// side to update.
+    case incompatible(Incompatibility)
     /// A signed route was called without credentials.
     case notPaired
     /// The request could not be signed.
