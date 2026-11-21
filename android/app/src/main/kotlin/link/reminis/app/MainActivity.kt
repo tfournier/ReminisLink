@@ -1,7 +1,6 @@
 package link.reminis.app
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -30,17 +29,20 @@ import link.reminis.app.ui.LibraryScreen
 import link.reminis.app.ui.PairingScreen
 import link.reminis.app.ui.ScanScreen
 
-/** Navigation routes. Ids are base64url and links are URL-encoded in routes. */
+/**
+ * Navigation routes. Ids are base64url. A pairing link never goes into a
+ * route (navigation state is saved): only the opaque token of [PendingLinks].
+ */
 object Routes {
     const val CONSOLES = "consoles"
     const val ADD = "add"
     const val SCAN = "scan"
-    const val PAIR = "pair?link={link}"
+    const val PAIR = "pair/{token}"
     const val DASHBOARD = "console/{deviceId}"
     const val LIBRARY = "console/{deviceId}/library"
     const val GAME = "console/{deviceId}/game/{gameId}"
 
-    fun pair(link: String) = "pair?link=${Uri.encode(link)}"
+    fun pair(token: String) = "pair/$token"
     fun dashboard(deviceId: String) = "console/$deviceId"
     fun library(deviceId: String) = "console/$deviceId/library"
     fun game(deviceId: String, gameId: String) = "console/$deviceId/game/$gameId"
@@ -53,7 +55,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        incomingLink.value = pairingLink(intent)
+        // Only a fresh launch: a recreated activity gets its old intent back.
+        if (savedInstanceState == null) takePairingLink(intent)?.let { incomingLink.value = it }
         setContent {
             ReminisLinkTheme {
                 AppNavigation(incomingLink.value) { incomingLink.value = null }
@@ -63,19 +66,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        pairingLink(intent)?.let { incomingLink.value = it }
+        takePairingLink(intent)?.let { incomingLink.value = it }
     }
 
-    private fun pairingLink(intent: Intent?): String? =
-        intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString?.takeIf { it.startsWith("reminislink:", ignoreCase = true) }
+    /**
+     * The pairing link of a VIEW intent. Not replayed when the app is
+     * reopened from the recent apps (the system re-delivers the first
+     * intent) nor after a recreation (checked by the caller).
+     */
+    private fun takePairingLink(intent: Intent?): String? {
+        if (intent == null || intent.action != Intent.ACTION_VIEW) return null
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
+        return intent.dataString?.takeIf { it.startsWith("reminislink:", ignoreCase = true) }
+    }
 }
 
 @Composable
 fun AppNavigation(incomingLink: String?, onLinkHandled: () -> Unit) {
     val nav = rememberNavController()
+    val links = LocalContext.current.container.pendingLinks
     LaunchedEffect(incomingLink) {
         if (incomingLink != null) {
-            nav.navigate(Routes.pair(incomingLink))
+            // From another app: the pairing screen asks before any network access.
+            nav.navigate(Routes.pair(links.put(incomingLink, external = true)))
             onLinkHandled()
         }
     }
@@ -91,20 +104,20 @@ fun AppNavigation(incomingLink: String?, onLinkHandled: () -> Unit) {
             AddConsoleScreen(
                 onBack = { nav.popBackStack() },
                 onScan = { nav.navigate(Routes.SCAN) },
-                onLink = { nav.navigate(Routes.pair(it)) },
+                onLink = { nav.navigate(Routes.pair(links.put(it, external = false))) },
             )
         }
         composable(Routes.SCAN) {
             ScanScreen(
                 onBack = { nav.popBackStack() },
                 onLink = { link ->
-                    nav.navigate(Routes.pair(link)) { popUpTo(Routes.ADD) }
+                    nav.navigate(Routes.pair(links.put(link, external = false))) { popUpTo(Routes.ADD) }
                 },
             )
         }
-        composable(Routes.PAIR, arguments = listOf(navArgument("link") { type = NavType.StringType; defaultValue = "" })) { entry ->
+        composable(Routes.PAIR, arguments = listOf(navArgument("token") { type = NavType.StringType })) { entry ->
             PairingScreen(
-                link = entry.arguments?.getString("link").orEmpty(),
+                token = entry.arguments?.getString("token").orEmpty(),
                 onClose = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
                 onOpenConsole = { deviceId ->
                     nav.navigate(Routes.dashboard(deviceId)) { popUpTo(Routes.CONSOLES) }

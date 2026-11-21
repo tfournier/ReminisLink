@@ -6,6 +6,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Log
 import androidx.annotation.RequiresApi
+import java.io.IOException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -51,7 +52,10 @@ class IdentityStore(context: Context) {
     @Volatile
     private var cached: ClientIdentity? = null
 
-    /** The identity, created on first use. Throws if the Keystore is unusable. */
+    /**
+     * The identity, created on first use and returned only once saved
+     * (`commit()` checked). Throws if the Keystore or the storage is unusable.
+     */
     @Synchronized
     fun identity(): ClientIdentity {
         cached?.let { return it }
@@ -86,13 +90,20 @@ class IdentityStore(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             try {
                 val key = createKeystoreKey()
-                prefs.edit()
+                val saved = prefs.edit()
                     .clear()
                     .putString(KEY_CLIENT_ID, clientId)
                     .putString(KEY_STORAGE, KeyStorage.KEYSTORE.name)
                     .putString(KEY_PUBLIC, Base64Url.encode(key.publicKey))
                     .commit()
+                if (!saved) {
+                    // Never pair with an identity that would be lost on restart.
+                    runCatching { keyStore.deleteEntry(ALIAS_ED25519) }
+                    throw IOException("the identity could not be saved")
+                }
                 return ClientIdentity(clientId, key, KeyStorage.KEYSTORE)
+            } catch (e: IOException) {
+                throw e
             } catch (e: Exception) {
                 Log.i(TAG, "Ed25519 is not available in the Keystore, using a sealed seed: ${e.javaClass.simpleName}")
                 runCatching { keyStore.deleteEntry(ALIAS_ED25519) }
@@ -105,13 +116,14 @@ class IdentityStore(context: Context) {
         val sealed = cipher.doFinal(seed)
         val key = SeedEd25519Key(seed)
         seed.fill(0)
-        prefs.edit()
+        val saved = prefs.edit()
             .clear()
             .putString(KEY_CLIENT_ID, clientId)
             .putString(KEY_STORAGE, KeyStorage.SEALED_SEED.name)
             .putString(KEY_SEALED_SEED, Base64Url.encode(sealed))
             .putString(KEY_IV, Base64Url.encode(cipher.iv))
             .commit()
+        if (!saved) throw IOException("the identity could not be saved")
         return ClientIdentity(clientId, key, KeyStorage.SEALED_SEED)
     }
 

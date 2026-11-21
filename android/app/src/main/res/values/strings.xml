@@ -113,4 +113,11 @@
     <string name="error_shutting_down">ReminisLink is closing on the console.</string>
     <string name="error_storage">The pairing information could not be read or saved on this phone.</string>
     <string name="error_generic">Something went wrong (%1$s).</string>
+    <string name="error_link_gone">This pairing link is no longer available. Scan the QR code of the console again.</string>
+    <string name="external_link_title">Pair with this console?</string>
+    <string name="external_link_message">A pairing link was opened from another app. Pair this phone only if this is your console and its screen shows this QR code.</string>
+    <string name="external_link_console">Console: %1$s</string>
+    <string name="external_link_address">Address: %1$s</string>
+    <string name="external_link_unnamed">Unnamed console</string>
+    <string name="pair">Pair</string>
 </resources>

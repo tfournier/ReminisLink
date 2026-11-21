@@ -105,6 +105,90 @@ class LocatorTest {
     }
 }
 
+class ConnectFirstTest {
+    private val spoofed = Endpoint("192.168.1.66", 47821)
+    private val real = Endpoint("192.168.1.42", 47821)
+
+    @Test
+    fun spoofedAnnouncementFallsBackToTheValidatedAddress() = runBlocking {
+        val tried = mutableListOf<Endpoint>()
+        val (endpoint, value) = Locator.connectFirst(listOf(spoofed, real)) {
+            tried += it
+            if (it == spoofed) throw ApiException.IdentityChanged() else "hello"
+        }
+        assertEquals(real, endpoint)
+        assertEquals("hello", value)
+        assertEquals(listOf(spoofed, real), tried)
+    }
+
+    @Test
+    fun identityErrorWinsWhenNothingValidates() = runBlocking {
+        try {
+            Locator.connectFirst(listOf(spoofed, real)) {
+                if (it == spoofed) throw ApiException.IdentityChanged() else throw ApiException.Network(java.io.IOException("down"))
+            }
+            fail()
+        } catch (_: ApiException.IdentityChanged) {
+        }
+    }
+
+    @Test
+    fun consoleErrorsStop() = runBlocking {
+        var calls = 0
+        try {
+            Locator.connectFirst(listOf(real, spoofed)) { calls++; throw ApiException.Incompatible(3, "9.0.0") }
+            fail()
+        } catch (_: ApiException.Incompatible) {
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun noCandidate() = runBlocking {
+        try {
+            Locator.connectFirst(emptyList<Endpoint>()) { }
+            fail()
+        } catch (_: ConsoleNotFoundException) {
+        }
+    }
+
+    @Test
+    fun candidatesAreMdnsThenFallback() = runBlocking {
+        assertEquals(listOf(spoofed, real), Locator.candidates(real, 1_000) { spoofed })
+        assertEquals(listOf(real), Locator.candidates(real, 1_000) { real })
+        assertEquals(listOf(real), Locator.candidates(real, 50) { delay(5_000); spoofed })
+    }
+}
+
+class SignerRulesTest {
+    private val signer = Signer("3b1c8d2a-5e6f-4a7b-8c9d-0e1f2a3b4c5d", SeedEd25519Key(ByteArray(32)))
+
+    @Test
+    fun duplicateKeysAreRefusedWhenBuilding() {
+        try {
+            Signer.encodeQuery(listOf("q" to "a", "q" to "b")); fail()
+        } catch (e: SignerException) {
+            assertEquals(SignerException.Reason.DUPLICATE_KEY, e.reason)
+        }
+        assertEquals("a=1&b=2", Signer.encodeQuery(listOf("b" to "2", "a" to "1")))
+        // The canonicalization itself stays independent (the vectors have a duplicate key).
+        assertEquals("a=10&a=2", Signer.canonicalQuery("a=2&a=10"))
+    }
+
+    @Test
+    fun unsignedOnlyForUploadChunks() {
+        signer.headers("PUT", "/api/v1/uploads/up_1", unsignedBody = true, time = 1)
+        for ((method, path) in listOf("POST" to "/api/v1/uploads/up_1", "PUT" to "/api/v1/games/x/save", "PUT" to "/api/v1/uploads/up_1/complete", "PUT" to "/api/v1/uploads")) {
+            try {
+                signer.headers(method, path, unsignedBody = true, time = 1)
+                fail("$method $path accepted UNSIGNED")
+            } catch (e: SignerException) {
+                assertEquals(SignerException.Reason.UNSIGNED_BODY, e.reason)
+            }
+        }
+    }
+}
+
 class LibrarySearchTest {
     private fun game(name: String) = LibraryGame(
         id = name, name = name, fileName = "$name.gba", kind = "file", sizeBytes = 1, modifiedAt = "2026-11-18T16:57:40Z",

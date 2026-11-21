@@ -147,7 +147,8 @@ fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) ->
     val context = LocalContext.current
     val container = context.container
     var name by rememberSaveable { mutableStateOf(container.clientName) }
-    var link by rememberSaveable { mutableStateOf("") }
+    // Not saveable: a pasted link holds the QR secret and must not reach saved state.
+    var link by remember { mutableStateOf("") }
     var linkError by remember { mutableStateOf<String?>(null) }
 
     fun saveName() {
@@ -201,19 +202,13 @@ fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) ->
 // MARK: pairing
 
 @Composable
-fun PairingScreen(link: String, onClose: () -> Unit, onOpenConsole: (String) -> Unit) {
-    val context = LocalContext.current
-    val parsed = remember(link) { runCatching { PairingLink.parse(link) } }
-    AppScaffold(title = stringResource(R.string.pairing_title), onBack = onClose) { modifier ->
-        parsed.fold(
-            onSuccess = { pairingLink ->
-                val app = context.applicationContext as Application
-                val vm: PairingViewModel = viewModel(key = link) { PairingViewModel(app, pairingLink) }
-                val state by vm.state.collectAsState()
-                PairingProgress(state, modifier, onRetry = vm::start, onClose = onClose, onOpenConsole = onOpenConsole)
-            },
-            onFailure = { ErrorView(it, null, modifier) },
-        )
+fun PairingScreen(token: String, onClose: () -> Unit, onOpenConsole: (String) -> Unit) {
+    val app = LocalContext.current.applicationContext as Application
+    val vm: PairingViewModel = viewModel(key = "pair-$token") { PairingViewModel(app, token) }
+    val state by vm.state.collectAsState()
+    val close = { vm.cancel(); onClose() }
+    AppScaffold(title = stringResource(R.string.pairing_title), onBack = close) { modifier ->
+        PairingProgress(state, modifier, onStart = vm::start, onClose = close, onOpenConsole = onOpenConsole)
     }
 }
 
@@ -221,22 +216,44 @@ fun PairingScreen(link: String, onClose: () -> Unit, onOpenConsole: (String) -> 
 private fun PairingProgress(
     state: PairingState,
     modifier: Modifier,
-    onRetry: () -> Unit,
+    onStart: () -> Unit,
     onClose: () -> Unit,
     onOpenConsole: (String) -> Unit,
 ) {
-    if (state.step == PairingStep.CONFIRM) {
+    if (state.step == PairingStep.CONFIRM_EXTERNAL && state.error == null) {
+        AlertDialog(
+            onDismissRequest = onClose,
+            title = { Text(stringResource(R.string.external_link_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("externalConfirm")) {
+                    Text(stringResource(R.string.external_link_console, state.deviceName ?: stringResource(R.string.external_link_unnamed)))
+                    state.host?.let { Text(stringResource(R.string.external_link_address, it)) }
+                    Text(stringResource(R.string.external_link_message))
+                    if (state.alreadyPaired) Text(stringResource(R.string.already_paired_message))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onStart, modifier = Modifier.testTag("confirmPair")) { Text(stringResource(R.string.pair)) }
+            },
+            dismissButton = {
+                TextButton(onClick = onClose, modifier = Modifier.testTag("cancelPair")) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+        return
+    }
+    if (state.step == PairingStep.CONFIRM && state.error == null) {
         AlertDialog(
             onDismissRequest = onClose,
             title = { Text(stringResource(R.string.already_paired_title)) },
             text = { Text(stringResource(R.string.already_paired_message)) },
-            confirmButton = { TextButton(onClick = onRetry) { Text(stringResource(R.string.pair_again)) } },
+            confirmButton = { TextButton(onClick = onStart) { Text(stringResource(R.string.pair_again)) } },
             dismissButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.action_cancel)) } },
         )
         return
     }
     if (state.error != null) {
-        ErrorView(state.error, onRetry, modifier)
+        val retry = state.error !is PairingLinkGoneException && state.error !is PairingLinkException
+        ErrorView(state.error, if (retry) onStart else null, modifier)
         return
     }
     Column(

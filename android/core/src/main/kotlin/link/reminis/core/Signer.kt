@@ -5,7 +5,15 @@ import java.security.SecureRandom
 
 /** An input that would break the canonical string (refused, like the pak does). */
 class SignerException(val reason: Reason) : IllegalArgumentException("malformed ${reason.name.lowercase()}") {
-    enum class Reason { METHOD, PATH, QUERY, TIME, NONCE, CONTENT_SHA256 }
+    enum class Reason {
+        METHOD, PATH, QUERY, TIME, NONCE, CONTENT_SHA256,
+
+        /** The same query key twice: the pak refuses it (`400 invalid_request`, 03 §4.2). */
+        DUPLICATE_KEY,
+
+        /** `UNSIGNED` is only for `PUT /api/v1/uploads/{uploadId}`. */
+        UNSIGNED_BODY,
+    }
 }
 
 /** The five signature headers of a request (docs/specs/03-protocole.md §4.1). */
@@ -55,7 +63,8 @@ class Signer(val clientId: String, private val key: Ed25519Key) {
      *
      * @param path the path as sent, percent-encoded, with `/api/v1`.
      * @param rawQuery the query as sent (without `?`); build it with [encodeQuery].
-     * @param unsignedBody only for upload chunks (`PUT /api/v1/uploads/{id}`).
+     * @param unsignedBody only for upload chunks (`PUT /api/v1/uploads/{id}`);
+     *   refused for any other request.
      */
     fun headers(
         method: String,
@@ -66,6 +75,7 @@ class Signer(val clientId: String, private val key: Ed25519Key) {
         time: Long,
         nonce: String = makeNonce(),
     ): SignedHeaders {
+        if (unsignedBody && !isUploadChunk(method, path)) throw SignerException(SignerException.Reason.UNSIGNED_BODY)
         val content = if (unsignedBody) UNSIGNED_PAYLOAD else contentSha256(body)
         val timeString = time.toString()
         val canonical = canonicalRequest(method, path, rawQuery, timeString, nonce, content)
@@ -139,10 +149,24 @@ class Signer(val clientId: String, private val key: Ed25519Key) {
             return sortPairs(pairs).joinToString("&") { "${it.first}=${it.second}" }
         }
 
-        /** Encodes query items for sending, in canonical order: its own canonical form. */
-        fun encodeQuery(items: List<Pair<String, String>>): String =
-            sortPairs(items.map { encodeRfc3986(it.first) to encodeRfc3986(it.second) })
-                .joinToString("&") { "${it.first}=${it.second}" }
+        /**
+         * Encodes query items for sending, in canonical order: its own
+         * canonical form. A repeated key is refused, as the pak does
+         * ([canonicalQuery] stays a pure canonicalization, for the vectors).
+         */
+        fun encodeQuery(items: List<Pair<String, String>>): String {
+            val encoded = items.map { encodeRfc3986(it.first) to encodeRfc3986(it.second) }
+            if (encoded.map { it.first }.toSet().size != encoded.size) {
+                throw SignerException(SignerException.Reason.DUPLICATE_KEY)
+            }
+            return sortPairs(encoded).joinToString("&") { "${it.first}=${it.second}" }
+        }
+
+        private val uploadChunkPath = Regex("^/api/v1/uploads/[^/]+$")
+
+        /** `PUT /api/v1/uploads/{uploadId}`: the only request whose body may be `UNSIGNED`. */
+        fun isUploadChunk(method: String, path: String): Boolean =
+            method.equals("PUT", ignoreCase = true) && uploadChunkPath.matches(path)
 
         /** Percent-encodes every UTF-8 byte except A-Z a-z 0-9 - . _ ~. */
         fun encodeRfc3986(text: String): String = encodeRfc3986(text.toByteArray(Charsets.UTF_8))

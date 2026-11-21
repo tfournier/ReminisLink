@@ -5,13 +5,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import link.reminis.app.ConsoleNotFoundException
+import link.reminis.app.DiscoveryEvent
 import link.reminis.app.container
 import link.reminis.core.ApiException
 import link.reminis.core.DeviceStatus
@@ -37,6 +38,9 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
     private val container = app.container
     private val _consoles = MutableStateFlow(container.consoles.all())
     val consoles: StateFlow<List<PairedConsole>> = _consoles.asStateFlow()
+
+    /** mDNS service name → device id, for the services whose `/hello` validated with the pin. */
+    private val validated = MutableStateFlow<Map<String, String>>(emptyMap())
     private val _online = MutableStateFlow<Set<String>>(emptySet())
     val online: StateFlow<Set<String>> = _online.asStateFlow()
     private var browsing: Job? = null
@@ -45,70 +49,130 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
         _consoles.value = container.consoles.all().sortedBy { it.deviceName.lowercase() }
     }
 
-    /** Watches mDNS while the list is visible: a console is online once seen. */
+    /**
+     * Watches mDNS while the list is visible. An announcement alone is not
+     * trusted: a console is Online only after its `/hello` answered with the
+     * pinned certificate, and goes Offline when its service disappears.
+     */
     fun startBrowsing() {
         if (browsing?.isActive == true) return
         browsing = viewModelScope.launch {
-            runCatching { container.discovery.consoles().collect { c -> _online.update { it + c.deviceId } } }
+            runCatching {
+                container.discovery.events().collect { event ->
+                    when (event) {
+                        is DiscoveryEvent.Found -> {
+                            val c = event.console
+                            if (container.consoles.get(c.deviceId) != null) {
+                                launch {
+                                    if (container.validates(c.deviceId, c.endpoint)) {
+                                        setValidated { it + (c.serviceName to c.deviceId) }
+                                        reload()
+                                    }
+                                }
+                            }
+                        }
+                        is DiscoveryEvent.Lost -> setValidated { it - event.serviceName }
+                    }
+                }
+            }
         }
     }
 
     fun stopBrowsing() {
         browsing?.cancel()
         browsing = null
+        setValidated { emptyMap() }
+    }
+
+    private fun setValidated(change: (Map<String, String>) -> Map<String, String>) {
+        validated.update(change)
+        _online.value = validated.value.values.toSet()
     }
 
     fun forget(deviceId: String) {
         container.forget(deviceId)
+        setValidated { map -> map.filterValues { it != deviceId } }
         reload()
     }
 }
 
 // MARK: pairing
 
-enum class PairingStep { CONFIRM, SEARCHING, PAIRING, DONE }
+enum class PairingStep {
+    /** A link from another app: nothing is sent before the user confirms. */
+    CONFIRM_EXTERNAL,
+
+    /** The console is already paired: confirm to replace its pairing. */
+    CONFIRM,
+    SEARCHING,
+    PAIRING,
+    DONE,
+}
 
 data class PairingState(
     val step: PairingStep,
     val deviceName: String? = null,
     val deviceId: String? = null,
+    /** The address of the link, shown in the confirmation of an external link. */
+    val host: String? = null,
+    val alreadyPaired: Boolean = false,
     val error: Throwable? = null,
 )
 
+/** The pairing link of this screen is gone (the app was restarted): scan it again. */
+class PairingLinkGoneException : Exception("pairing link gone")
+
 /**
- * Pairing v2 (docs/specs/03-protocole.md §3): mDNS with the link's `id` for
- * 3 s, else the link's address; `GET /hello` then `POST /pair` over TLS
- * pinned on `k`; the console's proof is checked before anything is stored.
- * Once `POST /pair` is sent, leaving the screen does not cancel the exchange.
+ * Pairing v2 (docs/specs/03-protocole.md §3) for the link behind [token]
+ * (kept in memory by [link.reminis.app.PendingLinks]).
+ *
+ * - A link from another app waits for the user's confirmation before any
+ *   network access.
+ * - mDNS with the link's `id` for 3 s, then the link's address; every
+ *   candidate is tried with the pin `k`; `GET /hello` then `POST /pair`; the
+ *   console's proof is checked before anything is stored.
+ * - Until `POST /pair` is about to be sent, the work belongs to the screen:
+ *   leaving cancels everything. From then on it runs in the application
+ *   scope, so the exchange completes and is stored even if the screen goes.
  */
-class PairingViewModel(app: Application, private val link: PairingLink) : AndroidViewModel(app) {
+class PairingViewModel(app: Application, private val token: String) : AndroidViewModel(app) {
     private val container = app.container
-    private val _state = MutableStateFlow(
-        PairingState(
-            step = if (container.consoles.get(link.deviceId) != null) PairingStep.CONFIRM else PairingStep.SEARCHING,
-            deviceName = link.deviceName,
-        ),
-    )
+    private val pending = container.pendingLinks.get(token)
+    private val link: PairingLink? = pending?.link
+    private val _state = MutableStateFlow(initialState())
     val state: StateFlow<PairingState> = _state.asStateFlow()
     private var job: Job? = null
 
-    init {
-        if (_state.value.step == PairingStep.SEARCHING) start()
+    private fun initialState(): PairingState {
+        if (pending == null) return PairingState(PairingStep.SEARCHING, error = PairingLinkGoneException())
+        val link = pending.link ?: return PairingState(PairingStep.SEARCHING, error = pending.error)
+        val alreadyPaired = container.consoles.get(link.deviceId) != null
+        val step = when {
+            pending.external -> PairingStep.CONFIRM_EXTERNAL
+            alreadyPaired -> PairingStep.CONFIRM
+            else -> PairingStep.SEARCHING
+        }
+        return PairingState(step, link.deviceName, host = link.endpoint?.authority, alreadyPaired = alreadyPaired)
     }
 
+    init {
+        if (_state.value.step == PairingStep.SEARCHING && _state.value.error == null) start()
+    }
+
+    /** The user confirmed (external link, or replacing an existing pairing). */
     fun start() {
-        if (job?.isActive == true) return
+        val link = link ?: return
+        if (job?.isActive == true || _state.value.step == PairingStep.DONE) return
         _state.value = _state.value.copy(step = PairingStep.SEARCHING, error = null)
-        // The application scope: leaving the screen never interrupts an
-        // exchange whose POST /pair may already be sent.
-        job = container.scope.launch {
+        job = viewModelScope.launch {
             try {
-                val endpoint = Locator.locate(link.endpoint) { container.discovery.find(link.deviceId) }
-                    ?: throw ConsoleNotFoundException()
-                val client = container.newClient(endpoint, link.deviceId, link.pin)
-                val hello = client.hello()
+                val candidates = Locator.candidates(link.endpoint) { container.discovery.find(link.deviceId) }
+                val (endpoint, connected) = Locator.connectFirst(candidates) { ep ->
+                    val client = container.newClient(ep, link.deviceId, link.pin)
+                    client to client.hello()
+                }
+                val (client, hello) = connected
                 if (!hello.pairingOpen) throw PairingClosedException()
-                _state.value = _state.value.copy(step = PairingStep.PAIRING, deviceName = hello.deviceName)
                 val identity = withContext(Dispatchers.IO) { container.identityStore.identity() }
                 val attempt = PairingAttempt(
                     secret = link.secret,
@@ -117,20 +181,29 @@ class PairingViewModel(app: Application, private val link: PairingLink) : Androi
                     key = identity.key,
                     clientName = Pairing.clientName(container.clientName, container.defaultClientName),
                 )
-                val response = client.pair(attempt)
-                withContext(Dispatchers.IO) {
-                    container.forget(link.deviceId)
-                    container.consoles.put(
-                        PairedConsole(
-                            deviceId = response.deviceId,
-                            deviceName = response.deviceName,
-                            model = hello.model,
-                            pin = link.pin,
-                            lastEndpoint = endpoint,
-                            pairedAt = System.currentTimeMillis(),
-                        ),
-                    )
+                _state.value = _state.value.copy(step = PairingStep.PAIRING, deviceName = hello.deviceName)
+                // POST /pair is sent now: detach the exchange from the screen.
+                val exchange = container.scope.async {
+                  try {
+                    val response = client.pair(attempt)
+                    withContext(Dispatchers.IO) {
+                        container.replacePairing(
+                            PairedConsole(
+                                deviceId = response.deviceId,
+                                deviceName = response.deviceName,
+                                model = hello.model,
+                                pin = link.pin,
+                                lastEndpoint = endpoint,
+                                pairedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                    }
+                    response
+                  } finally {
+                    container.pendingLinks.remove(token)
+                  }
                 }
+                val response = exchange.await()
                 _state.value = PairingState(PairingStep.DONE, response.deviceName, response.deviceId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -138,6 +211,16 @@ class PairingViewModel(app: Application, private val link: PairingLink) : Androi
                 _state.value = _state.value.copy(error = e)
             }
         }
+    }
+
+    /** The user declined or left: the link is dropped from memory. */
+    fun cancel() {
+        job?.cancel()
+        container.pendingLinks.remove(token)
+    }
+
+    override fun onCleared() {
+        if (_state.value.step != PairingStep.PAIRING) container.pendingLinks.remove(token)
     }
 }
 

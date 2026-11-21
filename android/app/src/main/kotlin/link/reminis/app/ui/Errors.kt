@@ -2,9 +2,9 @@ package link.reminis.app.ui
 
 import android.content.Context
 import android.text.format.Formatter
-import link.reminis.app.ConsoleNotFoundException
 import link.reminis.app.R
 import link.reminis.core.ApiException
+import link.reminis.core.ConsoleNotFoundException
 import link.reminis.core.ErrorCodes
 import link.reminis.core.PairingException
 import link.reminis.core.PairingLinkException
@@ -16,6 +16,7 @@ class PairingClosedException : Exception("pairing closed")
 fun errorMessage(context: Context, error: Throwable): String = when (error) {
     is ConsoleNotFoundException -> context.getString(R.string.error_not_found)
     is PairingClosedException -> context.getString(R.string.error_pairing_closed)
+    is PairingLinkGoneException -> context.getString(R.string.error_link_gone)
     is PairingLinkException -> when (error.reason) {
         PairingLinkException.Reason.INVALID -> context.getString(R.string.error_invalid_link)
         PairingLinkException.Reason.OUTDATED_PAK -> context.getString(R.string.error_outdated_pak)

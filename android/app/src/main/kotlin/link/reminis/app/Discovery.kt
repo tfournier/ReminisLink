@@ -18,6 +18,12 @@ import link.reminis.core.Endpoint
 /** A pak seen on the network (docs/specs/03-protocole.md §2). Only `id` identifies it, never the name or the address. */
 data class DiscoveredConsole(val deviceId: String, val serviceName: String, val endpoint: Endpoint)
 
+/** What mDNS reports. An announcement is not authenticated: the app validates it with `/hello` and the pin. */
+sealed interface DiscoveryEvent {
+    data class Found(val console: DiscoveredConsole) : DiscoveryEvent
+    data class Lost(val serviceName: String) : DiscoveryEvent
+}
+
 /**
  * mDNS / DNS-SD discovery of `_reminislink._tcp` with the platform's NSD
  * (no Google Play Services). Each found service is resolved, one at a time
@@ -27,8 +33,8 @@ data class DiscoveredConsole(val deviceId: String, val serviceName: String, val 
 class Discovery(context: Context) {
     private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
 
-    /** Consoles as they are resolved, while collected. */
-    fun consoles(): Flow<DiscoveredConsole> = callbackFlow {
+    /** Consoles as they are resolved, and services as they disappear, while collected. */
+    fun events(): Flow<DiscoveryEvent> = callbackFlow {
         val pending = Channel<NsdServiceInfo>(Channel.UNLIMITED)
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) = Unit
@@ -36,7 +42,9 @@ class Discovery(context: Context) {
             override fun onServiceFound(info: NsdServiceInfo) {
                 pending.trySend(info)
             }
-            override fun onServiceLost(info: NsdServiceInfo) = Unit
+            override fun onServiceLost(info: NsdServiceInfo) {
+                trySend(DiscoveryEvent.Lost(info.serviceName))
+            }
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 Log.w(TAG, "mDNS discovery failed: $errorCode")
                 close()
@@ -46,7 +54,7 @@ class Discovery(context: Context) {
         launch {
             for (info in pending) {
                 val resolved = resolve(info) ?: continue
-                toConsole(resolved)?.let { trySend(it) }
+                toConsole(resolved)?.let { trySend(DiscoveryEvent.Found(it)) }
             }
         }
         nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)
@@ -57,7 +65,9 @@ class Discovery(context: Context) {
     }
 
     /** The address of the console with this id, as soon as mDNS resolves it; never returns while not found. */
-    suspend fun find(deviceId: String): Endpoint? = consoles().firstOrNull { it.deviceId == deviceId }?.endpoint
+    suspend fun find(deviceId: String): Endpoint? = events()
+        .firstOrNull { it is DiscoveryEvent.Found && it.console.deviceId == deviceId }
+        ?.let { (it as DiscoveryEvent.Found).console.endpoint }
 
     @Suppress("DEPRECATION") // resolveService: still the only API before 34, works on 34+.
     private suspend fun resolve(info: NsdServiceInfo): NsdServiceInfo? = suspendCancellableCoroutine { cont ->

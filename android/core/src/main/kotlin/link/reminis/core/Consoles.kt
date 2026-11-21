@@ -67,18 +67,56 @@ class ConsoleStore(private val file: File) {
     }
 }
 
+/** No candidate address of the console: mDNS did not find it and there is no fallback. */
+class ConsoleNotFoundException : Exception("console not found")
+
 /**
  * Finds the address of a console (docs/specs/06-app-ios.md §4.2, same rule on
  * Android): mDNS (NSD) with its `id` for 3 s, then the fallback address (the
  * QR code's `h`:`p` when pairing, the last validated address afterwards).
- * Either way the connection is pinned, so a fake pak cannot answer.
+ * Every candidate is tried with the same pin, so a fake pak cannot answer,
+ * and a fake mDNS announcement cannot hide the real console either.
  */
 object Locator {
     const val DISCOVERY_TIMEOUT_MS = 3_000L
 
+    /** The mDNS answer (within [timeoutMs]) then the fallback, without duplicates. */
+    suspend fun candidates(
+        fallback: Endpoint?,
+        timeoutMs: Long = DISCOVERY_TIMEOUT_MS,
+        find: suspend () -> Endpoint?,
+    ): List<Endpoint> = listOfNotNull(withTimeoutOrNull(timeoutMs) { find() }, fallback).distinct()
+
+    /** The first candidate, for callers that only need an address. */
     suspend fun locate(
         fallback: Endpoint?,
         timeoutMs: Long = DISCOVERY_TIMEOUT_MS,
         find: suspend () -> Endpoint?,
-    ): Endpoint? = withTimeoutOrNull(timeoutMs) { find() } ?: fallback
+    ): Endpoint? = candidates(fallback, timeoutMs, find).firstOrNull()
+
+    /**
+     * Runs [attempt] on each candidate until one validates (its `/hello`
+     * answered with the pinned certificate). A wrong certificate, another
+     * console or an unreachable address moves on to the next candidate; any
+     * other error comes from the real console and stops. When none
+     * validates, the identity error wins over the others: it is the one the
+     * user must act on.
+     */
+    suspend fun <T> connectFirst(candidates: List<Endpoint>, attempt: suspend (Endpoint) -> T): Pair<Endpoint, T> {
+        var identity: ApiException.IdentityChanged? = null
+        var mismatch: ApiException.DeviceMismatch? = null
+        var network: ApiException.Network? = null
+        for (endpoint in candidates) {
+            try {
+                return endpoint to attempt(endpoint)
+            } catch (e: ApiException.IdentityChanged) {
+                identity = e
+            } catch (e: ApiException.DeviceMismatch) {
+                mismatch = e
+            } catch (e: ApiException.Network) {
+                network = e
+            }
+        }
+        throw identity ?: mismatch ?: network ?: ConsoleNotFoundException()
+    }
 }

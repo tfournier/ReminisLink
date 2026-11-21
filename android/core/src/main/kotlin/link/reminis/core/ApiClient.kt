@@ -34,7 +34,8 @@ class ApiClient(
     val expectedDeviceId: String? = null,
     private val credentials: DeviceCredentials? = null,
     pin: String? = credentials?.pin,
-    private val appVersion: String = "1.0.0",
+    /** Compared with `minClientVersion` of `/hello` (M17: a client protocol version, not the app version). */
+    private val clientProtocolVersion: String = CLIENT_PROTOCOL_VERSION,
     baseClient: OkHttpClient = defaultBaseClient,
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
@@ -49,6 +50,10 @@ class ApiClient(
     internal val http: OkHttpClient = baseClient.newBuilder()
         .sslSocketFactory(trust.socketFactory(), trust)
         .hostnameVerifier(PinnedTrustManager.anyHostname)
+        // Never leave the pinned connection: a redirect could go to plain
+        // HTTP with the X-RL-* headers, or reuse a signature for another path.
+        .followRedirects(false)
+        .followSslRedirects(false)
         .addInterceptor(SigningInterceptor({ signer }, { nowMillis() / 1000 + clockOffsetSeconds }))
         .build()
 
@@ -62,7 +67,7 @@ class ApiClient(
         if (expectedDeviceId != null && hello.deviceId != expectedDeviceId) {
             throw ApiException.DeviceMismatch(expectedDeviceId, hello.deviceId)
         }
-        if (hello.apiVersion != API_VERSION || !AppVersion.isSupported(appVersion, hello.minClientVersion)) {
+        if (hello.apiVersion != API_VERSION || !AppVersion.isSupported(clientProtocolVersion, hello.minClientVersion)) {
             throw ApiException.Incompatible(hello.apiVersion, hello.minClientVersion)
         }
         return hello
@@ -170,6 +175,12 @@ class ApiClient(
 
     companion object {
         const val API_VERSION = 2
+        /**
+         * The client protocol version of this app (M17), compared with
+         * `minClientVersion`: the level of the API features it relies on,
+         * shared with the iOS app, not the Android versionName.
+         */
+        const val CLIENT_PROTOCOL_VERSION = "1.0.0"
         const val PLATFORM_HEADER = "X-RL-Platform"
         const val PLATFORM = "android"
         private val JSON = "application/json".toMediaType()
@@ -209,6 +220,10 @@ class SigningInterceptor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         if (request.tag(SignRequest::class.java) == null) return chain.proceed(request)
+        // The pak refuses a repeated query key: never sign one.
+        if (request.url.querySize != request.url.queryParameterNames.size) {
+            throw IOException(SignerException(SignerException.Reason.DUPLICATE_KEY))
+        }
         val signer = signer() ?: throw IOException("signed request without credentials")
         val body = request.body?.let { b -> Buffer().also { b.writeTo(it) }.readByteArray() } ?: ByteArray(0)
         val headers = signer.headers(

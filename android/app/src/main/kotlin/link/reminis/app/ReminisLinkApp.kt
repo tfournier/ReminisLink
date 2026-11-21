@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import android.os.Build
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +19,8 @@ import link.reminis.core.DeviceCredentials
 import link.reminis.core.Endpoint
 import link.reminis.core.Locator
 import link.reminis.core.PairedConsole
+import link.reminis.core.PairingLink
+import link.reminis.core.PairingLinkException
 
 class ReminisLinkApp : Application() {
     lateinit var container: AppContainer
@@ -30,15 +34,46 @@ class ReminisLinkApp : Application() {
 
 val Context.container: AppContainer get() = (applicationContext as ReminisLinkApp).container
 
-/** The console could not be found by mDNS nor at its fallback address. */
-class ConsoleNotFoundException : Exception("console not found")
+/**
+ * A pairing link waiting for its screen. [external]: opened from another
+ * app, so the user must confirm before any network access.
+ */
+class PendingLink(val link: PairingLink?, val error: PairingLinkException?, val external: Boolean)
+
+/**
+ * Pairing links kept in memory only, behind an opaque token: the QR secret
+ * never goes into navigation arguments or saved instance state. After a
+ * process restart the token is unknown and the link must be scanned again.
+ */
+class PendingLinks {
+    private val links = ConcurrentHashMap<String, PendingLink>()
+
+    fun put(text: String, external: Boolean): String {
+        val pending = try {
+            PendingLink(PairingLink.parse(text), null, external)
+        } catch (e: PairingLinkException) {
+            PendingLink(null, e, external)
+        }
+        val token = UUID.randomUUID().toString()
+        links[token] = pending
+        return token
+    }
+
+    fun get(token: String): PendingLink? = links[token]
+
+    fun remove(token: String) {
+        links.remove(token)
+    }
+}
 
 /** Long-lived objects of the app. */
 class AppContainer(context: Context) {
     val identityStore = IdentityStore(context)
     val consoles = ConsoleStore(File(context.filesDir, "consoles.json"))
     val discovery = Discovery(context)
-    /** Work that must outlive a screen (a pairing exchange). */
+    val pendingLinks = PendingLinks()
+
+    /** Work that must outlive a screen: a pairing exchange once `POST /pair` is sent. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -51,7 +86,7 @@ class AppContainer(context: Context) {
 
     val defaultClientName: String get() = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
 
-    private val clients = HashMap<String, ApiClient>()
+    private val clients = ConcurrentHashMap<String, ApiClient>()
     private val lock = Mutex()
 
     fun newClient(endpoint: Endpoint, deviceId: String, pin: String, credentials: DeviceCredentials? = null) = ApiClient(
@@ -59,34 +94,47 @@ class AppContainer(context: Context) {
         expectedDeviceId = deviceId,
         credentials = credentials,
         pin = pin,
-        appVersion = BuildConfig.CLIENT_PROTOCOL_VERSION,
     )
 
     /**
      * A signed client for a paired console, connected (`/hello` answered with
-     * the pinned certificate). mDNS for 3 s, then the last validated address.
+     * the pinned certificate). mDNS for 3 s, then the last validated address;
+     * each candidate is tried with the same pin.
      */
     suspend fun client(deviceId: String, refresh: Boolean = false): ApiClient = lock.withLock {
         if (!refresh) clients[deviceId]?.let { return it }
         val console = consoles.get(deviceId) ?: throw ApiException.NotPaired()
         val identity = withContext(Dispatchers.IO) { identityStore.identity() }
         val credentials = DeviceCredentials(deviceId, identity.clientId, identity.key, console.pin)
-        val found = Locator.locate(fallback = null) { discovery.find(deviceId) }
-        val candidates = listOfNotNull(found, console.lastEndpoint).distinct()
-        if (candidates.isEmpty()) throw ConsoleNotFoundException()
-        var failure: Exception = ConsoleNotFoundException()
-        for (endpoint in candidates) {
-            val client = newClient(endpoint, deviceId, console.pin, credentials)
-            try {
-                val hello = client.hello()
-                remember(console, endpoint, hello.deviceName, hello.model)
-                clients[deviceId] = client
-                return client
-            } catch (e: ApiException.Network) {
-                failure = e
-            }
+        val candidates = Locator.candidates(console.lastEndpoint) { discovery.find(deviceId) }
+        val (endpoint, connected) = Locator.connectFirst(candidates) { ep ->
+            val client = newClient(ep, deviceId, console.pin, credentials)
+            client to client.hello()
         }
-        throw failure
+        val (client, hello) = connected
+        remember(deviceId, endpoint, hello.deviceName, hello.model)
+        clients[deviceId] = client
+        client
+    }
+
+    /** Whether the console answers `/hello` at [endpoint] with its pinned certificate (for the Online state). */
+    suspend fun validates(deviceId: String, endpoint: Endpoint): Boolean {
+        val console = consoles.get(deviceId) ?: return false
+        return try {
+            val hello = newClient(endpoint, deviceId, console.pin).hello()
+            remember(deviceId, endpoint, hello.deviceName, hello.model)
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Stores a new pairing, replacing any entry of the same console in one atomic write. */
+    fun replacePairing(console: PairedConsole) {
+        consoles.put(console)
+        clients.remove(console.deviceId)
     }
 
     fun forget(deviceId: String) {
@@ -95,8 +143,8 @@ class AppContainer(context: Context) {
     }
 
     /** Keeps the console's own name (matched by id, never by name) and the address that answered. */
-    private suspend fun remember(console: PairedConsole, endpoint: Endpoint, deviceName: String, model: String) =
+    private suspend fun remember(deviceId: String, endpoint: Endpoint, deviceName: String, model: String) =
         withContext(Dispatchers.IO) {
-            consoles.update(console.deviceId) { it.copy(deviceName = deviceName, model = model, lastEndpoint = endpoint) }
+            consoles.update(deviceId) { it.copy(deviceName = deviceName, model = model, lastEndpoint = endpoint) }
         }
 }

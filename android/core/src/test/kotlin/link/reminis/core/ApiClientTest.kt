@@ -116,6 +116,64 @@ class ApiClientTest {
     }
 
     @Test
+    fun trustedChainIsStillRefusedWithoutThePin() = runBlocking {
+        // The base client trusts a private CA and accepts the server; the
+        // pinned client derived from it must still refuse another key.
+        val root = HeldCertificate.Builder().certificateAuthority(0).ecdsa256().build()
+        val leaf = HeldCertificate.Builder().ecdsa256().signedBy(root).addSubjectAlternativeName(server.hostName).build()
+        server.shutdown()
+        server = MockWebServer()
+        server.useHttps(HandshakeCertificates.Builder().heldCertificate(leaf, root.certificate).build().sslSocketFactory(), false)
+        server.start()
+        val trusting = HandshakeCertificates.Builder().addTrustedCertificate(root.certificate).build()
+        val base = okhttp3.OkHttpClient.Builder()
+            .sslSocketFactory(trusting.sslSocketFactory(), trusting.trustManager)
+            .build()
+        server.enqueue(json(helloJson()))
+        val control = base.newCall(okhttp3.Request.Builder().url(server.url("/api/v1/hello")).build()).execute()
+        assertEquals(200, control.code)
+        control.close()
+        assertEquals(1, server.requestCount)
+
+        server.enqueue(json(helloJson()))
+        try {
+            ApiClient(endpoint = endpoint, expectedDeviceId = deviceId, pin = pin, baseClient = base, nowMillis = { now }).hello()
+            fail("the base client's trust leaked into the pinned client")
+        } catch (_: ApiException.IdentityChanged) {
+        }
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun redirectsAreNotFollowed() = runBlocking {
+        val plain = MockWebServer()
+        plain.start()
+        try {
+            plain.enqueue(json(deviceJson))
+            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", plain.url("/api/v1/device")))
+            try {
+                client().device(); fail("redirect followed")
+            } catch (e: ApiException.UnexpectedStatus) {
+                assertEquals(302, e.status)
+            }
+            // The signed request reached the pinned server only.
+            assertTrue(server.takeRequest().getHeader("X-RL-Signature") != null)
+            assertEquals(0, plain.requestCount)
+
+            // An HTTPS redirect to another path is not followed either.
+            server.enqueue(MockResponse().setResponseCode(307).setHeader("Location", server.url("/api/v1/games")))
+            try {
+                client().device(); fail("redirect followed")
+            } catch (e: ApiException.UnexpectedStatus) {
+                assertEquals(307, e.status)
+            }
+            assertEquals(2, server.requestCount)
+        } finally {
+            plain.shutdown()
+        }
+    }
+
+    @Test
     fun helloChecksDeviceAndVersion() = runBlocking {
         server.enqueue(json(helloJson().replace(deviceId, "00000000-0000-4000-8000-000000000000")))
         try {

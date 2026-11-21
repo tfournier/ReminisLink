@@ -114,4 +114,11 @@
     <string name="error_shutting_down">ReminisLink se ferme sur la console.</string>
     <string name="error_storage">Les informations d’appairage n’ont pas pu être lues ou enregistrées sur ce téléphone.</string>
     <string name="error_generic">Une erreur est survenue (%1$s).</string>
+    <string name="error_link_gone">Ce lien d’appairage n’est plus disponible. Scanne de nouveau le QR code de la console.</string>
+    <string name="external_link_title">Appairer avec cette console\u00A0?</string>
+    <string name="external_link_message">Un lien d’appairage a été ouvert depuis une autre app. N’appaire ce téléphone que s’il s’agit de ta console et que son écran affiche ce QR code.</string>
+    <string name="external_link_console">Console\u00A0: %1$s</string>
+    <string name="external_link_address">Adresse\u00A0: %1$s</string>
+    <string name="external_link_unnamed">Console sans nom</string>
+    <string name="pair">Appairer</string>
 </resources>

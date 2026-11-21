@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -41,6 +42,9 @@ class IdentityTest {
     fun identitySignsAndPersists() {
         val first = IdentityStore(context).identity()
         Log.i("ReminisLinkTest", "identity storage: ${first.storage}")
+        // The emulator's Keystore supports Ed25519 (API 33+): the key must live there.
+        val emulator = android.os.Build.PRODUCT.startsWith("sdk_") || android.os.Build.FINGERPRINT.contains("generic")
+        if (emulator && android.os.Build.VERSION.SDK_INT >= 33) assertEquals(KeyStorage.KEYSTORE, first.storage)
         assertEquals(36, first.clientId.length)
         assertEquals(first.clientId, first.clientId.lowercase())
         val message = "RL2-ED25519\nGET\n/api/v1/device".toByteArray()
@@ -50,6 +54,93 @@ class IdentityTest {
         assertEquals(first.clientId, again.clientId)
         assertTrue(first.key.publicKey.contentEquals(again.key.publicKey))
         assertTrue(Ed25519.verify(again.key.publicKey, again.key.sign(message), message))
+    }
+}
+
+/**
+ * A pairing link opened from another app: nothing goes on the network before
+ * the user confirms, and leaving before `POST /pair` cancels everything. A
+ * local TCP socket stands for the console and counts connections.
+ */
+@RunWith(AndroidJUnit4::class)
+class ExternalLinkTest {
+    @get:Rule
+    val compose = createEmptyComposeRule()
+
+    private lateinit var server: java.net.ServerSocket
+    private val accepted = java.util.concurrent.LinkedBlockingQueue<java.net.Socket>()
+
+    @Before
+    fun setUp() {
+        forgetAll()
+        server = java.net.ServerSocket(0, 50, java.net.InetAddress.getByName("127.0.0.1"))
+        Thread {
+            while (!server.isClosed) {
+                runCatching { accepted.put(server.accept()) }
+            }
+        }.apply { isDaemon = true }.start()
+    }
+
+    @org.junit.After
+    fun tearDown() {
+        server.close()
+        accepted.forEach { runCatching { it.close() } }
+    }
+
+    private fun intent(): android.content.Intent {
+        val link = PairingLink(
+            deviceId = "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10",
+            deviceName = "Brick de test",
+            secret = ByteArray(32) { 1 },
+            endpoint = link.reminis.core.Endpoint("127.0.0.1", server.localPort),
+            pin = link.reminis.core.Base64Url.encode(ByteArray(32) { 2 }),
+        ).toUri()
+        return android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link))
+            .setClass(context, MainActivity::class.java)
+    }
+
+    @Test
+    fun nothingIsSentBeforeConfirmation() {
+        ActivityScenario.launch<MainActivity>(intent()).use {
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("externalConfirm").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText(context.getString(R.string.external_link_console, "Brick de test")).assertExists()
+            compose.onNodeWithText(context.getString(R.string.external_link_address, "127.0.0.1:${server.localPort}")).assertExists()
+            // Longer than the 3 s mDNS wait: still no connection.
+            Thread.sleep(4_500)
+            assertEquals(0, accepted.size)
+            compose.onNodeWithTag("cancelPair").performClick()
+            compose.waitForIdle()
+            Thread.sleep(4_000)
+            assertEquals(0, accepted.size)
+            assertTrue(context.container.consoles.all().isEmpty())
+        }
+    }
+
+    @Test
+    fun leavingBeforePairCancelsTheExchange() {
+        ActivityScenario.launch<MainActivity>(intent()).use { scenario ->
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("externalConfirm").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("confirmPair").performClick()
+            // mDNS finds nothing in 3 s, then the link's address is tried.
+            val socket = accepted.poll(15, java.util.concurrent.TimeUnit.SECONDS)
+            assertTrue("no connection after confirming", socket != null)
+            // The TLS handshake waits for an answer that never comes: leave the screen.
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithText(context.getString(R.string.welcome_step_scan)).fetchSemanticsNodes().isNotEmpty()
+            }
+            socket!!.soTimeout = 10_000
+            val input = socket.getInputStream()
+            val buffer = ByteArray(4096)
+            // The client closes the connection well before OkHttp's 15 s timeout.
+            try {
+                while (input.read(buffer) >= 0) Unit
+            } catch (e: java.net.SocketTimeoutException) {
+                throw AssertionError("the exchange was not cancelled when leaving the screen")
+            } catch (_: java.net.SocketException) {
+            }
+            assertTrue(context.container.consoles.all().isEmpty())
+        }
     }
 }
 

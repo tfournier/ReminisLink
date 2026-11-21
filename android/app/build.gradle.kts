@@ -18,10 +18,6 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // The client version compared with `minClientVersion` of `/hello`.
-        // The pak has one value for every app; the Android app declares the
-        // level of the iOS app it matches, not its own versionName.
-        buildConfigField("String", "CLIENT_PROTOCOL_VERSION", "\"1.0.0\"")
         // Integration test against a real pak (see docs/specs/10-app-android.md):
         // -Pandroid.testInstrumentationRunnerArguments.pairingLink=reminislink://pair?...
     }
@@ -39,7 +35,6 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     packaging {
