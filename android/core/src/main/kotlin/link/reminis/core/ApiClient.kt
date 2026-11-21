@@ -3,7 +3,12 @@ package link.reminis.core
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import okhttp3.Call
@@ -15,7 +20,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okio.Buffer
+import okio.HashingSink
+import okio.blackholeSink
+import okio.buffer
 
 /** What a signed client needs for one paired console: the identity that signs and the console's pin. */
 class DeviceCredentials(val deviceId: String, val clientId: String, val key: Ed25519Key, val pin: String)
@@ -109,17 +116,177 @@ class ApiClient(
 
     suspend fun game(id: String): GameDetail = signedJson("GET", listOf("games", id))
 
+    // MARK: box art (M8)
+
+    /** `PUT /games/{gameId}/art`: a PNG of at most 4 MiB and 1024 x 1024 (signed body). */
+    suspend fun setGameArt(gameId: String, png: ByteArray): ArtGame =
+        signedJson("PUT", listOf("games", gameId, "art"), body = png.toRequestBody(PNG))
+
+    /** `DELETE /games/{gameId}/art`: the art goes to the trash of the console. */
+    suspend fun deleteGameArt(gameId: String): ArtGame = signedJson("DELETE", listOf("games", gameId, "art"))
+
+    // MARK: uploads (docs/specs/03-protocole.md §7)
+
+    suspend fun createUpload(request: CreateUploadRequest): UploadCreated = signedJson(
+        "POST", listOf("uploads"), body = request.toJson().toRequestBody(JSON), accept = 201,
+    )
+
+    suspend fun uploadStatus(id: String): UploadStatus = signedJson("GET", listOf("uploads", id))
+
+    /**
+     * `PUT /uploads/{id}`: one chunk, read from [file] at [offset]. The only
+     * request whose body is `UNSIGNED` (the whole file is checked against
+     * the SHA-256 announced at creation). Returns the new offset.
+     *
+     * @param onSent bytes of this chunk handed to the network so far.
+     */
+    suspend fun sendChunk(
+        uploadId: String,
+        offset: Long,
+        file: java.io.File,
+        length: Long,
+        onSent: ((Long) -> Unit)? = null,
+    ): Long {
+        val response = signedResponse {
+            request("PUT", listOf("uploads", uploadId), body = FileRegionBody(file, offset, length, onSent), signed = true)
+                .newBuilder()
+                .header("Upload-Offset", offset.toString())
+                .tag(UnsignedBody::class.java, UnsignedBody)
+                .build()
+        }
+        return response.use {
+            if (it.code != 204) throw serverError(it)
+            it.header("Upload-Offset")?.toLongOrNull() ?: (offset + length)
+        }
+    }
+
+    suspend fun cancelUpload(id: String) = signedEmpty("DELETE", listOf("uploads", id))
+
+    suspend fun completeUpload(id: String): UploadResult = signedJson("POST", listOf("uploads", id, "complete"))
+
+    // MARK: saves (M5)
+
+    suspend fun saveBackups(gameId: String): List<Backup> =
+        signedJson<BackupList>("GET", listOf("games", gameId, "save", "backups")).backups
+
+    /** `POST /games/{gameId}/save/backups`: a manual backup copy, with an optional label. */
+    suspend fun createSaveBackup(gameId: String, label: String?): Backup = signedJson(
+        "POST", listOf("games", gameId, "save", "backups"),
+        body = ProtocolJson.encodeToString(CreateBackupRequest(label)).toRequestBody(JSON), accept = 201,
+    )
+
+    suspend fun restoreSaveBackup(gameId: String, backupId: String): BackupResult =
+        signedJson("POST", listOf("games", gameId, "save", "backups", backupId, "restore"))
+
+    /** The backup copy goes to the trash of the console. */
+    suspend fun deleteSaveBackup(gameId: String, backupId: String) =
+        signedEmpty("DELETE", listOf("games", gameId, "save", "backups", backupId))
+
+    /**
+     * `PUT /games/{gameId}/save` (at most [MAX_SAVE_BODY_BYTES], larger
+     * saves go through an upload). The body is streamed from [file] and
+     * signed like any other.
+     */
+    suspend fun replaceSave(gameId: String, file: java.io.File): BackupResult =
+        signedJson("PUT", listOf("games", gameId, "save"), body = FileRegionBody(file, 0, file.length(), null))
+
+    // MARK: states (M5)
+
+    suspend fun states(gameId: String): SlotList = signedJson("GET", listOf("games", gameId, "states"))
+
+    suspend fun lockState(gameId: String, slot: Int): Slot =
+        signedJson("PUT", listOf("games", gameId, "states", slot.toString(), "lock"))
+
+    suspend fun unlockState(gameId: String, slot: Int): Slot =
+        signedJson("DELETE", listOf("games", gameId, "states", slot.toString(), "lock"))
+
+    suspend fun restoreLockedState(gameId: String, slot: Int): Slot =
+        signedJson("POST", listOf("games", gameId, "states", slot.toString(), "restore"))
+
+    /** The state goes to the trash of the console (`409 state_locked` when locked). */
+    suspend fun deleteState(gameId: String, slot: Int): TrashMoveResult =
+        signedJson("DELETE", listOf("games", gameId, "states", slot.toString()))
+
+    /** The PNG thumbnail of a slot, null when larger than [maxBytes]. */
+    suspend fun stateThumbnail(gameId: String, slot: Int, maxBytes: Long = 8L shl 20): ByteArray? {
+        val response = signedResponse {
+            request("GET", listOf("games", gameId, "states", slot.toString(), "thumbnail"), signed = true)
+        }
+        return response.use {
+            if (it.code != 200) throw serverError(it)
+            val body = it.body ?: return null
+            if (body.contentLength() > maxBytes) return null
+            withContext(Dispatchers.IO) {
+                val source = body.source()
+                // More than maxBytes: not read at all.
+                if (source.request(maxBytes + 1)) null else source.readByteArray()
+            }
+        }
+    }
+
+    // MARK: downloads
+
+    /**
+     * Streams a file of the console into [out], never in memory: a file of a
+     * game (M11), the save, a backup copy or a state ([DownloadSource]).
+     * Cancelling the coroutine cancels the call. Returns the bytes written.
+     *
+     * @param onProgress bytes written so far, and the total when known.
+     */
+    suspend fun download(
+        source: DownloadSource,
+        out: java.io.OutputStream,
+        onProgress: (Long, Long?) -> Unit = { _, _ -> },
+    ): Long {
+        val response = signedResponse { request("GET", source.segments, signed = true) }
+        return response.use {
+            if (it.code != 200) throw serverError(it)
+            val body = it.body ?: throw ApiException.InvalidResponse("empty body")
+            val total = body.contentLength().takeIf { n -> n >= 0 }
+            val job = currentCoroutineContext()[Job]
+            // A read blocked on a stalled connection ends when the coroutine is cancelled.
+            val handle = job?.invokeOnCompletion { _ -> runCatching { it.close() } }
+            try {
+                withContext(Dispatchers.IO) {
+                    val input = body.byteStream()
+                    val buffer = ByteArray(64 * 1024)
+                    var written = 0L
+                    onProgress(0, total)
+                    while (true) {
+                        ensureActive()
+                        val n = try {
+                            input.read(buffer)
+                        } catch (e: IOException) {
+                            ensureActive()
+                            throw ApiException.Network(e)
+                        }
+                        if (n < 0) break
+                        out.write(buffer, 0, n)
+                        written += n
+                        onProgress(written, total)
+                    }
+                    if (total != null && written != total) throw ApiException.Network(IOException("truncated download"))
+                    out.flush()
+                    written
+                }
+            } finally {
+                handle?.dispose()
+            }
+        }
+    }
+
     // MARK: plumbing
 
-    private suspend inline fun <reified T> signedJson(
-        method: String,
-        segments: List<String>,
-        query: List<Pair<String, String>> = emptyList(),
-    ): T {
+    /**
+     * A signed request with the clock-skew retry: after `401 clock_skew`,
+     * `/hello` corrects the offset and the request is built and signed
+     * again, once. Any other answer is returned as is (the caller closes it).
+     */
+    private suspend fun signedResponse(build: () -> Request): Response {
         if (signer == null) throw ApiException.NotPaired()
         var retried = false
         while (true) {
-            val response = execute(request(method, segments, query, signed = true))
+            val response = execute(build())
             if (response.code == 401 && !retried) {
                 val error = serverError(response)
                 if (error is ApiException.Server && error.code == ErrorCodes.CLOCK_SKEW) {
@@ -129,7 +296,22 @@ class ApiClient(
                 }
                 throw error
             }
-            return decode(response, accept = 200)
+            return response
+        }
+    }
+
+    private suspend inline fun <reified T> signedJson(
+        method: String,
+        segments: List<String>,
+        query: List<Pair<String, String>> = emptyList(),
+        body: okhttp3.RequestBody? = null,
+        accept: Int = 200,
+    ): T = decode(signedResponse { request(method, segments, query, body, signed = true) }, accept)
+
+    /** A signed request answered `204 No Content`. */
+    private suspend fun signedEmpty(method: String, segments: List<String>) {
+        signedResponse { request(method, segments, signed = true) }.use {
+            if (it.code != 204) throw serverError(it)
         }
     }
 
@@ -196,7 +378,11 @@ class ApiClient(
         const val CLIENT_PROTOCOL_VERSION = "1.0.0"
         const val PLATFORM_HEADER = "X-RL-Platform"
         const val PLATFORM = "android"
+
+        /** Larger saves go through `POST /uploads` (target `save`). */
+        const val MAX_SAVE_BODY_BYTES = 64L shl 20
         private val JSON = "application/json".toMediaType()
+        private val PNG = "image/png".toMediaType()
 
         /** Shared connection pool and dispatcher; each console derives its own pinned client. */
         val defaultBaseClient: OkHttpClient by lazy {
@@ -225,6 +411,12 @@ class BeforeSend(val action: () -> Unit)
 object SignRequest
 
 /**
+ * Tag of an upload chunk: signed with `UNSIGNED` as the body hash. The
+ * [Signer] refuses it for any other request than `PUT /api/v1/uploads/{id}`.
+ */
+object UnsignedBody
+
+/**
  * Adds the five signature headers to the requests tagged [SignRequest]: the
  * path and query are taken percent-encoded from the URL actually sent, and
  * the body is hashed from its bytes.
@@ -241,17 +433,69 @@ class SigningInterceptor(
             throw IOException(SignerException(SignerException.Reason.DUPLICATE_KEY))
         }
         val signer = signer() ?: throw IOException("signed request without credentials")
-        val body = request.body?.let { b -> Buffer().also { b.writeTo(it) }.readByteArray() } ?: ByteArray(0)
-        val headers = signer.headers(
-            method = request.method,
-            path = request.url.encodedPath,
-            rawQuery = request.url.encodedQuery ?: "",
-            body = body,
-            time = unixTime(),
-        )
+        val unsigned = request.tag(UnsignedBody::class.java) != null
+        // The body is hashed as it is streamed (a file body is never held in memory).
+        val sha = if (unsigned) {
+            null
+        } else {
+            request.body?.let { body ->
+                val hashing = HashingSink.sha256(blackholeSink())
+                hashing.buffer().use { body.writeTo(it) }
+                hashing.hash.hex()
+            } ?: Signer.contentSha256(ByteArray(0))
+        }
+        val headers = try {
+            signer.headers(
+                method = request.method,
+                path = request.url.encodedPath,
+                rawQuery = request.url.encodedQuery ?: "",
+                unsignedBody = unsigned,
+                time = unixTime(),
+                bodySha256 = sha,
+            )
+        } catch (e: SignerException) {
+            // Never a non-IOException out of an interceptor (it would kill OkHttp's thread).
+            throw IOException(e)
+        }
         val builder = request.newBuilder()
         headers.asMap().forEach { (name, value) -> builder.header(name, value) }
         return chain.proceed(builder.build())
+    }
+}
+
+/**
+ * [length] bytes of [file] from [offset], read as they are sent (never held
+ * in memory) and readable again for a new attempt or for hashing.
+ */
+class FileRegionBody(
+    private val file: java.io.File,
+    private val offset: Long,
+    private val length: Long,
+    private val onSent: ((Long) -> Unit)?,
+) : okhttp3.RequestBody() {
+    override fun contentType() = OCTET_STREAM
+
+    override fun contentLength() = length
+
+    override fun writeTo(sink: okio.BufferedSink) {
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            raf.seek(offset)
+            val buffer = ByteArray(64 * 1024)
+            var left = length
+            var sent = 0L
+            while (left > 0) {
+                val n = raf.read(buffer, 0, minOf(buffer.size.toLong(), left).toInt())
+                if (n < 0) throw IOException("file shorter than expected")
+                sink.write(buffer, 0, n)
+                left -= n
+                sent += n
+                onSent?.invoke(sent)
+            }
+        }
+    }
+
+    private companion object {
+        val OCTET_STREAM = "application/octet-stream".toMediaType()
     }
 }
 

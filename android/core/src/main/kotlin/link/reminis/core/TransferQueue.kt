@@ -1,0 +1,570 @@
+package link.reminis.core
+
+import java.io.File
+import java.io.OutputStream
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+enum class TransferDirection { UPLOAD, DOWNLOAD }
+
+enum class TransferPhase {
+    /** Computing the SHA-256 of the file (uploads). */
+    HASHING,
+
+    /** Waiting for its turn. */
+    WAITING,
+
+    /** Sending or receiving. */
+    RUNNING,
+
+    /** Stopped (connection lost, console closed): resumes at the offset confirmed by the console. */
+    PAUSED,
+    FAILED,
+
+    /** A cancel waits for the console's answer: the item and its local copy stay. */
+    CANCELLING,
+    DONE,
+    CANCELLED,
+    ;
+
+    val isFinished: Boolean get() = this == DONE || this == CANCELLED
+
+    /** Work in progress or to come (keeps the transfer service running). */
+    val isActive: Boolean get() = this == HASHING || this == WAITING || this == RUNNING || this == CANCELLING
+}
+
+/** Where a download is written: a document chosen by the user (Storage Access Framework). */
+interface DownloadSink {
+    /** Opens the document for writing, truncated. */
+    fun open(): OutputStream
+
+    /** Removes the partial document (cancelled or cleared). Best effort. */
+    fun discard()
+}
+
+/** A transfer as shown: an immutable snapshot of the queue. */
+data class TransferItem(
+    val id: String,
+    val deviceId: String,
+    val direction: TransferDirection,
+    val fileName: String,
+    /** Where it goes or comes from, for display (system or game name). */
+    val destination: String,
+    /** Null for a download until the console announces its length. */
+    val sizeBytes: Long?,
+    val phase: TransferPhase,
+    /** Bytes confirmed by the console (upload) or written (download), plus the chunk in flight while it runs. */
+    val doneBytes: Long,
+    val hashedBytes: Long,
+    val bytesPerSecond: Double?,
+    val secondsRemaining: Long?,
+    /** Why it is paused or failed. */
+    val failure: Throwable?,
+    /** `complete` is in flight: the outcome is up to the console, it can no longer be cancelled. */
+    val isCompleting: Boolean,
+    val result: UploadResult?,
+    val target: UploadTarget?,
+) {
+    /** 0..1 of the current step (hashing, then transfer); null when the size is unknown. */
+    val fraction: Float?
+        get() {
+            val size = sizeBytes ?: return null
+            if (size <= 0) return if (phase == TransferPhase.DONE) 1f else 0f
+            val bytes = if (phase == TransferPhase.HASHING) hashedBytes else doneBytes
+            return (bytes.toFloat() / size).coerceIn(0f, 1f)
+        }
+
+    /** The upload stopped on `409 conflict` at completion: retry with another rule. */
+    val isNameConflict: Boolean
+        get() = direction == TransferDirection.UPLOAD && phase == TransferPhase.FAILED &&
+            failure?.serverCode == ErrorCodes.CONFLICT && target is UploadTarget.Rom
+}
+
+/**
+ * The uploads and downloads of every console (docs/specs/06-app-ios.md §4.7,
+ * mirror of `TransferQueue.swift`).
+ *
+ * Uploads run one at a time, in order; downloads too, beside them. Each
+ * upload is hashed (streamed), then sent by a [ResumableUpload]. A lost
+ * connection, or the console closing ReminisLink, pauses it: it resumes at
+ * the offset confirmed by the console ([resume], [resumePaused]). A cancel is
+ * final only once the console confirmed it. The queue lives in memory, as on
+ * iOS: it does not survive the death of the process (the app keeps the
+ * process alive with a foreground service while transfers run).
+ *
+ * Downloads stream into a document chosen by the user ([DownloadSink]),
+ * never through memory; a cancelled download removes its partial document.
+ */
+class TransferQueue(
+    private val scope: CoroutineScope,
+    private val retry: RetryPolicy = RetryPolicy(),
+    /** A signed, connected client for a console; `refresh` looks for it again (its address may have changed). */
+    private val client: suspend (deviceId: String, refresh: Boolean) -> ApiClient,
+) {
+    private class Entry(
+        val id: String,
+        val deviceId: String,
+        val direction: TransferDirection,
+        val fileName: String,
+        val destination: String,
+        var sizeBytes: Long?,
+        // Uploads
+        val file: File? = null,
+        val ownsFile: Boolean = false,
+        var target: UploadTarget? = null,
+        var onConflict: OnConflict = OnConflict.FAIL,
+        // Downloads
+        val source: DownloadSource? = null,
+        val sink: DownloadSink? = null,
+    ) {
+        var phase = TransferPhase.WAITING
+        var doneBytes = 0L
+        var inFlightBytes = 0L
+        var hashedBytes = 0L
+        var failure: Throwable? = null
+        var isCompleting = false
+        var result: UploadResult? = null
+        var sha256: String? = null
+        var upload: ResumableUpload? = null
+        var job: Job? = null
+        var pauseFlag = AtomicBoolean(false)
+        var refreshClient = false
+        val rate = TransferRate()
+    }
+
+    private val lock = Any()
+    private val entries = mutableListOf<Entry>()
+    private val workers = mutableMapOf<TransferDirection, Job>()
+    private var lastProgressPublish = 0L
+
+    private val _items = MutableStateFlow<List<TransferItem>>(emptyList())
+    val items: StateFlow<List<TransferItem>> = _items.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+
+    /** Transfers in progress or waiting. */
+    val isBusy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private val _finished = MutableSharedFlow<TransferItem>(extraBufferCapacity = 64)
+
+    /** Every transfer that reached `DONE` (screens reload what it changed). */
+    val finished: SharedFlow<TransferItem> = _finished.asSharedFlow()
+
+    // MARK: adding
+
+    /**
+     * Adds an upload at the end of the queue.
+     *
+     * @param file a local copy made for this upload ([ownsFile]: its
+     *   directory is deleted once the upload is done or cancelled).
+     */
+    fun enqueueUpload(
+        deviceId: String,
+        file: File,
+        fileName: String,
+        target: UploadTarget,
+        destination: String,
+        onConflict: OnConflict = OnConflict.FAIL,
+        ownsFile: Boolean,
+    ): String = add(
+        Entry(
+            id = UUID.randomUUID().toString(), deviceId = deviceId, direction = TransferDirection.UPLOAD,
+            fileName = fileName, destination = destination, sizeBytes = file.length(),
+            file = file, ownsFile = ownsFile, target = target, onConflict = onConflict,
+        ),
+    )
+
+    /** Adds a download of [source] into [sink]. */
+    fun enqueueDownload(
+        deviceId: String,
+        source: DownloadSource,
+        fileName: String,
+        destination: String,
+        sink: DownloadSink,
+        sizeBytes: Long? = null,
+    ): String = add(
+        Entry(
+            id = UUID.randomUUID().toString(), deviceId = deviceId, direction = TransferDirection.DOWNLOAD,
+            fileName = fileName, destination = destination, sizeBytes = sizeBytes, source = source, sink = sink,
+        ),
+    )
+
+    private fun add(entry: Entry): String = synchronized(lock) {
+        entries += entry
+        publish()
+        pump(entry.direction)
+        entry.id
+    }
+
+    // MARK: actions
+
+    /**
+     * Cancels a transfer. Ignored while `complete` is in flight. An upload
+     * known to the console is `CANCELLING` until the console answers:
+     * confirmed, `CANCELLED` (local copy deleted); no definite answer,
+     * `FAILED` with [UploadFailure.Reason.CANCEL_NOT_CONFIRMED], kept to
+     * resume or cancel again; gone after a `complete` whose answer was lost,
+     * `FAILED` with [UploadFailure.Reason.OUTCOME_UNKNOWN].
+     */
+    fun cancel(id: String) {
+        val entry: Entry
+        val upload: ResumableUpload?
+        synchronized(lock) {
+            entry = entries.firstOrNull { it.id == id } ?: return
+            if (entry.phase.isFinished || entry.isCompleting || entry.phase == TransferPhase.CANCELLING) return
+            entry.failure = null
+            if (entry.direction == TransferDirection.DOWNLOAD) {
+                entry.phase = TransferPhase.CANCELLED
+                val job = entry.job
+                job?.cancel()
+                publish()
+                scope.launch(Dispatchers.IO) {
+                    job?.join()
+                    runCatching { entry.sink?.discard() }
+                }
+                return
+            }
+            upload = entry.upload
+            if (upload == null || (upload.uploadId == null && !upload.completeSent)) {
+                // Nothing on the console yet.
+                entry.phase = TransferPhase.CANCELLED
+                entry.job?.cancel()
+                cleanUp(entry)
+                publish()
+                return
+            }
+            entry.phase = TransferPhase.CANCELLING
+            publish()
+        }
+        val running = entry.job
+        running?.cancel()
+        scope.launch {
+            // The run stops first: no chunk is sent after the cancel.
+            running?.join()
+            val outcome = try {
+                upload!!.cancel(client(entry.deviceId, false))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ResumableUpload.CancelOutcome.NotConfirmed(e)
+            }
+            synchronized(lock) {
+                if (entry.phase != TransferPhase.CANCELLING) return@launch
+                when (outcome) {
+                    ResumableUpload.CancelOutcome.Cancelled -> {
+                        entry.phase = TransferPhase.CANCELLED
+                        cleanUp(entry)
+                    }
+                    ResumableUpload.CancelOutcome.OutcomeUnknown -> {
+                        entry.phase = TransferPhase.FAILED
+                        entry.failure = UploadFailure(UploadFailure.Reason.OUTCOME_UNKNOWN)
+                    }
+                    is ResumableUpload.CancelOutcome.NotConfirmed -> {
+                        entry.phase = TransferPhase.FAILED
+                        entry.failure = UploadFailure(UploadFailure.Reason.CANCEL_NOT_CONFIRMED)
+                    }
+                }
+                publish()
+            }
+        }
+    }
+
+    /** Resumes a paused or failed transfer (a download starts again from the beginning). */
+    fun resume(id: String) = synchronized(lock) {
+        val entry = entries.firstOrNull { it.id == id } ?: return
+        resumeLocked(entry)
+        publish()
+    }
+
+    private fun resumeLocked(entry: Entry) {
+        if (entry.phase != TransferPhase.PAUSED && entry.phase != TransferPhase.FAILED) return
+        entry.phase = TransferPhase.WAITING
+        entry.failure = null
+        pump(entry.direction)
+    }
+
+    /** Resumes the paused transfers of a console (it answers again). */
+    fun resumePaused(deviceId: String) = synchronized(lock) {
+        entries.filter { it.deviceId == deviceId && it.phase == TransferPhase.PAUSED }.forEach { resumeLocked(it) }
+        publish()
+    }
+
+    /**
+     * Starts a failed upload again with another conflict rule ("Keep Both"
+     * is `rename`, "Replace" is `overwrite`); the previous upload is
+     * cancelled on the console, best effort.
+     */
+    fun retry(id: String, onConflict: OnConflict) {
+        val entry = synchronized(lock) {
+            val e = entries.firstOrNull { it.id == id } ?: return
+            if (e.direction != TransferDirection.UPLOAD) return
+            if (e.phase != TransferPhase.FAILED && e.phase != TransferPhase.PAUSED) return
+            e.onConflict = onConflict
+            // Not WAITING yet: nothing may start before the rule changed.
+            e.phase = TransferPhase.PAUSED
+            publish()
+            e
+        }
+        scope.launch {
+            val previous = entry.upload?.restart(onConflict)
+            if (previous != null) {
+                runCatching { client(entry.deviceId, false).cancelUpload(previous) }
+            }
+            resume(id)
+        }
+    }
+
+    /**
+     * Stops everything (the system ends the transfer service): the running
+     * upload after its current chunk, the running download at once (it
+     * starts again on resume); waiting transfers are paused.
+     */
+    fun pauseAll() = synchronized(lock) {
+        for (entry in entries) {
+            when (entry.phase) {
+                TransferPhase.WAITING -> entry.phase = TransferPhase.PAUSED
+                TransferPhase.HASHING, TransferPhase.RUNNING -> {
+                    entry.pauseFlag.set(true)
+                    if (entry.direction == TransferDirection.DOWNLOAD) entry.job?.cancel()
+                }
+                else -> Unit
+            }
+        }
+        publish()
+    }
+
+    /** Removes the finished transfers of a console (all consoles when null) from the list. */
+    fun clearFinished(deviceId: String? = null) = synchronized(lock) {
+        entries.removeAll { it.phase.isFinished && (deviceId == null || it.deviceId == deviceId) }
+        publish()
+    }
+
+    // MARK: work
+
+    private fun pump(direction: TransferDirection) {
+        if (workers[direction] != null) return
+        if (entries.none { it.direction == direction && it.phase == TransferPhase.WAITING }) return
+        workers[direction] = scope.launch {
+            while (true) {
+                val entry = synchronized(lock) {
+                    entries.firstOrNull { it.direction == direction && it.phase == TransferPhase.WAITING }
+                        ?: run { workers.remove(direction); null }
+                } ?: break
+                val job = launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                    if (direction == TransferDirection.UPLOAD) processUpload(entry) else processDownload(entry)
+                }
+                synchronized(lock) {
+                    entry.job = job
+                    entry.pauseFlag = AtomicBoolean(false)
+                }
+                job.start()
+                job.join()
+            }
+        }
+    }
+
+    private suspend fun processUpload(entry: Entry) {
+        val flag = entry.pauseFlag
+        val file = entry.file ?: return
+        try {
+            if (entry.sha256 == null) {
+                update(entry) {
+                    it.phase = TransferPhase.HASHING
+                    it.hashedBytes = 0
+                }
+                val sha = FileDigest.sha256(file, shouldPause = { flag.get() }) { bytes ->
+                    entry.hashedBytes = bytes
+                    publishProgress()
+                }
+                entry.sha256 = sha
+            }
+            if (flag.get()) throw UploadFailure(UploadFailure.Reason.PAUSED)
+            val upload = entry.upload ?: ResumableUpload(
+                file, entry.sizeBytes ?: file.length(), entry.sha256!!, entry.target!!, entry.onConflict, retry,
+            ).also { entry.upload = it }
+            update(entry) {
+                it.phase = TransferPhase.RUNNING
+                it.rate.reset()
+            }
+            val api = client(entry.deviceId, entry.refreshClient)
+            entry.refreshClient = false
+            val result = upload.run(
+                api,
+                shouldPause = { flag.get() },
+                progress = { offset ->
+                    entry.doneBytes = offset
+                    entry.inFlightBytes = 0
+                    entry.rate.record(offset)
+                    publishProgress()
+                },
+                chunkSent = { bytes ->
+                    entry.inFlightBytes = maxOf(entry.inFlightBytes, bytes)
+                    publishProgress()
+                },
+                willComplete = { update(entry) { it.isCompleting = true } },
+            )
+            val done = synchronized(lock) {
+                entry.isCompleting = false
+                if (entry.phase == TransferPhase.CANCELLED || entry.phase == TransferPhase.CANCELLING) return
+                entry.result = result
+                entry.doneBytes = entry.sizeBytes ?: entry.doneBytes
+                entry.inFlightBytes = 0
+                entry.phase = TransferPhase.DONE
+                cleanUp(entry)
+                publish()
+                snapshot(entry)
+            }
+            _finished.tryEmit(done)
+        } catch (e: Throwable) {
+            synchronized(lock) {
+                entry.isCompleting = false
+                entry.inFlightBytes = 0
+                // A cancellation in progress decides the phase itself.
+                if (entry.phase == TransferPhase.CANCELLED || entry.phase == TransferPhase.CANCELLING) return
+                failed(entry, e)
+                publish()
+            }
+            if (e is CancellationException && !scopeActive()) throw e
+        }
+    }
+
+    private suspend fun processDownload(entry: Entry) {
+        val source = entry.source ?: return
+        val sink = entry.sink ?: return
+        try {
+            update(entry) {
+                it.phase = TransferPhase.RUNNING
+                it.doneBytes = 0
+                it.rate.reset()
+            }
+            val api = client(entry.deviceId, entry.refreshClient)
+            entry.refreshClient = false
+            val out = withContext(Dispatchers.IO) { sink.open() }
+            try {
+                api.download(source, out) { written, total ->
+                    entry.doneBytes = written
+                    if (total != null) entry.sizeBytes = total
+                    entry.rate.record(written)
+                    publishProgress()
+                }
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { out.close() } }
+            }
+            val done = synchronized(lock) {
+                if (entry.phase == TransferPhase.CANCELLED) return
+                entry.phase = TransferPhase.DONE
+                entry.sizeBytes = entry.doneBytes
+                publish()
+                snapshot(entry)
+            }
+            _finished.tryEmit(done)
+        } catch (e: Throwable) {
+            synchronized(lock) {
+                if (entry.phase == TransferPhase.CANCELLED) return
+                failed(entry, e)
+                publish()
+            }
+            if (e is CancellationException && !scopeActive()) throw e
+        }
+    }
+
+    /** The phase after a failure: paused when it will resume (connection, console closing), failed otherwise. */
+    private fun failed(entry: Entry, e: Throwable) {
+        entry.failure = null
+        when {
+            e is UploadFailure && e.reason == UploadFailure.Reason.PAUSED -> entry.phase = TransferPhase.PAUSED
+            e is CancellationException -> entry.phase = TransferPhase.PAUSED
+            e is ApiException.Network || e is ConsoleNotFoundException -> {
+                entry.phase = TransferPhase.PAUSED
+                entry.failure = e
+                entry.refreshClient = true
+            }
+            e.serverCode == ErrorCodes.SHUTTING_DOWN || e.serverCode == ErrorCodes.DISCONNECTED -> {
+                entry.phase = TransferPhase.PAUSED
+                entry.failure = e
+                entry.refreshClient = true
+            }
+            else -> {
+                entry.phase = TransferPhase.FAILED
+                entry.failure = e
+            }
+        }
+    }
+
+    private fun scopeActive(): Boolean = scope.coroutineContext[Job]?.isActive != false
+
+    private fun cleanUp(entry: Entry) {
+        if (!entry.ownsFile) return
+        val directory = entry.file?.parentFile ?: return
+        scope.launch(Dispatchers.IO) { directory.deleteRecursively() }
+    }
+
+    private inline fun update(entry: Entry, change: (Entry) -> Unit) = synchronized(lock) {
+        change(entry)
+        publish()
+    }
+
+    /** Progress is published at most every 100 ms; phase changes at once. */
+    private fun publishProgress() = synchronized(lock) {
+        val now = System.nanoTime()
+        if (now - lastProgressPublish < 100_000_000L) return
+        publish()
+    }
+
+    private fun publish() {
+        lastProgressPublish = System.nanoTime()
+        _items.value = entries.map(::snapshot)
+        _busy.value = entries.any { it.phase.isActive }
+    }
+
+    private fun snapshot(e: Entry): TransferItem {
+        val shown = if (e.phase == TransferPhase.RUNNING) e.doneBytes + e.inFlightBytes else e.doneBytes
+        val size = e.sizeBytes
+        val rate = if (e.phase == TransferPhase.RUNNING) e.rate.bytesPerSecond else null
+        return TransferItem(
+            id = e.id, deviceId = e.deviceId, direction = e.direction, fileName = e.fileName,
+            destination = e.destination, sizeBytes = size,
+            phase = e.phase, doneBytes = if (size != null) minOf(shown, size) else shown,
+            hashedBytes = e.hashedBytes, bytesPerSecond = rate,
+            secondsRemaining = if (rate != null && rate > 0 && size != null) ((size - e.doneBytes) / rate).toLong() else null,
+            failure = e.failure, isCompleting = e.isCompleting, result = e.result, target = e.target,
+        )
+    }
+}
+
+/** Speed over the last seconds of a transfer. */
+class TransferRate(private val windowNanos: Long = 5_000_000_000L, private val now: () -> Long = System::nanoTime) {
+    private val samples = ArrayDeque<Pair<Long, Long>>()
+
+    @Synchronized
+    fun reset() = samples.clear()
+
+    @Synchronized
+    fun record(bytes: Long) {
+        val t = now()
+        samples.addLast(t to bytes)
+        while (samples.size > 2 && t - samples.first().first > windowNanos) samples.removeFirst()
+    }
+
+    val bytesPerSecond: Double?
+        @Synchronized get() {
+            if (samples.size < 2) return null
+            val (t0, b0) = samples.first()
+            val (t1, b1) = samples.last()
+            val dt = (t1 - t0) / 1e9
+            if (dt < 0.5 || b1 <= b0) return null
+            return (b1 - b0) / dt
+        }
+}
