@@ -36,7 +36,18 @@ func TestParseFlags(t *testing.T) {
 	if err != nil || !o.desktop || o.headless {
 		t.Fatalf("desktop: %+v, %v", o, err)
 	}
-	for _, args := range [][]string{{"--port", "70000"}, {"--port", "-1"}, {"extra"}, {"--nope"},
+	if o.os != "nextui" {
+		t.Fatalf("default OS %q", o.os)
+	}
+	if o, err := parseFlags([]string{"--os", "knulli"}, &stderr); err != nil || o.os != "knulli" {
+		t.Fatalf("--os knulli: %+v, %v", o, err)
+	}
+	t.Setenv("REMINISLINK_OS", "knulli") // set by the Knulli launcher
+	if o, err := parseFlags(nil, &stderr); err != nil || o.os != "knulli" {
+		t.Fatalf("REMINISLINK_OS: %+v, %v", o, err)
+	}
+	t.Setenv("REMINISLINK_OS", "")
+	for _, args := range [][]string{{"--os", "batocera"}, {"--port", "70000"}, {"--port", "-1"}, {"extra"}, {"--nope"},
 		{"--desktop"}, {"--desktop", "--headless", "--sd", "/x"}, {"--pairing-open"}, {"--desktop", "--sd", "/x", "--pairing-open"}} {
 		if _, err := parseFlags(args, &stderr); err == nil {
 			t.Errorf("%q accepted", args)
@@ -53,6 +64,9 @@ func TestRoots(t *testing.T) {
 	}
 	if r := roots(options{}); r.Roms != "/elsewhere/Roms" {
 		t.Errorf("environment: %+v", r)
+	}
+	if r := roots(options{sd: "/card", os: "knulli"}); r.Roms != filepath.Join("/card", "roms") || r.Data != filepath.Join("/card", "system", "ReminisLink") {
+		t.Errorf("--os knulli --sd: %+v", r)
 	}
 }
 
