@@ -541,6 +541,36 @@
         }
       }
     },
+    "A file appeared on the SD card where this entry goes back. Nothing was changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier est apparu sur la carte SD à l’endroit où revient cette entrée. Rien n’a été modifié."
+          }
+        }
+      }
+    },
+    "A file blocks the folder where this entry goes back: no free name can be used. Move or delete that file, then try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier bloque le dossier où revient cette entrée : aucun nom libre n’est possible. Déplace ou supprime ce fichier, puis réessaie."
+          }
+        }
+      }
+    },
+    "A file with the same name is already on the SD card. ReminisLink never replaces it without asking." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier du même nom est déjà sur la carte SD. ReminisLink ne le remplace jamais sans te demander."
+          }
+        }
+      }
+    },
     "A file with this name already exists on the console." : {
       "localizations" : {
         "fr" : {
@@ -577,6 +607,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un nouveau jeu dans %@"
+          }
+        }
+      }
+    },
+    "A picture of the QR code shown by the console, taken with another device and sent with AirDrop, for example." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une image du QR code affiché par la console, prise avec un autre appareil et envoyée par AirDrop, par exemple."
           }
         }
       }
@@ -765,6 +805,16 @@
         }
       }
     },
+    "Already on the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déjà sur la carte SD"
+          }
+        }
+      }
+    },
     "An IPS, BPS or UPS patch. It is sent to the staging area of the console, then applied." : {
       "localizations" : {
         "fr" : {
@@ -931,6 +981,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En automatique, la console choisit d’après l’archive ou son pak.json. Un pak du même nom n’est jamais remplacé sans demander."
+          }
+        }
+      }
+    },
+    "Back on the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De retour sur la carte SD"
+          }
+        }
+      }
+    },
+    "Back to the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retour sur la carte SD"
           }
         }
       }
@@ -1299,6 +1369,26 @@
         }
       }
     },
+    "Choose a Photo of the QR Code" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir une photo du QR code"
+          }
+        }
+      }
+    },
+    "Choose a Picture File" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir un fichier image"
+          }
+        }
+      }
+    },
     "Choose a zip archive or a folder whose name ends with .pak." : {
       "localizations" : {
         "fr" : {
@@ -1405,6 +1495,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Code"
+          }
+        }
+      }
+    },
+    "Comes back as %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revient sous le nom %@"
           }
         }
       }
@@ -2087,6 +2187,46 @@
         }
       }
     },
+    "Every file comes back with the same number added to its name, so the files of a game stay together." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque fichier revient avec le même numéro ajouté à son nom : les fichiers d’un jeu restent ensemble."
+          }
+        }
+      }
+    },
+    "Every file goes back to its original place." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque fichier retourne à son emplacement d’origine."
+          }
+        }
+      }
+    },
+    "Every file is back in its original place." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque fichier est revenu à son emplacement d’origine."
+          }
+        }
+      }
+    },
+    "Every free name is already taken on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tous les noms libres sont déjà pris sur la carte SD."
+          }
+        }
+      }
+    },
     "Everything in the trash of the console will be permanently deleted. This cannot be undone." : {
       "localizations" : {
         "fr" : {
@@ -2217,12 +2357,12 @@
         }
       }
     },
-    "Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied." : {
+    "Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied. Tap an entry to restore it: its files go back to their original place, never over a file already on the SD card." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les fichiers restent dans la corbeille de la console jusqu’à leur effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée."
+            "value" : "Les fichiers restent dans la corbeille de la console jusqu’à leur effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée. Touche une entrée pour la restaurer : ses fichiers retournent à leur emplacement d’origine, sans jamais remplacer un fichier déjà sur la carte SD."
           }
         }
       }
@@ -2387,6 +2527,16 @@
         }
       }
     },
+    "Hold the console in front of this Mac's camera, with the QR code facing it. You can also import a picture of the QR code, or pair from your iPhone or iPad: the pairing reaches this Mac through iCloud Keychain." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tiens la console devant la caméra de ce Mac, le QR code tourné vers elle. Tu peux aussi importer une image du QR code, ou appairer depuis ton iPhone ou ton iPad : l’appairage arrive sur ce Mac par le trousseau iCloud."
+          }
+        }
+      }
+    },
     "How to Update" : {
       "localizations" : {
         "fr" : {
@@ -2513,6 +2663,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Importer des données de jeu…"
+          }
+        }
+      }
+    },
+    "Import a Picture" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer une image"
           }
         }
       }
@@ -2907,12 +3067,32 @@
         }
       }
     },
+    "Make It the Game's Save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En faire la sauvegarde du jeu"
+          }
+        }
+      }
+    },
     "Make a Backup Copy…" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Faire une copie de secours…"
+          }
+        }
+      }
+    },
+    "Make it the game's save?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En faire la sauvegarde du jeu ?"
           }
         }
       }
@@ -3235,6 +3415,16 @@
         }
       }
     },
+    "No ReminisLink QR code was found in this picture. Use a sharp picture where the whole QR code shown by the console is visible." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun QR code ReminisLink n’a été trouvé dans cette image. Utilise une image nette où l’on voit tout le QR code affiché par la console."
+          }
+        }
+      }
+    },
     "No apps" : {
       "localizations" : {
         "fr" : {
@@ -3251,6 +3441,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucune copie de secours pour l’instant."
+          }
+        }
+      }
+    },
+    "No camera is available. Import a picture of the QR code, or pair the console from your iPhone or iPad: the pairing reaches this device through iCloud Keychain." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune caméra n’est disponible. Importe une image du QR code, ou appaire la console depuis ton iPhone ou ton iPad : l’appairage arrive sur cet appareil par le trousseau iCloud."
           }
         }
       }
@@ -3445,6 +3645,16 @@
         }
       }
     },
+    "Offered only when the identity of your Apple devices has not reached this device for a while." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proposé seulement quand l’identité de tes appareils Apple n’arrive pas sur cet appareil depuis un moment."
+          }
+        }
+      }
+    },
     "Offline" : {
       "localizations" : {
         "fr" : {
@@ -3481,6 +3691,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En ligne"
+          }
+        }
+      }
+    },
+    "Only if pairing keeps saying that the identity of your Apple devices has not arrived on this device." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seulement si l’appairage indique toujours que l’identité de tes appareils Apple n’est pas arrivée sur cet appareil."
+          }
+        }
+      }
+    },
+    "Only the save of a game still on the console can replace its current save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seule la sauvegarde d’un jeu encore présent sur la console peut remplacer sa sauvegarde actuelle."
           }
         }
       }
@@ -3835,6 +4065,16 @@
         }
       }
     },
+    "Reading the picture…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture de l’image…"
+          }
+        }
+      }
+    },
     "Reading what will be moved…" : {
       "localizations" : {
         "fr" : {
@@ -3921,6 +4161,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ReminisLink se ferme sur la console."
+          }
+        }
+      }
+    },
+    "ReminisLink is not allowed to use the camera. Allow it in Settings, or import a picture of the QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink n’a pas accès à la caméra. Autorise-le dans Réglages, ou importe une image du QR code."
           }
         }
       }
@@ -4025,6 +4275,16 @@
         }
       }
     },
+    "Replace the Current Save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la sauvegarde actuelle"
+          }
+        }
+      }
+    },
     "Replace the Game" : {
       "localizations" : {
         "fr" : {
@@ -4041,6 +4301,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer la liste"
+          }
+        }
+      }
+    },
+    "Replace the current save?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la sauvegarde actuelle ?"
           }
         }
       }
@@ -4125,12 +4395,62 @@
         }
       }
     },
+    "Reset Identity" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinitialiser l’identité"
+          }
+        }
+      }
+    },
+    "Reset This Device's Identity…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinitialiser l’identité de cet appareil…"
+          }
+        }
+      }
+    },
+    "Reset this device's identity?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réinitialiser l’identité de cet appareil ?"
+          }
+        }
+      }
+    },
     "Restore" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Restaurer"
+          }
+        }
+      }
+    },
+    "Restore %@?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer %@ ?"
+          }
+        }
+      }
+    },
+    "Restore Under a Free Name" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer sous un nom libre"
           }
         }
       }
@@ -4635,6 +4955,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Affiche les actions de cet emplacement"
+          }
+        }
+      }
+    },
+    "Shows what comes back, then restores it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche ce qui revient, puis le restaure."
           }
         }
       }
@@ -5487,6 +5817,16 @@
         }
       }
     },
+    "The copy goes back to the backup copies of the game; the current save does not change." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La copie retourne parmi les copies de secours du jeu ; la sauvegarde actuelle ne change pas."
+          }
+        }
+      }
+    },
     "The copy goes to the trash of the console. The current save does not change." : {
       "localizations" : {
         "fr" : {
@@ -5533,6 +5873,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "L’état de reprise actuel est d’abord archivé, puis remplacé par la version du %@."
+          }
+        }
+      }
+    },
+    "The current save cannot be replaced now: something else holds the place of the save or of its copy on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sauvegarde actuelle ne peut pas être remplacée pour l’instant : autre chose occupe la place de la sauvegarde ou de sa copie sur la carte SD."
           }
         }
       }
@@ -5789,6 +6139,66 @@
         }
       }
     },
+    "The files came back under a free name: the files already on the SD card were not changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers sont revenus sous un nom libre : ceux déjà sur la carte SD n’ont pas été modifiés."
+          }
+        }
+      }
+    },
+    "The game has no save on the console now: this save becomes its save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le jeu n’a plus de sauvegarde sur la console : cette sauvegarde devient la sienne."
+          }
+        }
+      }
+    },
+    "The identity could not be reset." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité n’a pas pu être réinitialisée."
+          }
+        }
+      }
+    },
+    "The identity of your Apple devices has arrived. Nothing was changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité de tes appareils Apple est arrivée. Rien n’a été modifié."
+          }
+        }
+      }
+    },
+    "The identity of your Apple devices has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet, then try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité de tes appareils Apple n’est pas encore entièrement arrivée sur cet appareil par le trousseau iCloud. Garde-le connecté à Internet, puis réessaie."
+          }
+        }
+      }
+    },
+    "The identity of your Apple devices has still not reached this device. If none of your devices can pair a console either, reset this device's identity." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité de tes appareils Apple n’est toujours pas arrivée sur cet appareil. Si aucun de tes appareils ne peut appairer de console non plus, réinitialise l’identité de cet appareil."
+          }
+        }
+      }
+    },
     "The imported cheats are added after the current ones." : {
       "localizations" : {
         "fr" : {
@@ -5845,6 +6255,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La copie verrouillée est la seule version restante, ou diffère de l’état : elle part dans la corbeille de la console. L’état lui-même ne change pas."
+          }
+        }
+      }
+    },
+    "The locks and the resume history of a game come back with it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les verrous et l’historique de reprise d’un jeu reviennent avec lui."
           }
         }
       }
@@ -5919,6 +6339,16 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "The pairing of this console has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet: ReminisLink connects as soon as it arrives." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’appairage de cette console n’est pas encore entièrement arrivé sur cet appareil par le trousseau iCloud. Garde-le connecté à Internet : ReminisLink se connecte dès qu’il arrive."
           }
         }
       }
@@ -6127,16 +6557,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "The scanner is not available on this device. Scan the QR code with the Camera app." : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le scanner n’est pas disponible sur cet appareil. Scanne le QR code avec l’app Appareil photo."
           }
         }
       }
@@ -6409,6 +6829,16 @@
         }
       }
     },
+    "This console was forgotten on another of your Apple devices" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette console a été oubliée sur un autre de tes appareils Apple"
+          }
+        }
+      }
+    },
     "This console's identity changed: it is not the console paired with this app, or it was reset. Nothing was sent. Pair it again by scanning its QR code." : {
       "localizations" : {
         "fr" : {
@@ -6425,6 +6855,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette copie ne peut pas être restaurée : elle est abîmée ou a été faite par un autre émulateur. Rien n’a été modifié."
+          }
+        }
+      }
+    },
+    "This entry is no longer in the trash of the console, or ReminisLink on the console is too old to restore it (update it)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette entrée n’est plus dans la corbeille de la console, ou ReminisLink sur la console est trop ancien pour la restaurer (mets-le à jour)."
           }
         }
       }
@@ -6645,6 +7085,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette image ne peut pas servir d’image du jeu. Choisis-en une autre."
+          }
+        }
+      }
+    },
+    "This picture is too large. Use a smaller picture of the QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image est trop grande. Utilise une image plus petite du QR code."
+          }
+        }
+      }
+    },
+    "This save becomes the save of the game. The current save goes to the trash of the console first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle part d’abord dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu (écran Sauvegarde)."
+          }
+        }
+      }
+    },
+    "This save becomes the save of the game. The current save is kept first as a backup copy of the game (Save screen); as part of the safe replacement, the current save and its clock file are also placed in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu (écran Sauvegarde) ; pour un remplacement sûr, la sauvegarde actuelle et son fichier d’horloge sont aussi placés dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "This save is now the save of the game. The previous save is in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde est maintenant celle du jeu. La sauvegarde précédente est dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "This save is now the save of the game. The previous save is kept as a backup copy of the game (Save screen)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde est maintenant celle du jeu. La sauvegarde précédente est gardée comme copie de secours du jeu (écran Sauvegarde)."
           }
         }
       }
@@ -7129,6 +7629,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Tu peux fermer cet écran : la console continue. Suis-la dans Transferts."
+          }
+        }
+      }
+    },
+    "Your Apple devices will use a new identity for the consoles you pair from now on. Consoles already paired keep working, here too once their pairing reaches this device; only a console paired solely with the missing identity would have to be paired again from this device." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tes appareils Apple utiliseront une nouvelle identité pour les consoles que tu appaireras désormais. Les consoles déjà appairées continuent de fonctionner, ici aussi dès que leur appairage arrive sur cet appareil ; seule une console appairée uniquement avec l’identité manquante devrait être appairée de nouveau depuis cet appareil."
           }
         }
       }

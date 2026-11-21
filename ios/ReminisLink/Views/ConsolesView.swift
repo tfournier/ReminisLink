@@ -16,6 +16,9 @@ struct ConsolesView: View {
                     if let notice = app.closedNotice {
                         Section { ClosedConsoleNoticeView(notice: notice) }
                     }
+                    if let notice = app.forgottenNotice {
+                        Section { ForgottenConsoleNoticeView(notice: notice) }
+                    }
                     if app.discovery.status == .localNetworkDenied {
                         Section { ErrorView(error: .localNetworkDenied) }
                     }
@@ -226,6 +229,35 @@ struct ClosedConsoleNoticeView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(Text("Dismiss"))
             .accessibilityIdentifier("closedNotice.dismiss")
+        }
+    }
+}
+
+/// A console forgotten on another device of the Apple account (M15).
+struct ForgottenConsoleNoticeView: View {
+    @Environment(AppModel.self) private var app
+    let notice: ForgottenConsoleNotice
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("This console was forgotten on another of your Apple devices")
+                    .font(.headline)
+                if let name = notice.name {
+                    Text(name).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("consoles.forgottenNotice")
+            Spacer(minLength: 0)
+            Button {
+                app.forgottenNotice = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Dismiss"))
         }
     }
 }

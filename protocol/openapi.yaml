@@ -417,14 +417,15 @@ paths:
           every 5 s.
         - `library`: `EventLibrary`, after any change of the SD card made
           through the API by any client (upload installed, deletion,
-          replacement, restore, patch, archive import, cheats, art, trash), so the app
+          replacement, restore, patch, archive import, cheats, art, trash,
+          restore from the trash), so the app
           refreshes what it shows. At most one every second (changes are
           merged).
         - `job`: a `Job`, when a job of any client changes state, and
           while it runs at most once per second.
         - `paks` (M12): `EventPaks` (an empty object), after a pak was
-          installed (a `pak-install` job that succeeded) or deleted by any
-          client, so the
+          installed (a `pak-install` job that succeeded), deleted or
+          restored from the trash (M18, with `library`) by any client, so the
           app reloads `GET /paks`. At most one every second (changes are
           merged). A pak change does not send `library`.
 
@@ -970,7 +971,7 @@ paths:
         reaches 30 days: the age grows with the running time of the pak and,
         at each launch, with the time since the last close (at most 7 days
         per launch), so a wrong console clock can only delay the purge.
-        Restoring from the trash is not part of v1.
+        An entry can be put back with `POST /trash/{entryId}/restore` (M18).
       responses:
         '200':
           description: Trash entries.
@@ -1044,6 +1045,176 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /trash/{entryId}/restore:
+    parameters:
+      - name: entryId
+        in: path
+        required: true
+        description: Trash entry identifier.
+        schema: { $ref: '#/components/schemas/OpaqueId' }
+        example: tr_20261118T170000Z_a1b2
+    get:
+      tags: [Trash]
+      operationId: previewTrashRestore
+      summary: Preview the restore of a trash entry (M18)
+      description: |
+        Read only, never waits for a write. What `POST` would put back:
+        every user file of the entry (the ReminisLink copies of the entry,
+        locks and resume history, come back too but are not listed), its
+        original place, whether that place is taken, and the free name it
+        would get with `onConflict: rename`. A place is taken when a file or
+        folder of the same name exists there, ignoring case (the SD card is
+        exFAT). Computed by the same code as the restore; another client
+        can change the card between the preview and the restore.
+        `freeNameUnavailable` says when no free name exists (every
+        ` (N)` up to 999 taken, or a folder on the way is a file): the
+        `freeName` of every item is then null and `onConflict: rename`
+        would answer `409`. `replaceable` says whether
+        `onConflict: replace` is possible (the entry holds only the save,
+        and its clock file, of a game that still exists), with the current
+        files it would move to the trash (`replaceDisplaced`) and where
+        each item would go (`replaceName`). An entry whose files do not
+        match its journal (a file it does not list, a link) answers `500`
+        and is never changed.
+      responses:
+        '200':
+          description: What would come back.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrashRestorePreview' }
+              example:
+                entryId: tr_20261118T170000Z_a1b2
+                reason: delete-game
+                label: Sky Garden Quest
+                conflict: true
+                items:
+                  - name: Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba
+                    size: 16777216
+                    conflict: true
+                    freeName: Roms/Game Boy Advance (GBA)/Sky Garden Quest (2).gba
+                  - name: Saves/GBA/Sky Garden Quest.gba.sav
+                    size: 131072
+                    conflict: false
+                    freeName: Saves/GBA/Sky Garden Quest (2).gba.sav
+                restoredBytes: 16908288
+                freeNameUnavailable: null
+                replaceable: false
+                replaceDisplaced: []
+                replaceKeptAs: null
+                replaceUnavailable: not-a-save
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+    post:
+      tags: [Trash]
+      operationId: restoreTrashEntry
+      summary: Restore a trash entry (M18)
+      description: |
+        Puts every item of the entry back to its original place (renames on
+        the same SD card), the ReminisLink copies (locks, resume history)
+        included: a deleted game comes back with its save, clock file
+        (`.rtc`), states, cheats and art; a deleted or replaced pak comes
+        back as a folder of the paks. The server resolves the places from
+        the entry itself, never from the request. A present file is never
+        overwritten: when a place is taken (same name ignoring case, file
+        or folder), `onConflict: fail` (default) answers `409 conflict`
+        with `details.conflicts` (the taken places, relative to the SD
+        card) and changes nothing; `onConflict: rename` puts every item of
+        the entry under the same free name instead, ` (N)` inserted after
+        the game name, before its extensions (`Sky Garden Quest (2).gba`,
+        `Sky Garden Quest (2).gba.sav`, `Clock (2).pak`), so the files of a
+        game stay together; the playlist of a folder game (`Game/Game.m3u`
+        or `.cue`) is renamed after its folder (`Game (2)/Game (2).m3u`, as
+        NextUI needs), its content is not rewritten. Without any free name,
+        `rename` answers `409` too, with `details.freeNameUnavailable`.
+
+        `onConflict: replace` (an entry holding only the save, and its
+        clock file, of a game that still exists, recognised by the rules
+        of the OS adapter: NextUI `Saves/<TAG>/<ROM file>.sav`, Knulli
+        `saves/<system>/<ROM name>.srm`, names compared with the case rule
+        of each folder; or the backup copy of such a save, see below;
+        anything else answers
+        `422 unsupported_format` with `details.reason`, as
+        `replaceUnavailable` of the preview: `not-a-save`, `game-missing`,
+        `save-format`, `place-blocked` or `backup-taken`): the current save and clock file
+        of the game (names compared ignoring case) are first moved to a new
+        trash entry (reason `restore`, `replacedEntryId`), then the items
+        go back under the exact names the game uses. Journaled like the
+        rest: a failure, or a power cut before the first item went back,
+        puts the current save back.
+        The backup copy of a save (an entry `delete-backup`: a copy the app
+        deleted or the automatic limits pushed out, i.e. a replaced save)
+        can replace the current save too: the copy first goes back to the
+        backups of its game (as with `fail`), then it is restored like
+        `POST /games/{gameId}/save/backups/{backupId}/restore`, the current
+        save being kept as a `before-restore` backup copy
+        (`replacedKeptAs: backup`; the automatic limit never moves the
+        restored copy to the trash in that operation). A copy with a
+        clock file goes in with it as one journaled replacement (the
+        current pair also goes to a trash entry, reason `restore`): a
+        power cut is finished or rolled back as a pair. If that second
+        step fails, the copy stays in the backups of the game and the
+        answer is `500`.
+
+        All or nothing: on an error every item already restored goes back
+        to the entry; a request that fails before the first item went back
+        never restores anything, even after a power cut. A power cut after
+        an item went back is finished at the next start (each item goes to
+        its journaled place when that place is still free and valid for the
+        rule, after the same checks as the request; the rest stays in the
+        entry). An item never replaces a file that appears meanwhile. The entry leaves `GET /trash`
+        once everything came back. A pak folder goes through the checks of
+        an installation (`launch.sh` at its top, no link nor special file,
+        limits of `POST /paks/install`): a refused folder answers
+        `422 unsupported_format` and stays in the trash. The purge of the
+        trash never runs during a restore.
+
+        A write (see "Writes one at a time"). Publishes a `library` event
+        (empty `systemIds`) and, when a pak came back, a `paks` event.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TrashRestoreRequest' }
+            example: { onConflict: rename }
+      responses:
+        '200':
+          description: Restored; the entry is no longer in the trash.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrashRestoreResult' }
+              example:
+                restored:
+                  - Roms/Game Boy Advance (GBA)/Sky Garden Quest (2).gba
+                  - Saves/GBA/Sky Garden Quest (2).gba.sav
+                restoredBytes: 16908288
+                renamed: true
+                replacedEntryId: null
+                replaced: []
+                replacedKeptAs: null
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A place is taken (`conflict`, `details.conflicts`) and `onConflict` is `fail`, or `rename` without a free name (`details.freeNameUnavailable`); nothing was changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  code: conflict
+                  message: A file exists where the entry goes back
+                  details: { conflicts: [Saves/GBA/Sky Garden Quest.gba.sav] }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -1319,9 +1490,13 @@ paths:
         save with the chosen backup. The response carries that safety copy
         (null if there was no current save). The clock file of the game
         (`.rtc`) is backed up with the save and restored with it when the
-        backup has one (renamed before the save); a backup without clock
-        file (made when the game had none) restores the save only and
+        backup has one: the pair goes in as one journaled replacement (the
+        current pair also goes to a trash entry, reason `restore`; M18), so
+        a power cut is finished or rolled back as a pair; a backup without
+        clock file (made when the game had none) restores the save only and
         leaves the current clock file in place (it is in the safety copy).
+        The automatic limit never moves the restored backup to the trash
+        in that operation.
         `409 conflict` when the backup does not match its checksum (nothing
         is changed).
       parameters:
@@ -2812,7 +2987,8 @@ components:
       description: |
         `conflict` (target exists: `details.existing`; wrong upload offset:
         `details.offset`; M12: deleting or replacing the pak of ReminisLink
-        itself, `details.self: true`), `checksum_mismatch` or `state_locked`.
+        itself, `details.self: true`; M18: places of a trash restore taken,
+        `details.conflicts`), `checksum_mismatch` or `state_locked`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -3312,6 +3488,80 @@ components:
       required: [freedBytes]
       properties:
         freedBytes: { $ref: '#/components/schemas/Bytes' }
+    TrashRestoreRequest:
+      type: object
+      description: Optional body; when present, a JSON object (`null` is refused with `400`).
+      properties:
+        onConflict:
+          type: string
+          enum: [fail, rename, replace]
+          default: fail
+          description: '`fail`: `409 conflict` when a place is taken. `rename`: every item of the entry goes back under the same free name. `replace`: the save of an existing game replaces the current one, which goes to the trash first. Never `null`.'
+    TrashRestoreItem:
+      type: object
+      required: [name, size, conflict, freeName]
+      properties:
+        name: { type: string, description: 'Original place, relative to the SD card (informative).' }
+        size: { $ref: '#/components/schemas/Bytes' }
+        conflict: { type: boolean, description: 'The place is taken (same name ignoring case).' }
+        freeName:
+          type: [string, 'null']
+          description: 'Where it goes with `onConflict: rename`, relative to the SD card; `name` when the entry has no conflict; null when no free name exists (`freeNameUnavailable`).'
+        replaceName:
+          type: [string, 'null']
+          description: 'Where it goes with `onConflict: replace` (the live name of the save), null when the entry cannot replace.'
+    TrashRestorePreview:
+      type: object
+      required: [entryId, reason, label, conflict, items, restoredBytes, freeNameUnavailable, replaceable, replaceDisplaced, replaceKeptAs, replaceUnavailable]
+      properties:
+        entryId: { $ref: '#/components/schemas/OpaqueId' }
+        reason: { type: string, description: 'The `reason` of the `TrashEntry`.' }
+        label: { type: string }
+        conflict: { type: boolean, description: 'At least one place is taken (a ReminisLink copy included): `onConflict: fail` would answer `409`.' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TrashRestoreItem' }
+        restoredBytes: { $ref: '#/components/schemas/Bytes' }
+        freeNameUnavailable:
+          type: [string, 'null']
+          enum: [all-taken, path-blocked, null]
+          description: 'Null unless the entry has a conflict and no free name: `all-taken` (every ` (N)` up to 999), `path-blocked` (a folder on the way is a file).'
+        replaceable: { type: boolean, description: '`onConflict: replace` is possible.' }
+        replaceDisplaced:
+          type: array
+          description: The current files `replace` would move out of the way first, relative to the SD card.
+          items: { type: string }
+        replaceKeptAs:
+          type: [string, 'null']
+          enum: [trash, backup, null]
+          description: 'Where those current files are kept with `replace`: `trash` (a new trash entry) or `backup` (a "before-restore" backup copy of the save, when the entry is the backup copy of a save and the game has a save); null when nothing would move away (or not replaceable).'
+        replaceUnavailable:
+          type: [string, 'null']
+          enum: [not-a-save, game-missing, save-format, place-blocked, backup-taken, null]
+          description: 'Why `replace` is not possible now (null when it is): not the save of a game (or its backup copy), the game is gone, a save format the pak does not write, a place of the save held by something `replace` does not move (a folder), or the backup copy cannot go back to the backups of its game (a file of its name is there).' 
+    TrashRestoreResult:
+      type: object
+      required: [restored, restoredBytes, renamed, replacedEntryId, replaced, replacedKeptAs]
+      properties:
+        restored:
+          type: array
+          description: Where the user files went, relative to the SD card (informative).
+          items: { type: string }
+        restoredBytes: { $ref: '#/components/schemas/Bytes' }
+        renamed: { type: boolean, description: 'The items went back under a free name (`onConflict: rename` with a taken place).' }
+        replacedEntryId:
+          oneOf:
+            - { $ref: '#/components/schemas/OpaqueId' }
+            - { type: 'null' }
+          description: With `replace`, the trash entry now holding the current files moved away.
+        replaced:
+          type: array
+          description: Those files, relative to the SD card (empty otherwise).
+          items: { type: string }
+        replacedKeptAs:
+          type: [string, 'null']
+          enum: [trash, backup, null]
+          description: 'With `replace`, where they are kept (see `TrashRestorePreview.replaceKeptAs`); null otherwise.' 
 
     Backup:
       type: object

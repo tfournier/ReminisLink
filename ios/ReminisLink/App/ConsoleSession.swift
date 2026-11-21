@@ -19,7 +19,12 @@ final class ConsoleSession {
     /// Set here and by the `device` events (M14).
     var status: DeviceStatus?
     private(set) var trash: TrashList?
-    private(set) var client: APIClient?
+    private(set) var client: APIClient? {
+        didSet { currentClient.set(client) }
+    }
+    /// The current client, readable from any thread: a running upload
+    /// checks between chunks that its client is still this one (M15).
+    @ObservationIgnored let currentClient = CurrentClientBox()
     /// Changes when games were added or deleted: the library screens reload.
     /// Also changed by the `library` events (M14).
     var libraryRevision = 0
@@ -44,6 +49,15 @@ final class ConsoleSession {
     /// The console closed ReminisLink (M11): no automatic connection until
     /// the user opens the console again.
     private(set) var closedByConsole = false
+
+    /// Uploads were paused because the credentials changed (M15): they
+    /// resume after the next connection, not on a return to the foreground.
+    @ObservationIgnored private(set) var pausedForCredentials = false
+    /// The connection dropped last, cancelled (tests wait for its end).
+    @ObservationIgnored private(set) var droppedConnection: Task<Void, Never>?
+
+    /// The credentials of the last connection (nil before one read them).
+    @ObservationIgnored private(set) var signedWith: SigningKey?
 
     /// Strong (M16): a task of this session may outlive the app's list of
     /// sessions (a demo that ended); the app drops its sessions
@@ -112,6 +126,10 @@ final class ConsoleSession {
             _ = currentAttempt(explicit: true)
         case .failed(let error) where error.isDisconnected:
             _ = currentAttempt(explicit: true)
+        case .failed(let error) where error.isPairingProblem:
+            // M15: read the shared Keychain again, the pairing may have
+            // arrived (or changed) since the failure.
+            _ = currentAttempt(explicit: true)
         default:
             break
         }
@@ -125,7 +143,9 @@ final class ConsoleSession {
     }
 
     func connectIfNeeded() async {
-        guard !closedByConsole else { return }
+        // M15: a screen still shown while the app is in the background
+        // connects when it comes back (becomeActive).
+        guard !closedByConsole, !app.isInBackground else { return }
         if state == .idle || attempt != nil { await connect() }
     }
 
@@ -145,8 +165,10 @@ final class ConsoleSession {
     /// explicit action: every automatic path (screens, transfers, a sheet
     /// that ends) comes through here and is refused.
     func connect(explicit: Bool = false) async {
-        // M16: a demo that ended connects no more.
-        guard !app.isShutDown else { return }
+        // M16: a demo that ended connects no more. M15: nothing connects in
+        // the background (a deferred action, a screen still shown); the
+        // console shown connects when the app is active again.
+        guard !app.isShutDown, !app.isInBackground else { return }
         if closedByConsole {
             guard explicit else { return }
             closedByConsole = false
@@ -188,30 +210,49 @@ final class ConsoleSession {
             attempt.finish()
         }
         do {
-            guard let credentials = try app.store.credentials(for: deviceId) else {
-                throw AppError.api(.notPaired)
-            }
-            let endpoint = try await app.endpoint(for: deviceId)
-            let observed = ObservedClient()
-            let client = app.makeClient(
-                endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials,
-                errorObserver: { [weak self] error, sentAt in
-                    Task { @MainActor in
-                        guard let client = observed.client else { return }
-                        self?.observe(error, sentAt: sentAt, from: client)
+            signedWith = nil
+            var credentials = try currentCredentials()
+            signedWith = SigningKey(credentials)
+            var endpoint = try await app.endpoint(for: deviceId)
+            var client: APIClient
+            var hello: Hello
+            var status: DeviceStatus
+            var reread = false
+            while true {
+                client = makeClient(endpoint: endpoint, credentials: credentials)
+                do {
+                    hello = try await client.hello()
+                    do {
+                        status = try await client.device()
+                    } catch let error as APIError where error.isDisconnected && attempt.isExplicit {
+                        // Only after an explicit action of the user (M10).
+                        try await client.connectClient()
+                        status = try await client.device()
                     }
+                    break
+                } catch let error as APIError where error.code == .unknownClient && !reread {
+                    // M15: another device of the Apple account may have
+                    // paired this console again, with an identity whose
+                    // items arrived since: read the shared Keychain once
+                    // more before saying the console forgot this device.
+                    reread = true
+                    app.store.reload()
+                    guard self.attempt === attempt else { return }
+                    // The new record is here but not its key yet: arriving,
+                    // not forgotten.
+                    if try app.store.pairingState(for: deviceId) == .awaitingIdentity { throw AppError.pairingNotSynced }
+                    guard let fresh = try app.store.credentials(for: deviceId), SigningKey(fresh) != SigningKey(credentials)
+                    else { throw error }
+                    credentials = fresh
+                    signedWith = SigningKey(fresh)
+                    // The address may have changed with the pairing.
+                    endpoint = try await app.endpoint(for: deviceId)
                 }
-            )
-            observed.client = client
-            hello = try await client.hello()
-            let status: DeviceStatus
-            do {
-                status = try await client.device()
-            } catch let error as APIError where error.isDisconnected && attempt.isExplicit {
-                // Only after an explicit action of the user (M10).
-                try await client.connectClient()
-                status = try await client.device()
             }
+            // An attempt replaced meanwhile (the Keychain changed, M15)
+            // installs nothing.
+            guard self.attempt === attempt, !Task.isCancelled else { return }
+            self.hello = hello
             self.status = status
             try Task.checkCancellation()
             guard self.attempt === attempt else { return }
@@ -219,7 +260,7 @@ final class ConsoleSession {
             app.store.noteConsoleName(status.deviceName, for: deviceId)
             // M13: the address answered with the pinned certificate and
             // accepted the signature: the fallback when Bonjour is silent.
-            app.store.noteEndpoint(endpoint, for: deviceId)
+            app.store.noteEndpoint(endpoint, for: deviceId, pin: credentials.pin)
             self.client = client
             state = .connected
             closedByConsole = false
@@ -229,6 +270,12 @@ final class ConsoleSession {
             updateEventStream()
             // Uploads paused when the console closed ReminisLink go on (M11).
             transfers.resumeAfterReconnection()
+            // M15: uploads paused when the credentials changed go on with
+            // the new client.
+            if pausedForCredentials {
+                pausedForCredentials = false
+                if !app.isInBackground { transfers.resumeAfterSuspension() }
+            }
             // Milestone M9: copy the saves that changed (setting, default on).
             // A sync of the previous connection still running: this one
             // starts when it ends.
@@ -249,11 +296,115 @@ final class ConsoleSession {
         }
     }
 
+    /// The credentials of this console's pairing. M15: a pairing whose
+    /// identity has not reached this device through the iCloud Keychain yet
+    /// is not "forgotten by the console": it is said so, and the session
+    /// connects by itself once the identity arrives (``AppModel/reloadPairings()``).
+    private func currentCredentials() throws -> DeviceCredentials {
+        if let credentials = try app.store.credentials(for: deviceId) { return credentials }
+        if try app.store.pairingState(for: deviceId) == .awaitingIdentity { throw AppError.pairingNotSynced }
+        throw AppError.api(.notPaired)
+    }
+
+    private func makeClient(endpoint: Endpoint, credentials: DeviceCredentials) -> APIClient {
+        let observed = ObservedClient()
+        let client = app.makeClient(
+            endpoint: endpoint, expectedDeviceId: deviceId, credentials: credentials,
+            errorObserver: { [weak self] error, sentAt in
+                Task { @MainActor in
+                    guard let client = observed.client else { return }
+                    self?.observe(error, sentAt: sentAt, from: client)
+                }
+            }
+        )
+        observed.client = client
+        return client
+    }
+
+    /// The identity and pin a connection signs and pins with.
+    struct SigningKey: Equatable {
+        let clientId: String
+        let pin: String
+
+        init(_ credentials: DeviceCredentials) {
+            clientId = credentials.clientId
+            pin = credentials.pin
+        }
+    }
+
+    /// Whether this session works with other credentials than the shared
+    /// Keychain now holds (M15): it connected, or failed, with an identity
+    /// or a pin that another device of the Apple account replaced since, or
+    /// before the identity of its pairing arrived. Such a session is
+    /// replaced (a new connection reads the Keychain again). Never while a
+    /// connection is starting, nor for a console no longer paired, nor
+    /// after the console closed ReminisLink (M11: only the user reconnects).
+    func usesStaleCredentials(_ current: DeviceCredentials?) -> Bool {
+        guard let current, !closedByConsole else { return false }
+        switch state {
+        case .idle: return false
+        case .connecting: return signedWith.map { $0 != SigningKey(current) } ?? false
+        case .connected, .failed: return signedWith != SigningKey(current)
+        }
+    }
+
+    /// Whether this session holds or builds a pairing (it read credentials).
+    var holdsPairing: Bool { signedWith != nil || client != nil }
+
+    /// Drops the client built with the older credentials and the connection
+    /// in progress (its late answers change nothing), then connects again
+    /// when `reconnect` (the console is shown and the app active; otherwise
+    /// the next screen that needs the console connects). Automatic: never
+    /// lifts a disconnection set from the console.
+    func invalidateCredentials(reconnect: Bool) {
+        dropConnection()
+        state = .idle
+        if reconnect { Task { await connect() } }
+    }
+
+    /// The console's record is here but the identity of its pairing not
+    /// (yet): nothing is signed until it arrives (M15).
+    func awaitIdentity() {
+        guard holdsPairing || state == .connecting else { return }
+        dropConnection()
+        state = .failed(.pairingNotSynced)
+    }
+
+    /// The pairing was forgotten on another device of the Apple account:
+    /// no signed request any more from this session (connection, event
+    /// stream, uploads), whoever still holds it.
+    func revoke() {
+        dropConnection()
+        transfers.suspend()
+        state = .failed(.api(.notPaired))
+    }
+
+    /// Everything that signs stops: the connection in progress, the
+    /// client, the event stream, the save sync (its requests also check the
+    /// client, ``SessionSaveSource``), and uploads pause after their
+    /// current chunk until a new connection.
+    private func dropConnection() {
+        droppedConnection = attempt?.task
+        attempt?.task?.cancel()
+        attempt = nil
+        // A trash answer of the dropped client is never published.
+        _ = trashLoads.begin()
+        client = nil
+        signedWith = nil
+        stopEventStream()
+        app.cancelSaveSync(deviceId: deviceId)
+        transfers.suspend()
+        pausedForCredentials = true
+    }
+
     /// Reloads the dashboard without searching the console again.
     func refresh() async {
         guard let client else { return await connect() }
         do {
             let status = try await client.device()
+            // M15: the client was dropped meanwhile (the Keychain changed):
+            // its late answer changes nothing.
+            guard self.client === client else { return }
             // M11: renamed on the console since the last answer.
             let renamed = self.status.map { $0.deviceName != status.deviceName } ?? false
             self.status = status
@@ -262,6 +413,7 @@ final class ConsoleSession {
             if renamed { app.store.noteConsoleName(status.deviceName, for: deviceId) }
             await loadTrash()
         } catch {
+            guard self.client === client else { return }
             let error = AppError(error)
             if case .api(let api) = error, app.meansConsoleClosed(api, deviceId: deviceId) {
                 return consoleClosed(client: client)
@@ -481,9 +633,11 @@ final class ConsoleSession {
     }
 
     private func makeTransfers() -> TransferQueue {
+        let current = currentClient
         let queue = TransferQueue(
             scratchDirectory: app.transferDirectory.appending(path: "chunks-\(deviceId)"),
             background: app.background,
+            isCurrentClient: { current.isCurrent($0) },
             client: { [weak self] in
                 guard let self else { throw CancellationError() }
                 do {
@@ -526,7 +680,9 @@ final class ConsoleSession {
     /// The app dropped this session (forgotten console, new pairing): its
     /// event stream closes and the pak manager lets it go.
     func detach() {
-        stopEventStream()
+        // M15: nothing keeps signing with the pairing of a dropped session
+        // (a sync, an upload, a screen that still holds it).
+        dropConnection()
         paksStorage = nil
     }
 
@@ -567,6 +723,22 @@ final class ConsoleSession {
     func deleteTrashEntry(_ id: String) async throws {
         _ = try await perform { try await $0.deleteTrashEntry(id: id) }
         await refresh()
+    }
+
+    /// `GET /trash/{entryId}/restore` (M18): what a restore puts back.
+    func trashRestorePreview(_ id: String) async throws -> TrashRestorePreview {
+        try await perform { try await $0.trashRestorePreview(id: id) }
+    }
+
+    /// `POST /trash/{entryId}/restore` (M18): the files go back to their
+    /// place (or under a free name with `.rename`); the library, the paks
+    /// and the trash reload, as after any change (the `library` and `paks`
+    /// events do it for the other devices).
+    func restoreTrashEntry(_ id: String, onConflict: TrashRestoreConflict) async throws -> TrashRestoreResult {
+        let result = try await perform { try await $0.restoreTrashEntry(id: id, onConflict: onConflict) }
+        contentChanged()
+        paks.paksChanged()
+        return result
     }
 
     /// `DELETE /clients/me`, then forgets the pairing (M13: on every Apple
@@ -620,4 +792,13 @@ private final class ConnectionAttempt {
         waiters.removeAll()
         for continuation in continuations { continuation.resume() }
     }
+}
+
+/// The client of a session, readable from any thread (M15).
+nonisolated final class CurrentClientBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private weak var client: APIClient?
+
+    func set(_ client: APIClient?) { lock.withLock { self.client = client } }
+    func isCurrent(_ client: APIClient) -> Bool { lock.withLock { self.client === client } }
 }

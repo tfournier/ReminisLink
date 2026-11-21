@@ -83,9 +83,6 @@ struct SaveSyncAppTests {
         pak.responseDelay = 0.1
         app.startSaveSync(deviceId: pak.deviceId)
         app.startSaveSync(deviceId: pak.deviceId)
-        // Also from a new connection of the same console.
-        app.didReplaceKey(for: pak.deviceId)
-        app.startSaveSync(deviceId: pak.deviceId)
         await waitForSync(app.saveSync(for: pak.deviceId))
         #expect(listings(pak) == 1)
         pak.responseDelay = 0
@@ -93,6 +90,30 @@ struct SaveSyncAppTests {
         await waitForSync(app.saveSync(for: pak.deviceId))
         try await Task.sleep(for: .milliseconds(50))
         #expect(listings(pak) == 2)
+    }
+
+    /// M15: the console paired again on this device during a sync: the
+    /// session is dropped with its client and its sync stops (nothing more
+    /// is signed with the old pairing); the next sync runs with the new one.
+    @Test func aRepairStopsTheRunningSync() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        app.syncOnConnect = false
+        await app.session(for: pak.deviceId).connect()
+        pak.responseDelay = 0.1
+        app.startSaveSync(deviceId: pak.deviceId)
+        app.didReplaceKey(for: pak.deviceId)
+        let state = app.saveSync(for: pak.deviceId)
+        await waitForSync(state)
+        #expect(!state.isRunning)
+        // Stopped before or right after listing; no save downloaded.
+        let stopped = listings(pak)
+        #expect(stopped <= 1)
+        #expect(!pak.log.contains { $0.method == "GET" && $0.path.hasSuffix("/save") })
+        pak.responseDelay = 0
+        app.startSaveSync(deviceId: pak.deviceId)
+        await waitForSync(state)
+        #expect(listings(pak) == stopped + 1)
     }
 
     /// A sync of an older connection fails after a reconnection: the new

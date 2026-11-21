@@ -37,11 +37,11 @@ var ErrReplaceFailed = errors.New("trash: replacement left for the next start")
 // error, everything is put back before returning; if even that fails,
 // ErrReplaceFailed is returned and the next start finishes the job.
 //
-// Without items (nothing to replace), the installs are journaled the
-// same way (M19, Codex review: a power cut between two renames must not
-// leave half of them in place); the entry, empty, is removed once every
-// install is in place, and never listed.
-// The installs must not overwrite an existing file that is not in items.
+// Without items (nothing to replace), the installs are journaled all the
+// same (M18 review: a pair installed together is finished or rolled back
+// together); that journal moves nothing, is never listed, and is removed
+// once done (Recover finishes or removes it). The installs must not
+// overwrite an existing file that is not in items.
 func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Install) (MoveResult, error) {
 	if !validReasons[reason] {
 		return MoveResult{}, fmt.Errorf("trash: unknown reason %q", reason)
@@ -87,10 +87,10 @@ func (t *Trash) Replace(reason, label string, items []MoveItem, installs []Insta
 		return MoveResult{}, fmt.Errorf("%w: install %s: %v", ErrReplaceFailed, r.Dst, err)
 	}
 	if len(e.Moves) == 0 {
-		// Nothing was replaced: the journal is no longer needed.
-		t.removeInstallJournal(entryDir, e)
-		t.log.Info("installed", "reason", reason, "label", label, "installed", len(records))
-		return MoveResult{Moved: []string{}}, nil
+		// A journal of installs only: done, it goes.
+		t.removeEmptyEntry(entryDir, e.ID)
+		t.log.Info("replaced", "reason", reason, "label", label, "installed", len(records))
+		return res, nil
 	}
 	e.State = stateDone
 	if err := t.saveEntry(entryDir, e); err != nil {
@@ -171,7 +171,11 @@ func (t *Trash) rollback(entryDir, sd string, e *entryFile) bool {
 		if !isUnder(sd, dst) {
 			return false
 		}
-		if _, err := os.Lstat(src); err == nil {
+		gone, err := moved(src)
+		if err != nil {
+			return false // unknown: kept as it is
+		}
+		if !gone {
 			if t.restoreItem(src, dst) != nil {
 				return false
 			}
@@ -188,11 +192,9 @@ func (t *Trash) rollback(entryDir, sd string, e *entryFile) bool {
 			return false
 		}
 	}
-	// Every file is back and durable: the journal can go.
-	if err := os.RemoveAll(entryDir); err != nil {
-		t.log.Warn("trash: cannot remove a rolled back entry", "entry", e.ID, "error", err)
-	}
-	return true
+	// Every file is back and durable: the journal can go (only once the
+	// folder surely holds no file).
+	return t.removeEmptyEntry(entryDir, e.ID)
 }
 
 // installed reports whether the install r is complete at its destination.
@@ -259,7 +261,8 @@ func (t *Trash) recoverInstall(dir, sd string, e *entryFile) error {
 	}
 	if finish {
 		if len(e.Moves) == 0 {
-			t.removeInstallJournal(dir, *e)
+			// A journal of installs only: finished, it goes.
+			t.removeEmptyEntry(dir, e.ID)
 			t.log.Info("trash: interrupted installation finished", "entry", e.ID)
 			return nil
 		}
@@ -308,7 +311,7 @@ func (t *Trash) PendingSources() map[string]bool {
 		return out
 	}
 	for _, name := range names {
-		e, err := readEntry(filepath.Join(t.dir, name))
+		e, err := t.readEntry(filepath.Join(t.dir, name))
 		if err != nil || (e.State != stateInstalling && e.State != stateRestoring) {
 			continue
 		}
@@ -319,16 +322,4 @@ func (t *Trash) PendingSources() map[string]bool {
 		}
 	}
 	return out
-}
-
-// removeInstallJournal removes the journal of a replacement that moved
-// nothing (only installs), once every install is in place: such an entry
-// is never listed. A failure leaves it "installing" (or "done" with
-// nothing moved), which Recover finishes or removes at the next start.
-func (t *Trash) removeInstallJournal(entryDir string, e entryFile) {
-	if err := os.RemoveAll(entryDir); err != nil {
-		t.log.Warn("trash: cannot remove the journal of an installation", "entry", e.ID, "error", err)
-		return
-	}
-	_ = t.syncDir(filepath.Dir(entryDir))
 }

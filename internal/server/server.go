@@ -321,6 +321,9 @@ func (s *Server) routes() http.Handler {
 	signed("GET "+Prefix+"/trash", auth.RouteJSON, s.handleTrash)
 	changing("DELETE "+Prefix+"/trash", auth.RouteJSON, s.notify(ChangeTrashEmptied, nil, s.handleEmptyTrash))
 	changing("DELETE "+Prefix+"/trash/{entryId}", auth.RouteJSON, s.notify(ChangeTrashEntryDeleted, nil, s.handleDeleteTrashEntry))
+	// Restore (M18): a library event, and a paks event when a pak came back.
+	signed("GET "+Prefix+"/trash/{entryId}/restore", auth.RouteJSON, s.handleTrashRestorePreview)
+	changing("POST "+Prefix+"/trash/{entryId}/restore", auth.RouteJSON, s.notify(ChangeTrashRestored, s.trashLabel, s.handleTrashRestore))
 
 	// Transfers. Only the chunk route accepts UNSIGNED bodies (read as a
 	// stream by the handler, bounded by the chunk size). Uploads and their

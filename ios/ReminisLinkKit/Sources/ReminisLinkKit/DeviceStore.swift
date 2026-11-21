@@ -41,14 +41,23 @@ public struct PairedDevice: Codable, Identifiable, Hashable, Sendable {
 
 public enum DeviceStoreError: Error, Equatable, Sendable {
     case invalidName
+    /// M15: the pointer names the identity of the Apple account, but its
+    /// item has not reached this device through the iCloud Keychain yet.
+    case identityNotArrived
+    /// M15: still not, ``DeviceStore/missingIdentityDelay`` after it was
+    /// first seen missing here: its key may exist nowhere any more.
+    case identityMissing
+    /// M15: a reset was asked for, but the pointer changed or its key
+    /// arrived meanwhile: nothing was changed.
+    case resetNotNeeded
 }
 
 /// Paired devices and their credentials (docs/specs/06-app-ios.md §6, M13).
 ///
 /// - Synchronized Keychain (iCloud Keychain, ``secureStore``): the client
 ///   identities (`clientId` and Ed25519 private key, one item each, keyed
-///   by `clientId`), a pointer to the current one (used for new pairings,
-///   with the name shown on the consoles), and, for each console, its id,
+///   by `clientId`), a pointer to the current one (used for new pairings),
+///   the name shown on the consoles (its own item since M15), and, for each console, its id,
 ///   the `clientId` it was paired with, its certificate pin, its last
 ///   validated address, names and model. The iPhone, iPad and Mac of one
 ///   Apple account share them: they pair once.
@@ -72,12 +81,17 @@ public final class DeviceStore {
     static let defaultsKey = "pairedDevices"
     /// The pointer to the current identity (and the pairing name).
     static let identityAccount = "identity"
+    /// The name shown on the consoles (M15: no longer in the pointer).
+    static let nameAccount = "pairingName"
     static let identityPrefix = "identity."
     static let consolePrefix = "console."
     static func account(deviceId: String) -> String { consolePrefix + deviceId }
     static func account(clientId: String) -> String { identityPrefix + clientId }
 
     public private(set) var devices: [PairedDevice] = []
+    /// Called after this device wrote or removed a shared item (identity,
+    /// pointer, console): M15, the app signals the other devices.
+    @ObservationIgnored public var onSharedItemsChange: (@MainActor () -> Void)?
 
     @ObservationIgnored private let secureStore: SecureStore
     @ObservationIgnored private let defaults: UserDefaults
@@ -86,10 +100,27 @@ public final class DeviceStore {
     /// Consoles paired before M13, waiting to be paired again.
     @ObservationIgnored private var legacy: [PairedDevice] = []
 
-    public init(secureStore: SecureStore, defaults: UserDefaults, legacySecureStore: SecureStore? = nil) {
+    /// How long a pointer may name an identity that has not arrived before
+    /// it is taken for lost (its key exists nowhere any more): then
+    /// ``DeviceStoreError/identityMissing``, and Settings can give this
+    /// device a new identity (``resetIdentity()``).
+    public static let missingIdentityDelay: TimeInterval = 10 * 60
+    static let missingSinceKey = "identityMissingSince"
+    static func endpointKey(_ deviceId: String) -> String { "lastEndpoint." + deviceId }
+
+    @ObservationIgnored private let now: () -> Date
+    /// The last read of the Keychain failed (the list shown is the one read
+    /// before).
+    public private(set) var lastReadFailed = false
+
+    public init(
+        secureStore: SecureStore, defaults: UserDefaults, legacySecureStore: SecureStore? = nil,
+        now: @escaping () -> Date = Date.init
+    ) {
         self.secureStore = secureStore
         self.defaults = defaults
         self.legacySecureStore = legacySecureStore
+        self.now = now
         migrateRL1()
         reload()
     }
@@ -97,28 +128,136 @@ public final class DeviceStore {
     // MARK: - Identity
 
     /// The current identity of this app, for new pairings, shared through
-    /// the iCloud Keychain; created on first use (or when the pointer names
-    /// an identity whose item has not arrived).
+    /// the iCloud Keychain.
+    ///
+    /// Convergence (M15, a Mac or an iPad that opens the app before the
+    /// iCloud Keychain delivered everything):
+    /// - a pointer names the current identity: that one, and only that one;
+    ///   if its item has not arrived yet, ``DeviceStoreError/identityNotArrived``
+    ///   (nothing is paired with another identity meanwhile);
+    /// - no pointer: an identity item already here (the one most consoles
+    ///   here were paired with, then the smallest `clientId`), else a new
+    ///   one, and the pointer is created only if still absent (an add, never
+    ///   an update): a pointer that arrived meanwhile wins.
+    ///
+    /// A pointer is never replaced: the other devices would follow an
+    /// identity they may not have yet, and fork again.
     public func identity() throws -> ClientIdentity {
-        let pointer = try currentPointer()
-        if let pointer, let identity = try identity(clientId: pointer.clientId) { return identity }
-        let identity = ClientIdentity.generate()
-        try secureStore.set(try JSONEncoder().encode(IdentityRecord(identity: identity)), for: Self.account(clientId: identity.clientId))
-        try writePointer(Pointer(clientId: identity.clientId, name: pointer?.name))
+        if let current = try pointedIdentity() { return current }
+        let candidate: ClientIdentity
+        if let stored = try bestStoredIdentity() {
+            candidate = stored
+        } else {
+            candidate = ClientIdentity.generate()
+            try secureStore.set(
+                try JSONEncoder().encode(IdentityRecord(identity: candidate)), for: Self.account(clientId: candidate.clientId)
+            )
+            sharedItemsChanged()
+        }
+        let pointer = try JSONEncoder().encode(Pointer(clientId: candidate.clientId, name: nil))
+        if try secureStore.add(pointer, for: Self.identityAccount) {
+            sharedItemsChanged()
+            return candidate
+        }
+        // Another device's pointer arrived between the read and the add.
+        guard let current = try pointedIdentity() else { throw KeychainError.unexpectedData }
+        return current
+    }
+
+    /// The identity the pointer names; nil without a pointer; throws
+    /// ``DeviceStoreError/identityNotArrived`` when its item is missing.
+    private func pointedIdentity() throws -> ClientIdentity? {
+        guard let pointer = try currentPointer() else { return nil }
+        guard let identity = try identity(clientId: pointer.clientId) else {
+            // Noted on this device only: since when this pointer has been
+            // here without its key.
+            let mark = defaults.dictionary(forKey: Self.missingSinceKey)
+            if let since = mark?[pointer.clientId] as? Date {
+                if now().timeIntervalSince(since) > Self.missingIdentityDelay { throw DeviceStoreError.identityMissing }
+            } else {
+                defaults.set([pointer.clientId: now()], forKey: Self.missingSinceKey)
+            }
+            throw DeviceStoreError.identityNotArrived
+        }
+        defaults.removeObject(forKey: Self.missingSinceKey)
         return identity
     }
 
+    /// Gives this app a new identity for the next pairings, on every device
+    /// of the Apple account (Settings, "Reset This Device's Identity"): the
+    /// only path that replaces the pointer, for a pointer whose key never
+    /// arrived. No identity item is deleted: every console keeps signing
+    /// with the identity of its pairing, wherever that key is.
+    ///
+    /// Offered only for a pointer whose key has been missing on this device
+    /// for ``missingIdentityDelay`` (``lostIdentityPointer()``), and done
+    /// only if, when confirmed, the pointer is still that one and its key
+    /// still missing: otherwise ``DeviceStoreError/resetNotNeeded`` and
+    /// nothing changes.
+    @discardableResult
+    public func resetIdentity(replacing clientId: String) throws -> ClientIdentity {
+        guard lostIdentityPointer() == clientId else { throw DeviceStoreError.resetNotNeeded }
+        let identity = ClientIdentity.generate()
+        try secureStore.set(
+            try JSONEncoder().encode(IdentityRecord(identity: identity)), for: Self.account(clientId: identity.clientId)
+        )
+        // Checked once more right before the write (the key may have just
+        // arrived), and an update only: never a pointer created here.
+        guard lostIdentityPointer() == clientId,
+              try secureStore.replace(
+                  try JSONEncoder().encode(Pointer(clientId: identity.clientId, name: nil)), for: Self.identityAccount
+              )
+        else { throw DeviceStoreError.resetNotNeeded }
+        defaults.removeObject(forKey: Self.missingSinceKey)
+        sharedItemsChanged()
+        return identity
+    }
+
+    /// The `clientId` of the pointer when its key has been missing on this
+    /// device for longer than ``missingIdentityDelay`` (the only case where
+    /// the identity can be reset), else nil.
+    public func lostIdentityPointer() -> String? {
+        guard let pointer = try? currentPointer(), (try? identity(clientId: pointer.clientId)) == .some(nil) else { return nil }
+        guard let since = defaults.dictionary(forKey: Self.missingSinceKey)?[pointer.clientId] as? Date else {
+            defaults.set([pointer.clientId: now()], forKey: Self.missingSinceKey)
+            return nil
+        }
+        return now().timeIntervalSince(since) > Self.missingIdentityDelay ? pointer.clientId : nil
+    }
+
     /// The name of the identity shown on the consoles (`clientName`), as
-    /// last typed; nil before. Shared like the identity.
+    /// last typed; nil before. Shared like the identity, in an item of its
+    /// own (M15; before, a field of the pointer, still read).
     public func pairingName() -> String? {
-        guard let pointer = try? currentPointer() else { return nil }
-        return pointer.name
+        if let data = try? secureStore.data(for: Self.nameAccount) {
+            return (try? JSONDecoder().decode(NameRecord.self, from: data))?.name
+        }
+        return (try? currentPointer())?.name
     }
 
     /// Records the name typed for the identity (sent at the next pairing).
+    /// Only the name item changes, never the pointer.
     public func setPairingName(_ name: String) throws {
-        let identity = try identity()
-        try writePointer(Pointer(clientId: identity.clientId, name: Self.clean(name)))
+        try secureStore.set(try JSONEncoder().encode(NameRecord(name: Self.clean(name))), for: Self.nameAccount)
+        sharedItemsChanged()
+    }
+
+    /// The best identity item present (see ``identity()``), nil when there
+    /// is none. Unreadable items are skipped.
+    private func bestStoredIdentity() throws -> ClientIdentity? {
+        let accounts = try secureStore.allAccounts()
+        var pairings: [String: Int] = [:]
+        for account in accounts where account.hasPrefix(Self.consolePrefix) {
+            let id = String(account.dropFirst(Self.consolePrefix.count))
+            if let record = try? consoleRecord(id) { pairings[record.clientId, default: 0] += 1 }
+        }
+        let identities = accounts.filter { $0.hasPrefix(Self.identityPrefix) }
+            .compactMap { try? identity(clientId: String($0.dropFirst(Self.identityPrefix.count))) }
+        return identities.min { a, b in
+            let countA = pairings[a.clientId, default: 0]
+            let countB = pairings[b.clientId, default: 0]
+            return countA != countB ? countA > countB : a.clientId < b.clientId
+        }
     }
 
     /// The identity with this `clientId`, nil if its item is absent.
@@ -138,8 +277,11 @@ public final class DeviceStore {
         return pointer
     }
 
-    private func writePointer(_ pointer: Pointer) throws {
-        try secureStore.set(try JSONEncoder().encode(pointer), for: Self.identityAccount)
+    /// Tells the other devices of the Apple account that the shared items
+    /// changed (M15: the app sets a marker in the iCloud key-value store,
+    /// whose change notification makes them read the Keychain again).
+    private func sharedItemsChanged() {
+        onSharedItemsChange?()
     }
 
     // MARK: - Consoles
@@ -174,7 +316,7 @@ public final class DeviceStore {
                 consoleName: reported, needsRepair: false
             )
         }
-        try write(ConsoleRecord(device: device, clientId: clientId, pin: pin, endpoint: endpoint))
+        try write(ConsoleRecord(device: device, clientId: clientId, pin: pin, endpoint: endpoint), signal: true)
         legacy.removeAll { $0.id == deviceId }
         persistLegacy()
         reload()
@@ -190,19 +332,55 @@ public final class DeviceStore {
         return DeviceCredentials(deviceId: deviceId, identity: identity, pin: record.pin)
     }
 
+    /// What this device can do with a console's pairing.
+    public enum PairingState: Equatable, Sendable {
+        /// Not paired with an identity (never paired, forgotten, or paired
+        /// before M13).
+        case notPaired
+        /// Paired (by another device of the Apple account, or by this one),
+        /// but the identity the console knows has not reached this device
+        /// through the iCloud Keychain yet: nothing to sign with, and
+        /// nothing to pair again (the pairing works on the other devices).
+        case awaitingIdentity
+        case paired
+    }
+
+    /// The state of a console's pairing on this device (see ``PairingState``).
+    public func pairingState(for deviceId: String) throws -> PairingState {
+        guard let record = try consoleRecord(deviceId) else { return .notPaired }
+        return try identity(clientId: record.clientId) == nil ? .awaitingIdentity : .paired
+    }
+
     /// The last address where the console presented its pinned certificate
     /// (at pairing or a later connection), a fallback when Bonjour does not
     /// find it.
+    ///
+    /// M15: noted on this device only (`UserDefaults`, with the pin it was
+    /// validated with), never in the shared record: a connection never
+    /// rewrites a pairing another device may have removed or replaced
+    /// meanwhile. Without a local note for the current pin, the address the
+    /// pairing reached (in the record).
     public func lastEndpoint(for deviceId: String) -> Endpoint? {
-        (try? consoleRecord(deviceId))?.endpoint
+        guard let record = try? consoleRecord(deviceId) else { return nil }
+        if let data = defaults.data(forKey: Self.endpointKey(deviceId)),
+           let note = try? JSONDecoder().decode(EndpointNote.self, from: data), note.pin == record.pin {
+            return note.endpoint
+        }
+        return record.endpoint
     }
 
     /// Records the address of a working connection (pinned TLS, signed
-    /// requests accepted).
-    public func noteEndpoint(_ endpoint: Endpoint, for deviceId: String) {
-        guard var record = try? consoleRecord(deviceId), record.endpoint != endpoint else { return }
-        record.endpoint = endpoint
-        try? write(record)
+    /// requests accepted), on this device only, with the pin of the
+    /// connection that validated it (`pin`): used only while the pairing
+    /// still has that pin, never for a pairing that replaced it meanwhile.
+    public func noteEndpoint(_ endpoint: Endpoint, for deviceId: String, pin: String) {
+        guard let data = try? JSONEncoder().encode(EndpointNote(pin: pin, endpoint: endpoint)) else { return }
+        defaults.set(data, forKey: Self.endpointKey(deviceId))
+    }
+
+    private struct EndpointNote: Codable {
+        let pin: String
+        let endpoint: Endpoint
     }
 
     public func device(id: String) -> PairedDevice? {
@@ -212,7 +390,7 @@ public final class DeviceStore {
     /// Renames a device on the app side (1 to 64 characters, trimmed).
     public func rename(_ deviceId: String, to name: String) throws {
         guard let clean = Self.clean(name) else { throw DeviceStoreError.invalidName }
-        try update(deviceId) { $0.name = clean }
+        try update(deviceId, signal: true) { $0.name = clean }
     }
 
     /// The console with this id reported its name (M11: renamed on the
@@ -228,7 +406,7 @@ public final class DeviceStore {
             return false
         }
         let changed = device.name != reported
-        try? update(deviceId) {
+        try? update(deviceId, signal: false) {
             $0.consoleName = reported
             $0.name = reported
         }
@@ -239,6 +417,8 @@ public final class DeviceStore {
     /// and its entry.
     public func remove(_ deviceId: String) throws {
         try secureStore.remove(account: Self.account(deviceId: deviceId))
+        defaults.removeObject(forKey: Self.endpointKey(deviceId))
+        sharedItemsChanged()
         legacy.removeAll { $0.id == deviceId }
         persistLegacy()
         reload()
@@ -256,16 +436,30 @@ public final class DeviceStore {
 
     /// Reads the list again: another device of the Apple account may have
     /// paired or forgotten a console (iCloud Keychain).
+    ///
+    /// A read error keeps what was listed (``lastReadFailed``): the whole
+    /// list when the Keychain cannot be enumerated, a console's entry when
+    /// its item cannot be read.
     public func reload() {
         var list: [PairedDevice] = []
-        let accounts = (try? secureStore.allAccounts()) ?? []
+        guard let accounts = try? secureStore.allAccounts() else {
+            lastReadFailed = true
+            return
+        }
+        var failed = false
         for account in accounts where account.hasPrefix(Self.consolePrefix) {
             let id = String(account.dropFirst(Self.consolePrefix.count))
-            guard let record = try? consoleRecord(id) else { continue }
-            var device = record.device
-            device.needsRepair = false
-            list.append(device)
+            do {
+                guard let record = try consoleRecord(id) else { continue }
+                var device = record.device
+                device.needsRepair = false
+                list.append(device)
+            } catch {
+                failed = true
+                if let shown = devices.first(where: { $0.id == id && !$0.needsRepair }) { list.append(shown) }
+            }
         }
+        lastReadFailed = failed
         let paired = Set(list.map(\.id))
         list += legacy.filter { !paired.contains($0.id) }
         list.sort { $0.pairedAt != $1.pairedAt ? $0.pairedAt < $1.pairedAt : $0.id < $1.id }
@@ -289,16 +483,34 @@ public final class DeviceStore {
         return record
     }
 
-    private func write(_ record: ConsoleRecord) throws {
-        try secureStore.set(try JSONEncoder().encode(record), for: Self.account(deviceId: record.device.id))
+    /// `signal`: a pairing change, told to the other devices (M15), and
+    /// written even if absent. Otherwise (a name noted by a connection) the
+    /// item is only changed if it still exists, never created again after
+    /// another device removed it, and nothing is signalled.
+    private func write(_ record: ConsoleRecord, signal: Bool) throws {
+        let data = try JSONEncoder().encode(record)
+        let account = Self.account(deviceId: record.device.id)
+        if signal {
+            try secureStore.set(data, for: account)
+            sharedItemsChanged()
+        } else {
+            _ = try secureStore.replace(data, for: account)
+        }
     }
 
     /// Changes the entry of a device, paired with this identity or waiting
     /// to be paired again.
-    private func update(_ deviceId: String, _ change: (inout PairedDevice) -> Void) throws {
+    private func update(_ deviceId: String, signal: Bool, _ change: (inout PairedDevice) -> Void) throws {
         if var record = try consoleRecord(deviceId) {
             change(&record.device)
-            try write(record)
+            // Not a pairing change (a name a connection noted): read again
+            // just before writing, and only over the same pairing (identity
+            // and pin), never over one that replaced it meanwhile.
+            if !signal {
+                guard let current = try consoleRecord(deviceId), current.clientId == record.clientId, current.pin == record.pin
+                else { return reload() }
+            }
+            try write(record, signal: signal)
         } else if let index = legacy.firstIndex(where: { $0.id == deviceId }) {
             change(&legacy[index])
             persistLegacy()
@@ -355,7 +567,13 @@ public final class DeviceStore {
     /// The pointer to the current identity (`identity`).
     private struct Pointer: Codable {
         let clientId: String
-        /// The name shown on the consoles, as typed.
+        /// The name shown on the consoles, as typed, before M15 (now in its
+        /// own item, ``NameRecord``); read when that item is absent.
+        let name: String?
+    }
+
+    /// The name shown on the consoles (`pairingName`); nil once cleared.
+    private struct NameRecord: Codable {
         let name: String?
     }
 

@@ -252,6 +252,9 @@ other = "Corbeille vidée"
 [notice_trash_entry_deleted]
 other = "Entrée de la corbeille supprimée"
 
+[notice_trash_restored]
+other = "Restauré depuis la corbeille"
+
 [notice_with_name]
 other = "{{.Text}}\u00a0: {{.Name}}"
 

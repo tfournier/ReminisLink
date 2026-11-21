@@ -77,6 +77,7 @@ var (
 	NoticeCheatsUpdated     = &msg{ID: "notice_cheats_updated", Other: "Cheats updated"}
 	NoticeTrashEmptied      = &msg{ID: "notice_trash_emptied", Other: "Trash emptied"}
 	NoticeTrashEntryDeleted = &msg{ID: "notice_trash_entry_deleted", Other: "Trash entry deleted"}
+	NoticeTrashRestored     = &msg{ID: "notice_trash_restored", Other: "Restored from the trash"}
 	NoticePatched           = &msg{ID: "notice_patched", Other: "Patch applied"}
 	NoticePatchFailed       = &msg{ID: "notice_patch_failed", Other: "Patch failed"}
 	NoticePaired            = &msg{ID: "notice_paired", Other: "Paired with {{.Name}}"}
@@ -153,4 +154,5 @@ var All = []*msg{
 	DeviceStateConnected, DeviceStateDisconnected, DeviceStateSeparator, MsgDisconnected, MsgDeviceError,
 	ActPak, ActPakFile, NoticePakInstalled, NoticePakInstallFailed, NoticePakDeleted,
 	ActImport, ActImportFile, NoticeImported, NoticeImportFailed,
+	NoticeTrashRestored,
 }

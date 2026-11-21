@@ -87,6 +87,13 @@ struct ClosedConsoleNotice: Equatable, Identifiable {
     let deviceId: String
 }
 
+/// "This console was forgotten on another of your Apple devices" (M15),
+/// shown on the list of consoles.
+struct ForgottenConsoleNotice: Equatable, Identifiable {
+    let id = UUID()
+    let name: String?
+}
+
 /// "Patch applied", shown for a few seconds on the sheet of the game the
 /// Patch screen leaves the user on once it closes by itself.
 struct PatchNotice: Equatable, Identifiable {
@@ -236,6 +243,9 @@ final class AppModel {
     var tabPaths: [ConsoleTab: [Route]] = [:]
     /// The console closed ReminisLink (M11): said once on the list.
     var closedNotice: ClosedConsoleNotice?
+    /// A console forgotten on another device of the Apple account while
+    /// this one used it (M15), said once on the list.
+    var forgottenNotice: ForgottenConsoleNotice?
     /// A patch was applied and its screen closed by itself: said on the
     /// sheet of the game, then cleared.
     var patchNotice: PatchNotice?
@@ -312,6 +322,9 @@ final class AppModel {
     var sheet: Sheet?
     /// The app is active.
     @ObservationIgnored private(set) var isForeground = false
+    /// The app went to the background (and has not become active since):
+    /// screens still shown do not connect (M15).
+    @ObservationIgnored private(set) var isInBackground = false
     var linkError: AppError?
     /// A pairing with a console that is already paired, waiting for the
     /// user to confirm that it should be paired again.
@@ -329,6 +342,11 @@ final class AppModel {
 
     @ObservationIgnored private let makeSession: () -> URLSession
     @ObservationIgnored private var sessions: [String: ConsoleSession] = [:]
+    /// M15: the iCloud key-value store marker of pairing changes (live app
+    /// only; never in tests, the demo or with the in-memory store).
+    @ObservationIgnored private var pairingSignal: PairingChangeSignal?
+    /// The reads that follow a marker from another device.
+    @ObservationIgnored private var laterPairingReads: Task<Void, Never>?
 
     init(
         store: DeviceStore, discovery: Discovery, artCache: ArtCache,
@@ -370,13 +388,21 @@ final class AppModel {
     /// The name of this app's identity on the consoles (`clientName` of
     /// `POST /pair`, 1 to 64 Unicode scalars): the name typed on the Add a
     /// Console screen, shared by the Apple devices of the account; the
-    /// model of this device ("iPhone", "iPad") until one is typed. iOS
-    /// gives neither the iCloud account nor the real name of the device.
+    /// model of this device ("iPhone", "iPad", "Mac") until one is typed.
+    /// iOS gives neither the iCloud account nor the real name of the device.
     var clientName: String {
         Pairing.clientName(from: store.pairingName() ?? "", fallback: Self.defaultClientName)
     }
 
-    static var defaultClientName: String { UIDevice.current.model }
+    /// M15: an iPad app on a Mac reports the model "iPad"; the Mac's own
+    /// name is not available to iOS apps.
+    static var defaultClientName: String {
+        defaultClientName(isiOSAppOnMac: ProcessInfo.processInfo.isiOSAppOnMac, model: UIDevice.current.model)
+    }
+
+    static func defaultClientName(isiOSAppOnMac: Bool, model: String) -> String {
+        isiOSAppOnMac ? "Mac" : model
+    }
 
     /// `X-RL-Platform` (informative): the kind of this device.
     static var requestPlatform: RequestPlatform {
@@ -494,6 +520,7 @@ final class AppModel {
     /// starts.
     func enterBackground() {
         isForeground = false
+        isInBackground = true
         for session in sessions.values {
             session.transfers.suspend()
             // Released unless a transfer is still running (M10).
@@ -504,14 +531,80 @@ final class AppModel {
     /// The app is active again: uploads go on or resume.
     func becomeActive() {
         isForeground = true
+        isInBackground = false
         // M13: another device of the Apple account may have paired or
         // forgotten a console (iCloud Keychain).
-        store.reload()
+        reloadPairings()
         for session in sessions.values {
-            session.transfers.resumeAfterSuspension()
+            // Paused because the pairing changed: after the next connection.
+            if !session.pausedForCredentials { session.transfers.resumeAfterSuspension() }
             session.setForeground(true)
         }
+        // M15: the console shown, dropped while in the background (its
+        // pairing changed), connects again: its screen will not ask.
+        if let deviceId = openConsoleId, let session = sessions[deviceId], session.state == .idle {
+            Task { await session.connect() }
+        }
         checkShareInbox()
+    }
+
+    /// Reads the shared Keychain again (M15: on activation, on a marker
+    /// from another device, and every minute while active): the list of
+    /// consoles, and the sessions that work with credentials another
+    /// device replaced since, or that failed before the identity of their
+    /// pairing arrived. Those connect again with what the Keychain holds
+    /// now; nothing in memory keeps an older identity.
+    ///
+    /// Per session, from what the Keychain says (a read error changes
+    /// nothing): the pairing was forgotten (on another device): the session
+    /// is revoked, the console closed, and the list says why; the record is
+    /// here but not its identity: nothing is signed until it arrives; other
+    /// credentials: the client is dropped, and the session connects again
+    /// at once only if its console is shown and the app is active.
+    func reloadPairings() {
+        let names = Dictionary(store.devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+        store.reload()
+        for (deviceId, session) in sessions {
+            guard let state = try? store.pairingState(for: deviceId) else { continue }
+            switch state {
+            case .notPaired:
+                // Gone from the list (not a console to pair again), and in
+                // use here.
+                guard store.device(id: deviceId) == nil, session.holdsPairing || openConsoleId == deviceId else { continue }
+                session.revoke()
+                dropSession(deviceId)
+                if openConsoleId == deviceId { closeConsole() }
+                forgottenNotice = ForgottenConsoleNotice(name: names[deviceId])
+            case .awaitingIdentity:
+                session.awaitIdentity()
+            case .paired:
+                if session.usesStaleCredentials(try? store.credentials(for: deviceId)) {
+                    session.invalidateCredentials(reconnect: isForeground && openConsoleId == deviceId)
+                }
+            }
+        }
+    }
+
+    /// Starts the marker of pairing changes (M15, live app).
+    func startPairingSignal(_ signal: PairingChangeSignal) {
+        pairingSignal = signal
+        store.onSharedItemsChange = { [weak signal] in signal?.noteLocalChange() }
+        signal.start()
+    }
+
+    /// Another device changed the pairings: the Keychain is read now, and
+    /// again a little later (the marker may arrive before the Keychain
+    /// items it announces).
+    func pairingsChangedElsewhere() {
+        reloadPairings()
+        laterPairingReads?.cancel()
+        laterPairingReads = Task { [weak self] in
+            for delay in [5, 20] {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                self?.reloadPairings()
+            }
+        }
     }
 
     func confirmRepair() {
@@ -744,6 +837,10 @@ extension AppModel {
             vaultProvider: .live(containerIdentifier: Bundle.main.object(forInfoDictionaryKey: "RLICloudContainer") as? String),
             makeSession: { APIClient.makeSession() }
         )
+        // M15: never with the in-memory store of the UI tests.
+        if environment["RL_UITEST_MEMORY_STORE"] != "1" {
+            app.startPairingSignal(PairingChangeSignal { [weak app] in app?.pairingsChangedElsewhere() })
+        }
         #if DEBUG
         // UI tests: a share request left by a previous run (the app was
         // stopped while it was open) must not open in this one.

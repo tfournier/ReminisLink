@@ -316,7 +316,7 @@ struct StoreTests {
         try store.save(deviceId: deviceId, name: "X", model: .brick, pin: pin, endpoint: qr)
         #expect(store.lastEndpoint(for: deviceId) == qr)
         let moved = Endpoint(host: "192.168.1.50", port: 47822)
-        store.noteEndpoint(moved, for: deviceId)
+        store.noteEndpoint(moved, for: deviceId, pin: pin)
         #expect(store.lastEndpoint(for: deviceId) == moved)
         #expect(store.lastEndpoint(for: "unknown") == nil)
     }

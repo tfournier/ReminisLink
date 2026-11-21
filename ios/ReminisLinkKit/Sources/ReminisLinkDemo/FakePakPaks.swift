@@ -209,6 +209,7 @@ extension FakePak {
             "id": id, "trashedAt": ProtocolJSON.formatDate(now), "reason": reason, "label": pak.name,
             "files": files, "sizeBytes": pak.sizeBytes, "expiresAt": ProtocolJSON.formatDate(now.addingTimeInterval(30 * 86_400)),
         ], at: 0)
+        trashPayloads[id] = .pak(pak)
         return ["trashEntryId": id, "moved": files, "movedBytes": pak.sizeBytes]
     }
 

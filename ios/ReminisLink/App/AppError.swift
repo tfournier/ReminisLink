@@ -15,6 +15,9 @@ enum RecoveryAction: Equatable {
     /// M17: ReminisLink on the console needs a newer app: a link to the App
     /// Store.
     case updateApp
+    /// M15: the identity the pointer names never arrived: give this device
+    /// a new identity (Settings), after a confirmation.
+    case resetIdentity
 }
 
 /// Where to update each side (M17).
@@ -46,6 +49,19 @@ enum AppError: Error, Equatable {
     /// `pairingOpen: false` (or `401 pairing_failed` with pairing closed):
     /// the pairing screen is not shown on the console (M8, on demand).
     case pairingClosed
+    /// M15: the console is paired (by another device of the Apple account),
+    /// but the identity it knows has not reached this device through the
+    /// iCloud Keychain yet. Not a reason to pair again.
+    case pairingNotSynced
+    /// M15: the pointer names the identity of the Apple account, but its
+    /// key has not reached this device yet: no pairing with another one.
+    case identityNotArrived
+    /// M15: still not after 10 minutes: its key may exist nowhere.
+    case identityMissing
+    /// M15: no ReminisLink QR code in an imported picture.
+    case noPairingCodeInPicture
+    /// M15: an imported picture too large to be read.
+    case pictureTooLarge
     case storage
     /// An upload stopped on the app side.
     case upload(UploadFailure)
@@ -109,6 +125,13 @@ enum AppError: Error, Equatable {
     case archiveEmpty
     /// M19: a pak older than M19.
     case archivesNeedNewerPak
+    /// M18: `404` on a restore from the trash: the entry left the trash
+    /// (restored, deleted or purged meanwhile), or the pak is older than
+    /// M18.
+    case trashEntryGone
+    /// M18: `422` of `replace`: only the save of a game still on the
+    /// console can replace its current save.
+    case trashReplaceRefused
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -130,6 +153,8 @@ enum AppError: Error, Equatable {
         case is ResolveError: self = .consoleNotFound
         case DeviceLookupError.localNetworkDenied: self = .localNetworkDenied
         case DeviceLookupError.notFound: self = .consoleNotFound
+        case DeviceStoreError.identityNotArrived: self = .identityNotArrived
+        case DeviceStoreError.identityMissing: self = .identityMissing
         case is KeychainError, is DeviceStoreError: self = .storage
         case let error as PairingError: self = .api(.pairing(error))
         case let error as PairingLinkError: self = AppError(pairingLink: error)
@@ -154,6 +179,16 @@ enum AppError: Error, Equatable {
             String(localized: "This QR code comes from a newer version of ReminisLink. Update the app.")
         case .pairingClosed:
             String(localized: "On the console, open Settings > Pair a New Device, then scan the QR code shown.")
+        case .pairingNotSynced:
+            String(localized: "The pairing of this console has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet: ReminisLink connects as soon as it arrives.")
+        case .identityNotArrived:
+            String(localized: "The identity of your Apple devices has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet, then try again.")
+        case .identityMissing:
+            String(localized: "The identity of your Apple devices has still not reached this device. If none of your devices can pair a console either, reset this device's identity.")
+        case .pictureTooLarge:
+            String(localized: "This picture is too large. Use a smaller picture of the QR code.")
+        case .noPairingCodeInPicture:
+            String(localized: "No ReminisLink QR code was found in this picture. Use a sharp picture where the whole QR code shown by the console is visible.")
         case .storage:
             String(localized: "The pairing information could not be read or saved on this iPhone.")
         case .upload(.outcomeUnknown):
@@ -214,6 +249,10 @@ enum AppError: Error, Equatable {
             String(localized: "This game has no data to export.")
         case .archivesNeedNewerPak:
             String(localized: "Update ReminisLink on the console to export and import game archives.")
+        case .trashReplaceRefused:
+            String(localized: "Only the save of a game still on the console can replace its current save.")
+        case .trashEntryGone:
+            String(localized: "This entry is no longer in the trash of the console, or ReminisLink on the console is too old to restore it (update it).")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -249,13 +288,26 @@ enum AppError: Error, Equatable {
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
-        case .pakRefused, .pakSelf, .notAPak, .needsNewerPak: nil
         case .invalidArchive, .archiveGameExists, .archiveEmpty, .archivesNeedNewerPak: nil
-        case .pairingClosed, .unexpected: .retry
+        case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone, .trashReplaceRefused: nil
+        case .pairingClosed, .pairingNotSynced, .identityNotArrived, .unexpected: .retry
+        case .noPairingCodeInPicture, .pictureTooLarge: nil
+        case .identityMissing: .resetIdentity
         }
     }
 
     var isCancellation: Bool { self == .cancelled }
+
+    /// The pairing cannot be used from this device: not found, identity not
+    /// arrived, or refused by the console (M15: opening the console again
+    /// reads the shared Keychain again before showing it).
+    var isPairingProblem: Bool {
+        switch self {
+        case .pairingNotSynced, .api(.notPaired): true
+        case .api(.server(let server)): server.code == .unknownClient || server.code == .badSignature
+        default: false
+        }
+    }
 
     /// `401 disconnected` (M10): the console disconnected this iPhone.
     var isDisconnected: Bool {
@@ -309,6 +361,20 @@ enum AppError: Error, Equatable {
             let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
             if status == 404 || status == 405 { return .needsNewerPak }
         }
+        return error
+    }
+
+    /// The error of a restore from the trash (M18): a `404` (or an older
+    /// pak's `405`) is ``trashEntryGone``, a pak folder refused by the
+    /// installation checks gets its reason.
+    static func trashRestore(_ error: Error) -> AppError {
+        let error = AppError(error)
+        guard case .api(let api) = error else { return error }
+        let server: ServerError? = if case .server(let s) = api { s } else { nil }
+        if server?.trashReplaceRefusal != nil { return .trashReplaceRefused }
+        if let server, let refusal = server.pakRefusal { return .pakRefused(refusal) }
+        let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
+        if status == 404 || status == 405 { return .trashEntryGone }
         return error
     }
 

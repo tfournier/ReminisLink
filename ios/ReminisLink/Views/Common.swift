@@ -75,6 +75,8 @@ struct ErrorView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("error.updateApp")
+            case .resetIdentity:
+                ResetIdentityButton(prominent: true)
             case nil:
                 EmptyView()
             }
@@ -82,6 +84,83 @@ struct ErrorView: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("error")
+    }
+}
+
+/// "Reset This Device's Identity" (M15), after a confirmation that says
+/// what it does: the only way to replace the identity of the Apple account,
+/// offered only while the key of the current identity has been missing on
+/// this device for 10 minutes (``DeviceStore/lostIdentityPointer()``).
+/// Confirming checks again that the pointer is the one shown and its key
+/// still missing; otherwise nothing changes.
+struct ResetIdentityButton: View {
+    @Environment(AppModel.self) private var app
+    var prominent = false
+    /// The pointer whose key is lost, when the button was shown.
+    @State private var lost: String?
+    @State private var confirming: String?
+    @State private var outcome: Outcome?
+
+    enum Outcome: Identifiable {
+        case notNeeded, failed
+        var id: Self { self }
+    }
+
+    var body: some View {
+        Group {
+            if lost != nil {
+                if prominent {
+                    button.buttonStyle(.borderedProminent)
+                } else {
+                    button
+                }
+            } else if !prominent {
+                Text("Offered only when the identity of your Apple devices has not reached this device for a while.")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("resetIdentity.notNeeded")
+            }
+        }
+        .onAppear { lost = app.store.lostIdentityPointer() }
+        .confirmationDialog(
+            "Reset this device's identity?",
+            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+            titleVisibility: .visible, presenting: confirming
+        ) { clientId in
+            Button("Reset Identity", role: .destructive) { reset(clientId) }
+                .accessibilityIdentifier("resetIdentity.confirm")
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("Your Apple devices will use a new identity for the consoles you pair from now on. Consoles already paired keep working, here too once their pairing reaches this device; only a console paired solely with the missing identity would have to be paired again from this device.")
+        }
+        .alert(item: $outcome) { outcome in
+            switch outcome {
+            case .notNeeded:
+                Alert(title: Text("The identity of your Apple devices has arrived. Nothing was changed."))
+            case .failed:
+                Alert(title: Text("The identity could not be reset."))
+            }
+        }
+    }
+
+    private var button: some View {
+        Button("Reset This Device's Identity…", role: .destructive) {
+            // Checked again when tapped: the key may have arrived.
+            lost = app.store.lostIdentityPointer()
+            confirming = lost
+            if lost == nil { outcome = .notNeeded }
+        }
+        .accessibilityIdentifier("resetIdentity")
+    }
+
+    private func reset(_ clientId: String) {
+        do {
+            try app.store.resetIdentity(replacing: clientId)
+        } catch DeviceStoreError.resetNotNeeded {
+            outcome = .notNeeded
+        } catch {
+            outcome = .failed
+        }
+        lost = app.store.lostIdentityPointer()
     }
 }
 

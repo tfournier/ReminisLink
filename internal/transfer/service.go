@@ -117,7 +117,10 @@ type Service struct {
 
 	uploads uploads
 	jobs    *Jobs
-	paks    *paks.Manager
+	// caseFromFS: names compare as the file system of each folder does
+	// (Knulli, M20) rather than always ignoring case (NextUI).
+	caseFromFS bool
+	paks       *paks.Manager
 
 	// completedStaging maps the uploadId of a completed staging upload
 	// to its stagingId (cheat import with an "upload" source). In memory:
@@ -172,6 +175,13 @@ func New(opts Options) (*Service, error) {
 	s.jobs = NewJobs(opts.Now)
 	s.verifyCtx, s.verifyCancel = context.WithCancel(context.Background())
 	s.verifySem = make(chan struct{}, MaxParallelVerify)
+	// Restores from the trash (M18): the pak checks and the "replace" rule
+	// run inside the store, for a request and at the start alike.
+	opts.Trash.SetRestoreHooks(s.restoreCheck, s.replaceSpec)
+	if c, ok := opts.Adapter.(interface{ CaseFromFS() bool }); ok {
+		s.caseFromFS = c.CaseFromFS()
+		opts.Trash.SetCaseFromFS(s.caseFromFS)
+	}
 	return s, nil
 }
 

@@ -26,6 +26,8 @@ const (
 	ChangeTrashEmptied  = "trash-emptied"
 	// ChangeTrashEntryDeleted: one trash entry erased for good.
 	ChangeTrashEntryDeleted = "trash-entry-deleted"
+	// ChangeTrashRestored: a trash entry put back (M18).
+	ChangeTrashRestored = "trash-restored"
 	// ChangeArtSet and ChangeArtDeleted: PUT and DELETE /games/{gameId}/art.
 	ChangeArtSet     = "art-set"
 	ChangeArtDeleted = "art-deleted"

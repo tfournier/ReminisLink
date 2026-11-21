@@ -225,6 +225,7 @@ var noticeMessages = map[string]*l10n.Message{
 	server.ChangeCheatsUpdated:     l10n.NoticeCheatsUpdated,
 	server.ChangeTrashEmptied:      l10n.NoticeTrashEmptied,
 	server.ChangeTrashEntryDeleted: l10n.NoticeTrashEntryDeleted,
+	server.ChangeTrashRestored:     l10n.NoticeTrashRestored,
 	server.ChangeArtSet:            l10n.NoticeArtSet,
 	server.ChangeArtDeleted:        l10n.NoticeArtDeleted,
 	server.ChangePakDeleted:        l10n.NoticePakDeleted,

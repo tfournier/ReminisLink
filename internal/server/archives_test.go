@@ -18,8 +18,8 @@ import (
 	"github.com/tfournier/ReminisLink/internal/transfer"
 )
 
+// starlight is declared with the trash tests (M18), same value.
 const (
-	starlight     = gbaFolder + "/Starlight Courier.gba"
 	archivePath   = "/games/{gameId}/archive"
 	inspectPath   = "/archives/{stagingId}"
 	importPath    = "/archives/{stagingId}/import"

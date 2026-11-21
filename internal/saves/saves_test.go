@@ -342,8 +342,15 @@ func TestClockFile(t *testing.T) {
 	if err := e.svc.Delete(g, b.ID); err != nil {
 		t.Fatal(err)
 	}
+	// The restore of a pair is one journaled replacement: the current
+	// pair went to a "restore" entry (M18 review), the deleted backup to
+	// a "delete-backup" one.
 	entries, _, _ := e.trash.List()
-	if len(entries) != 1 || len(entries[0].Files) != 2 {
+	reasons := map[string]int{}
+	for _, en := range entries {
+		reasons[en.Reason] = len(en.Files)
+	}
+	if len(entries) != 2 || reasons[store.ReasonDeleteBackup] != 2 || reasons[store.ReasonRestore] != 2 {
 		t.Fatalf("trash: %+v", entries)
 	}
 }
@@ -494,5 +501,147 @@ func TestRestoreTemps(t *testing.T) {
 	}
 	if left := temps(); len(left) != 2 {
 		t.Fatalf("temporary files of the pending replacement: %v", left)
+	}
+}
+
+// TestRestoreOfAPairSurvivesACutBetweenItsRenames: the save and the clock
+// file of a backup go in as one journaled replacement; a power cut after
+// the clock file and before the save is finished as a pair at the next
+// start (M18 review, round 2).
+func TestRestoreOfAPairSurvivesACutBetweenItsRenames(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.sav", "save A")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock A")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.sav", "save B")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock B")
+	// Two moves of the current pair, then the clock file, then the cut:
+	// every later rename fails (the roll back too).
+	calls := 0
+	e.trash.SetRename(func(o, n string) error {
+		calls++
+		if calls > 3 {
+			return errors.New("power cut")
+		}
+		return os.Rename(o, n)
+	})
+	if _, err := e.svc.Restore(g, b.ID); err == nil {
+		t.Fatal("restore did not fail")
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.rtc") != "clock A" || e.exists("Saves/GBA/Starlight Courier.gba.sav") {
+		t.Fatal("not cut between the renames")
+	}
+	e.trash.SetRename(os.Rename)
+	if err := e.trash.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.sav") != "save A" || e.read("Saves/GBA/Starlight Courier.gba.rtc") != "clock A" {
+		t.Fatalf("pair after the start: %q %q", e.read("Saves/GBA/Starlight Courier.gba.sav"), e.read("Saves/GBA/Starlight Courier.gba.rtc"))
+	}
+}
+
+// TestRestoringTheOldestAutomaticCopyKeepsIt: the before-restore copy made
+// by the restore never pushes the restored copy out (M18 review, round 2).
+func TestRestoringTheOldestAutomaticCopyKeepsIt(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	var oldest string
+	for i := 0; i < MaxAutoBackups; i++ {
+		b, err := e.svc.BackupLocked(g, ReasonBeforePatch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			oldest = b.ID
+		}
+	}
+	if _, err := e.svc.Restore(g, oldest); err != nil {
+		t.Fatal(err)
+	}
+	list, err := e.svc.List(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, b := range list {
+		found = found || b.ID == oldest
+	}
+	if !found {
+		t.Fatalf("restored copy pushed out: %+v", list)
+	}
+}
+
+// TestRestoreOfAPairWithoutLiveFilesIsJournaled: with neither the save
+// nor the clock file in place, the pair still goes in as one journaled
+// installation; a cut between the renames is finished as a pair (M18
+// final review).
+func TestRestoreOfAPairWithoutLiveFilesIsJournaled(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.sav", "save A")
+	testutil.WriteFile(t, e.sd, "Saves/GBA/Starlight Courier.gba.rtc", "clock A")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.sav"))
+	os.Remove(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.rtc"))
+	calls := 0
+	e.trash.SetRename(func(o, n string) error {
+		calls++
+		if calls > 1 {
+			return errors.New("power cut")
+		}
+		return os.Rename(o, n)
+	})
+	if _, err := e.svc.Restore(g, b.ID); err == nil {
+		t.Fatal("restore did not fail")
+	}
+	if e.exists("Saves/GBA/Starlight Courier.gba.sav") || !e.exists("Saves/GBA/Starlight Courier.gba.rtc") {
+		t.Fatal("not cut between the renames")
+	}
+	e.trash.SetRename(os.Rename)
+	if err := e.trash.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.sav") != "save A" || e.read("Saves/GBA/Starlight Courier.gba.rtc") != "clock A" {
+		t.Fatal("pair not finished at the start")
+	}
+	if entries, _, _ := e.trash.List(); len(entries) != 0 {
+		t.Fatalf("a journal of installs is listed: %+v", entries)
+	}
+}
+
+// TestRestoreNeverReadsABackupThroughALink: a backups folder linked to
+// another folder holding a valid copy is refused before anything is read
+// (M18 final review).
+func TestRestoreNeverReadsABackupThroughALink(t *testing.T) {
+	e := newEnv(t)
+	g := e.game("Starlight Courier.gba")
+	b, err := e.svc.Create(g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.sd, filepath.FromSlash(backupsDir))
+	outside := filepath.Join(t.TempDir(), "saves")
+	if err := os.Rename(dir, outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Skipf("no symbolic links: %v", err)
+	}
+	os.WriteFile(filepath.Join(e.sd, "Saves/GBA/Starlight Courier.gba.sav"), []byte("current"), 0o644)
+	if _, err := e.svc.Restore(g, b.ID); err == nil {
+		t.Fatal("backup read through a link")
+	}
+	if e.read("Saves/GBA/Starlight Courier.gba.sav") != "current" {
+		t.Fatal("save replaced from outside")
+	}
+	if _, err := e.svc.List(g); err == nil {
+		t.Fatal("backups listed through a link")
 	}
 }

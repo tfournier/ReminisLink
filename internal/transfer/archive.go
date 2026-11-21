@@ -859,7 +859,9 @@ func (s *Service) installArchive(a *gamearchive.Archive, target ArchiveTarget, t
 		if err != nil {
 			return nil, nil, errors.Is(err, store.ErrReplaceFailed), err
 		}
-		if res.Entry.ID != "" {
+		// Only a replacement that moved files has a trash entry (an
+		// installs-only journal is removed once done).
+		if res.Entry.ID != "" && len(items) > 0 {
 			trashID = res.Entry.ID
 		}
 	}
