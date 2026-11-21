@@ -14,6 +14,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/gamearchive"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/testutil"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Codex review 2 of M19.
@@ -252,4 +253,82 @@ func TestKnulliTargetsFollowTheFileSystemCase(t *testing.T) {
 	withROM := archiveOf(t, knulliSource("starlight courier.gba"), map[string][]byte{"rom": []byte("rom"), "save": []byte("s")}, nil)
 	id = f.stageFile("m.reminislink.zip", withROM)
 	f.inspect(id, url.Values{"systemId": {library.EncodeID("gba")}, "folderId": {library.EncodeID("gba/Hacks")}}, http.StatusOK)
+}
+
+// TestNFDROMIsNeverOverwritten (M19 final review): on APFS a ROM named in
+// NFD is the same entry as its NFC spelling: a new game of that name is a
+// 409, and the ROM is never overwritten.
+func TestNFDROMIsNeverOverwritten(t *testing.T) {
+	f := newFixture(t)
+	nfc := norm.NFC.String("Café Rêverie (France).gba")
+	dir := filepath.Join(f.sd, "Roms", gbaFolder)
+	os.Rename(filepath.Join(dir, nfc), filepath.Join(dir, norm.NFD.String(nfc)))
+	if _, err := os.Lstat(filepath.Join(dir, nfc)); err != nil {
+		t.Skip("this file system tells NFC from NFD")
+	}
+	before, _ := os.ReadFile(filepath.Join(dir, nfc))
+	src := starlightSource()
+	src.GameName, src.FileName, src.RomName = "Café Rêverie (France)", nfc, nfc
+	id := f.stageFile("n.reminislink.zip", archiveOf(t, src, map[string][]byte{"rom": []byte("other rom")}, nil))
+	f.importArchive(id, map[string]any{"systemId": library.EncodeID(gbaFolder)}, http.StatusConflict)
+	if after, _ := os.ReadFile(filepath.Join(dir, nfc)); string(after) != string(before) {
+		t.Fatal("the NFD ROM was overwritten")
+	}
+}
+
+// TestNewGameDataConflictsBeyondTheArchive (M19 final review): the 409
+// covers every file the new game would use, not only those the archive
+// holds, in every system sharing the data folders.
+func TestNewGameDataConflictsBeyondTheArchive(t *testing.T) {
+	// Knulli: a ROM-only archive whose name without extension is the one
+	// of a game with a save.
+	k := newKnulliFixture(t)
+	id := k.stageFile("r.reminislink.zip", archiveOf(t, knulliSource("Starlight Courier.zip"), map[string][]byte{"rom": []byte("rom")}, nil))
+	r := k.do(http.MethodGet, "/api/v1/archives/"+id+"?systemId="+url.QueryEscape(library.EncodeID("gba"))+"&folderId="+url.QueryEscape(library.EncodeID("gba/Hacks")), inspectPath, nil, http.StatusConflict)
+	if !strings.Contains(string(r.Body), library.EncodeID("gba/Starlight Courier.gba")) {
+		t.Errorf("Knulli ROM-only: %s", r.Body)
+	}
+
+	// NextUI: a second system folder with the same tag shares Saves/GBA.
+	f := newFixture(t)
+	other := "GBA Extra (GBA)"
+	if err := os.MkdirAll(filepath.Join(f.sd, "Roms", other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(f.sd, "Roms", other, "placeholder.gba"), []byte("x"), 0o644)
+	id = f.stageFile("s.reminislink.zip", archiveOf(t, starlightSource(), map[string][]byte{"rom": []byte("rom")}, nil))
+	r = f.do(http.MethodGet, "/api/v1/archives/"+id+"?systemId="+url.QueryEscape(library.EncodeID(other)), inspectPath, nil, http.StatusConflict)
+	if !strings.Contains(string(r.Body), library.EncodeID(starlight)) {
+		t.Errorf("NextUI same tag: %s", r.Body)
+	}
+}
+
+// TestKnulliStatePathsOnExt4 (M19 final review): two games differing by
+// case have their own states; each listed path is the file hashed.
+func TestKnulliStatePathsOnExt4(t *testing.T) {
+	f := newKnulliFixtureIn(t, testutil.CaseSensitiveDir(t))
+	os.WriteFile(filepath.Join(f.sd, "roms/gba/starlight courier.gba"), []byte("another rom"), 0o644)
+	os.WriteFile(filepath.Join(f.sd, "saves/gba/starlight courier.state1"), []byte("lower state"), 0o644)
+	var l struct {
+		States []struct {
+			GameID string `json:"gameId"`
+			Slot   int    `json:"slot"`
+			Path   string `json:"path"`
+			SHA256 string `json:"sha256"`
+		} `json:"states"`
+	}
+	f.get("/api/v1/states", "/states", http.StatusOK).JSON(t, &l)
+	n := 0
+	for _, s := range l.States {
+		if s.Slot != 1 {
+			continue
+		}
+		n++
+		if s.SHA256 != sha([]byte(f.read(s.Path))) {
+			t.Errorf("%s: path %s is not the file hashed", s.GameID, s.Path)
+		}
+	}
+	if n != 2 {
+		t.Errorf("%d slot-1 states, want 2: %+v", n, l.States)
+	}
 }

@@ -132,6 +132,10 @@ func Open(r io.ReaderAt, size int64) (*Archive, error) {
 	if manifest == nil {
 		return nil, refuse("no %s", ManifestName)
 	}
+	// The manifest too is inflated exactly (M19 final review).
+	if err := checkDeflate(manifest); err != nil {
+		return nil, err
+	}
 	m, err := readManifest(manifest)
 	if err != nil {
 		return nil, err

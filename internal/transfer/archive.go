@@ -213,7 +213,9 @@ func (s *Service) resolveArchiveTarget(a *gamearchive.Archive, t ArchiveTarget) 
 		if err != nil {
 			return nil, invalidName("Invalid ROM file name in the archive"), nil
 		}
-		if !s.opts.Adapter.IsGameFile(name) {
+		// A game the system lists (Knulli: one of its extensions; M19
+		// final review), else the new game would never be shown.
+		if !s.opts.Adapter.IsSystemGameFile(sys, name) {
 			return nil, invalidName("Not a ROM file name"), nil
 		}
 		rel, err := s.opts.Library.RelToRoms(filepath.Join(dir, name))
@@ -250,15 +252,15 @@ func (s *Service) suggestTarget(ctx context.Context, a *gamearchive.Archive) *ar
 			tagged = append(tagged, sys)
 		}
 	}
+	// The exact name in every system first, then another case only where
+	// the file system ignores case (exFAT): on ext4 Zelda.gba and
+	// zelda.gba are two games with their own data (Codex review).
+	var found, folded *osadapter.Game
 	for _, sys := range tagged {
-		var found *osadapter.Game
-		// The exact name first; another case only where the file system
-		// ignores case (exFAT): on ext4 Zelda.gba and zelda.gba are two
-		// games with their own data (Codex review).
-		var folded *osadapter.Game
 		_ = s.opts.Adapter.WalkGames(ctx, sys, func(g osadapter.Game) error {
 			if g.ROMName == src.RomName {
-				found = &g
+				gg := g
+				found = &gg
 				return errFound
 			}
 			if folded == nil && strings.EqualFold(g.ROMName, src.RomName) && s.sameEntryAs(g, src.RomName) {
@@ -267,13 +269,16 @@ func (s *Service) suggestTarget(ctx context.Context, a *gamearchive.Archive) *ar
 			}
 			return nil
 		})
-		if found == nil {
-			found = folded
-		}
 		if found != nil {
-			id := library.EncodeID(found.Path)
-			return &archiveTarget{game: *found, api: ArchiveTarget{GameID: &id}, label: found.Name}
+			break
 		}
+	}
+	if found == nil {
+		found = folded
+	}
+	if found != nil {
+		id := library.EncodeID(found.Path)
+		return &archiveTarget{game: *found, api: ArchiveTarget{GameID: &id}, label: found.Name}
 	}
 	if len(tagged) > 0 && a.Find(gamearchive.RoleROM, nil) != nil {
 		id := library.EncodeID(tagged[0].Folder)
@@ -302,7 +307,22 @@ func existingFile(p string) string {
 	if p == "" {
 		return ""
 	}
-	return store.FindFold(filepath.Dir(p), filepath.Base(p), false)
+	if f := store.FindFold(filepath.Dir(p), filepath.Base(p), false); f != "" {
+		return f
+	}
+	// The file system may find an entry under this name that the names
+	// do not show (APFS: NFC and NFD; M19 final review): the real entry.
+	if fb, err := os.Lstat(p); err == nil && fb.Mode().IsRegular() {
+		if des, err := os.ReadDir(filepath.Dir(p)); err == nil {
+			for _, d := range des {
+				if fa, err := os.Lstat(filepath.Join(filepath.Dir(p), d.Name())); err == nil && os.SameFile(fa, fb) {
+					return filepath.Join(filepath.Dir(p), d.Name())
+				}
+			}
+		}
+		return p
+	}
+	return ""
 }
 
 // planImport computes what importing a into t does, for each file of the
@@ -457,51 +477,84 @@ func (s *Service) romConflict(a *gamearchive.Archive, t *archiveTarget) *Error {
 		}
 		return e
 	}
-	var used []string
-	for _, it := range s.planImport(a, t) {
-		if it.plan.Action == ArchiveReplace && it.entry.Role != gamearchive.RoleROM {
-			used = append(used, it.dst)
+	// Every file the new game would use, whether the archive holds it or
+	// not (M19 final review: a ROM-only archive would still share the
+	// save of another game): its save, clock file, art, and any state or
+	// thumbnail of its slots, as the adapter names them.
+	ad := s.opts.Adapter
+	g := t.game
+	used := map[string]bool{}
+	add := func(p string) {
+		if f := existingFile(p); f != "" {
+			used[f] = true
+		}
+	}
+	save := ad.SavePath(g)
+	add(save)
+	add(strings.TrimSuffix(save, filepath.Ext(save)) + ".rtc")
+	add(ad.ArtPath(g))
+	usedSlots := map[int]bool{}
+	if p := ad.StatePath(g, 0); p != "" {
+		// One listing of the state folder: only the slots with a file of
+		// that name are looked up.
+		names := map[string]int{}
+		for slot := 0; slot <= gamearchive.MaxSlot; slot++ {
+			for _, q := range []string{ad.StatePath(g, slot), ad.StateThumbnailPath(g, slot)} {
+				if q != "" {
+					names[strings.ToLower(filepath.Base(q))] = slot
+				}
+			}
+		}
+		dirs := map[string]bool{filepath.Dir(p): true}
+		if th := ad.StateThumbnailPath(g, 0); th != "" {
+			dirs[filepath.Dir(th)] = true
+		}
+		for dir := range dirs {
+			entries, _ := os.ReadDir(dir)
+			for _, e := range entries {
+				if slot, ok := names[strings.ToLower(e.Name())]; ok {
+					usedSlots[slot] = true
+				}
+			}
+		}
+		for slot := range usedSlots {
+			add(ad.StatePath(g, slot))
+			add(ad.StateThumbnailPath(g, slot))
 		}
 	}
 	if len(used) == 0 {
 		return nil
 	}
-	ad := s.opts.Adapter
-	var slots []int
-	for _, e := range a.Entries {
-		if e.Slot != nil {
-			slots = append(slots, *e.Slot)
-		}
-	}
+	// Against every game sharing those folders: every system with the
+	// same tag (NextUI: two GBA folders share Saves/GBA).
+	systems, _ := ad.Systems()
 	var owner *osadapter.Game
 	var file string
-	_ = ad.WalkGames(context.Background(), t.game.System, func(g osadapter.Game) error {
-		save := existingFile(ad.SavePath(g))
-		paths := []string{save, existingFile(ad.ArtPath(g))}
-		if save != "" {
-			paths = append(paths, existingFile(strings.TrimSuffix(save, filepath.Ext(save))+".rtc"))
+	for _, sys := range systems {
+		if owner != nil || !strings.EqualFold(sys.Tag, g.System.Tag) {
+			continue
 		}
-		if files, err := ad.GameFiles(g); err == nil {
-			if files.Save != nil {
-				paths = append(paths, files.Save.Path)
+		_ = ad.WalkGames(context.Background(), sys, func(other osadapter.Game) error {
+			osave := ad.SavePath(other)
+			paths := []string{osave, strings.TrimSuffix(osave, filepath.Ext(osave)) + ".rtc", ad.ArtPath(other)}
+			for slot := range usedSlots {
+				paths = append(paths, ad.StatePath(other, slot), ad.StateThumbnailPath(other, slot))
 			}
-			if files.RTC != nil {
-				paths = append(paths, files.RTC.Path)
-			}
-		}
-		for _, slot := range slots {
-			paths = append(paths, existingFile(ad.StatePath(g, slot)), existingFile(ad.StateThumbnailPath(g, slot)))
-		}
-		for _, p := range paths {
-			for _, u := range used {
-				if p != "" && sameFile(p, u) {
-					owner, file = &g, u
-					return errFound
+			for _, q := range paths {
+				f := existingFile(q)
+				if f == "" {
+					continue
+				}
+				for u := range used {
+					if sameFile(f, u) {
+						owner, file = &other, u
+						return errFound
+					}
 				}
 			}
-		}
-		return nil
-	})
+			return nil
+		})
+	}
 	if owner == nil {
 		return nil
 	}

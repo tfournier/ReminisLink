@@ -451,6 +451,15 @@ func (s *Service) installLocked(d destination, tmp, onConflict string) (map[stri
 		}
 		store.SyncDir(dir)
 		store.SyncDir(filepath.Dir(tmp))
+		// The new st_ folder (and the staging folder, maybe just made) is
+		// durable in its parent before the upload is acknowledged and the
+		// app drops its copy (M19 final review).
+		if err := store.SyncDirChecked(filepath.Dir(dir)); err != nil {
+			return nil, nil, err
+		}
+		if err := store.SyncDirChecked(filepath.Dir(filepath.Dir(dir))); err != nil {
+			return nil, nil, err
+		}
 		return map[string]any{"stagingId": id}, nil, nil
 	case KindSave:
 		// The previous save is kept as a before-replace backup copy.

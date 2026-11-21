@@ -186,3 +186,13 @@ struct ArchiveReviewTests {
         #expect(try await !other.supportsGameArchives())
     }
 }
+
+@Suite("Demo archive memory bound (M19 final review)")
+struct DemoArchiveBoundTests {
+    @Test func entriesTogetherStayUnderTheStagingLimit() {
+        // Five entries of 13 MiB each (65 MiB in all, over 64 MiB).
+        let entries = (0..<5).map { (name: "e\($0)", data: Data(repeating: UInt8($0), count: 13 << 20)) }
+        #expect(FakeZip.read(FakeZip.write(entries)) == nil)
+        #expect(FakeZip.read(FakeZip.write(Array(entries.prefix(3))))?.count == 3)
+    }
+}

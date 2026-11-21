@@ -221,6 +221,9 @@ type Adapter interface {
 	// IsGameFile reports whether a file with this name, in a system
 	// folder, is listed as a game (not hidden, not an ignored extension).
 	IsGameFile(name string) bool
+	// IsSystemGameFile reports whether a file named name, in a folder of
+	// sys, is listed as a game (Knulli: one of the system's extensions).
+	IsSystemGameFile(sys System, name string) bool
 
 	// SaveDir reads the save folder of a tag once, to find the save and
 	// the clock file of many games with the same rule as GameFiles (GET

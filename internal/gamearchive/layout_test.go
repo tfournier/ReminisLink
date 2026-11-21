@@ -293,3 +293,34 @@ func TestContradictorySizes(t *testing.T) {
 	zw.Close()
 	mustRefuse(t, "bytes after the deflate stream", buf.Bytes())
 }
+
+// TestManifestDeflateIsExact (M19 final review): bytes after the end of
+// the manifest's deflate stream refuse the archive.
+func TestManifestDeflateIsExact(t *testing.T) {
+	save := []byte("save")
+	m := &Manifest{Format: FormatName, Version: 1, CreatedAt: time.Now(), Source: source(), Files: []File{
+		{Path: "save/a", Role: RoleSave, SizeBytes: int64(len(save)), SHA256: sum(save)},
+	}}
+	md, _ := json.Marshal(m)
+	build := func(junk []byte) []byte {
+		var comp bytes.Buffer
+		fw, _ := flate.NewWriter(&comp, flate.DefaultCompression)
+		fw.Write(md)
+		fw.Close()
+		stream := append(comp.Bytes(), junk...)
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		w, _ := zw.CreateRaw(&zip.FileHeader{Name: "save/a", Method: zip.Store,
+			CompressedSize64: uint64(len(save)), UncompressedSize64: uint64(len(save)), CRC32: crc(save)})
+		w.Write(save)
+		w, _ = zw.CreateRaw(&zip.FileHeader{Name: ManifestName, Method: zip.Deflate,
+			CompressedSize64: uint64(len(stream)), UncompressedSize64: uint64(len(md)), CRC32: crc(md)})
+		w.Write(stream)
+		zw.Close()
+		return buf.Bytes()
+	}
+	if _, err := open(t, build(nil)); err != nil {
+		t.Fatalf("exact manifest refused: %v", err)
+	}
+	mustRefuse(t, "bytes after the manifest stream", build([]byte("junk")))
+}

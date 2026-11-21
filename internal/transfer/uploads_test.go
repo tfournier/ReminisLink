@@ -564,3 +564,43 @@ func TestUploadNameIsNFC(t *testing.T) {
 		t.Fatalf("result %v", res)
 	}
 }
+
+// TestRestartNeverResumesThroughALink (M19 final review): an upload whose
+// .part became a link between two runs is dropped, never written to.
+func TestRestartNeverResumesThroughALink(t *testing.T) {
+	e := newEnv(t)
+	data := randomBytes(t, 4000)
+	c := e.create(romTarget("Linked.gba"), data, "")
+	e.send(c.UploadID, data, 0, 2048)
+	part := filepath.Join(e.layout.UploadsDir(), c.UploadID+partExt)
+	outside := filepath.Join(t.TempDir(), "outside.part")
+	os.WriteFile(outside, data[:2048], 0o644)
+	os.Remove(part)
+	if err := os.Symlink(outside, part); err != nil {
+		t.Skip("no symbolic links here")
+	}
+	e.svc.Close()
+	e.svc = e.newService()
+	if _, apiErr := e.svc.Status(c.UploadID); apiErr == nil {
+		t.Fatal("an upload with a linked .part was resumed")
+	}
+	if got, _ := os.ReadFile(outside); string(got) != string(data[:2048]) {
+		t.Fatal("the outside file was changed")
+	}
+
+	// The whole uploads folder a link: nothing resumed from it.
+	f := newEnv(t)
+	c = f.create(romTarget("Linked2.gba"), data, "")
+	f.send(c.UploadID, data, 0, 2048)
+	f.svc.Close()
+	elsewhere := t.TempDir()
+	uploads := f.layout.UploadsDir()
+	if err := os.Rename(uploads, filepath.Join(elsewhere, "uploads")); err != nil {
+		t.Fatal(err)
+	}
+	os.Symlink(filepath.Join(elsewhere, "uploads"), uploads)
+	f.svc = f.newService()
+	if _, apiErr := f.svc.Status(c.UploadID); apiErr == nil {
+		t.Fatal("an upload was resumed through a linked folder")
+	}
+}

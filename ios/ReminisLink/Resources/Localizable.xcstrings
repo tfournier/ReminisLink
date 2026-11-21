@@ -321,6 +321,46 @@
         }
       }
     },
+    "%lld files of %@ will be replaced. The console first moves them to its trash; if the game has a save, it also keeps a copy of it in its backup copies." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file of %@ will be replaced. The console first moves it to its trash; if the game has a save, it also keeps a copy of it in its backup copies."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files of %@ will be replaced. The console first moves them to its trash; if the game has a save, it also keeps a copy of it in its backup copies."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichier de %2$@ sera remplacé. La console le met d’abord dans sa corbeille ; si le jeu a une sauvegarde, elle en garde aussi une copie dans ses copies de secours."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichiers de %2$@ seront remplacés. La console les met d’abord dans sa corbeille ; si le jeu a une sauvegarde, elle en garde aussi une copie dans ses copies de secours."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld games" : {
       "localizations" : {
         "en" : {

@@ -73,6 +73,10 @@ enum FakeZip {
         guard let end = stride(from: bytes.count - 22, through: lowest, by: -1).first(where: { u32($0) == 0x0605_4b50 }),
               let count = u16(end + 10), var p = u32(end + 16), count <= 512 else { return nil }
         var entries: [String: Data] = [:]
+        // All the entries together stay under the staging limit of the
+        // demo, so the archive never holds more than that in memory (M19
+        // final review).
+        var total = 0
         for _ in 0..<count {
             guard u32(p) == 0x0201_4b50, let method = u16(p + 10), let compressed = u32(p + 20), let size = u32(p + 24),
                   let nameLength = u16(p + 28), let extra = u16(p + 30), let comment = u16(p + 32), let local = u32(p + 42),
@@ -83,6 +87,8 @@ enum FakeZip {
             else { return nil }
             let start = local + 30 + localName + localExtra
             guard start >= 0, compressed >= 0, start <= bytes.count, compressed <= bytes.count - start, entries[name] == nil else { return nil }
+            total += size
+            guard total <= Int(FakePak.maxKeptArchiveBytes) else { return nil }
             let raw = Data(bytes[start..<(start + compressed)])
             if method == 0 {
                 guard compressed == size else { return nil }
@@ -123,11 +129,19 @@ enum FakeZip {
         return out.count == size ? out : nil
     }
 
+    private static let crcTable: [UInt32] = (0..<256).map { n in
+        var c = UInt32(n)
+        for _ in 0..<8 { c = c & 1 != 0 ? (c >> 1) ^ 0xEDB8_8320 : c >> 1 }
+        return c
+    }
+
     static func crc32(_ data: Data) -> UInt32 {
+        let table = crcTable
         var crc: UInt32 = 0xFFFF_FFFF
-        for byte in data {
-            crc ^= UInt32(byte)
-            for _ in 0..<8 { crc = crc & 1 != 0 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1 }
+        data.withUnsafeBytes { raw in
+            for byte in raw.bindMemory(to: UInt8.self) {
+                crc = table[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
+            }
         }
         return ~crc
     }

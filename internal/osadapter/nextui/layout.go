@@ -116,6 +116,11 @@ func (a *Adapter) skip(name string) bool {
 	return hidden(name) || (a.layout.Skip != nil && a.layout.Skip(name))
 }
 
+// IsSystemGameFile is gameFile (osadapter.Adapter).
+func (a *Adapter) IsSystemGameFile(sys osadapter.System, name string) bool {
+	return a.gameFile(sys, name)
+}
+
 // gameFile reports whether a file named name, in a folder of sys, is
 // listed as a game.
 func (a *Adapter) gameFile(sys osadapter.System, name string) bool {

@@ -124,6 +124,12 @@ func (t *Trash) installOne(sd string, r installRecord) (renamed bool, err error)
 	if err := t.mkdirInSD(filepath.Dir(dst)); err != nil {
 		return false, err
 	}
+	// Never over an existing file (rename(2) replaces silently): the file
+	// system is asked, not only the names compared, since it may find an
+	// entry under another spelling (APFS: NFC and NFD; M19 final review).
+	if _, err := os.Lstat(dst); err == nil {
+		return false, fmt.Errorf("trash: install %s: the destination exists", r.Dst)
+	}
 	if err := t.rename(src, dst); err != nil {
 		return false, withoutPathErr(err)
 	}

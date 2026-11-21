@@ -251,7 +251,7 @@ func (r *inventoryRun) game(g osadapter.Game, refs []osadapter.StateRef) error {
 			GameName:   g.Name,
 			FileName:   g.FileName,
 			Slot:       slot,
-			Path:       ref.File.Rel,
+			Path:       r.s.relToCard(p, ref.File.Rel),
 			SizeBytes:  fi.Size(),
 			ModifiedAt: fi.ModTime().UTC().Truncate(time.Second),
 			SHA256:     sum,
@@ -326,4 +326,15 @@ func (r *inventoryRun) hashFile(root, p string, png bool) (fs.FileInfo, string, 
 	sum := hex.EncodeToString(h.Sum(nil))
 	r.cache.put(p, fi, sum, hashedAt)
 	return fi, sum, nil
+}
+
+// relToCard is p relative to the card root ("/" separator): the path of
+// the very file hashed, never the one of another reference of the same
+// folded key (Knulli on ext4: Zelda.gba and zelda.gba, M19 final review).
+// fallback when p is not under the card.
+func (s *Service) relToCard(p, fallback string) string {
+	if rel, err := filepath.Rel(s.o.Adapter.Roots().SD, p); err == nil && filepath.IsLocal(rel) {
+		return filepath.ToSlash(rel)
+	}
+	return fallback
 }

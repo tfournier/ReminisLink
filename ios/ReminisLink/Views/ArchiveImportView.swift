@@ -93,12 +93,17 @@ struct ArchiveImportView: View {
                 // Said from the preview: what is replaced goes to the
                 // trash; a copy of the save is promised only when the save
                 // or its clock file is replaced (Codex review 2).
+                // A copy of the save is made only when there is one: sure
+                // when the save is replaced; when only its clock file is,
+                // the save may be absent (M19 final review).
                 let replaced = flow?.plan?.replaced ?? []
-                let savePair = replaced.contains { $0.role == .save || $0.role == .rtc }
-                if savePair {
-                    Text("\(replaced.count) files of \(flow?.plan?.targetName ?? "") will be replaced. The console first moves them to its trash, and keeps a copy of the save in its backup copies.")
+                let name = flow?.plan?.targetName ?? ""
+                if replaced.contains(where: { $0.role == .save }) {
+                    Text("\(replaced.count) files of \(name) will be replaced. The console first moves them to its trash, and keeps a copy of the save in its backup copies.")
+                } else if replaced.contains(where: { $0.role == .rtc }) {
+                    Text("\(replaced.count) files of \(name) will be replaced. The console first moves them to its trash; if the game has a save, it also keeps a copy of it in its backup copies.")
                 } else {
-                    Text("\(replaced.count) files of \(flow?.plan?.targetName ?? "") will be replaced. The console first moves them to its trash.")
+                    Text("\(replaced.count) files of \(name) will be replaced. The console first moves them to its trash.")
                 }
             }
         }
