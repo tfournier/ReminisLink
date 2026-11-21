@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"crypto/ed25519"
@@ -42,6 +43,10 @@ const (
 	// LayoutsEnv is the comma-separated list of layouts to run (default:
 	// all of smokeLayouts).
 	LayoutsEnv = "RL_LAYOUTS"
+	// LayoutZipEnv, when set, is a release zip (the NextUI pak or the
+	// Knulli zip): it is unzipped where the firmware keeps it and the pak
+	// is started through its launcher, without --sd (Codex review of M20).
+	LayoutZipEnv = "RL_LAYOUT_ZIP"
 )
 
 // smokeLayout is a card layout of a platform, rebuilt from the sources of
@@ -134,10 +139,10 @@ type layoutPak struct {
 	eof  chan struct{} // closed when the standard output closes (exit)
 }
 
-func startLayoutPak(t *testing.T, bin, sd string, port int, env []string) *layoutPak {
+func startLayoutPak(t *testing.T, argv []string, env []string) *layoutPak {
 	t.Helper()
 	p := &layoutPak{t: t, link: make(chan string, 1), eof: make(chan struct{})}
-	p.cmd = exec.Command(bin, "--headless", "--sd", sd, "--port", strconv.Itoa(port), "--name", "Smoke layout")
+	p.cmd = exec.Command(argv[0], argv[1:]...)
 	p.cmd.Env = append(os.Environ(), env...)
 	p.cmd.Stderr = &lockedWriter{mu: &p.mu, w: &p.logs}
 	out, err := p.cmd.StdoutPipe()
@@ -254,7 +259,8 @@ func TestSmokeLayouts(t *testing.T) {
 		t.Skip("runs the pak")
 	}
 	bin := os.Getenv(LayoutBinEnv)
-	if bin == "" {
+	zipFile := os.Getenv(LayoutZipEnv)
+	if bin == "" && zipFile == "" {
 		bin = filepath.Join(t.TempDir(), "reminislink")
 		build := exec.Command("go", "build", "-o", bin, ".")
 		build.Env = append(os.Environ(), "CGO_ENABLED=0")
@@ -272,25 +278,33 @@ func TestSmokeLayouts(t *testing.T) {
 			continue
 		}
 		ran++
-		t.Run(l.name, func(t *testing.T) { runLayoutSmoke(t, bin, l) })
+		t.Run(l.name, func(t *testing.T) { runLayoutSmoke(t, bin, zipFile, l) })
 	}
 	if ran == 0 {
 		t.Fatalf("%s=%q names no layout", LayoutsEnv, os.Getenv(LayoutsEnv))
 	}
 }
 
-func runLayoutSmoke(t *testing.T, bin string, l smokeLayout) {
+func runLayoutSmoke(t *testing.T, bin, zipFile string, l smokeLayout) {
 	sd, roots, env := l.card(t)
 	port := freePort(t)
-	p := startLayoutPak(t, bin, sd, port, env)
+	args := []string{"--headless", "--port", strconv.Itoa(port), "--name", "Smoke layout"}
+	argv := append([]string{bin, "--sd", sd}, args...)
+	if zipFile != "" {
+		launcher, launcherEnv := l.install(t, zipFile, sd)
+		argv = append([]string{launcher}, args...)
+		env = append(env, launcherEnv...)
+		t.Logf("through the launcher %s", launcher)
+	}
+	p := startLayoutPak(t, argv, env)
 	defer p.stop()
 	var link string
 	select {
 	case link = <-p.link:
 	case <-p.eof:
-		t.Fatalf("the headless pak exited before printing a pairing link:\n%s", p.stderr())
+		t.Fatalf("the headless pak exited before printing a pairing link:\n%s%s", p.stderr(), launcherLogs(roots))
 	case <-time.After(30 * time.Second):
-		t.Fatalf("no pairing link from the headless pak:\n%s", p.stderr())
+		t.Fatalf("no pairing link from the headless pak:\n%s%s", p.stderr(), launcherLogs(roots))
 	}
 	c := pairHeadless(t, link, port)
 	t.Log("paired (pairing v2, device proof verified)")
@@ -404,4 +418,90 @@ func sysTag(l smokeLayout, system string) string {
 		return system
 	}
 	return "GBA"
+}
+
+// install unzips a release zip where the firmware keeps the pak and
+// returns its launcher with the environment the firmware gives it.
+func (l smokeLayout) install(t *testing.T, zipFile, sd string) (string, []string) {
+	t.Helper()
+	if l.os == knulli.OSName {
+		unzipInto(t, zipFile, filepath.Join(sd, "roms", "tools"), "")
+		// Knulli exports nothing ReminisLink reads; SDCARD_PATH moves
+		// /userdata to the test card. REMINISLINK_OS is left out: the
+		// launcher passes --os knulli.
+		return filepath.Join(sd, "roms", "tools", "ReminisLink.sh"), []string{"SDCARD_PATH=" + sd, "REMINISLINK_OS="}
+	}
+	dir := filepath.Join(sd, "Tools", l.platform, "ReminisLink.pak")
+	// The zip holds the pak at its root (Pak Store); older builds held a
+	// ReminisLink.pak/ folder.
+	unzipInto(t, zipFile, dir, "ReminisLink.pak/")
+	userdata := filepath.Join(sd, ".userdata", l.platform)
+	env := []string{
+		// As MinUI.pak/launch.sh exports them (my355 exports no ROMS_PATH).
+		"SDCARD_PATH=" + sd, "SAVES_PATH=" + filepath.Join(sd, "Saves"), "CHEATS_PATH=" + filepath.Join(sd, "Cheats"),
+		"BIOS_PATH=" + filepath.Join(sd, "Bios"), "SYSTEM_PATH=" + filepath.Join(sd, ".system", l.platform),
+		"USERDATA_PATH=" + userdata, "SHARED_USERDATA_PATH=" + filepath.Join(sd, ".userdata", "shared"),
+		"LOGS_PATH=" + filepath.Join(userdata, "logs"),
+		// A REMINISLINK_OS left by another tool must not pick the Knulli
+		// layout: launch.sh passes --os nextui.
+		"REMINISLINK_OS=knulli",
+	}
+	if l.platform != "my355" {
+		env = append(env, "ROMS_PATH="+filepath.Join(sd, "Roms"))
+	}
+	return filepath.Join(dir, "launch.sh"), env
+}
+
+// unzipInto extracts zipFile into dir, without the prefix strip of each
+// entry, keeping the file modes; an entry that would leave dir fails.
+func unzipInto(t *testing.T, zipFile, dir, strip string) {
+	t.Helper()
+	zr, err := zip.OpenReader(zipFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	for _, f := range zr.File {
+		name := strings.TrimPrefix(f.Name, strip)
+		if name == "" || strings.HasSuffix(name, "/") {
+			continue
+		}
+		if !filepath.IsLocal(name) {
+			t.Fatalf("zip entry %q leaves its folder", f.Name)
+		}
+		dst := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// The mode of the zip, even over a file already there.
+		if err := os.Chmod(dst, f.Mode().Perm()|0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// launcherLogs returns the log files a launcher writes (its stderr goes
+// there, not to the test), for a failure message.
+func launcherLogs(roots osadapter.Roots) string {
+	var b strings.Builder
+	for _, dir := range []string{roots.Logs, "/userdata/system/logs"} {
+		for _, n := range []string{"ReminisLink.stderr.txt", app.LogFileName} {
+			if data, err := os.ReadFile(filepath.Join(dir, n)); err == nil {
+				b.WriteString("--- " + filepath.Join(dir, n) + "\n" + string(data))
+			}
+		}
+	}
+	return b.String()
 }

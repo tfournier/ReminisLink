@@ -104,10 +104,12 @@ jobs:
           if-no-files-found: error
 
   emulation:
-    # M20: the pak headless on the card of each platform and of Knulli, in
-    # a userland with the glibc of each firmware (linux/arm64 containers,
-    # native on this runner), and the glibc the release binary needs
-    # (scripts/emulation/run.sh). The stock rootfs of the Brick is not
+    # M20 (scripts/emulation/run.sh): the content of both zips, the unit
+    # tests on a case-sensitive file system, the pak headless on the card of
+    # each platform and of Knulli in a userland with the glibc of each
+    # firmware (linux/arm64 containers, native on this runner), what the
+    # shipped binary and its bundled libraries need, and the shipped binary
+    # started through each launcher. The stock rootfs of the Brick is not
     # available here: tg5040 is skipped.
     needs: [build]
     runs-on: ubuntu-24.04-arm
@@ -116,15 +118,18 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # Both zips as built: their content is checked, and the shipped
+      # binary is started through each launcher (scripts/emulation/run.sh
+      # reads the binary from the NextUI zip).
       - uses: actions/download-artifact@v8
         with:
           name: reminislink-pak
           path: dist
-      - name: Release binary
-        run: |
-          unzip -q -o dist/ReminisLink.pak.zip ReminisLink.pak/reminislink -d build/zip
-          cp build/zip/ReminisLink.pak/reminislink build/reminislink
-      - name: Smoke test in each userland
+      - uses: actions/download-artifact@v8
+        with:
+          name: reminislink-knulli
+          path: dist
+      - name: Zips, case-sensitive unit tests and smoke tests in each userland
         run: make emulation
 
   ios:
@@ -183,9 +188,9 @@ jobs:
   release:
     # refs/tags/v...: an app tag (refs/tags/ios-v...) can never match.
     if: startsWith(github.ref, 'refs/tags/v')
-    # The pak release depends on the pak jobs only: the iOS app has its own
-    # release path (M17).
-    needs: [go, contract, build]
+    # The pak release depends on the pak jobs only (emulation included,
+    # M20): the iOS app has its own release path (M17).
+    needs: [go, contract, build, emulation]
     runs-on: ubuntu-latest
     permissions:
       contents: write

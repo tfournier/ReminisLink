@@ -61,6 +61,9 @@ CROSS_ENV     := CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc 
 SDL_GFX_LIB   := /usr/lib/aarch64-linux-gnu/libSDL2_gfx-1.0.so.0
 # Bundled for h700 only, as the Pak Store does (pak/launch.sh).
 SDL_TTF_LIB   := /usr/lib/aarch64-linux-gnu/libSDL2_ttf-2.0.so.0
+# Bundled for my355 only: SDL2_gfx built by Debian 10 (glibc 2.17), see
+# scripts/setup-toolchain.sh.
+SDL_GFX_OLD_LIB := /usr/lib/aarch64-linux-gnu/glibc-2.28/libSDL2_gfx-1.0.so.0
 # "sdl" builds the gabagool UI (internal/ui); without it the binary is
 # headless only.
 GO_TAGS       := nodefaultfont sdl
@@ -156,8 +159,9 @@ pak: build ## Assemble the pak folder in build/pak
 	cp README.md LICENSE $(PAK_DIR)/
 	cp pak/THIRD_PARTY.md $(PAK_DIR)/resources/
 	cp -L $(SDL_GFX_LIB) $(PAK_DIR)/resources/lib/
-	mkdir -p $(PAK_DIR)/resources/lib/h700
+	mkdir -p $(PAK_DIR)/resources/lib/h700 $(PAK_DIR)/resources/lib/my355
 	cp -L $(SDL_TTF_LIB) $(PAK_DIR)/resources/lib/h700/
+	cp -L $(SDL_GFX_OLD_LIB) $(PAK_DIR)/resources/lib/my355/
 	chmod +x $(PAK_DIR)/launch.sh $(PAK_DIR)/$(APP)
 
 release: check-version pak ## Build the release zip (Pak Store format) in dist/
