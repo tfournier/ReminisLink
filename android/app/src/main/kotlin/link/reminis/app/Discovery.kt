@@ -35,14 +35,20 @@ class Discovery(context: Context) {
 
     /** Consoles as they are resolved, and services as they disappear, while collected. */
     fun events(): Flow<DiscoveryEvent> = callbackFlow {
-        val pending = Channel<NsdServiceInfo>(Channel.UNLIMITED)
+        val pending = Channel<Pair<NsdServiceInfo, Long>>(Channel.UNLIMITED)
+        // Generation of each service name, bumped by Found and Lost: a
+        // resolution that finishes after its service was lost or announced
+        // again is dropped (NSD callbacks and the resolver run on other threads).
+        val generations = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        fun bump(name: String): Long = generations.merge(name, 1L, Long::plus)!!
         val listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) = Unit
             override fun onDiscoveryStopped(serviceType: String) = Unit
             override fun onServiceFound(info: NsdServiceInfo) {
-                pending.trySend(info)
+                pending.trySend(info to bump(info.serviceName))
             }
             override fun onServiceLost(info: NsdServiceInfo) {
+                bump(info.serviceName)
                 trySend(DiscoveryEvent.Lost(info.serviceName))
             }
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
@@ -52,9 +58,11 @@ class Discovery(context: Context) {
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
         }
         launch {
-            for (info in pending) {
+            for ((info, generation) in pending) {
+                if (generations[info.serviceName] != generation) continue
                 val resolved = resolve(info) ?: continue
-                toConsole(resolved)?.let { trySend(DiscoveryEvent.Found(it)) }
+                val console = toConsole(resolved) ?: continue
+                if (generations[info.serviceName] == generation) trySend(DiscoveryEvent.Found(console))
             }
         }
         nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)

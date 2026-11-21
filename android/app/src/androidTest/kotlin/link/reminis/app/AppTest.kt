@@ -168,7 +168,9 @@ class SmokeTest {
 /**
  * End to end against a real headless pak (`make headless` on the host):
  * pairs with the pasted link, opens the dashboard, the library and a game.
- * Skipped without the `pairingLink` instrumentation argument; the emulator
+ * Skipped without the link file: pak-e2e.sh writes the link into the debug
+ * app's private files (`run-as`, through stdin, never in a process
+ * argument), and the test deletes it once read. The emulator
  * reaches the host at 10.0.2.2 (mDNS does not cross, so the locator falls
  * back to the link's address after 3 s). See android/scripts/pak-e2e.sh.
  */
@@ -182,8 +184,9 @@ class PakIntegrationTest {
 
     @Test
     fun pairDashboardLibraryGame() {
-        val link = InstrumentationRegistry.getArguments().getString("pairingLink")
-        assumeTrue("no pairingLink argument", !link.isNullOrBlank())
+        val file = java.io.File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "e2e-pairing-link")
+        val link = if (file.exists()) file.readText().trim().also { file.delete() } else null
+        assumeTrue("no pairing link file", !link.isNullOrBlank())
         val parsed = PairingLink.parse(link!!)
         ActivityScenario.launch(MainActivity::class.java).use {
             compose.onNodeWithTag("addConsole").performClick()

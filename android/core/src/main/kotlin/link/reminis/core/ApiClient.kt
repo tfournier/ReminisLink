@@ -55,6 +55,10 @@ class ApiClient(
         .followRedirects(false)
         .followSslRedirects(false)
         .addInterceptor(SigningInterceptor({ signer }, { nowMillis() / 1000 + clockOffsetSeconds }))
+        .addNetworkInterceptor { chain ->
+            chain.request().tag(BeforeSend::class.java)?.action?.invoke()
+            chain.proceed(chain.request())
+        }
         .build()
 
     // MARK: unsigned routes
@@ -73,10 +77,19 @@ class ApiClient(
         return hello
     }
 
-    /** `POST /pair`, then checks the device proof. Store the pairing only when this returns. */
-    suspend fun pair(attempt: PairingAttempt): PairResponse {
+    /**
+     * `POST /pair`, then checks the device proof. Store the pairing only when
+     * this returns.
+     *
+     * [beforeSend] runs on the connected, pinned connection right before the
+     * request is written: the exact point from which the console may pair.
+     * Throwing an [IOException] there aborts without sending anything.
+     */
+    suspend fun pair(attempt: PairingAttempt, beforeSend: (() -> Unit)? = null): PairResponse {
         val body = ProtocolJson.encodeToString(attempt.request).toRequestBody(JSON)
-        val response: PairResponse = decode(execute(request("POST", listOf("pair"), body = body)), accept = 200)
+        var request = request("POST", listOf("pair"), body = body)
+        if (beforeSend != null) request = request.newBuilder().tag(BeforeSend::class.java, BeforeSend(beforeSend)).build()
+        val response: PairResponse = decode(execute(request), accept = 200)
         try {
             attempt.finish(response)
         } catch (e: PairingException) {
@@ -204,6 +217,9 @@ class ApiClient(
         }
     }
 }
+
+/** Runs on the connected socket right before a request is written (see [ApiClient.pair]). */
+class BeforeSend(val action: () -> Unit)
 
 /** Tag of the requests [SigningInterceptor] signs. */
 object SignRequest

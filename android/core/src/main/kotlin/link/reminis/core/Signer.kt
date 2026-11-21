@@ -76,6 +76,9 @@ class Signer(val clientId: String, private val key: Ed25519Key) {
         nonce: String = makeNonce(),
     ): SignedHeaders {
         if (unsignedBody && !isUploadChunk(method, path)) throw SignerException(SignerException.Reason.UNSIGNED_BODY)
+        // The pak refuses a repeated key: never sign one ([canonicalRequest]
+        // itself stays a pure canonicalization, for the vectors).
+        if (hasDuplicateKeys(rawQuery)) throw SignerException(SignerException.Reason.DUPLICATE_KEY)
         val content = if (unsignedBody) UNSIGNED_PAYLOAD else contentSha256(body)
         val timeString = time.toString()
         val canonical = canonicalRequest(method, path, rawQuery, timeString, nonce, content)
@@ -160,6 +163,18 @@ class Signer(val clientId: String, private val key: Ed25519Key) {
                 throw SignerException(SignerException.Reason.DUPLICATE_KEY)
             }
             return sortPairs(encoded).joinToString("&") { "${it.first}=${it.second}" }
+        }
+
+        /** Whether two pairs of a raw query have the same decoded key. */
+        fun hasDuplicateKeys(rawQuery: String): Boolean {
+            val keys = HashSet<String>()
+            for (part in splitBytes(rawQuery.toByteArray(Charsets.UTF_8), '&'.code.toByte())) {
+                if (part.isEmpty()) continue
+                val eq = part.indexOf('='.code.toByte())
+                val key = encodeRfc3986(unescape(if (eq >= 0) part.copyOfRange(0, eq) else part))
+                if (!keys.add(key)) return true
+            }
+            return false
         }
 
         private val uploadChunkPath = Regex("^/api/v1/uploads/[^/]+$")

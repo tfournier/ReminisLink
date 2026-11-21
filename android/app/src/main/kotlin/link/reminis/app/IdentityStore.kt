@@ -123,7 +123,11 @@ class IdentityStore(context: Context) {
             .putString(KEY_SEALED_SEED, Base64Url.encode(sealed))
             .putString(KEY_IV, Base64Url.encode(cipher.iv))
             .commit()
-        if (!saved) throw IOException("the identity could not be saved")
+        if (!saved) {
+            // Never pair with an identity that would be lost on restart.
+            runCatching { keyStore.deleteEntry(ALIAS_AES) }
+            throw IOException("the identity could not be saved")
+        }
         return ClientIdentity(clientId, key, KeyStorage.SEALED_SEED)
     }
 

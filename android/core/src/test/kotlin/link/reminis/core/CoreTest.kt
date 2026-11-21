@@ -173,6 +173,15 @@ class SignerRulesTest {
         assertEquals("a=1&b=2", Signer.encodeQuery(listOf("b" to "2", "a" to "1")))
         // The canonicalization itself stays independent (the vectors have a duplicate key).
         assertEquals("a=10&a=2", Signer.canonicalQuery("a=2&a=10"))
+        // A raw query with the same decoded key twice is not signed either.
+        for (q in listOf("a=1&a=2", "a=1&%61=2", "a+b=1&a%20b=2", "flag&flag=")) {
+            try {
+                signer.headers("GET", "/api/v1/systems", q, time = 1); fail(q)
+            } catch (e: SignerException) {
+                assertEquals(SignerException.Reason.DUPLICATE_KEY, e.reason)
+            }
+        }
+        signer.headers("GET", "/api/v1/systems", "a=1&b=1", time = 1)
     }
 
     @Test

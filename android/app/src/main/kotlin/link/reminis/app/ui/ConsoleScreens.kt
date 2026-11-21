@@ -1,6 +1,7 @@
 package link.reminis.app.ui
 
 import android.app.Application
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -207,6 +208,9 @@ fun PairingScreen(token: String, onClose: () -> Unit, onOpenConsole: (String) ->
     val vm: PairingViewModel = viewModel(key = "pair-$token") { PairingViewModel(app, token) }
     val state by vm.state.collectAsState()
     val close = { vm.cancel(); onClose() }
+    // System back goes through the same cancellation as the screen button,
+    // at once (not when Navigation clears the ViewModel after its transition).
+    BackHandler(onBack = close)
     AppScaffold(title = stringResource(R.string.pairing_title), onBack = close) { modifier ->
         PairingProgress(state, modifier, onStart = vm::start, onClose = close, onOpenConsole = onOpenConsole)
     }

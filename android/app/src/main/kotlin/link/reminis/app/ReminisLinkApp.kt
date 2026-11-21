@@ -89,6 +89,18 @@ class AppContainer(context: Context) {
     private val clients = ConcurrentHashMap<String, ApiClient>()
     private val lock = Mutex()
 
+    /**
+     * Guards the cache and the pairing entries against a connection that was
+     * started with a pairing replaced or forgotten while it waited on the
+     * network: such a connection never saves its address nor caches its client.
+     */
+    private val pairingLock = Any()
+
+    /** Tests only: suspends a pairing after the hand-off, before `POST /pair` may be written. */
+    @androidx.annotation.VisibleForTesting
+    @Volatile
+    var pairingGateForTests: (suspend () -> Unit)? = null
+
     fun newClient(endpoint: Endpoint, deviceId: String, pin: String, credentials: DeviceCredentials? = null) = ApiClient(
         endpoint = endpoint,
         expectedDeviceId = deviceId,
@@ -112,9 +124,21 @@ class AppContainer(context: Context) {
             client to client.hello()
         }
         val (client, hello) = connected
-        remember(deviceId, endpoint, hello.deviceName, hello.model)
-        clients[deviceId] = client
+        withContext(Dispatchers.IO) {
+            synchronized(pairingLock) {
+                // The pairing may have been replaced or forgotten during the network calls.
+                if (!isCurrent(console)) throw ApiException.NotPaired()
+                remember(console, endpoint, hello.deviceName, hello.model)
+                clients[deviceId] = client
+            }
+        }
         client
+    }
+
+    /** Whether [console] (as read before a network call) is still the stored pairing. */
+    private fun isCurrent(console: PairedConsole): Boolean {
+        val now = consoles.get(console.deviceId) ?: return false
+        return now.pin == console.pin && now.pairedAt == console.pairedAt
     }
 
     /** Whether the console answers `/hello` at [endpoint] with its pinned certificate (for the Online state). */
@@ -122,8 +146,13 @@ class AppContainer(context: Context) {
         val console = consoles.get(deviceId) ?: return false
         return try {
             val hello = newClient(endpoint, deviceId, console.pin).hello()
-            remember(deviceId, endpoint, hello.deviceName, hello.model)
-            true
+            withContext(Dispatchers.IO) {
+                synchronized(pairingLock) {
+                    if (!isCurrent(console)) return@withContext false
+                    remember(console, endpoint, hello.deviceName, hello.model)
+                    true
+                }
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -132,19 +161,27 @@ class AppContainer(context: Context) {
     }
 
     /** Stores a new pairing, replacing any entry of the same console in one atomic write. */
-    fun replacePairing(console: PairedConsole) {
+    fun replacePairing(console: PairedConsole) = synchronized(pairingLock) {
         consoles.put(console)
         clients.remove(console.deviceId)
     }
 
-    fun forget(deviceId: String) {
+    fun forget(deviceId: String) = synchronized(pairingLock) {
         consoles.remove(deviceId)
         clients.remove(deviceId)
     }
 
-    /** Keeps the console's own name (matched by id, never by name) and the address that answered. */
-    private suspend fun remember(deviceId: String, endpoint: Endpoint, deviceName: String, model: String) =
-        withContext(Dispatchers.IO) {
-            consoles.update(deviceId) { it.copy(deviceName = deviceName, model = model, lastEndpoint = endpoint) }
+    /**
+     * Keeps the console's own name (matched by id, never by name) and the
+     * address that answered, only on the same pairing (held under [pairingLock]).
+     */
+    private fun remember(console: PairedConsole, endpoint: Endpoint, deviceName: String, model: String) {
+        consoles.update(console.deviceId) {
+            if (it.pin == console.pin && it.pairedAt == console.pairedAt) {
+                it.copy(deviceName = deviceName, model = model, lastEndpoint = endpoint)
+            } else {
+                it
+            }
         }
+    }
 }

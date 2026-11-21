@@ -41,6 +41,17 @@ class VectorTest {
             assertTrue(name, Signer.isValidSignature(c.str("signature"), key.publicKey, canonical))
             assertFalse(name, Signer.isValidSignature(c.str("signature"), key.publicKey, canonical + "x"))
 
+            if (Signer.hasDuplicateKeys(c.str("query"))) {
+                // A repeated key canonicalizes (above) but is never signed for
+                // sending: the pak refuses it with 400 invalid_request.
+                try {
+                    Signer(c.str("clientId"), key).headers(c.str("method"), c.str("path"), c.str("query"), time = 1, nonce = c.str("nonce"))
+                    fail("$name: duplicate key signed")
+                } catch (e: SignerException) {
+                    assertEquals(SignerException.Reason.DUPLICATE_KEY, e.reason)
+                }
+                continue
+            }
             val headers = Signer(c.str("clientId"), key).headers(
                 method = c.str("method"),
                 path = c.str("path"),

@@ -160,13 +160,18 @@ class ApiClientTest {
             assertTrue(server.takeRequest().getHeader("X-RL-Signature") != null)
             assertEquals(0, plain.requestCount)
 
-            // An HTTPS redirect to another path is not followed either.
+            // An HTTPS redirect to another path is not followed either. A
+            // response is queued for the target, so a followed redirect
+            // fails at once instead of waiting for a timeout.
             server.enqueue(MockResponse().setResponseCode(307).setHeader("Location", server.url("/api/v1/games")))
+            server.enqueue(json(deviceJson))
             try {
                 client().device(); fail("redirect followed")
             } catch (e: ApiException.UnexpectedStatus) {
                 assertEquals(307, e.status)
             }
+            server.takeRequest(1, java.util.concurrent.TimeUnit.SECONDS)
+            assertNull(server.takeRequest(300, java.util.concurrent.TimeUnit.MILLISECONDS))
             assertEquals(2, server.requestCount)
         } finally {
             plain.shutdown()
@@ -278,6 +283,42 @@ class ApiClientTest {
         } catch (e: ApiException.Pairing) {
             assertEquals(PairingException.Reason.INVALID_DEVICE_PROOF, e.reason)
         }
+    }
+
+    @Test
+    fun pairStopsBeforeSendingWhenBeforeSendRefuses() = runBlocking {
+        val attempt = PairingAttempt(ByteArray(32) { 3 }, deviceId, clientId, key, "Pixel")
+        server.enqueue(json("{}"))
+        try {
+            client(credentials = false).pair(attempt) { throw java.io.IOException("cancelled") }
+            fail("sent")
+        } catch (_: ApiException.Network) {
+        }
+        // The connection was made, but no request was written.
+        assertNull(server.takeRequest(300, java.util.concurrent.TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun beforeSendRunsOnceOnThePinnedConnection() = runBlocking {
+        val secret = ByteArray(32) { 3 }
+        val attempt = PairingAttempt(secret, deviceId, clientId, key, "Pixel")
+        val request = attempt.request
+        val deviceNonce = Base64Url.encode(ByteArray(32) { 9 })
+        val proof = Pairing.proof(
+            secret,
+            Pairing.deviceProofMessage(deviceId, clientId, request.clientPublicKey, request.clientNonce, deviceNonce),
+        )
+        server.enqueue(json("""{"deviceId":"$deviceId","deviceName":"Brick","deviceNonce":"$deviceNonce","proof":"$proof"}"""))
+        var calls = 0
+        client(credentials = false).pair(attempt) { calls++ }
+        assertEquals(1, calls)
+        // A wrong pin fails before beforeSend.
+        try {
+            client(pin = Base64Url.encode(ByteArray(32) { 7 }), credentials = false).pair(attempt) { calls++ }
+            fail()
+        } catch (_: ApiException.IdentityChanged) {
+        }
+        assertEquals(1, calls)
     }
 
     @Test
