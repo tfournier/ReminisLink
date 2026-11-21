@@ -232,6 +232,8 @@ Ordre : M17, M15, M18, M19, M20, M21. Puis v1.5 (interface web), puis v2.0.
 
 **Fait quand** : un jeu passe d'une console à l'autre par une archive, et les états d'un jeu sont versionnés dans iCloud Drive comme ses saves.
 
+**Réalisé (21/11/2026, branche `m19-archives`, à relire)** : contrat d'abord (`GET /games/{gameId}/archive`, `GET /archives/{stagingId}`, `POST /archives/{stagingId}/import` avec la tâche `archive-import`, `GET /states`, raison de corbeille `import-archive`, raison de copie `before-import`), détails en [04](04-api-v1.md#archives-dun-jeu-m19). Format : zip avec `manifest.json` (version 1) qui donne le rôle de chaque fichier ; l'import place chaque fichier par rôle, sous les noms de la console cible, jamais par chemin. Pak : paquet `internal/gamearchive` (lecture qui ne fait jamais confiance à l'archive : répertoire central borné, chemins, liens, doublons sans casse, ratio de compression, tailles, manifeste exact, octets vérifiés contre le SHA-256 ; tests d'archives hostiles), export en flux confiné, import en remplacement journalisé (save copiée, remplacés à la corbeille, state verrouillé jamais remplacé), `GET /states` avec cache de hachages. App : export (feuille de partage), import (Fichiers, menu de la Bibliothèque, extension de partage) avec aperçu et choix de la cible, états versionnés dans le coffre à côté des saves (06 §8), restauration d'un état ; mode démo (faux pak : vraies archives zip, `GET /states`). Non fait : restauration de la vignette d'un état (pas de route d'écriture), import vers un sous-dossier choisi dans l'app (le pak l'accepte, l'app propose le dossier racine du système).
+
 ## M20 — Autres consoles et Knulli
 
 - Plateformes NextUI `tg5050`, `h700` et `my355` (chemins, `PLATFORM`, binaire et pak par plateforme, `pak.json`), puis un adaptateur pour le firmware **Knulli** (autre arborescence, autre lanceur).
@@ -262,7 +264,7 @@ Les fonctions de l'app sur l'écran de la console ; le pak en arrière-plan pend
 - Android (iPad et Mac : M15).
 - TLS en option.
 - Gestionnaire de fichiers générique, lancement d'un jeu, Pak Store, mises à jour.
-- Export / import des données d'un jeu en archive ; synchronisation des states (M9 ne couvre que les saves).
+- ~~Export / import des données d'un jeu en archive ; synchronisation des states~~ : M19.
 - Restauration depuis la corbeille.
 - **Mise à jour du pak ReminisLink depuis l'app** (proposée par la personne le 19/11/2026, après la v1.0.0) : l'app récupère la dernière version publiée sur GitHub et l'installe sur la console. S'appuie sur l'installation de paks de M12 ; comme ReminisLink ne peut pas se remplacer pendant qu'il tourne, la nouvelle version est déposée à part et appliquée au lancement suivant (par `launch.sh`), l'ancienne passant à la corbeille. Vérifier l'archive avant de l'appliquer (somme publiée avec la version, ou signature).
 - **Interface web servie par le pak** (proposée par la personne le 19/11/2026) : les actions de l'app depuis un navigateur (ordinateur, Android) à `http://<console>:47821/`, en réutilisant l'API ; signature dans le navigateur (WebCrypto), appairage par PIN (la caméra exige HTTPS), à réconcilier avec 07 §4 (« aucun fichier statique »). Note du 19/11/2026 : appairage du navigateur par PIN, clé WebCrypto non exportable propre au navigateur ; un navigateur ne peut ni épingler un certificat auto-signé ni utiliser une clé WebCrypto comme certificat client TLS (mTLS) : le PIN devra passer par un PAKE et l'authentification du pak se faire au niveau de l'application, à étudier avec le retour du PIN.
