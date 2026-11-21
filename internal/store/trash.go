@@ -123,6 +123,9 @@ type entryFile struct {
 	// Installs are the new files of a replacement (Replace), relative to
 	// the SD card: renamed into place while the state is "installing".
 	Installs []installRecord `json:"installs,omitempty"`
+	// Returns are the places of the items of a restore (M18), relative to
+	// the SD card: renamed there while the state is "returning".
+	Returns []returnRecord `json:"returns,omitempty"`
 }
 
 // installRecord is an Install in entry.json, paths relative to the SD card.
@@ -822,6 +825,12 @@ func (t *Trash) Recover() error {
 		}
 		if e.State == stateInstalling {
 			if err := t.recoverInstall(dir, sd, &e); err != nil {
+				return err
+			}
+			continue
+		}
+		if e.State == stateReturning {
+			if err := t.recoverReturn(dir, sd, &e); err != nil {
 				return err
 			}
 			continue

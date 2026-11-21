@@ -244,8 +244,8 @@ func TestWriteRoutesPublishLibraryEvents(t *testing.T) {
 			t.Errorf("%s: options %+v", r.pattern, r.opts)
 		}
 	}
-	if n != 17 {
-		t.Errorf("%d routes publish library events, want 17", n)
+	if n != 18 { // 17, and the restore from the trash (M18)
+		t.Errorf("%d routes publish library events, want 18", n)
 	}
 }
 
