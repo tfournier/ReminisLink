@@ -9,8 +9,12 @@
 # and runs AppStoreScreenshotsUITests. Both series are checked (the six
 # names exactly once, the expected size, no alpha) before
 # docs/screenshots/appstore/<locale>-<suffix>/ is replaced; nothing is
-# replaced if a check fails. The simulator is left as it was found: its
-# language and region, its status bar, and booted or not.
+# replaced if a check fails.
+#
+# The simulator must be shut down: simctl cannot read status bar overrides
+# back, so a booted one (whose overrides would be lost) is refused. At the
+# end its language and region are put back (only those that were read),
+# the overrides set here are cleared and it is shut down again.
 set -uo pipefail
 
 SIM=${1:?simulator id}
@@ -20,48 +24,63 @@ HEIGHT=${4:?height in pixels}
 IOS=${0:A:h:h}
 OUT=$IOS/../docs/screenshots/appstore
 NAMES=(1-library 2-game 3-states 4-cheats 5-apps 6-consoles)
-WORK=$(mktemp -d)
 
 simstate() { xcrun simctl list devices | command grep -F "$SIM" | command grep -q "(Booted)"; }
 simdefault() { xcrun simctl spawn "$SIM" defaults "$@"; }
 
-WAS_BOOTED=0
-simstate && WAS_BOOTED=1
-OLD_LANGUAGES=""
-OLD_LOCALE=""
+if simstate; then
+  echo "error: shut the simulator down first (xcrun simctl shutdown $SIM): its status bar overrides cannot be read back" >&2
+  exit 1
+fi
+
+WORK=$(mktemp -d)
+LANGUAGES_READ=0; OLD_LANGUAGES=""
+LOCALE_READ=0; OLD_LOCALE=""
 
 # Installed first: every step runs even if another fails.
 cleanup() {
   if simstate; then
-    if [[ -n $OLD_LANGUAGES ]]; then
-      simdefault write -g AppleLanguages -array ${(s:,:)OLD_LANGUAGES} || echo "warning: AppleLanguages not restored" >&2
-    else
-      simdefault delete -g AppleLanguages 2>/dev/null || true
+    if (( LANGUAGES_READ )); then
+      if [[ -n $OLD_LANGUAGES ]]; then
+        simdefault write -g AppleLanguages -array ${(s:,:)OLD_LANGUAGES} || echo "warning: AppleLanguages not restored" >&2
+      else
+        simdefault delete -g AppleLanguages 2>/dev/null || true
+      fi
     fi
-    if [[ -n $OLD_LOCALE ]]; then
-      simdefault write -g AppleLocale "$OLD_LOCALE" || echo "warning: AppleLocale not restored" >&2
-    else
-      simdefault delete -g AppleLocale 2>/dev/null || true
+    if (( LOCALE_READ )); then
+      if [[ -n $OLD_LOCALE ]]; then
+        simdefault write -g AppleLocale "$OLD_LOCALE" || echo "warning: AppleLocale not restored" >&2
+      else
+        simdefault delete -g AppleLocale 2>/dev/null || true
+      fi
     fi
     xcrun simctl status_bar "$SIM" clear || echo "warning: status bar not cleared" >&2
-  fi
-  if (( ! WAS_BOOTED )); then
     xcrun simctl shutdown "$SIM" 2>/dev/null || echo "warning: simulator not shut down" >&2
-  elif ! simstate; then
-    # Rebooted for the language: booted again, as found.
-    xcrun simctl boot "$SIM" 2>/dev/null || echo "warning: simulator not booted again" >&2
   fi
   rm -rf "$WORK"
 }
 trap cleanup EXIT INT TERM
 
+# Reads a global preference: sets VALUE and returns 0 when it was read
+# (VALUE empty when it does not exist), 1 when the read failed.
+readpref() {
+  local out
+  if out=$(simdefault read -g "$1" 2>&1); then
+    VALUE=$out; return 0
+  fi
+  [[ $out == *"does not exist"* ]] && { VALUE=""; return 0; }
+  return 1
+}
+
 fail() { echo "error: $*" >&2; exit 1; }
 
 xcrun simctl boot "$SIM" 2>/dev/null || true
 xcrun simctl bootstatus "$SIM" >/dev/null || fail "the simulator did not boot"
-# Missing preferences are fine: they are deleted again at the end.
-OLD_LANGUAGES=$(simdefault read -g AppleLanguages 2>/dev/null | tr -d ' \n()"') || OLD_LANGUAGES=""
-OLD_LOCALE=$(simdefault read -g AppleLocale 2>/dev/null) || OLD_LOCALE=""
+# Only what was read is put back at the end.
+readpref AppleLanguages || fail "AppleLanguages not read"
+OLD_LANGUAGES=$(print -r -- "$VALUE" | tr -d ' \n()"'); LANGUAGES_READ=1
+readpref AppleLocale || fail "AppleLocale not read"
+OLD_LOCALE=$VALUE; LOCALE_READ=1
 
 for pair in en:en-US:en_US fr:fr-FR:fr_FR; do
   lang=${pair%%:*}; rest=${pair#*:}; locale=${rest%%:*}; region=${rest#*:}

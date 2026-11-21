@@ -341,12 +341,15 @@ private struct ConsolesButton: ViewModifier {
 #if DEBUG
 /// UI tests (M15): `reminislink://uitest-width?class=compact|regular|system`
 /// changes the width class of the console screens as a narrower or wider
-/// window would, without resizing the window (XCUITest cannot).
+/// window would, without resizing the window (XCUITest cannot). Only when
+/// the test launched the app with `RL_UITEST_WIDTH_LINKS=1`: elsewhere the
+/// link is an ordinary (invalid) link.
 struct UITestWidth {
     let sizeClass: UserInterfaceSizeClass?
 
     init?(url: URL) {
-        guard url.scheme?.lowercased() == "reminislink", url.host()?.lowercased() == "uitest-width",
+        guard ProcessInfo.processInfo.environment["RL_UITEST_WIDTH_LINKS"] == "1",
+              url.scheme?.lowercased() == "reminislink", url.host()?.lowercased() == "uitest-width",
               let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                   .queryItems?.first(where: { $0.name == "class" })?.value
         else { return nil }

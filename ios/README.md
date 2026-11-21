@@ -399,7 +399,12 @@ layouts follow the size class and the width of the window.
   `UniversalUITests` (wide → narrow → wide, through the Debug link
   `reminislink://uitest-width?class=compact|regular|system`, which changes
   the width class seen by the console screens: XCUITest cannot resize a
-  window; a real resize was not tried). The other tabs are one
+  window; a real resize was not tried). The link does something only when
+  the test launched the app with `RL_UITEST_WIDTH_LINKS=1`, and
+  `RL_UITEST_DOWNLOAD_DELAY` (demo downloads answered late) is read from
+  the launch environment of a Debug build: a link from outside cannot set
+  either. The test checks what is visible (the list beside the game when
+  wide; the game alone and Back to the list when narrow). The other tabs are one
   `NavigationStack` each at every width.
 - **Smallest regular width** (iPad mini portrait, 744 pt): the list column
   is 340 pt and the detail about 400 pt; the sidebar of the tabs opens over
@@ -476,15 +481,20 @@ both languages (it sets the language of the simulator for the status bar
 date, 9:41 and a full battery), checks both series (the six names
 `1-library` to `6-consoles` exactly once, the given size, no alpha), and
 only then replaces `docs/screenshots/appstore/<locale>-<suffix>/`. The
-simulator is left as found (language, region, status bar, booted or not).
-iPad 13" (2064 × 2752, iPad Pro 13-inch M5 simulator):
+simulator must be shut down (simctl cannot read status bar overrides back,
+so a booted one is refused); at the end its language and region are put
+back (only those it could read), the overrides it set are cleared and it
+is shut down again. iPad 13" (2064 × 2752, iPad Pro 13-inch M5 simulator):
 
 ```sh
+xcrun simctl shutdown <iPad Pro 13-inch simulator id>
 ios/AppStore/make-screenshots.sh <iPad Pro 13-inch simulator id> ipad-13 2064 2752
 ```
 
 In the demo the texts that name NextUI say "the console" instead (state
-history, game image), so no real product name appears. On an iPad the
+history, game image). Apple's own feature names are kept: the Files
+footer of a game says "Save to Files, AirDrop…" in the demo and in the
+screenshots (`1-library`, `2-game`). On an iPad the
 library screenshots show the list and the game side by side.
 The iPhone sets of M16 were taken by hand; this test should give the same
 screens on an iPhone 16 Pro Max (1320 × 2868), not tried yet.
