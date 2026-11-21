@@ -203,7 +203,7 @@ extension AppModel {
 /// The client of a save sync, used only while it is still the session's
 /// client (M15): once the session dropped it (pairing forgotten, paused or
 /// replaced), the next request of the sync is not sent.
-struct SessionSaveSource: SaveSyncSource {
+struct SessionSaveSource: SaveSyncSource, StateSyncSource {
     let session: ConsoleSession
     let client: APIClient
 
@@ -219,6 +219,14 @@ struct SessionSaveSource: SaveSyncSource {
     }
     func downloadSaveClock(gameId: String, into directory: URL) async throws -> DownloadedFile {
         try await current().downloadSaveClock(gameId: gameId, into: directory)
+    }
+    // The states (M19), with the same client rule.
+    func allStates() async throws -> StateList { try await current().allStates() }
+    func downloadState(gameId: String, slot: Int, into directory: URL) async throws -> DownloadedFile {
+        try await current().downloadState(gameId: gameId, slot: slot, into: directory)
+    }
+    func downloadStateThumbnail(gameId: String, slot: Int, into directory: URL) async throws -> DownloadedFile {
+        try await current().downloadStateThumbnail(gameId: gameId, slot: slot, into: directory)
     }
 }
 
