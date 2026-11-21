@@ -30,7 +30,7 @@ set `DEVELOPMENT_TEAM` in `Config/Local.xcconfig` (see "Release" below).
 The identifiers are fixed in `Config/Config.xcconfig` (app `link.reminis.app`,
 from the product domain reminis.link); the signing team is not in the
 repository. Since milestone M17, releases are built by Xcode Cloud from the
-tags `ios-vX.Y.Z` (App Store) and `ios-vX.Y.Z-beta.N` (TestFlight only):
+tags `ios-vX.Y.Z` (App Store) and `ios-beta-vX.Y.Z-beta.N` (TestFlight only):
 see step 7. Steps 1 to 6 are the one-time setup and the manual path.
 
 ### 1. Identifiers and team
@@ -170,19 +170,23 @@ Apple device (to be made with the hardware, not in the repository).
 
 ### 7. Xcode Cloud: tags, TestFlight and App Review (milestone M17)
 
-Tags (from `main`, `make ios-vX.Y.Z` or `make ios-vX.Y.Z-beta.N`, see the
-main README, "Releasing"):
+Tags (from `main`, `make ios-vX.Y.Z` or `make ios-vX.Y.Z-beta.N`, which tags
+`ios-beta-vX.Y.Z-beta.N`; see the main README, "Releasing"). The two prefixes
+never overlap, because Xcode Cloud tag conditions are prefixes only: each tag
+starts one workflow.
+
+
 
 | Tag | Workflow | Result |
 |---|---|---|
-| `ios-v1.1.0-beta.1`, `ios-v1.1.0-rc.1` | Beta | version 1.1.0, new build, TestFlight only |
+| `ios-beta-v1.1.0-beta.1`, `ios-beta-v1.1.0-rc.1` | Beta | version 1.1.0, new build, TestFlight only |
 | `ios-v1.1.0` | Release, then Submit | version 1.1.0 prepared, submitted to App Review, released automatically once approved |
 
 The scripts of `ci_scripts/` (Xcode Cloud runs them by name; nothing to
 set in Xcode):
 
 - `ci_post_clone.sh` and `ci_pre_xcodebuild.sh` write `Config/CI.xcconfig`:
-  `MARKETING_VERSION` from `CI_TAG` (`ios-v` and the suffix removed: the App
+  `MARKETING_VERSION` from `CI_TAG` (prefix and suffix removed: the App
   Store takes `X.Y.Z` only) and `CURRENT_PROJECT_VERSION` from
   `CI_BUILD_NUMBER`. They stop the build when the tag is malformed, when the
   **Release** workflow gets a pre-release tag (a beta never reaches App
@@ -245,9 +249,9 @@ submission holding another item).
    installs the Xcode Cloud GitHub app; the repository only, read access to
    the code). No key or secret goes to GitHub.
 3. **Build number.** *Xcode Cloud > Settings > Build Number*: set the next
-   build number above the last upload by hand (build 5 of 1.0.0), e.g. 10.
+   build number above the last upload by hand (build 5 of 1.0.0), e.g. 6.
 4. **Workflow "Beta"** (the name matters: the scripts read `CI_WORKFLOW`):
-   - Start condition: *Tag Changes*, custom tag `ios-v*-*`; *Auto-cancel
+   - Start condition: *Tag Changes*, custom tag prefix `ios-beta-v`; *Auto-cancel
      builds* off.
    - Environment: latest release Xcode, latest macOS.
    - Action: *Archive*, platform iOS, *Deployment Preparation: TestFlight
@@ -255,8 +259,8 @@ submission holding another item).
      Review, a second guard after the scripts.
    - Post-action: *TestFlight Internal Testing*, the internal testers group.
 5. **Workflow "Release"**:
-   - Start condition: *Tag Changes*, custom tag `ios-v*` (the scripts refuse
-     the beta tags it also matches).
+   - Start condition: *Tag Changes*, custom tag prefix `ios-v` (it never
+     matches a beta tag; the scripts refuse one anyway).
    - Action: *Archive*, iOS, *Deployment Preparation: TestFlight and App
      Store*.
    - Post-action: *TestFlight Internal Testing* (the build also goes to the
@@ -265,10 +269,12 @@ submission holding another item).
      `ASC_PRIVATE_KEY` (the whole content of the `.p8` file, line breaks
      included or not).
 6. **Workflow "Submit"**:
-   - Start condition: *Tag Changes*, custom tag `ios-v*` for a fully
-     automatic submission (it waits for the Release build, using up to about
-     an hour of Xcode Cloud compute per release), or no start condition and
-     *Start Build* by hand on the tag once TestFlight shows the build.
+   - Start condition: *Manual Start*, tags with the prefix `ios-v` allowed
+     (Xcode Cloud needs a start condition). Once TestFlight shows the build
+     of the Release run, *Start Build* by hand on the tag. A *Tag Changes*
+     condition on the prefix `ios-v` instead submits with no manual step,
+     but the run waits for the Release build, using up to about an hour of
+     Xcode Cloud compute per release.
    - Action: *Build*, iOS (the cheapest action; only the script matters).
    - The same three secret environment variables.
 7. **App Review information** (notes, contact, demo mode) is copied by App

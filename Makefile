@@ -20,7 +20,7 @@
 #   make docker-<target> run <target> inside the build image
 #   make vX.Y.Z          release a version: bump pak.json, commit, tag and push
 #   make vX.Y.Z-beta.N   pre-release (also -rc.N): tag and push only, pak.json unchanged
-#   make ios-vX.Y.Z      release the iOS app (ios-vX.Y.Z-beta.N: TestFlight only); Xcode Cloud builds the tag
+#   make ios-vX.Y.Z      release the iOS app (ios-vX.Y.Z-beta.N: TestFlight only, tag ios-beta-vX.Y.Z-beta.N); Xcode Cloud builds the tag
 #   make release-checks  test the release scripts (pak tags, Xcode Cloud scripts, app release notes)
 
 APP           := reminislink
@@ -30,7 +30,7 @@ PLATFORM      := tg5040
 PAK_VERSION   := $(shell sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
 RELEASE_FILE  := $(shell sed -n 's/.*"release_filename": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
 TAG           ?=
-# Pak tags only (vX.Y.Z...): the app's ios-v* tags never name a pak build.
+# Pak tags only (vX.Y.Z...): the app's ios-v* and ios-beta-v* tags never name a pak build.
 VERSION       ?= $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo $(PAK_VERSION))
 
 GO_SOURCES    := cmd internal protocol scripts
@@ -190,10 +190,10 @@ v%: FORCE ## Release a version (make v1.2.3) or a pre-release (make v1.2.3-beta.
 	git push --atomic origin HEAD "refs/tags/$$V"; \
 	echo "Released $$V: the CI will publish the GitHub release."
 
-ios-v%: FORCE ## Release the iOS app (make ios-v1.2.3: App Review) or a TestFlight pre-release (make ios-v1.2.3-beta.1); Xcode Cloud builds the tag
-	@set -e; V="$@"; \
-	parsed="$$(bash -c '. ios/ci_scripts/common.sh && rl_parse_tag "$$0" && echo "$$RL_KIND $$RL_VERSION"' "$$V")" || { echo "Invalid app tag $$V (expected ios-vX.Y.Z, ios-vX.Y.Z-beta.N or ios-vX.Y.Z-rc.N)"; exit 1; }; \
-	KIND="$${parsed%% *}"; X="$${parsed#* }"; \
+ios-v% ios-beta-v%: FORCE ## Release the iOS app (make ios-v1.2.3: App Review) or a TestFlight pre-release (make ios-v1.2.3-beta.1, tagged ios-beta-v1.2.3-beta.1); Xcode Cloud builds the tag
+	@set -e; \
+	parsed="$$(bash -c '. ios/ci_scripts/common.sh && T="$$(rl_tag_name "$$0")" && rl_parse_tag "$$T" && echo "$$RL_KIND $$RL_VERSION $$T"' "$@")" || { echo "Invalid app tag $@ (expected ios-vX.Y.Z, ios-vX.Y.Z-beta.N or ios-vX.Y.Z-rc.N)"; exit 1; }; \
+	set -- $$parsed; KIND="$$1"; X="$$2"; V="$$3"; \
 	[ "$$($(GIT) rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
 	[ -z "$$($(GIT) status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
 	if $(GIT) rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \

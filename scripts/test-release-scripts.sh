@@ -9,7 +9,7 @@
 #     the Release workflow refused;
 #   - the publication of a pak release (fake gh): flags from the tag, also
 #     on a re-run over a wrongly marked release;
-#   - "make ios-vX.Y.Z" and "make ios-vX.Y.Z-beta.N" on a copy of the files
+#   - "make ios-vX.Y.Z" and "make ios-vX.Y.Z-beta.N" (tag ios-beta-v...) on a copy of the files
 #     (fake git);
 #   - the App Store "What's New" files are in sync with ios/CHANGELOG.md;
 #   - on a Mac, the App Store Connect client: offline self-test, and whole
@@ -59,7 +59,7 @@ done
 kind_is() { [ "$("$root/scripts/pak-release-kind.sh" "$1" 2>/dev/null)" = "$2" ]; }
 for tag in v1.0.1 v2.10.0 v1.0.0.1; do expect "pak tag $tag is latest" 0 kind_is "$tag" latest; done
 for tag in v1.1.0-beta.1 v1.1.0-rc.2; do expect "pak tag $tag is a pre-release" 0 kind_is "$tag" prerelease; done
-for tag in ios-v1.0.1 ios-v1.1.0-beta.1 v1.1 v1.1.0-alpha.1 v1.1.0-beta "v1.0.0 x" ""; do
+for tag in ios-v1.0.1 ios-v1.1.0-beta.1 ios-beta-v1.1.0-beta.1 v1.1 v1.1.0-alpha.1 v1.1.0-beta "v1.0.0 x" ""; do
 	expect "tag '$tag' is not a pak release" 1 "$root/scripts/pak-release-kind.sh" "$tag"
 done
 
@@ -72,7 +72,7 @@ expect "CI has no other tag filter" 0 test "$(grep -c 'tags:' "$workflow")" = 1
 expect "CI release job runs for refs/tags/v only" 0 grep -Fq "if: startsWith(github.ref, 'refs/tags/v')" "$workflow"
 expect "CI release job publishes through scripts/publish-pak-release.sh" 0 grep -Fq 'run: scripts/publish-pak-release.sh "$TAG" dist/ReminisLink.pak.zip' "$workflow"
 glob_matches() { [[ "$1" == v* ]]; }
-for tag in ios-v1.0.1 ios-v1.1.0-beta.1; do expect "app tag $tag does not match the CI tag glob" 1 glob_matches "$tag"; done
+for tag in ios-v1.0.1 ios-beta-v1.1.0-beta.1; do expect "app tag $tag does not match the CI tag glob" 1 glob_matches "$tag"; done
 expect "pak tag v1.0.1 matches the CI tag glob" 0 glob_matches v1.0.1
 
 # publish <tag> [release exists: 0/1]: the release job's script with a fake gh.
@@ -135,28 +135,28 @@ xcconfig_has() { grep -Fxq "$1" "$tmp/CI.xcconfig"; }
 xcconfig_lacks() { ! grep -q "$1" "$tmp/CI.xcconfig"; }
 
 rm -f "$tmp/CI.xcconfig"
-expect "Beta workflow, ios-v1.3.0-beta.2: accepted" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-v1.3.0-beta.2 CI_BUILD_NUMBER=17
+expect "Beta workflow, ios-beta-v1.3.0-beta.2: accepted" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.3.0-beta.2 CI_BUILD_NUMBER=17
 expect "  MARKETING_VERSION = 1.3.0 (suffix stripped)" 0 xcconfig_has "MARKETING_VERSION = 1.3.0"
 expect "  CURRENT_PROJECT_VERSION = 17 (Xcode Cloud build number)" 0 xcconfig_has "CURRENT_PROJECT_VERSION = 17"
-expect "Beta workflow, ios-v1.3.0-rc.1: accepted" 0 run_ci ci_pre_xcodebuild.sh CI_WORKFLOW=Beta CI_TAG=ios-v1.3.0-rc.1 CI_BUILD_NUMBER=18
+expect "Beta workflow, ios-beta-v1.3.0-rc.1: accepted" 0 run_ci ci_pre_xcodebuild.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.3.0-rc.1 CI_BUILD_NUMBER=18
 
 rm -f "$tmp/CI.xcconfig"
 expect "Release workflow, ios-v1.2.0 (changelog section): accepted" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=20
 expect "  MARKETING_VERSION = 1.2.0" 0 xcconfig_has "MARKETING_VERSION = 1.2.0"
 expect "  CURRENT_PROJECT_VERSION = 20" 0 xcconfig_has "CURRENT_PROJECT_VERSION = 20"
 
-expect "Release workflow, pre-release tag: refused (never App Review)" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0-beta.1 CI_BUILD_NUMBER=21
-expect "Release workflow, pre-release tag, pre-xcodebuild: refused" 1 run_ci ci_pre_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0-beta.1 CI_BUILD_NUMBER=21
-expect "Release workflow, pre-release tag, post-xcodebuild: refused" 1 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0-beta.1 CI_XCODEBUILD_ACTION=archive
+expect "Release workflow, pre-release tag: refused (never App Review)" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-beta-v1.2.0-beta.1 CI_BUILD_NUMBER=21
+expect "Release workflow, pre-release tag, pre-xcodebuild: refused" 1 run_ci ci_pre_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-beta-v1.2.0-beta.1 CI_BUILD_NUMBER=21
+expect "Release workflow, pre-release tag, post-xcodebuild: refused" 1 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-beta-v1.2.0-beta.1 CI_XCODEBUILD_ACTION=archive
 expect "Release workflow, no changelog section for 1.4.0: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-v1.4.0 CI_BUILD_NUMBER=22
 expect "Release workflow without a tag: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_BUILD_NUMBER=23
 expect "Beta workflow, release tag: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=24
-for tag in ios-v1.2 ios-v1.2.0-alpha.1 ios-v01.2.0 v1.2.0 ios-v1.2.0-beta "ios-v1.2.0 "; do
+for tag in ios-v1.2 ios-v1.2.0-alpha.1 ios-v01.2.0 v1.2.0 ios-v1.2.0-beta "ios-v1.2.0 " ios-v1.2.0-beta.1 ios-beta-v1.2.0 ios-beta-v1.2.0-beta ios-beta-v1.2.0-alpha.1; do
 	expect "malformed tag '$tag': refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG="$tag" CI_BUILD_NUMBER=25
 	expect "malformed tag '$tag', other workflow: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Tests CI_TAG="$tag" CI_BUILD_NUMBER=25
 done
-expect "malformed build number: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-v1.2.0-beta.1 CI_BUILD_NUMBER=abc
-expect "tag without CI_BUILD_NUMBER: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-v1.2.0-beta.1
+expect "malformed build number: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.2.0-beta.1 CI_BUILD_NUMBER=abc
+expect "tag without CI_BUILD_NUMBER: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.2.0-beta.1
 expect "tag without CI_WORKFLOW: refused" 1 run_ci ci_post_clone.sh CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=25
 expect "tag in another workflow: refused" 1 run_ci ci_pre_xcodebuild.sh CI_WORKFLOW=Tests CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=25
 
@@ -165,7 +165,7 @@ expect "other workflow, no tag: accepted" 0 run_ci ci_post_clone.sh CI_WORKFLOW=
 expect "  build number only" 0 xcconfig_has "CURRENT_PROJECT_VERSION = 26"
 expect "  no MARKETING_VERSION (Config.xcconfig's)" 0 xcconfig_lacks MARKETING_VERSION
 
-expect "Submit workflow, pre-release tag: nothing submitted, success" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Submit CI_TAG=ios-v1.2.0-beta.1 CI_BUILD_NUMBER=27
+expect "Submit workflow, pre-release tag: nothing submitted, success" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Submit CI_TAG=ios-beta-v1.2.0-beta.1 CI_BUILD_NUMBER=27
 expect "Submit workflow, no API key: instructions, success" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Submit CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=28
 expect "  the instructions name the version" 0 grep -q "version 1.2.0" "$tmp/out"
 expect "Release post-xcodebuild, archive result unknown: nothing prepared, success" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_ACTION=archive
@@ -174,7 +174,7 @@ expect "Release post-xcodebuild, archive failed: nothing prepared" 0 run_ci ci_p
 expect "  says so" 0 grep -q "nothing prepared" "$tmp/out"
 expect "Release post-xcodebuild, no API key: instructions, success" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=29 CI_XCODEBUILD_ACTION=archive CI_XCODEBUILD_EXIT_CODE=0
 expect "  the instructions name the build of the Release run" 0 grep -q "choose build 29 of version 1.2.0" "$tmp/out"
-expect "Beta post-xcodebuild: does nothing" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Beta CI_TAG=ios-v1.2.0-beta.1 CI_XCODEBUILD_ACTION=archive
+expect "Beta post-xcodebuild: does nothing" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.2.0-beta.1 CI_XCODEBUILD_ACTION=archive
 
 # --- App changelog and App Store "What's New" --------------------------------
 
@@ -210,9 +210,14 @@ fi
 expect "make ios-v9.8.7-beta.2: a pre-release" 0 make_app_release ios-v9.8.7-beta.2
 expect "  changelog untouched" 0 cmp -s "$root/ios/CHANGELOG.md" "$tmp/repo/ios/CHANGELOG.md"
 expect "  nothing committed" 0 not_logged "git commit"
-expect "  tag pushed alone" 0 grep -q '^git push origin refs/tags/ios-v9.8.7-beta.2$' "$tmp/fake.log"
-expect "make ios-v9.8: refused" 1 make_app_release ios-v9.8
-expect "  git never called" 0 test ! -s "$tmp/fake.log"
+expect "  tagged ios-beta-v9.8.7-beta.2 (the Beta workflow's prefix)" 0 grep -q '^git tag -a ios-beta-v9.8.7-beta.2 ' "$tmp/fake.log"
+expect "  tag pushed alone" 0 grep -q '^git push origin refs/tags/ios-beta-v9.8.7-beta.2$' "$tmp/fake.log"
+expect "make ios-beta-v9.8.7-rc.1: a pre-release" 0 make_app_release ios-beta-v9.8.7-rc.1
+expect "  tag pushed alone" 0 grep -q '^git push origin refs/tags/ios-beta-v9.8.7-rc.1$' "$tmp/fake.log"
+for name in ios-v9.8 ios-beta-v9.8.7 ios-v9.8.7-alpha.1; do
+	expect "make $name: refused" 1 make_app_release "$name"
+	expect "  git never called" 0 test ! -s "$tmp/fake.log"
+done
 
 # --- App Store Connect client (Mac only: Swift and CryptoKit) ---------------
 

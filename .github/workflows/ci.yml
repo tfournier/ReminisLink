@@ -2,9 +2,9 @@
 # every push and pull request. On a vX.Y.Z tag, also publish the GitHub
 # release read by the NextUI Pak Store (ReminisLink.pak.zip); on a
 # vX.Y.Z-beta.N or vX.Y.Z-rc.N tag, a GitHub pre-release (never "Latest").
-# The app's tags (ios-vX.Y.Z[-beta.N]) never start this workflow: Xcode
-# Cloud builds them (ios/README.md, "Release"). Keep the tag filter "v*":
-# a glob anchored at the start, so ios-v* cannot match (checked by
+# The app's tags (ios-vX.Y.Z, ios-beta-vX.Y.Z-beta.N) never start this
+# workflow: Xcode Cloud builds them (ios/README.md, "Release"). Keep the tag
+# filter "v*": a glob anchored at the start, so ios-* cannot match (checked by
 # scripts/test-release-scripts.sh, run in the go job).
 # Adapted from .github/workflows/ci.yml of github.com/tfournier/nextui-cheat-manager.
 name: CI

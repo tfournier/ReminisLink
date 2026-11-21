@@ -153,7 +153,7 @@ make docker-release      # builds dist/ReminisLink.pak.zip
 | `make build` / `pak` / `release` | Cross-compile, assemble the pak, build the zip. They need the toolchain of `scripts/setup-toolchain.sh`. |
 | `make docker-<target>` | Runs any target inside the build image. |
 | `make vX.Y.Z` | Releases a version of the pak; `make vX.Y.Z-beta.N` a pre-release (see below). |
-| `make ios-vX.Y.Z` | Releases the iOS app; `make ios-vX.Y.Z-beta.N` a TestFlight pre-release (see below). |
+| `make ios-vX.Y.Z` | Releases the iOS app; `make ios-vX.Y.Z-beta.N` a TestFlight pre-release, tagged `ios-beta-vX.Y.Z-beta.N` (see below). |
 | `make release-checks` | Tests the release scripts (tag rules, Xcode Cloud scripts, App Store "What's New"). |
 
 iOS: `cd ios/ReminisLinkKit && swift test`, and `cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16'`.
@@ -171,7 +171,7 @@ The pak and the iOS app are released from this repository with their own version
 | `vX.Y.Z` | the pak: GitHub release marked "Latest", read by the Pak Store | GitHub Actions |
 | `vX.Y.Z-beta.N`, `vX.Y.Z-rc.N` | a pak pre-release for testers: GitHub "Pre-release", ignored by the Pak Store | GitHub Actions |
 | `ios-vX.Y.Z` | the app: App Store version `X.Y.Z`, submitted to App Review, released automatically once approved | Xcode Cloud |
-| `ios-vX.Y.Z-beta.N`, `ios-vX.Y.Z-rc.N` | an app pre-release: TestFlight only (App Store version `X.Y.Z`, a new build number) | Xcode Cloud |
+| `ios-beta-vX.Y.Z-beta.N`, `ios-beta-vX.Y.Z-rc.N` | an app pre-release: TestFlight only (App Store version `X.Y.Z`, a new build number) | Xcode Cloud |
 
 Only a pak release can be "Latest" on GitHub: app tags never start the GitHub workflow, and its release job refuses any tag that is not a pak version (`make release-checks` tests these rules). The app's changelog is [ios/CHANGELOG.md](ios/CHANGELOG.md) and its release procedure, Xcode Cloud setup included, is in [ios/README.md](ios/README.md#release-testflight-and-app-store).
 
@@ -190,7 +190,7 @@ A pre-release: with an `"Unreleased"` entry in `pak.json`, run `make v1.2.3-beta
 
 Update the `## Unreleased` section of `ios/CHANGELOG.md` (English and French, the App Store "What's New") with each change of the app, and run `ios/ci_scripts/release_notes.sh sync` (the CI checks it). Then, from `main`:
 
-- `make ios-v1.2.3-beta.1`: tags and pushes; Xcode Cloud sends version 1.2.3 to TestFlight.
+- `make ios-v1.2.3-beta.1`: tags `ios-beta-v1.2.3-beta.1` and pushes it; Xcode Cloud sends version 1.2.3 to TestFlight.
 - `make ios-v1.2.3`: renames `## Unreleased` to `## 1.2.3`, syncs the App Store texts, commits as `Release app 1.2.3`, tags and pushes; Xcode Cloud builds it, prepares the App Store version and submits it to App Review.
 
 ## Documentation

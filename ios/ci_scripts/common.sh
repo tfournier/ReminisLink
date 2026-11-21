@@ -1,8 +1,11 @@
 # Shared by the Xcode Cloud scripts of ReminisLink (milestone M17). Sourced
 # by bash; never prints a key or a token.
 #
-# App tags: ios-vX.Y.Z (release: App Store) and ios-vX.Y.Z-beta.N or
-# ios-vX.Y.Z-rc.N (pre-release: TestFlight only). MARKETING_VERSION is X.Y.Z
+# App tags: ios-vX.Y.Z (release: App Store) and ios-beta-vX.Y.Z-beta.N or
+# ios-beta-vX.Y.Z-rc.N (pre-release: TestFlight only). The two prefixes do not
+# overlap: Xcode Cloud tag conditions are prefixes only, so "ios-v" starts the
+# Release workflow and "ios-beta-v" the Beta workflow, never both for one tag
+# (the checks below stay as a second guard). MARKETING_VERSION is X.Y.Z
 # (the App Store takes three numbers, no suffix); CURRENT_PROJECT_VERSION is
 # Xcode Cloud's build number. Both go into Config/CI.xcconfig (generated,
 # ignored by Git, included by Config/Config.xcconfig): the Xcode project is
@@ -12,7 +15,7 @@
 # (CI_WORKFLOW):
 #   Release  ios-vX.Y.Z only: refuses a pre-release tag, so a beta never goes
 #            to App Review.
-#   Beta     ios-vX.Y.Z-beta.N / -rc.N only.
+#   Beta     ios-beta-vX.Y.Z-beta.N / -rc.N only.
 #   Submit   optional: submits the processed build of ios-vX.Y.Z to App
 #            Review (App Store Connect API); does nothing for a pre-release.
 # Any other workflow (e.g. tests on pull requests) only gets the build number.
@@ -34,14 +37,34 @@ rl_fail() {
 # rl_parse_tag <tag>: sets RL_VERSION (X.Y.Z), RL_SUFFIX (beta.N, rc.N or
 # empty) and RL_KIND (release or beta). Returns 1 for anything else.
 rl_parse_tag() {
-	local re='^ios-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((beta|rc)\.(0|[1-9][0-9]*)))?$'
+	local n='(0|[1-9][0-9]*)'
+	local release="^ios-v$n\\.$n\\.$n\$"
+	local beta="^ios-beta-v$n\\.$n\\.$n-((beta|rc)\\.$n)\$"
 	RL_VERSION=""
 	RL_SUFFIX=""
 	RL_KIND=""
-	[[ "$1" =~ $re ]] || return 1
+	if [[ "$1" =~ $release ]]; then
+		RL_KIND=release
+	elif [[ "$1" =~ $beta ]]; then
+		RL_KIND=beta
+		RL_SUFFIX="${BASH_REMATCH[4]}"
+	else
+		return 1
+	fi
 	RL_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-	RL_SUFFIX="${BASH_REMATCH[5]}"
-	if [ -n "$RL_SUFFIX" ]; then RL_KIND=beta; else RL_KIND=release; fi
+}
+
+# rl_tag_name <name>: prints the app tag for a "make" target name, which
+# may give a pre-release as ios-vX.Y.Z-beta.N (written ios-beta-vX.Y.Z-beta.N)
+# or directly as ios-beta-vX.Y.Z-beta.N. Returns 1 if neither is a valid tag.
+rl_tag_name() {
+	if rl_parse_tag "$1"; then
+		printf '%s\n' "$1"
+	elif [[ "$1" == ios-v* ]] && rl_parse_tag "ios-beta-v${1#ios-v}"; then
+		printf '%s\n' "ios-beta-v${1#ios-v}"
+	else
+		return 1
+	fi
 }
 
 # rl_has_changelog_section <X.Y.Z>: whether ios/CHANGELOG.md has "## X.Y.Z".
@@ -58,7 +81,7 @@ rl_configure() {
 	RL_SUFFIX=""
 	RL_KIND=""
 	if [ -n "$tag" ]; then
-		rl_parse_tag "$tag" || rl_fail "malformed app tag '$tag': expected ios-vX.Y.Z, ios-vX.Y.Z-beta.N or ios-vX.Y.Z-rc.N"
+		rl_parse_tag "$tag" || rl_fail "malformed app tag '$tag': expected ios-vX.Y.Z, ios-beta-vX.Y.Z-beta.N or ios-beta-vX.Y.Z-rc.N"
 		# A tag is a delivery: its workflow and build number must be known
 		# (the local build number would collide with an earlier upload).
 		case "$workflow" in
@@ -74,7 +97,7 @@ rl_configure() {
 		rl_has_changelog_section "$RL_VERSION" || rl_fail "ios/CHANGELOG.md has no '## $RL_VERSION' section (the App Store \"What's New\")"
 		;;
 	"$RL_BETA_WORKFLOW")
-		[ -n "$tag" ] || rl_fail "the $workflow workflow builds app pre-release tags only (ios-vX.Y.Z-beta.N)"
+		[ -n "$tag" ] || rl_fail "the $workflow workflow builds app pre-release tags only (ios-beta-vX.Y.Z-beta.N)"
 		[ "$RL_KIND" = beta ] || rl_fail "$tag is a release tag: the $RL_RELEASE_WORKFLOW workflow builds it. This $workflow run stops here on purpose."
 		;;
 	esac

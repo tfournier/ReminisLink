@@ -25,7 +25,7 @@ INFOPLIST_PREPROCESSOR_DEFINITIONS = RL_ICLOUD_CONTAINER_KEY=$(RL_ICLOUD_CONTAIN
 
 // Version shown on the App Store, and build number, for local builds. The
 // builds of Xcode Cloud take both from CI.xcconfig instead (milestone M17):
-// the version from the tag ios-vX.Y.Z[-beta.N], the build number from Xcode
+// the version from the tag ios-vX.Y.Z or ios-beta-vX.Y.Z-beta.N, the build number from Xcode
 // Cloud (ios/ci_scripts, ios/README.md "Release").
 MARKETING_VERSION = 1.0.0
 CURRENT_PROJECT_VERSION = 5
