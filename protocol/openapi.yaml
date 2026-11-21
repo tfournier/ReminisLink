@@ -415,14 +415,15 @@ paths:
           every 5 s.
         - `library`: `EventLibrary`, after any change of the SD card made
           through the API by any client (upload installed, deletion,
-          replacement, restore, patch, cheats, art, trash), so the app
+          replacement, restore, patch, cheats, art, trash, restore from
+          the trash), so the app
           refreshes what it shows. At most one every second (changes are
           merged).
         - `job`: a `Job`, when a job of any client changes state, and
           while it runs at most once per second.
         - `paks` (M12): `EventPaks` (an empty object), after a pak was
-          installed (a `pak-install` job that succeeded) or deleted by any
-          client, so the
+          installed (a `pak-install` job that succeeded), deleted or
+          restored from the trash (M18, with `library`) by any client, so the
           app reloads `GET /paks`. At most one every second (changes are
           merged). A pak change does not send `library`.
 
@@ -905,7 +906,7 @@ paths:
         reaches 30 days: the age grows with the running time of the pak and,
         at each launch, with the time since the last close (at most 7 days
         per launch), so a wrong console clock can only delay the purge.
-        Restoring from the trash is not part of v1.
+        An entry can be put back with `POST /trash/{entryId}/restore` (M18).
       responses:
         '200':
           description: Trash entries.
@@ -979,6 +980,124 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /trash/{entryId}/restore:
+    parameters:
+      - name: entryId
+        in: path
+        required: true
+        description: Trash entry identifier.
+        schema: { $ref: '#/components/schemas/OpaqueId' }
+        example: tr_20261118T170000Z_a1b2
+    get:
+      tags: [Trash]
+      operationId: previewTrashRestore
+      summary: Preview the restore of a trash entry (M18)
+      description: |
+        Read only, never waits for a write. What `POST` would put back:
+        every user file of the entry (the ReminisLink copies of the entry,
+        locks and resume history, come back too but are not listed), its
+        original place, whether that place is taken, and the free name it
+        would get with `onConflict: rename`. A place is taken when a file or
+        folder of the same name exists there, ignoring case (the SD card is
+        exFAT). Computed by the same code as the restore; another client
+        can change the card between the preview and the restore.
+      responses:
+        '200':
+          description: What would come back.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrashRestorePreview' }
+              example:
+                entryId: tr_20261118T170000Z_a1b2
+                reason: delete-game
+                label: Sky Garden Quest
+                conflict: true
+                items:
+                  - name: Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba
+                    size: 16777216
+                    conflict: true
+                    freeName: Roms/Game Boy Advance (GBA)/Sky Garden Quest (2).gba
+                  - name: Saves/GBA/Sky Garden Quest.gba.sav
+                    size: 131072
+                    conflict: false
+                    freeName: Saves/GBA/Sky Garden Quest (2).gba.sav
+                restoredBytes: 16908288
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+    post:
+      tags: [Trash]
+      operationId: restoreTrashEntry
+      summary: Restore a trash entry (M18)
+      description: |
+        Puts every item of the entry back to its original place (renames on
+        the same SD card), the ReminisLink copies (locks, resume history)
+        included: a deleted game comes back with its save, clock file
+        (`.rtc`), states, cheats and art; a deleted or replaced pak comes
+        back as a folder of the paks. The server resolves the places from
+        the entry itself, never from the request. A present file is never
+        overwritten: when a place is taken (same name ignoring case, file
+        or folder), `onConflict: fail` (default) answers `409 conflict`
+        with `details.conflicts` (the taken places, relative to the SD
+        card) and changes nothing; `onConflict: rename` puts every item of
+        the entry under the same free name instead, ` (N)` inserted after
+        the game name, before its extensions (`Sky Garden Quest (2).gba`,
+        `Sky Garden Quest (2).gba.sav`, `Clock (2).pak`), so the files of a
+        game stay together; playlists (`.m3u`, `.cue`) are not rewritten.
+
+        All or nothing: on an error every item already restored goes back
+        to the entry. A power cut during the restore is finished at the
+        next start (each item goes to its journaled place when it is still
+        free; the rest stays in the entry). The entry leaves `GET /trash`
+        once everything came back. A pak folder goes through the checks of
+        an installation (`launch.sh` at its top, no link nor special file,
+        limits of `POST /paks/install`): a refused folder answers
+        `422 unsupported_format` and stays in the trash. The purge of the
+        trash never runs during a restore.
+
+        A write (see "Writes one at a time"). Publishes a `library` event
+        (empty `systemIds`) and, when a pak came back, a `paks` event.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TrashRestoreRequest' }
+            example: { onConflict: rename }
+      responses:
+        '200':
+          description: Restored; the entry is no longer in the trash.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrashRestoreResult' }
+              example:
+                restored:
+                  - Roms/Game Boy Advance (GBA)/Sky Garden Quest (2).gba
+                  - Saves/GBA/Sky Garden Quest (2).gba.sav
+                restoredBytes: 16908288
+                renamed: true
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A place is taken (`conflict`, `details.conflicts`) and `onConflict` is `fail`; nothing was changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  code: conflict
+                  message: A file exists where the entry goes back
+                  details: { conflicts: [Saves/GBA/Sky Garden Quest.gba.sav] }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -2447,7 +2566,8 @@ components:
       description: |
         `conflict` (target exists: `details.existing`; wrong upload offset:
         `details.offset`; M12: deleting or replacing the pak of ReminisLink
-        itself, `details.self: true`), `checksum_mismatch` or `state_locked`.
+        itself, `details.self: true`; M18: places of a trash restore taken,
+        `details.conflicts`), `checksum_mismatch` or `state_locked`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2945,6 +3065,44 @@ components:
       required: [freedBytes]
       properties:
         freedBytes: { $ref: '#/components/schemas/Bytes' }
+    TrashRestoreRequest:
+      type: object
+      properties:
+        onConflict:
+          type: string
+          enum: [fail, rename]
+          default: fail
+          description: '`fail`: `409 conflict` when a place is taken. `rename`: every item of the entry goes back under the same free name.'
+    TrashRestoreItem:
+      type: object
+      required: [name, size, conflict, freeName]
+      properties:
+        name: { type: string, description: 'Original place, relative to the SD card (informative).' }
+        size: { $ref: '#/components/schemas/Bytes' }
+        conflict: { type: boolean, description: 'The place is taken (same name ignoring case).' }
+        freeName: { type: string, description: 'Where it goes with `onConflict: rename`, relative to the SD card; `name` when the entry has no conflict.' }
+    TrashRestorePreview:
+      type: object
+      required: [entryId, reason, label, conflict, items, restoredBytes]
+      properties:
+        entryId: { $ref: '#/components/schemas/OpaqueId' }
+        reason: { type: string, description: 'The `reason` of the `TrashEntry`.' }
+        label: { type: string }
+        conflict: { type: boolean, description: 'At least one place is taken (a ReminisLink copy included): `onConflict: fail` would answer `409`.' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TrashRestoreItem' }
+        restoredBytes: { $ref: '#/components/schemas/Bytes' }
+    TrashRestoreResult:
+      type: object
+      required: [restored, restoredBytes, renamed]
+      properties:
+        restored:
+          type: array
+          description: Where the user files went, relative to the SD card (informative).
+          items: { type: string }
+        restoredBytes: { $ref: '#/components/schemas/Bytes' }
+        renamed: { type: boolean, description: 'The items went back under a free name (`onConflict: rename` with a taken place).' }
 
     Backup:
       type: object
