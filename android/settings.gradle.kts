@@ -16,4 +16,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ReminisLink"
-include(":core")
+include(":core", ":app")

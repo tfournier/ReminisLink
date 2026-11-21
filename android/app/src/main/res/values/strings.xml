@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">ReminisLink</string>
+
+    <!-- Common -->
+    <string name="action_back">Back</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_retry">Try Again</string>
+    <string name="action_continue">Continue</string>
+    <string name="loading">Loading…</string>
+
+    <!-- Consoles -->
+    <string name="consoles_title">Consoles</string>
+    <string name="add_console">Add a Console</string>
+    <string name="welcome_title">Manage your retro handheld from your phone</string>
+    <string name="welcome_step_install">Install ReminisLink on the console: see the installation guide on reminis.link.</string>
+    <string name="welcome_step_open">Open ReminisLink from the Tools menu of the console.</string>
+    <string name="welcome_step_scan">Scan the QR code shown on the console.</string>
+    <string name="status_online">Online</string>
+    <string name="status_offline">Offline</string>
+    <string name="forget">Forget</string>
+    <string name="forget_title">Forget this console?</string>
+    <string name="forget_message">%1$s will be removed from this list. To use it again, scan its QR code. To revoke this phone on the console too, open Settings > Devices there.</string>
+
+    <!-- Add a console -->
+    <string name="client_name_label">Name shown on the console</string>
+    <string name="client_name_help">This name identifies this phone on the console\'s Devices screen.</string>
+    <string name="add_console_help">On the console, open Settings > Pair a New Device, then scan the QR code shown.</string>
+    <string name="scan_qr">Scan the QR Code</string>
+    <string name="paste_link_label">Or paste a pairing link</string>
+    <string name="paste_link_action">Pair with This Link</string>
+
+    <!-- Scanner -->
+    <string name="scan_title">Scan the QR Code</string>
+    <string name="scan_hint">Scan the QR code shown on the console.</string>
+    <string name="camera_permission_needed">ReminisLink needs the camera to scan the QR code shown by your console. You can also paste the pairing link instead.</string>
+    <string name="camera_permission_grant">Allow the Camera</string>
+    <string name="camera_unavailable">The camera is not available on this device. Paste the pairing link instead.</string>
+
+    <!-- Pairing -->
+    <string name="pairing_title">Pairing</string>
+    <string name="pairing_step_search">Looking for the console</string>
+    <string name="pairing_step_pair">Pairing</string>
+    <string name="pairing_step_done">Done</string>
+    <string name="pairing_done">%1$s is paired with this phone.</string>
+    <string name="pairing_open_console">Open the Console</string>
+    <string name="already_paired_title">This console is already paired. Pair it again?</string>
+    <string name="already_paired_message">Its pairing will be replaced. The console must present the same identity as its QR code.</string>
+    <string name="pair_again">Pair Again</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_model">Model</string>
+    <string name="dashboard_os">OS</string>
+    <string name="dashboard_pak">ReminisLink version</string>
+    <string name="dashboard_ip">IP address</string>
+    <string name="battery">Battery</string>
+    <string name="battery_percent">%1$d%%</string>
+    <string name="battery_charging">%1$d%%, charging</string>
+    <string name="battery_unknown">Unknown</string>
+    <string name="storage">Storage</string>
+    <string name="storage_free">%1$s free of %2$s</string>
+    <string name="connected_devices">Connected devices</string>
+    <string name="library">Library</string>
+    <string name="refresh">Refresh</string>
+
+    <!-- Library -->
+    <string name="search_games">Search games</string>
+    <string name="library_empty">No game on this console yet.</string>
+    <string name="library_no_match">No game matches your search.</string>
+    <string name="library_truncated">The console has too many games to list them all here.</string>
+    <string name="has_save">Save</string>
+    <plurals name="state_count">
+        <item quantity="one">%d state</item>
+        <item quantity="other">%d states</item>
+    </plurals>
+    <plurals name="cheat_count">
+        <item quantity="one">%d cheat</item>
+        <item quantity="other">%d cheats</item>
+    </plurals>
+
+    <!-- Game -->
+    <string name="game_file">File</string>
+    <string name="game_size">Size</string>
+    <string name="game_save">Save</string>
+    <string name="game_save_yes">Yes</string>
+    <string name="game_save_no">This game has no save on the console.</string>
+    <string name="game_states">States</string>
+    <string name="game_cheats">Cheats</string>
+    <string name="game_files">Files</string>
+    <string name="role_rom">Game</string>
+    <string name="role_save">Save</string>
+    <string name="role_rtc">Save clock</string>
+    <string name="role_state">State %1$d</string>
+    <string name="role_state_noslot">State</string>
+    <string name="role_cheats">Cheats</string>
+    <string name="role_art">Box art</string>
+
+    <!-- Errors -->
+    <string name="error_not_found">Console not found. Check that ReminisLink is open on the console, that this phone and the console are on the same Wi-Fi network, and try again.</string>
+    <string name="error_network">The console does not answer. Check that ReminisLink is open on the console and that this phone is on the same Wi-Fi network.</string>
+    <string name="error_identity_changed">This console\'s identity changed: it is not the console paired with this app, or it was reset. Nothing was sent. Pair it again with its QR code.</string>
+    <string name="error_invalid_link">This link is not a valid ReminisLink pairing link.</string>
+    <string name="error_outdated_pak">This QR code comes from an older version of ReminisLink. Update ReminisLink on the console, then scan the new QR code.</string>
+    <string name="error_newer_link">This QR code comes from a newer version of ReminisLink. Update this app.</string>
+    <string name="error_incompatible">This console runs a version of ReminisLink this app does not support. Update ReminisLink on the console and this app.</string>
+    <string name="error_device_mismatch">Another console answered at this address.</string>
+    <string name="error_pairing_closed">Pairing is not open on the console. Open Settings > Pair a New Device there, then scan the new QR code.</string>
+    <string name="error_pairing_failed">Pairing failed. The code may have expired: show a new QR code on the console and try again.</string>
+    <string name="error_pairing_proof">The console could not prove its identity. Pairing was cancelled.</string>
+    <string name="error_too_many_attempts">Too many attempts. Wait a moment, then try again.</string>
+    <string name="error_unknown_client">The console does not know this phone anymore. Pair it again with its QR code.</string>
+    <string name="error_disconnected">The console disconnected this phone. Reconnect it from the console\'s Devices screen.</string>
+    <string name="error_shutting_down">ReminisLink is closing on the console.</string>
+    <string name="error_storage">The pairing information could not be read or saved on this phone.</string>
+    <string name="error_generic">Something went wrong (%1$s).</string>
+</resources>
