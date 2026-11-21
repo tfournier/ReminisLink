@@ -22,12 +22,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import link.reminis.app.ui.AddConsoleScreen
+import link.reminis.app.ui.AddFilesScreen
 import link.reminis.app.ui.ConsolesScreen
 import link.reminis.app.ui.DashboardScreen
 import link.reminis.app.ui.GameScreen
 import link.reminis.app.ui.LibraryScreen
 import link.reminis.app.ui.PairingScreen
+import link.reminis.app.ui.SaveScreen
 import link.reminis.app.ui.ScanScreen
+import link.reminis.app.ui.StatesScreen
+import link.reminis.app.ui.TransfersScreen
 
 /**
  * Navigation routes. Ids are base64url. A pairing link never goes into a
@@ -41,25 +45,51 @@ object Routes {
     const val DASHBOARD = "console/{deviceId}"
     const val LIBRARY = "console/{deviceId}/library"
     const val GAME = "console/{deviceId}/game/{gameId}"
+    const val SAVE = "console/{deviceId}/game/{gameId}/save"
+    const val STATES = "console/{deviceId}/game/{gameId}/states?name={name}"
+    const val TRANSFERS = "console/{deviceId}/transfers"
+    const val ADD_FILES = "add-files?deviceId={deviceId}&share={share}"
 
     fun pair(token: String) = "pair/$token"
     fun dashboard(deviceId: String) = "console/$deviceId"
     fun library(deviceId: String) = "console/$deviceId/library"
     fun game(deviceId: String, gameId: String) = "console/$deviceId/game/$gameId"
+    fun save(deviceId: String, gameId: String) = "console/$deviceId/game/$gameId/save"
+    fun states(deviceId: String, gameId: String, name: String) =
+        "console/$deviceId/game/$gameId/states?name=${android.net.Uri.encode(name)}"
+    fun transfers(deviceId: String) = "console/$deviceId/transfers"
+
+    /** The Add screen of a console, or of the files shared behind [share] (an opaque token of [ShareInbox]). */
+    fun addFiles(deviceId: String? = null, share: String? = null) = buildString {
+        append("add-files")
+        val query = listOfNotNull(deviceId?.let { "deviceId=$it" }, share?.let { "share=$it" })
+        if (query.isNotEmpty()) append("?").append(query.joinToString("&"))
+    }
 }
 
 class MainActivity : ComponentActivity() {
     /** A pairing link opened from another app (`reminislink://pair?...`). */
     private val incomingLink = mutableStateOf<String?>(null)
 
+    /** Files shared by another app: the token of [ShareInbox]. */
+    private val incomingShare = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // Only a fresh launch: a recreated activity gets its old intent back.
-        if (savedInstanceState == null) takePairingLink(intent)?.let { incomingLink.value = it }
+        if (savedInstanceState == null) {
+            takePairingLink(intent)?.let { incomingLink.value = it }
+            takeShare(intent)?.let { incomingShare.value = it }
+        }
         setContent {
             ReminisLinkTheme {
-                AppNavigation(incomingLink.value) { incomingLink.value = null }
+                AppNavigation(
+                    incomingLink = incomingLink.value,
+                    onLinkHandled = { incomingLink.value = null },
+                    incomingShare = incomingShare.value,
+                    onShareHandled = { incomingShare.value = null },
+                )
             }
         }
     }
@@ -67,6 +97,38 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         takePairingLink(intent)?.let { incomingLink.value = it }
+        takeShare(intent)?.let { incomingShare.value = it }
+    }
+
+    /**
+     * The files of a share intent (`ACTION_SEND`, `ACTION_SEND_MULTIPLE`),
+     * kept in memory behind a token. A share that only carries text (a
+     * link) is ignored: the console downloads nothing. Not replayed from the
+     * recent apps.
+     */
+    private fun takeShare(intent: Intent?): String? {
+        if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
+        val uris: List<android.net.Uri> = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(streamExtra(intent))
+            Intent.ACTION_SEND_MULTIPLE -> streamListExtra(intent)
+            else -> return null
+        }.filter { it.scheme == android.content.ContentResolver.SCHEME_CONTENT }
+        if (uris.isEmpty()) return null
+        return container.shareInbox.put(uris)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun streamExtra(intent: Intent): android.net.Uri? = if (Build.VERSION.SDK_INT >= 33) {
+        intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+    } else {
+        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun streamListExtra(intent: Intent): List<android.net.Uri> = if (Build.VERSION.SDK_INT >= 33) {
+        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java).orEmpty()
+    } else {
+        intent.getParcelableArrayListExtra<android.net.Uri>(Intent.EXTRA_STREAM).orEmpty()
     }
 
     /**
@@ -82,7 +144,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppNavigation(incomingLink: String?, onLinkHandled: () -> Unit) {
+fun AppNavigation(
+    incomingLink: String?,
+    onLinkHandled: () -> Unit,
+    incomingShare: String? = null,
+    onShareHandled: () -> Unit = {},
+) {
     val nav = rememberNavController()
     val links = LocalContext.current.container.pendingLinks
     LaunchedEffect(incomingLink) {
@@ -90,6 +157,12 @@ fun AppNavigation(incomingLink: String?, onLinkHandled: () -> Unit) {
             // From another app: the pairing screen asks before any network access.
             nav.navigate(Routes.pair(links.put(incomingLink, external = true)))
             onLinkHandled()
+        }
+    }
+    LaunchedEffect(incomingShare) {
+        if (incomingShare != null) {
+            nav.navigate(Routes.addFiles(share = incomingShare))
+            onShareHandled()
         }
     }
     val id = navArgument("deviceId") { type = NavType.StringType }
@@ -130,6 +203,7 @@ fun AppNavigation(incomingLink: String?, onLinkHandled: () -> Unit) {
                 deviceId = deviceId,
                 onBack = { nav.popBackStack() },
                 onLibrary = { nav.navigate(Routes.library(deviceId)) },
+                onTransfers = { nav.navigate(Routes.transfers(deviceId)) },
                 onForgotten = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
             )
         }
@@ -139,13 +213,62 @@ fun AppNavigation(incomingLink: String?, onLinkHandled: () -> Unit) {
                 deviceId = deviceId,
                 onBack = { nav.popBackStack() },
                 onGame = { nav.navigate(Routes.game(deviceId, it)) },
+                onAdd = { nav.navigate(Routes.addFiles(deviceId = deviceId)) },
             )
         }
-        composable(Routes.GAME, arguments = listOf(id, navArgument("gameId") { type = NavType.StringType })) { entry ->
+        val gameId = navArgument("gameId") { type = NavType.StringType }
+        composable(Routes.GAME, arguments = listOf(id, gameId)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            val game = entry.arguments?.getString("gameId").orEmpty()
             GameScreen(
+                deviceId = deviceId,
+                gameId = game,
+                onBack = { nav.popBackStack() },
+                onSave = { nav.navigate(Routes.save(deviceId, game)) },
+                onStates = { name -> nav.navigate(Routes.states(deviceId, game, name)) },
+            )
+        }
+        composable(Routes.SAVE, arguments = listOf(id, gameId)) { entry ->
+            SaveScreen(
                 deviceId = entry.arguments?.getString("deviceId").orEmpty(),
                 gameId = entry.arguments?.getString("gameId").orEmpty(),
                 onBack = { nav.popBackStack() },
+            )
+        }
+        composable(
+            Routes.STATES,
+            arguments = listOf(id, gameId, navArgument("name") { type = NavType.StringType; defaultValue = "" }),
+        ) { entry ->
+            StatesScreen(
+                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
+                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                gameName = entry.arguments?.getString("name").orEmpty(),
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(Routes.TRANSFERS, arguments = listOf(id)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            TransfersScreen(
+                deviceId = deviceId,
+                onBack = { nav.popBackStack() },
+                onAdd = { nav.navigate(Routes.addFiles(deviceId = deviceId)) },
+            )
+        }
+        composable(
+            Routes.ADD_FILES,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("share") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
+            AddFilesScreen(
+                deviceId = entry.arguments?.getString("deviceId"),
+                shareToken = entry.arguments?.getString("share"),
+                onBack = { nav.popBackStack() },
+                onSent = { deviceId ->
+                    nav.popBackStack()
+                    nav.navigate(Routes.transfers(deviceId)) { launchSingleTop = true }
+                },
             )
         }
     }

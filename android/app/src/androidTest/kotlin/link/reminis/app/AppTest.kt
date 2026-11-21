@@ -18,8 +18,12 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToLog
+import kotlinx.coroutines.flow.first
 import link.reminis.core.Ed25519
 import link.reminis.core.PairingLink
+import link.reminis.core.TransferPhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -209,7 +213,99 @@ class PakIntegrationTest {
             assertTrue("the library is empty", games.fetchSemanticsNodes().isNotEmpty())
             games.onFirst().performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("game").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText(context.getString(R.string.role_rom)).assertExists()
+            compose.onNodeWithText(context.getString(R.string.role_rom), useUnmergedTree = true).assertExists()
+
+            transfersSavesAndStates(parsed.deviceId, it)
         }
+    }
+
+    /** Waits for a condition; on a timeout, the screen goes to the log (no secret is on it). */
+    private fun waitFor(what: String, condition: () -> Boolean) {
+        try {
+            compose.waitUntil(30_000, condition)
+        } catch (e: Throwable) {
+            compose.onRoot(useUnmergedTree = true).printToLog("PakIntegrationTest")
+            throw AssertionError("timeout waiting for $what", e)
+        }
+    }
+
+    private fun waitForTag(tag: String) =
+        waitFor(tag) { compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+
+    private fun waitForText(text: String) =
+        waitFor(text) { compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
+
+    /** Sends a file through the app's queue and waits for its end. */
+    private fun send(deviceId: String, name: String, bytes: ByteArray, target: link.reminis.core.UploadTarget): link.reminis.core.UploadResult =
+        kotlinx.coroutines.runBlocking {
+            val file = java.io.File(context.cacheDir, "e2e-${System.nanoTime()}").apply { writeBytes(bytes) }
+            try {
+                val queue = context.container.transfers
+                val id = queue.enqueueUpload(deviceId, file, name, target, "e2e", ownsFile = false)
+                val item = kotlinx.coroutines.withTimeout(60_000) {
+                    queue.items.first { list -> list.any { it.id == id && (it.phase == TransferPhase.DONE || it.phase == TransferPhase.FAILED) } }
+                }.first { it.id == id }
+                assertEquals("upload of $name: ${item.failure}", TransferPhase.DONE, item.phase)
+                item.result!!
+            } finally {
+                file.delete()
+            }
+        }
+
+    /**
+     * Increment 2 against the real pak, with files created by the test only
+     * (invented names and bytes): a game file sent with a resumable upload,
+     * a save sent, a backup copy made and restored from the Save screen, a
+     * state sent and locked from the States screen.
+     */
+    private fun transfersSavesAndStates(deviceId: String, scenario: ActivityScenario<MainActivity>) {
+        val client = kotlinx.coroutines.runBlocking { context.container.client(deviceId) }
+        // The system whose emulator pak is on the test card (its state folder is known).
+        val system = kotlinx.coroutines.runBlocking { client.systems() }.first { it.tag == "MGBA" }
+        val gameName = "Fern Courier Test"
+        val rom = ByteArray(10_000) { (it * 31 % 251).toByte() }
+        val gameId = send(deviceId, "$gameName.gba", rom, link.reminis.core.UploadTarget.Rom(system.id, "$gameName.gba")).gameId!!
+        val detail = kotlinx.coroutines.runBlocking { client.game(gameId) }
+        assertEquals(rom.size.toLong(), detail.files.first { it.role == link.reminis.core.GameFileRoles.ROM }.sizeBytes)
+
+        val firstSave = "FERN-SAVE-ONE".toByteArray()
+        send(deviceId, "$gameName.sav", firstSave, link.reminis.core.UploadTarget.Save(gameId))
+
+        // Back to the library, then the new game.
+        scenario.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+        waitForTag("search")
+        compose.onNodeWithTag("search").performTextInput("Fern Courier")
+        waitForText(gameName)
+        compose.onNodeWithText(gameName).performClick()
+        waitForTag("openSave")
+
+        // A backup copy from the Save screen, then the save changes, then the copy is restored.
+        compose.onNodeWithTag("openSave").performClick()
+        waitForTag("createBackup")
+        compose.onNodeWithTag("createBackup").performClick()
+        compose.onNodeWithTag("backupLabel").performTextInput("Before the e2e")
+        compose.onNodeWithTag("backupCreate").performClick()
+        waitForText(context.getString(R.string.backup_created))
+        send(deviceId, "$gameName.sav", "FERN-SAVE-TWO!".toByteArray(), link.reminis.core.UploadTarget.Save(gameId))
+        compose.onNodeWithTag("saveScreen").performScrollToNode(androidx.compose.ui.test.hasText("Before the e2e"))
+        compose.onNodeWithText("Before the e2e").performClick()
+        compose.onNodeWithTag("action0").performClick()
+        compose.onNodeWithTag("confirmOk").performClick()
+        waitForText(context.getString(R.string.backup_restored_kept))
+        val restored = java.io.ByteArrayOutputStream()
+        kotlinx.coroutines.runBlocking { client.download(link.reminis.core.DownloadSource.Save(gameId), restored) }
+        assertTrue("the backup copy was not restored", restored.toByteArray().contentEquals(firstSave))
+
+        // A state sent, then locked from the States screen.
+        send(deviceId, "$gameName.st0", "FERN-STATE".toByteArray(), link.reminis.core.UploadTarget.State(gameId, 0))
+        scenario.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+        waitForTag("openStates")
+        compose.onNodeWithTag("openStates").performClick()
+        waitForTag("slot0")
+        compose.onNodeWithTag("slot0").performClick()
+        compose.onNodeWithText(context.getString(R.string.state_lock_action)).performClick()
+        waitForTag("locked0")
+        val slot = kotlinx.coroutines.runBlocking { client.states(gameId) }.slots.first { it.slot == 0 }
+        assertTrue("the state is not locked on the console", slot.locked)
     }
 }

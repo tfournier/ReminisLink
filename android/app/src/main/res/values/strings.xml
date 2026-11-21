@@ -120,4 +120,155 @@
     <string name="external_link_address">Address: %1$s</string>
     <string name="external_link_unnamed">Unnamed console</string>
     <string name="pair">Pair</string>
+
+    <!-- Actions (increment 2) -->
+    <string name="action_download">Download</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_delete_ellipsis">Delete…</string>
+    <string name="action_restore">Restore</string>
+    <string name="action_replace">Replace</string>
+    <string name="action_create">Create</string>
+    <string name="action_send">Send</string>
+    <string name="action_remove">Remove</string>
+    <string name="more_actions">More actions</string>
+    <string name="download_queued">Downloading “%1$s”: follow it in Transfers.</string>
+
+    <!-- Transfers -->
+    <string name="transfers_title">Transfers</string>
+    <string name="transfers_clear">Clear Finished</string>
+    <string name="transfers_empty">No transfer. Add games from the library, or share files with ReminisLink from another app.</string>
+    <string name="transfers_channel">Transfers</string>
+    <string name="transfers_notification_waiting">Transfers waiting</string>
+    <string name="transfers_notification_upload">Sending “%1$s”</string>
+    <string name="transfers_notification_download">Downloading “%1$s”</string>
+    <plurals name="transfers_notification_count">
+        <item quantity="one">%d transfer in progress</item>
+        <item quantity="other">%d transfers in progress</item>
+    </plurals>
+    <string name="transfer_to">To %1$s</string>
+    <string name="transfer_from">From %1$s</string>
+    <string name="transfer_cancel">Cancel Transfer</string>
+    <string name="transfer_cancel_title">Cancel “%1$s”?</string>
+    <string name="transfer_cancel_upload">What was already sent is deleted from the console.</string>
+    <string name="transfer_cancel_download">The partial file is deleted from this phone.</string>
+    <string name="transfer_resume">Resume</string>
+    <string name="transfer_keep_both">Keep Both</string>
+    <string name="transfer_replace">Replace</string>
+    <string name="transfer_hashing">Preparing…</string>
+    <string name="transfer_waiting">Waiting</string>
+    <string name="transfer_completing">Finishing on the console…</string>
+    <string name="transfer_progress">%1$s of %2$s</string>
+    <string name="transfer_speed">%1$s/s</string>
+    <string name="transfer_remaining">%1$s left</string>
+    <string name="transfer_paused">Paused: the transfer goes on from where it stopped when the console answers again.</string>
+    <string name="transfer_failed">Failed</string>
+    <string name="transfer_cancelling">Cancelling…</string>
+    <string name="transfer_sent">Sent</string>
+    <string name="transfer_downloaded">Downloaded</string>
+    <string name="transfer_cancelled">Cancelled</string>
+
+    <!-- Add files -->
+    <string name="add_files">Add</string>
+    <string name="add_choose_files">Choose Files…</string>
+    <string name="add_help">Choose games to send to the console, or a save (.sav, .srm) to replace the save of a game. ReminisLink does not provide any game.</string>
+    <string name="add_no_console">Pair a console first.</string>
+    <string name="add_console_choice">Console</string>
+    <string name="add_kind_game">Game</string>
+    <string name="add_kind_save">Save</string>
+    <string name="add_choose_system">Choose the System</string>
+    <string name="add_choose_game">Choose the Game</string>
+    <string name="add_save_help">The console first copies the current save of the game (backup copy).</string>
+
+    <!-- Box art -->
+    <string name="art_change">Change the Box Art…</string>
+    <string name="art_remove">Remove the Box Art</string>
+    <string name="art_remove_title">Remove the box art?</string>
+    <string name="art_remove_message">The picture goes to the trash of the console.</string>
+    <string name="art_set">Box art changed. The previous picture went to the trash of the console.</string>
+    <string name="art_removed">Box art moved to the trash of the console.</string>
+
+    <!-- Save -->
+    <string name="save_title">Save</string>
+    <string name="save_current">Current Save</string>
+    <string name="save_replace">Replace from a File…</string>
+    <string name="save_footer">Before replacing or restoring the save, the console always copies the current one (backup copy).</string>
+    <string name="save_replace_title">Replace the save?</string>
+    <string name="save_replace_message">“%1$s” replaces the save of %2$s. The current save is first copied (backup copy).</string>
+    <string name="save_replace_message_none">“%1$s” becomes the save of %2$s, which has none yet.</string>
+    <string name="save_replaced">Save replaced.</string>
+    <string name="save_replaced_kept">Save replaced. The previous save was kept as a backup copy.</string>
+    <string name="save_replace_queued">The save is larger than 64 MiB: it is being sent in Transfers. The current save is copied first.</string>
+    <string name="backups_title">Backup Copies</string>
+    <string name="backups_none">No backup copy yet.</string>
+    <string name="backups_footer">Automatic copies are limited to 10 per game: the oldest ones are deleted. Copies you make yourself are kept.</string>
+    <string name="backup_make">Make a Backup Copy…</string>
+    <string name="backup_automatic">Automatic</string>
+    <string name="backup_default_title">Backup copy</string>
+    <string name="backup_automatic_title">Automatic copy</string>
+    <string name="backup_before_replace">Before replacement</string>
+    <string name="backup_before_restore">Before restoration</string>
+    <string name="backup_before_delete">Before deletion</string>
+    <string name="backup_before_patch">Before patch</string>
+    <string name="backup_new_title">New Backup Copy</string>
+    <string name="backup_label">Label</string>
+    <string name="backup_label_optional">Optional</string>
+    <string name="backup_new_help">%1$d/%2$d · A copy of the current save is made on the console.</string>
+    <string name="backup_created">Backup copy created.</string>
+    <string name="backup_restore_action">Restore…</string>
+    <string name="backup_restore_title">Restore this copy?</string>
+    <string name="backup_restore_message">The current save is first copied (backup copy), then replaced by the copy of %1$s.</string>
+    <string name="backup_restored">Copy restored.</string>
+    <string name="backup_restored_kept">Copy restored. The previous save was kept as a backup copy.</string>
+    <string name="backup_delete_title">Delete this copy?</string>
+    <string name="backup_delete_message">The copy goes to the trash of the console. The current save does not change.</string>
+    <string name="backup_deleted">Copy moved to the trash of the console.</string>
+
+    <!-- States -->
+    <string name="states_title">States</string>
+    <string name="states_slots">Slots</string>
+    <string name="states_none">No state for this game on the console.</string>
+    <string name="states_lock_help">A lock keeps a copy of the state on the console. It cannot stop a game from overwriting the state: the state is restored the next time ReminisLink is opened on the console if it was overwritten in game.</string>
+    <string name="states_trash_help">Deleted states go to the trash of the console, removed automatically after 30 days or when it is emptied.</string>
+    <string name="state_slot">Slot %1$d</string>
+    <string name="state_resume">Automatic Resume</string>
+    <string name="state_restored_tag">Restored</string>
+    <string name="state_locked_a11y">Locked</string>
+    <string name="state_locked_cannot_delete">Locked states cannot be deleted: unlock it first.</string>
+    <string name="state_lock_action">Lock</string>
+    <string name="state_unlock_action">Unlock…</string>
+    <string name="state_unlock">Unlock</string>
+    <string name="state_restore_action">Restore the Locked Copy…</string>
+    <string name="state_unlock_title">Unlock “%1$s”?</string>
+    <string name="state_unlock_message_same">The locked copy is deleted. The state itself does not change, but it is no longer restored if a game overwrites it.</string>
+    <string name="state_unlock_message_differs">The locked copy is the only version left, or differs from the state: it goes to the trash of the console. The state itself does not change.</string>
+    <string name="state_restore_title">Restore “%1$s”?</string>
+    <string name="state_restore_message">The current state goes to the trash of the console, then the locked copy replaces it.</string>
+    <string name="state_delete_title">Delete “%1$s”?</string>
+    <string name="state_delete_message">The state goes to the trash of the console, removed automatically after 30 days or when it is emptied.</string>
+    <string name="state_locked_notice">Locked: %1$s.</string>
+    <string name="state_unlocked_notice">Unlocked: %1$s.</string>
+    <string name="state_restored_notice">Restored from its locked copy: %1$s.</string>
+    <string name="state_deleted_notice">Moved to the trash of the console: %1$s.</string>
+    <string name="state_warning_missing">Missing on the console. The locked copy is kept: restore it to bring the state back.</string>
+    <string name="state_warning_modified">Different from the locked copy: not restored.</string>
+    <string name="state_warning_core">Copy made by another emulator: it cannot be restored.</string>
+    <string name="state_warning_unknown">Lock status unknown to this version of the app: this state may not be protected.</string>
+
+    <!-- Errors (increment 2) -->
+    <string name="error_device_busy">The console is busy with another change. Nothing was changed. Try again in %1$d seconds.</string>
+    <string name="error_conflict">A file with this name is already on the console.</string>
+    <string name="error_checksum">The file arrived damaged on the console and was deleted. Send it again.</string>
+    <string name="error_state_locked">This state is locked. Unlock it before deleting it.</string>
+    <string name="error_too_large">This file is too large for the console.</string>
+    <string name="error_invalid_name">The console does not accept this file name.</string>
+    <string name="error_unsupported_format">The console does not accept this file format.</string>
+    <string name="error_item_not_found">This item is no longer on the console. Refresh, then try again.</string>
+    <string name="error_insufficient_storage">Not enough space on the SD card.</string>
+    <string name="error_insufficient_storage_missing">Not enough space on the SD card: %1$s missing.</string>
+    <string name="error_outcome_unknown">The connection was lost while the console was finishing: the file may or may not be on the console. Check the library before sending it again.</string>
+    <string name="error_cancel_not_confirmed">The cancellation did not reach the console. Resume the transfer or cancel it again.</string>
+    <string name="error_too_many_restarts">The console keeps restarting this transfer. Try again later.</string>
+    <string name="error_file">This file could not be read or written on this phone.</string>
+    <string name="error_partial_document">The partial file could not be deleted from this phone: delete it yourself in your files.</string>
+    <string name="error_console_forgotten">This console was forgotten on this phone: the transfer was stopped.</string>
 </resources>

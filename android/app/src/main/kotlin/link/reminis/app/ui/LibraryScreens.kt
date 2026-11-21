@@ -1,6 +1,8 @@
 package link.reminis.app.ui
 
 import android.app.Application
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,9 +12,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,7 +54,13 @@ import link.reminis.core.GameFileRoles
 // MARK: dashboard
 
 @Composable
-fun DashboardScreen(deviceId: String, onBack: () -> Unit, onLibrary: () -> Unit, onForgotten: () -> Unit) {
+fun DashboardScreen(
+    deviceId: String,
+    onBack: () -> Unit,
+    onLibrary: () -> Unit,
+    onTransfers: () -> Unit,
+    onForgotten: () -> Unit,
+) {
     val app = LocalContext.current.applicationContext as Application
     val vm: DashboardViewModel = viewModel(key = "dashboard-$deviceId") { DashboardViewModel(app, deviceId) }
     val status by vm.status.collectAsState()
@@ -62,7 +77,7 @@ fun DashboardScreen(deviceId: String, onBack: () -> Unit, onLibrary: () -> Unit,
         },
     ) { modifier ->
         LoadContent(status, onRetry = { vm.refresh(reconnect = true) }, modifier = modifier) { device ->
-            Dashboard(device, modifier, onLibrary, onForget = { forgetting = true })
+            Dashboard(device, modifier, onLibrary, onTransfers, onForget = { forgetting = true })
         }
     }
     if (forgetting) {
@@ -71,7 +86,7 @@ fun DashboardScreen(deviceId: String, onBack: () -> Unit, onLibrary: () -> Unit,
 }
 
 @Composable
-private fun Dashboard(device: DeviceStatus, modifier: Modifier, onLibrary: () -> Unit, onForget: () -> Unit) {
+private fun Dashboard(device: DeviceStatus, modifier: Modifier, onLibrary: () -> Unit, onTransfers: () -> Unit, onForget: () -> Unit) {
     val context = LocalContext.current
     LazyColumn(modifier.fillMaxSize().testTag("dashboard")) {
         item {
@@ -116,6 +131,9 @@ private fun Dashboard(device: DeviceStatus, modifier: Modifier, onLibrary: () ->
                 Button(onClick = onLibrary, modifier = Modifier.fillMaxWidth().testTag("openLibrary")) {
                     Text(stringResource(R.string.library))
                 }
+                OutlinedButton(onClick = onTransfers, modifier = Modifier.fillMaxWidth().testTag("openTransfers")) {
+                    Text(stringResource(R.string.transfers_title))
+                }
                 OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.forget)) }
             }
         }
@@ -130,7 +148,7 @@ private fun Info(label: String, value: String) {
 // MARK: library
 
 @Composable
-fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit) {
+fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit, onAdd: () -> Unit) {
     val app = LocalContext.current.applicationContext as Application
     val vm: LibraryViewModel = viewModel(key = "library-$deviceId") { LibraryViewModel(app, deviceId) }
     val content by vm.content.collectAsState()
@@ -141,6 +159,14 @@ fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit
         onBack = onBack,
         actions = {
             IconButton(onClick = vm::refresh) { Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.refresh)) }
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onAdd,
+                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                text = { Text(stringResource(R.string.add_files)) },
+                modifier = Modifier.testTag("addFilesButton"),
+            )
         },
     ) { modifier ->
         LoadContent(content, onRetry = vm::refresh, modifier = modifier) { library ->
@@ -192,27 +218,93 @@ fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit
 // MARK: game
 
 @Composable
-fun GameScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
+fun GameScreen(deviceId: String, gameId: String, onBack: () -> Unit, onSave: (String) -> Unit, onStates: (String) -> Unit) {
     val app = LocalContext.current.applicationContext as Application
     val vm: GameViewModel = viewModel(key = "game-$deviceId-$gameId") { GameViewModel(app, deviceId, gameId) }
     val game by vm.game.collectAsState()
-    AppScaffold(title = (game as? Load.Loaded)?.value?.name.orEmpty(), onBack = onBack) { modifier ->
-        LoadContent(game, onRetry = vm::refresh, modifier = modifier) { GameDetailView(it, modifier) }
+    val working by vm.working.collectAsState()
+    val notice by vm.notice.collectAsState()
+    val error by vm.error.collectAsState()
+    var menu by remember { mutableStateOf(false) }
+    var removingArt by remember { mutableStateOf(false) }
+    val picture = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let(vm::setArt) }
+    val loaded = (game as? Load.Loaded)?.value
+    AppScaffold(
+        title = loaded?.name.orEmpty(),
+        onBack = onBack,
+        actions = {
+            if (loaded != null) {
+                IconButton(onClick = { menu = true }, modifier = Modifier.testTag("gameMenu")) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.more_actions))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.art_change)) },
+                        onClick = { menu = false; picture.launch("image/*") },
+                    )
+                    if (loaded.files.any { it.role == GameFileRoles.ART }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.art_remove)) },
+                            onClick = { menu = false; removingArt = true },
+                        )
+                    }
+                }
+            }
+        },
+    ) { modifier ->
+        LoadContent(game, onRetry = { vm.refresh() }, modifier = modifier) { detail ->
+            GameDetailView(
+                detail, modifier, working, notice, error, vm::dismissMessages,
+                onSave = { onSave(detail.name) }, onStates = { onStates(detail.name) },
+                onDownload = { file, uri -> vm.download(file, detail.name, uri) },
+            )
+        }
+    }
+    if (removingArt) {
+        ConfirmDialog(
+            title = stringResource(R.string.art_remove_title),
+            message = stringResource(R.string.art_remove_message),
+            confirm = stringResource(R.string.art_remove),
+            onConfirm = vm::removeArt,
+            onDismiss = { removingArt = false },
+        )
     }
 }
 
 @Composable
-private fun GameDetailView(game: GameDetail, modifier: Modifier) {
+private fun GameDetailView(
+    game: GameDetail,
+    modifier: Modifier,
+    working: Boolean,
+    notice: Notice?,
+    error: Throwable?,
+    onDismiss: () -> Unit,
+    onSave: () -> Unit,
+    onStates: () -> Unit,
+    onDownload: (GameFile, android.net.Uri) -> Unit,
+) {
     val context = LocalContext.current
+    val creator = rememberDocumentCreator()
     LazyColumn(modifier.fillMaxSize().testTag("game")) {
         item {
+            if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
+            MessageCard(notice, error, onDismiss)
             Info(stringResource(R.string.game_file), game.fileName)
             Info(stringResource(R.string.game_size), formatBytes(context, game.totalBytes))
-            Info(
-                stringResource(R.string.game_save),
-                stringResource(if (game.hasSave) R.string.game_save_yes else R.string.game_save_no),
+            ListItem(
+                headlineContent = {
+                    Text(stringResource(if (game.hasSave) R.string.game_save_yes else R.string.game_save_no))
+                },
+                overlineContent = { Text(stringResource(R.string.game_save)) },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onSave).testTag("openSave"),
             )
-            Info(stringResource(R.string.game_states), game.stateCount.toString())
+            ListItem(
+                headlineContent = { Text(pluralStringResource(R.plurals.state_count, game.stateCount, game.stateCount)) },
+                overlineContent = { Text(stringResource(R.string.game_states)) },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onStates).testTag("openStates"),
+            )
             Info(stringResource(R.string.game_cheats), game.cheatFileCount.toString())
             HorizontalDivider()
             Text(
@@ -226,6 +318,14 @@ private fun GameDetailView(game: GameDetail, modifier: Modifier) {
                 headlineContent = { Text(file.name) },
                 overlineContent = { Text(roleLabel(file)) },
                 supportingContent = { Text(formatBytes(context, file.sizeBytes)) },
+                trailingContent = {
+                    // A pak older than M11 sends no fileId: no download.
+                    if (file.fileId != null) {
+                        TextButton(onClick = { creator.create(file.name) { onDownload(file, it) } }) {
+                            Text(stringResource(R.string.action_download))
+                        }
+                    }
+                },
             )
         }
     }
@@ -236,7 +336,7 @@ private fun roleLabel(file: GameFile): String = when (file.role) {
     GameFileRoles.ROM -> stringResource(R.string.role_rom)
     GameFileRoles.SAVE -> stringResource(R.string.role_save)
     GameFileRoles.RTC -> stringResource(R.string.role_rtc)
-    GameFileRoles.STATE -> file.slot?.let { stringResource(R.string.role_state, it) } ?: stringResource(R.string.role_state_noslot)
+    GameFileRoles.STATE -> file.slot?.let { stringResource(R.string.role_state, it + 1) } ?: stringResource(R.string.role_state_noslot)
     GameFileRoles.CHEATS -> stringResource(R.string.role_cheats)
     GameFileRoles.ART -> stringResource(R.string.role_art)
     else -> file.role

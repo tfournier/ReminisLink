@@ -65,6 +65,9 @@ class Signer(val clientId: String, private val key: Ed25519Key) {
      * @param rawQuery the query as sent (without `?`); build it with [encodeQuery].
      * @param unsignedBody only for upload chunks (`PUT /api/v1/uploads/{id}`);
      *   refused for any other request.
+     * @param bodySha256 the lowercase hex SHA-256 of the body when already
+     *   computed (a body streamed from a file); replaces [body]. Never
+     *   `UNSIGNED`: that is only [unsignedBody].
      */
     fun headers(
         method: String,
@@ -74,12 +77,20 @@ class Signer(val clientId: String, private val key: Ed25519Key) {
         unsignedBody: Boolean = false,
         time: Long,
         nonce: String = makeNonce(),
+        bodySha256: String? = null,
     ): SignedHeaders {
         if (unsignedBody && !isUploadChunk(method, path)) throw SignerException(SignerException.Reason.UNSIGNED_BODY)
+        if (bodySha256 != null && (bodySha256 == UNSIGNED_PAYLOAD || !isValidContentSha256(bodySha256))) {
+            throw SignerException(SignerException.Reason.CONTENT_SHA256)
+        }
         // The pak refuses a repeated key: never sign one ([canonicalRequest]
         // itself stays a pure canonicalization, for the vectors).
         if (hasDuplicateKeys(rawQuery)) throw SignerException(SignerException.Reason.DUPLICATE_KEY)
-        val content = if (unsignedBody) UNSIGNED_PAYLOAD else contentSha256(body)
+        val content = when {
+            unsignedBody -> UNSIGNED_PAYLOAD
+            bodySha256 != null -> bodySha256
+            else -> contentSha256(body)
+        }
         val timeString = time.toString()
         val canonical = canonicalRequest(method, path, rawQuery, timeString, nonce, content)
         return SignedHeaders(clientId, timeString, nonce, content, signature(key, canonical))

@@ -121,4 +121,156 @@
     <string name="external_link_address">Adresse\u00A0: %1$s</string>
     <string name="external_link_unnamed">Console sans nom</string>
     <string name="pair">Appairer</string>
+
+    <!-- Actions (incrément 2) -->
+    <string name="action_download">Télécharger</string>
+    <string name="action_delete">Supprimer</string>
+    <string name="action_delete_ellipsis">Supprimer…</string>
+    <string name="action_restore">Restaurer</string>
+    <string name="action_replace">Remplacer</string>
+    <string name="action_create">Créer</string>
+    <string name="action_send">Envoyer</string>
+    <string name="action_remove">Retirer</string>
+    <string name="more_actions">Plus d’actions</string>
+    <string name="download_queued">Téléchargement de «\u00A0%1$s\u00A0» : suis-le dans Transferts.</string>
+
+    <!-- Transferts -->
+    <string name="transfers_title">Transferts</string>
+    <string name="transfers_clear">Effacer les terminés</string>
+    <string name="transfers_empty">Aucun transfert. Ajoute des jeux depuis la bibliothèque, ou partage des fichiers avec ReminisLink depuis une autre app.</string>
+    <string name="transfers_channel">Transferts</string>
+    <string name="transfers_notification_waiting">Transferts en attente</string>
+    <string name="transfers_notification_upload">Envoi de «\u00A0%1$s\u00A0»</string>
+    <string name="transfers_notification_download">Téléchargement de «\u00A0%1$s\u00A0»</string>
+    <plurals name="transfers_notification_count">
+        <item quantity="one">%d transfert en cours</item>
+        <item quantity="many">%d transferts en cours</item>
+        <item quantity="other">%d transferts en cours</item>
+    </plurals>
+    <string name="transfer_to">Vers %1$s</string>
+    <string name="transfer_from">Depuis %1$s</string>
+    <string name="transfer_cancel">Annuler le transfert</string>
+    <string name="transfer_cancel_title">Annuler «\u00A0%1$s\u00A0» ?</string>
+    <string name="transfer_cancel_upload">Ce qui a déjà été envoyé est supprimé de la console.</string>
+    <string name="transfer_cancel_download">Le fichier partiel est supprimé de ce téléphone.</string>
+    <string name="transfer_resume">Reprendre</string>
+    <string name="transfer_keep_both">Garder les deux</string>
+    <string name="transfer_replace">Remplacer</string>
+    <string name="transfer_hashing">Préparation…</string>
+    <string name="transfer_waiting">En attente</string>
+    <string name="transfer_completing">Finalisation sur la console…</string>
+    <string name="transfer_progress">%1$s sur %2$s</string>
+    <string name="transfer_speed">%1$s/s</string>
+    <string name="transfer_remaining">%1$s restantes</string>
+    <string name="transfer_paused">En pause : le transfert reprendra là où il s’est arrêté quand la console répondra de nouveau.</string>
+    <string name="transfer_failed">Échec</string>
+    <string name="transfer_cancelling">Annulation…</string>
+    <string name="transfer_sent">Envoyé</string>
+    <string name="transfer_downloaded">Téléchargé</string>
+    <string name="transfer_cancelled">Annulé</string>
+
+    <!-- Ajouter -->
+    <string name="add_files">Ajouter</string>
+    <string name="add_choose_files">Choisir des fichiers…</string>
+    <string name="add_help">Choisis des jeux à envoyer sur la console, ou une sauvegarde (.sav, .srm) pour remplacer la sauvegarde d’un jeu. ReminisLink ne fournit aucun jeu.</string>
+    <string name="add_no_console">Appaire d’abord une console.</string>
+    <string name="add_console_choice">Console</string>
+    <string name="add_kind_game">Jeu</string>
+    <string name="add_kind_save">Sauvegarde</string>
+    <string name="add_choose_system">Choisir le système</string>
+    <string name="add_choose_game">Choisir le jeu</string>
+    <string name="add_save_help">La console copie d’abord la sauvegarde actuelle du jeu (copie de secours).</string>
+
+    <!-- Jaquette -->
+    <string name="art_change">Changer la jaquette…</string>
+    <string name="art_remove">Retirer la jaquette</string>
+    <string name="art_remove_title">Retirer la jaquette ?</string>
+    <string name="art_remove_message">L’image part dans la corbeille de la console.</string>
+    <string name="art_set">Jaquette changée. L’ancienne image est partie dans la corbeille de la console.</string>
+    <string name="art_removed">Jaquette déplacée dans la corbeille de la console.</string>
+
+    <!-- Sauvegarde -->
+    <string name="save_title">Sauvegarde</string>
+    <string name="save_current">Sauvegarde actuelle</string>
+    <string name="save_replace">Remplacer depuis un fichier…</string>
+    <string name="save_footer">Avant de remplacer ou de restaurer la sauvegarde, la console copie toujours la sauvegarde actuelle (copie de secours).</string>
+    <string name="save_replace_title">Remplacer la sauvegarde ?</string>
+    <string name="save_replace_message">«\u00A0%1$s\u00A0» remplace la sauvegarde de %2$s. La sauvegarde actuelle est d’abord copiée (copie de secours).</string>
+    <string name="save_replace_message_none">«\u00A0%1$s\u00A0» devient la sauvegarde de %2$s, qui n’en a pas encore.</string>
+    <string name="save_replaced">Sauvegarde remplacée.</string>
+    <string name="save_replaced_kept">Sauvegarde remplacée. L’ancienne sauvegarde est gardée en copie de secours.</string>
+    <string name="save_replace_queued">La sauvegarde dépasse 64\u00A0Mio : elle est envoyée dans Transferts. La sauvegarde actuelle est copiée d’abord.</string>
+    <string name="backups_title">Copies de secours</string>
+    <string name="backups_none">Aucune copie de secours pour l’instant.</string>
+    <string name="backups_footer">Les copies automatiques sont limitées à 10 par jeu : les plus anciennes sont supprimées. Les copies que tu fais toi-même sont gardées.</string>
+    <string name="backup_make">Faire une copie de secours…</string>
+    <string name="backup_automatic">Automatique</string>
+    <string name="backup_default_title">Copie de secours</string>
+    <string name="backup_automatic_title">Copie automatique</string>
+    <string name="backup_before_replace">Avant remplacement</string>
+    <string name="backup_before_restore">Avant restauration</string>
+    <string name="backup_before_delete">Avant suppression</string>
+    <string name="backup_before_patch">Avant patch</string>
+    <string name="backup_new_title">Nouvelle copie de secours</string>
+    <string name="backup_label">Libellé</string>
+    <string name="backup_label_optional">Facultatif</string>
+    <string name="backup_new_help">%1$d/%2$d · Une copie de la sauvegarde actuelle est faite sur la console.</string>
+    <string name="backup_created">Copie de secours créée.</string>
+    <string name="backup_restore_action">Restaurer…</string>
+    <string name="backup_restore_title">Restaurer cette copie ?</string>
+    <string name="backup_restore_message">La sauvegarde actuelle est d’abord copiée (copie de secours), puis remplacée par la copie du %1$s.</string>
+    <string name="backup_restored">Copie restaurée.</string>
+    <string name="backup_restored_kept">Copie restaurée. L’ancienne sauvegarde est gardée en copie de secours.</string>
+    <string name="backup_delete_title">Supprimer cette copie ?</string>
+    <string name="backup_delete_message">La copie part dans la corbeille de la console. La sauvegarde actuelle ne change pas.</string>
+    <string name="backup_deleted">Copie déplacée dans la corbeille de la console.</string>
+
+    <!-- États -->
+    <string name="states_title">États</string>
+    <string name="states_slots">Emplacements</string>
+    <string name="states_none">Aucun état pour ce jeu sur la console.</string>
+    <string name="states_lock_help">Un verrou garde une copie de l’état sur la console. Il ne peut pas empêcher un jeu d’écraser l’état : l’état est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu.</string>
+    <string name="states_trash_help">Les états supprimés partent dans la corbeille de la console, vidée automatiquement après 30\u00A0jours ou quand tu la vides.</string>
+    <string name="state_slot">Emplacement %1$d</string>
+    <string name="state_resume">Reprise automatique</string>
+    <string name="state_restored_tag">Restauré</string>
+    <string name="state_locked_a11y">Verrouillé</string>
+    <string name="state_locked_cannot_delete">Un état verrouillé ne peut pas être supprimé : déverrouille-le d’abord.</string>
+    <string name="state_lock_action">Verrouiller</string>
+    <string name="state_unlock_action">Déverrouiller…</string>
+    <string name="state_unlock">Déverrouiller</string>
+    <string name="state_restore_action">Restaurer la copie verrouillée…</string>
+    <string name="state_unlock_title">Déverrouiller «\u00A0%1$s\u00A0» ?</string>
+    <string name="state_unlock_message_same">La copie verrouillée est supprimée. L’état lui-même ne change pas, mais il n’est plus restauré si un jeu l’écrase.</string>
+    <string name="state_unlock_message_differs">La copie verrouillée est la seule version restante, ou diffère de l’état : elle part dans la corbeille de la console. L’état lui-même ne change pas.</string>
+    <string name="state_restore_title">Restaurer «\u00A0%1$s\u00A0» ?</string>
+    <string name="state_restore_message">L’état actuel part dans la corbeille de la console, puis la copie verrouillée le remplace.</string>
+    <string name="state_delete_title">Supprimer «\u00A0%1$s\u00A0» ?</string>
+    <string name="state_delete_message">L’état part dans la corbeille de la console, vidée automatiquement après 30\u00A0jours ou quand tu la vides.</string>
+    <string name="state_locked_notice">Verrouillé : %1$s.</string>
+    <string name="state_unlocked_notice">Déverrouillé : %1$s.</string>
+    <string name="state_restored_notice">Restauré depuis sa copie verrouillée : %1$s.</string>
+    <string name="state_deleted_notice">Déplacé dans la corbeille de la console : %1$s.</string>
+    <string name="state_warning_missing">Absent de la console. La copie verrouillée est gardée : restaure-la pour retrouver l’état.</string>
+    <string name="state_warning_modified">Différent de la copie verrouillée : non restauré.</string>
+    <string name="state_warning_core">Copie faite par un autre émulateur : elle ne peut pas être restaurée.</string>
+    <string name="state_warning_unknown">État du verrou inconnu de cette version de l’app : cet état n’est peut-être pas protégé.</string>
+
+    <!-- Erreurs (incrément 2) -->
+    <string name="error_device_busy">La console est occupée par une autre modification. Rien n’a été modifié. Réessaie dans %1$d secondes.</string>
+    <string name="error_conflict">Un fichier de ce nom est déjà sur la console.</string>
+    <string name="error_checksum">Le fichier est arrivé abîmé sur la console et a été supprimé. Envoie-le de nouveau.</string>
+    <string name="error_state_locked">Cet état est verrouillé. Déverrouille-le avant de le supprimer.</string>
+    <string name="error_too_large">Ce fichier est trop gros pour la console.</string>
+    <string name="error_invalid_name">La console n’accepte pas ce nom de fichier.</string>
+    <string name="error_unsupported_format">La console n’accepte pas ce format de fichier.</string>
+    <string name="error_item_not_found">Cet élément n’est plus sur la console. Actualise, puis réessaie.</string>
+    <string name="error_insufficient_storage">Espace insuffisant sur la carte SD.</string>
+    <string name="error_insufficient_storage_missing">Espace insuffisant sur la carte SD : il manque %1$s.</string>
+    <string name="error_outcome_unknown">La connexion a été perdue pendant que la console terminait : le fichier est peut-être sur la console, peut-être pas. Vérifie la bibliothèque avant de l’envoyer de nouveau.</string>
+    <string name="error_cancel_not_confirmed">L’annulation n’a pas atteint la console. Reprends le transfert ou annule-le de nouveau.</string>
+    <string name="error_too_many_restarts">La console recommence sans cesse ce transfert. Réessaie plus tard.</string>
+    <string name="error_file">Ce fichier n’a pas pu être lu ou écrit sur ce téléphone.</string>
+    <string name="error_partial_document">Le fichier partiel n’a pas pu être supprimé de ce téléphone\u00A0: supprime-le toi-même dans tes fichiers.</string>
+    <string name="error_console_forgotten">Cette console a été oubliée sur ce téléphone\u00A0: le transfert a été arrêté.</string>
 </resources>

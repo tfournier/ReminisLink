@@ -14,12 +14,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import link.reminis.app.ArtImage
 import link.reminis.app.DiscoveryEvent
+import link.reminis.app.DocumentSink
 import link.reminis.app.Generations
+import link.reminis.app.R
 import link.reminis.app.container
 import link.reminis.core.ApiException
 import link.reminis.core.DeviceStatus
+import link.reminis.core.DownloadSource
 import link.reminis.core.GameDetail
+import link.reminis.core.GameFile
+import link.reminis.core.TransferDirection
+import link.reminis.core.UploadTarget
 import link.reminis.core.LibraryGame
 import link.reminis.core.LibrarySearch
 import link.reminis.core.Locator
@@ -306,6 +313,8 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
             } catch (e: Exception) {
                 Load.Failed(e)
             }
+            // The console answers again: the transfers paused by a lost connection go on.
+            if (_status.value is Load.Loaded) container.transfers.resumePaused(deviceId)
         }
     }
 
@@ -325,6 +334,12 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
 
     init {
         refresh()
+        // A game sent from this phone: the list reloads.
+        viewModelScope.launch {
+            container.transfers.finished.collect { item ->
+                if (item.deviceId == deviceId && item.target is UploadTarget.Rom) refresh()
+            }
+        }
     }
 
     fun setQuery(text: String) {
@@ -352,24 +367,132 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
 
 // MARK: game
 
-class GameViewModel(app: Application, private val deviceId: String, private val gameId: String) : AndroidViewModel(app) {
-    private val container = app.container
+class GameViewModel(app: Application, deviceId: String, private val gameId: String) :
+    ActionViewModel(app, deviceId) {
     private val _game = MutableStateFlow<Load<GameDetail>>(Load.Loading)
     val game: StateFlow<Load<GameDetail>> = _game.asStateFlow()
 
     init {
         refresh()
+        reloadAfterTransfers(gameId) { refresh(quiet = true) }
     }
 
-    fun refresh() {
-        _game.value = Load.Loading
+    fun refresh(quiet: Boolean = false) {
+        if (!quiet || _game.value !is Load.Loaded) _game.value = Load.Loading
         viewModelScope.launch {
-            _game.value = try {
+            val result = try {
                 Load.Loaded(container.client(deviceId).game(gameId))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Load.Failed(e)
+            }
+            // A quiet reload keeps the screen when it fails.
+            if (!quiet || result is Load.Loaded) _game.value = result
+        }
+    }
+
+    /** Downloads a file of the game (M11) into the document chosen by the user. */
+    fun download(file: GameFile, gameName: String, destination: android.net.Uri) {
+        val fileId = file.fileId ?: return
+        enqueueDownload(DownloadSource.GameFile(gameId, fileId), file.name, gameName, destination, file.sizeBytes)
+    }
+
+    /**
+     * Sets the box art from a picture chosen by the user: scaled down to
+     * 1024 px at most and sent as PNG (at most 4 MiB); the old art goes to
+     * the trash of the console.
+     */
+    fun setArt(picture: android.net.Uri) = perform(Notice(R.string.art_set)) {
+        val png = withContext(Dispatchers.IO) {
+            try {
+                ArtImage.png(getApplication<Application>().contentResolver, picture)
+            } catch (e: java.io.IOException) {
+                throw link.reminis.app.LocalFileException(e)
+            } catch (e: SecurityException) {
+                throw link.reminis.app.LocalFileException(e)
+            }
+        }
+        container.client(deviceId).setGameArt(gameId, png)
+        refresh(quiet = true)
+    }
+
+    fun removeArt() = perform(Notice(R.string.art_removed)) {
+        container.client(deviceId).deleteGameArt(gameId)
+        refresh(quiet = true)
+    }
+}
+
+/** A short message shown after an action (a string resource and its arguments). */
+data class Notice(@param:androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList())
+
+/**
+ * A screen of one console whose actions show a working state, then a notice
+ * or an error; downloads go to the transfer queue.
+ */
+open class ActionViewModel(app: Application, protected val deviceId: String) : AndroidViewModel(app) {
+    protected val container = app.container
+    private val _working = MutableStateFlow(false)
+    val working: StateFlow<Boolean> = _working.asStateFlow()
+    private val _notice = MutableStateFlow<Notice?>(null)
+    val notice: StateFlow<Notice?> = _notice.asStateFlow()
+    private val _error = MutableStateFlow<Throwable?>(null)
+    val error: StateFlow<Throwable?> = _error.asStateFlow()
+
+    fun dismissMessages() {
+        _notice.value = null
+        _error.value = null
+    }
+
+    protected fun showNotice(notice: Notice?) {
+        _notice.value = notice
+    }
+
+    /** Runs a user action: one at a time, a notice on success, the error otherwise. */
+    protected fun perform(success: Notice?, action: suspend () -> Unit) {
+        if (_working.value) return
+        _working.value = true
+        _error.value = null
+        _notice.value = null
+        viewModelScope.launch {
+            try {
+                action()
+                if (_notice.value == null) _notice.value = success
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _error.value = e
+            } finally {
+                _working.value = false
+            }
+        }
+    }
+
+    protected fun enqueueDownload(
+        source: DownloadSource,
+        fileName: String,
+        gameName: String,
+        destination: android.net.Uri,
+        sizeBytes: Long?,
+    ) {
+        val app = getApplication<Application>()
+        container.lastDownloadDocumentForTests = destination
+        container.transfers.enqueueDownload(deviceId, source, fileName, gameName, DocumentSink(app, destination), sizeBytes)
+        _notice.value = Notice(R.string.download_queued, listOf(fileName))
+    }
+
+    /** Calls [reload] after an upload to [gameId] of this console finishes (a save or a state sent). */
+    protected fun reloadAfterTransfers(gameId: String?, reload: () -> Unit) {
+        viewModelScope.launch {
+            container.transfers.finished.collect { item ->
+                if (item.deviceId != deviceId || item.direction != TransferDirection.UPLOAD) return@collect
+                val target = item.target
+                val concerned = gameId == null || when (target) {
+                    is UploadTarget.Save -> target.gameId == gameId
+                    is UploadTarget.State -> target.gameId == gameId
+                    else -> false
+                }
+                if (concerned) reload()
             }
         }
     }

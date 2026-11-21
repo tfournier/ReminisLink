@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -21,6 +22,7 @@ import link.reminis.core.Locator
 import link.reminis.core.PairedConsole
 import link.reminis.core.PairingLink
 import link.reminis.core.PairingLinkException
+import link.reminis.core.TransferQueue
 
 class ReminisLinkApp : Application() {
     lateinit var container: AppContainer
@@ -80,6 +82,37 @@ class AppContainer(context: Context) {
     /** Work that must outlive a screen: a pairing exchange once `POST /pair` is sent. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+
+    /** Shared files waiting for the Add screen. */
+    val shareInbox = ShareInbox()
+
+    /**
+     * Local copies of the files to send (a directory per file, deleted once
+     * its upload ends). The queue lives in memory: copies left by a previous
+     * process are deleted at start.
+     */
+    val transferDirectory = File(context.filesDir, "transfers")
+
+    private val transferScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val appContext: Context = context.applicationContext
+
+    /** Tests only: the document of the last download asked from a screen (to read it back and delete it). */
+    @androidx.annotation.VisibleForTesting
+    @Volatile
+    var lastDownloadDocumentForTests: android.net.Uri? = null
+
+    /** Uploads and downloads of every console; a foreground service holds the process while it is busy. */
+    val transfers = TransferQueue(
+        transferScope,
+        // Every time work is added or resumed (idempotent): no start depends on a busy flag's transitions.
+        onActive = { TransferService.start(appContext) },
+    ) { deviceId, refresh -> client(deviceId, refresh) }
+
+    init {
+        // Listed now, before any new copy can be made; deleted in the background.
+        val leftovers = transferDirectory.listFiles().orEmpty()
+        transferScope.launch(Dispatchers.IO) { leftovers.forEach { it.deleteRecursively() } }
+    }
 
     /** `clientName` of `POST /pair`: typed by the user, the device model by default. */
     var clientName: String
@@ -189,9 +222,17 @@ class AppContainer(context: Context) {
         clients.remove(console.deviceId)
     }
 
-    fun forget(deviceId: String) = synchronized(pairingLock) {
-        consoles.remove(deviceId)
-        clients.remove(deviceId)
+    /**
+     * Forgets a console on this phone. Its transfers stop and never start
+     * again (a running one may hold a client already obtained); an upload
+     * whose `complete` is in flight keeps its real outcome.
+     */
+    fun forget(deviceId: String) {
+        synchronized(pairingLock) {
+            consoles.remove(deviceId)
+            clients.remove(deviceId)
+        }
+        transfers.dropConsole(deviceId)
     }
 
     /**

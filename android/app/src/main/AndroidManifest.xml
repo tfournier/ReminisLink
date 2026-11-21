@@ -7,6 +7,14 @@
     <!-- QR code of the console. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!--
+        Transfers keep the process alive in a dataSync foreground service
+        with a progress notification. No storage permission: files are read
+        and written through the Storage Access Framework.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
         allowBackup is off: the identity's private key is bound to this
@@ -40,6 +48,18 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="reminislink" android:host="pair" />
             </intent-filter>
+            <!-- Files shared from another app: opened on the Add screen. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
         </activity>
+
+        <service
+            android:name=".TransferService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>
