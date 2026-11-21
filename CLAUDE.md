@@ -61,6 +61,7 @@ ReminisLink is an iPhone companion for Linux retro handhelds (first target: Trim
 3. **The contract is `protocol/openapi.yaml`.** Change it first, then both implementations. Signing and pairing must pass the shared test vectors on both sides.
 4. **The SD card is exFAT**: no permissions, no symlinks, case-insensitive. Do not rely on `chmod`.
 5. **Small, reviewable changes.** One milestone task per branch/PR, with tests.
+6. **Versions follow SemVer** (pak `vX.Y.Z`, app `ios-vX.Y.Z`, Android alike, each numbered on its own): MAJOR for a breaking change (an older client or pak stops working, data or protocol incompatibility), MINOR for a new feature that breaks nothing (new route, new screen, new platform or device), PATCH for fixes only. Pick the number from the changes since the last release, before tagging; a pre-release (`-beta.N`, `-rc.N`) carries the number of the release it prepares.
 
 ## Commands
 
