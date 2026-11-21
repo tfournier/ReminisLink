@@ -59,6 +59,13 @@ rl_configure() {
 	RL_KIND=""
 	if [ -n "$tag" ]; then
 		rl_parse_tag "$tag" || rl_fail "malformed app tag '$tag': expected ios-vX.Y.Z, ios-vX.Y.Z-beta.N or ios-vX.Y.Z-rc.N"
+		# A tag is a delivery: its workflow and build number must be known
+		# (the local build number would collide with an earlier upload).
+		case "$workflow" in
+		"$RL_RELEASE_WORKFLOW" | "$RL_BETA_WORKFLOW" | "$RL_SUBMIT_WORKFLOW") ;;
+		*) rl_fail "tag $tag in workflow '${workflow:-(CI_WORKFLOW not set)}': app tags are built by the $RL_RELEASE_WORKFLOW, $RL_BETA_WORKFLOW and $RL_SUBMIT_WORKFLOW workflows only" ;;
+		esac
+		[ -n "$build" ] || rl_fail "tag $tag: CI_BUILD_NUMBER is not set"
 	fi
 	case "$workflow" in
 	"$RL_RELEASE_WORKFLOW")

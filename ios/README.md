@@ -199,26 +199,43 @@ set in Xcode):
   Connect by Xcode Cloud *after* `ci_post_xcodebuild.sh`, and Apple then
   processes it (5 to 30 minutes), so the Release workflow cannot attach and
   submit its own build. The Submit workflow runs `submit_for_review.sh`
-  from `ci_post_clone.sh`: it waits (90 minutes at most,
-  `ASC_WAIT_MINUTES`) until the newest build of `X.Y.Z` is processed,
-  attaches it to the version and submits it to App Review. It does nothing
-  for a pre-release tag, and nothing when the version is already submitted.
-  Its build action only carries the script.
+  from `ci_post_clone.sh`. It waits (90 minutes at most,
+  `ASC_WAIT_MINUTES`) for **the build of the Release run of that tag**:
+  through the Xcode Cloud API it finds the newest run of the Release
+  workflow on `ios-vX.Y.Z`, waits for it to succeed, and takes the build
+  that run uploaded (its build number is the run number), never just the
+  newest upload of `X.Y.Z` (a TestFlight beta has the same version). The
+  build must be processed, App Store eligible (not TestFlight internal
+  only), not expired, with its export compliance answered. It then attaches
+  the build and submits the version alone: if a draft submission of the app
+  already holds anything else, it stops without submitting (submit or remove
+  those items by hand first). It does nothing for a pre-release tag, and
+  nothing when the version is already submitted. Its build action only
+  carries the script.
 - Without the API key, these scripts print the steps to do by hand in App
   Store Connect and succeed.
 
 The scripts call the API with `ci_scripts/AppStoreConnect.swift` (Foundation
 and CryptoKit, run with the Swift of Xcode; ES256 tokens of 15 minutes); the
-key and the tokens are never printed. `make release-checks` (also run by the
-CI) tests the scripts with fake `CI_TAG`, `CI_WORKFLOW` and
-`CI_BUILD_NUMBER` values and runs the offline self-test of the API client
-(`ci_scripts/asc.sh selftest`).
+key and the tokens are never printed, nor the body of an answer (errors show
+the status, code and title only). `ASC_API_BASE` (another address for the
+API) is refused unless `ASC_TEST_MODE=1`, the address is local and the key id
+starts with `TEST`: it exists for the tests only. `make release-checks` (also
+run by the CI) tests the scripts with fake `CI_TAG`, `CI_WORKFLOW` and
+`CI_BUILD_NUMBER` values, the `make` recipes with a fake git, the pak
+publication with a fake `gh`, and, on a Mac, the API client: its offline
+self-test and whole submissions against a local mock of the API
+(`scripts/release-tests/asc_mock.py`: a Release build arriving after a
+processed beta of the same version, an internal-only build, a draft
+submission holding another item).
 
 **One-time setup (by the account holder):**
 
 1. **App Store Connect API key.** App Store Connect > *Users and Access >
    Integrations > App Store Connect API > Team Keys > +*: name
-   "ReminisLink Xcode Cloud", access **App Manager**. Download the `.p8`
+   "ReminisLink Xcode Cloud", access **App Manager** (it must read Xcode
+   Cloud builds; if the Submit workflow reports it cannot, use **Admin**, or
+   set `ASC_BUILD_NUMBER`, see below). Download the `.p8`
    file (only once) and note the *Key ID* and the *Issuer ID*. Keep the file
    out of the repository.
 2. **Xcode Cloud and GitHub.** In Xcode, *Integrate > Create Workflow* (or
@@ -258,12 +275,17 @@ CI) tests the scripts with fake `CI_TAG`, `CI_WORKFLOW` and
    Store Connect from the previous version: check it once on the first
    automatic release.
 
-By hand on a Mac, the same submission (`.p8` path in the environment, never
-on the command line history of a shared machine):
+By hand on a Mac, the same submission. Replace the values (the Key ID, the
+Issuer ID and the path of the `.p8` file); the key itself stays in its file.
+`ASC_BUILD_NUMBER` is the build number of the Release run of the tag (shown
+in Xcode Cloud and in TestFlight); without it the script finds that run
+through the Xcode Cloud API:
 
 ```sh
-ASC_KEY_ID=XXXXXXXXXX ASC_ISSUER_ID=<issuer uuid> ASC_PRIVATE_KEY_PATH=~/keys/AuthKey_XXXXXXXXXX.p8 \
-  CI_TAG=ios-v1.1.0 ios/ci_scripts/submit_for_review.sh
+export ASC_KEY_ID='ABC123DEFG'
+export ASC_ISSUER_ID='00000000-0000-0000-0000-000000000000'
+export ASC_PRIVATE_KEY_PATH="$HOME/keys/AuthKey_ABC123DEFG.p8"
+CI_TAG='ios-v1.1.0' ASC_BUILD_NUMBER='42' ios/ci_scripts/submit_for_review.sh
 ```
 
 Not verifiable from the repository (to check on the first real tags): the

@@ -95,6 +95,10 @@ jobs:
       - name: ReminisLinkKit tests
         working-directory: ios/ReminisLinkKit
         run: swift test
+      # On a Mac the release checks also run the App Store Connect client
+      # (Swift, CryptoKit) against a local mock of the API.
+      - name: Release scripts with the App Store Connect client
+        run: make release-checks
       - name: App tests
         working-directory: ios
         run: |
@@ -128,26 +132,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: |
-          # latest (vX.Y.Z) or prerelease (vX.Y.Z-beta.N, -rc.N); any other
-          # tag (an app tag above all) stops here: only a pak release can
-          # be "Latest", the release the Pak Store reads.
-          kind=$(scripts/pak-release-kind.sh "$TAG")
-          if [ "$kind" = latest ]; then
-            # Release notes: the pak.json changelog entry of this version
-            jq -r --arg v "$TAG" '.changelog[$v] // empty' pak.json > release-notes.md
-            flags="--latest"
-          else
-            # A pre-release leaves pak.json unchanged: its notes are the
-            # "Unreleased" entry.
-            { echo "Pre-release for testers, not offered by the Pak Store."; echo
-              jq -r '.changelog.Unreleased // empty' pak.json; } > release-notes.md
-            flags="--prerelease --latest=false"
-          fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            # Re-run: replace the assets of the existing release.
-            gh release upload "$TAG" dist/ReminisLink.pak.zip --clobber
-          else
-            # shellcheck disable=SC2086 # $flags holds several options
-            gh release create "$TAG" dist/ReminisLink.pak.zip --verify-tag --title "$TAG" --notes-file release-notes.md $flags
-          fi
+        # latest (vX.Y.Z) or prerelease (vX.Y.Z-beta.N, -rc.N); any other
+        # tag (an app tag above all) stops there: only a pak release can be
+        # "Latest", the release the Pak Store reads. A re-run sets the flags
+        # of the existing release again before replacing its zip.
+        run: scripts/publish-pak-release.sh "$TAG" dist/ReminisLink.pak.zip

@@ -16,18 +16,20 @@ set -euo pipefail
 
 [ "${CI_WORKFLOW:-}" = "$RL_RELEASE_WORKFLOW" ] || exit 0
 [ "${CI_XCODEBUILD_ACTION:-}" = archive ] || exit 0
-if [ "${CI_XCODEBUILD_EXIT_CODE:-0}" != 0 ]; then
-	rl_log "the archive failed: nothing prepared in App Store Connect"
-	exit 0
-fi
 rl_parse_tag "${CI_TAG:-}" || rl_fail "malformed app tag '${CI_TAG:-}'"
 # Checked by ci_post_clone.sh already; checked again before anything is
 # sent: a pre-release never goes to App Review.
 [ "$RL_KIND" = release ] || rl_fail "${CI_TAG:-} is a pre-release: nothing goes to App Review"
+# Only after a successful archive: an unknown result counts as a failure
+# (the Submit workflow prepares the version anyway).
+if [ "${CI_XCODEBUILD_EXIT_CODE:-unknown}" != 0 ]; then
+	rl_log "archive result ${CI_XCODEBUILD_EXIT_CODE:-unknown (CI_XCODEBUILD_EXIT_CODE not set)}: nothing prepared in App Store Connect"
+	exit 0
+fi
 
 if ! rl_has_asc_key; then
 	rl_log "no App Store Connect API key (ASC_KEY_ID, ASC_ISSUER_ID, ASC_PRIVATE_KEY): prepare version $RL_VERSION by hand."
-	"$RL_CI_DIR/asc.sh" instructions "$RL_VERSION"
+	"$RL_CI_DIR/asc.sh" instructions "$RL_VERSION" "${CI_BUILD_NUMBER:-}"
 	exit 0
 fi
 "$RL_CI_DIR/asc.sh" prepare "$RL_VERSION"

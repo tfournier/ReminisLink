@@ -63,6 +63,8 @@ HEADLESS_ARGS ?=
 DESKTOP_ARGS  ?=
 
 RELEASE_BRANCH ?= main
+# Overridden by scripts/test-release-scripts.sh (a fake git).
+GIT ?= git
 
 DOCKER        ?= docker
 DOCKER_IMAGE  ?= reminislink-build
@@ -190,26 +192,25 @@ v%: FORCE ## Release a version (make v1.2.3) or a pre-release (make v1.2.3-beta.
 
 ios-v%: FORCE ## Release the iOS app (make ios-v1.2.3: App Review) or a TestFlight pre-release (make ios-v1.2.3-beta.1); Xcode Cloud builds the tag
 	@set -e; V="$@"; \
-	bash -c '. ios/ci_scripts/common.sh && rl_parse_tag "$$0"' "$$V" || { echo "Invalid app tag $$V (expected ios-vX.Y.Z, ios-vX.Y.Z-beta.N or ios-vX.Y.Z-rc.N)"; exit 1; }; \
-	[ "$$(git rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
-	[ -z "$$(git status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
-	if git rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
-	X="$$(echo "$$V" | sed 's/^ios-v//; s/-.*//')"; \
-	case "$$V" in \
-	*-*) \
-		git tag -a "$$V" -m "App pre-release $$V (TestFlight)"; \
-		git push origin "refs/tags/$$V"; \
+	parsed="$$(bash -c '. ios/ci_scripts/common.sh && rl_parse_tag "$$0" && echo "$$RL_KIND $$RL_VERSION"' "$$V")" || { echo "Invalid app tag $$V (expected ios-vX.Y.Z, ios-vX.Y.Z-beta.N or ios-vX.Y.Z-rc.N)"; exit 1; }; \
+	KIND="$${parsed%% *}"; X="$${parsed#* }"; \
+	[ "$$($(GIT) rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
+	[ -z "$$($(GIT) status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
+	if $(GIT) rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
+	if [ "$$KIND" = beta ]; then \
+		$(GIT) tag -a "$$V" -m "App pre-release $$V (TestFlight)"; \
+		$(GIT) push origin "refs/tags/$$V"; \
 		echo "Pre-release $$V tagged: Xcode Cloud (Beta workflow) sends version $$X to TestFlight."; \
-		exit 0 ;; \
-	esac; \
+		exit 0; \
+	fi; \
 	if ! ios/ci_scripts/release_notes.sh has "$$X"; then \
 		ios/ci_scripts/release_notes.sh has Unreleased || { echo "Add a '## Unreleased' or '## $$X' section to ios/CHANGELOG.md first"; exit 1; }; \
 		sed "s/^## Unreleased$$/## $$X/" ios/CHANGELOG.md > ios/CHANGELOG.md.tmp && mv ios/CHANGELOG.md.tmp ios/CHANGELOG.md; \
 	fi; \
 	ios/ci_scripts/release_notes.sh sync; \
-	if ! git diff --quiet -- ios/CHANGELOG.md ios/AppStore; then git commit -q -m "Release app $$X" -- ios/CHANGELOG.md ios/AppStore; fi; \
-	git tag -a "$$V" -m "App release $$V"; \
-	git push --atomic origin HEAD "refs/tags/$$V"; \
+	if ! $(GIT) diff --quiet -- ios/CHANGELOG.md ios/AppStore; then $(GIT) commit -q -m "Release app $$X" -- ios/CHANGELOG.md ios/AppStore; fi; \
+	$(GIT) tag -a "$$V" -m "App release $$V"; \
+	$(GIT) push --atomic origin HEAD "refs/tags/$$V"; \
 	echo "Released app $$X: Xcode Cloud (Release workflow) builds it and prepares the App Store version."
 
 clean: ## Remove build outputs

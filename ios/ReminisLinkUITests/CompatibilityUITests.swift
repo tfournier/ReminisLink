@@ -35,10 +35,35 @@ final class CompatibilityUITests: XCTestCase {
         attachScreenshot(app, "update-app")
     }
 
+    /// The same two messages and links in French (the catalog's French
+    /// entries, not the English fallback).
     @MainActor
-    private func launch(_ environment: [String: String]) -> XCUIApplication {
+    func testTheMessagesInFrench() throws {
+        let french = ["-AppleLanguages", "(fr)", "-AppleLocale", "fr_FR"]
+        var app = launch(["RL_UITEST_PAK_VERSION": "0.9.0"], arguments: french)
+        app.open(URL(string: PairingUITests.demoLink)!)
+        let updatePak = app.descendants(matching: .any)["error.updatePak"]
+        XCTAssertTrue(updatePak.waitForExistence(timeout: 15), "no update link for the pak")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Mets à jour le pak ReminisLink sur la console'"))
+            .firstMatch.exists)
+        XCTAssertEqual(updatePak.label, "Comment mettre à jour")
+        attachScreenshot(app, "update-pak-fr")
+        app.terminate()
+
+        app = launch(["RL_UITEST_MIN_CLIENT_VERSION": "99.0.0"], arguments: french)
+        app.open(URL(string: PairingUITests.demoLink)!)
+        let updateApp = app.descendants(matching: .any)["error.updateApp"]
+        XCTAssertTrue(updateApp.waitForExistence(timeout: 15), "no App Store link")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Mets à jour l’app ReminisLink'"))
+            .firstMatch.exists)
+        XCTAssertEqual(updateApp.label, "Ouvrir l’App Store")
+        attachScreenshot(app, "update-app-fr")
+    }
+
+    @MainActor
+    private func launch(_ environment: [String: String], arguments: [String] = GameDataUITest.englishArguments) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += GameDataUITest.englishArguments
+        app.launchArguments += arguments
         app.launchEnvironment["RL_DEMO"] = "1"
         for (key, value) in environment { app.launchEnvironment[key] = value }
         app.launch()
