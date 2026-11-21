@@ -351,11 +351,14 @@ struct APIClientTests {
     }
 
     /// A row scrolled away cancels its art: the request stops at once with
-    /// a cancellation, not after the answer.
+    /// a cancellation, not after the answer. The answer comes after 30 s and
+    /// the bound is 10 s: wide enough for a slow CI runner (6 s seen on
+    /// GitHub's macOS runners), while a request that waits for its answer
+    /// still fails.
     @Test func aCancelledArtStopsAtOnce() async throws {
         let client = stubClient { _, _ in
             var response = FakeResponse(status: 200, headers: ["Content-Type": "image/png"], body: Data(count: 10))
-            response.delay = 10
+            response.delay = 30
             return response
         }
         let start = ContinuousClock.now
@@ -363,7 +366,7 @@ struct APIClientTests {
         try await Task.sleep(for: .milliseconds(100))
         load.cancel()
         await #expect(throws: CancellationError.self) { try await load.value }
-        #expect(ContinuousClock.now - start < .seconds(5))
+        #expect(ContinuousClock.now - start < .seconds(10))
     }
 
     /// Without `Content-Length`, the limit is checked on what arrived so
