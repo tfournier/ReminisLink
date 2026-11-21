@@ -198,8 +198,9 @@ final class ConsoleSession {
             signedWith = nil
             var credentials = try currentCredentials()
             signedWith = SigningKey(credentials)
-            let endpoint = try await app.endpoint(for: deviceId)
+            var endpoint = try await app.endpoint(for: deviceId)
             var client: APIClient
+            var hello: Hello
             var status: DeviceStatus
             var reread = false
             while true {
@@ -221,12 +222,22 @@ final class ConsoleSession {
                     // more before saying the console forgot this device.
                     reread = true
                     app.store.reload()
+                    guard self.attempt === attempt else { return }
+                    // The new record is here but not its key yet: arriving,
+                    // not forgotten.
+                    if try app.store.pairingState(for: deviceId) == .awaitingIdentity { throw AppError.pairingNotSynced }
                     guard let fresh = try app.store.credentials(for: deviceId), SigningKey(fresh) != SigningKey(credentials)
                     else { throw error }
                     credentials = fresh
                     signedWith = SigningKey(fresh)
+                    // The address may have changed with the pairing.
+                    endpoint = try await app.endpoint(for: deviceId)
                 }
             }
+            // An attempt replaced meanwhile (the Keychain changed, M15)
+            // installs nothing.
+            guard self.attempt === attempt, !Task.isCancelled else { return }
+            self.hello = hello
             self.status = status
             try Task.checkCancellation()
             guard self.attempt === attempt else { return }
@@ -310,19 +321,49 @@ final class ConsoleSession {
     func usesStaleCredentials(_ current: DeviceCredentials?) -> Bool {
         guard let current, !closedByConsole else { return false }
         switch state {
-        case .idle, .connecting: return false
+        case .idle: return false
+        case .connecting: return signedWith.map { $0 != SigningKey(current) } ?? false
         case .connected, .failed: return signedWith != SigningKey(current)
         }
     }
 
-    /// Drops the client built with the older credentials and connects again
-    /// (automatic: never lifts a disconnection set from the console).
-    func restartWithFreshCredentials() {
+    /// Whether this session holds or builds a pairing (it read credentials).
+    var holdsPairing: Bool { signedWith != nil || client != nil }
+
+    /// Drops the client built with the older credentials and the connection
+    /// in progress (its late answers change nothing), then connects again
+    /// when `reconnect` (the console is shown and the app active; otherwise
+    /// the next screen that needs the console connects). Automatic: never
+    /// lifts a disconnection set from the console.
+    func invalidateCredentials(reconnect: Bool) {
+        dropConnection()
+        state = .idle
+        if reconnect { Task { await connect() } }
+    }
+
+    /// The console's record is here but the identity of its pairing not
+    /// (yet): nothing is signed until it arrives (M15).
+    func awaitIdentity() {
+        guard holdsPairing || state == .connecting else { return }
+        dropConnection()
+        state = .failed(.pairingNotSynced)
+    }
+
+    /// The pairing was forgotten on another device of the Apple account:
+    /// no signed request any more from this session (connection, event
+    /// stream, uploads), whoever still holds it.
+    func revoke() {
+        dropConnection()
+        transfers.suspend()
+        state = .failed(.api(.notPaired))
+    }
+
+    private func dropConnection() {
+        attempt?.task?.cancel()
+        attempt = nil
         client = nil
         signedWith = nil
         stopEventStream()
-        state = .idle
-        Task { await connect() }
     }
 
     /// Reloads the dashboard without searching the console again.

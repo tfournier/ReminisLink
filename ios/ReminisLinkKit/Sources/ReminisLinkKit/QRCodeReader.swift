@@ -15,16 +15,44 @@ public enum QRCodeReader {
         try payloads(VNImageRequestHandler(cgImage: image, orientation: orientation))
     }
 
-    /// The payloads of the QR codes in a picture file (PNG, JPEG, HEIC...),
-    /// with its orientation. Nil if the data is not a picture.
-    public static func payloads(inImageData data: Data) throws -> [String]? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else { return nil }
-        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-        let orientation = (properties?[kCGImagePropertyOrientation] as? UInt32)
-            .flatMap(CGImagePropertyOrientation.init(rawValue:)) ?? .up
-        return try payloads(in: image, orientation: orientation)
+    /// Largest picture file read (bytes).
+    public static let maxImageBytes = 50 * 1024 * 1024
+    /// Largest picture read (pixels, width × height); larger ones are refused
+    /// before decoding.
+    public static let maxImagePixels = 200_000_000
+    /// Side of the downsampled picture given to Vision (a QR code shown on
+    /// a handheld's screen stays readable).
+    public static let decodedSide = 3000
+
+    public enum ImageError: Error, Equatable, Sendable {
+        case notAPicture
+        case tooLarge
+    }
+
+    /// The payloads of the QR codes in a picture file (PNG, JPEG, HEIC...).
+    /// Bounded: at most ``maxImageBytes`` and ``maxImagePixels``; the
+    /// picture is downsampled by ImageIO (orientation applied) to
+    /// ``decodedSide`` before Vision, never decoded at full size.
+    public static func payloads(inImageData data: Data) throws -> [String] {
+        guard data.count <= maxImageBytes else { throw ImageError.tooLarge }
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+              CGImageSourceGetCount(source) > 0,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { throw ImageError.notAPicture }
+        guard width > 0, height > 0 else { throw ImageError.notAPicture }
+        guard width <= maxImagePixels / height else { throw ImageError.tooLarge }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: decodedSide,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            throw ImageError.notAPicture
+        }
+        return try payloads(in: image)
     }
 
     /// The payloads of the QR codes in a camera frame.
@@ -69,6 +97,31 @@ public enum PairingCodeSearch: Equatable, Sendable {
             self = payloads.isEmpty ? .noCode : .notAPairingCode
         }
     }
+}
+
+/// The one point where a pairing link found by the camera or in an
+/// imported picture is accepted (M15): once, and never after the Add a
+/// Console screen closed. A late import (a photo still downloading from
+/// iCloud) can neither replace the camera's result nor pair after Cancel.
+@MainActor
+public final class PairingCodeAcceptance {
+    private var isDone = false
+
+    public init() {}
+
+    /// Whether this link is the one to pair with (the first, while open).
+    public func accept() -> Bool {
+        guard !isDone else { return false }
+        isDone = true
+        return true
+    }
+
+    /// The screen closed: nothing is accepted any more.
+    public func close() {
+        isDone = true
+    }
+
+    public var isClosed: Bool { isDone }
 }
 
 /// The live scanners' filter: reports the first usable link once, and each

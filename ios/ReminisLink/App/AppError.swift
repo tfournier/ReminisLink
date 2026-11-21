@@ -50,8 +50,13 @@ enum AppError: Error, Equatable {
     /// but the identity it knows has not reached this device through the
     /// iCloud Keychain yet. Not a reason to pair again.
     case pairingNotSynced
+    /// M15: the pointer names the identity of the Apple account, but its
+    /// key has not reached this device yet: no pairing with another one.
+    case identityNotArrived
     /// M15: no ReminisLink QR code in an imported picture.
     case noPairingCodeInPicture
+    /// M15: an imported picture too large to be read.
+    case pictureTooLarge
     case storage
     /// An upload stopped on the app side.
     case upload(UploadFailure)
@@ -128,6 +133,7 @@ enum AppError: Error, Equatable {
         case is ResolveError: self = .consoleNotFound
         case DeviceLookupError.localNetworkDenied: self = .localNetworkDenied
         case DeviceLookupError.notFound: self = .consoleNotFound
+        case DeviceStoreError.identityNotArrived: self = .identityNotArrived
         case is KeychainError, is DeviceStoreError: self = .storage
         case let error as PairingError: self = .api(.pairing(error))
         case let error as PairingLinkError: self = AppError(pairingLink: error)
@@ -154,6 +160,10 @@ enum AppError: Error, Equatable {
             String(localized: "On the console, open Settings > Pair a New Device, then scan the QR code shown.")
         case .pairingNotSynced:
             String(localized: "The pairing of this console has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet: ReminisLink connects as soon as it arrives.")
+        case .identityNotArrived:
+            String(localized: "The identity of your Apple devices has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet, then try again.")
+        case .pictureTooLarge:
+            String(localized: "This picture is too large. Use a smaller picture of the QR code.")
         case .noPairingCodeInPicture:
             String(localized: "No ReminisLink QR code was found in this picture. Use a sharp picture where the whole QR code shown by the console is visible.")
         case .storage:
@@ -244,8 +254,8 @@ enum AppError: Error, Equatable {
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak: nil
-        case .pairingClosed, .pairingNotSynced, .unexpected: .retry
-        case .noPairingCodeInPicture: nil
+        case .pairingClosed, .pairingNotSynced, .identityNotArrived, .unexpected: .retry
+        case .noPairingCodeInPicture, .pictureTooLarge: nil
         }
     }
 

@@ -22,6 +22,15 @@ struct AddConsoleView: View {
     @State private var cameraFailure: CameraQRScanner.Failure?
     @State private var photo: PhotosPickerItem?
     @State private var importsFile = false
+    /// The import in progress (one at a time), run by a task tied to the
+    /// screen: closing it cancels the import.
+    @State private var pendingImport: ImportRequest?
+    /// Camera and imports: one link accepted, once, never after closing.
+    @State private var acceptance = PairingCodeAcceptance()
+    /// Changes to start the scanner again (back from Settings, a camera
+    /// that came back).
+    @State private var scannerGeneration = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     private var isMac: Bool { ProcessInfo.processInfo.isiOSAppOnMac }
 
@@ -43,13 +52,22 @@ struct AddConsoleView: View {
                     PhotosPicker(selection: $photo, matching: .images) {
                         Label("Choose a Photo of the QR Code", systemImage: "photo")
                     }
+                    .disabled(pendingImport != nil)
                     .accessibilityIdentifier("pairing.importPhoto")
                     Button {
                         importsFile = true
                     } label: {
                         Label("Choose a Picture File", systemImage: "folder")
                     }
+                    .disabled(pendingImport != nil)
                     .accessibilityIdentifier("pairing.importFile")
+                    if pendingImport != nil {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text("Reading the picture…").foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("pairing.importing")
+                    }
                 } header: {
                     Text("Import a Picture")
                 } footer: {
@@ -83,20 +101,36 @@ struct AddConsoleView: View {
                 #endif
             }
             .onAppear { pairingName = app.store.pairingName() ?? "" }
-            .onDisappear { savePairingName() }
+            .onDisappear {
+                acceptance.close()
+                savePairingName()
+            }
             .onChange(of: photo) { _, item in
                 guard let item else { return }
                 photo = nil
-                Task { await importPicture { try await item.loadTransferable(type: Data.self) } }
+                if pendingImport == nil { pendingImport = ImportRequest(source: .photo(item)) }
             }
             .fileImporter(isPresented: $importsFile, allowedContentTypes: [.image]) { result in
-                guard case .success(let url) = result else { return }
-                Task {
-                    await importPicture {
-                        let scoped = url.startAccessingSecurityScopedResource()
-                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                        return try Data(contentsOf: url)
-                    }
+                guard case .success(let url) = result, pendingImport == nil else { return }
+                pendingImport = ImportRequest(source: .file(url))
+            }
+            // Cancelled when the screen goes away (or another import starts).
+            .task(id: pendingImport) {
+                guard let request = pendingImport else { return }
+                let outcome = await Self.read(request)
+                guard !Task.isCancelled, pendingImport == request else { return }
+                pendingImport = nil
+                importFinished(outcome)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Back from Settings (camera allowed), or VisionKit or a
+                // camera that changed: choose and start the scanner again.
+                guard phase == .active else { return }
+                let now = ScannerKind.current()
+                if cameraFailure != nil || now != scanner {
+                    cameraFailure = nil
+                    scanner = now
+                    scannerGeneration += 1
                 }
             }
             .navigationTitle(repairing == nil ? "Add a Console" : "Pair Again")
@@ -113,12 +147,20 @@ struct AddConsoleView: View {
     private var scannerView: some View {
         switch scanner {
         case .visionKit:
-            QRScannerView { scanned($0) }
+            QRScannerView(onLink: { scanned($0) }, onUnavailable: {
+                // VisionKit stopped (or could not start): the camera path.
+                scanner = ScannerKind.choose(
+                    dataScannerSupported: false, dataScannerAvailable: false,
+                    hasCamera: CameraQRScanner.preferredCamera() != nil
+                )
+            })
+                .id(scannerGeneration)
                 .frame(height: 280)
                 .listRowInsets(EdgeInsets())
                 .accessibilityLabel(Text("QR code scanner"))
         case .camera where cameraFailure == nil:
             CameraQRScannerView(onLink: { scanned($0) }, onUnavailable: { cameraFailure = $0 })
+                .id(scannerGeneration)
                 .frame(height: 280)
                 .listRowInsets(EdgeInsets())
                 .accessibilityLabel(Text("QR code scanner"))
@@ -154,33 +196,81 @@ struct AddConsoleView: View {
         }
     }
 
+    /// The one place a link found by the camera or in a picture leads to a
+    /// pairing: the first only, never after the screen closed.
     private func scanned(_ result: Result<PairingLink, PairingLinkError>) {
         switch result {
         case .success(let link):
+            guard acceptance.accept() else { return }
             savePairingName()
             app.requestPairing(link)
         case .failure(let error):
+            guard !acceptance.isClosed else { return }
             scanError = AppError(pairingLink: error)
         }
     }
 
-    /// Reads the QR code of an imported picture. Nothing else than a
-    /// pairing link the scanner would accept leads to a pairing.
-    private func importPicture(_ load: @escaping @Sendable () async throws -> Data?) async {
-        scanError = nil
-        let search: PairingCodeSearch? = await Task.detached {
-            guard let data = try? await load(), let payloads = try? QRCodeReader.payloads(inImageData: data) else { return nil }
-            return PairingCodeSearch(payloads: payloads)
+    struct ImportRequest: Equatable {
+        enum Source: Equatable {
+            case photo(PhotosPickerItem)
+            case file(URL)
+        }
+
+        let id = UUID()
+        let source: Source
+    }
+
+    enum ImportOutcome: Equatable {
+        case found(PairingCodeSearch)
+        case failed(AppError)
+    }
+
+    /// Loads and reads a picture, off the main actor; bounded (bytes, then
+    /// pixels, downsampled before Vision: ``QRCodeReader``).
+    private static func read(_ request: ImportRequest) async -> ImportOutcome {
+        let data: Data
+        do {
+            switch request.source {
+            case .photo(let item):
+                guard let loaded = try await item.loadTransferable(type: Data.self) else { return .failed(.file) }
+                data = loaded
+            case .file(let url):
+                data = try await Task.detached { () throws -> Data in
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                    guard size <= QRCodeReader.maxImageBytes else { throw QRCodeReader.ImageError.tooLarge }
+                    return try Data(contentsOf: url)
+                }.value
+            }
+        } catch QRCodeReader.ImageError.tooLarge {
+            return .failed(.pictureTooLarge)
+        } catch {
+            return .failed(.file)
+        }
+        try? Task.checkCancellation()
+        return await Task.detached { () -> ImportOutcome in
+            do {
+                return .found(PairingCodeSearch(payloads: try QRCodeReader.payloads(inImageData: data)))
+            } catch QRCodeReader.ImageError.tooLarge {
+                return .failed(.pictureTooLarge)
+            } catch {
+                return .failed(.file)
+            }
         }.value
-        switch search {
-        case .link(let link)?:
+    }
+
+    private func importFinished(_ outcome: ImportOutcome) {
+        scanError = nil
+        switch outcome {
+        case .found(.link(let link)):
             scanned(.success(link))
-        case .refused(let error)?:
-            scanError = AppError(pairingLink: error)
-        case .notAPairingCode?, .noCode?:
-            scanError = .noPairingCodeInPicture
-        case nil:
-            scanError = .file
+        case .found(.refused(let error)):
+            scanned(.failure(error))
+        case .found(.notAPairingCode), .found(.noCode):
+            if !acceptance.isClosed { scanError = .noPairingCodeInPicture }
+        case .failed(let error):
+            if !acceptance.isClosed { scanError = error }
         }
     }
 

@@ -6,6 +6,10 @@ import Security
 public protocol SecureStore: Sendable {
     func data(for account: String) throws -> Data?
     func set(_ data: Data, for account: String) throws
+    /// Creates the item only if there is none (never updates one): false
+    /// when an item already exists, for example one that just arrived from
+    /// another device through the iCloud Keychain.
+    func add(_ data: Data, for account: String) throws -> Bool
     func remove(account: String) throws
     func allAccounts() throws -> [String]
 }
@@ -117,6 +121,15 @@ public struct KeychainStore: SecureStore {
         guard status == errSecSuccess else { throw KeychainError.status(status) }
     }
 
+    public func add(_ data: Data, for account: String) throws -> Bool {
+        let status = api.add(baseQuery(account: account).merging(writeAttributes(data: data)) { $1 })
+        switch status {
+        case errSecSuccess: return true
+        case errSecDuplicateItem: return false
+        default: throw KeychainError.status(status)
+        }
+    }
+
     public func remove(account: String) throws {
         let status = api.delete(baseQuery(account: account))
         guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError.status(status) }
@@ -153,6 +166,14 @@ public final class InMemorySecureStore: SecureStore, @unchecked Sendable {
 
     public func set(_ data: Data, for account: String) throws {
         lock.withLock { items[account] = data }
+    }
+
+    public func add(_ data: Data, for account: String) throws -> Bool {
+        lock.withLock {
+            guard items[account] == nil else { return false }
+            items[account] = data
+            return true
+        }
     }
 
     public func remove(account: String) throws {

@@ -44,6 +44,8 @@ struct MacPairingTests {
         let iPhone = DeviceStore(secureStore: iPhoneKeychain, defaults: makeDefaults())
         let mac = DeviceStore(secureStore: macKeychain, defaults: makeDefaults())
         try mac.setPairingName("Mac")
+        // Opened before the sync: a local identity and pointer (no pointer
+        // had arrived).
         let macIdentity = try mac.identity()
 
         let shared = try iPhone.identity()
@@ -68,32 +70,76 @@ struct MacPairingTests {
         #expect(try macKeychain.data(for: DeviceStore.account(clientId: macIdentity.clientId)) != nil)
     }
 
-    /// A pointer whose identity item has not arrived is never replaced:
-    /// typing a name only changes the name, and the identity used meanwhile
-    /// is created once (no new fork on every call). Before M15, the Mac
-    /// replaced the shared pointer with a new identity, which the iPhone
-    /// then followed before it had its key, and forked again.
+    /// A pointer whose identity item has not arrived is never replaced,
+    /// and nothing is paired with another identity meanwhile: typing a name
+    /// only writes the name item; ``DeviceStore/identity()`` says the
+    /// identity is arriving. Before M15, the Mac replaced the shared pointer
+    /// with a new identity, which the iPhone then followed before it had
+    /// its key, and forked again.
     @Test func aPointerWhoseIdentityHasNotArrivedIsNeverReplaced() throws {
         let iPhoneKeychain = InMemorySecureStore()
         let macKeychain = InMemorySecureStore()
         let iPhone = DeviceStore(secureStore: iPhoneKeychain, defaults: makeDefaults())
         let shared = try iPhone.identity()
         try iPhone.setPairingName("Thomas's devices")
-        try deliver([DeviceStore.identityAccount], from: iPhoneKeychain, to: macKeychain)
+        try deliver([DeviceStore.identityAccount, DeviceStore.nameAccount], from: iPhoneKeychain, to: macKeychain)
+        let pointer = try #require(try macKeychain.data(for: DeviceStore.identityAccount))
 
         let mac = DeviceStore(secureStore: macKeychain, defaults: makeDefaults())
+        #expect(mac.pairingName() == "Thomas's devices")
         try mac.setPairingName("Mac")
-        let pointer = try #require(try macKeychain.data(for: DeviceStore.identityAccount))
-        #expect(String(decoding: pointer, as: UTF8.self).contains(shared.clientId))
         #expect(mac.pairingName() == "Mac")
-        let local = try mac.identity()
-        #expect(local != shared)
-        #expect(try mac.identity() == local)
-        #expect(try macKeychain.allAccounts().filter { $0.hasPrefix(DeviceStore.identityPrefix) }.count == 1)
+        #expect(try macKeychain.data(for: DeviceStore.identityAccount) == pointer)
+        #expect(throws: DeviceStoreError.identityNotArrived) { try mac.identity() }
+        #expect(throws: DeviceStoreError.identityNotArrived) { try mac.identity() }
+        #expect(try macKeychain.data(for: DeviceStore.identityAccount) == pointer)
+        #expect(try macKeychain.allAccounts().filter { $0.hasPrefix(DeviceStore.identityPrefix) }.isEmpty)
 
         // The shared key arrives: new pairings use it.
         try deliver([DeviceStore.account(clientId: shared.clientId)], from: iPhoneKeychain, to: macKeychain)
         #expect(try mac.identity() == shared)
+    }
+
+    /// The iPhone's pointer arrives between the Mac's read (no pointer) and
+    /// its write: the pointer is created with an add, never an update, so
+    /// the iPhone's wins; the Mac waits for its key, then uses it.
+    @Test func aPointerArrivingBetweenTheReadAndTheWriteWins() throws {
+        let iPhoneKeychain = InMemorySecureStore()
+        let iPhone = DeviceStore(secureStore: iPhoneKeychain, defaults: makeDefaults())
+        let shared = try iPhone.identity()
+        let iPhonePointer = try #require(try iPhoneKeychain.data(for: DeviceStore.identityAccount))
+        let macKeychain = ArrivingKeychain()
+        macKeychain.beforeAdd = { account in
+            if account == DeviceStore.identityAccount { try? macKeychain.base.set(iPhonePointer, for: account) }
+        }
+        let mac = DeviceStore(secureStore: macKeychain, defaults: makeDefaults())
+        #expect(throws: DeviceStoreError.identityNotArrived) { try mac.identity() }
+        #expect(try macKeychain.data(for: DeviceStore.identityAccount) == iPhonePointer)
+        try macKeychain.set(
+            try #require(try iPhoneKeychain.data(for: DeviceStore.account(clientId: shared.clientId))),
+            for: DeviceStore.account(clientId: shared.clientId)
+        )
+        #expect(try mac.identity() == shared)
+    }
+
+    /// The name has its own item: renaming never rewrites the pointer; a
+    /// pointer written before M15 still gives its name until one is typed.
+    @Test func theNameIsKeptApartFromThePointer() throws {
+        let keychain = InMemorySecureStore()
+        let store = DeviceStore(secureStore: keychain, defaults: makeDefaults())
+        let identity = try store.identity()
+        try keychain.set(
+            try JSONSerialization.data(withJSONObject: ["clientId": identity.clientId, "name": "Old name"]),
+            for: DeviceStore.identityAccount
+        )
+        #expect(store.pairingName() == "Old name")
+        let pointer = try keychain.data(for: DeviceStore.identityAccount)
+        try store.setPairingName("New name")
+        #expect(store.pairingName() == "New name")
+        #expect(try keychain.data(for: DeviceStore.identityAccount) == pointer)
+        try store.setPairingName("  ")
+        #expect(store.pairingName() == nil)
+        #expect(try store.identity() == identity)
     }
 
     /// Without a usable pointer, the identity that owns pairings wins over
@@ -136,10 +182,19 @@ struct MacPairingTests {
         store.reload()
         _ = store.pairingName()
         #expect(changes == 2)
+        try store.setPairingName("Mine")
+        #expect(changes == 3)
         try store.save(deviceId: deviceId, name: "Brick", model: .brick, pin: pin)
         try store.rename(deviceId, to: "Mine")
-        try store.remove(deviceId)
         #expect(changes == 5)
+        // What a connection notes is not a pairing change: not signalled
+        // (two devices reaching the console at different addresses would
+        // wake each other up).
+        store.noteEndpoint(Endpoint(host: "192.168.1.50", port: 47821), for: deviceId)
+        store.noteConsoleName("Renamed on the console", for: deviceId)
+        #expect(changes == 5)
+        try store.remove(deviceId)
+        #expect(changes == 6)
     }
 
     // MARK: - Key-value store marker
@@ -212,7 +267,26 @@ struct MacPairingTests {
     @Test func anImportedPictureFileIsRead() throws {
         let data = try Self.png(try Self.qrImage(Self.link))
         #expect(try QRCodeReader.payloads(inImageData: data) == [Self.link])
-        #expect(try QRCodeReader.payloads(inImageData: Data("not a picture".utf8)) == nil)
+        #expect(throws: QRCodeReader.ImageError.notAPicture) { try QRCodeReader.payloads(inImageData: Data("not a picture".utf8)) }
+        // Bounded: the bytes before reading, the pixels before decoding.
+        #expect(throws: QRCodeReader.ImageError.tooLarge) {
+            try QRCodeReader.payloads(inImageData: Data(count: QRCodeReader.maxImageBytes + 1))
+        }
+        // A large picture is downsampled, and still read.
+        let large = try Self.png(try Self.qrImage(Self.link, scale: 60))
+        #expect(try QRCodeReader.payloads(inImageData: large) == [Self.link])
+    }
+
+    /// Camera and imports share one acceptance point: the first link only,
+    /// and nothing once the screen closed (a late import after Cancel).
+    @Test func aPairingCodeIsAcceptedOnceAndNeverAfterClosing() {
+        let acceptance = PairingCodeAcceptance()
+        #expect(acceptance.accept())
+        #expect(!acceptance.accept())
+        let closed = PairingCodeAcceptance()
+        closed.close()
+        #expect(closed.isClosed)
+        #expect(!closed.accept())
     }
 
     @Test func picturesWithoutAUsableLinkAreSortedOut() throws {
@@ -252,4 +326,20 @@ final class FakeKeyValueStore: KeyValueStoring {
         synchronizations += 1
         return true
     }
+}
+
+/// A Keychain where an item arrives from another device just before an add
+/// (iCloud Keychain delivering between a read and a write).
+final class ArrivingKeychain: SecureStore, @unchecked Sendable {
+    let base = InMemorySecureStore()
+    var beforeAdd: ((String) -> Void)?
+
+    func data(for account: String) throws -> Data? { try base.data(for: account) }
+    func set(_ data: Data, for account: String) throws { try base.set(data, for: account) }
+    func add(_ data: Data, for account: String) throws -> Bool {
+        beforeAdd?(account)
+        return try base.add(data, for: account)
+    }
+    func remove(account: String) throws { try base.remove(account: account) }
+    func allAccounts() throws -> [String] { try base.allAccounts() }
 }

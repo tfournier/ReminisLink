@@ -49,8 +49,54 @@ struct MacPairingAppTests {
         }
     }
 
+    /// The Mac shows this console, app active (M15: only then does a read
+    /// of the Keychain connect again at once).
+    func show(_ app: AppModel, _ deviceId: String) {
+        app.becomeActive()
+        app.openConsole(deviceId)
+    }
+
+    /// The iPhone pairs the console again with a new identity (its pointer
+    /// moves to it) and the console forgets the old one.
+    func renewPairing(_ pak: FakePak, iPhone: AppModel, forgetting old: ClientIdentity) async throws -> ClientIdentity {
+        let renewed = ClientIdentity.generate()
+        let attempt = try PairingAttempt(secret: pak.secret, deviceId: pak.deviceId, identity: renewed, clientName: "Test")
+        try await APIClient(endpoint: pak.endpoint, pin: pak.pin, session: pak.makeSession()).pair(attempt)
+        try iPhoneKeychain.set(
+            try JSONSerialization.data(withJSONObject: [
+                "clientId": renewed.clientId, "privateKey": Base64URL.encode(renewed.privateKey.rawRepresentation),
+            ]),
+            for: Account.identity(renewed.clientId)
+        )
+        try iPhoneKeychain.set(
+            try JSONSerialization.data(withJSONObject: ["clientId": renewed.clientId]), for: Account.pointer
+        )
+        try iPhone.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: renewed.clientId, pin: pak.pin)
+        pak.forget(clientId: old.clientId)
+        return renewed
+    }
+
+    /// The Mac paired and connected with the iPhone's identity.
+    func connectedMac(_ pak: FakePak) async throws -> (mac: AppModel, iPhone: AppModel, session: ConsoleSession, old: ClientIdentity) {
+        let mac = makeApp(pak, keychain: macKeychain)
+        let iPhone = makeApp(pak, keychain: iPhoneKeychain)
+        try await iPhone.pairDirectly(with: pak)
+        let old = try iPhone.store.identity()
+        try deliver(try iPhoneKeychain.allAccounts())
+        mac.reloadPairings()
+        show(mac, pak.deviceId)
+        let session = mac.session(for: pak.deviceId)
+        await waitUntil { session.state == .connected }
+        #expect(session.state == .connected)
+        return (mac, iPhone, session, old)
+    }
+
+    func count(_ pak: FakePak, _ method: String, _ path: String) -> Int {
+        pak.log.filter { $0.method == method && $0.path == "/api/v1" + path }.count
+    }
+
     /// The reported case: the Mac app runs with a local identity (Add a
-    /// Console opened, name typed) and opens the console as soon as its
+    /// Console opened before the sync) and opens the console as soon as its
     /// record arrives, before the key: "not arrived yet", never "Pair
     /// Again". The key arrives, the list is read again: the session
     /// connects by itself and signs with the shared identity; the Mac's
@@ -68,8 +114,9 @@ struct MacPairingAppTests {
         try deliver([Account.console(pak.deviceId)])
         mac.reloadPairings()
         #expect(mac.store.devices.map(\.id) == [pak.deviceId])
+        show(mac, pak.deviceId)
         let session = mac.session(for: pak.deviceId)
-        await session.connect()
+        await waitUntil { session.error != nil }
         #expect(session.error == .pairingNotSynced)
         #expect(session.error?.action == .retry)
         #expect(pak.platforms(clientId: local.clientId).lastSeen == nil)
@@ -111,34 +158,8 @@ struct MacPairingAppTests {
     /// Keychain can renew.
     @Test func aPairingRenewedElsewhereReplacesTheRunningClient() async throws {
         let pak = makePak()
-        let mac = makeApp(pak, keychain: macKeychain)
-        let iPhone = makeApp(pak, keychain: iPhoneKeychain)
-        try await iPhone.pairDirectly(with: pak)
-        let old = try iPhone.store.identity()
-        try deliver(try iPhoneKeychain.allAccounts())
-        mac.reloadPairings()
-        let session = mac.session(for: pak.deviceId)
-        await session.connect()
-        #expect(session.state == .connected)
-
-        // The iPhone pairs again with a new identity (its pointer moved),
-        // the console forgets the old one.
-        try iPhoneKeychain.remove(account: Account.pointer)
-        try iPhoneKeychain.remove(account: Account.identity(old.clientId))
-        let renewed = ClientIdentity.generate()
-        let attempt = try PairingAttempt(secret: pak.secret, deviceId: pak.deviceId, identity: renewed, clientName: "Test")
-        try await APIClient(endpoint: pak.endpoint, pin: pak.pin, session: pak.makeSession()).pair(attempt)
-        try iPhoneKeychain.set(
-            try JSONSerialization.data(withJSONObject: [
-                "clientId": renewed.clientId, "privateKey": Base64URL.encode(renewed.privateKey.rawRepresentation),
-            ]),
-            for: Account.identity(renewed.clientId)
-        )
-        try iPhone.store.save(deviceId: pak.deviceId, name: "Brick", model: .brick, clientId: renewed.clientId, pin: pak.pin)
-        pak.forget(clientId: old.clientId)
-
-        // The record and the key reach the Mac; the periodic read (or the
-        // key-value store marker) replaces the client.
+        let (mac, iPhone, session, old) = try await connectedMac(pak)
+        let renewed = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
         try deliver([Account.console(pak.deviceId), Account.identity(renewed.clientId)])
         mac.reloadPairings()
         await waitUntil { session.state == .connected && pak.platforms(clientId: renewed.clientId).lastSeen != nil }
@@ -146,6 +167,110 @@ struct MacPairingAppTests {
         #expect(session.state == .connected)
         await session.refresh()
         #expect(session.state == .connected)
+    }
+
+    /// The new record arrives before its key while the console is open:
+    /// nothing is signed with the old identity any more, the session says
+    /// the pairing is arriving, then connects with it.
+    @Test func aNewRecordWithoutItsKeyPausesTheSession() async throws {
+        let pak = makePak()
+        let (mac, iPhone, session, old) = try await connectedMac(pak)
+        let renewed = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        try deliver([Account.console(pak.deviceId)])
+        mac.reloadPairings()
+        #expect(session.error == .pairingNotSynced)
+        #expect(session.client == nil)
+        try deliver([Account.identity(renewed.clientId)])
+        mac.reloadPairings()
+        await waitUntil { session.state == .connected }
+        #expect(pak.platforms(clientId: renewed.clientId).lastSeen != nil)
+    }
+
+    /// The console is forgotten on the iPhone (without reaching the pak)
+    /// while the Mac shows it: the session is revoked (no client, no signed
+    /// request even through a screen that still holds it), the console
+    /// closes and the list says why.
+    @Test func aConsoleForgottenElsewhereIsRevoked() async throws {
+        let pak = makePak()
+        let (mac, _, session, _) = try await connectedMac(pak)
+        let name = mac.store.device(id: pak.deviceId)?.name
+        try macKeychain.remove(account: Account.console(pak.deviceId))
+        mac.reloadPairings()
+        #expect(session.client == nil)
+        #expect(session.error == .api(.notPaired))
+        #expect(mac.openConsoleId == nil)
+        #expect(name != nil)
+        #expect(mac.forgottenNotice?.name == name)
+        #expect(mac.store.devices.isEmpty)
+        let requests = pak.log.count
+        _ = try? await session.perform { try await $0.device() }
+        #expect(pak.log.count == requests)
+    }
+
+    /// Changed credentials for a console that is not shown, or while the
+    /// app is in the background: the old client is dropped, nothing
+    /// connects until the console is needed.
+    @Test func aChangeElsewhereConnectsOnlyWhenTheConsoleIsShown() async throws {
+        let pak = makePak()
+        let (mac, iPhone, session, old) = try await connectedMac(pak)
+        mac.closeConsole()
+        let renewed = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        try deliver([Account.console(pak.deviceId), Account.identity(renewed.clientId)])
+        mac.reloadPairings()
+        #expect(session.client == nil)
+        #expect(session.state == .idle)
+        try? await Task.sleep(for: .milliseconds(300))
+        #expect(session.state == .idle)
+        #expect(pak.platforms(clientId: renewed.clientId).lastSeen == nil)
+        // Opened again: it connects with the renewed pairing.
+        mac.openConsole(pak.deviceId)
+        await waitUntil { session.state == .connected }
+        #expect(pak.platforms(clientId: renewed.clientId).lastSeen != nil)
+    }
+
+    /// The Keychain changes while the first connection loads the trash
+    /// (connected, its attempt not finished): the new connection does not
+    /// join the attempt it replaced, and the late trash answer of the old
+    /// one installs nothing.
+    @Test func aChangeDuringTheFirstTrashLoadStartsANewConnection() async throws {
+        let pak = makePak()
+        let mac = makeApp(pak, keychain: macKeychain)
+        let iPhone = makeApp(pak, keychain: iPhoneKeychain)
+        try await iPhone.pairDirectly(with: pak)
+        let old = try iPhone.store.identity()
+        try deliver(try iPhoneKeychain.allAccounts())
+        mac.reloadPairings()
+        let gate = pak.holdNextAnswer(method: "GET", path: "/api/v1/trash")
+        show(mac, pak.deviceId)
+        let session = mac.session(for: pak.deviceId)
+        await waitUntil { gate.reached }
+        #expect(session.state == .connected)
+
+        let renewed = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        try deliver([Account.console(pak.deviceId), Account.identity(renewed.clientId)])
+        mac.reloadPairings()
+        await waitUntil { session.state == .connected && session.client != nil }
+        gate.open()
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(session.state == .connected)
+        #expect(session.client != nil)
+        #expect(pak.platforms(clientId: renewed.clientId).lastSeen != nil)
+        await session.refresh()
+        #expect(session.state == .connected)
+    }
+
+    /// After a disconnection by the console, an automatic reconnection
+    /// (a read of the Keychain) never lifts it: no `POST /clients/me/connect`.
+    @Test func automaticReconnectionsNeverLiftADisconnection() async throws {
+        let pak = makePak()
+        let (mac, iPhone, session, old) = try await connectedMac(pak)
+        let renewed = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        pak.disconnect(clientId: renewed.clientId)
+        try deliver([Account.console(pak.deviceId), Account.identity(renewed.clientId)])
+        mac.reloadPairings()
+        await waitUntil { session.error != nil }
+        #expect(session.isDisconnected)
+        #expect(count(pak, "POST", "/clients/me/connect") == 0)
     }
 
     /// A console that really forgot the shared identity (no newer
@@ -208,7 +333,7 @@ struct MacPairingAppTests {
     @Test(.enabled(if: visionWorks)) func anImportedPictureLeadsToThePairingLink() throws {
         let pak = makePak()
         let data = try QRTestImage.png(pak.pairingLink.url.absoluteString)
-        let payloads = try #require(try QRCodeReader.payloads(inImageData: data))
+        let payloads = try QRCodeReader.payloads(inImageData: data)
         #expect(PairingCodeSearch(payloads: payloads) == .link(pak.pairingLink))
     }
 

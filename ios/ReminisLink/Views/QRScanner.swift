@@ -44,6 +44,8 @@ enum ScannerKind: Equatable {
 /// once, and scanning goes on.
 struct QRScannerView: UIViewControllerRepresentable {
     let onLink: (Result<PairingLink, PairingLinkError>) -> Void
+    /// The scanner could not start, or stopped being available.
+    let onUnavailable: () -> Void
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let scanner = DataScannerViewController(
@@ -54,26 +56,40 @@ struct QRScannerView: UIViewControllerRepresentable {
             isHighlightingEnabled: true
         )
         scanner.delegate = context.coordinator
-        try? scanner.startScanning()
+        do {
+            try scanner.startScanning()
+        } catch {
+            // Not available any more (camera access withdrawn...): said
+            // after this update, the camera path takes over.
+            let onUnavailable = onUnavailable
+            Task { @MainActor in onUnavailable() }
+        }
         return scanner
     }
 
     func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {
         context.coordinator.onLink = onLink
+        context.coordinator.onUnavailable = onUnavailable
     }
 
     static func dismantleUIViewController(_ scanner: DataScannerViewController, coordinator: Coordinator) {
         scanner.stopScanning()
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onLink: onLink) }
+    func makeCoordinator() -> Coordinator { Coordinator(onLink: onLink, onUnavailable: onUnavailable) }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         var onLink: (Result<PairingLink, PairingLinkError>) -> Void
+        var onUnavailable: () -> Void
         private var filter = PairingScanFilter()
 
-        init(onLink: @escaping (Result<PairingLink, PairingLinkError>) -> Void) {
+        init(onLink: @escaping (Result<PairingLink, PairingLinkError>) -> Void, onUnavailable: @escaping () -> Void) {
             self.onLink = onLink
+            self.onUnavailable = onUnavailable
+        }
+
+        func dataScanner(_ dataScanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) {
+            onUnavailable()
         }
 
         func dataScanner(_ scanner: DataScannerViewController, didAdd items: [RecognizedItem], allItems: [RecognizedItem]) {
@@ -128,6 +144,9 @@ final class CameraQRScanner: UIViewController {
     private let reader = FrameReader()
     private var preview: AVCaptureVideoPreviewLayer?
     private var stopped = false
+    private var observers: [NSObjectProtocol] = []
+    /// Restarts after a runtime error, before giving up.
+    private var restarts = 0
 
     /// The camera to use: a Mac's camera (front, or Continuity Camera),
     /// else the back camera, else any.
@@ -166,8 +185,55 @@ final class CameraQRScanner: UIViewController {
 
     func stop() {
         stopped = true
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers = []
         let session = session
         queue.async { if session.isRunning { session.stopRunning() } }
+    }
+
+    /// A capture that fails (runtime error) is started again, twice at
+    /// most; a camera that goes away (Continuity Camera, an external
+    /// camera) is replaced by another, or the screen says there is none.
+    /// An interruption (another app took the camera) ends by itself: the
+    /// session resumes.
+    private func observeCapture() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.captureFailed() }
+        })
+        observers.append(center.addObserver(forName: AVCaptureDevice.wasDisconnectedNotification, object: nil, queue: .main) {
+            [weak self] _ in MainActor.assumeIsolated { self?.cameraChanged() }
+        })
+    }
+
+    private func captureFailed() {
+        guard !stopped else { return }
+        restarts += 1
+        guard restarts <= 2 else {
+            stop()
+            onUnavailable?(.noCamera)
+            return
+        }
+        let session = session
+        queue.async { session.startRunning() }
+    }
+
+    private func cameraChanged() {
+        guard !stopped else { return }
+        let inputs = session.inputs.compactMap { $0 as? AVCaptureDeviceInput }
+        guard inputs.contains(where: { !$0.device.isConnected }) || inputs.isEmpty else { return }
+        session.beginConfiguration()
+        for input in inputs { session.removeInput(input) }
+        guard let camera = Self.preferredCamera(), let input = try? AVCaptureDeviceInput(device: camera),
+              session.canAddInput(input)
+        else {
+            session.commitConfiguration()
+            stop()
+            onUnavailable?(.noCamera)
+            return
+        }
+        session.addInput(input)
+        session.commitConfiguration()
     }
 
     private func configure() {
@@ -190,6 +256,7 @@ final class CameraQRScanner: UIViewController {
         preview.frame = view.bounds
         view.layer.addSublayer(preview)
         self.preview = preview
+        observeCapture()
         let session = session
         queue.async { session.startRunning() }
     }

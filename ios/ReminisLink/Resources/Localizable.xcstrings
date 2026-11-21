@@ -3421,6 +3421,16 @@
         }
       }
     },
+    "Reading the picture…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture de l’image…"
+          }
+        }
+      }
+    },
     "Reading what will be moved…" : {
       "localizations" : {
         "fr" : {
@@ -5185,6 +5195,16 @@
         }
       }
     },
+    "The identity of your Apple devices has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet, then try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité de tes appareils Apple n’est pas encore entièrement arrivée sur cet appareil par le trousseau iCloud. Garde-le connecté à Internet, puis réessaie."
+          }
+        }
+      }
+    },
     "The imported cheats are added after the current ones." : {
       "localizations" : {
         "fr" : {
@@ -5765,6 +5785,16 @@
         }
       }
     },
+    "This console was forgotten on another of your Apple devices" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette console a été oubliée sur un autre de tes appareils Apple"
+          }
+        }
+      }
+    },
     "This console's identity changed: it is not the console paired with this app, or it was reset. Nothing was sent. Pair it again by scanning its QR code." : {
       "localizations" : {
         "fr" : {
@@ -5971,6 +6001,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette image ne peut pas servir d’image du jeu. Choisis-en une autre."
+          }
+        }
+      }
+    },
+    "This picture is too large. Use a smaller picture of the QR code." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image est trop grande. Utilise une image plus petite du QR code."
           }
         }
       }

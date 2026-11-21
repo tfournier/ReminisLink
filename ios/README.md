@@ -370,8 +370,12 @@ emulator.
 ## iPhone, iPad and Mac (milestone M15)
 
 One app and one binary for iPhone, iPad and Apple-silicon Macs ("Designed
-for iPad"), with no Mac-specific code and no check of the device model:
-layouts follow the size class and the width of the window.
+for iPad"), with no check of the device model: layouts follow the size class
+and the width of the window. The only explicit adaptations to the Mac, all
+through iOS APIs (`ProcessInfo.isiOSAppOnMac`, VisionKit's own support
+check): the default name on the consoles ("Mac"), the camera scanner used
+where VisionKit's is not supported, and the texts of the Add a Console
+screen.
 
 - **Project**: `TARGETED_DEVICE_FAMILY = 1,2` (app, share extension and
   tests); every orientation on iPad
@@ -484,8 +488,11 @@ Macs*), then, with a TestFlight build on the Mac:
    with the same pairing, and works (signed requests, pinned TLS); the
    synced saves are in iCloud Drive. With the Mac app open (window in the
    background, not closed), pair or forget a console on the iPhone: the Mac
-   list follows within seconds (key-value store marker) or at most a minute
-   (periodic read), without closing the window. Open that console on the Mac
+   list follows once iCloud delivered the items: the marker makes the Mac
+   read again at once and 5 s and 25 s later, and the periodic read runs
+   every minute (none of them bounds iCloud's own delay), without closing
+   the window. Forget the console on the iPhone while the Mac shows it: the
+   Mac closes it and says it was forgotten on another device. Open that console on the Mac
    right away: it connects, or says "has not fully reached this device"
    and connects by itself once the identity arrives; never "no longer
    recognizes this device" for a console that works on the iPhone.

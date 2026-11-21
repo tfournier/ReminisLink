@@ -87,6 +87,13 @@ struct ClosedConsoleNotice: Equatable, Identifiable {
     let deviceId: String
 }
 
+/// "This console was forgotten on another of your Apple devices" (M15),
+/// shown on the list of consoles.
+struct ForgottenConsoleNotice: Equatable, Identifiable {
+    let id = UUID()
+    let name: String?
+}
+
 /// "Patch applied", shown for a few seconds on the sheet of the game the
 /// Patch screen leaves the user on once it closes by itself.
 struct PatchNotice: Equatable, Identifiable {
@@ -232,6 +239,9 @@ final class AppModel {
     var tabPaths: [ConsoleTab: [Route]] = [:]
     /// The console closed ReminisLink (M11): said once on the list.
     var closedNotice: ClosedConsoleNotice?
+    /// A console forgotten on another device of the Apple account while
+    /// this one used it (M15), said once on the list.
+    var forgottenNotice: ForgottenConsoleNotice?
     /// A patch was applied and its screen closed by itself: said on the
     /// sheet of the game, then cleared.
     var patchNotice: PatchNotice?
@@ -522,11 +532,34 @@ final class AppModel {
     /// device replaced since, or that failed before the identity of their
     /// pairing arrived. Those connect again with what the Keychain holds
     /// now; nothing in memory keeps an older identity.
+    ///
+    /// Per session, from what the Keychain says (a read error changes
+    /// nothing): the pairing was forgotten (on another device): the session
+    /// is revoked, the console closed, and the list says why; the record is
+    /// here but not its identity: nothing is signed until it arrives; other
+    /// credentials: the client is dropped, and the session connects again
+    /// at once only if its console is shown and the app is active.
     func reloadPairings() {
+        let names = Dictionary(store.devices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         store.reload()
-        for (deviceId, session) in sessions
-        where session.usesStaleCredentials(try? store.credentials(for: deviceId)) {
-            session.restartWithFreshCredentials()
+        for (deviceId, session) in sessions {
+            guard let state = try? store.pairingState(for: deviceId) else { continue }
+            switch state {
+            case .notPaired:
+                // Gone from the list (not a console to pair again), and in
+                // use here.
+                guard store.device(id: deviceId) == nil, session.holdsPairing || openConsoleId == deviceId else { continue }
+                session.revoke()
+                dropSession(deviceId)
+                if openConsoleId == deviceId { closeConsole() }
+                forgottenNotice = ForgottenConsoleNotice(name: names[deviceId])
+            case .awaitingIdentity:
+                session.awaitIdentity()
+            case .paired:
+                if session.usesStaleCredentials(try? store.credentials(for: deviceId)) {
+                    session.invalidateCredentials(reconnect: isForeground && openConsoleId == deviceId)
+                }
+            }
         }
     }
 
