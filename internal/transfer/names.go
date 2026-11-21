@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -144,7 +145,9 @@ func truncateName(name string) string {
 
 // findFold returns the name of the entry of dir equal to name ignoring
 // case (exFAT is case-insensitive), preferring an exact match, or "" when
-// there is none. A folder that cannot be read counts as holding name.
+// there is none. An entry of another case counts only where the file
+// system finds it under name (on ext4, Knulli M20, game.gba and Game.gba
+// coexist). A folder that cannot be read counts as holding name.
 func findFold(dir, name string) string {
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -160,6 +163,13 @@ func findFold(dir, name string) string {
 		}
 		if match == "" && strings.EqualFold(d.Name(), name) {
 			match = d.Name()
+		}
+	}
+	if match != "" {
+		fa, errA := os.Lstat(filepath.Join(dir, match))
+		fb, errB := os.Lstat(filepath.Join(dir, name))
+		if errA != nil || errB != nil || !os.SameFile(fa, fb) {
+			return ""
 		}
 	}
 	return match

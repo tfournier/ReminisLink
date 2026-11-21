@@ -63,6 +63,7 @@ func SDEntryID(rel string) string { return sdEntryPrefix + EncodeID(rel) }
 // (split in components) and the file descriptions of what exists.
 type sdHidden struct {
 	data  []string // the ReminisLink folder
+	pak   []string // the folder of the pak (Knulli), nil when none
 	logs  []string // the log folder (its ReminisLink* files are hidden)
 	inSD  bool     // the log folder is on the SD card
 	infos []fs.FileInfo
@@ -83,6 +84,14 @@ func (l *Library) hiddenSet(sd string) sdHidden {
 	}
 	if fi, err := os.Stat(l.adapter.Roots().Data); err == nil {
 		h.infos = append(h.infos, fi)
+	}
+	if pak := l.adapter.Roots().Pak; pak != "" {
+		if rel, err := filepath.Rel(sd, pak); err == nil && filepath.IsLocal(rel) {
+			h.pak = splitRel(rel)
+		}
+		if fi, err := os.Stat(pak); err == nil {
+			h.infos = append(h.infos, fi)
+		}
 	}
 	logs := l.adapter.Roots().Logs
 	if rel, err := filepath.Rel(sd, logs); err == nil && filepath.IsLocal(rel) {
@@ -117,7 +126,7 @@ func prefixFold(p, prefix []string) bool {
 // hides reports whether the entry at comps (relative to the SD card),
 // described by fi (nil: unknown), is ReminisLink data.
 func (h sdHidden) hides(comps []string, fi fs.FileInfo) bool {
-	if prefixFold(comps, h.data) {
+	if prefixFold(comps, h.data) || prefixFold(comps, h.pak) {
 		return true
 	}
 	if h.inSD && len(comps) == len(h.logs)+1 && (len(h.logs) == 0 || prefixFold(comps, h.logs)) &&

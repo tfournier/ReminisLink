@@ -10,6 +10,13 @@ PAK_DIR="$(pwd)"
 
 # libSDL2_gfx is not shipped with NextUI: use the bundled copy.
 export LD_LIBRARY_PATH="$PAK_DIR/resources/lib:$LD_LIBRARY_PATH"
+# h700 (Anbernic, experimental): libSDL2_ttf is bundled too, as the Pak
+# Store does for this platform (its launch.sh and taskfile.yml).
+# my355 (Miyoo Flip, experimental): a libSDL2_gfx that needs glibc 2.17
+# only (NextUI targets glibc 2.28 there).
+case "$PLATFORM" in
+h700 | my355) export LD_LIBRARY_PATH="$PAK_DIR/resources/lib/$PLATFORM:$LD_LIBRARY_PATH" ;;
+esac
 
 LOG_DIR="${LOGS_PATH:-/mnt/SDCARD/.userdata/$PLATFORM/logs}"
 mkdir -p "$LOG_DIR"
@@ -22,4 +29,8 @@ mkdir -p "$LOG_DIR"
 # launcher (poweroff, a supervisor) reaches it and it shuts down cleanly.
 # The final sync of Cheat Manager's launcher is done by the pak itself
 # (app.Shutdown syncs the SD card before exiting).
-exec ./reminislink "$@" 2>>"$LOG_DIR/ReminisLink.stderr.txt"
+#
+# --os nextui: the firmware is never taken from the environment here (a
+# REMINISLINK_OS left by another tool would pick the Knulli layout); an
+# --os given to this script comes later and wins (manual launch).
+exec ./reminislink --os nextui "$@" 2>>"$LOG_DIR/ReminisLink.stderr.txt"

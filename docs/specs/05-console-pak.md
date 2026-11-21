@@ -35,7 +35,7 @@ Toute connaissance de l'organisation des fichiers passe par une interface. Le re
 
 ```go
 type Adapter interface {
-    Name() string                               // "nextui"
+    Name() string                               // "nextui" ou "knulli"
     Roots() Roots                               // SD, Roms, Saves, States, Cheats, Userdata
     Systems() ([]System, error)                 // dossiers de Roms/ avec un tag
     GameFiles(g Game) (GameFiles, error)        // ROM, save, states, cheats, art
@@ -48,6 +48,8 @@ type Adapter interface {
     DeviceInfo() (DeviceInfo, error)            // modèle, plateforme, version OS, batterie
 }
 ```
+
+Un seul adaptateur à la fois, choisi au démarrage (M20) : `nextui` par défaut ; chaque lanceur passe `--os` (`launch.sh` : `--os nextui`, lanceur Knulli : `--os knulli`) ; la variable `REMINISLINK_OS` ne sert qu'à un lancement direct du binaire. L'adaptateur Knulli réutilise le parcours des dossiers de l'adaptateur NextUI (dossiers, `.m3u`, multi-disques) avec ses propres règles (`nextui.Layout` : noms des systèmes, des saves et des states, dossier des jaquettes, console). Les racines viennent des variables d'environnement avec des valeurs par défaut ; les règles 2 (confinement) et 4 (exFAT) s'appliquent à tous.
 
 ### 3.1 Organisation NextUI
 
@@ -89,6 +91,61 @@ Notations : `<rom.ext>` = nom du fichier ROM avec son extension, tel que `readdi
 Source : analyse du code NextUI au commit `b6ec1343` (identique à v6.15.0 pour ces fichiers) et du firmware TrimUI v1.1.1, détaillée dans [m0/source-analysis.md](m0/source-analysis.md). Le script `scripts/verify-device.sh` (lecture seule) permet de reconfirmer ces valeurs sur une vraie console.
 
 **Cas particuliers à gérer** : deux dossiers pour la même console (ex. `Game Boy Advance (GBA)` et `Game Boy Advance (MGBA)` : chacun a son propre tag, donc ses propres dossiers de saves et de states, même si NextUI les fusionne à l'affichage) ; plusieurs dossiers `<TAG>-<cœur>` pour un même tag (changement de pak émulateur) ; des saves et states dans un format non par défaut (`minuisettings.txt`) ; noms avec accents, parenthèses, crochets, emojis ; jeux dans des sous-dossiers ; casse différente entre la ROM et ses fichiers (exFAT est insensible à la casse, la comparaison DOIT l'être aussi).
+
+### 3.2 Autres plateformes NextUI (M20, expérimental)
+
+Mêmes variables, mêmes chemins et mêmes règles qu'en §3.1, sous le nom de la plateforme (`.userdata/<plateforme>`, `.system/<plateforme>`, `Tools/<plateforme>`, `Emus/<plateforme>`). Ce qui change :
+
+| Plateforme | Consoles | `DEVICE` exporté par `MinUI.pak/launch.sh` | Modèle de l'API | Batterie (`/sys/class/power_supply/`) | glibc | Statut |
+|---|---|---|---|---|---|---|
+| `tg5040` | Brick, Brick Pro, Smart Pro | `brick`, `brickpro`, `smartpro` | le même | `axp2202-battery`, `axp2202-usb` | 2.33 | Confirmé (console) |
+| `tg5050` | Smart Pro S | `smartpros`, seulement si `MainUI` contient « Trimui Smart Pro S » | `smartpros` (aussi sans `DEVICE`, avec `IS_NEXT=yes`) | `axp2202-battery`, `axp2202-usb` | 2.33 | Source |
+| `h700` | Anbernic RG28XX, RG34XX(SP), RG35XX Plus/H/Pro/SP, RG40XX H/V, RG CubeXX | `rg28xx`, `rg34xx`, `rg34xxsp`, `rg35xxplus`, `rg35xxh`, `rg35xxpro`, `rg35xxsp`, `rg40xxh`, `rg40xxv`, `rgcubexx`, `rgsp` (défaut `rg35xxplus`) | `h700` | `axp2202-battery`, `axp2202-usb` | 2.35 | Source |
+| `my355` | Miyoo Flip | `my355` | `my355` | `battery`, `ac` | 2.28 | Source (branche) |
+
+Sources : NextUI `main` au commit `b6ec1343` : `skeleton/SYSTEM/tg5050/paks/MinUI.pak/launch.sh` (variables, `DEVICE`, `IS_NEXT`), `skeleton/SYSTEM/h700/paks/MinUI.pak/launch.sh`, `skeleton/SYSTEM/h700/bin/h700-init.sh:5-19` (carte montée en `vfat` sur `/mnt/sdcard`, `/mnt/SDCARD` en bind ou en lien symbolique), `skeleton/SYSTEM/h700/bin/h700-device.sh`, `workspace/tg5050/platform/platform.c:208-213`, `workspace/h700/platform/platform.c:657-662` ; NextUI branche `my355-latest` au commit `a5c755bb` : `skeleton/SYSTEM/my355/paks/MinUI.pak/launch.sh`, `workspace/my355/platform/platform.c:204-209`. glibc : `LoveRetro/gcc-arm-10.3-aarch64-tg5050` `816e71bd` `aarch64.config:371` (2.33), `LoveRetro/gcc-arm-8.3-aarch64-my355` `66f7801c` `aarch64.config:359` (2.28), `LoveRetro/h700-toolchain` `04faa348` `Dockerfile:47-48` (système d'origine Ubuntu 22.04, glibc 2.35). gabagool v2.26.6 choisit l'écran et les boutons d'après `PLATFORM` (`pkg/gabagool/init.go:82-98`, `internal/input_mapper.go:216-237`).
+
+**Un binaire, un zip.** Les quatre plateformes sont ARM64 ; le binaire de la Brick (Debian 11, CGO pour SDL) ne demande que glibc 2.17 (mesuré par `scripts/emulation/elfneeds`) et lit `PLATFORM` au lancement. Le Pak Store n'a qu'un `release_filename` par pak : il installe le même zip dans `Tools/<PLATFORM>/<nom>.pak/` pour chaque plateforme listée dans `platforms` de `pak.json` (`LoveRetro/nextui-pak-store` `669cc4a7` : `utils/functions.go` `GetPlatform`, `UnzipPakArchive`, `state/helpers.go` `GetBrowsePaks` ; le Pak Store lui-même et Cheat Manager font ainsi). ReminisLink suit donc le Pak Store : un binaire et un zip pour toutes les plateformes, au lieu du « binaire et pak par plateforme » de la feuille de route (écart signalé, à valider). Le Pak Store marque un pak « expérimental » dans son catalogue (`experimental_paks` de `storefront_base.json`), pas dans `pak.json`.
+
+**Hypothèses** (non vérifiables sans les consoles ; à confirmer par les volontaires, voir [appel aux testeurs](../appel-testeurs.md)) :
+
+- P1. `my355` n'existe que sur la branche `my355-latest` de NextUI : ses chemins sont ceux de cette branche. Son lanceur n'exporte pas `ROMS_PATH` : la valeur par défaut `$SDCARD_PATH/Roms` s'applique.
+- P2. La carte h700 est en FAT32 ou exFAT, insensible à la casse comme sur tg5040. `/mnt/SDCARD` peut y être un lien symbolique vers `/mnt/sdcard` : la racine de la carte peut être un lien (testé), aucun lien n'est suivi en dessous (règle 2).
+- P3. SDL2, SDL2_image et SDL2_ttf sont fournis par NextUI (`$SYSTEM_PATH/lib`) ou par le système d'origine sur `tg5050` et `my355`. Sur `h700`, le pak embarque `libSDL2_ttf` (`resources/lib/h700`, chargée par `launch.sh` sur cette plateforme seulement), comme le Pak Store (`launch.sh`, `taskfile.yml`), et suppose FreeType présent dans le système d'origine. `libSDL2_gfx` est embarquée partout ; celle de Debian 11 demande glibc 2.29 (`libm`), plus récente que la glibc 2.28 visée sur `my355` : pour `my355`, le pak embarque la même SDL2_gfx 1.0.4 construite par Debian 10 (glibc 2.17, `resources/lib/my355`, paquet épinglé par SHA-256 dans `scripts/setup-toolchain.sh`), trouvée par `make emulation` (revue Codex de M20).
+- P4. Wi-Fi sur `wlan0` et SSID par `wpa_cli -p /etc/wifi/sockets` : vérifié sur tg5040 seulement ; ailleurs le SSID peut être `null`.
+- P5. L'écran, les boutons et le QR code (gabagool) n'ont été vus sur aucune de ces plateformes.
+
+### 3.3 Knulli (M20, expérimental)
+
+Knulli est un firmware Linux basé sur Batocera (EmulationStation et RetroArch). Les données de l'utilisateur sont sous `/userdata` (partition SHARE).
+
+| Élément | Chemin | Source |
+|---|---|---|
+| Racine | `/userdata` (`SDCARD_PATH` la remplace, comme `--sd`) ; `ROMS_PATH`, `SAVES_PATH`, `CHEATS_PATH`, `USERDATA_PATH` (`/userdata/system`), `LOGS_PATH` sont lus aussi | `batoceraPaths.py:14-30` |
+| Système | `roms/<dossier>/`, dossier = clé (ou `path`) d'une entrée de `es_systems.yml`, nom exact ; libellé = `name`. Les entrées `hardware: tool`, `emulator`, `system`, `library` (dont `tools`) ne sont pas des systèmes de jeux. Tag (dossier des saves) = le dossier | `es_systems.yml` (copié dans `internal/osadapter/knulli/systems.json` par `scripts/gen-knulli-systems.py`) |
+| Système affiché | tout système connu dont le dossier a une entrée visible ; `es_systems.cfg` est généré par carte selon les cœurs construits, que la carte ne dit pas | Hypothèse |
+| Jeu | fichier dont l'extension (casse ignorée) est dans `extensions` du système ; dossiers `images`, `videos`, `manuals`, `media`, `bezels`, `thumbnails`, `downloaded_images`, `downloaded_videos` ignorés ; `.m3u` et dossiers multi-disques comme NextUI ; fichiers cachés ignorés | `es_systems.yml`, `SystemData.cpp:260-279` |
+| Save | `saves/<système>/<rom>.srm` (`<rom>` = nom sans la dernière extension) ; horloge `saves/<système>/<rom>.rtc` | `libretroConfig.py:240-243` (`savefile_directory`, `sort_savefiles_enable false`) |
+| States | `saves/<système>/<rom>.state` (emplacement 0), `<rom>.state<N>` (1 à 99), vignette `<fichier du state>.png` ; `<rom>.state.auto` est la reprise automatique de RetroArch, pas un emplacement (pas de « state de reprise » au sens de §5.3) | `libretroConfig.py:241-242`, `libretroRetroarchCustom.py:70` |
+| Cheats | non gérés : RetroArch lit `/userdata/cheats/saves/<cœur>/<jeu>.cht` et le cœur se choisit par système ou par jeu dans les réglages ; les routes des cheats répondent `422 unsupported_format` | `libretroRetroarchCustom.py:96-97` |
+| Jaquette | `roms/<système>/images/<rom>-image.png` (dossier `images` de la racine du système, même pour un jeu dans un sous-dossier) | `batocera-emulationstation` `FileData.cpp:170` (`findLocalArt`) |
+| Paks | aucun : `GET /paks` est vide, une installation est refusée | — |
+| Données ReminisLink | `/userdata/system/ReminisLink/` ; journal `/userdata/system/logs/ReminisLink.txt` | `batoceraPaths.py:19, 30` |
+| Lanceur | `/userdata/roms/tools/ReminisLink.sh` et le dossier caché `/userdata/roms/tools/.ReminisLink/` (binaire, `lib/libSDL2_gfx-1.0.so.0`) ; Knulli lance les `.sh` du système Outils avec `/bin/bash` ; le script passe `--os knulli` (et `launch.sh` passe `--os nextui` : l'environnement ne choisit jamais l'OS à travers un lanceur ; un `--os` donné au script vient après et l'emporte). Archive : `ReminisLink.knulli.zip` (`make knulli-release`), à décompresser dans `/userdata/roms/tools/` | `es_systems.yml:2538-2550`, `generators/sh/shGenerator.py`, `SystemData.cpp:278`, `FileSystemUtil.cpp:1096` (dossier caché) |
+| Console | `/boot/boot/knulli.board` → modèle (`trimui-brick` → `brick`, `trimui-brick-pro` → `brickpro`, `trimui-smart-pro` → `smartpro`, cartes Anbernic H700 → `h700`, autres → `desktop` faute de modèle dans le contrat) ; `platform` = le contenu de `knulli.board` ; `osVersion` = `/usr/share/knulli/knulli.version` ; batterie : première alimentation dont le nom contient `BAT` ou `bat` (`capacity`, `status`) ; Wi-Fi `wlan0`, SSID non lu | `board/*/fsoverlay/etc/init.d/rcS`, `knulli-version`, `knulli-battery-check` |
+| glibc | 2.40 (buildroot 2024.11 de Knulli) | `knulli-cfw/buildroot` `c2d7985b` `package/glibc/glibc.mk:10` |
+
+Sources : `knulli-cfw/knulli-linux` au commit `57afa662` (`package/system/knulli-configgen/configgen/configgen/…`, `package/emulationstation/knulli-es-system/es_systems.yml`), `knulli-cfw/batocera-emulationstation` au commit `f7c5ae10`. Carte factice : `testdata/knulli/` (avec son README).
+
+**Hypothèses** :
+
+- K1. Casse : `/userdata` peut être en ext4 (sensible à la casse) ou en exFAT. L'adaptateur Knulli compare les noms comme le système de fichiers de chaque dossier (`nextui.Layout.CaseFromFS`) : sans la casse en préférant l'orthographe exacte là où le système l'ignore (exFAT, comme NextUI), exactement là où il la respecte (ext4). Sur ext4, `Game.gba` et `game.gba` sont donc deux jeux : chacun n'a que ses fichiers (save, `.rtc`, states, vignettes, state automatique), la suppression de l'un ne prend rien à l'autre, et une restauration écrit `Game.srm` et `Game.rtc` sous le nom que RetroArch lit ; un fichier d'une autre casse (celui d'un autre jeu, ou qu'aucun jeu ne lit) est laissé tel quel. La zone de données de ReminisLink suit la même règle (`store.FindFold` ne prend une autre casse que si le système de fichiers la trouve sous le nom demandé). Un dossier de système doit être écrit exactement (`gba`, pas `GBA`). Les deux cas sont testés (tests Go sur APFS insensible à la casse ; sur ext4 dans la CI Go et dans `make emulation`).
+- K2. SDL2, SDL2_image et SDL2_ttf sont présents dans Knulli (EmulationStation) : non vérifié. Le binaire et le lanceur ont tourné en mode headless dans un Debian 12 avec les SDL de Debian ; l'interface gabagool (sans NextUI ni `PLATFORM`) n'a été vue sur aucune console.
+- K3. Les states incrémentaux (option de Knulli) au-delà de l'emplacement 99 ne sont pas listés.
+- K4. Les `.state` sont ceux de RetroArch ; un émulateur autonome (hors libretro) range ses saves ailleurs et n'est pas vu.
+- K5. Deux ROMs de même nom dans deux dossiers d'un système ont la même jaquette (`images/<rom>-image.png`, comme EmulationStation) : supprimer l'une la garde pour l'autre (`SharedFiles`).
+
+**Liens symboliques (règle 2, toutes les dispositions).** Seule la racine de la carte peut être un lien (h700 : `/mnt/SDCARD` → `/mnt/sdcard`) ; les racines fonctionnelles qui sont dessous (`Saves`, `Roms`, le dossier de données de ReminisLink…) ne sont jamais suivies si elles sont des liens (fichiers ouverts sous la carte, `confine.Base`), le dossier de données atteint par un lien est refusé au démarrage, et aucune écriture dans la zone de données (verrous de states, historique de reprise, copies de save) ne passe par un lien (revue Codex 2). En dessous, aucun lien n'est suivi pour lire ou écrire une save, un state ou sa vignette : un dossier de states atteint par un lien n'a pas de state, une save n'est ni copiée, ni lue, ni écrite à travers un lien (`confine.CheckDir`, `confine.OpenUnder`), y compris sur ext4 où un lien peut pointer ailleurs sur le volume. Le dossier du pak sur Knulli (`roms/tools/.ReminisLink`, racine `Pak`) est caché du navigateur de la carte comme le dossier de données.
 
 ## 4. Données de ReminisLink sur la carte SD
 

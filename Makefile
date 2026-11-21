@@ -14,9 +14,11 @@
 #   make headless        run the pak (server + Bonjour, no UI) on a temporary copy of testdata/sdcard
 #   make desktop         run the pak with its UI in a window on a temporary copy of testdata/sdcard (SDL2 needed)
 #   make screenshots     regenerate docs/screenshots/ with the desktop UI under Xvfb (Docker)
-#   make build           cross-compile the binary for tg5040 (ARM64)
+#   make build           cross-compile the ARM64 binary (one binary for every NextUI platform)
 #   make pak             assemble the pak folder in build/pak
-#   make release         build the release zip in dist/
+#   make release         build the release zip in dist/ (Pak Store format, every platform of pak.json)
+#   make knulli-release  build the Knulli zip in dist/ (experimental, M20)
+#   make emulation       run the pak in the userland of each platform in Docker (M20; LAYOUTS="h700 knulli")
 #   make android-test    run the Android unit tests (:core with the shared vectors, :app) (JDK 17+, Android SDK)
 #   make android-build   build the Android debug APK (android/app/build/outputs/apk/debug)
 #   make docker-<target> run <target> inside the build image
@@ -27,7 +29,10 @@
 
 APP           := reminislink
 PAK_NAME      := ReminisLink
-PLATFORM      := tg5040
+# The NextUI platforms are all ARM64 and take the same binary, which reads
+# PLATFORM at run time (milestone M20): the Pak Store installs the same zip
+# into Tools/<platform>/ for every platform listed in pak.json. tg5050,
+# h700 and my355 are experimental (docs/specs/05-console-pak.md §3.2).
 
 PAK_VERSION   := $(shell sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
 RELEASE_FILE  := $(shell sed -n 's/.*"release_filename": *"\([^"]*\)".*/\1/p' pak.json | head -n 1)
@@ -46,11 +51,19 @@ BIN           := $(BUILD_DIR)/$(APP)
 HOST_BIN      := $(BUILD_DIR)/reminislink-host
 DESKTOP_BIN   := $(BUILD_DIR)/reminislink-desktop
 RELEASE_ZIP   := $(DIST_DIR)/$(RELEASE_FILE)
+# Knulli (experimental): unzipped into /userdata/roms/tools/.
+KNULLI_DIR    := $(BUILD_DIR)/knulli
+KNULLI_ZIP    := $(DIST_DIR)/ReminisLink.knulli.zip
 
 # Cross-compilation settings (Debian 11 multiarch toolchain)
 CROSS_ENV     := CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc \
                  PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 SDL_GFX_LIB   := /usr/lib/aarch64-linux-gnu/libSDL2_gfx-1.0.so.0
+# Bundled for h700 only, as the Pak Store does (pak/launch.sh).
+SDL_TTF_LIB   := /usr/lib/aarch64-linux-gnu/libSDL2_ttf-2.0.so.0
+# Bundled for my355 only: SDL2_gfx built by Debian 10 (glibc 2.17), see
+# scripts/setup-toolchain.sh.
+SDL_GFX_OLD_LIB := /usr/lib/aarch64-linux-gnu/glibc-2.28/libSDL2_gfx-1.0.so.0
 # "sdl" builds the gabagool UI (internal/ui); without it the binary is
 # headless only.
 GO_TAGS       := nodefaultfont sdl
@@ -78,7 +91,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release check-version release-checks clean docker-image android-test android-build FORCE
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release knulli-pak knulli-release emulation check-version release-checks clean docker-image android-test android-build FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -146,14 +159,40 @@ pak: build ## Assemble the pak folder in build/pak
 	cp README.md LICENSE $(PAK_DIR)/
 	cp pak/THIRD_PARTY.md $(PAK_DIR)/resources/
 	cp -L $(SDL_GFX_LIB) $(PAK_DIR)/resources/lib/
+	mkdir -p $(PAK_DIR)/resources/lib/h700 $(PAK_DIR)/resources/lib/my355
+	cp -L $(SDL_TTF_LIB) $(PAK_DIR)/resources/lib/h700/
+	cp -L $(SDL_GFX_OLD_LIB) $(PAK_DIR)/resources/lib/my355/
 	chmod +x $(PAK_DIR)/launch.sh $(PAK_DIR)/$(APP)
 
 release: check-version pak ## Build the release zip (Pak Store format) in dist/
-	rm -rf $(DIST_DIR)
+	# Only this zip is replaced: the Knulli zip (knulli-release) stays.
 	mkdir -p $(DIST_DIR)
-	# The zip contains a "ReminisLink.pak/" folder so it extracts with the correct name
-	cd $(BUILD_DIR) && rm -rf "$(PAK_NAME).pak" && mv pak "$(PAK_NAME).pak" && zip -qr "$(CURDIR)/$(RELEASE_ZIP)" "$(PAK_NAME).pak"
+	rm -f $(RELEASE_ZIP)
+	# The pak's contents sit at the root of the zip: the Pak Store creates
+	# Tools/<PLATFORM>/ReminisLink.pak/ itself and extracts the zip into it
+	# (a top "ReminisLink.pak/" folder would nest it and the pak would not start).
+	# By hand, Finder and Windows extract it into a "ReminisLink.pak" folder.
+	cd $(BUILD_DIR)/pak && zip -qr "$(CURDIR)/$(RELEASE_ZIP)" .
+	@zip -sf "$(RELEASE_ZIP)" | grep -qx '  launch.sh' || { echo "launch.sh is not at the root of $(RELEASE_ZIP)"; exit 1; }
 	@ls -l $(DIST_DIR)
+
+knulli-pak: build ## Assemble the Knulli launcher and its hidden folder in build/knulli (experimental)
+	rm -rf $(KNULLI_DIR)
+	mkdir -p $(KNULLI_DIR)/.$(PAK_NAME)/lib
+	cp pak/knulli/$(PAK_NAME).sh $(KNULLI_DIR)/
+	cp $(BIN) README.md LICENSE $(KNULLI_DIR)/.$(PAK_NAME)/
+	cp pak/THIRD_PARTY.md $(KNULLI_DIR)/.$(PAK_NAME)/
+	cp -L $(SDL_GFX_LIB) $(KNULLI_DIR)/.$(PAK_NAME)/lib/
+	chmod +x $(KNULLI_DIR)/$(PAK_NAME).sh $(KNULLI_DIR)/.$(PAK_NAME)/$(APP)
+
+knulli-release: check-version knulli-pak ## Build the Knulli zip in dist/ (unzip into /userdata/roms/tools/; experimental)
+	mkdir -p $(DIST_DIR)
+	rm -f $(KNULLI_ZIP)
+	cd $(KNULLI_DIR) && zip -qr "$(CURDIR)/$(KNULLI_ZIP)" $(PAK_NAME).sh .$(PAK_NAME)
+	@ls -l $(KNULLI_ZIP)
+
+emulation: ## Run the pak headless in the userland of each platform and Knulli (Docker, linux/arm64; LAYOUTS to choose, REQUIRE_ZIPS=1 to fail without both zips)
+	REQUIRE_ZIPS="$(REQUIRE_ZIPS)" scripts/emulation/run.sh $(LAYOUTS)
 
 check-version: ## Check TAG (when set, e.g. by the CI) against pak.json: version and changelog entry ("Unreleased" for a pre-release)
 	@if [ -n "$(TAG)" ]; then \

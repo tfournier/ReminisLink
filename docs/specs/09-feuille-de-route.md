@@ -216,7 +216,7 @@ But : une seule app, un seul binaire, sur iPhone, iPad et Mac à puce Apple (mê
 
 ## Plan après la v1.0.0 (décidé le 21/11/2026)
 
-Ordre : M17, M15, M18, M19, M20, M21. Puis v1.5 (interface web), puis v2.0.
+Ordre : M17, M15, M18, M19, M20, M21. M22 (captures d'écran) proposé le 21/11/2026, après M18 à M20. Puis v1.5 (interface web), puis v2.0.
 
 ## M18 — Restaurer depuis la corbeille
 
@@ -241,6 +241,8 @@ Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{e
 
 **Fait quand** : le pak se construit et passe les tests et le smoke pour chaque plateforme et pour Knulli en émulation, et au moins un volontaire a validé chaque console.
 
+**Avancement (21/11/2026, branche `m20-platforms`, à relire)** : plateformes `tg5050`, `h700` et `my355` dans l'adaptateur NextUI (modèle d'après `DEVICE`, batterie de chaque plateforme) et adaptateur Knulli (05 §3.2 et §3.3, sources et hypothèses écrites) ; choix de l'adaptateur par `--os` ou `REMINISLINK_OS` ; lanceur Knulli et `ReminisLink.knulli.zip` ; `libSDL2_ttf` embarquée pour h700 comme le Pak Store. Fait sans console : tests Go, `TestSmokeLayouts` sur les cinq dispositions, `make emulation` vert sur les cinq (rootfs d'origine de la Brick, images de même glibc pour les autres ; le binaire de la version demande glibc 2.17), lanceur Knulli et binaire de la version lancés en headless dans Debian 12 ; job CI `emulation`. Revue Codex 1 traitée : liens symboliques sous la racine refusés pour les saves et les states, noms comparés selon la casse du système de fichiers sur Knulli (deux jeux qui ne diffèrent que par la casse restent séparés, restauration sous le nom exact), lanceurs qui passent `--os`, zips vérifiés et binaire livré lancé par chaque lanceur dans `make emulation` (qui a trouvé que la `libSDL2_gfx` de Debian 11 demande glibc 2.29 : celle de Debian 10 est embarquée pour my355), dossier du pak Knulli caché du navigateur, jaquette partagée gardée. Le dossier racine du zip NextUI est corrigé sur `main` (v1.0.2). Revue Codex 2 traitée : verrous d'une autre casse gardés à la suppression, aucune racine fonctionnelle ni écriture de la zone de données à travers un lien, envoi d'un jeu à côté d'un nom d'une autre casse sur ext4, vignette servie depuis le descripteur vérifié, lanceur tg5040 testé, zip testé avec l'extraction du Pak Store. Écarts et décisions à prendre : (1) un binaire et un zip pour toutes les plateformes, comme le Pak Store, au lieu d'un par plateforme ; (2) `platforms` de `pak.json` reste `tg5040` (revue Codex 2 : le Pak Store lit `pak.json` sur `main` et proposerait le zip v1.0.2, sans les bibliothèques h700 et my355, sur ces consoles) ; les trois plateformes y entrent dans le commit de la première version stable qui contient M20 (v1.1.0), et le Pak Store n'a pas de marque « expérimental » côté `pak.json` ; (3) publier ou non `ReminisLink.knulli.zip` dans les releases (pour l'instant artefact de la CI). Reste : l'appel aux testeurs ([appel-testeurs.md](../appel-testeurs.md)) et la validation par au moins un volontaire par console.
+
 ## M21 — App Android
 
 - App Android native (Kotlin, Jetpack Compose) qui parle la même API (`protocol/openapi.yaml`, vecteurs de test partagés) : découverte NSD (mDNS), appairage par QR (CameraX), TLS épinglé, signature RL2-ED25519 (clé dans Android Keystore), bibliothèque, transferts, saves, states, cheats, patchs, apps, corbeille, mode démo. Les dépendances tierces seront proposées à la personne avant d'être ajoutées, et **aucune dépendance Google propriétaire** (ni Google Play Services, ni ML Kit ; QR code avec une bibliothèque libre comme ZXing) : l'app doit pouvoir être publiée sur F-Droid comme sur Google Play.
@@ -249,6 +251,13 @@ Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{e
 **Fait quand** : l'app Android passe les vecteurs de test et les mêmes parcours que l'app iOS contre le pak headless et le mode démo.
 
 **Premier incrément (21/11/2026, branche `m21-android`)** : projet `android/` (modules `:core` en Kotlin/JVM pur et `:app` en Compose), dépendances approuvées le 21/11/2026, détails dans [10](10-app-android.md). Fait : tous les vecteurs partagés, TLS épinglé, signature, appairage v2 (QR avec CameraX et ZXing, lien collé, lien ouvert depuis une autre app), découverte NSD avec repli après 3 s, tableau de bord, bibliothèque en lecture seule, fiche d'un jeu ; clé Ed25519 dans l'Android Keystore (API 33+) ou graine Tink chiffrée par le Keystore ; tests unitaires (CI), tests instrumentés sur émulateur API 35 et test de bout en bout contre le pak headless (`android/scripts/pak-e2e.sh`). Incréments suivants proposés : (2) transferts (envois reprenables, téléchargements, ouverture depuis le partage Android) ; (3) sauvegardes et états ; (4) codes de triche et patchs ; (5) apps (paks), carte SD et corbeille ; (6) événements SSE et désappairage ; (7) mode démo ; (8) publication F-Droid et APK des releases. L'équivalent de la synchronisation iCloud (M9) reste à décider (dossier choisi par l'utilisateur via le Storage Access Framework, sans service Google).
+
+## M22 — Captures d'écran de la console (proposé par la personne le 21/11/2026)
+
+- Lister, télécharger et supprimer depuis l'app les captures d'écran prises sur la console (dossier propre à chaque OS, donné par l'adaptateur : NextUI, puis les plateformes de M20 et Knulli ; emplacement exact à relever dans le code source de chaque firmware). Contrat d'abord : routes de liste (date, taille, jeu associé si le nom de fichier le permet, vignette), de téléchargement et de suppression par identifiant opaque ; la suppression passe par la corbeille (règle 1).
+- App : un écran « Captures d'écran » (grille de vignettes, partage et enregistrement dans Photos ou Fichiers, sélection multiple pour télécharger ou supprimer), mode démo compris ; plus tard sur Android.
+
+**Fait quand** : les captures prises sur la console s'affichent dans l'app, se téléchargent et se suppriment (vers la corbeille), tests et smoke compris. Ordre : après M18 à M20, qui touchent les mêmes couches (contrat, serveur, app).
 
 ## v1.5 — Interface web
 
@@ -260,7 +269,7 @@ Les fonctions de l'app sur l'écran de la console ; le pak en arrière-plan pend
 
 ## Après la v1 (idées, non engagées)
 
-- Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli.
+- Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli (devenu M20).
 - Android (iPad et Mac : M15).
 - TLS en option.
 - Gestionnaire de fichiers générique, lancement d'un jeu, Pak Store, mises à jour.
