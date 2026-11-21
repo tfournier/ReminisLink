@@ -151,8 +151,12 @@ pak: build ## Assemble the pak folder in build/pak
 release: check-version pak ## Build the release zip (Pak Store format) in dist/
 	rm -rf $(DIST_DIR)
 	mkdir -p $(DIST_DIR)
-	# The zip contains a "ReminisLink.pak/" folder so it extracts with the correct name
-	cd $(BUILD_DIR) && rm -rf "$(PAK_NAME).pak" && mv pak "$(PAK_NAME).pak" && zip -qr "$(CURDIR)/$(RELEASE_ZIP)" "$(PAK_NAME).pak"
+	# The pak's contents sit at the root of the zip: the Pak Store creates
+	# Tools/<PLATFORM>/ReminisLink.pak/ itself and extracts the zip into it
+	# (a top "ReminisLink.pak/" folder would nest it and the pak would not start).
+	# By hand, Finder and Windows extract it into a "ReminisLink.pak" folder.
+	cd $(BUILD_DIR)/pak && zip -qr "$(CURDIR)/$(RELEASE_ZIP)" .
+	@zip -sf "$(RELEASE_ZIP)" | grep -qx '  launch.sh' || { echo "launch.sh is not at the root of $(RELEASE_ZIP)"; exit 1; }
 	@ls -l $(DIST_DIR)
 
 check-version: ## Check TAG (when set, e.g. by the CI) against pak.json: version and changelog entry ("Unreleased" for a pre-release)

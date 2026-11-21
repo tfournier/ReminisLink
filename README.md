@@ -54,7 +54,7 @@ Open **Pak Store** on your device and install **ReminisLink**.
 ### Manually
 
 1. Download `ReminisLink.pak.zip` from the [latest release](https://github.com/tfournier/ReminisLink/releases/latest).
-2. Unzip the archive into `/Tools/tg5040/` on your SD card. You should get `/Tools/tg5040/ReminisLink.pak/launch.sh`.
+2. Unzip it on your computer: Finder or Windows creates a `ReminisLink.pak` folder (if your tool extracts the files loose, create a `ReminisLink.pak` folder and put them in it). Copy that folder into `/Tools/tg5040/` on your SD card. You should get `/Tools/tg5040/ReminisLink.pak/launch.sh`.
 3. Open **Tools > ReminisLink** on your device.
 
 ## Usage
