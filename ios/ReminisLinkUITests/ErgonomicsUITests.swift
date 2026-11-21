@@ -111,6 +111,9 @@ final class ErgonomicsUITests: XCTestCase {
         // again 5 seconds later.
         let app = launchPaired(["RL_UITEST_PAK_CLOSES_ON": "GET /games"])
         XCTAssertTrue(app.consoleTabs.waitForExistence(timeout: 15))
+        // The tabs have slid in (a tap during the transition is lost).
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
+            .waitForExistence(timeout: 15), "the console is not shown")
         app.consoleTabs["Library"].tap()
         let notice = app.descendants(matching: .any)["consoles.closedNotice"].firstMatch
         XCTAssertTrue(notice.waitForExistence(timeout: 15), "not back to the list")
@@ -171,8 +174,9 @@ final class ErgonomicsUITests: XCTestCase {
         download(app, "Tiny Trial.gba")
         attachScreenshot(of: app, named: "library-headless-rom")
 
-        // The cheats file of another game.
-        app.goBack()
+        // The cheats file of another game (the list is beside the game in
+        // two columns).
+        app.showLibraryList()
         let field = app.searchFields.firstMatch
         field.tapAfterWaiting(timeout: 10)
         let clear = field.buttons["Clear text"].firstMatch

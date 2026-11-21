@@ -155,7 +155,10 @@ struct GameDetailView: View {
         .navigationTitle(route.name)
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear {
-            cancelDownload()
+            // Leaving the screen cancels the download; a change of layout
+            // (M15: the Library columns collapsing or expanding) only moves
+            // it, and the game stays the last screen of the path.
+            if app.path.last != .game(route) { cancelDownload() }
             if patchNotice != nil { app.patchNotice = nil }
         }
         // Said for a few seconds, then gone.

@@ -153,8 +153,20 @@ extension FakePak {
         }
         var response = fileResponse(name: name, content: content)
         response.headers["Content-Length"] = String(content.count)
+        #if DEBUG
+        response.delay = fileDownloadDelay
+        #endif
         return response
     }
+
+    #if DEBUG
+    /// Every file download is answered this many seconds late: a download
+    /// still in progress, for the UI tests (M15).
+    public var fileDownloadDelay: TimeInterval {
+        get { lock.withLock { _fileDownloadDelay } }
+        set { lock.withLock { _fileDownloadDelay = newValue } }
+    }
+    #endif
 
     /// `size` bytes, the whole file as listed (the contract sends files
     /// whole): the tag, then zeros. Demo games are small; it is held in

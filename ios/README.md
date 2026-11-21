@@ -381,15 +381,29 @@ layouts follow the size class and the width of the window.
   1024 px image.
 - **Tabs**: `TabView` with `.sidebarAdaptable`: the tab bar on iPhone; on
   iPad and Mac a bar at the top that turns into a sidebar.
-- **Library in a wide window** (`LibraryTab`, regular width): the list of
-  games in a column and the game beside it (`NavigationSplitView`). The
-  first route of `AppModel.tabPaths[.library]` is the row selected in the
-  list (a game, or the systems of *Browse by Console*), the rest is pushed in
-  the detail column (`LibraryColumns`). In a compact width (iPhone, Slide
-  Over, a narrow window) the tab is the same `NavigationStack` as before.
-  Both read and write the same path, so a window that changes width keeps
-  the screen shown; transfers and sheets live in `AppModel` and its
-  sessions, not in views, and survive it too.
+- **Library tab** (`LibraryTab`): one `NavigationSplitView` at every width.
+  In a regular width the list of games is a column and the selected screen
+  is beside it; in a compact width (iPhone, Slide Over, a narrow window) it
+  collapses into one stack: the list, then the selection and what is pushed
+  above it, as before M15 (`preferredCompactColumn`: the list while nothing
+  is selected; back to the list clears the selection). The first route of
+  `AppModel.tabPaths[.library]` is the row selected in the list (a game, or
+  the systems of *Browse by Console*), the rest is pushed in the detail
+  column (`LibraryColumns`). Being one view tree, a change of width keeps:
+  the screens shown (the path), the state of those screens (an open sheet
+  such as the edit sheet of a cheat with its unsaved text, the Patch sheet
+  of a game), and a download of the game screen in progress (it is cancelled
+  only when the game is no longer the last screen of the path: back, another
+  tab, another screen pushed, the console closed). Uploads and console tasks
+  live in the session and are never touched. Covered by
+  `UniversalUITests` (wide → narrow → wide, through the Debug link
+  `reminislink://uitest-width?class=compact|regular|system`, which changes
+  the width class seen by the console screens: XCUITest cannot resize a
+  window; a real resize was not tried). The other tabs are one
+  `NavigationStack` each at every width.
+- **Smallest regular width** (iPad mini portrait, 744 pt): the list column
+  is 340 pt and the detail about 400 pt; the sidebar of the tabs opens over
+  the content instead of narrowing it.
 - **Readable width** (`ReadableWidth`, `.readableWidth()`): every screen of a
   route and the first screen of each tab keep their content at 700 pt at
   most, centred, with the background and scrolling edge to edge (extra
@@ -404,17 +418,23 @@ layouts follow the size class and the width of the window.
 - **iPhone Duo** (outer screen closed, inner screen open, half-open): the
   same rules (size classes and width, no model check, no full-screen key).
   The outer screen is compact (one stack), the open inner screen is wide
-  (columns, readable width); the navigation and the transfers are in
-  `AppModel`, so the lit screen can change without losing them. No iPhone
+  (columns, readable width); the change is the width change above, so the
+  same things are kept, if the app keeps its window when the lit screen
+  changes (not verified: a new window would start from the navigation of
+  `AppModel`, without the open sheets and drafts). No iPhone
   Duo simulator could run here (its device type needs a newer simulator
   runtime than iOS 26.4): check the three postures by hand or with that
   runtime (`xcrun simctl list devices available`).
 
-UI tests run on iPhone and iPad simulators: `app.consoleTabs[...]` finds a
-tab in the bottom tab bar (iPhone) or in the bar at the top of an iPad
-window (buttons named after their symbol), and `app.goBack()` taps the back
-button of the screen shown (in a wide window the Library column has its own
-navigation bar).
+UI tests run on iPhone and iPad simulators and follow the presentation
+shown, not the device: `app.consoleTabs[...]` finds a tab in the bottom tab
+bar if there is one, else in the bar at the top or the sidebar (items named
+after their symbol); `app.showsLibraryColumns` reads the identifier of the
+Library tab (`library.columns` or `library.stack`); `app.goBack()` taps
+the Back button and never another one (`BackButton` in a detail column;
+in one stack the system button has no identifier and sits at the leading
+edge of the bar, while every button the app adds has one), and
+`app.showLibraryList()` goes back only when the list is not beside the game.
 
 ### To check by hand on a Mac (Apple silicon)
 
@@ -453,16 +473,19 @@ it in place of the "Designed for iPad" version.
 banner, `-RLScreenshots YES`) when `TEST_RUNNER_RL_SCREENSHOTS` is `en` or
 `fr`; otherwise it is skipped. `AppStore/make-screenshots.sh` runs it in
 both languages (it sets the language of the simulator for the status bar
-date, 9:41 and a full battery, then puts the language back) and copies the
-attachments `1-library` to `6-consoles` to
-`docs/screenshots/appstore/<locale>-<suffix>/`. iPad 13" (2064 × 2752, iPad
-Pro 13-inch M5 simulator):
+date, 9:41 and a full battery), checks both series (the six names
+`1-library` to `6-consoles` exactly once, the given size, no alpha), and
+only then replaces `docs/screenshots/appstore/<locale>-<suffix>/`. The
+simulator is left as found (language, region, status bar, booted or not).
+iPad 13" (2064 × 2752, iPad Pro 13-inch M5 simulator):
 
 ```sh
-ios/AppStore/make-screenshots.sh <iPad Pro 13-inch simulator id> ipad-13
+ios/AppStore/make-screenshots.sh <iPad Pro 13-inch simulator id> ipad-13 2064 2752
 ```
 
-On an iPad the library screenshots show the list and the game side by side.
+In the demo the texts that name NextUI say "the console" instead (state
+history, game image), so no real product name appears. On an iPad the
+library screenshots show the list and the game side by side.
 The iPhone sets of M16 were taken by hand; this test should give the same
 screens on an iPhone 16 Pro Max (1320 × 2868), not tried yet.
 

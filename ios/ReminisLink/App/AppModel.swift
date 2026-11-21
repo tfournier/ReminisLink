@@ -757,6 +757,10 @@ extension AppModel {
             // UI tests: the first save of a cheat list meets a change made
             // on the console (412).
             pak.conflictOnNextCheatsSave = environment["RL_UITEST_CHEATS_CONFLICT"] == "1"
+            // UI tests (M15): file downloads answered this many seconds late.
+            if let delay = environment["RL_UITEST_DOWNLOAD_DELAY"].flatMap(TimeInterval.init) {
+                pak.fileDownloadDelay = delay
+            }
             // UI tests (M13): the next writes find the console busy.
             if let n = environment["RL_UITEST_BUSY_WRITES"].flatMap(Int.init) {
                 pak.busyNextWrites(n, retryAfter: 1)

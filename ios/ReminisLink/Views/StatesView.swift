@@ -169,7 +169,12 @@ struct StatesView: View {
                 Text("Resume History")
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("NextUI writes the automatic resume state when the console goes to sleep or turns off during a game.")
+                    // The demo (App Store screenshots) names no real product.
+                    if app.isDemo {
+                        Text("The console writes the automatic resume state when it goes to sleep or turns off during a game.")
+                    } else {
+                        Text("NextUI writes the automatic resume state when the console goes to sleep or turns off during a game.")
+                    }
                     Text("Each time ReminisLink opens on the console, it archives the resume state if it changed. The last 5 versions are kept.")
                 }
             }

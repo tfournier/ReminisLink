@@ -130,6 +130,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     var _romChangesDuringNextPatch = false
     /// The next `PUT /cheats` finds the file changed on the console (412).
     var _conflictOnNextCheatsSave = false
+    var _fileDownloadDelay: TimeInterval = 0
     /// `GET /saves` calls so far, and the call that finds a save changed
     /// on the console (milestone M9, UI tests).
     var _saveListings = 0

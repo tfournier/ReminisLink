@@ -23,6 +23,10 @@ struct RootView: View {
     @Environment(AppModel.self) private var app
     @Environment(AppRoot.self) private var root
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var systemSizeClass
+    /// UI tests (Debug only): a window width forced by a link, to change
+    /// the size class without resizing the window (M15).
+    @State private var testSizeClass: UserInterfaceSizeClass?
 
     var body: some View {
         @Bindable var app = app
@@ -46,6 +50,9 @@ struct RootView: View {
                 }
             }
             .animation(.default, value: app.openConsoleId)
+            // Always applied (the same value outside UI tests), so the
+            // tree keeps its identity.
+            .environment(\.horizontalSizeClass, testSizeClass ?? systemSizeClass)
         }
         .alert(
             "The demo could not open",
@@ -84,6 +91,12 @@ struct RootView: View {
             Text("Its pairing will be replaced on all your Apple devices. The console must present the same identity as its QR code.")
         }
         .onOpenURL { url in
+            #if DEBUG
+            if let width = UITestWidth(url: url) {
+                testSizeClass = width.sizeClass
+                return
+            }
+            #endif
             // A link opened during the demo is for the real app (M16).
             if app.isDemo { root.handle(url: url) } else { app.handle(url: url) }
         }
@@ -154,8 +167,9 @@ struct ConsoleTabsView: View {
                     .accessibilityIdentifier("tab.console")
             }
             Tab("Library", systemImage: "square.grid.2x2", value: ConsoleTab.library) {
-                LibraryTab(deviceId: deviceId) { tab(.library) { LibraryView(deviceId: deviceId) } }
-                    .accessibilityIdentifier("tab.library")
+                // Identified by its presentation (library.columns or
+                // library.stack).
+                LibraryTab(deviceId: deviceId)
             }
             Tab("Transfers", systemImage: "arrow.up.arrow.down", value: ConsoleTab.transfers) {
                 tab(.transfers) { TransfersView(deviceId: deviceId) }
@@ -200,32 +214,26 @@ struct ConsoleTabsView: View {
     }
 }
 
-/// The Library tab (M15). In a narrow window (iPhone, Slide Over, the outer
-/// screen of an iPhone Duo): one navigation stack, as before. In a wide one:
-/// the list of games in a column and the selected screen beside it. The
-/// first route of the tab's path is the selection (a game, or the systems of
-/// Browse by Console) and the rest is pushed in the detail column. Both
-/// layouts read and write the same path, so a change of width keeps the
-/// screen shown.
-struct LibraryTab<Stack: View>: View {
+/// The Library tab (M15): one `NavigationSplitView`, whatever the width. In
+/// a wide window the list of games is a column and the selected screen is
+/// beside it; in a narrow one (iPhone, Slide Over, the outer screen of an
+/// iPhone Duo) the split view collapses into one stack: the list, then the
+/// selection and the screens pushed above it, as before M15. The first route
+/// of the tab's path is the selection (a game, or the systems of Browse by
+/// Console) and the rest is pushed in the detail column. Being one view
+/// tree, a change of width keeps the screens shown and their state (an open
+/// sheet, a draft, a download in progress).
+struct LibraryTab: View {
     @Environment(AppModel.self) private var app
     @Environment(\.horizontalSizeClass) private var sizeClass
     let deviceId: String
-    @ViewBuilder let stack: () -> Stack
 
     private var path: [Route] { app.tabPaths[.library] ?? [] }
 
     var body: some View {
-        if sizeClass == .regular {
-            split
-        } else {
-            stack()
-        }
-    }
-
-    private var split: some View {
-        NavigationSplitView {
+        NavigationSplitView(preferredCompactColumn: compactColumn) {
             LibraryView(deviceId: deviceId)
+                .readableWidth()
                 .consolesButton()
                 .environment(\.librarySelection, selection)
                 .navigationSplitViewColumnWidth(min: 340, ideal: 420, max: 480)
@@ -246,6 +254,24 @@ struct LibraryTab<Stack: View>: View {
                 .navigationDestination(for: Route.self) { RouteDestination(route: $0) }
             }
         }
+        // Which presentation is shown, for the UI tests.
+        .accessibilityIdentifier(sizeClass == .regular ? "library.columns" : "library.stack")
+    }
+
+    /// Collapsed (narrow window): the list while nothing is selected, else
+    /// the selection and what is pushed above it. Back to the list clears
+    /// the selection.
+    private var compactColumn: Binding<NavigationSplitViewColumn> {
+        Binding(
+            get: { path.isEmpty ? .sidebar : .detail },
+            set: { column in
+                // Written by SwiftUI in a wide window too, and in a narrow
+                // one when a screen above the selection is popped (before
+                // the detail stack itself): only "back" from the selection
+                // itself means "back to the list".
+                if sizeClass == .compact, column == .sidebar, path.count == 1 { app.tabPaths[.library] = [] }
+            }
+        )
     }
 
     /// The first route of the path: what the list shows as selected.
@@ -311,3 +337,25 @@ private struct ConsolesButton: ViewModifier {
         }
     }
 }
+
+#if DEBUG
+/// UI tests (M15): `reminislink://uitest-width?class=compact|regular|system`
+/// changes the width class of the console screens as a narrower or wider
+/// window would, without resizing the window (XCUITest cannot).
+struct UITestWidth {
+    let sizeClass: UserInterfaceSizeClass?
+
+    init?(url: URL) {
+        guard url.scheme?.lowercased() == "reminislink", url.host()?.lowercased() == "uitest-width",
+              let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                  .queryItems?.first(where: { $0.name == "class" })?.value
+        else { return nil }
+        switch value {
+        case "compact": sizeClass = .compact
+        case "regular": sizeClass = .regular
+        case "system": sizeClass = nil
+        default: return nil
+        }
+    }
+}
+#endif

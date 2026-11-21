@@ -30,7 +30,7 @@ final class AppStoreScreenshotsUITests: XCTestCase {
         app.consoleTabs["Library"].tapWhenEnabled(timeout: 15)
         let other = app.buttons.matching(identifier: "game.Mosslight Maze 🌙").firstMatch
         XCTAssertTrue(other.waitForExistence(timeout: 15))
-        if !ConsoleTabBar.isBottomBar { other.tap() }
+        if app.showsLibraryColumns { other.tap() }
         settle()
         shoot(app, "1-library")
 

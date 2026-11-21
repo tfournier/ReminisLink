@@ -68,7 +68,7 @@ final class SyncUITests: XCTestCase {
         app.launch()
         app.buttons["consoles.settings"].tapAfterWaiting(timeout: 15)
         // "this iPhone" on an iPhone, "this device" elsewhere (M15).
-        let device = ConsoleTabBar.isBottomBar ? "iPhone" : "device"
+        let device = UITestDevice.isPhone ? "iPhone" : "device"
         let local = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "copied to this \(device) only")).firstMatch
         XCTAssertTrue(local.waitForExistence(timeout: 10), "the settings do not say the saves stay on this \(device)")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'copied to your own iCloud Drive'")).firstMatch.exists)

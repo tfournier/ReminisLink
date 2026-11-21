@@ -4085,6 +4085,16 @@
         }
       }
     },
+    "Shown by the console in the game list. The picture is scaled down to at most 1024 pixels and sent as a PNG; the previous image goes to the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichée par la console dans la liste des jeux. L’image est réduite à 1024 pixels au plus et envoyée en PNG ; l’image précédente part dans la corbeille de la console."
+          }
+        }
+      }
+    },
     "Shows the actions for this copy" : {
       "localizations" : {
         "fr" : {
@@ -4779,6 +4789,16 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "The console writes the automatic resume state when it goes to sleep or turns off during a game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console écrit l’état de reprise automatique quand elle se met en veille ou s’éteint pendant une partie."
           }
         }
       }
