@@ -531,6 +531,9 @@ class TransferTest {
         val id2 = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "Moss Lantern.sav", "Moss Lantern", refusing)
         val failed = q.waitFor(id2) { it.phase == TransferPhase.FAILED || it.phase == TransferPhase.DONE }
         assertEquals(TransferPhase.FAILED, failed.phase)
+        // FAILED shows first; the partial document is deleted while the
+        // queue stays busy: wait for the end of that cleanup.
+        withTimeout(5_000) { q.isBusy.first { busy -> !busy } }
         assertTrue(refusing.discarded)
         assertTrue(!failed.canResume)
     }
