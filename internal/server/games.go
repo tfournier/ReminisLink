@@ -567,6 +567,8 @@ func (s *Server) cheatError(w http.ResponseWriter, r *http.Request, err error) {
 		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "Cheat file unreadable", nil)
 	case errors.Is(err, cheats.ErrNoCheat):
 		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "No cheat found", nil)
+	case errors.Is(err, osadapter.ErrUnsupportedFormat):
+		auth.WriteError(w, http.StatusUnprocessableEntity, CodeUnsupportedFormat, "Cheats are not supported on this OS", nil)
 	default:
 		s.internal(w, r, err)
 	}

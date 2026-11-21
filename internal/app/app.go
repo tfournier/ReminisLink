@@ -40,7 +40,10 @@ const MaintenanceTimeLimit = 20 * time.Second
 
 // Options configure the pak.
 type Options struct {
-	Roots   osadapter.Roots
+	Roots osadapter.Roots
+	// OS is the firmware: "nextui" (default when empty) or "knulli"
+	// (milestone M20, experimental).
+	OS      string
 	Env     nextui.Env // DEVICE, PLATFORM (nil: none)
 	Version string     // pak version
 	Mode    string     // headless, ui or desktop (logged)
@@ -92,7 +95,7 @@ type App struct {
 	logf *logFile
 
 	roots   osadapter.Roots
-	adapter *nextui.Adapter
+	adapter deviceAdapter
 	info    osadapter.DeviceInfo
 	layout  store.Layout
 	config  *store.ConfigFile
@@ -174,7 +177,9 @@ func Open(opts Options) (a *App, err error) {
 	}()
 	slog.SetDefault(logger)
 
-	a.adapter = nextui.New(opts.Roots, opts.Env)
+	if a.adapter, err = newAdapter(opts); err != nil {
+		return a, err
+	}
 	if a.info, err = a.adapter.DeviceInfo(); err != nil {
 		return a, err
 	}

@@ -649,7 +649,10 @@ func (s *Service) installLocked(g osadapter.Game, tmp, rtcTmp, reason string, la
 	// clock of another save. Both previous files are in the backup just
 	// made.
 	if rtcTmp != "" {
-		rtcDst := strings.TrimSuffix(dst, copyExt) + rtcExt
+		// The clock file is named like the save with its extension
+		// replaced (NextUI: Game.gba.sav and Game.gba.rtc; Knulli:
+		// Game.srm and Game.rtc).
+		rtcDst := strings.TrimSuffix(dst, filepath.Ext(dst)) + rtcExt
 		if files.RTC != nil {
 			rtcDst = files.RTC.Path
 		}

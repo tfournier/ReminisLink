@@ -19,6 +19,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/app"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
+	"github.com/tfournier/ReminisLink/internal/osadapter/knulli"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/server"
 )
@@ -33,6 +34,9 @@ type options struct {
 	sd       string // SD card root; empty: NextUI environment variables
 	port     int    // preferred port; 0: config.json
 	name     string // device name for this run; empty: config.json
+	// os is the firmware: nextui or knulli (default: $REMINISLINK_OS,
+	// set by the Knulli launcher, else nextui).
+	os string
 	// pairingOpen keeps pairing open in headless mode, even with paired
 	// devices (default: open while no device is paired).
 	pairingOpen bool
@@ -49,12 +53,17 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	fs.StringVar(&o.sd, "sd", "", "SD card root (default: the NextUI environment variables)")
 	fs.IntVar(&o.port, "port", 0, fmt.Sprintf("preferred port (default: config.json, then %d)", server.DefaultPort))
 	fs.StringVar(&o.name, "name", "", "device name for this run (default: config.json)")
+	fs.StringVar(&o.os, "os", defaultOS(), "firmware layout: nextui or knulli (default: $REMINISLINK_OS, else nextui)")
 	fs.BoolVar(&o.pairingOpen, "pairing-open", false, "headless: keep pairing open even when a device is already paired (default: open while no device is paired)")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
 	if fs.NArg() > 0 {
 		fmt.Fprintf(stderr, "unexpected argument %q\n", fs.Arg(0))
+		return o, errUsage
+	}
+	if o.os != nextui.OSName && o.os != knulli.OSName {
+		fmt.Fprintf(stderr, "invalid --os %q (nextui or knulli)\n", o.os)
 		return o, errUsage
 	}
 	if o.port < 0 || o.port > 65535 {
@@ -97,7 +106,21 @@ func main() {
 	}
 }
 
+// defaultOS is $REMINISLINK_OS, nextui when unset.
+func defaultOS() string {
+	if v := os.Getenv("REMINISLINK_OS"); v != "" {
+		return v
+	}
+	return nextui.OSName
+}
+
 func roots(opts options) osadapter.Roots {
+	if opts.os == knulli.OSName {
+		if opts.sd != "" {
+			return knulli.RootsForSD(opts.sd)
+		}
+		return knulli.RootsFromEnv(os.Getenv)
+	}
 	if opts.sd != "" {
 		return nextui.RootsForSD(opts.sd, os.Getenv("PLATFORM"))
 	}
@@ -107,7 +130,7 @@ func roots(opts options) osadapter.Roots {
 // appOptions are the options of the pak for a mode.
 func appOptions(opts options, mode string) app.Options {
 	return app.Options{
-		Roots: roots(opts), Env: os.Getenv, Version: version, Mode: mode,
+		Roots: roots(opts), OS: opts.os, Env: os.Getenv, Version: version, Mode: mode,
 		Port: opts.port, Name: opts.name,
 	}
 }
