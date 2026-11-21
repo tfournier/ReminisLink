@@ -178,6 +178,14 @@ But : publier le pak et l'app iOS depuis le même dépôt, chacun avec sa versio
 
 **Fait quand** : un tag `ios-v1.0.1-beta.1` arrive seul sur TestFlight, un tag `ios-v1.0.1` part seul à l'examen, un tag `v1.0.1` publie le pak en « Latest » et le Pak Store le voit, et une pré-version du pak n'apparaît pas dans le Pak Store.
 
+- Fait le 21/11/2026 (branche `m17-cicd`), en attente des essais réels :
+  - **Pak** : `make vX.Y.Z-beta.N` (ou `-rc.N`) pose et pousse le tag sans toucher `pak.json` (le Pak Store le lit dans le dépôt : il ne voit donc pas la pré-version), notes tirées de l'entrée `Unreleased` ; la CI publie un tag à suffixe en « Pre-release » (`--prerelease --latest=false`) et un tag simple en « Latest » (`--latest`). `scripts/pak-release-kind.sh` refuse tout autre tag, `ios-v*` compris ; le filtre de tags `v*` de la CI ne peut pas correspondre à `ios-v*` (vérifié par `scripts/test-release-scripts.sh`, `make release-checks`, lancé par la CI).
+  - **App** : `ios/ci_scripts/` pour Xcode Cloud : version `X.Y.Z` tirée de `CI_TAG`, numéro de build de `CI_BUILD_NUMBER`, écrits dans `Config/CI.xcconfig` (ignoré par Git, inclus par `Config.xcconfig`, projet inchangé) ; tag mal formé refusé ; le workflow Release refuse un tag à suffixe (une bêta ne peut pas partir à l'examen), le workflow Beta un tag simple. `make ios-vX.Y.Z[-beta.N]` pose le tag.
+  - **Soumission à l'examen** : impossible depuis le script `ci_post_xcodebuild` du workflow Release (Xcode Cloud n'envoie le build à App Store Connect qu'après ce script, puis Apple le traite). Ce script prépare la version (création, « Nouveautés » EN et FR, publication automatique après approbation) par l'API App Store Connect ; un workflow **Submit** (même tag, démarré à la main ou automatiquement) attend le build traité, le rattache et le soumet (`submit_for_review.sh`, client `AppStoreConnect.swift` sans dépendance). Sans clé API, les étapes manuelles sont affichées. Procédure dans `ios/README.md`.
+  - **Notes de version de l'app** : `ios/CHANGELOG.md` (EN + FR), recopié dans `ios/AppStore/*/release_notes.txt` (`ci_scripts/release_notes.sh sync`, vérifié par la CI).
+  - **Compatibilité** : `minClientVersion` existant gardé comme version minimale de l'app, `minPakVersion` dans l'app comparé à `pakVersion` ([03 §9](03-protocole.md#9-versions)) ; messages « Mets à jour le pak ReminisLink sur la console » / « Mets à jour l'app ReminisLink » avec lien.
+  - Reste à faire par la personne : créer les workflows Xcode Cloud et la clé API, puis vérifier les quatre critères ci-dessus avec de vrais tags.
+
 ## M16 — Mode démo (décidé le 20/11/2026, avant M15)
 
 But : essayer toute l'app sans console, pour l'examen App Store (le reviewer n'a pas de Brick), pour découvrir l'app avant d'installer le pak, et pour les captures App Store. Numéroté après M15 mais fait avant, car il compte pour la première soumission.

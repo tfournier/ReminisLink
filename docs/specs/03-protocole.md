@@ -249,3 +249,8 @@ Depuis M14, le flux d'événements `GET /api/v1/events` envoie aussi chaque tâc
 - Le chemin reste `/api/v1`. `apiVersion` (dans `/hello` et `api` dans le TXT) vaut `2` depuis M13 : transport TLS, appairage v2 et signature RL2-ED25519, incompatibles avec une app RL1.
 - Ajouter un champ ou une route ne change pas la version. L'app DOIT ignorer les champs inconnus.
 - `GET /api/v1/hello` renvoie `apiVersion` et `minClientVersion`. Si l'app est trop ancienne, elle demande une mise à jour.
+- **Compatibilité dans les deux sens (M17, décidé le 21/11/2026)**. Représentation retenue : des numéros de version `X.Y.Z` comparés nombre par nombre (un suffixe `-beta.N` ou `-rc.N` est ignoré), sans nouveau champ ni niveau d'API supplémentaire :
+  - le pak annonce `minClientVersion` (déjà présent depuis la v1 : c'est la « version minimale de l'app » de M17, donc pas de champ `minAppVersion` en double ; `"1.0.0"` aujourd'hui) ; une app plus ancienne affiche « Mets à jour l'app ReminisLink » avec un lien vers l'App Store ;
+  - l'app connaît `minPakVersion` (dans `APIClient`, `"1.0.0"` aujourd'hui) et le compare à `pakVersion` ; un pak plus ancien : « Mets à jour le pak ReminisLink sur la console », avec un lien vers la page d'installation. Un `pakVersion` qui n'est pas un numéro (build de développement : `dev`, empreinte de commit) est accepté ;
+  - `apiVersion` reste réservé aux ruptures du protocole : plus bas que celui de l'app, mettre à jour le pak ; plus haut, mettre à jour l'app.
+  - Vérifié à chaque `/hello` (connexion et appairage). Tous les paks publiés envoient déjà `minClientVersion` et `pakVersion` : ils continuent de fonctionner. On relève un minimum seulement quand l'autre côté ne peut plus suivre ; ajouter un champ ou une route n'en demande pas.

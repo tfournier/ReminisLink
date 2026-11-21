@@ -152,7 +152,9 @@ make docker-release      # builds dist/ReminisLink.pak.zip
 | `make contract` | Validates `protocol/openapi.yaml` (Redocly in Docker) and checks the test vectors. |
 | `make build` / `pak` / `release` | Cross-compile, assemble the pak, build the zip. They need the toolchain of `scripts/setup-toolchain.sh`. |
 | `make docker-<target>` | Runs any target inside the build image. |
-| `make vX.Y.Z` | Releases a version (see below). |
+| `make vX.Y.Z` | Releases a version of the pak; `make vX.Y.Z-beta.N` a pre-release (see below). |
+| `make ios-vX.Y.Z` | Releases the iOS app; `make ios-vX.Y.Z-beta.N` a TestFlight pre-release (see below). |
+| `make release-checks` | Tests the release scripts (tag rules, Xcode Cloud scripts, App Store "What's New"). |
 
 iOS: `cd ios/ReminisLinkKit && swift test`, and `cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16'`.
 
@@ -162,12 +164,34 @@ Messages are declared once, in English, in `internal/l10n/messages.go`. Each lan
 
 ### Releasing
 
+The pak and the iOS app are released from this repository with their own version numbers and tags:
+
+| Tag | Releases | Built by |
+|---|---|---|
+| `vX.Y.Z` | the pak: GitHub release marked "Latest", read by the Pak Store | GitHub Actions |
+| `vX.Y.Z-beta.N`, `vX.Y.Z-rc.N` | a pak pre-release for testers: GitHub "Pre-release", ignored by the Pak Store | GitHub Actions |
+| `ios-vX.Y.Z` | the app: App Store version `X.Y.Z`, submitted to App Review, released automatically once approved | Xcode Cloud |
+| `ios-vX.Y.Z-beta.N`, `ios-vX.Y.Z-rc.N` | an app pre-release: TestFlight only (App Store version `X.Y.Z`, a new build number) | Xcode Cloud |
+
+Only a pak release can be "Latest" on GitHub: app tags never start the GitHub workflow, and its release job refuses any tag that is not a pak version (`make release-checks` tests these rules). The app's changelog is [ios/CHANGELOG.md](ios/CHANGELOG.md) and its release procedure, Xcode Cloud setup included, is in [ios/README.md](ios/README.md#release-testflight-and-app-store).
+
+#### The pak
+
 `pak.json` is the single source of the version and of the changelog. The Pak Store shows the changelog, and the GitHub release uses it as release notes.
 
 1. Update the `"Unreleased"` entry in the `changelog` of `pak.json`, and commit it like any other change.
 2. From an up-to-date `main` branch with no uncommitted changes, run `make v1.2.3`. This runs the lint and the tests, renames `Unreleased` to `v1.2.3` in `pak.json`, sets `version`, commits as `Release v1.2.3`, tags `v1.2.3` and pushes both.
 
 The [CI workflow](.github/workflows/ci.yml) then builds the pak and publishes the GitHub release with `ReminisLink.pak.zip`. The Pak Store reads `pak.json` from this repository and downloads `<repo_url>/releases/download/<version>/<release_filename>`, which is why the tag, the `pak.json` version and the release file name must match.
+
+A pre-release: with an `"Unreleased"` entry in `pak.json`, run `make v1.2.3-beta.1` (or `-rc.1`) from `main`. It runs the lint and the tests, then tags and pushes the tag only: `pak.json` is not changed, so the Pak Store keeps offering the last release. The CI publishes a GitHub release marked "Pre-release" (never "Latest") with the `Unreleased` notes and `ReminisLink.pak.zip`, whose `pak.json` and reported `pakVersion` name the pre-release.
+
+#### The app
+
+Update the `## Unreleased` section of `ios/CHANGELOG.md` (English and French, the App Store "What's New") with each change of the app, and run `ios/ci_scripts/release_notes.sh sync` (the CI checks it). Then, from `main`:
+
+- `make ios-v1.2.3-beta.1`: tags and pushes; Xcode Cloud sends version 1.2.3 to TestFlight.
+- `make ios-v1.2.3`: renames `## Unreleased` to `## 1.2.3`, syncs the App Store texts, commits as `Release app 1.2.3`, tags and pushes; Xcode Cloud builds it, prepares the App Store version and submits it to App Review.
 
 ## Documentation
 
