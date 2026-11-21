@@ -1,6 +1,11 @@
 # Lint, test and build the pak, check the contract and test the iOS app on
 # every push and pull request. On a vX.Y.Z tag, also publish the GitHub
-# release read by the NextUI Pak Store (ReminisLink.pak.zip).
+# release read by the NextUI Pak Store (ReminisLink.pak.zip); on a
+# vX.Y.Z-beta.N or vX.Y.Z-rc.N tag, a GitHub pre-release (never "Latest").
+# The app's tags (ios-vX.Y.Z[-beta.N]) never start this workflow: Xcode
+# Cloud builds them (ios/README.md, "Release"). Keep the tag filter "v*":
+# a glob anchored at the start, so ios-v* cannot match (checked by
+# scripts/test-release-scripts.sh, run in the go job).
 # Adapted from .github/workflows/ci.yml of github.com/tfournier/nextui-cheat-manager.
 name: CI
 
@@ -31,6 +36,8 @@ jobs:
         run: CGO_ENABLED=1 go test -race ./...
       - name: Short fuzzing of the patch parsers
         run: make fuzz FUZZTIME=10s
+      - name: Release scripts (pak tags, Xcode Cloud scripts, app release notes)
+        run: make release-checks
 
   contract:
     runs-on: ubuntu-latest
@@ -101,6 +108,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
   release:
+    # refs/tags/v...: an app tag (refs/tags/ios-v...) can never match.
     if: startsWith(github.ref, 'refs/tags/v')
     # The pak release depends on the pak jobs only: the iOS app has its own
     # release path (M17).
@@ -121,11 +129,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # Release notes: the pak.json changelog entry of this version
-          jq -r --arg v "$TAG" '.changelog[$v] // empty' pak.json > release-notes.md
+          # latest (vX.Y.Z) or prerelease (vX.Y.Z-beta.N, -rc.N); any other
+          # tag (an app tag above all) stops here: only a pak release can
+          # be "Latest", the release the Pak Store reads.
+          kind=$(scripts/pak-release-kind.sh "$TAG")
+          if [ "$kind" = latest ]; then
+            # Release notes: the pak.json changelog entry of this version
+            jq -r --arg v "$TAG" '.changelog[$v] // empty' pak.json > release-notes.md
+            flags="--latest"
+          else
+            # A pre-release leaves pak.json unchanged: its notes are the
+            # "Unreleased" entry.
+            { echo "Pre-release for testers, not offered by the Pak Store."; echo
+              jq -r '.changelog.Unreleased // empty' pak.json; } > release-notes.md
+            flags="--prerelease --latest=false"
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Re-run: replace the assets of the existing release.
             gh release upload "$TAG" dist/ReminisLink.pak.zip --clobber
           else
-            gh release create "$TAG" dist/ReminisLink.pak.zip --verify-tag --title "$TAG" --notes-file release-notes.md
+            # shellcheck disable=SC2086 # $flags holds several options
+            gh release create "$TAG" dist/ReminisLink.pak.zip --verify-tag --title "$TAG" --notes-file release-notes.md $flags
           fi

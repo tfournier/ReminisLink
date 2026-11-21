@@ -23,8 +23,10 @@ RL_ICLOUD_CONTAINER = iCloud.$(RL_APP_BUNDLE_ID)
 INFOPLIST_PREPROCESS = YES
 INFOPLIST_PREPROCESSOR_DEFINITIONS = RL_ICLOUD_CONTAINER_KEY=$(RL_ICLOUD_CONTAINER)
 
-// Version shown on the App Store, and build number: increase the build
-// number for every upload to App Store Connect.
+// Version shown on the App Store, and build number, for local builds. The
+// builds of Xcode Cloud take both from CI.xcconfig instead (milestone M17):
+// the version from the tag ios-vX.Y.Z[-beta.N], the build number from Xcode
+// Cloud (ios/ci_scripts, ios/README.md "Release").
 MARKETING_VERSION = 1.0.0
 CURRENT_PROJECT_VERSION = 5
 IPHONEOS_DEPLOYMENT_TARGET = 18.0
@@ -34,6 +36,10 @@ IPHONEOS_DEPLOYMENT_TARGET = 18.0
 // Config/Local.xcconfig (untracked, see ios/README.md).
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic
+
+// Written by ios/ci_scripts on Xcode Cloud (MARKETING_VERSION,
+// CURRENT_PROJECT_VERSION), never committed; absent elsewhere.
+#include? "CI.xcconfig"
 
 // Optional personal overrides (DEVELOPMENT_TEAM), never committed. Must stay last.
 #include? "Local.xcconfig"

@@ -1,4 +1,7 @@
 # Personal signing settings (see README.md, "Release").
 Config/Local.xcconfig
+# Versions written by ci_scripts on Xcode Cloud (see README.md, "Release").
+Config/CI.xcconfig
+Config/CI.xcconfig.tmp
 # Archives made by hand.
 /build/
