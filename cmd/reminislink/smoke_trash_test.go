@@ -20,8 +20,9 @@ import (
 // TestSmokeTrash runs the M18 scenario against the real binary: a deleted
 // game (with its clock file, states, cheats and art), a replaced save and
 // a deleted emulator pak come back from the trash, with no loss and no
-// overwrite (409, then a free name); a restore cut by a power loss (entry
-// left "returning" while the pak is closed) is finished at the next start.
+// overwrite (409, then a free name); power cuts while the pak is closed
+// (before the first rename: cancelled; after one: finished; a tampered
+// journal: refused); a replaced save comes back over the current save.
 func TestSmokeTrash(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the pak")
@@ -197,39 +198,189 @@ func TestSmokeTrash(t *testing.T) {
 	}
 	t.Log("deleted emulator pak MGBA restored and listed again")
 
-	// 5. A restore cut by a power loss is finished at the next start.
-	call(t, c, http.MethodDelete, "/api/v1/games/"+library.EncodeID(gba+"/Lantern Keeper [b1].gba"), nil, http.StatusOK, &deleted)
-	p.stop()
-	entryFile := filepath.Join(roots.Data, "trash", deleted.TrashEntryID, "entry.json")
-	var entry map[string]any
-	data, err := os.ReadFile(entryFile)
+	// 5. Power losses, with the pak closed between the steps.
+	entryOf := func(id string) (string, map[string]any) {
+		t.Helper()
+		f := filepath.Join(roots.Data, "trash", id, "entry.json")
+		data, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var entry map[string]any
+		if err := json.Unmarshal(data, &entry); err != nil {
+			t.Fatal(err)
+		}
+		return f, entry
+	}
+	writeEntry := func(f string, entry map[string]any) {
+		t.Helper()
+		data, _ := json.Marshal(entry)
+		if err := os.WriteFile(f, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	returning := func(entry map[string]any, target func(string) string) {
+		var returns []map[string]string
+		for _, m := range entry["moves"].([]any) {
+			returns = append(returns, map[string]string{"move": m.(string), "target": target(m.(string))})
+		}
+		entry["state"], entry["returns"], entry["returnMode"] = "returning", returns, "fail"
+	}
+	lantern := "Roms/" + gba + "/Lantern Keeper [b1].gba"
+	lanternBytes, err := os.ReadFile(filepath.Join(sd, filepath.FromSlash(lantern)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(data, &entry); err != nil {
-		t.Fatal(err)
+	writeSD(t, sd, "Saves/GBA/Lantern Keeper [b1].gba.sav", "lantern save")
+
+	// 5a. Cut after the journal, before the first rename: cancelled at
+	// the next start (a failed request never restores later).
+	call(t, c, http.MethodDelete, "/api/v1/games/"+library.EncodeID(gba+"/Lantern Keeper [b1].gba"), nil, http.StatusOK, &deleted)
+	p.stop()
+	f, entry := entryOf(deleted.TrashEntryID)
+	returning(entry, func(m string) string { return m })
+	writeEntry(f, entry)
+	p.start()
+	if _, err := os.Stat(filepath.Join(sd, filepath.FromSlash(lantern))); err == nil {
+		t.Fatal("a restore that never started was finished")
 	}
-	var returns []map[string]string
-	for _, m := range entry["moves"].([]any) {
-		returns = append(returns, map[string]string{"move": m.(string), "target": m.(string)})
+	if l := trash(); len(l.Entries) != 1 {
+		t.Fatalf("trash after the cancel: %+v", l)
 	}
-	entry["state"], entry["returns"] = "returning", returns
-	data, _ = json.Marshal(entry)
-	if err := os.WriteFile(entryFile, data, 0o644); err != nil {
+	t.Log("restore cut before its first rename: cancelled at the next start, the entry is listed again")
+
+	// 5b. Cut after the ROM went back: finished at the next start, bytes
+	// checked.
+	p.stop()
+	f, entry = entryOf(deleted.TrashEntryID)
+	returning(entry, func(m string) string { return m })
+	writeEntry(f, entry)
+	if err := os.Rename(filepath.Join(roots.Data, "trash", deleted.TrashEntryID, filepath.FromSlash(lantern)), filepath.Join(sd, filepath.FromSlash(lantern))); err != nil {
 		t.Fatal(err)
 	}
 	p.start()
-	if _, err := os.Stat(filepath.Join(sd, "Roms", gba, "Lantern Keeper [b1].gba")); err != nil {
+	if got, _ := os.ReadFile(filepath.Join(sd, "Saves", "GBA", "Lantern Keeper [b1].gba.sav")); string(got) != "lantern save" {
 		t.Fatal("interrupted restore not finished at start")
+	}
+	if got, _ := os.ReadFile(filepath.Join(sd, filepath.FromSlash(lantern))); string(got) != string(lanternBytes) {
+		t.Fatal("ROM changed")
 	}
 	if l := trash(); len(l.Entries) != 0 {
 		t.Fatalf("trash after the recovery: %+v", l)
 	}
+	t.Log("restore cut after a rename: finished at the next start, bytes unchanged")
+
+	// 5c. A tampered journal sends the game to the tools: refused, the
+	// files stay in the trash.
+	call(t, c, http.MethodDelete, "/api/v1/games/"+library.EncodeID(gba+"/Lantern Keeper [b1].gba"), nil, http.StatusOK, &deleted)
 	p.stop()
-	if !strings.Contains(p.logs.String(), "interrupted restore finished") {
+	f, entry = entryOf(deleted.TrashEntryID)
+	returning(entry, func(m string) string {
+		if strings.HasPrefix(m, "Roms/") {
+			return "Tools/tg5040/Evil.pak"
+		}
+		return m
+	})
+	writeEntry(f, entry)
+	// The save went back before the cut.
+	if err := os.Rename(filepath.Join(roots.Data, "trash", deleted.TrashEntryID, "Saves", "GBA", "Lantern Keeper [b1].gba.sav"), filepath.Join(sd, "Saves", "GBA", "Lantern Keeper [b1].gba.sav")); err != nil {
+		t.Fatal(err)
+	}
+	p.start()
+	if _, err := os.Stat(filepath.Join(sd, "Tools", "tg5040", "Evil.pak")); err == nil {
+		t.Fatal("tampered journal followed")
+	}
+	if got, err := os.ReadFile(filepath.Join(roots.Data, "trash", deleted.TrashEntryID, filepath.FromSlash(lantern))); err != nil || string(got) != string(lanternBytes) {
+		t.Fatalf("ROM not kept in the trash: %v", err)
+	}
+	if l := trash(); len(l.Entries) != 1 {
+		t.Fatalf("trash after a refused journal: %+v", l)
+	}
+	t.Log("tampered journal (a game sent to the tools): refused at the next start, the ROM stays in the trash")
+
+	// 6. A replaced save comes back in place of the current one.
+	// 6a. Its backup copy (deleted to the trash): the current save is kept
+	// as a before-restore copy.
+	starlightSave := filepath.Join(sd, "Saves", "GBA", "Starlight Courier (2).gba.sav")
+	before, _ := os.ReadFile(starlightSave)
+	if r := c.Do(t, http.MethodPut, game2+"/save", []byte("newer save")); r.Status != http.StatusOK {
+		t.Fatalf("PUT save: %d %s", r.Status, r.Body)
+	} else {
+		r.JSON(t, &put)
+	}
+	call(t, c, http.MethodDelete, game2+"/save/backups/"+put.Backup.ID, nil, http.StatusNoContent, nil)
+	var backupEntry string
+	for _, e := range trash().Entries {
+		if e.Reason == "delete-backup" {
+			backupEntry = e.ID
+		}
+	}
+	var rp struct {
+		Replaceable   bool    `json:"replaceable"`
+		ReplaceKeptAs *string `json:"replaceKeptAs"`
+	}
+	call(t, c, http.MethodGet, "/api/v1/trash/"+backupEntry+"/restore", nil, http.StatusOK, &rp)
+	if !rp.Replaceable || rp.ReplaceKeptAs == nil || *rp.ReplaceKeptAs != "backup" {
+		t.Fatalf("preview: %+v", rp)
+	}
+	call(t, c, http.MethodPost, "/api/v1/trash/"+backupEntry+"/restore", map[string]any{"onConflict": "replace"}, http.StatusOK, nil)
+	if got, _ := os.ReadFile(starlightSave); string(got) != string(before) {
+		t.Fatalf("live save %q, want %q", got, before)
+	}
+	t.Log("replaced save (its backup copy in the trash) restored over the current save, kept as a before-restore copy")
+
+	// 6b. A save of the save folder in the trash (left by an older pak):
+	// the current save and clock go to the trash first.
+	p.stop()
+	writeSD(t, sd, "Saves/GBA/Starlight Courier (2).gba.rtc", "current clock")
+	current, _ := os.ReadFile(starlightSave)
+	id := "tr_20261101T120000Z_abcd"
+	writeSD(t, sd, ".userdata/shared/ReminisLink/trash/"+id+"/Saves/GBA/starlight courier (2).gba.sav", "save from the trash")
+	writeEntry(filepath.Join(roots.Data, "trash", id, "entry.json"), map[string]any{
+		"version": 1, "state": "done", "id": id, "trashedAt": "2026-11-01T12:00:00Z", "reason": "overwrite",
+		"label": "Starlight Courier (2)", "files": []string{"Saves/GBA/starlight courier (2).gba.sav"},
+		"moves": []string{"Saves/GBA/starlight courier (2).gba.sav"}, "sizeBytes": 19,
+	})
+	p.start()
+	var rr struct {
+		ReplacedEntryID *string  `json:"replacedEntryId"`
+		Replaced        []string `json:"replaced"`
+	}
+	call(t, c, http.MethodPost, "/api/v1/trash/"+id+"/restore", map[string]any{"onConflict": "replace"}, http.StatusOK, &rr)
+	if got, _ := os.ReadFile(starlightSave); string(got) != "save from the trash" {
+		t.Fatalf("live save %q", got)
+	}
+	if rr.ReplacedEntryID == nil || len(rr.Replaced) != 2 {
+		t.Fatalf("result %+v", rr)
+	}
+	kept := filepath.Join(roots.Data, "trash", *rr.ReplacedEntryID, "Saves", "GBA")
+	if got, _ := os.ReadFile(filepath.Join(kept, "Starlight Courier (2).gba.sav")); string(got) != string(current) {
+		t.Fatalf("current save not in the trash: %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(kept, "Starlight Courier (2).gba.rtc")); string(got) != "current clock" {
+		t.Fatal("current clock not in the trash")
+	}
+	call(t, c, http.MethodPost, "/api/v1/trash/"+backupEntryOr(t, trash().Entries, "delete-game")+"/restore", map[string]any{"onConflict": "replace"}, http.StatusUnprocessableEntity, nil)
+	p.stop()
+	if !strings.Contains(p.logs.String(), "interrupted restore finished") || !strings.Contains(p.logs.String(), "journaled place refused") {
 		t.Errorf("recovery not logged:\n%s", p.logs.String())
 	}
-	t.Log("restore interrupted by a power loss: finished at the next start")
+	t.Log("save in the trash restored over the current save: the current save and clock are in the trash, the live save holds the restored bytes; a game cannot replace (422)")
+}
+
+// backupEntryOr returns the id of the first entry of reason.
+func backupEntryOr(t *testing.T, entries []struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+}, reason string) string {
+	t.Helper()
+	for _, e := range entries {
+		if e.Reason == reason {
+			return e.ID
+		}
+	}
+	t.Fatalf("no %s entry in %+v", reason, entries)
+	return ""
 }
 
 func writeSD(t *testing.T, sd, rel, content string) {

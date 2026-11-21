@@ -316,7 +316,9 @@ extension FakePak {
                 }
                 let backup = data.backups.remove(at: index)
                 // Never erased: to the trash.
-                _ = trash(reason: "delete-backup", label: game.name, files: ["backup \(backup.id)"], bytes: backup.blob.size)
+                _ = trash(reason: "delete-backup", label: game.name,
+                          files: [".userdata/shared/ReminisLink/backups/\(system.tag)/\(game.fileName)/saves/\(backup.id).sav"],
+                          bytes: backup.blob.size, payload: .backup(key: Self.dataKey(system: system, game: game), backup: backup))
                 return FakeResponse(status: 204)
             }
         case ("POST", let r) where r.count == 4 && r[0] == "save" && r[1] == "backups" && r[3] == "restore":
@@ -385,7 +387,7 @@ extension FakePak {
         ], body: content)
     }
 
-    private func trash(reason: String, label: String, files: [String], bytes: Int64) -> [String: Any] {
+    private func trash(reason: String, label: String, files: [String], bytes: Int64, payload: FakeTrashPayload? = nil) -> [String: Any] {
         let now = Date()
         let id = "tr_\(Self.stamp(now))_\(UUID().uuidString.prefix(4).lowercased())"
         let entry: [String: Any] = [
@@ -393,6 +395,7 @@ extension FakePak {
             "files": files, "sizeBytes": bytes, "expiresAt": ProtocolJSON.formatDate(now.addingTimeInterval(30 * 86_400)),
         ]
         trashEntries.insert(entry, at: 0)
+        trashPayloads[id] = payload
         return ["trashEntryId": id, "moved": files, "movedBytes": bytes]
     }
 
@@ -529,7 +532,8 @@ extension FakePak {
             guard entry.lockCopy == nil else { return .error(409, code: "state_locked", message: "State is locked") }
             data.slots[slot] = nil
             return .json(200, trash(reason: "delete-state", label: game.name,
-                                    files: [Self.statePath(system, game, slot: slot)], bytes: state.size))
+                                    files: [Self.statePath(system, game, slot: slot)], bytes: state.size,
+                                    payload: .state(key: Self.dataKey(system: system, game: game), slot: slot, entry: entry)))
         }
     }
 

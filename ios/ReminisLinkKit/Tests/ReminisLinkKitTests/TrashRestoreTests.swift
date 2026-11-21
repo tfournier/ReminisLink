@@ -36,6 +36,81 @@ struct TrashRestoreModelTests {
     }
 }
 
+@Suite("Restore from the trash: review round 1 and replace (M18)")
+struct TrashRestoreReplaceTests {
+    @Test func decodesTheNewFieldsAndAnOlderPak() throws {
+        let preview = try ProtocolJSON.decoder().decode(TrashRestorePreview.self, from: Data(#"""
+        {"entryId":"tr_x","reason":"delete-backup","label":"G","conflict":true,
+         "items":[{"name":"a","size":1,"conflict":true,"freeName":null,"replaceName":"Saves/GBA/G.gba.sav"}],
+         "restoredBytes":1,"freeNameUnavailable":"path-blocked","replaceable":true,
+         "replaceDisplaced":["Saves/GBA/G.gba.sav"],"replaceKeptAs":"backup"}
+        """#.utf8))
+        #expect(preview.noFreeName == .pathBlocked && !preview.canRename && preview.replaceable && preview.keptAs == .backup)
+        #expect(preview.items[0].freeName == nil && preview.items[0].replaceName == "Saves/GBA/G.gba.sav")
+        let old = try ProtocolJSON.decoder().decode(TrashRestorePreview.self, from: Data(#"""
+        {"entryId":"tr_x","reason":"delete-game","label":"G","conflict":true,
+         "items":[{"name":"a","size":1,"conflict":true,"freeName":"a (2)"}],"restoredBytes":1}
+        """#.utf8))
+        #expect(old.canRename && !old.replaceable && old.replaceDisplaced.isEmpty && old.keptAs == nil)
+        let result = try ProtocolJSON.decoder().decode(TrashRestoreResult.self, from: Data(#"""
+        {"restored":["s"],"restoredBytes":1,"renamed":false,"replacedEntryId":"tr_y","replaced":["c"],"replacedKeptAs":"trash"}
+        """#.utf8))
+        #expect(result.replacedEntryId == "tr_y" && result.replaced == ["c"] && result.keptAs == .trash)
+        let body = String(decoding: try JSONEncoder().encode(TrashRestoreRequest(onConflict: .replace)), as: UTF8.self)
+        #expect(body == #"{"onConflict":"replace"}"#)
+        let refused = ServerError(status: 422, code: .unsupportedFormat, message: "x", details: ["reason": .string("game-missing")])
+        #expect(refused.trashReplaceRefusal == "game-missing")
+        let none = ServerError(status: 409, code: .conflict, message: "x", details: ["conflicts": .array([]), "freeNameUnavailable": .string("all-taken")])
+        #expect(none.trashRestoreNoFreeName == .allTaken)
+    }
+
+    @Test func aDeletedBackupCopyReplacesTheCurrentSave() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let backups = try await client.saveBackups(gameId: skyGarden)
+        let backup = try #require(backups.first)
+        try await client.deleteSaveBackup(gameId: skyGarden, backupId: backup.id)
+        let entry = try #require(try await client.trash().entries.first { $0.reason == "delete-backup" })
+        let preview = try await client.trashRestorePreview(id: entry.id)
+        #expect(preview.replaceable && preview.keptAs == .backup && !preview.replaceDisplaced.isEmpty)
+        let result = try await client.restoreTrashEntry(id: entry.id, onConflict: .replace)
+        #expect(result.keptAs == .backup && !result.renamed)
+        let after = try await client.saveBackups(gameId: skyGarden)
+        #expect(after.contains { $0.id == backup.id } && after.contains { $0.reason == .beforeRestore })
+        #expect(try await client.trash().entries.contains { $0.id == entry.id } == false)
+    }
+
+    @Test func replaceIsRefusedForAGameAndADeletedStateComesBack() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let moved = try await client.deleteGame(id: skyGarden, keepSave: false)
+        #expect(try await client.trashRestorePreview(id: moved.trashEntryId).replaceable == false)
+        await #expect { try await client.restoreTrashEntry(id: moved.trashEntryId, onConflict: .replace) } throws: { error in
+            guard case .server(let e) = error as? APIError else { return false }
+            return e.status == 422 && e.trashReplaceRefusal == "not-a-save"
+        }
+        _ = try await client.restoreTrashEntry(id: moved.trashEntryId, onConflict: .fail)
+        let slot = try #require(try await client.states(gameId: skyGarden).slots.first { !$0.locked })
+        let deleted = try await client.deleteState(gameId: skyGarden, slot: slot.slot)
+        #expect(try await client.states(gameId: skyGarden).slots.contains { $0.slot == slot.slot } == false)
+        _ = try await client.restoreTrashEntry(id: deleted.trashEntryId, onConflict: .fail)
+        #expect(try await client.states(gameId: skyGarden).slots.contains { $0.slot == slot.slot })
+    }
+
+    @Test func anEntryTheFakeDoesNotModelNeverClaimsARestore() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        pak.addTrashEntry(reason: "lock-restore", label: "State 1", trashedAt: Date())
+        let entry = try #require(try await client.trash().entries.first { $0.reason == "lock-restore" })
+        await #expect { try await client.restoreTrashEntry(id: entry.id, onConflict: .fail) } throws: { error in
+            guard case .server(let e) = error as? APIError else { return false }
+            return e.status == 409
+        }
+        #expect(try await client.trash().entries.contains { $0.id == entry.id })
+    }
+
+}
+
 @Suite("Restore from the trash against the fake pak (M18)")
 struct TrashRestoreAPITests {
     let folder = "Handheld Advance (HA)"

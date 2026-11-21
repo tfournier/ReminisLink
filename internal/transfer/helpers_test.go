@@ -144,8 +144,6 @@ func sum(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func romTarget(name string) *Target {
 	return &Target{Kind: KindROM, SystemID: library.EncodeID(gbaSystem), FileName: ptr(name)}
 }

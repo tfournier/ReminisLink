@@ -41,6 +41,50 @@ final class TrashRestoreUITests: XCTestCase {
         XCTAssertTrue(libraryRow(app, "Old Prototype").exists)
     }
 
+    /// A deleted backup copy (a replaced save) replaces the current save,
+    /// which is kept as a backup copy first.
+    @MainActor
+    func testReplaceTheCurrentSaveWithADeletedCopy() throws {
+        let app = GameDataUITest.openDemoGame()
+        app.buttons["game.save"].tapAfterWaiting(timeout: 15)
+        let label = "Copy \(Int(Date().timeIntervalSince1970) % 100_000)"
+        app.buttons["save.createBackup"].tapAfterWaiting(timeout: 15)
+        let field = app.textFields["backup.label"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText(label)
+        app.buttons["backup.create"].tap()
+        let row = GameDataUITest.button(app, "backup.row", containing: label)
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "copy not listed")
+        row.tap()
+        app.dialogButton("backup.delete").tapAfterWaiting()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        alert.dialogButton("backup.deleteConfirm").tap()
+        XCTAssertTrue(row.waitForNonExistence(timeout: 15), "copy still listed")
+
+        app.consoleTabs["Trash"].tapWhenEnabled(timeout: 10)
+        let entry = GameDataUITest.button(app, "trash.entry", containing: GameDataUITest.demoGame)
+        entry.tapAfterWaiting(timeout: 20)
+        let replace = app.buttons["trashRestore.replace"]
+        XCTAssertTrue(replace.waitForExistence(timeout: 20), "replace not offered")
+        attachScreenshot(of: app, named: "trash-replace-preview")
+        replace.tap()
+        app.dialogButton("trashRestore.replaceConfirm").tapAfterWaiting(timeout: 10)
+        let done = app.buttons["trashRestore.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 20), "not replaced")
+        XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
+        attachScreenshot(of: app, named: "trash-replace-done")
+        done.tap()
+        XCTAssertTrue(entry.waitForNonExistence(timeout: 20), "entry still in the trash")
+
+        // Back on the save screen: the copy is listed again, and the save
+        // it replaced is kept as a copy.
+        app.consoleTabs["Library"].tapWhenEnabled(timeout: 10)
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "copy not back")
+        XCTAssertTrue(GameDataUITest.button(app, "backup.row", containing: "Before restoration").waitForExistence(timeout: 20))
+    }
+
     /// Opens the restore sheet of a trash entry, restores it, closes the
     /// sheet and checks the entry left the trash.
     @MainActor

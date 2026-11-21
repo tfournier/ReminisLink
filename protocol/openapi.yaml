@@ -1005,6 +1005,16 @@ paths:
         folder of the same name exists there, ignoring case (the SD card is
         exFAT). Computed by the same code as the restore; another client
         can change the card between the preview and the restore.
+        `freeNameUnavailable` says when no free name exists (every
+        ` (N)` up to 999 taken, or a folder on the way is a file): the
+        `freeName` of every item is then null and `onConflict: rename`
+        would answer `409`. `replaceable` says whether
+        `onConflict: replace` is possible (the entry holds only the save,
+        and its clock file, of a game that still exists), with the current
+        files it would move to the trash (`replaceDisplaced`) and where
+        each item would go (`replaceName`). An entry whose files do not
+        match its journal (a file it does not list, a link) answers `500`
+        and is never changed.
       responses:
         '200':
           description: What would come back.
@@ -1026,6 +1036,10 @@ paths:
                     conflict: false
                     freeName: Saves/GBA/Sky Garden Quest (2).gba.sav
                 restoredBytes: 16908288
+                freeNameUnavailable: null
+                replaceable: false
+                replaceDisplaced: []
+                replaceKeptAs: null
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1051,12 +1065,37 @@ paths:
         the entry under the same free name instead, ` (N)` inserted after
         the game name, before its extensions (`Sky Garden Quest (2).gba`,
         `Sky Garden Quest (2).gba.sav`, `Clock (2).pak`), so the files of a
-        game stay together; playlists (`.m3u`, `.cue`) are not rewritten.
+        game stay together; the playlist of a folder game (`Game/Game.m3u`
+        or `.cue`) is renamed after its folder (`Game (2)/Game (2).m3u`, as
+        NextUI needs), its content is not rewritten. Without any free name,
+        `rename` answers `409` too, with `details.freeNameUnavailable`.
+
+        `onConflict: replace` (an entry holding only the save, and its
+        clock file, of a game that still exists, or the backup copy of
+        such a save, see below; anything else answers
+        `422 unsupported_format` with `details.reason`: `not-a-save`,
+        `game-missing` or `save-format`): the current save and clock file
+        of the game (names compared ignoring case) are first moved to a new
+        trash entry (reason `restore`, `replacedEntryId`), then the items
+        go back under the exact names the game uses. Journaled like the
+        rest: a failure, or a power cut before the first item went back,
+        puts the current save back.
+        The backup copy of a save (an entry `delete-backup`: a copy the app
+        deleted or the automatic limits pushed out, i.e. a replaced save)
+        can replace the current save too: the copy first goes back to the
+        backups of its game (as with `fail`), then it is restored like
+        `POST /games/{gameId}/save/backups/{backupId}/restore`, the current
+        save being kept as a `before-restore` backup copy
+        (`replacedKeptAs: backup`). If that second step fails, the copy
+        stays in the backups of the game and the answer is `500`.
 
         All or nothing: on an error every item already restored goes back
-        to the entry. A power cut during the restore is finished at the
-        next start (each item goes to its journaled place when it is still
-        free; the rest stays in the entry). The entry leaves `GET /trash`
+        to the entry; a request that fails before the first item went back
+        never restores anything, even after a power cut. A power cut after
+        an item went back is finished at the next start (each item goes to
+        its journaled place when that place is still free and valid for the
+        rule, after the same checks as the request; the rest stays in the
+        entry). An item never replaces a file that appears meanwhile. The entry leaves `GET /trash`
         once everything came back. A pak folder goes through the checks of
         an installation (`launch.sh` at its top, no link nor special file,
         limits of `POST /paks/install`): a refused folder answers
@@ -1083,11 +1122,14 @@ paths:
                   - Saves/GBA/Sky Garden Quest (2).gba.sav
                 restoredBytes: 16908288
                 renamed: true
+                replacedEntryId: null
+                replaced: []
+                replacedKeptAs: null
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: A place is taken (`conflict`, `details.conflicts`) and `onConflict` is `fail`; nothing was changed.
+          description: A place is taken (`conflict`, `details.conflicts`) and `onConflict` is `fail`, or `rename` without a free name (`details.freeNameUnavailable`); nothing was changed.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -3067,12 +3109,13 @@ components:
         freedBytes: { $ref: '#/components/schemas/Bytes' }
     TrashRestoreRequest:
       type: object
+      description: Optional body; when present, a JSON object (`null` is refused with `400`).
       properties:
         onConflict:
           type: string
-          enum: [fail, rename]
+          enum: [fail, rename, replace]
           default: fail
-          description: '`fail`: `409 conflict` when a place is taken. `rename`: every item of the entry goes back under the same free name.'
+          description: '`fail`: `409 conflict` when a place is taken. `rename`: every item of the entry goes back under the same free name. `replace`: the save of an existing game replaces the current one, which goes to the trash first. Never `null`.'
     TrashRestoreItem:
       type: object
       required: [name, size, conflict, freeName]
@@ -3080,10 +3123,15 @@ components:
         name: { type: string, description: 'Original place, relative to the SD card (informative).' }
         size: { $ref: '#/components/schemas/Bytes' }
         conflict: { type: boolean, description: 'The place is taken (same name ignoring case).' }
-        freeName: { type: string, description: 'Where it goes with `onConflict: rename`, relative to the SD card; `name` when the entry has no conflict.' }
+        freeName:
+          type: [string, 'null']
+          description: 'Where it goes with `onConflict: rename`, relative to the SD card; `name` when the entry has no conflict; null when no free name exists (`freeNameUnavailable`).'
+        replaceName:
+          type: [string, 'null']
+          description: 'Where it goes with `onConflict: replace` (the live name of the save), null when the entry cannot replace.'
     TrashRestorePreview:
       type: object
-      required: [entryId, reason, label, conflict, items, restoredBytes]
+      required: [entryId, reason, label, conflict, items, restoredBytes, freeNameUnavailable, replaceable, replaceDisplaced, replaceKeptAs]
       properties:
         entryId: { $ref: '#/components/schemas/OpaqueId' }
         reason: { type: string, description: 'The `reason` of the `TrashEntry`.' }
@@ -3093,9 +3141,22 @@ components:
           type: array
           items: { $ref: '#/components/schemas/TrashRestoreItem' }
         restoredBytes: { $ref: '#/components/schemas/Bytes' }
+        freeNameUnavailable:
+          type: [string, 'null']
+          enum: [all-taken, path-blocked, null]
+          description: 'Null unless the entry has a conflict and no free name: `all-taken` (every ` (N)` up to 999), `path-blocked` (a folder on the way is a file).'
+        replaceable: { type: boolean, description: '`onConflict: replace` is possible.' }
+        replaceDisplaced:
+          type: array
+          description: The current files `replace` would move out of the way first, relative to the SD card.
+          items: { type: string }
+        replaceKeptAs:
+          type: [string, 'null']
+          enum: [trash, backup, null]
+          description: 'Where those current files are kept with `replace`: `trash` (a new trash entry, for a save in the save folder) or `backup` (a "before-restore" backup copy of the save, for the backup copy of a save); null when not replaceable.' 
     TrashRestoreResult:
       type: object
-      required: [restored, restoredBytes, renamed]
+      required: [restored, restoredBytes, renamed, replacedEntryId, replaced, replacedKeptAs]
       properties:
         restored:
           type: array
@@ -3103,6 +3164,19 @@ components:
           items: { type: string }
         restoredBytes: { $ref: '#/components/schemas/Bytes' }
         renamed: { type: boolean, description: 'The items went back under a free name (`onConflict: rename` with a taken place).' }
+        replacedEntryId:
+          oneOf:
+            - { $ref: '#/components/schemas/OpaqueId' }
+            - { type: 'null' }
+          description: With `replace`, the trash entry now holding the current files moved away.
+        replaced:
+          type: array
+          description: Those files, relative to the SD card (empty otherwise).
+          items: { type: string }
+        replacedKeptAs:
+          type: [string, 'null']
+          enum: [trash, backup, null]
+          description: 'With `replace`, where they are kept (see `TrashRestorePreview.replaceKeptAs`); null otherwise.' 
 
     Backup:
       type: object

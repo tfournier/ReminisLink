@@ -51,7 +51,7 @@ func TestRestoreDeletedGame(t *testing.T) {
 		t.Fatalf("plan %+v", p)
 	}
 	for _, f := range p.Files {
-		if f.Conflict || f.FreeName != f.Name {
+		if f.Conflict || f.FreeName == nil || *f.FreeName != f.Name {
 			t.Fatalf("file %+v", f)
 		}
 	}
@@ -106,13 +106,13 @@ func TestRestoreConflictFailAndRename(t *testing.T) {
 	for _, f := range p.Files {
 		got[f.Name] = f
 	}
-	if f := got["Roms/GBA (GBA)/Game.gba"]; !f.Conflict || f.FreeName != "Roms/GBA (GBA)/Game (2).gba" {
+	if f := got["Roms/GBA (GBA)/Game.gba"]; !f.Conflict || f.FreeName == nil || *f.FreeName != "Roms/GBA (GBA)/Game (2).gba" {
 		t.Fatalf("rom %+v", f)
 	}
-	if f := got["Saves/GBA/Game.gba.sav"]; f.Conflict || f.FreeName != "Saves/GBA/Game (2).gba.sav" {
+	if f := got["Saves/GBA/Game.gba.sav"]; f.Conflict || f.FreeName == nil || *f.FreeName != "Saves/GBA/Game (2).gba.sav" {
 		t.Fatalf("save %+v", f)
 	}
-	if f := got["Roms/GBA (GBA)/.media/Game.png"]; f.FreeName != "Roms/GBA (GBA)/.media/Game (2).png" {
+	if f := got["Roms/GBA (GBA)/.media/Game.png"]; f.FreeName == nil || *f.FreeName != "Roms/GBA (GBA)/.media/Game (2).png" {
 		t.Fatalf("art %+v", f)
 	}
 
@@ -173,12 +173,12 @@ func TestRestoreFreeNameSkipsTakenNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, sd, "Saves/GBA/Super Bros. 3.gba.sav", "new")
-	write(t, sd, "Saves/GBA/super bros. 3.gba (2).SAV", "taken")
+	write(t, sd, "Saves/GBA/super bros. 3 (2).GBA.sav", "taken")
 	r, err := tr.Restore(res.Entry.ID, RestoreRename, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"Saves/GBA/Super Bros. 3.gba (3).sav"}; !reflect.DeepEqual(r.Restored, want) {
+	if want := []string{"Saves/GBA/Super Bros. 3 (3).gba.sav"}; !reflect.DeepEqual(r.Restored, want) {
 		t.Fatalf("restored %v", r.Restored)
 	}
 	if read(t, filepath.Join(sd, "Saves/GBA/Super Bros. 3.gba.sav")) != "new" {

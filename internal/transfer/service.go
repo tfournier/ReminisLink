@@ -171,6 +171,9 @@ func New(opts Options) (*Service, error) {
 	s.jobs = NewJobs(opts.Now)
 	s.verifyCtx, s.verifyCancel = context.WithCancel(context.Background())
 	s.verifySem = make(chan struct{}, MaxParallelVerify)
+	// Restores from the trash (M18): the pak checks and the "replace" rule
+	// run inside the store, for a request and at the start alike.
+	opts.Trash.SetRestoreHooks(s.restoreCheck, s.replaceSpec)
 	return s, nil
 }
 

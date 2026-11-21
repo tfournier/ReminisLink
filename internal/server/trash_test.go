@@ -206,10 +206,10 @@ func TestRestoreReplacedSaveOverHTTP(t *testing.T) {
 		t.Fatalf("409 %s", r.Body)
 	}
 	f.do(http.MethodPost, f.restoreURL(moved.Entry.ID), restorePath, []byte(`{"onConflict":"rename"}`), http.StatusOK).JSON(t, &res)
-	if !reflect.DeepEqual(res.Restored, []string{"Saves/GBA/Starlight Courier.gba (2).sav"}) {
+	if !reflect.DeepEqual(res.Restored, []string{"Saves/GBA/Starlight Courier (2).gba.sav"}) {
 		t.Fatalf("restored %v", res.Restored)
 	}
-	if f.read("Saves/GBA/Starlight Courier.gba.sav") != "current" || f.read("Saves/GBA/Starlight Courier.gba (2).sav") != "older" {
+	if f.read("Saves/GBA/Starlight Courier.gba.sav") != "current" || f.read("Saves/GBA/Starlight Courier (2).gba.sav") != "older" {
 		t.Fatal("save files")
 	}
 }

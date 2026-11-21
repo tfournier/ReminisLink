@@ -105,6 +105,9 @@ enum AppError: Error, Equatable {
     /// (restored, deleted or purged meanwhile), or the pak is older than
     /// M18.
     case trashEntryGone
+    /// M18: `422` of `replace`: only the save of a game still on the
+    /// console can replace its current save.
+    case trashReplaceRefused
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -202,6 +205,8 @@ enum AppError: Error, Equatable {
             String(localized: "Choose a zip archive or a folder whose name ends with .pak.")
         case .needsNewerPak:
             String(localized: "Update ReminisLink on the console to manage its apps and browse its SD card.")
+        case .trashReplaceRefused:
+            String(localized: "Only the save of a game still on the console can replace its current save.")
         case .trashEntryGone:
             String(localized: "This entry is no longer in the trash of the console, or ReminisLink on the console is too old to restore it (update it).")
         case .cancelled:
@@ -239,7 +244,7 @@ enum AppError: Error, Equatable {
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
-        case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone: nil
+        case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone, .trashReplaceRefused: nil
         case .pairingClosed, .unexpected: .retry
         }
     }
@@ -308,6 +313,7 @@ enum AppError: Error, Equatable {
         let error = AppError(error)
         guard case .api(let api) = error else { return error }
         let server: ServerError? = if case .server(let s) = api { s } else { nil }
+        if server?.trashReplaceRefusal != nil { return .trashReplaceRefused }
         if let server, let refusal = server.pakRefusal { return .pakRefused(refusal) }
         let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
         if status == 404 || status == 405 { return .trashEntryGone }

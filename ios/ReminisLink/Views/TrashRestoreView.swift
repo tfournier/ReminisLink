@@ -19,6 +19,7 @@ struct TrashRestoreView: View {
     /// The console answered `409` to a restore in place: a file appeared
     /// since the preview, which was read again.
     @State private var conflictAppeared = false
+    @State private var confirmReplace = false
 
     var body: some View {
         NavigationStack {
@@ -53,7 +54,7 @@ struct TrashRestoreView: View {
     private func previewSections(_ preview: TrashRestorePreview) -> some View {
         Section {
             ForEach(preview.items, id: \.name) { item in
-                RestoreItemRow(item: item, renamed: preview.conflict)
+                RestoreItemRow(item: item, renamed: preview.canRename)
             }
         } header: {
             Text("Back to the SD card")
@@ -76,16 +77,43 @@ struct TrashRestoreView: View {
                         .accessibilityHidden(true)
                 }
                 .accessibilityIdentifier("trashRestore.conflict")
+                if preview.canRename {
+                    Button {
+                        Task { await restore(.rename) }
+                    } label: {
+                        working("Restore Under a Free Name")
+                    }
+                    .disabled(isWorking)
+                    .accessibilityIdentifier("trashRestore.rename")
+                } else {
+                    // No free name exists: never offer a doomed action.
+                    Text(preview.noFreeName == .pathBlocked
+                        ? "A file blocks the folder where this entry goes back: no free name can be used. Move or delete that file, then try again."
+                        : "Every free name is already taken on the SD card.")
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("trashRestore.noFreeName")
+                }
+            } footer: {
+                if preview.canRename {
+                    Text("Every file comes back with the same number added to its name, so the files of a game stay together.")
+                }
+            }
+            replaceSection(preview)
+        } else if preview.replaceable && !preview.replaceDisplaced.isEmpty {
+            Section {
                 Button {
-                    Task { await restore(.rename) }
+                    Task { await restore(.fail) }
                 } label: {
-                    working("Restore Under a Free Name")
+                    working("Restore")
                 }
                 .disabled(isWorking)
-                .accessibilityIdentifier("trashRestore.rename")
+                .accessibilityIdentifier("trashRestore.confirm")
             } footer: {
-                Text("Every file comes back with the same number added to its name, so the files of a game stay together.")
+                Text(preview.keptAs == .backup
+                    ? "The copy goes back to the backup copies of the game; the current save does not change."
+                    : "Every file goes back to its original place.")
             }
+            replaceSection(preview)
         } else {
             Section {
                 Button {
@@ -101,6 +129,40 @@ struct TrashRestoreView: View {
         }
     }
 
+    /// "Replace the Current Save" (a save, or its backup copy, of a game
+    /// still on the console), with a confirmation saying where the current
+    /// save goes.
+    @ViewBuilder
+    private func replaceSection(_ preview: TrashRestorePreview) -> some View {
+        if preview.replaceable {
+            Section {
+                Button(role: .destructive) {
+                    confirmReplace = true
+                } label: {
+                    working("Replace the Current Save")
+                }
+                .disabled(isWorking)
+                .accessibilityIdentifier("trashRestore.replace")
+            } footer: {
+                Text(replaceExplanation(preview.keptAs))
+            }
+            .confirmationDialog("Replace the current save?", isPresented: $confirmReplace, titleVisibility: .visible) {
+                Button("Replace the Current Save", role: .destructive) {
+                    Task { await restore(.replace) }
+                }
+                .accessibilityIdentifier("trashRestore.replaceConfirm")
+            } message: {
+                Text(replaceExplanation(preview.keptAs))
+            }
+        }
+    }
+
+    private func replaceExplanation(_ keptAs: TrashReplaceKeptAs?) -> LocalizedStringKey {
+        keptAs == .backup
+            ? "This save becomes the save of the game. The current save is kept first as a backup copy of the game."
+            : "This save becomes the save of the game. The current save goes to the trash of the console first."
+    }
+
     private func doneSection(_ result: TrashRestoreResult) -> some View {
         Section {
             ForEach(result.restored, id: \.self) { name in
@@ -111,7 +173,11 @@ struct TrashRestoreView: View {
         } header: {
             Text("Back on the SD card")
         } footer: {
-            if result.renamed {
+            if result.keptAs == .backup {
+                Text("This save is now the save of the game. The previous save is kept as a backup copy of the game.")
+            } else if result.keptAs != nil {
+                Text("This save is now the save of the game. The previous save is in the trash of the console.")
+            } else if result.renamed {
                 Text("The files came back under a free name: the files already on the SD card were not changed.")
             } else {
                 Text("Every file is back in its original place.")
@@ -148,8 +214,9 @@ struct TrashRestoreView: View {
             error = nil
         } catch {
             if case .api(.server(let server)) = AppError(error), server.trashRestoreConflicts != nil {
-                // A file appeared since the preview: show what is taken now.
-                conflictAppeared = true
+                // A file appeared since the preview (or the free names ran
+                // out): show what is taken now.
+                conflictAppeared = onConflict == .fail
                 await load()
                 return
             }
@@ -181,8 +248,8 @@ private struct RestoreItemRow: View {
                     .font(.footnote)
                     .foregroundStyle(.orange)
             }
-            if renamed && item.freeName != item.name {
-                Text("Comes back as \(item.freeName)")
+            if renamed, let free = item.freeName, free != item.name {
+                Text("Comes back as \(free)")
                     .font(.footnote)
             }
         }

@@ -411,6 +411,16 @@
         }
       }
     },
+    "A file blocks the folder where this entry goes back: no free name can be used. Move or delete that file, then try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier bloque le dossier où revient cette entrée : aucun nom libre n’est possible. Déplace ou supprime ce fichier, puis réessaie."
+          }
+        }
+      }
+    },
     "A file with the same name is already on the SD card. ReminisLink never replaces it." : {
       "localizations" : {
         "fr" : {
@@ -1893,6 +1903,16 @@
         }
       }
     },
+    "Every free name is already taken on the SD card." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tous les noms libres sont déjà pris sur la carte SD."
+          }
+        }
+      }
+    },
     "Everything in the trash of the console will be permanently deleted. This cannot be undone." : {
       "localizations" : {
         "fr" : {
@@ -3101,6 +3121,16 @@
         }
       }
     },
+    "Only the save of a game still on the console can replace its current save." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seule la sauvegarde d’un jeu encore présent sur la console peut remplacer sa sauvegarde actuelle."
+          }
+        }
+      }
+    },
     "Open ReminisLink from the Tools menu of the console. If another device is already paired, open Settings > Pair a New Device." : {
       "localizations" : {
         "fr" : {
@@ -3631,6 +3661,16 @@
         }
       }
     },
+    "Replace the Current Save" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la sauvegarde actuelle"
+          }
+        }
+      }
+    },
     "Replace the Game" : {
       "localizations" : {
         "fr" : {
@@ -3647,6 +3687,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Remplacer la liste"
+          }
+        }
+      }
+    },
+    "Replace the current save?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer la sauvegarde actuelle ?"
           }
         }
       }
@@ -4923,6 +4973,16 @@
         }
       }
     },
+    "The copy goes back to the backup copies of the game; the current save does not change." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La copie retourne parmi les copies de secours du jeu ; la sauvegarde actuelle ne change pas."
+          }
+        }
+      }
+    },
     "The copy goes to the trash of the console. The current save does not change." : {
       "localizations" : {
         "fr" : {
@@ -6041,6 +6101,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette image ne peut pas servir d’image du jeu. Choisis-en une autre."
+          }
+        }
+      }
+    },
+    "This save becomes the save of the game. The current save goes to the trash of the console first." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle part d’abord dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "This save becomes the save of the game. The current save is kept first as a backup copy of the game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde devient celle du jeu. La sauvegarde actuelle est d’abord gardée comme copie de secours du jeu."
+          }
+        }
+      }
+    },
+    "This save is now the save of the game. The previous save is in the trash of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde est maintenant celle du jeu. La sauvegarde précédente est dans la corbeille de la console."
+          }
+        }
+      }
+    },
+    "This save is now the save of the game. The previous save is kept as a backup copy of the game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette sauvegarde est maintenant celle du jeu. La sauvegarde précédente est gardée comme copie de secours du jeu."
           }
         }
       }

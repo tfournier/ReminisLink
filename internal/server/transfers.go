@@ -157,7 +157,7 @@ func (s *Server) handleDeleteTrashEntry(w http.ResponseWriter, r *http.Request) 
 
 // handleTrashRestorePreview answers GET /trash/{entryId}/restore (M18).
 func (s *Server) handleTrashRestorePreview(w http.ResponseWriter, r *http.Request) {
-	p, err := s.opts.Trash.PlanRestore(r.PathValue("entryId"))
+	p, err := s.opts.Transfers.PreviewTrashRestore(r.PathValue("entryId"))
 	switch {
 	case errors.Is(err, store.ErrInvalidTrashID):
 		auth.WriteError(w, http.StatusBadRequest, CodeInvalidID, "Invalid identifier", nil)
@@ -171,28 +171,36 @@ func (s *Server) handleTrashRestorePreview(w http.ResponseWriter, r *http.Reques
 }
 
 // handleTrashRestore answers POST /trash/{entryId}/restore (M18): the
-// body ({"onConflict": "fail" | "rename"}) is optional.
+// body is optional; when present it is a JSON object whose onConflict, if
+// given, is "fail", "rename" or "replace" (never null).
 func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		OnConflict *string `json:"onConflict"`
+		OnConflict json.RawMessage `json:"onConflict"`
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Body unreadable", nil)
 		return
 	}
-	if len(bytes.TrimSpace(body)) > 0 {
+	onConflict := store.RestoreFail
+	if trimmed := bytes.TrimSpace(body); len(trimmed) > 0 {
+		if trimmed[0] != '{' {
+			auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "The body must be a JSON object", nil)
+			return
+		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		if !decodeJSON(w, r, &req) {
 			return
 		}
+		if req.OnConflict != nil {
+			if err := json.Unmarshal(req.OnConflict, &onConflict); err != nil || bytes.Equal(bytes.TrimSpace(req.OnConflict), []byte("null")) {
+				auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "onConflict must be fail, rename or replace", nil)
+				return
+			}
+		}
 	}
-	onConflict := store.RestoreFail
-	if req.OnConflict != nil {
-		onConflict = *req.OnConflict
-	}
-	if onConflict != store.RestoreFail && onConflict != store.RestoreRename {
-		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "onConflict must be fail or rename", nil)
+	if onConflict != store.RestoreFail && onConflict != store.RestoreRename && onConflict != store.RestoreReplace {
+		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "onConflict must be fail, rename or replace", nil)
 		return
 	}
 	res, apiErr, err := s.opts.Transfers.RestoreTrash(r.PathValue("entryId"), onConflict)

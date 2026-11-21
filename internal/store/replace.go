@@ -297,7 +297,7 @@ func (t *Trash) PendingSources() map[string]bool {
 		return out
 	}
 	for _, name := range names {
-		e, err := readEntry(filepath.Join(t.dir, name))
+		e, err := t.readEntry(filepath.Join(t.dir, name))
 		if err != nil || (e.State != stateInstalling && e.State != stateRestoring) {
 			continue
 		}

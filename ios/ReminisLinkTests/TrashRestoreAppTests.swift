@@ -80,10 +80,27 @@ struct TrashRestoreAppTests {
             return server.trashRestoreConflicts == ["Tools/tg5040/Clock.pak"]
         }
         let preview = try await session.trashRestorePreview(moved.trashEntryId)
-        #expect(preview.conflict && preview.items.allSatisfy { $0.freeName.hasPrefix("Tools/tg5040/Clock (2).pak") })
+        #expect(preview.conflict && preview.items.allSatisfy { $0.freeName?.hasPrefix("Tools/tg5040/Clock (2).pak") == true })
         let result = try await session.restoreTrashEntry(moved.trashEntryId, onConflict: .rename)
         #expect(result.renamed)
         #expect(Set(pak.installedPakNames).isSuperset(of: ["Clock", "Clock (2)"]))
+    }
+
+    @Test func aDeletedCopyReplacesTheCurrentSave() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await session.connect()
+        let client = try #require(session.client)
+        let game = DemoLibrary.id("Handheld Advance (HA)/Thistledown Isles.hab")
+        let backup = try #require(try await client.saveBackups(gameId: game).first)
+        try await client.deleteSaveBackup(gameId: game, backupId: backup.id)
+        let entry = try #require(try await client.trash().entries.first { $0.reason == "delete-backup" })
+        let preview = try await session.trashRestorePreview(entry.id)
+        #expect(preview.replaceable && preview.keptAs == .backup)
+        let result = try await session.restoreTrashEntry(entry.id, onConflict: .replace)
+        #expect(result.keptAs == .backup)
+        #expect(try await client.saveBackups(gameId: game).contains { $0.reason == .beforeRestore })
     }
 
     @Test func theErrorsOfARestore() {
@@ -93,5 +110,7 @@ struct TrashRestoreAppTests {
         let refused = APIError.server(ServerError(status: 422, code: .unsupportedFormat, message: "Invalid pak: no launch.sh in the pak folder"))
         #expect(AppError.trashRestore(refused) == .pakRefused(.noLaunchScript))
         #expect(!AppError.trashEntryGone.message.isEmpty && AppError.trashEntryGone.action == nil)
+        let replace = APIError.server(ServerError(status: 422, code: .unsupportedFormat, message: "x", details: ["reason": .string("not-a-save")]))
+        #expect(AppError.trashRestore(replace) == .trashReplaceRefused)
     }
 }
