@@ -92,6 +92,7 @@ struct LibraryContent: Equatable {
 /// Every game in one list, searched, filtered and sorted on the iPhone.
 struct FlatLibraryList: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.librarySelection) private var librarySelection
     let deviceId: String
     let all: AllGames
     let systems: [GameSystem]
@@ -105,7 +106,8 @@ struct FlatLibraryList: View {
         let labels = LibraryFiltering.labels(systems)
         let rowLabels = LibraryFiltering.rowLabels(systems: systems, games: all.games)
         let games = LibraryFiltering.apply(query, to: all.games, groups: groups)
-        List {
+        // M15: in a wide window a game is selected and shown beside the list.
+        List(selection: librarySelection) {
             if let error {
                 Section { ErrorView(error: error, retry: retry) }
             }
@@ -197,7 +199,12 @@ struct FlatLibraryList: View {
                     }
                     Section {
                         Button {
-                            app.tabPaths[.library, default: []].append(.systems(deviceId))
+                            if let librarySelection {
+                                // M15: shown beside the list, in place of the game.
+                                librarySelection.wrappedValue = .systems(deviceId)
+                            } else {
+                                app.tabPaths[.library, default: []].append(.systems(deviceId))
+                            }
                         } label: {
                             Label("Browse by Console", systemImage: "folder")
                         }
@@ -260,6 +267,9 @@ struct SystemsView: View {
 
 /// Systems with their number of games, each opening its folder.
 struct SystemsList<Footer: View>: View {
+    /// Set in the Library column of a wide window (M15): a system is
+    /// selected and its folder shown beside the list.
+    @Environment(\.librarySelection) private var librarySelection
     let deviceId: String
     let systems: [GameSystem]?
     let error: AppError?
@@ -267,7 +277,7 @@ struct SystemsList<Footer: View>: View {
     @ViewBuilder let footer: () -> Footer
 
     var body: some View {
-        List {
+        List(selection: librarySelection) {
             if let error {
                 Section { ErrorView(error: error, retry: retry) }
             }

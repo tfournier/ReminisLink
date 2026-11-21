@@ -2,7 +2,7 @@
 
 ## 1. Cible
 
-- iPhone, iOS 18 minimum (décidé le 20/11/2026 : iOS 17 ne peut plus être testé avec Xcode 27). iPad plus tard.
+- iPhone, iOS 18 minimum (décidé le 20/11/2026 : iOS 17 ne peut plus être testé avec Xcode 27). iPad et Mac à puce Apple (« Designed for iPad ») avec le même binaire depuis M15 ([09](09-feuille-de-route.md#m15--app-universelle-décidé-le-20112026)) : mise en page selon la classe de taille et la largeur de la fenêtre, jamais selon le modèle de l'appareil.
 - SwiftUI, Observation (`@Observable`), Swift Concurrency. Aucune dépendance tierce sans accord.
 - Langues : anglais et français en v1 (String Catalog `Localizable.xcstrings`).
 - Identifiants : domaine du produit `reminis.link`, décision du 19/11/2026, définitifs : app **`link.reminis.app`**, extension `link.reminis.app.share`, groupe d'apps `group.link.reminis.app`, groupe de Trousseau `<Team ID>.link.reminis.app.shared`. Le préfixe ne rattache pas l'app à une entreprise ; le nom du vendeur affiché sur l'App Store est celui du compte qui publie. L'équipe de signature reste locale (`ios/Config/Local.xcconfig`, ignoré par Git).
@@ -53,6 +53,8 @@ Réglages de l'app ─ Saves sur cet iPhone ─ Console ─ …
 ```
 
 **Navigation (M11).** La liste des consoles reste la racine. Ouvrir une console affiche une barre d'onglets **Console**, **Bibliothèque**, **Transferts**, **Corbeille**, chacun avec sa propre pile de navigation ; le bouton **Consoles** en haut à gauche du premier écran de chaque onglet revient à la liste. Les liens internes (fin d'appairage, fin d'un envoi → onglet Transferts, nouvelle ROM d'un patch → onglet Bibliothèque puis le jeu) ouvrent l'onglet voulu.
+
+**Présentations (M15).** Selon la largeur de la fenêtre (classe de taille), jamais selon le modèle de l'appareil. En largeur compacte (iPhone, Slide Over, fenêtre étroite, écran extérieur d'un iPhone Duo) : barre d'onglets en bas et une pile par onglet, comme en M11. En largeur normale (iPad, Mac, grande fenêtre) : les onglets sont une barre en haut qui peut devenir une barre latérale ; l'onglet **Bibliothèque** montre la liste des jeux dans une colonne et l'écran choisi à côté (le jeu, ou les systèmes de **Parcourir par console**), les écrans suivants (Save, States, Cheats…) s'empilant dans la colonne de droite ; les écrans gardent une largeur lisible (700 pt au plus, centrés). **Passage de l'une à l'autre** (fenêtre redimensionnée, rotation, Stage Manager) : la Bibliothèque est une seule vue en colonnes qui se replie en pile, si bien que l'écran affiché reste le même, avec son état : une feuille ouverte et ce qui y est saisi (modification d'un code de triche non enregistrée, feuille Patch), et un téléchargement en cours de la fiche, qui n'est annulé que si l'on quitte vraiment la fiche (retour, autre onglet, autre écran poussé, console fermée). Les envois et les tâches de la console vivent dans la session et ne sont jamais touchés. Sélection vide en deux colonnes : « Choisis un jeu ».
 
 ### 4.1 Consoles
 

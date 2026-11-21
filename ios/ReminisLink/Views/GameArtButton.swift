@@ -81,7 +81,12 @@ struct GameArtButton: View {
                     .accessibilityIdentifier("game.removeArt")
             }
         } message: {
-            Text("Shown by NextUI in the game list. The picture is scaled down to at most 1024 pixels and sent as a PNG; the previous image goes to the trash of the console.")
+            // The demo names no real product.
+            if app.isDemo {
+                Text("Shown by the console in the game list. The picture is scaled down to at most 1024 pixels and sent as a PNG; the previous image goes to the trash of the console.")
+            } else {
+                Text("Shown by NextUI in the game list. The picture is scaled down to at most 1024 pixels and sent as a PNG; the previous image goes to the trash of the console.")
+            }
         }
         .confirmationDialog("Remove the image?", isPresented: $confirmRemove, titleVisibility: .visible) {
             Button("Remove Image", role: .destructive) { Task { await remove() } }

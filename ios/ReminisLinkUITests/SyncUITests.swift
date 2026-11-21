@@ -50,8 +50,8 @@ final class SyncUITests: XCTestCase {
         GameDataUITest.expectShareSheetThenClose(app)
 
         // Back on the dashboard, the restored save is a change: one new version.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.goBack()
+        app.goBack()
         app.buttons["console.sync"].tapWhenEnabled(timeout: 15)
         expectReport(app, containing: "New versions: 1", timeout: 20)
         openVersions(app, system: "Handheld Advance (HA)", game: GameDataUITest.demoGame, timeout: 15)
@@ -67,8 +67,10 @@ final class SyncUITests: XCTestCase {
         app.launchEnvironment["RL_DEMO"] = "1"
         app.launch()
         app.buttons["consoles.settings"].tapAfterWaiting(timeout: 15)
-        let local = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'copied to this iPhone only'")).firstMatch
-        XCTAssertTrue(local.waitForExistence(timeout: 10), "the settings do not say the saves stay on this iPhone")
+        // "this iPhone" on an iPhone, "this device" elsewhere (M15).
+        let device = UITestDevice.isPhone ? "iPhone" : "device"
+        let local = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "copied to this \(device) only")).firstMatch
+        XCTAssertTrue(local.waitForExistence(timeout: 10), "the settings do not say the saves stay on this \(device)")
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'copied to your own iCloud Drive'")).firstMatch.exists)
         XCTAssertTrue(app.descendants(matching: .any)["sync.location.local"].firstMatch.exists)
     }

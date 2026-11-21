@@ -117,7 +117,7 @@ final class PaksUITests: XCTestCase {
         attachScreenshot(of: app, named: "installed")
 
         // Console tab > Apps: listed; deleted to the trash.
-        app.tabBars.buttons["Console"].tap()
+        app.consoleTabs["Console"].tap()
         let paks = app.buttons["console.paks"]
         XCTAssertTrue(GameDataUITest.scrollTo(paks, in: app, attempts: 8), "no Apps row")
         paks.tap()

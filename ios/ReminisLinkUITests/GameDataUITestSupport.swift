@@ -60,7 +60,7 @@ enum GameDataUITest {
     /// The Library tab of the open console (M11).
     @MainActor
     static func openLibraryTab(_ app: XCUIApplication, timeout: TimeInterval) {
-        app.tabBars.buttons["Library"].tapWhenEnabled(timeout: timeout)
+        app.consoleTabs["Library"].tapWhenEnabled(timeout: timeout)
     }
 
     /// From the open console to a game: the flat library (searched by
@@ -166,6 +166,114 @@ enum GameDataUITest {
     static func button(_ app: XCUIApplication, _ identifier: String, containing text: String) -> XCUIElement {
         app.buttons.matching(identifier: identifier).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
+}
+
+/// The tabs of an open console (M11), in the presentation actually shown
+/// (M15): the tab bar at the bottom of a narrow window, or, in a wide one,
+/// the bar at the top (or the sidebar) whose items are named after their
+/// symbol and are not grouped in a tab bar.
+@MainActor
+struct ConsoleTabBar {
+    let app: XCUIApplication
+
+    /// The symbol of each tab and its labels (English, French: some tests
+    /// run in the language of the simulator).
+    static let tabs: [String: (symbol: String, labels: [String])] = [
+        "Console": ("gamecontroller", ["Console"]),
+        "Library": ("square.grid.2x2", ["Library", "Bibliothèque"]),
+        "Transfers": ("arrow.up.arrow.down", ["Transfers", "Transferts"]),
+        "Trash": ("trash", ["Trash", "Corbeille"]),
+    ]
+
+    static let order = ["Console", "Library", "Transfers", "Trash"]
+
+    /// A tab of the bottom tab bar, by position, whatever the language.
+    private func bottom(_ name: String) -> XCUIElement {
+        guard let index = Self.order.firstIndex(of: name) else { return app.tabBars.buttons[name] }
+        return app.tabBars.buttons.element(boundBy: index)
+    }
+
+    /// A tab of the top bar or of the sidebar of a wide window.
+    private func wide(_ name: String) -> XCUIElement {
+        let tab = Self.tabs[name] ?? (name, [name])
+        let predicate = NSPredicate(format: "identifier == %@ AND label IN %@", tab.symbol, tab.labels)
+        // A button of the top bar; a cell when the sidebar is open.
+        let button = app.buttons.matching(predicate).firstMatch
+        return button.exists ? button : app.cells.matching(predicate).firstMatch
+    }
+
+    /// A tab by its English name, in the presentation shown (waits up to
+    /// 15 s for the tabs to appear).
+    subscript(name: String) -> XCUIElement {
+        let deadline = Date().addingTimeInterval(15)
+        repeat {
+            if app.tabBars.firstMatch.exists { return bottom(name) }
+            let item = wide(name)
+            if item.exists { return item }
+            _ = app.tabBars.firstMatch.waitForExistence(timeout: 0.5)
+        } while Date() < deadline
+        return bottom(name)
+    }
+
+    /// Some presentation of the tabs is shown.
+    var exists: Bool { app.tabBars.firstMatch.exists || wide("Console").exists }
+
+    func waitForExistence(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if exists { return true }
+            _ = app.tabBars.firstMatch.waitForExistence(timeout: 0.5)
+        } while Date() < deadline
+        return exists
+    }
+}
+
+extension XCUIApplication {
+    var consoleTabs: ConsoleTabBar { ConsoleTabBar(app: self) }
+
+    /// The Library tab shows the list and the selection side by side (M15).
+    var showsLibraryColumns: Bool {
+        descendants(matching: .any)["library.columns"].firstMatch.exists
+    }
+
+    /// Taps the Back button of the screen shown; never another button. The
+    /// system names it `BackButton` in the detail column of a wide window;
+    /// in one stack (iPhone) it has no identifier and is labelled with the
+    /// previous screen, at the leading edge of the bar: every button the app
+    /// puts in a navigation bar has an identifier.
+    func goBack(file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            let named = navigationBars.buttons["BackButton"].firstMatch
+            if named.exists {
+                named.tap()
+                return
+            }
+            for bar in navigationBars.allElementsBoundByIndex where bar.isHittable {
+                let leading = bar.buttons.matching(NSPredicate(format: "identifier == ''")).allElementsBoundByIndex
+                    .first { $0.frame.minX - bar.frame.minX < 24 && $0.isHittable }
+                if let leading {
+                    leading.tap()
+                    return
+                }
+            }
+            _ = navigationBars.buttons["BackButton"].firstMatch.waitForExistence(timeout: 0.5)
+        } while Date() < deadline
+        XCTFail("no Back button", file: file, line: line)
+    }
+
+    /// Back to the list of games: a Back button in one stack; nothing to
+    /// do when the list is beside the game (M15).
+    func showLibraryList(file: StaticString = #filePath, line: UInt = #line) {
+        if !showsLibraryColumns { goBack(file: file, line: line) }
+    }
+}
+
+@MainActor
+enum UITestDevice {
+    /// Texts that vary by device in the String Catalog ("this iPhone",
+    /// "this device"): the device itself, not the presentation.
+    static var isPhone: Bool { UIDevice.current.userInterfaceIdiom == .phone }
 }
 
 extension XCTestCase {

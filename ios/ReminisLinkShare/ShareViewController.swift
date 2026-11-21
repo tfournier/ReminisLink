@@ -32,10 +32,12 @@ final class ShareViewController: UIViewController {
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
+        // Any size of sheet (iPhone, iPad, Mac; M15): centred, at a
+        // readable width.
         NSLayoutConstraint.activate([
             stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+            stack.leadingAnchor.constraint(equalTo: view.readableContentGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: view.readableContentGuide.trailingAnchor),
         ])
     }
 

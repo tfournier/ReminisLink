@@ -28,8 +28,8 @@ final class EventsUITests: XCTestCase {
     func testPakQuitReturnsToListAgainstHeadlessPak() throws {
         let link = try GameDataUITest.headlessLink("EVENTS_QUIT")
         let app = launchAndPair(link)
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 30))
-        XCTAssertTrue(app.tabBars.buttons["Console"].isSelected)
+        XCTAssertTrue(app.consoleTabs.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.consoleTabs["Console"].isSelected)
         attachScreenshot(of: app, named: "events-quit-dashboard")
         signalReady()
 
@@ -41,7 +41,7 @@ final class EventsUITests: XCTestCase {
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "animation")], timeout: 1)
         attachScreenshot(of: app, named: "events-quit-list")
         XCTAssertTrue(notice.label.contains("The console closed ReminisLink"), notice.label)
-        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertFalse(app.consoleTabs.exists)
         XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
         if let seenAt { checkDelay(until: seenAt, what: "SIGTERM to the list") }
     }
