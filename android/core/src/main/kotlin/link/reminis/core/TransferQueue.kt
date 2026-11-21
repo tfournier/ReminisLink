@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class TransferDirection { UPLOAD, DOWNLOAD }
 
@@ -198,6 +199,15 @@ class TransferQueue(
 
         /** A failed download deleting its partial document (counts as busy). */
         var cleaning = false
+
+        /** pauseAll() came while a new conflict rule was being applied: it lands paused. */
+        var pauseRequested = false
+
+        /** The open document of a running download (closed by a cancel: it unblocks a stuck write). */
+        var stream: OutputStream? = null
+
+        /** A cancelled download whose job did not stop in time: the queue goes on without it. */
+        var abandoned = false
         val rate = TransferRate()
 
         val isStarted: Boolean get() = phase == TransferPhase.HASHING || phase == TransferPhase.RUNNING
@@ -358,9 +368,16 @@ class TransferQueue(
         entry.failure = null
         val job = entry.job
         job?.cancel()
+        val stream = entry.stream
         publish()
         scope.launch(Dispatchers.IO) {
-            job?.join()
+            // A provider that stopped reading can block a write forever: closing the
+            // document from here unblocks it (the call itself is cancelled by the job).
+            stream?.let { runCatching { it.close() } }
+            if (job != null && withTimeoutOrNull(stopTimeoutMillis) { job.join() } == null) {
+                // Still stuck: the queue no longer waits for it.
+                synchronized(lock) { entry.abandoned = true }
+            }
             val deleted = runCatching { entry.sink?.discard() ?: true }.getOrDefault(false)
             synchronized(lock) {
                 if (entry.phase != TransferPhase.CANCELLING) return@launch
@@ -430,12 +447,22 @@ class TransferQueue(
                     runCatching { client(entry.deviceId, false).cancelUpload(previous) }
                 }
             } finally {
-                synchronized(lock) {
+                val resumed = synchronized(lock) {
                     entry.reserved = false
-                    resumeLocked(entry)
-                    publish()
+                    if (entry.pauseRequested) {
+                        // The service was stopped meanwhile: nothing starts without a new resume.
+                        entry.pauseRequested = false
+                        entry.phase = TransferPhase.PAUSED
+                        entry.failure = null
+                        publish()
+                        false
+                    } else {
+                        resumeLocked(entry)
+                        publish()
+                        true
+                    }
                 }
-                onActive()
+                if (resumed) onActive()
             }
         }
     }
@@ -447,11 +474,19 @@ class TransferQueue(
      */
     fun pauseAll() = synchronized(lock) {
         for (entry in entries) {
+            // A new conflict rule being applied: it lands paused instead of starting.
+            if (entry.reserved) {
+                entry.pauseRequested = true
+                continue
+            }
             when (entry.phase) {
                 TransferPhase.WAITING -> entry.phase = TransferPhase.PAUSED
                 TransferPhase.HASHING, TransferPhase.RUNNING -> {
                     entry.pauseFlag.set(true)
-                    if (entry.direction == TransferDirection.DOWNLOAD) entry.job?.cancel()
+                    if (entry.direction == TransferDirection.DOWNLOAD) {
+                        entry.job?.cancel()
+                        entry.stream?.let { stream -> scope.launch(Dispatchers.IO) { runCatching { stream.close() } } }
+                    }
                 }
                 else -> Unit
             }
@@ -536,7 +571,10 @@ class TransferQueue(
                 beforeStartForTests?.invoke(entry.id)
                 // A job cancelled before this never runs its body.
                 job.start()
-                job.join()
+                while (withTimeoutOrNull(1_000) { job.join() } == null) {
+                    // A cancelled download stuck in its provider: the others go on.
+                    if (synchronized(lock) { entry.abandoned }) break
+                }
                 synchronized(lock) {
                     // Cancelled (or paused) before it could settle its own phase.
                     if (entry.isStarted) {
@@ -645,6 +683,7 @@ class TransferQueue(
                 throw e
             }
             val out = opened!!
+            synchronized(lock) { entry.stream = out }
             var committed = false
             try {
                 currentCoroutineContext().ensureActive()
@@ -658,6 +697,7 @@ class TransferQueue(
                 withContext(Dispatchers.IO) { sink.finish(out) }
                 committed = true
             } finally {
+                synchronized(lock) { entry.stream = null }
                 if (!committed) withContext(NonCancellable + Dispatchers.IO) { runCatching { out.close() } }
             }
             val done = synchronized(lock) {
@@ -717,6 +757,11 @@ class TransferQueue(
             entry.phase = TransferPhase.FAILED
             entry.failure = ConsoleForgottenException()
         }
+        if (entry.phase == TransferPhase.FAILED && entry.upload?.completeSent == true) {
+            // `complete` went and no definite answer came back: whatever stopped it
+            // (forgotten console, error), the file may be on the console.
+            entry.failure = UploadFailure(UploadFailure.Reason.OUTCOME_UNKNOWN)
+        }
     }
 
     private fun isBusyLocked(): Boolean = entries.any { it.phase.isActive || it.cleaning }
@@ -731,6 +776,9 @@ class TransferQueue(
         stop()
         true
     }
+
+    /** How long a cancel waits for a download's job to stop before going on without it (shorter in tests). */
+    internal var stopTimeoutMillis = 10_000L
 
     private fun scopeActive(): Boolean = scope.coroutineContext[Job]?.isActive != false
 
@@ -749,8 +797,8 @@ class TransferQueue(
 
     private fun publish() {
         lastProgressPublish = System.nanoTime()
-        _items.value = entries.map(::snapshot)
         _busy.value = isBusyLocked()
+        _items.value = entries.map(::snapshot)
     }
 
     private fun snapshot(e: Entry): TransferItem {

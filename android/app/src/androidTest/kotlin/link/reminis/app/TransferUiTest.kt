@@ -319,6 +319,11 @@ class TransferUiTest {
      * value and restored; the document has a name of its own and is
      * deleted at the end.
      */
+    /** The night mode the app currently runs with (its configuration follows the system's). */
+    private fun isNight(): Boolean =
+        (context.applicationContext.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+
     @Test
     fun downloadSurvivesRecreationDuringThePicker() {
         val queue = context.container.transfers
@@ -329,9 +334,7 @@ class TransferUiTest {
         // "Night mode: yes|no|auto|custom..."
         val original = shell("cmd uimode night").substringAfter(":").trim().substringBefore(' ')
             .takeIf { it in setOf("yes", "no", "auto") } ?: "auto"
-        val nightNow = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val toggled = if (nightNow) "no" else "yes"
+        val toggled = if (isNight()) "no" else "yes"
         context.container.lastDownloadDocumentForTests = null
         val created = mutableListOf<MainActivity>()
         var document: Uri? = null
@@ -343,7 +346,12 @@ class TransferUiTest {
                 // The system picker is in front; a configuration change recreates the activity behind it.
                 Thread.sleep(3_000)
                 shell("cmd uimode night $toggled")
-                Thread.sleep(1_000)
+                // The new configuration is applied before Save is pressed: the activity behind
+                // the picker is relaunched with it before the result is delivered.
+                val wantNight = toggled == "yes"
+                val applied = System.currentTimeMillis() + 10_000
+                while (isNight() != wantNight && System.currentTimeMillis() < applied) Thread.sleep(100)
+                assertEquals("the configuration change was not applied", wantNight, isNight())
                 // Tap Save in the picker (found through accessibility).
                 var tapped = false
                 repeat(15) {
@@ -368,6 +376,8 @@ class TransferUiTest {
                 assertTrue("no download after the recreation", item != null)
                 scenario.onActivity { created += it }
                 assertTrue("the activity was not recreated", created.first() !== created.last())
+                // The first instance is gone: the result reached the recreated activity.
+                assertTrue("the first activity is still alive", created.first().isDestroyed)
                 val bytes = context.contentResolver.openInputStream(document!!)!!.use { it.readBytes() }
                 assertArrayEquals("ROM!".toByteArray(), bytes)
                 // Deleted while the picker's grant is still held by the activity.

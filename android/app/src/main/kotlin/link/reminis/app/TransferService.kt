@@ -58,18 +58,26 @@ class TransferService : Service() {
                         getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, notification(items))
                     }
                 }
-                queue.isBusy.collectLatest { busy ->
-                    if (busy) return@collectLatest
-                    // Decided under the queue's lock: an item added meanwhile keeps the
-                    // service (busy again), or starts it again with a newer start id.
-                    queue.stopIfIdle {
-                        if (stopSelfResult(lastStartId)) stopForeground(STOP_FOREGROUND_REMOVE)
-                    }
-                }
+                queue.isBusy.collectLatest { busy -> if (!busy) stopIfIdle() }
             }
+        } else if (!queue.isBusy.value) {
+            // A start that arrived after the queue emptied (its stop then failed on an
+            // older start id): try again with this one, or the service would stay.
+            stopIfIdle()
         }
         // Not restarted by the system: the queue died with the process.
         return START_NOT_STICKY
+    }
+
+    /**
+     * Stops the service if the queue is idle, decided under the queue's lock:
+     * an item added meanwhile keeps the service (busy again), or starts it
+     * again with a newer start id, whose onStartCommand checks again.
+     */
+    private fun stopIfIdle() {
+        container.transfers.stopIfIdle {
+            if (stopSelfResult(lastStartId)) stopForeground(STOP_FOREGROUND_REMOVE)
+        }
     }
 
     private fun startInForeground(notification: Notification): Boolean = try {

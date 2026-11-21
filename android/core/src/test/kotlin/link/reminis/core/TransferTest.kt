@@ -418,7 +418,7 @@ class TransferTest {
         assertEquals("g", done.result?.gameId)
         assertEquals(6L, done.doneBytes)
         withTimeout(5_000) { while (dir.exists()) kotlinx.coroutines.delay(20) }
-        assertTrue(!q.isBusy.value)
+        withTimeout(5_000) { q.isBusy.first { busy -> !busy } }
     }
 
     @Test
@@ -555,7 +555,7 @@ class TransferTest {
         assertTrue("deleted before shown cancelled", sink.discarded)
         assertTrue("the blocked read was not interrupted", System.nanoTime() - start < 5_000_000_000L)
         assertEquals(TransferPhase.CANCELLED, cancelled.phase)
-        assertTrue(!q.isBusy.value)
+        withTimeout(5_000) { q.isBusy.first { busy -> !busy } }
 
         // A provider refusing the deletion: reported, not shown cancelled.
         server.enqueue(
@@ -701,7 +701,7 @@ class TransferTest {
         assertTrue(!q.stopIfIdle { throw AssertionError("stopped during cleanup") })
         sink.release.countDown()
         q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
-        assertTrue(!q.isBusy.value)
+        withTimeout(5_000) { q.isBusy.first { busy -> !busy } }
         var stopped = false
         assertTrue(q.stopIfIdle { stopped = true } && stopped)
     }
@@ -723,7 +723,7 @@ class TransferTest {
         sink.release.countDown()
         val failed = q.waitFor(id) { it.failure is PartialDocumentException }
         assertTrue(failed.failure?.cause is java.io.IOException)
-        assertTrue(!q.isBusy.value)
+        withTimeout(5_000) { q.isBusy.first { busy -> !busy } }
     }
 
     @Test
@@ -756,6 +756,132 @@ class TransferTest {
         q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
         assertTrue("the stream returned after the cancel was not closed before deletion", closedBeforeDiscard.get())
         assertEquals(0, server.requestCount)
+    }
+
+    // MARK: final review
+
+    @Test
+    fun forgettingDuringTheWaitAfterALostCompleteIsAnUnknownOutcome() = withScope { scope ->
+        val bytes = "abcd".toByteArray()
+        server.enqueue(created(chunk = 4))
+        server.enqueue(chunkStored(4))
+        // `complete` is received (the console may install the file), its answer is lost,
+        // and the console stays unreachable.
+        repeat(5) { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)) }
+        val waiting = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var first = true
+        val retry = RetryPolicy(sleep = {
+            if (first) {
+                first = false
+                waiting.complete(Unit)
+                release.await()
+            }
+        })
+        val q = TransferQueue(scope, retry) { _, _ -> client() }
+        val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = false)
+        withTimeout(5_000) { waiting.await() }
+        // Forgotten during the wait before the next attempt, `complete` still in doubt.
+        assertTrue(q.item(id).isCompleting)
+        q.dropConsole(deviceId)
+        release.complete(Unit)
+        val end = q.waitFor(id) { it.phase == TransferPhase.FAILED }
+        assertEquals(UploadFailure.Reason.OUTCOME_UNKNOWN, (end.failure as? UploadFailure)?.reason)
+    }
+
+    @Test
+    fun pauseWhileReplaceIsAppliedLandsPaused() = withScope { scope ->
+        val bytes = "abcd".toByteArray()
+        server.enqueue(created(id = "up_1", chunk = 4))
+        server.enqueue(chunkStored(4))
+        server.enqueue(error("conflict", 409, """{"existing":"a.gba"}"""))
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "Pocket", ownsFile = false)
+        q.waitFor(id) { it.phase == TransferPhase.FAILED }
+        // The DELETE of the old upload is slow; the service hits its limit meanwhile.
+        server.enqueue(MockResponse().setResponseCode(204).setHeadersDelay(1, java.util.concurrent.TimeUnit.SECONDS))
+        q.retry(id, OnConflict.OVERWRITE)
+        withTimeout(5_000) { while (server.requestCount < 4) kotlinx.coroutines.delay(10) }
+        q.pauseAll()
+        val paused = q.waitFor(id) { it.phase == TransferPhase.PAUSED && !it.isReserved }
+        assertTrue(paused.canResume)
+        kotlinx.coroutines.delay(500)
+        // Nothing restarted without a new resume.
+        assertEquals(4, server.requestCount)
+        assertEquals(TransferPhase.PAUSED, q.item(id).phase)
+        // Resumed: the new rule is used.
+        server.enqueue(created(id = "up_2", chunk = 4))
+        server.enqueue(chunkStored(4))
+        server.enqueue(json("""{"gameId":"g2"}"""))
+        q.resume(id)
+        assertEquals("g2", q.waitFor(id) { it.phase == TransferPhase.DONE }.result?.gameId)
+        repeat(4) { server.takeRequest() }
+        val create = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+        assertEquals("overwrite", create["onConflict"]!!.jsonPrimitive.content)
+    }
+
+    /** A document whose provider stopped reading: a write blocks until the stream is closed (or forever). */
+    private class StuckSink(private val closeUnblocks: Boolean) : DownloadSink {
+        val writing = java.util.concurrent.CountDownLatch(1)
+        val unblock = java.util.concurrent.CountDownLatch(1)
+        @Volatile var discarded = false
+
+        override fun open(): OutputStream = object : OutputStream() {
+            override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                writing.countDown()
+                unblock.await(30, java.util.concurrent.TimeUnit.SECONDS)
+                if (closeUnblocks) throw java.io.IOException("closed")
+            }
+
+            override fun close() {
+                if (closeUnblocks) unblock.countDown()
+            }
+        }
+
+        override fun discard(): Boolean {
+            discarded = true
+            return true
+        }
+    }
+
+    @Test
+    fun cancelUnblocksAStuckWriteAndTheQueueGoesOn() = withScope { scope ->
+        val q = queue(scope)
+        server.enqueue(MockResponse().setResponseCode(200).setBody("abcdef"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("next"))
+        val stuck = StuckSink(closeUnblocks = true)
+        val id = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "a.sav", "M", stuck)
+        assertTrue(stuck.writing.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        val next = MemorySink()
+        val id2 = q.enqueueDownload(deviceId, DownloadSource.Save("g2"), "b.sav", "M", next)
+        q.cancel(id)
+        q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
+        assertTrue(stuck.discarded)
+        q.waitFor(id2) { it.phase == TransferPhase.DONE }
+        assertArrayEquals("next".toByteArray(), next.out.toByteArray())
+    }
+
+    @Test
+    fun aDownloadThatNeverStopsIsAbandonedAfterItsCancel() = withScope { scope ->
+        val q = queue(scope)
+        q.stopTimeoutMillis = 300
+        server.enqueue(MockResponse().setResponseCode(200).setBody("abcdef"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("next"))
+        val stuck = StuckSink(closeUnblocks = false)
+        try {
+            val id = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "a.sav", "M", stuck)
+            assertTrue(stuck.writing.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val next = MemorySink()
+            val id2 = q.enqueueDownload(deviceId, DownloadSource.Save("g2"), "b.sav", "M", next)
+            q.cancel(id)
+            q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
+            // The stuck one no longer holds the downloads behind it.
+            q.waitFor(id2) { it.phase == TransferPhase.DONE }
+        } finally {
+            stuck.unblock.countDown()
+        }
     }
 
     // MARK: small pieces
