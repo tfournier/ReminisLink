@@ -106,6 +106,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     private var _log: [LoggedRequest] = []
     private var queued: [FakeResponse] = []
     var trashEntries: [[String: Any]]
+    /// What the trash entries put back when restored (M18, FakePakTrash.swift).
+    var trashPayloads: [String: FakeTrashPayload] = [:]
     var _library: DemoLibrary
     /// Saves, states, locks and cheats of the games (milestone M5), made
     /// from the library counters the first time a game is used.
@@ -194,6 +196,11 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             "sizeBytes": 17_377_096,
             "expiresAt": "2026-12-18T17:00:00Z",
         ]]
+        trashPayloads["tr_20261118T170000Z_a1b2"] = .game(
+            systemFolder: "Handheld Advance (HA)",
+            game: DemoLibrary.Game(path: "Old Prototype.hab", sizeBytes: 17_246_024, modifiedAt: Date(timeIntervalSince1970: 1_790_000_000), hasSave: true),
+            data: nil
+        )
     }
 
     /// Registers this pak for its host on ``FakeURLProtocol``.
@@ -589,6 +596,10 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             }
             guard let freed else { return .error(404, code: "not_found", message: "Trash entry not found") }
             return .json(200, ["freedBytes": freed])
+        case ("GET", let s) where s.count == 3 && s[0] == "trash" && s[2] == "restore":
+            return trashRestorePreview(id: s[1])
+        case ("POST", let s) where s.count == 3 && s[0] == "trash" && s[2] == "restore":
+            return restoreTrashEntry(id: s[1], body: body)
         default:
             if method == "POST", segments.count == 3, segments[0] == "games", segments[2] == "patch" {
                 return createPatchJob(gameId: segments[1], body: body)
@@ -1228,7 +1239,7 @@ extension FakePak {
         ]
         let key = Self.dataKey(system: system, game: game)
         // The files as they are now (made from the seed if never read).
-        _ = currentData(system: system, game: game)
+        let before = currentData(system: system, game: game)
         lock.withLock {
             var data = gameData[key]
             gameData[key] = nil
@@ -1253,6 +1264,8 @@ extension FakePak {
                 }
             }
             trashEntries.insert(entry, at: 0)
+            // With keepSave the save and the states stayed in place.
+            trashPayloads[id] = .game(systemFolder: system.folder, game: game, data: keepSave ? nil : before)
         }
         return ["trashEntryId": id, "moved": moved, "movedBytes": bytes]
     }
