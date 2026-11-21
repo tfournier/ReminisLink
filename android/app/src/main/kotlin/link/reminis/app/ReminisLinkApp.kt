@@ -94,20 +94,24 @@ class AppContainer(context: Context) {
     val transferDirectory = File(context.filesDir, "transfers")
 
     private val transferScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val appContext: Context = context.applicationContext
+
+    /** Tests only: the document of the last download asked from a screen (to read it back and delete it). */
+    @androidx.annotation.VisibleForTesting
+    @Volatile
+    var lastDownloadDocumentForTests: android.net.Uri? = null
 
     /** Uploads and downloads of every console; a foreground service holds the process while it is busy. */
-    val transfers = TransferQueue(transferScope) { deviceId, refresh -> client(deviceId, refresh) }
+    val transfers = TransferQueue(
+        transferScope,
+        // Every time work is added or resumed (idempotent): no start depends on a busy flag's transitions.
+        onActive = { TransferService.start(appContext) },
+    ) { deviceId, refresh -> client(deviceId, refresh) }
 
     init {
         // Listed now, before any new copy can be made; deleted in the background.
         val leftovers = transferDirectory.listFiles().orEmpty()
         transferScope.launch(Dispatchers.IO) { leftovers.forEach { it.deleteRecursively() } }
-        val appContext = context.applicationContext
-        transferScope.launch {
-            transfers.isBusy.collect { busy ->
-                if (busy) withContext(Dispatchers.Main) { TransferService.start(appContext) }
-            }
-        }
     }
 
     /** `clientName` of `POST /pair`: typed by the user, the device model by default. */

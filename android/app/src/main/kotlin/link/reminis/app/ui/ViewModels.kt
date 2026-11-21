@@ -424,7 +424,7 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
 }
 
 /** A short message shown after an action (a string resource and its arguments). */
-data class Notice(@androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList())
+data class Notice(@param:androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList())
 
 /**
  * A screen of one console whose actions show a working state, then a notice
@@ -476,6 +476,7 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
         sizeBytes: Long?,
     ) {
         val app = getApplication<Application>()
+        container.lastDownloadDocumentForTests = destination
         container.transfers.enqueueDownload(deviceId, source, fileName, gameName, DocumentSink(app, destination), sizeBytes)
         _notice.value = Notice(R.string.download_queued, listOf(fileName))
     }

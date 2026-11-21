@@ -70,6 +70,9 @@ class TransferUiTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
     private val deviceId = "4c2e8a1f-6b3d-4f70-9e21-7a8b9c0d1e2f"
     private val gameId = "R0JBL01vc3MgTGFudGVybi5nYmE"
+
+    /** The game file's name, new for each run: a document saved by the picker never meets an earlier one. */
+    private val romName = "Moss Lantern ${System.currentTimeMillis()}.gba"
     private lateinit var server: MockWebServer
     private val requests = CopyOnWriteArrayList<RecordedRequest>()
     private val received = java.io.ByteArrayOutputStream()
@@ -139,7 +142,7 @@ class TransferUiTest {
             )
             path == "/api/v1/games/$gameId" -> json(
                 """{"id":"$gameId","systemId":"R0JB","name":"Moss Lantern","fileName":"Moss Lantern.gba","kind":"file","totalBytes":12,
-                "files":[{"fileId":"cm9t","role":"rom","path":"Roms/Pocket Advance (GBA)/Moss Lantern.gba","sizeBytes":4,"modifiedAt":"2026-11-21T10:00:00Z"},
+                "files":[{"fileId":"cm9t","role":"rom","path":"Roms/Pocket Advance (GBA)/$romName","sizeBytes":4,"modifiedAt":"2026-11-21T10:00:00Z"},
                 {"fileId":"c2F2","role":"save","path":"Saves/GBA/Moss Lantern.gba.sav","sizeBytes":3,"modifiedAt":"2026-11-21T10:00:00Z"},
                 {"fileId":"c3Qw","role":"state","slot":0,"path":".userdata/shared/GBA-gpsp/Moss Lantern.gba.st0","sizeBytes":5,"modifiedAt":"2026-11-21T10:00:00Z"}]}""",
             )
@@ -312,57 +315,69 @@ class TransferUiTest {
     /**
      * The save-as picker stays open while the activity is recreated (a
      * configuration change): the download still goes to the queue and
-     * fills the document chosen.
+     * fills the document chosen. The night mode is toggled to the other
+     * value and restored; the document has a name of its own and is
+     * deleted at the end.
      */
     @Test
     fun downloadSurvivesRecreationDuringThePicker() {
         val queue = context.container.transfers
         val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
         fun shell(command: String) = automation.executeShellCommand(command).use { pfd ->
-            android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+            String(android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() })
         }
+        // "Night mode: yes|no|auto|custom..."
+        val original = shell("cmd uimode night").substringAfter(":").trim().substringBefore(' ')
+            .takeIf { it in setOf("yes", "no", "auto") } ?: "auto"
+        val nightNow = (context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val toggled = if (nightNow) "no" else "yes"
+        context.container.lastDownloadDocumentForTests = null
         val created = mutableListOf<MainActivity>()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { created += it }
-            openGame()
-            compose.onAllNodesWithText(context.getString(R.string.action_download))[0].performClick()
-            // The system picker is in front; a configuration change recreates the activity behind it.
-            Thread.sleep(3_000)
-            shell("cmd uimode night yes")
-            try {
+        var document: Uri? = null
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { created += it }
+                openGame()
+                compose.onAllNodesWithText(context.getString(R.string.action_download))[0].performClick()
+                // The system picker is in front; a configuration change recreates the activity behind it.
+                Thread.sleep(3_000)
+                shell("cmd uimode night $toggled")
                 Thread.sleep(1_000)
-                // Tap Save in the picker (found in the window hierarchy).
+                // Tap Save in the picker (found through accessibility).
                 var tapped = false
                 repeat(15) {
                     if (tapped) return@repeat
-                    val root = automation.rootInActiveWindow
-                    val save = root?.findAccessibilityNodeInfosByViewId("android:id/button1")?.firstOrNull()
-                    if (save != null && save.packageName?.contains("documentsui") == true) {
-                        tapped = save.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
-                    }
+                    val save = automation.rootInActiveWindow
+                        ?.takeIf { it.packageName?.contains("documentsui") == true }
+                        ?.findAccessibilityNodeInfosByViewId("android:id/button1")?.firstOrNull()
+                    if (save != null) tapped = save.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
                     if (!tapped) Thread.sleep(1_000)
                 }
                 assertTrue("the picker's Save button was not found", tapped)
-                // A document of that name left by an earlier run: confirm the overwrite.
-                Thread.sleep(1_000)
-                automation.rootInActiveWindow?.takeIf { it.packageName?.contains("documentsui") == true }
-                    ?.findAccessibilityNodeInfosByViewId("android:id/button1")?.firstOrNull()
-                    ?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
                 val deadline = System.currentTimeMillis() + 20_000
                 var item: link.reminis.core.TransferItem? = null
                 while (System.currentTimeMillis() < deadline) {
                     item = queue.items.value.firstOrNull {
-                        it.deviceId == deviceId && it.fileName == "Moss Lantern.gba" && it.phase == TransferPhase.DONE
+                        it.deviceId == deviceId && it.fileName == romName && it.phase == TransferPhase.DONE
                     }
                     if (item != null) break
                     Thread.sleep(200)
                 }
+                document = context.container.lastDownloadDocumentForTests
                 assertTrue("no download after the recreation", item != null)
                 scenario.onActivity { created += it }
                 assertTrue("the activity was not recreated", created.first() !== created.last())
-            } finally {
-                shell("cmd uimode night no")
+                val bytes = context.contentResolver.openInputStream(document!!)!!.use { it.readBytes() }
+                assertArrayEquals("ROM!".toByteArray(), bytes)
+                // Deleted while the picker's grant is still held by the activity.
+                assertTrue("the test document was not deleted", DocumentSink.deleteDocument(context, document!!))
+                document = null
             }
+        } finally {
+            shell("cmd uimode night $original")
+            // A failure above: removed best effort, the name is unique to this run anyway.
+            document?.let { DocumentSink.deleteDocument(context, it) }
         }
     }
 }

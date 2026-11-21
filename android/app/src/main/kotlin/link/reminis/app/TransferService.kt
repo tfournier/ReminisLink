@@ -39,7 +39,12 @@ class TransferService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** The latest start: a stop only succeeds if no newer start arrived (`stopSelfResult`). */
+    @Volatile
+    private var lastStartId = 0
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         val queue = container.transfers
         if (!startInForeground(notification(queue.items.value))) {
             stopSelf()
@@ -54,9 +59,11 @@ class TransferService : Service() {
                     }
                 }
                 queue.isBusy.collectLatest { busy ->
-                    if (!busy) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        stopSelf()
+                    if (busy) return@collectLatest
+                    // Decided under the queue's lock: an item added meanwhile keeps the
+                    // service (busy again), or starts it again with a newer start id.
+                    queue.stopIfIdle {
+                        if (stopSelfResult(lastStartId)) stopForeground(STOP_FOREGROUND_REMOVE)
                     }
                 }
             }

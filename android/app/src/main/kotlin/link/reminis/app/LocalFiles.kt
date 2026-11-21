@@ -79,13 +79,25 @@ class DocumentSink(private val context: Context, private val uri: Uri) : Downloa
         throw LocalFileException(e)
     }
 
-    /** Flushed, synced to storage when the provider gives a file, then closed: any failure fails the download. */
+    /**
+     * Flushed, synced to storage when the provider gives a regular file (a
+     * provider writing through a pipe cannot be synced: its own close
+     * commits the document), then closed. A write, sync or close error
+     * fails the download.
+     */
     override fun finish(out: OutputStream) = try {
         out.flush()
-        (out as? java.io.FileOutputStream)?.fd?.sync()
+        val fd = (out as? java.io.FileOutputStream)?.fd
+        if (fd != null && isRegularFile(fd)) fd.sync()
         out.close()
     } catch (e: Exception) {
         throw LocalFileException(e)
+    }
+
+    private fun isRegularFile(fd: java.io.FileDescriptor): Boolean = try {
+        android.system.OsConstants.S_ISREG(android.system.Os.fstat(fd).st_mode)
+    } catch (_: android.system.ErrnoException) {
+        false
     }
 
     override fun discard(): Boolean = deleteDocument(context, uri)

@@ -611,6 +611,153 @@ class TransferTest {
         assertEquals(7, server.requestCount)
     }
 
+    // MARK: review round 2
+
+    @Test
+    fun pauseRightBeforeCompleteStopsIt() = withScope { scope ->
+        val bytes = "abcd".toByteArray()
+        server.enqueue(created(chunk = 4))
+        server.enqueue(chunkStored(4))
+        val q = queue(scope)
+        // The service hits its limit after the last chunk, right before the decision to complete.
+        var once = true
+        q.beforeCompleteDecisionForTests = { if (once) { once = false; q.pauseAll() } }
+        val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = false)
+        q.waitFor(id) { it.phase == TransferPhase.PAUSED }
+        kotlinx.coroutines.delay(300)
+        assertEquals("complete was sent although the pause won", 2, server.requestCount)
+        // Resumed later: the console is asked for the offset, then completes.
+        server.enqueue(json("""{"uploadId":"up_1","offset":4,"sizeBytes":4}"""))
+        server.enqueue(json("""{"gameId":"g"}"""))
+        q.resume(id)
+        assertEquals("g", q.waitFor(id) { it.phase == TransferPhase.DONE }.result?.gameId)
+    }
+
+    @Test
+    fun forgettingAConsoleKeepsAnUnknownOutcome() = withScope { scope ->
+        val bytes = "abcd".toByteArray()
+        val dir = temp.newFolder()
+        val copy = File(dir, "file").apply { writeBytes(bytes) }
+        server.enqueue(created(chunk = 4))
+        server.enqueue(chunkStored(4))
+        // The console installs the file, the answer is lost, then it no longer knows the upload.
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        server.enqueue(error("not_found", 404))
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, copy, "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = true)
+        val unknown = q.waitFor(id) { it.phase == TransferPhase.FAILED }
+        assertEquals(UploadFailure.Reason.OUTCOME_UNKNOWN, (unknown.failure as UploadFailure).reason)
+        q.dropConsole(deviceId)
+        kotlinx.coroutines.delay(300)
+        val kept = q.item(id)
+        assertEquals(TransferPhase.FAILED, kept.phase)
+        assertEquals(UploadFailure.Reason.OUTCOME_UNKNOWN, (kept.failure as UploadFailure).reason)
+        assertTrue("the local copy was deleted", copy.exists())
+    }
+
+    @Test
+    fun forgettingAConsoleWithCompleteUnansweredIsUnknownNotCancelled() = withScope { scope ->
+        val bytes = "abcd".toByteArray()
+        server.enqueue(created(chunk = 4))
+        server.enqueue(chunkStored(4))
+        // `complete` sent, no answer, and the console unreachable: paused with the doubt.
+        repeat(5) { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)) }
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, file(bytes), "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = false)
+        q.waitFor(id) { it.phase == TransferPhase.PAUSED }
+        q.dropConsole(deviceId)
+        val dropped = q.item(id)
+        assertEquals(TransferPhase.FAILED, dropped.phase)
+        assertEquals(UploadFailure.Reason.OUTCOME_UNKNOWN, (dropped.failure as UploadFailure).reason)
+    }
+
+    /** A sink whose deletion waits for the test. */
+    private open class BlockingDiscardSink(private val deletes: Boolean) : MemorySink(deletes) {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+
+        override fun discard(): Boolean {
+            entered.countDown()
+            release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            return super.discard()
+        }
+    }
+
+    @Test
+    fun cancelledDownloadIsBusyUntilItsDocumentIsDeleted() = withScope { scope ->
+        val q = queue(scope)
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(okio.Buffer().write(ByteArray(100_000)))
+                .throttleBody(1, 1, java.util.concurrent.TimeUnit.SECONDS),
+        )
+        val sink = BlockingDiscardSink(deletes = true)
+        val id = q.enqueueDownload(deviceId, DownloadSource.State("g1", 0), "s.st0", "M", sink)
+        q.waitFor(id) { it.sizeBytes == 100_000L }
+        q.cancel(id)
+        assertTrue(sink.entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        // Deleting: still cancelling, still busy (the service stays).
+        assertEquals(TransferPhase.CANCELLING, q.item(id).phase)
+        assertTrue(q.isBusy.value)
+        assertTrue(!q.stopIfIdle { throw AssertionError("stopped during cleanup") })
+        sink.release.countDown()
+        q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
+        assertTrue(!q.isBusy.value)
+        var stopped = false
+        assertTrue(q.stopIfIdle { stopped = true } && stopped)
+    }
+
+    @Test
+    fun failedDownloadIsBusyUntilDeletedAndReportsARefusedDeletion() = withScope { scope ->
+        val q = queue(scope)
+        server.enqueue(MockResponse().setResponseCode(200).setBody("abc"))
+        val sink = object : BlockingDiscardSink(deletes = false) {
+            override fun finish(out: OutputStream) = throw java.io.IOException("commit refused")
+        }
+        val id = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "a.sav", "M", sink)
+        assertTrue(sink.entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(TransferPhase.FAILED, q.item(id).phase)
+        assertTrue(q.isBusy.value)
+        // Not cleared while its document is being deleted.
+        q.clearFinished(deviceId)
+        assertTrue(q.items.value.any { it.id == id })
+        sink.release.countDown()
+        val failed = q.waitFor(id) { it.failure is PartialDocumentException }
+        assertTrue(failed.failure?.cause is java.io.IOException)
+        assertTrue(!q.isBusy.value)
+    }
+
+    @Test
+    fun cancelWhileOpeningTheDocumentClosesItsStream() = withScope { scope ->
+        val q = queue(scope)
+        val opening = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val closed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val closedBeforeDiscard = java.util.concurrent.atomic.AtomicBoolean(false)
+        val sink = object : DownloadSink {
+            override fun open(): OutputStream {
+                opening.countDown()
+                release.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                return object : ByteArrayOutputStream() {
+                    override fun close() {
+                        closed.set(true)
+                    }
+                }
+            }
+
+            override fun discard(): Boolean {
+                closedBeforeDiscard.set(closed.get())
+                return true
+            }
+        }
+        val id = q.enqueueDownload(deviceId, DownloadSource.Save("g1"), "a.sav", "M", sink)
+        assertTrue(opening.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        q.cancel(id)
+        release.countDown()
+        q.waitFor(id) { it.phase == TransferPhase.CANCELLED }
+        assertTrue("the stream returned after the cancel was not closed before deletion", closedBeforeDiscard.get())
+        assertEquals(0, server.requestCount)
+    }
+
     // MARK: small pieces
 
     @Test

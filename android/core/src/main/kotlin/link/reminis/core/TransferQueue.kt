@@ -10,6 +10,8 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -69,7 +71,7 @@ interface DownloadSink {
 }
 
 /** A cancelled or failed download whose partial document could not be deleted. */
-class PartialDocumentException : Exception("partial document not deleted")
+class PartialDocumentException(cause: Throwable? = null) : Exception("partial document not deleted", cause)
 
 /** The console was forgotten on this phone while the transfer was waiting or running. */
 class ConsoleForgottenException : Exception("console forgotten")
@@ -154,6 +156,12 @@ data class TransferItem(
 class TransferQueue(
     private val scope: CoroutineScope,
     private val retry: RetryPolicy = RetryPolicy(),
+    /**
+     * Called (outside the lock) whenever work is added or resumed: the app
+     * starts its foreground service then, every time (starting it is
+     * idempotent), so no start is lost to a busy flag flickering.
+     */
+    private val onActive: () -> Unit = {},
     /** A signed, connected client for a console; `refresh` looks for it again (its address may have changed). */
     private val client: suspend (deviceId: String, refresh: Boolean) -> ApiClient,
 ) {
@@ -187,6 +195,9 @@ class TransferQueue(
         var refreshClient = false
         var reserved = false
         var dropped = false
+
+        /** A failed download deleting its partial document (counts as busy). */
+        var cleaning = false
         val rate = TransferRate()
 
         val isStarted: Boolean get() = phase == TransferPhase.HASHING || phase == TransferPhase.RUNNING
@@ -212,6 +223,9 @@ class TransferQueue(
 
     /** Tests only: runs between a transfer marked started and its job starting. */
     internal var beforeStartForTests: (suspend (String) -> Unit)? = null
+
+    /** Tests only: runs after the last chunk, right before the decision to send `complete`. */
+    internal var beforeCompleteDecisionForTests: (() -> Unit)? = null
 
     /** Tests only: runs between a new conflict rule chosen and applied. */
     internal var beforeRuleAppliedForTests: (suspend (String) -> Unit)? = null
@@ -255,11 +269,14 @@ class TransferQueue(
         ),
     )
 
-    private fun add(entry: Entry): String = synchronized(lock) {
-        entries += entry
-        publish()
-        pump(entry.direction)
-        entry.id
+    private fun add(entry: Entry): String {
+        synchronized(lock) {
+            entries += entry
+            publish()
+            pump(entry.direction)
+        }
+        onActive()
+        return entry.id
     }
 
     // MARK: actions
@@ -359,10 +376,13 @@ class TransferQueue(
     }
 
     /** Resumes a paused transfer, or tries a failed upload again. */
-    fun resume(id: String) = synchronized(lock) {
-        val entry = entries.firstOrNull { it.id == id } ?: return
-        resumeLocked(entry)
-        publish()
+    fun resume(id: String) {
+        synchronized(lock) {
+            val entry = entries.firstOrNull { it.id == id } ?: return
+            resumeLocked(entry)
+            publish()
+        }
+        onActive()
     }
 
     private fun resumeLocked(entry: Entry) {
@@ -376,9 +396,14 @@ class TransferQueue(
     }
 
     /** Resumes the paused transfers of a console (it answers again). */
-    fun resumePaused(deviceId: String) = synchronized(lock) {
-        entries.filter { it.deviceId == deviceId && it.phase == TransferPhase.PAUSED }.forEach { resumeLocked(it) }
-        publish()
+    fun resumePaused(deviceId: String) {
+        val resumed = synchronized(lock) {
+            val paused = entries.filter { it.deviceId == deviceId && it.phase == TransferPhase.PAUSED }
+            paused.forEach { resumeLocked(it) }
+            publish()
+            paused.isNotEmpty()
+        }
+        if (resumed) onActive()
     }
 
     /**
@@ -410,6 +435,7 @@ class TransferQueue(
                     resumeLocked(entry)
                     publish()
                 }
+                onActive()
             }
         }
     }
@@ -443,20 +469,22 @@ class TransferQueue(
     fun dropConsole(deviceId: String) = synchronized(lock) {
         for (entry in entries.filter { it.deviceId == deviceId && !it.phase.isFinished }) {
             entry.dropped = true
-            if (entry.isCompleting) continue
-            when {
-                entry.direction == TransferDirection.DOWNLOAD -> when (entry.phase) {
-                    TransferPhase.CANCELLING -> Unit
-                    TransferPhase.FAILED -> entry.phase = TransferPhase.CANCELLED
-                    else -> cancelDownloadLocked(entry, failureIfKept = PartialDocumentException())
-                }
-                entry.phase == TransferPhase.CANCELLING -> Unit
-                else -> {
-                    entry.phase = TransferPhase.CANCELLED
-                    entry.failure = null
-                    entry.job?.cancel()
-                    cleanUp(entry)
-                }
+            // A terminal outcome (failed, unknown) or a decision in progress keeps its own state.
+            if (entry.isCompleting || entry.phase == TransferPhase.FAILED || entry.phase == TransferPhase.CANCELLING) continue
+            if (entry.direction == TransferDirection.DOWNLOAD) {
+                cancelDownloadLocked(entry, failureIfKept = PartialDocumentException())
+                continue
+            }
+            entry.job?.cancel()
+            if (entry.upload?.completeSent == true) {
+                // `complete` went without a definite answer: the file may be on the console.
+                // Never shown cancelled, and the local copy is kept.
+                entry.phase = TransferPhase.FAILED
+                entry.failure = UploadFailure(UploadFailure.Reason.OUTCOME_UNKNOWN)
+            } else {
+                entry.phase = TransferPhase.CANCELLED
+                entry.failure = null
+                cleanUp(entry)
             }
         }
         publish()
@@ -465,7 +493,8 @@ class TransferQueue(
     /** Removes the finished transfers of a console (all consoles when null) from the list. */
     fun clearFinished(deviceId: String? = null) = synchronized(lock) {
         entries.removeAll {
-            val finished = it.phase.isFinished || (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD)
+            val finished = it.phase.isFinished ||
+                (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD && !it.cleaning)
             finished && (deviceId == null || it.deviceId == deviceId)
         }
         publish()
@@ -563,9 +592,12 @@ class TransferQueue(
                     publishProgress()
                 },
                 willComplete = {
+                    beforeCompleteDecisionForTests?.invoke()
+                    // One decision under the lock, against cancel(), pauseAll() and dropConsole():
+                    // either `complete` is sent, or the transfer stops before it.
                     synchronized(lock) {
-                        // Cancelled, paused or dropped since the last chunk: `complete` is never sent.
                         if (!entry.isStarted || entry.dropped) throw CancellationException("transfer stopped")
+                        if (flag.get()) throw UploadFailure(UploadFailure.Reason.PAUSED)
                         entry.isCompleting = true
                         publish()
                     }
@@ -587,8 +619,8 @@ class TransferQueue(
             synchronized(lock) {
                 entry.isCompleting = false
                 entry.inFlightBytes = 0
-                // A cancellation in progress decides the phase itself.
-                if (entry.phase == TransferPhase.CANCELLED || entry.phase == TransferPhase.CANCELLING) return
+                // A cancel, or a forgotten console, already decided the phase.
+                if (!entry.isStarted) return
                 failed(entry, e)
                 publish()
             }
@@ -602,9 +634,20 @@ class TransferQueue(
         try {
             val api = client(entry.deviceId, entry.refreshClient)
             entry.refreshClient = false
-            val out = withContext(Dispatchers.IO) { sink.open() }
+            // The stream is kept in a variable as soon as the provider returns it: resuming
+            // after a cancel drops withContext's return value (prompt cancellation), and the
+            // stream must still be closed before the document is deleted.
+            var opened: OutputStream? = null
+            try {
+                withContext(NonCancellable + Dispatchers.IO) { opened = sink.open() }
+            } catch (e: CancellationException) {
+                opened?.let { stream -> withContext(NonCancellable + Dispatchers.IO) { runCatching { stream.close() } } }
+                throw e
+            }
+            val out = opened!!
             var committed = false
             try {
+                currentCoroutineContext().ensureActive()
                 api.download(source, out) { written, total ->
                     entry.doneBytes = written
                     if (total != null) entry.sizeBytes = total
@@ -629,13 +672,21 @@ class TransferQueue(
             val discard = synchronized(lock) {
                 if (!entry.isStarted) return
                 failed(entry, e)
-                entry.phase == TransferPhase.FAILED
+                val final = entry.phase == TransferPhase.FAILED
+                // Busy until the partial document is deleted: the service stays meanwhile.
+                if (final) entry.cleaning = true
+                publish()
+                final
             }
             if (discard) {
-                // A failed download is final: its partial document is deleted before it shows failed.
-                withContext(NonCancellable + Dispatchers.IO) { runCatching { sink.discard() } }
+                // A failed download is final: its partial document is deleted.
+                val deleted = withContext(NonCancellable + Dispatchers.IO) { runCatching { sink.discard() }.getOrDefault(false) }
+                synchronized(lock) {
+                    entry.cleaning = false
+                    if (!deleted) entry.failure = PartialDocumentException(e)
+                    publish()
+                }
             }
-            synchronized(lock) { publish() }
             if (e is CancellationException && !scopeActive()) throw e
         }
     }
@@ -668,6 +719,19 @@ class TransferQueue(
         }
     }
 
+    private fun isBusyLocked(): Boolean = entries.any { it.phase.isActive || it.cleaning }
+
+    /**
+     * Runs [stop] only if nothing is in progress, decided under the queue's
+     * lock: an item added at the same moment either sees the service
+     * stopping (and starts it again, [onActive]) or keeps it.
+     */
+    fun stopIfIdle(stop: () -> Unit): Boolean = synchronized(lock) {
+        if (isBusyLocked()) return false
+        stop()
+        true
+    }
+
     private fun scopeActive(): Boolean = scope.coroutineContext[Job]?.isActive != false
 
     private fun cleanUp(entry: Entry) {
@@ -686,7 +750,7 @@ class TransferQueue(
     private fun publish() {
         lastProgressPublish = System.nanoTime()
         _items.value = entries.map(::snapshot)
-        _busy.value = entries.any { it.phase.isActive }
+        _busy.value = isBusyLocked()
     }
 
     private fun snapshot(e: Entry): TransferItem {
