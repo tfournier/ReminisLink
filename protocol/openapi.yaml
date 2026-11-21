@@ -1363,8 +1363,11 @@ paths:
         `folder-cue`, subfolders included) and same state resolution as
         `GET /games/{gameId}/states` (state folder of the system's
         emulator core, file named after the ROM, the `.m3u` or the `.cue`,
-        ignoring case); two games of a system with the same ROM file name
-        share their states on NextUI and are both listed. Order: by
+        ignoring case); one file per slot, `<name>.st<slot>` with the slot
+        in decimal without leading zero as NextUI writes it (`.st01` is not
+        slot 1), the very file `GET /games/{gameId}/states/{slot}` serves
+        and the archives export; two games of a system with the same ROM
+        file name share their states on NextUI and are both listed. Order: by
         system, game, then slot. Locked copies and the resume history are
         not listed.
 
@@ -2112,9 +2115,10 @@ paths:
         receives the data; the archive must hold a ROM, else
         `422 unsupported_format`; its file name, `source.fileName` cleaned
         like an upload, must be a game name, else `400 invalid_name`, and
-        free in the folder, else `409 conflict` with `details.existing` and,
-        when it is a game, `details.gameId`, which the app offers as the
-        target). Without either, the pak suggests one: a
+        free in the folder and not the ROM file name of another game of the
+        system (whose save, clock file and states it would share), else
+        `409 conflict` with `details.existing` and, when it is a game,
+        `details.gameId`, which the app offers as the target). Without either, the pak suggests one: a
         game of a system with the archive's tag whose data are named after
         the same ROM file name (ignoring case), else, when the archive
         holds a ROM, the top folder of the first system with that tag;
@@ -2211,6 +2215,29 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
+    delete:
+      tags: [Archives]
+      operationId: deleteStagedArchive
+      summary: Delete an uploaded archive from the staging area (M19)
+      description: |
+        The app abandons an import (the preview is closed, or the archive
+        was refused): the staging entry is deleted at once rather than at
+        the 24 h purge, so that large archives do not fill the card. It
+        touches the pak's staging area only (no write lock is taken). An
+        import job still running on this entry: `409 conflict`. A staging
+        entry is also deleted by the success of its import.
+      parameters:
+        - $ref: '#/components/parameters/StagingId'
+      responses:
+        '204': { description: Staging entry deleted. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
 
   /archives/{stagingId}/import:
     post:
@@ -2235,11 +2262,13 @@ paths:
         the target game, by role, with the names this console uses (save
         and clock file named after the ROM, states in the state folder of
         the system's emulator core, thumbnails, cheats, art), matching an
-        existing file ignoring case (exFAT); it backs up the current save
-        (`before-import`, with its clock file), then moves every file that
+        existing file ignoring case (exFAT); when the save or its clock file
+        is replaced, it backs up the current save (`before-import`, with
+        its clock file), then moves every file that
         is replaced (and the thumbnail of a replaced state) to one trash
         entry (reason `import-archive`, label: the game name) and renames
-        the new files into place, as one journaled replacement (M8): a
+        the new files into place, as one journaled replacement (M8, also
+        when nothing is replaced): a
         failure puts everything back and fails the job; a power cut is
         finished or rolled back when the pak starts again. Nothing else is
         removed. Files that cannot be imported are skipped with the
