@@ -424,6 +424,13 @@ struct AppSettingsView: View {
                     if let location = app.vaultLocation { VaultLocationNotice(location: location) }
                 }
             }
+            Section {
+                ResetIdentityButton()
+            } header: {
+                Text("Pairing")
+            } footer: {
+                Text("Only if pairing keeps saying that the identity of your Apple devices has not arrived on this device.")
+            }
             Section("About") {
                 LabeledContent("Version", value: AppModel.appVersion)
             }

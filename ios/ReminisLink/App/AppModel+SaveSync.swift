@@ -87,6 +87,12 @@ final class SaveSyncState {
 
 extension AppModel {
     /// Stops every save sync and returns their tasks (to wait for them).
+    /// Stops the save sync of a console (M15: its pairing was forgotten,
+    /// paused or replaced).
+    func cancelSaveSync(deviceId: String) {
+        syncStates[deviceId]?.cancel()
+    }
+
     func cancelSaveSyncs() -> [Task<Void, Never>] {
         let tasks = syncStates.values.compactMap(\.task)
         for state in syncStates.values { state.cancel() }
@@ -171,7 +177,8 @@ extension AppModel {
         vaultLocation = vault.location
         let name = store.device(id: deviceId)?.name ?? session.hello?.deviceName ?? deviceId
         let sync = SaveSync(
-            console: VaultConsoleInfo(deviceId: deviceId, name: name), source: client, vault: vault,
+            console: VaultConsoleInfo(deviceId: deviceId, name: name), source: SessionSaveSource(session: session, client: client),
+            vault: vault,
             scratchDirectory: syncScratchDirectory
         )
         do {
@@ -190,6 +197,28 @@ extension AppModel {
         let vault = await vaultProvider.resolve()
         vaultLocation = vault.location
         return vault
+    }
+}
+
+/// The client of a save sync, used only while it is still the session's
+/// client (M15): once the session dropped it (pairing forgotten, paused or
+/// replaced), the next request of the sync is not sent.
+struct SessionSaveSource: SaveSyncSource {
+    let session: ConsoleSession
+    let client: APIClient
+
+    private func current() async throws -> APIClient {
+        guard await session.client === client else { throw CancellationError() }
+        return client
+    }
+
+    func saves() async throws -> SaveList { try await current().saves() }
+    func systems() async throws -> [GameSystem] { try await current().systems() }
+    func downloadSave(gameId: String, into directory: URL) async throws -> DownloadedFile {
+        try await current().downloadSave(gameId: gameId, into: directory)
+    }
+    func downloadSaveClock(gameId: String, into directory: URL) async throws -> DownloadedFile {
+        try await current().downloadSaveClock(gameId: gameId, into: directory)
     }
 }
 

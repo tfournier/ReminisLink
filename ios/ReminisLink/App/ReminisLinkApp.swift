@@ -109,6 +109,18 @@ struct RootView: View {
                 app.enterBackground()
             }
         }
+        // M15: the iCloud Keychain sends no change notification, and a
+        // Mac window stays active while another app is in front: the
+        // shared pairings are read again every minute while active (a few
+        // Keychain reads), besides the key-value store marker.
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                app.reloadPairings()
+            }
+        }
     }
 }
 

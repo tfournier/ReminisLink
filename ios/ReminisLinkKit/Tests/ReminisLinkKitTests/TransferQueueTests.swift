@@ -91,6 +91,44 @@ struct TransferQueueTests {
         #expect(item.failure == nil)
     }
 
+    /// M15: the client of a running upload stops being current (the app
+    /// dropped it, the pairing changed): the upload stops after its chunk
+    /// and goes on with a client taken again, never one more chunk with the
+    /// old one.
+    @Test func anUploadSwitchesToTheNewClientAfterItsChunk() async throws {
+        let pak = makePak()
+        pak.chunkSize = 16 * 1024
+        pak.responseDelay = 0.02
+        let session = pak.makeSession()
+        func pair() async throws -> (APIClient, String) {
+            let identity = ClientIdentity.generate()
+            let attempt = try PairingAttempt(secret: pak.secret, deviceId: pak.deviceId, identity: identity, clientName: "Test")
+            try await APIClient(endpoint: pak.endpoint, expectedDeviceId: pak.deviceId, pin: pak.pin, session: session).pair(attempt)
+            let client = APIClient(
+                endpoint: pak.endpoint, credentials: DeviceCredentials(deviceId: pak.deviceId, identity: identity, pin: pak.pin),
+                platform: .iphone, session: session
+            )
+            return (client, identity.clientId)
+        }
+        let (old, oldId) = try await pair()
+        let (new, newId) = try await pair()
+        let current = CurrentClient(old)
+        let queue = TransferQueue(
+            scratchDirectory: scratch, retry: .immediate, isCurrentClient: { current.isCurrent($0) }
+        ) { current.client }
+        let item = try queue.enqueue(fileURL: try makeFile(size: 400_000), target: .rom(systemId: gbaSystemId, fileName: "S.gba"),
+                                     destination: "GBA", ownsFile: false)
+        while item.sentBytes == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        current.client = new
+        // The old identity is forgotten by the console once replaced: a
+        // chunk sent with it after its current one would fail the upload.
+        while pak.platforms(clientId: newId).lastSeen == nil { try await Task.sleep(for: .milliseconds(10)) }
+        pak.forget(clientId: oldId)
+        await queue.waitUntilIdle()
+        #expect(item.phase == .done)
+        #expect(pak.platforms(clientId: newId).lastSeen != nil)
+    }
+
     @Test func backgroundExpirationPausesAfterTheChunk() async throws {
         let pak = makePak()
         pak.chunkSize = 16 * 1024
@@ -618,4 +656,16 @@ struct AddSuggestionTests {
         #expect(ShareInbox.safeName("a\u{1}b") == "ab")
         #expect(ShareInbox.uniqueName("a", taken: ["a", "a (2)"]) == "a (3)")
     }
+}
+
+/// The client to sign with, changed by a test.
+final class CurrentClient: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _client: APIClient
+    init(_ client: APIClient) { _client = client }
+    var client: APIClient {
+        get { lock.withLock { _client } }
+        set { lock.withLock { _client = newValue } }
+    }
+    func isCurrent(_ client: APIClient) -> Bool { lock.withLock { _client === client } }
 }

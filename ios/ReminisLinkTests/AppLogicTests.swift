@@ -118,7 +118,7 @@ struct AppLogicTests {
         let session = app.session(for: pak.deviceId)
         await session.connect()
         #expect(session.error == .consoleNotFound)
-        app.store.noteEndpoint(pak.endpoint, for: pak.deviceId)
+        app.store.noteEndpoint(pak.endpoint, for: pak.deviceId, pin: pak.pin)
         await session.connect()
         #expect(session.state == .connected)
     }
@@ -292,7 +292,11 @@ struct AppLogicTests {
 
     // MARK: 5. No key
 
-    @Test func missingIdentityOffersRepairAndForgetsLocally() async throws {
+    /// M15: a console record whose identity item is absent is a pairing
+    /// still arriving through the iCloud Keychain (it works on the other
+    /// devices): "not arrived yet", retried, never "Pair Again"; Unpair
+    /// still forgets it, without a request.
+    @Test func missingIdentityWaitsForTheKeychainAndForgetsLocally() async throws {
         let pak = makePak()
         let app = try await pairedApp(pak)
         let clientId = try #require(try app.store.credentials(for: pak.deviceId)).clientId
@@ -300,7 +304,8 @@ struct AppLogicTests {
         let requests = pak.log.count
         let session = app.session(for: pak.deviceId)
         await session.connect()
-        #expect(session.state == .failed(.api(.notPaired)))
+        #expect(session.state == .failed(.pairingNotSynced))
+        #expect(AppError.pairingNotSynced.action == .retry)
         #expect(AppError.api(.notPaired).action == .repair)
         try await session.unpair()
         #expect(app.store.devices.isEmpty)
