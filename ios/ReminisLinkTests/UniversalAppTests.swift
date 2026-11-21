@@ -18,15 +18,19 @@ struct UniversalAppTests {
     /// iPhone and iPad, every iPad orientation (Split View, Slide Over and
     /// Stage Manager need them), never full screen only.
     @Test func theBundleRunsOnIPhoneAndIPad() throws {
-        let families = try #require(Bundle.main.object(forInfoDictionaryKey: "UIDeviceFamily") as? [Int])
+        // The file itself: Bundle resolves device suffixes (~ipad) for the
+        // device it runs on.
+        let url = try #require(Bundle.main.url(forResource: "Info", withExtension: "plist"))
+        let info = try #require(NSDictionary(contentsOf: url) as? [String: Any])
+        let families = try #require(info["UIDeviceFamily"] as? [Int])
         #expect(Set(families) == [1, 2])
-        let iPad = try #require(Bundle.main.object(forInfoDictionaryKey: "UISupportedInterfaceOrientations~ipad") as? [String])
+        let iPad = try #require(info["UISupportedInterfaceOrientations~ipad"] as? [String])
         #expect(Set(iPad) == [
             "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown",
             "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight",
         ])
-        #expect(Bundle.main.object(forInfoDictionaryKey: "UIRequiresFullScreen") as? Bool != true)
-        #expect(Bundle.main.object(forInfoDictionaryKey: "UIRequiresFullScreen~ipad") as? Bool != true)
+        #expect(info["UIRequiresFullScreen"] as? Bool != true)
+        #expect(info["UIRequiresFullScreen~ipad"] as? Bool != true)
     }
 
     /// Narrow windows are left as they are; wide ones get centred content.
