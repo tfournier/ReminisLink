@@ -15,6 +15,8 @@ import (
 	"github.com/tfournier/ReminisLink/internal/cheats"
 	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/library"
+	"github.com/tfournier/ReminisLink/internal/osadapter"
+	"github.com/tfournier/ReminisLink/internal/osadapter/knulli"
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/saves"
@@ -111,6 +113,28 @@ func newFixture(t *testing.T, tweak ...func(*Options)) *fixture {
 	env := map[string]string{"DEVICE": "brick", "PLATFORM": "tg5040"}
 	adapter := nextui.New(roots, func(k string) string { return env[k] })
 	adapter.SetPowerSupplyDir(filepath.Join(sd, "no-sysfs")) // no battery unless a test writes one
+	return newFixtureOn(t, sd, roots, adapter, tweak...)
+}
+
+// newKnulliFixture serves the API on a copy of the Knulli test card
+// (testdata/knulli, M20): /userdata is the "card".
+func newKnulliFixture(t *testing.T, tweak ...func(*Options)) *fixture {
+	t.Helper()
+	return newKnulliFixtureIn(t, t.TempDir(), tweak...)
+}
+
+// newKnulliFixtureIn is newKnulliFixture with the card copied into dir
+// (testutil.CaseSensitiveDir: /userdata on ext4).
+func newKnulliFixtureIn(t *testing.T, dir string, tweak ...func(*Options)) *fixture {
+	t.Helper()
+	userdata, env := testutil.CopyKnulli(t, dir)
+	roots := knulli.RootsForSD(userdata)
+	adapter := knulli.New(roots, func(k string) string { return env[k] })
+	return newFixtureOn(t, userdata, roots, adapter, tweak...)
+}
+
+func newFixtureOn(t *testing.T, sd string, roots osadapter.Roots, adapter osadapter.Adapter, tweak ...func(*Options)) *fixture {
+	t.Helper()
 	layout := store.Layout{Root: roots.Data}
 	clients, err := auth.OpenClientStore(layout.ClientsFile())
 	if err != nil {

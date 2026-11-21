@@ -146,6 +146,9 @@ func (a *Adapter) mediaDir(sys osadapter.System, folder string) string {
 	return filepath.Join(folder, ".media")
 }
 
+// StateKey is stateKey (osadapter.Adapter).
+func (a *Adapter) StateKey(romName string) string { return a.stateKey(romName) }
+
 // stateKey is the part of the state file names derived from romName.
 func (a *Adapter) stateKey(romName string) string {
 	if a.layout.States != nil {

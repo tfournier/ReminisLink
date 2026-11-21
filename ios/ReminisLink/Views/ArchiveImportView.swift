@@ -90,7 +90,16 @@ struct ArchiveImportView: View {
                     .accessibilityIdentifier("archive.import.confirm")
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("\(flow?.plan?.replaced.count ?? 0) files of \(flow?.plan?.targetName ?? "") will be replaced. The console first moves them to its trash, and keeps a copy of the save in its backup copies.")
+                // Said from the preview: what is replaced goes to the
+                // trash; a copy of the save is promised only when the save
+                // or its clock file is replaced (Codex review 2).
+                let replaced = flow?.plan?.replaced ?? []
+                let savePair = replaced.contains { $0.role == .save || $0.role == .rtc }
+                if savePair {
+                    Text("\(replaced.count) files of \(flow?.plan?.targetName ?? "") will be replaced. The console first moves them to its trash, and keeps a copy of the save in its backup copies.")
+                } else {
+                    Text("\(replaced.count) files of \(flow?.plan?.targetName ?? "") will be replaced. The console first moves them to its trash.")
+                }
             }
         }
         .interactiveDismissDisabled(flow?.step.isBusy == true)

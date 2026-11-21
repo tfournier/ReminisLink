@@ -281,6 +281,46 @@
         }
       }
     },
+    "%lld files of %@ will be replaced. The console first moves them to its trash." : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld file of %@ will be replaced. The console first moves it to its trash."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld files of %@ will be replaced. The console first moves them to its trash."
+                }
+              }
+            }
+          }
+        },
+        "fr" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichier de %2$@ sera remplacé. La console le met d’abord dans sa corbeille."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$lld fichiers de %2$@ seront remplacés. La console les met d’abord dans sa corbeille."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld games" : {
       "localizations" : {
         "en" : {

@@ -2,7 +2,9 @@ package gamearchive
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
+	"compress/flate"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -162,6 +164,9 @@ func Open(r io.ReaderAt, size int64) (*Archive, error) {
 			return nil, refuse("more than %d bytes in all", int64(MaxTotalBytes))
 		}
 		e := Entry{File: mf, zf: zf}
+		if err := checkDeflate(zf); err != nil {
+			return nil, err
+		}
 		if err := checkContent(e); err != nil {
 			return nil, err
 		}
@@ -378,4 +383,51 @@ func checkRequired(data []byte) error {
 		}
 	}
 	return nil
+}
+
+// checkDeflate inflates a deflated entry (output discarded, bounded by its
+// announced size) and requires the stream to produce exactly that size
+// and to end exactly at the end of its compressed range: no byte of the
+// range is ignored by the decompressor, so the sizes the ratio check uses
+// are those of the data really inflated (Codex review).
+func checkDeflate(zf *zip.File) error {
+	if zf.Method != zip.Deflate {
+		return nil
+	}
+	raw, err := zf.OpenRaw()
+	if err != nil {
+		return refuse("unreadable entry")
+	}
+	cr := &countingReader{br: bufio.NewReader(raw)}
+	fr := flate.NewReader(cr)
+	defer fr.Close()
+	n, err := io.Copy(io.Discard, io.LimitReader(fr, int64(zf.UncompressedSize64)+1))
+	if err != nil || uint64(n) != zf.UncompressedSize64 {
+		return refuse("corrupt archive")
+	}
+	if uint64(cr.n) != zf.CompressedSize64 {
+		return refuse("bytes after the end of a compressed entry")
+	}
+	return nil
+}
+
+// countingReader counts the bytes the decompressor consumed: flate reads
+// byte by byte from an io.ByteReader, never ahead.
+type countingReader struct {
+	br *bufio.Reader
+	n  int64
+}
+
+func (c *countingReader) ReadByte() (byte, error) {
+	b, err := c.br.ReadByte()
+	if err == nil {
+		c.n++
+	}
+	return b, err
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.br.Read(p)
+	c.n += int64(n)
+	return n, err
 }

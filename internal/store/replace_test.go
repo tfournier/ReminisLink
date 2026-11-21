@@ -711,3 +711,33 @@ func TestInstallsWithoutItemsAreJournaled(t *testing.T) {
 		t.Fatalf("journal left: %v", names)
 	}
 }
+
+// TestNewFoldersAreDurableBeforeTheJournalGoes (M19 Codex review 2): a
+// folder made for an install has its entry synced in its parent, at
+// every level made, before the journal is removed.
+func TestNewFoldersAreDurableBeforeTheJournalGoes(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	var synced []string
+	tr.syncDir = func(dir string) error {
+		synced = append(synced, dir)
+		return SyncDirChecked(dir)
+	}
+	tmp := write(t, sd, ".userdata/shared/ReminisLink/uploads/ar_1.part", "save")
+	dst := filepath.Join(sd, "saves", "gba", "deep", "Zelda.srm")
+	if _, err := tr.Replace(ReasonImportArchive, "Zelda", nil, []Install{{Src: tmp, Dst: dst, Size: 4, SHA256: sha("save")}}); err != nil {
+		t.Fatal(err)
+	}
+	has := func(dir string) bool {
+		for _, d := range synced {
+			if d == dir {
+				return true
+			}
+		}
+		return false
+	}
+	for _, parent := range []string{sd, filepath.Join(sd, "saves"), filepath.Join(sd, "saves", "gba"), filepath.Join(sd, "saves", "gba", "deep")} {
+		if !has(parent) {
+			t.Errorf("%s not synced: %v", parent, synced)
+		}
+	}
+}

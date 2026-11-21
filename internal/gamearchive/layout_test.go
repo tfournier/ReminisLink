@@ -3,6 +3,7 @@ package gamearchive
 import (
 	"archive/zip"
 	"bytes"
+	"compress/flate"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -246,3 +247,49 @@ func TestExportOfHighlyCompressibleFiles(t *testing.T) {
 }
 
 func crc(b []byte) uint32 { return crc32.ChecksumIEEE(b) }
+
+// TestContradictorySizes (Codex review 2): a data descriptor whose sizes
+// differ from the central directory, and a deflate stream that ends
+// before its compressed range, are refused.
+func TestContradictorySizes(t *testing.T) {
+	save := bytes.Repeat([]byte("save data "), 200)
+	m := &Manifest{Format: FormatName, Version: 1, CreatedAt: time.Now(), Source: source(), Files: []File{
+		{Path: "save/a", Role: RoleSave, SizeBytes: int64(len(save)), SHA256: sum(save)},
+	}}
+	md, _ := json.Marshal(m)
+
+	// Descriptor: Go's writer streams deflated entries with one.
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, _ := zw.CreateHeader(&zip.FileHeader{Name: "save/a", Method: zip.Deflate})
+	w.Write(save)
+	w, _ = zw.CreateRaw(&zip.FileHeader{Name: ManifestName, Method: zip.Store,
+		CompressedSize64: uint64(len(md)), UncompressedSize64: uint64(len(md)), CRC32: crc(md)})
+	w.Write(md)
+	zw.Close()
+	data := buf.Bytes()
+	if _, err := open(t, data); err != nil {
+		t.Fatalf("base refused: %v", err)
+	}
+	d := append([]byte(nil), data...)
+	at := bytes.Index(d, []byte{0x50, 0x4b, 0x07, 0x08})
+	put32(d, at+12, uint32(len(save)+1)) // uncompressed size of the descriptor
+	mustRefuse(t, "descriptor size differs", d)
+
+	// Bytes after the end of the deflate stream, inside the range.
+	var comp bytes.Buffer
+	fw, _ := flate.NewWriter(&comp, flate.DefaultCompression)
+	fw.Write(save)
+	fw.Close()
+	stream := append(comp.Bytes(), []byte("junk after the end")...)
+	buf.Reset()
+	zw = zip.NewWriter(&buf)
+	w, _ = zw.CreateRaw(&zip.FileHeader{Name: "save/a", Method: zip.Deflate,
+		CompressedSize64: uint64(len(stream)), UncompressedSize64: uint64(len(save)), CRC32: crc(save)})
+	w.Write(stream)
+	w, _ = zw.CreateRaw(&zip.FileHeader{Name: ManifestName, Method: zip.Store,
+		CompressedSize64: uint64(len(md)), UncompressedSize64: uint64(len(md)), CRC32: crc(md)})
+	w.Write(md)
+	zw.Close()
+	mustRefuse(t, "bytes after the deflate stream", buf.Bytes())
+}

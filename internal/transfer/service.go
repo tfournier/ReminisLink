@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/paks"
@@ -369,6 +370,9 @@ func (s *Service) StagingFile(stagingID string) (string, error) {
 		return "", ErrStagingNotFound
 	}
 	dir := filepath.Join(s.opts.Layout.StagingDir(), stagingID)
+	if confine.CheckDir(s.opts.Layout.Root, dir) != nil {
+		return "", ErrStagingNotFound // never through a link
+	}
 	des, err := os.ReadDir(dir)
 	if err != nil {
 		return "", ErrStagingNotFound
@@ -438,7 +442,7 @@ func (s *Service) installLocked(d destination, tmp, onConflict string) (map[stri
 	case KindStaging:
 		id := "st_" + s.now().UTC().Format(idTimeLayout) + "_" + s.randomHex(4)
 		dir := filepath.Join(s.opts.Layout.StagingDir(), id)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := s.dataDir(dir); err != nil {
 			return nil, nil, err
 		}
 		if err := os.Rename(tmp, filepath.Join(dir, d.name)); err != nil {
@@ -552,6 +556,12 @@ func (s *Service) Maintain() error {
 
 func (s *Service) purgeStaging() error {
 	dir := s.opts.Layout.StagingDir()
+	if err := confine.CheckDir(s.opts.Layout.Root, dir); err != nil {
+		// Never purged through a link; every use of the folder refuses
+		// it too.
+		s.log.Error("staging: folder reached through a link, left as it is", "error", err)
+		return nil
+	}
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -588,7 +598,7 @@ func (s *Service) purgeStaging() error {
 // the card is full.
 func (s *Service) SetArt(gameID string, data []byte) (library.Game, error) {
 	dir := s.opts.Layout.UploadsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := s.dataDir(dir); err != nil {
 		return library.Game{}, err
 	}
 	tmp := filepath.Join(dir, "art_"+s.randomHex(12)+partExt)
@@ -676,4 +686,21 @@ func (s *Service) submitWithCleanup(kind, label string, guard JobGuard, run RunF
 		return "", nil, err
 	}
 	return id, nil, nil
+}
+
+// dataDir checks that dir, a folder of the ReminisLink data area
+// (uploads, staging), is reached without a link from the data root (the
+// pak refuses to start when the root itself is one, M20), then creates it.
+// No upload, staging file or extracted archive is ever written, opened or
+// deleted through a link (rule 2, M19 Codex review: on Knulli the data
+// area is on an ext4 volume where a link can point anywhere).
+func (s *Service) dataDir(dir string) error {
+	root := s.opts.Layout.Root
+	if err := confine.CheckDir(root, dir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return confine.CheckDir(root, dir)
 }

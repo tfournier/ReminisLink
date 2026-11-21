@@ -740,7 +740,8 @@ func TestParseState(t *testing.T) {
 		"Game.gba.st0":  {"Game.gba", 0, true},
 		"Game.gba.st9":  {"Game.gba", 9, true},
 		"Game.gba.st12": {"Game.gba", 12, true},
-		"Game.gba.st01": {"", 0, false}, // not slot 1 (M19: one file per slot)
+		"Game.gba.st01": {"", 0, false},        // not slot 1 (M19: one file per slot)
+		"Game.gba.ST1":  {"Game.gba", 1, true}, // exFAT: the slot route finds it
 		"Game.gba.st00": {"", 0, false},
 		"Game.gba.st":   {"", 0, false},
 		"Game.gba.sta":  {"", 0, false},

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/store"
@@ -106,7 +107,7 @@ func jobGuardOf(ctx context.Context) JobGuard {
 func (s *Service) newPakStaging() (string, error) {
 	dir := filepath.Join(s.opts.Layout.StagingDir(),
 		pakStagingPrefix+s.now().UTC().Format(idTimeLayout)+"_"+s.randomHex(4))
-	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+	if err := s.dataDir(filepath.Dir(dir)); err != nil {
 		return "", err
 	}
 	if err := os.Mkdir(dir, 0o755); err != nil {
@@ -133,6 +134,9 @@ func (s *Service) removeStaging(stage string) bool {
 // left by a previous run (called at start, after the trash recovery; no
 // job runs), except those an unfinished replacement still needs.
 func (s *Service) purgePakStaging() {
+	if confine.CheckDir(s.opts.Layout.Root, s.opts.Layout.StagingDir()) != nil {
+		return
+	}
 	des, err := os.ReadDir(s.opts.Layout.StagingDir())
 	if err != nil {
 		return

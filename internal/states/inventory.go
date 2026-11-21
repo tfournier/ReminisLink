@@ -193,7 +193,7 @@ func (s *Service) ListAll(ctx context.Context) (Listing, error) {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			return run.game(g, byGame[strings.ToLower(g.System.Tag)+"\x00"+strings.ToLower(g.ROMName)])
+			return run.game(g, byGame[strings.ToLower(g.System.Tag)+"\x00"+strings.ToLower(s.o.Adapter.StateKey(g.ROMName))])
 		})
 		if errors.Is(err, errListFull) {
 			run.listing.Truncated = true
@@ -214,7 +214,6 @@ func (r *inventoryRun) game(g osadapter.Game, refs []osadapter.StateRef) error {
 	if len(refs) == 0 {
 		return nil
 	}
-	roots := r.s.o.Adapter.Roots()
 	bySlot := map[int]osadapter.StateRef{}
 	slots := []int{}
 	for _, ref := range refs {
@@ -239,7 +238,7 @@ func (r *inventoryRun) game(g osadapter.Game, refs []osadapter.StateRef) error {
 		if !found {
 			continue
 		}
-		fi, sum, err := r.hash(roots.States, p, false)
+		fi, sum, err := r.hash(r.s.cardRoot(p), p, false)
 		if errors.Is(err, errFileSkipped) {
 			continue
 		}
@@ -259,7 +258,9 @@ func (r *inventoryRun) game(g osadapter.Game, refs []osadapter.StateRef) error {
 		}
 		if p := r.s.o.Adapter.StateThumbnailPath(g, slot); p != "" {
 			if found := store.FindFold(filepath.Dir(p), filepath.Base(p), false); found != "" {
-				fi, sum, err := r.hash(roots.Minui, found, true)
+				// Confined from the card root, wherever the OS keeps the
+				// thumbnail (Knulli: next to the state; Codex review).
+				fi, sum, err := r.hash(r.s.cardRoot(found), found, true)
 				switch {
 				case err == nil:
 					st.Thumbnail = &ThumbnailFile{SizeBytes: fi.Size(), SHA256: sum}

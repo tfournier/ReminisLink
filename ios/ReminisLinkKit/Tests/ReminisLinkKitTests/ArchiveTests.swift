@@ -140,6 +140,20 @@ struct ArchiveReviewTests {
         #expect(FakeZip.read(written)?["a"] == Data(repeating: 7, count: 5000))
     }
 
+    /// A deflate stream that inflates to much more than announced is
+    /// refused without being held whole (Codex review 2).
+    @Test func anOversizedStreamIsRefused() throws {
+        let big = Data(repeating: 0, count: 8 << 20)
+        let packed = try (big as NSData).compressed(using: .zlib) as Data
+        var zip = FakeZip.write([("a", big)], deflate: true)
+        // Announce 10 bytes instead of 8 MiB (central uncompressed size).
+        let end = try #require(zip.lastRange(of: Data([0x50, 0x4b, 0x05, 0x06])))
+        let central = Int(zip[end.lowerBound + 16]) | Int(zip[end.lowerBound + 17]) << 8 | Int(zip[end.lowerBound + 18]) << 16
+        zip.replaceSubrange((central + 24)..<(central + 28), with: Data([10, 0, 0, 0]))
+        #expect(packed.count < 1 << 20)
+        #expect(FakeZip.read(zip) == nil)
+    }
+
     @Test func aDamagedArchiveNeverTraps() {
         let data = Self.realPakArchive
         for n in stride(from: 0, to: data.count, by: 3) {

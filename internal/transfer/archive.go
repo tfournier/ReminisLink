@@ -252,13 +252,24 @@ func (s *Service) suggestTarget(ctx context.Context, a *gamearchive.Archive) *ar
 	}
 	for _, sys := range tagged {
 		var found *osadapter.Game
+		// The exact name first; another case only where the file system
+		// ignores case (exFAT): on ext4 Zelda.gba and zelda.gba are two
+		// games with their own data (Codex review).
+		var folded *osadapter.Game
 		_ = s.opts.Adapter.WalkGames(ctx, sys, func(g osadapter.Game) error {
-			if strings.EqualFold(g.ROMName, src.RomName) {
+			if g.ROMName == src.RomName {
 				found = &g
 				return errFound
 			}
+			if folded == nil && strings.EqualFold(g.ROMName, src.RomName) && s.sameEntryAs(g, src.RomName) {
+				gg := g
+				folded = &gg
+			}
 			return nil
 		})
+		if found == nil {
+			found = folded
+		}
 		if found != nil {
 			id := library.EncodeID(found.Path)
 			return &archiveTarget{game: *found, api: ArchiveTarget{GameID: &id}, label: found.Name}
@@ -271,6 +282,18 @@ func (s *Service) suggestTarget(ctx context.Context, a *gamearchive.Archive) *ar
 		}
 	}
 	return nil
+}
+
+// sameEntryAs reports whether the ROM file of g is also found under name
+// (another case) in its folder: its file system ignores case.
+func (s *Service) sameEntryAs(g osadapter.Game, name string) bool {
+	dir := filepath.Dir(filepath.Join(s.opts.Adapter.Roots().Roms, filepath.FromSlash(g.Path)))
+	if g.Kind != osadapter.KindFile {
+		dir = filepath.Join(s.opts.Adapter.Roots().Roms, filepath.FromSlash(g.Path))
+	}
+	fa, errA := os.Lstat(filepath.Join(dir, g.ROMName))
+	fb, errB := os.Lstat(filepath.Join(dir, name))
+	return errA == nil && errB == nil && os.SameFile(fa, fb)
 }
 
 // existingFile returns the file at p on the card, matched ignoring case
@@ -306,6 +329,11 @@ func (s *Service) planImport(a *gamearchive.Archive, t *archiveTarget) []importI
 	stateOK := map[int]bool{}
 	var out []importItem
 	place := func(e gamearchive.Entry, dst string, replaces ...string) importItem {
+		if dst == "" {
+			// This OS keeps no such file (cheats on Knulli, Codex review):
+			// skipped, the rest is imported.
+			return skipEntry(e, SkipUnsupported)
+		}
 		it := importItem{entry: e, dst: dst, plan: ArchivePlanEntry{Role: e.Role, Slot: e.Slot, SizeBytes: e.SizeBytes, Action: ArchiveCreate}}
 		if cur := existingFile(dst); cur != "" {
 			it.dst = cur
@@ -407,41 +435,86 @@ func (s *Service) planImport(a *gamearchive.Archive, t *archiveTarget) []importI
 	return sorted
 }
 
-// romConflict is 409 conflict when the ROM of a new game is taken, with
-// the gameId of the game in its place (the app offers it as the target).
-func (s *Service) romConflict(t *archiveTarget) *Error {
+// romConflict is 409 conflict when a new game cannot be made: its ROM is
+// taken, or a file it would use (save, clock file, a state or its
+// thumbnail, the art: computed by the adapter's own rules, as the import
+// would write them) already belongs to another game of the system, whose
+// data it would then share or replace (NextUI: A/Zelda.gba and
+// B/Zelda.gba; Knulli: A/Zelda.gba and B/Zelda.zip both use Zelda.srm;
+// Codex review). The 409 names that game (details.gameId), which the app
+// offers as the target. A file no game uses (a save left by a deleted ROM)
+// is not a conflict: it is replaced, backed up first.
+func (s *Service) romConflict(a *gamearchive.Archive, t *archiveTarget) *Error {
 	if !t.newGame {
 		return nil
 	}
-	existing := findFold(t.dir, t.game.FileName)
-	if existing == "" {
-		// The data of a game are named after its ROM file name, whatever
-		// its folder: on NextUI, A/Zelda.gba and B/Zelda.gba of a system
-		// share their save, clock file and states. A new game must not
-		// take over the data of another one (Codex review): 409 with the
-		// game already tied to those data.
-		var other *osadapter.Game
-		_ = s.opts.Adapter.WalkGames(context.Background(), t.game.System, func(g osadapter.Game) error {
-			if strings.EqualFold(g.ROMName, t.game.ROMName) {
-				other = &g
-				return errFound
+	if existing := findFold(t.dir, t.game.FileName); existing != "" {
+		e := s.conflictError(filepath.Join(t.dir, existing))
+		if rel, err := s.opts.Library.RelToRoms(filepath.Join(t.dir, existing)); err == nil {
+			if _, err := s.opts.Adapter.Game(rel); err == nil {
+				e.Details["gameId"] = library.EncodeID(rel)
 			}
-			return nil
-		})
-		if other == nil {
-			return nil
 		}
-		e := s.conflictError(filepath.Join(s.opts.Adapter.Roots().Roms, filepath.FromSlash(other.Path)))
-		e.Details["gameId"] = library.EncodeID(other.Path)
 		return e
 	}
-	e := s.conflictError(filepath.Join(t.dir, existing))
-	if rel, err := s.opts.Library.RelToRoms(filepath.Join(t.dir, existing)); err == nil {
-		if _, err := s.opts.Adapter.Game(rel); err == nil {
-			e.Details["gameId"] = library.EncodeID(rel)
+	var used []string
+	for _, it := range s.planImport(a, t) {
+		if it.plan.Action == ArchiveReplace && it.entry.Role != gamearchive.RoleROM {
+			used = append(used, it.dst)
 		}
 	}
+	if len(used) == 0 {
+		return nil
+	}
+	ad := s.opts.Adapter
+	var slots []int
+	for _, e := range a.Entries {
+		if e.Slot != nil {
+			slots = append(slots, *e.Slot)
+		}
+	}
+	var owner *osadapter.Game
+	var file string
+	_ = ad.WalkGames(context.Background(), t.game.System, func(g osadapter.Game) error {
+		save := existingFile(ad.SavePath(g))
+		paths := []string{save, existingFile(ad.ArtPath(g))}
+		if save != "" {
+			paths = append(paths, existingFile(strings.TrimSuffix(save, filepath.Ext(save))+".rtc"))
+		}
+		if files, err := ad.GameFiles(g); err == nil {
+			if files.Save != nil {
+				paths = append(paths, files.Save.Path)
+			}
+			if files.RTC != nil {
+				paths = append(paths, files.RTC.Path)
+			}
+		}
+		for _, slot := range slots {
+			paths = append(paths, existingFile(ad.StatePath(g, slot)), existingFile(ad.StateThumbnailPath(g, slot)))
+		}
+		for _, p := range paths {
+			for _, u := range used {
+				if p != "" && sameFile(p, u) {
+					owner, file = &g, u
+					return errFound
+				}
+			}
+		}
+		return nil
+	})
+	if owner == nil {
+		return nil
+	}
+	e := s.conflictError(file)
+	e.Details["gameId"] = library.EncodeID(owner.Path)
 	return e
+}
+
+// sameFile reports whether a and b are the same file on the card.
+func sameFile(a, b string) bool {
+	fa, errA := os.Lstat(a)
+	fb, errB := os.Lstat(b)
+	return errA == nil && errB == nil && os.SameFile(fa, fb)
 }
 
 // InspectArchive checks the archive of a staging entry and previews its
@@ -466,7 +539,7 @@ func (s *Service) InspectArchive(ctx context.Context, stagingID string, target *
 		}
 		return plan, nil, nil
 	}
-	if apiErr := s.romConflict(t); apiErr != nil && !plan.Suggested {
+	if apiErr := s.romConflict(a, t); apiErr != nil && !plan.Suggested {
 		return ArchivePlan{}, apiErr, nil
 	}
 	api, label := t.api, t.label
@@ -495,15 +568,17 @@ func (s *Service) StartArchiveImport(stagingID string, req ArchiveImportRequest,
 	if apiErr != nil || err != nil {
 		return "", apiErr, err
 	}
-	if apiErr := s.romConflict(t); apiErr != nil {
+	if apiErr := s.romConflict(a, t); apiErr != nil {
 		return "", apiErr, nil
 	}
 	target := *req.Target
+	// The archive is reserved until the job ends, however it ends: run,
+	// cancelled while queued, or dropped by a revocation (the cleanup of
+	// the job, Codex review).
 	markArchive(stagingID, 1)
-	id, apiErr, err := s.submitGuarded(JobArchiveImport, t.label, guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
-		defer markArchive(stagingID, -1)
+	id, apiErr, err := s.submitWithCleanup(JobArchiveImport, t.label, guard, func(ctx context.Context, report func(int64, *int64)) (map[string]any, *Error) {
 		return s.runArchiveImport(ctx, stagingID, target, report)
-	})
+	}, func() { markArchive(stagingID, -1) })
 	if apiErr != nil || err != nil {
 		markArchive(stagingID, -1)
 		return "", apiErr, err
@@ -542,7 +617,7 @@ func (s *Service) runArchiveImport(ctx context.Context, stagingID string, target
 		}
 	}
 	dir := s.opts.Layout.UploadsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := s.dataDir(dir); err != nil {
 		return nil, internal("Cannot create the temporary files")
 	}
 	if apiErr := s.checkPatchSpace(dir, need); apiErr != nil {
@@ -640,7 +715,7 @@ func (s *Service) installArchive(a *gamearchive.Archive, target ArchiveTarget, t
 	if apiErr != nil || err != nil {
 		return nil, apiErr, false, err
 	}
-	if apiErr := s.romConflict(t); apiErr != nil {
+	if apiErr := s.romConflict(a, t); apiErr != nil {
 		return nil, apiErr, false, nil
 	}
 	g := t.game
@@ -650,6 +725,7 @@ func (s *Service) installArchive(a *gamearchive.Archive, target ArchiveTarget, t
 	dsts := map[string]bool{}
 	skipped := []SkippedFile{}
 	saveReplaced := false
+	var saveCur, rtcCur string // the save and clock file replaced
 	for _, it := range s.planImport(a, t) {
 		tmp, extracted := temps[it.entry.Key()]
 		if it.plan.Action == ArchiveSkip || !extracted {
@@ -662,14 +738,17 @@ func (s *Service) installArchive(a *gamearchive.Archive, target ArchiveTarget, t
 			skipped = append(skipped, SkippedFile{Role: it.entry.Role, Slot: it.entry.Slot, Reason: reason})
 			continue
 		}
-		key := strings.ToLower(it.dst)
+		// Paths as on the card (existingFile gives the real entry): on a
+		// case-sensitive file system two names differing by case are two
+		// files.
+		key := it.dst
 		if dsts[key] {
 			return nil, nil, false, fmt.Errorf("archive: two files for one destination")
 		}
 		dsts[key] = true
 		for _, p := range it.replaces {
-			if k := strings.ToLower(p); !moved[k] {
-				moved[k] = true
+			if !moved[p] {
+				moved[p] = true
 				items = append(items, store.MoveItem{Path: p})
 			}
 		}
@@ -677,6 +756,11 @@ func (s *Service) installArchive(a *gamearchive.Archive, target ArchiveTarget, t
 		// backs up both first (before-import, Codex review).
 		if (it.entry.Role == gamearchive.RoleSave || it.entry.Role == gamearchive.RoleRTC) && it.plan.Action == ArchiveReplace {
 			saveReplaced = true
+			if it.entry.Role == gamearchive.RoleSave {
+				saveCur = it.dst
+			} else {
+				rtcCur = it.dst
+			}
 		}
 		// The folders of the destination are made by Trash.Replace,
 		// confined to the card (never through a link, Codex review).
@@ -686,13 +770,29 @@ func (s *Service) installArchive(a *gamearchive.Archive, target ArchiveTarget, t
 	// replaced, and the thumbnail of the archive) is fine: the move comes
 	// first. Anything else installed over must have been moved.
 	for _, in := range installs {
-		if cur := existingFile(in.Dst); cur != "" && !moved[strings.ToLower(cur)] {
+		if cur := existingFile(in.Dst); cur != "" && !moved[cur] {
 			return nil, s.conflictError(in.Dst), false, nil
 		}
 	}
 	var backupID any
 	if saveReplaced {
-		b, err := s.opts.Saves.BackupLocked(g, saves.ReasonBeforeImport)
+		var b *saves.Backup
+		var err error
+		if t.newGame {
+			// A save no game uses (left by a deleted ROM): backed up by
+			// its path, the game does not exist yet (Codex review).
+			if saveCur == "" {
+				saveCur = existingFile(s.opts.Adapter.SavePath(g))
+			}
+			if rtcCur == "" && saveCur != "" {
+				rtcCur = existingFile(strings.TrimSuffix(saveCur, filepath.Ext(saveCur)) + ".rtc")
+			}
+			if saveCur != "" {
+				b, err = s.opts.Saves.BackupFilesLocked(g, saveCur, rtcCur, saves.ReasonBeforeImport)
+			}
+		} else {
+			b, err = s.opts.Saves.BackupLocked(g, saves.ReasonBeforeImport)
+		}
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("archive: back up the save: %w", err)
 		}

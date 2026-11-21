@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
 
@@ -196,7 +197,7 @@ func (s *Service) CreateUpload(req CreateUploadRequest) (UploadCreated, *Error, 
 		target.FileName = &d.name // keep the cleaned name
 	}
 	dir := s.opts.Layout.UploadsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := s.dataDir(dir); err != nil {
 		return UploadCreated{}, nil, err
 	}
 
@@ -730,6 +731,12 @@ func (s *Service) loadUpload(id string) (*upload, error) {
 // installation marker).
 func (s *Service) purgeUploads(keep map[string]bool) error {
 	dir := s.opts.Layout.UploadsDir()
+	if err := confine.CheckDir(s.opts.Layout.Root, dir); err != nil {
+		// Never purged through a link; every use of the folder refuses
+		// it too.
+		s.log.Error("uploads: folder reached through a link, left as it is", "error", err)
+		return nil
+	}
 	des, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil

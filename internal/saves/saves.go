@@ -619,6 +619,23 @@ func (s *Service) BackupLocked(g osadapter.Game, reason string) (*Backup, error)
 	return &b, nil
 }
 
+// BackupFilesLocked is BackupLocked for a save found by its path (and its
+// clock file, "" when none) rather than through the game's files: a save
+// left by a deleted ROM that the import of a game archive replaces (M19,
+// Codex review), whose game does not exist yet. The save is read under the
+// same confinement as any backup; the copy goes with the backups of g.
+func (s *Service) BackupFilesLocked(g osadapter.Game, save, rtc, reason string) (*Backup, error) {
+	if reason == ReasonManual || !validReasons[reason] {
+		return nil, fmt.Errorf("save backup: invalid automatic reason %q", reason)
+	}
+	m, err := s.createLocked(g, save, rtc, reason, nil)
+	if err != nil {
+		return nil, err
+	}
+	b := m.public()
+	return &b, nil
+}
+
 // installLocked backs up the current save (reason, label) and renames tmp
 // over it. The save keeps the name it has on the card when it exists (it
 // may differ by case from the adapter's name).

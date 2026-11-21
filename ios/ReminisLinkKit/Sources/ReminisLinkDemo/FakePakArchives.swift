@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 import ReminisLinkKit
 
@@ -96,10 +97,30 @@ enum FakeZip {
     }
 
     /// Raw DEFLATE data inflated to exactly `size` bytes, nil otherwise.
+    /// Streamed: the output is never allowed to grow much beyond `size`
+    /// (a small archive may hold a stream that inflates to far more; Codex
+    /// review), the inflation stops as soon as it does.
     private static func inflate(_ raw: Data, size: Int) -> Data? {
         if size == 0 { return raw.isEmpty || raw == Data([0x03, 0x00]) ? Data() : nil }
-        guard let out = try? (raw as NSData).decompressed(using: .zlib) as Data, out.count == size else { return nil }
-        return out
+        struct TooLarge: Error {}
+        var out = Data()
+        do {
+            let filter = try OutputFilter(.decompress, using: .zlib, bufferCapacity: 16 << 10) { chunk in
+                guard let chunk else { return }
+                if out.count + chunk.count > size { throw TooLarge() }
+                out.append(chunk)
+            }
+            var at = raw.startIndex
+            while at < raw.endIndex {
+                let end = raw.index(at, offsetBy: min(4096, raw.distance(from: at, to: raw.endIndex)))
+                try filter.write(raw[at..<end])
+                at = end
+            }
+            try filter.finalize()
+        } catch {
+            return nil
+        }
+        return out.count == size ? out : nil
     }
 
     static func crc32(_ data: Data) -> UInt32 {

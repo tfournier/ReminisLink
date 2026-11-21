@@ -52,7 +52,7 @@ type archiveFile struct {
 	role   string
 	slot   *int
 	fileID string // a file of GET /games/{gameId}
-	thumb  string // a state thumbnail: its path
+	thumb  bool   // a state thumbnail (opened as GET .../thumbnail does)
 }
 
 // handleExportArchive is GET /games/{gameId}/archive: the game's data as a
@@ -89,8 +89,8 @@ func (s *Server) handleExportArchive(w http.ResponseWriter, r *http.Request) {
 		case gamearchive.RoleSave, gamearchive.RoleRTC, gamearchive.RoleCheats, gamearchive.RoleArt:
 		case gamearchive.RoleState:
 			files = append(files, archiveFile{role: f.Role, slot: f.Slot, fileID: f.FileID})
-			if p, err := s.opts.States.Thumbnail(g, *f.Slot); err == nil {
-				files = append(files, archiveFile{role: gamearchive.RoleStateThumbnail, slot: f.Slot, thumb: p})
+			if _, err := s.opts.States.Thumbnail(g, *f.Slot); err == nil {
+				files = append(files, archiveFile{role: gamearchive.RoleStateThumbnail, slot: f.Slot, thumb: true})
 			}
 			continue
 		default:
@@ -98,11 +98,21 @@ func (s *Server) handleExportArchive(w http.ResponseWriter, r *http.Request) {
 		}
 		files = append(files, archiveFile{role: f.Role, slot: f.Slot, fileID: f.FileID})
 	}
-	roots := s.opts.Adapter.Roots()
 	open := func(af archiveFile) (*os.File, os.FileInfo, string, error) {
-		if af.thumb != "" {
-			f, fi, err := confine.OpenUnder(roots.Minui, af.thumb)
-			return f, fi, filepath.Base(af.thumb), err
+		if af.thumb {
+			// Resolved and confined by the states service, from the card
+			// root, wherever the OS keeps it (Knulli: next to the state;
+			// Codex review).
+			f, p, err := s.opts.States.OpenThumbnail(g, *af.slot)
+			if err != nil {
+				return nil, nil, "", err
+			}
+			fi, err := f.Stat()
+			if err != nil {
+				f.Close()
+				return nil, nil, "", err
+			}
+			return f, fi, filepath.Base(p), nil
 		}
 		return s.opts.Library.OpenFile(gameID, af.fileID)
 	}

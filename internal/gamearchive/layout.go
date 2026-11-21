@@ -246,11 +246,27 @@ func checkLocal(r io.ReaderAt, dirStart int64, e *centralEntry) error {
 			n = 20
 		}
 		var sig [4]byte
+		at := end
 		if _, err := r.ReadAt(sig[:], end); err == nil && binary.LittleEndian.Uint32(sig[:]) == descriptorSig {
 			n += 4
+			at += 4
 		}
 		if end+n > dirStart {
 			return refuse("entry outside the archive")
+		}
+		// Its sizes are those of the central directory (Codex review).
+		d := make([]byte, n-(at-end))
+		if _, err := r.ReadAt(d, at); err != nil {
+			return refuse("entry outside the archive")
+		}
+		var dc, du uint64
+		if len(d) == 20 {
+			dc, du = binary.LittleEndian.Uint64(d[4:]), binary.LittleEndian.Uint64(d[12:])
+		} else {
+			dc, du = uint64(binary.LittleEndian.Uint32(d[4:])), uint64(binary.LittleEndian.Uint32(d[8:]))
+		}
+		if dc != e.comp || du != e.uncomp {
+			return refuse("data descriptor and central sizes differ")
 		}
 		end += n
 	}
