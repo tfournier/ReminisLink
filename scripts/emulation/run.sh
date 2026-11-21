@@ -20,8 +20,8 @@
 #      firmware keeps it and starts the shipped binary through its launcher
 #      (launch.sh or ReminisLink.sh), in an image of the userland with the
 #      SDL libraries of its distribution added (h700: without SDL2_ttf, so
-#      the copy in the zip must be loaded). Not on tg5040: the stock rootfs
-#      has no SDL, NextUI ships it.
+#      the copy in the zip must be loaded). tg5040 runs this step in the
+#      Debian 11 userland: the stock rootfs has no SDL, NextUI ships it.
 #
 # Userlands (pinned): tg5040 is the stock rootfs of the Brick (firmware
 # 1.1.1, imported by hand as reminislink/brick-rootfs:1.1.1, see
@@ -36,6 +36,8 @@
 # tests on macOS cover a case-insensitive one (APFS).
 #
 # Usage: scripts/emulation/run.sh [layout...]   (default: every layout)
+#        REQUIRE_ZIPS=1: fail when a zip is missing (the CI; build them with
+#        make docker-release docker-knulli-release)
 #        layouts: tg5040 tg5050 h700 my355 knulli
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -97,9 +99,10 @@ done
 
 nextui_zip=dist/ReminisLink.pak.zip
 knulli_zip=dist/ReminisLink.knulli.zip
-# zip_entries ZIP: the files of the zip, without a top ReminisLink.pak/
-# folder (older layout; the Pak Store wants the pak at the root).
-zip_entries() { unzip -Z1 "$1" | sed 's|^ReminisLink\.pak/||' | grep -v '/$'; }
+# zip_entries ZIP: the files of the zip, as the Pak Store extracts them
+# into Tools/<PLATFORM>/ReminisLink.pak/ (no folder stripped: launch.sh
+# must be at the root).
+zip_entries() { unzip -Z1 "$1" | grep -v '/$'; }
 check_zip() {
 	local zip=$1 name=$2 missing=""
 	shift 2
@@ -112,11 +115,15 @@ echo
 echo "== 1. zips"
 if [ -f "$nextui_zip" ]; then
 	check_zip "$nextui_zip" "NextUI zip" launch.sh reminislink pak.json resources/lib/libSDL2_gfx-1.0.so.0 resources/lib/h700/libSDL2_ttf-2.0.so.0 resources/lib/my355/libSDL2_gfx-1.0.so.0
+elif [ "${REQUIRE_ZIPS:-0}" = 1 ]; then
+	fail "NextUI zip" "missing: $nextui_zip"
 else
 	summary+=("NextUI zip: skipped (no $nextui_zip: make docker-release)")
 fi
 if [ -f "$knulli_zip" ]; then
 	check_zip "$knulli_zip" "Knulli zip" ReminisLink.sh .ReminisLink/reminislink .ReminisLink/lib/libSDL2_gfx-1.0.so.0
+elif [ "${REQUIRE_ZIPS:-0}" = 1 ]; then
+	fail "Knulli zip" "missing: $knulli_zip"
 else
 	summary+=("Knulli zip: skipped (no $knulli_zip: make docker-knulli-release)")
 fi
@@ -124,8 +131,7 @@ fi
 # The release binary: build/reminislink, else the one of the NextUI zip.
 release=build/reminislink
 if [ ! -f "$release" ] && [ -f "$nextui_zip" ]; then
-	entry=$(unzip -Z1 "$nextui_zip" | grep -xE '(ReminisLink\.pak/)?reminislink' | head -n1)
-	unzip -p "$nextui_zip" "$entry" >"$out/reminislink-release"
+	unzip -p "$nextui_zip" reminislink >"$out/reminislink-release"
 	release=$out/reminislink-release
 fi
 needs=""
@@ -136,7 +142,7 @@ fi
 # A new folder per run (under build/, left for inspection).
 libs_dir=$(mktemp -d "$out/libs.XXXXXX")
 mkdir -p "$libs_dir/nextui" "$libs_dir/knulli"
-[ -f "$nextui_zip" ] && unzip -q -o "$nextui_zip" '*resources/lib/*' -d "$libs_dir/nextui" 2>/dev/null || true
+[ -f "$nextui_zip" ] && unzip -q -o "$nextui_zip" 'resources/lib/*' -d "$libs_dir/nextui" 2>/dev/null || true
 [ -f "$knulli_zip" ] && unzip -q -o "$knulli_zip" '.ReminisLink/lib/*' -d "$libs_dir/knulli" 2>/dev/null || true
 # bundled_libs LAYOUT: the bundled libraries the launcher of the layout
 # loads, a platform folder first (as LD_LIBRARY_PATH does).
@@ -191,6 +197,40 @@ else
 	fail "unit tests (case-sensitive)" "see above"
 fi
 
+# launcher_smoke LAYOUT: step 5, appending to $result (1 when it failed).
+# tg5040 runs in the Debian 11 userland of tg5050 (glibc 2.31, older than
+# the Brick's 2.33): its stock rootfs has no SDL (NextUI ships it), and is
+# not in the CI anyway; this covers launch.sh with PLATFORM=tg5040.
+launcher_smoke() {
+	local l=$1 zip=$nextui_zip base sdl_image apt_fix=""
+	[ "$l" = knulli ] && zip=$knulli_zip
+	if [ ! -f "$zip" ]; then
+		result="$result; launcher: skipped (no $zip)"
+		return 0
+	fi
+	base=$(image_of "$l")
+	[ "$l" = tg5040 ] && base=$(image_of tg5050)
+	sdl_image="reminislink-emulation-$l"
+	# Debian: the release only (its security mirror may lag behind its
+	# index, and the libraries only need to load); Debian 10 is archived
+	# on archive.debian.org.
+	case $l in
+	my355) apt_fix='echo "deb http://archive.debian.org/debian buster main" >/etc/apt/sources.list && rm -f /etc/apt/sources.list.d/* && ' ;;
+	tg5040 | tg5050 | knulli) apt_fix='echo "deb http://deb.debian.org/debian $(. /etc/os-release && echo $VERSION_CODENAME) main" >/etc/apt/sources.list && rm -f /etc/apt/sources.list.d/* && ' ;;
+	esac
+	printf 'FROM %s\nRUN %sapt-get update -qq && apt-get install -y -qq --no-install-recommends %s >/dev/null && rm -rf /var/lib/apt/lists/*\n' \
+		"$base" "$apt_fix" "$(sdl_packages_of "$l")" |
+		"$DOCKER" build -q --platform linux/arm64 -t "$sdl_image" - >/dev/null
+	if run_in "$sdl_image" -e RL_LAYOUT_ZIP="/repo/$zip" -e RL_LAYOUTS="$l" -v "$repo/$out:/rl:ro" \
+		-- /rl/smoke.test -test.run '^TestSmokeLayouts$' -test.v -test.count=1 -test.timeout 5m 2>&1 | sed 's/^/    /'; then
+		result="$result; launcher with the shipped binary: smoke OK"
+		[ "$l" = tg5040 ] && result="$result (in the Debian 11 userland)"
+		return 0
+	fi
+	fail "$l" "smoke through the launcher"
+	return 1
+}
+
 # --- 3 to 5. per layout ------------------------------------------------------
 
 for l in "${layouts[@]}"; do
@@ -199,7 +239,9 @@ for l in "${layouts[@]}"; do
 	echo "== $l in $image"
 	if ! "$DOCKER" image inspect "$image" >/dev/null 2>&1 && [ "$l" = tg5040 ]; then
 		echo "SKIP: $image is not on this machine (stock rootfs of the Brick, imported by hand)"
-		summary+=("$l: skipped (no rootfs image)")
+		result="smoke in the stock rootfs: skipped (no image)"
+		launcher_smoke "$l" || continue
+		summary+=("$l: $result")
 		continue
 	fi
 	result=""
@@ -245,33 +287,7 @@ for l in "${layouts[@]}"; do
 	fi
 
 	# 5. The shipped binary through its launcher.
-	zip=$nextui_zip
-	[ "$l" = knulli ] && zip=$knulli_zip
-	if [ "$l" = tg5040 ]; then
-		result="$result; launcher: skipped (no SDL in the stock rootfs)"
-	elif [ ! -f "$zip" ]; then
-		result="$result; launcher: skipped (no $zip)"
-	else
-		sdl_image="reminislink-emulation-$l"
-		# Debian: the release only (its security mirror may lag behind
-		# its index, and the libraries only need to load); Debian 10 is
-		# archived on archive.debian.org.
-		apt_fix=""
-		case $l in
-		my355) apt_fix='echo "deb http://archive.debian.org/debian buster main" >/etc/apt/sources.list && rm -f /etc/apt/sources.list.d/* && ' ;;
-		tg5050 | knulli) apt_fix='echo "deb http://deb.debian.org/debian $(. /etc/os-release && echo $VERSION_CODENAME) main" >/etc/apt/sources.list && rm -f /etc/apt/sources.list.d/* && ' ;;
-		esac
-		printf 'FROM %s\nRUN %sapt-get update -qq && apt-get install -y -qq --no-install-recommends %s >/dev/null && rm -rf /var/lib/apt/lists/*\n' \
-			"$image" "$apt_fix" "$(sdl_packages_of "$l")" |
-			"$DOCKER" build -q --platform linux/arm64 -t "$sdl_image" - >/dev/null
-		if run_in "$sdl_image" -e RL_LAYOUT_ZIP="/repo/$zip" -e RL_LAYOUTS="$l" -v "$repo/$out:/rl:ro" \
-			-- /rl/smoke.test -test.run '^TestSmokeLayouts$' -test.v -test.count=1 -test.timeout 5m 2>&1 | sed 's/^/    /'; then
-			result="$result; launcher with the shipped binary: smoke OK"
-		else
-			fail "$l" "smoke through the launcher"
-			continue
-		fi
-	fi
+	launcher_smoke "$l" || continue
 	echo "$l: $result"
 	summary+=("$l: $result")
 done

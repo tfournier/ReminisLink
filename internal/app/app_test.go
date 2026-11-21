@@ -861,3 +861,26 @@ func TestTLSIdentityAndRL1Migration(t *testing.T) {
 		t.Fatal("the pin changed across restarts")
 	}
 }
+
+// Codex review round 2 of M20: the ReminisLink data folder reached through
+// a link below the card is refused at start (keys, backups and locks
+// would be written elsewhere on the volume).
+func TestDataFolderThroughALinkIsRefused(t *testing.T) {
+	prev := slogDefault()
+	defer restoreSlog(prev)
+	sd := t.TempDir()
+	outside := t.TempDir()
+	shared := filepath.Join(sd, ".userdata", "shared")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(shared, "ReminisLink")); err != nil {
+		t.Skipf("no symbolic links: %v", err)
+	}
+	if _, err := Open(Options{Roots: nextui.RootsForSD(sd, "tg5040")}); err == nil || !strings.Contains(err.Error(), "link") {
+		t.Fatalf("data folder through a link: %v", err)
+	}
+	if des, _ := os.ReadDir(outside); len(des) != 0 {
+		t.Fatalf("written through the link: %v", des)
+	}
+}

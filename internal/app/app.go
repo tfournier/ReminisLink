@@ -19,6 +19,7 @@ import (
 
 	"github.com/tfournier/ReminisLink/internal/auth"
 	"github.com/tfournier/ReminisLink/internal/cheats"
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/device"
 	"github.com/tfournier/ReminisLink/internal/discovery"
 	"github.com/tfournier/ReminisLink/internal/events"
@@ -184,6 +185,12 @@ func Open(opts Options) (a *App, err error) {
 		return a, err
 	}
 	a.layout = store.Layout{Root: opts.Roots.Data}
+	// The data folder (keys, backups, locks, trash) is never reached
+	// through a link below the card (rule 2): the services check the
+	// folders under it, this checks the way to it.
+	if err := confine.CheckDir(confine.Base(opts.Roots.SD, opts.Roots.Data), opts.Roots.Data); err != nil {
+		return a, fmt.Errorf("ReminisLink data folder %s: %w", opts.Roots.Data, err)
+	}
 	if a.conf, err = store.LoadConfig(a.layout.ConfigFile(), func(id string) string {
 		return nextui.DefaultDeviceName(a.info.Model, id)
 	}, nil); err != nil {

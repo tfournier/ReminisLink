@@ -33,6 +33,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/tfournier/ReminisLink/internal/confine"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/store"
 )
@@ -297,11 +298,15 @@ func rtcPath(files osadapter.GameFiles) string {
 // backup of g. Automatic backups past MaxAutoBackups go to the trash.
 // Called with the lock held.
 func (s *Service) createLocked(g osadapter.Game, src, rtc, reason string, label *string) (meta, error) {
-	// The save is never read through a link (rule 2).
+	// The save is never read through a link, nor the copy written through
+	// one (rule 2).
 	if err := s.checkWriteDir(filepath.Dir(src)); err != nil {
 		return meta{}, fmt.Errorf("save backup: %w", err)
 	}
 	dir := s.dir(g)
+	if err := confine.CheckDir(s.o.Layout.Root, dir); err != nil {
+		return meta{}, fmt.Errorf("save backup: %w", err)
+	}
 	metas, err := s.readMetas(dir)
 	if err != nil {
 		return meta{}, err

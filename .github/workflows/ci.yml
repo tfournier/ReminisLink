@@ -130,7 +130,7 @@ jobs:
           name: reminislink-knulli
           path: dist
       - name: Zips, case-sensitive unit tests and smoke tests in each userland
-        run: make emulation
+        run: make emulation REQUIRE_ZIPS=1
 
   ios:
     # Swift tools 6.2 and the iOS 18+ simulator: Xcode 26.

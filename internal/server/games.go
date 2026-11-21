@@ -451,14 +451,10 @@ func (s *Server) handleStateThumbnail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p, err := s.opts.States.Thumbnail(g, slot)
+	// The descriptor checked by OpenThumbnail is the one served.
+	f, _, err := s.opts.States.OpenThumbnail(g, slot)
 	if err != nil {
 		s.stateError(w, r, err)
-		return
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		s.stateError(w, r, states.ErrNoThumbnail)
 		return
 	}
 	s.sendFile(w, r, f, "", "image/png")

@@ -210,6 +210,8 @@ Only a pak release can be "Latest" on GitHub: app tags never start the GitHub wo
 1. Update the `"Unreleased"` entry in the `changelog` of `pak.json`, and commit it like any other change.
 2. From an up-to-date `main` branch with no uncommitted changes, run `make v1.2.3`. This runs the lint and the tests, renames `Unreleased` to `v1.2.3` in `pak.json`, sets `version`, commits as `Release v1.2.3`, tags `v1.2.3` and pushes both.
 
+`platforms` in `pak.json` lists only the platforms the latest published zip supports: the Pak Store reads `pak.json` from `main` and offers that zip on each platform listed. A new platform goes into `platforms` in the release commit of the first stable release whose zip supports it (tg5050, h700 and my355: the first release with milestone M20, v1.1.0), never before.
+
 The [CI workflow](.github/workflows/ci.yml) then builds the pak and publishes the GitHub release with `ReminisLink.pak.zip`. The Pak Store reads `pak.json` from this repository and downloads `<repo_url>/releases/download/<version>/<release_filename>`, which is why the tag, the `pak.json` version and the release file name must match.
 
 A pre-release: with an `"Unreleased"` entry in `pak.json`, run `make v1.2.3-beta.1` (or `-rc.1`) from `main`. It runs the lint and the tests, then tags and pushes the tag only: `pak.json` is not changed, so the Pak Store keeps offering the last release. The CI publishes a GitHub release marked "Pre-release" (never "Latest") with the `Unreleased` notes and `ReminisLink.pak.zip`, whose `pak.json` and reported `pakVersion` name the pre-release.

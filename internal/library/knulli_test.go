@@ -55,6 +55,11 @@ func TestKnulliDeleteKeepsTheGameOfAnotherCase(t *testing.T) {
 	for _, rel := range other {
 		writeSD(t, sd, rel, "other game")
 	}
+	// A lock of game.gba only, in the ReminisLink data area (Codex review
+	// round 2): it stays with its game.
+	otherLock := "system/ReminisLink/locks/gba/starlight courier.gba/slot1.st"
+	writeSD(t, sd, otherLock, "locked copy")
+	other = append(other, otherLock)
 	preview, err := l.PreviewDeletion(EncodeID("gba/Starlight Courier.gba"), false)
 	if err != nil {
 		t.Fatal(err)
@@ -86,6 +91,39 @@ func TestKnulliDeleteKeepsTheGameOfAnotherCase(t *testing.T) {
 	}
 	if roles["save"] != 1 || roles["state"] != 1 {
 		t.Errorf("starlight courier.gba files: %+v", d.Files)
+	}
+}
+
+// Codex review round 2: a save is never read through a link at the saves
+// root itself (/userdata/saves -> elsewhere); only the card root may be one.
+func TestKnulliSavesRootThroughALink(t *testing.T) {
+	l, _, sd := knulliLibrary(t, t.TempDir())
+	saves := filepath.Join(sd, "saves")
+	outside := filepath.Join(filepath.Dir(sd), "elsewhere")
+	if err := os.Rename(saves, outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, saves); err != nil {
+		t.Skipf("no symbolic links: %v", err)
+	}
+	gameID := EncodeID("gba/Starlight Courier.gba")
+	d, err := l.Game(gameID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := 0
+	for _, f := range d.Files {
+		if f.Role != "save" && f.Role != "rtc" && f.Role != "state" {
+			continue
+		}
+		if file, _, _, err := l.OpenFile(gameID, f.FileID); err == nil {
+			file.Close()
+			t.Errorf("%s read through the link", f.Path)
+		}
+		opened++
+	}
+	if opened == 0 {
+		t.Fatal("no save listed to try")
 	}
 }
 

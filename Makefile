@@ -165,8 +165,9 @@ pak: build ## Assemble the pak folder in build/pak
 	chmod +x $(PAK_DIR)/launch.sh $(PAK_DIR)/$(APP)
 
 release: check-version pak ## Build the release zip (Pak Store format) in dist/
-	rm -rf $(DIST_DIR)
+	# Only this zip is replaced: the Knulli zip (knulli-release) stays.
 	mkdir -p $(DIST_DIR)
+	rm -f $(RELEASE_ZIP)
 	# The pak's contents sit at the root of the zip: the Pak Store creates
 	# Tools/<PLATFORM>/ReminisLink.pak/ itself and extracts the zip into it
 	# (a top "ReminisLink.pak/" folder would nest it and the pak would not start).
@@ -190,8 +191,8 @@ knulli-release: check-version knulli-pak ## Build the Knulli zip in dist/ (unzip
 	cd $(KNULLI_DIR) && zip -qr "$(CURDIR)/$(KNULLI_ZIP)" $(PAK_NAME).sh .$(PAK_NAME)
 	@ls -l $(KNULLI_ZIP)
 
-emulation: ## Run the pak headless in the userland of each platform and Knulli (Docker, linux/arm64; LAYOUTS to choose)
-	scripts/emulation/run.sh $(LAYOUTS)
+emulation: ## Run the pak headless in the userland of each platform and Knulli (Docker, linux/arm64; LAYOUTS to choose, REQUIRE_ZIPS=1 to fail without both zips)
+	REQUIRE_ZIPS="$(REQUIRE_ZIPS)" scripts/emulation/run.sh $(LAYOUTS)
 
 check-version: ## Check TAG (when set, e.g. by the CI) against pak.json: version and changelog entry ("Unreleased" for a pre-release)
 	@if [ -n "$(TAG)" ]; then \

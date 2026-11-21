@@ -432,9 +432,10 @@ func (l smokeLayout) install(t *testing.T, zipFile, sd string) (string, []string
 		return filepath.Join(sd, "roms", "tools", "ReminisLink.sh"), []string{"SDCARD_PATH=" + sd, "REMINISLINK_OS="}
 	}
 	dir := filepath.Join(sd, "Tools", l.platform, "ReminisLink.pak")
-	// The zip holds the pak at its root (Pak Store); older builds held a
-	// ReminisLink.pak/ folder.
-	unzipInto(t, zipFile, dir, "ReminisLink.pak/")
+	// As the Pak Store does: Tools/<PLATFORM>/ReminisLink.pak/ created,
+	// the zip extracted into it as is; launch.sh must be right there (a
+	// zip nested in a ReminisLink.pak/ folder fails here).
+	unzipInto(t, zipFile, dir, "")
 	userdata := filepath.Join(sd, ".userdata", l.platform)
 	env := []string{
 		// As MinUI.pak/launch.sh exports them (my355 exports no ROMS_PATH).

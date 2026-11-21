@@ -20,7 +20,8 @@ var openConfined = confine.Open
 // openSavesFile opens the file p (an absolute path given by the adapter)
 // with openConfined under the saves folder of the adapter.
 func (s *Service) openSavesFile(p string) (*os.File, error) {
-	f, _, err := confine.OpenUnder(s.o.Adapter.Roots().Saves, p)
+	r := s.o.Adapter.Roots()
+	f, _, err := confine.OpenUnder(confine.Base(r.SD, r.Saves), p)
 	return f, err
 }
 
@@ -29,9 +30,5 @@ func (s *Service) openSavesFile(p string) (*os.File, error) {
 // symbolic link (rule 2): the write would land elsewhere on the volume.
 func (s *Service) checkWriteDir(dir string) error {
 	r := s.o.Adapter.Roots()
-	root := r.Saves
-	if rel, err := confine.RelToRoot(r.SD, r.Saves); r.SD != "" && err == nil && rel != "" {
-		root = r.SD
-	}
-	return confine.CheckDir(root, dir)
+	return confine.CheckDir(confine.Base(r.SD, r.Saves), dir)
 }

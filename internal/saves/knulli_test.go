@@ -1,6 +1,7 @@
 package saves
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -74,6 +75,35 @@ func TestKnulliSaveFolderThroughALink(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(outside, "Starlight Courier.srm")); string(data) == "new save" {
 		t.Fatal("save replaced through the link")
+	}
+}
+
+// Codex review round 2: the saves root itself is a link; only the card
+// root may be one. Nothing is read, listed or written through it.
+func TestKnulliSavesRootThroughALink(t *testing.T) {
+	e, _ := newKnulliEnv(t, t.TempDir())
+	saves := filepath.Join(e.sd, "saves")
+	outside := filepath.Join(filepath.Dir(e.sd), "elsewhere")
+	if err := os.Rename(saves, outside); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, saves); err != nil {
+		t.Skipf("no symbolic links: %v", err)
+	}
+	g := e.knulliGame("gba/Starlight Courier.gba")
+	if f, _, err := e.svc.OpenSave(g); err == nil {
+		f.Close()
+		t.Fatal("save read through the saves root link")
+	}
+	if _, err := e.svc.Create(g, nil); !errors.Is(err, confine.ErrOutside) {
+		t.Fatalf("backup through the saves root link: %v", err)
+	}
+	if _, err := e.svc.Replace(g, e.temp("new")); !errors.Is(err, confine.ErrOutside) {
+		t.Fatalf("replace through the saves root link: %v", err)
+	}
+	all, err := e.svc.ListAll(context.Background())
+	if err != nil || len(all.Saves) != 0 {
+		t.Fatalf("saves listed through the link: %+v %v", all.Saves, err)
 	}
 }
 

@@ -240,6 +240,11 @@ func TestUploadRequestErrors(t *testing.T) {
 	good := func() CreateUploadRequest {
 		return CreateUploadRequest{Target: romTarget("x.gba"), SizeBytes: ptr(int64(1)), SHA256: ptr(sum([]byte{1}))}
 	}
+	// The game in another case: the same file on exFAT (NextUI card).
+	existingName := "starlight courier.GBA"
+	if !foldsCase(e.sd) {
+		existingName = "Starlight Courier.gba"
+	}
 	cases := map[string]struct {
 		mut  func(*CreateUploadRequest)
 		code string
@@ -271,7 +276,7 @@ func TestUploadRequestErrors(t *testing.T) {
 		"unknown game": {func(r *CreateUploadRequest) {
 			r.Target = &Target{Kind: KindSave, GameID: gameID(gbaSystem + "/Nope.gba")}
 		}, CodeNotFound},
-		"rom exists": {func(r *CreateUploadRequest) { r.Target.FileName = ptr("starlight courier.GBA") }, CodeConflict},
+		"rom exists": {func(r *CreateUploadRequest) { r.Target.FileName = ptr(existingName) }, CodeConflict},
 	}
 	for name, c := range cases {
 		r := good()
@@ -304,7 +309,11 @@ func TestUploadConflictRules(t *testing.T) {
 	data = []byte("late")
 	c = e.create(romTarget("Late.gba"), data, ConflictFail)
 	e.send(c.UploadID, data, 0, len(data))
-	if err := os.WriteFile(e.path("Roms/"+gbaSystem+"/LATE.gba"), []byte("first"), 0o644); err != nil {
+	late := "LATE.gba" // the same file on exFAT
+	if !foldsCase(e.sd) {
+		late = "Late.gba"
+	}
+	if err := os.WriteFile(e.path("Roms/"+gbaSystem+"/"+late), []byte("first"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, apiErr, _ := e.svc.CompleteUpload(context.Background(), c.UploadID); apiErr == nil || apiErr.Code != CodeConflict {
@@ -316,10 +325,16 @@ func TestUploadConflictRules(t *testing.T) {
 
 	// overwrite: the old file goes to the trash first.
 	data = []byte("new content")
-	c = e.create(romTarget("starlight courier.gba"), data, ConflictOverwrite)
+	// Another case of the name on exFAT; the exact name on a
+	// case-sensitive file system (another case is another file there).
+	overwritten := "starlight courier.gba"
+	if !foldsCase(e.sd) {
+		overwritten = "Starlight Courier.gba"
+	}
+	c = e.create(romTarget(overwritten), data, ConflictOverwrite)
 	e.send(c.UploadID, data, 0, len(data))
 	e.complete(c.UploadID)
-	if e.read("Roms/"+gbaSystem+"/starlight courier.gba") != "new content" {
+	if e.read("Roms/"+gbaSystem+"/"+overwritten) != "new content" {
 		t.Fatal("not replaced")
 	}
 	entries, _, _ := e.trash.List()

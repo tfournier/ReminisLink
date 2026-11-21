@@ -131,3 +131,19 @@ func CheckDir(root, dir string) error {
 	}
 	return nil
 }
+
+// Base returns the folder a file of the functional root (saves, roms,
+// states, ReminisLink data...) is opened or written under: the card when
+// the root is on it, so that a link at the root itself (Saves -> elsewhere)
+// is refused like any link below it; the root otherwise (moved off the
+// card by a variable). Only the card itself may be reached through a link
+// (h700: /mnt/SDCARD -> /mnt/sdcard).
+func Base(card, root string) string {
+	if card == "" {
+		return root
+	}
+	if rel, err := filepath.Rel(card, root); err == nil && (rel == "." || filepath.IsLocal(rel)) {
+		return card
+	}
+	return root
+}
