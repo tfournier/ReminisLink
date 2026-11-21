@@ -9,7 +9,7 @@
 | `ReminisLink/` | SwiftUI app: `App/` (state, pairing, connections, errors), `Views/`, `Resources/` (String Catalogs EN + FR, assets, privacy manifest) |
 | `ReminisLinkShare/` | Share extension: copies shared files into the app group inbox, then opens the app on Add (it never uploads; web links are not accepted) |
 | `Design/` | SVG sources of the app icon and of the launch screen mark, and `make-icons.sh` that renders them into the asset catalog |
-| `AppStore/` | Texts of the App Store page (English and French) and notes for App Review |
+| `AppStore/` | Texts of the App Store page (English and French), notes for App Review, and `make-screenshots.sh` (App Store screenshots from the demo, see "iPhone, iPad and Mac") |
 | `CHANGELOG.md` | Changelog of the app (English and French), the source of the App Store "What's New" |
 | `ci_scripts/` | Xcode Cloud scripts: version from the `ios-v*` tag, App Store Connect API steps (see "Release", step 7) |
 | `ReminisLinkUITests/` | XCUITests of the main paths (pairing, add a file, delete, save, states, cheats, patch, game art, save sync, tabs, flat library, file download, console closing, apps and SD browser) |
@@ -20,6 +20,9 @@
 ```sh
 cd ios/ReminisLinkKit && swift test
 cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16'
+# the same tests on an iPad (milestone M15); a name-only destination may not
+# resolve: take the id from `xcodebuild -showdestinations -scheme ReminisLink`
+cd ios && xcodebuild test -scheme ReminisLink -destination 'id=<iPad simulator id>'
 ```
 
 No Apple Developer account is needed for the simulator. To run on a device,
@@ -363,6 +366,105 @@ extension table. Its disc system has no emulator (`emulatorInstalled: false`): t
 library shows it with "Emulator not installed on the console", and it can
 still be managed. A pak that does not send the field is taken as having the
 emulator.
+
+## iPhone, iPad and Mac (milestone M15)
+
+One app and one binary for iPhone, iPad and Apple-silicon Macs ("Designed
+for iPad"), with no Mac-specific code and no check of the device model:
+layouts follow the size class and the width of the window.
+
+- **Project**: `TARGETED_DEVICE_FAMILY = 1,2` (app, share extension and
+  tests); every orientation on iPad
+  (`UISupportedInterfaceOrientations~ipad`), the same three as before on
+  iPhone; no `UIRequiresFullScreen`, so Split View, Slide Over and Stage
+  Manager windows of any size work. The app icon is a single universal
+  1024 px image.
+- **Tabs**: `TabView` with `.sidebarAdaptable`: the tab bar on iPhone; on
+  iPad and Mac a bar at the top that turns into a sidebar.
+- **Library in a wide window** (`LibraryTab`, regular width): the list of
+  games in a column and the game beside it (`NavigationSplitView`). The
+  first route of `AppModel.tabPaths[.library]` is the row selected in the
+  list (a game, or the systems of *Browse by Console*), the rest is pushed in
+  the detail column (`LibraryColumns`). In a compact width (iPhone, Slide
+  Over, a narrow window) the tab is the same `NavigationStack` as before.
+  Both read and write the same path, so a window that changes width keeps
+  the screen shown; transfers and sheets live in `AppModel` and its
+  sessions, not in views, and survive it too.
+- **Readable width** (`ReadableWidth`, `.readableWidth()`): every screen of a
+  route and the first screen of each tab keep their content at 700 pt at
+  most, centred, with the background and scrolling edge to edge (extra
+  horizontal safe area). No effect below that width.
+- **Texts**: the strings that said "this iPhone" have device variations in
+  `Localizable.xcstrings` (`iphone` as before; `ipad`, `mac` and `other` say
+  "this device" / « cet appareil »). A variation missing for a device falls
+  back on the key, not on `other`: keep the three. The header
+  `X-RL-Platform` already says `iphone`, `ipad` or `mac`.
+- **Share extension**: unchanged, its sheet is laid out with
+  `readableContentGuide`, at any size.
+- **iPhone Duo** (outer screen closed, inner screen open, half-open): the
+  same rules (size classes and width, no model check, no full-screen key).
+  The outer screen is compact (one stack), the open inner screen is wide
+  (columns, readable width); the navigation and the transfers are in
+  `AppModel`, so the lit screen can change without losing them. No iPhone
+  Duo simulator could run here (its device type needs a newer simulator
+  runtime than iOS 26.4): check the three postures by hand or with that
+  runtime (`xcrun simctl list devices available`).
+
+UI tests run on iPhone and iPad simulators: `app.consoleTabs[...]` finds a
+tab in the bottom tab bar (iPhone) or in the bar at the top of an iPad
+window (buttons named after their symbol), and `app.goBack()` taps the back
+button of the screen shown (in a wide window the Library column has its own
+navigation bar).
+
+### To check by hand on a Mac (Apple silicon)
+
+The Mac runs the iPad app as is ("Designed for iPad"). Allow it in App Store
+Connect (*Pricing and Availability > iPhone and iPad Apps on Apple Silicon
+Macs*), then, with a TestFlight build on the Mac:
+
+1. **Bonjour and local network**: the console appears in the list; macOS asks
+   for the local network permission on the first browse (System Settings >
+   Privacy & Security > Local Network). Denied, the list shows the same
+   message as on iPhone.
+2. **QR code with the FaceTime camera**: *Add a Console* scans the QR code
+   (VisionKit). If the scanner is not available on the Mac, the screen says
+   so; pair on the iPhone or iPad instead: the pairing reaches the Mac
+   through iCloud Keychain (step 5).
+3. **Files**: Add from Files (the Mac open panel), download of a file of a
+   game, a save, a state (the share sheet: *Save to Files*), a patch and a pak
+   from Files.
+4. **Share extension**: share a ROM from the Finder (Share menu >
+   ReminisLink); the app opens on Add, prefilled.
+5. **iCloud Keychain**: a console paired on the iPhone appears on the Mac
+   with the same pairing, and works (signed requests, pinned TLS); the
+   synced saves are in iCloud Drive.
+6. Also: windows of several sizes (the Library columns, the readable width),
+   a transfer while the window is resized, quitting with Cmd-Q during an
+   upload (it resumes at the next launch).
+
+**Fallback** if a point blocks (for example the camera or the share
+extension): build the same targets for Mac Catalyst (`SUPPORTS_MACCATALYST =
+YES`, "Optimize for Mac" off), still without Mac-specific code, and publish
+it in place of the "Designed for iPad" version.
+
+### App Store screenshots
+
+`AppStoreScreenshotsUITests` takes the six screenshots from the demo (no
+banner, `-RLScreenshots YES`) when `TEST_RUNNER_RL_SCREENSHOTS` is `en` or
+`fr`; otherwise it is skipped. `AppStore/make-screenshots.sh` runs it in
+both languages (it sets the language of the simulator for the status bar
+date, 9:41 and a full battery, then puts the language back) and copies the
+attachments `1-library` to `6-consoles` to
+`docs/screenshots/appstore/<locale>-<suffix>/`. iPad 13" (2064 × 2752, iPad
+Pro 13-inch M5 simulator):
+
+```sh
+ios/AppStore/make-screenshots.sh <iPad Pro 13-inch simulator id> ipad-13
+```
+
+On an iPad the library screenshots show the list and the game side by side.
+The iPhone sets of M16 were taken by hand; this test should give the same
+screens on an iPhone 16 Pro Max (1320 × 2868), not tried yet.
 
 ## Against the pak on the Mac (`make headless`)
 
