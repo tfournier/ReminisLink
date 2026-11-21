@@ -55,12 +55,15 @@ const (
 	// or replaced by an installation.
 	ReasonDeletePak  = "delete-pak"
 	ReasonReplacePak = "replace-pak"
+	// ReasonImportArchive (M19): the files of a game replaced by the
+	// import of a game archive.
+	ReasonImportArchive = "import-archive"
 )
 
 var validReasons = map[string]bool{
 	ReasonDeleteGame: true, ReasonDeleteState: true, ReasonOverwrite: true,
 	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true, ReasonDeleteBackup: true,
-	ReasonDeletePak: true, ReasonReplacePak: true,
+	ReasonDeletePak: true, ReasonReplacePak: true, ReasonImportArchive: true,
 }
 
 // Errors of the trash.

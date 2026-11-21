@@ -21,6 +21,10 @@ const (
 	// installation job (M12).
 	NoticePakInstalled     = "pak-installed"
 	NoticePakInstallFailed = "pak-install-failed"
+	// NoticeImported and NoticeImportFailed: the end of a game archive
+	// import job (M19).
+	NoticeImported     = "imported"
+	NoticeImportFailed = "import-failed"
 )
 
 // Notice is the subject of the banner.
@@ -62,6 +66,10 @@ func (n *notices) jobFinished(j transfer.Job) {
 		kind = NoticePakInstalled
 	case j.Kind == transfer.JobPakInstall && j.State == transfer.JobFailed:
 		kind = NoticePakInstallFailed
+	case j.Kind == transfer.JobArchiveImport && j.State == transfer.JobSucceeded:
+		kind = NoticeImported
+	case j.Kind == transfer.JobArchiveImport && j.State == transfer.JobFailed:
+		kind = NoticeImportFailed
 	default:
 		return // cancelled: asked by the user, nothing to say
 	}

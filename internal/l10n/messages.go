@@ -55,6 +55,8 @@ var (
 	ActPatchFile     = &msg{ID: "activity_patch_file", Other: "Applying a patch"}
 	ActPak           = &msg{ID: "activity_pak", Other: "Installing: {{.Name}}"}
 	ActPakFile       = &msg{ID: "activity_pak_file", Other: "Installing an app"}
+	ActImport        = &msg{ID: "activity_import", Other: "Importing: {{.Name}}"}
+	ActImportFile    = &msg{ID: "activity_import_file", Other: "Importing a game archive"}
 	ActQueued        = &msg{ID: "activity_queued", Other: "{{.Text}} (waiting)"}
 	ActProgress      = &msg{ID: "activity_progress", Other: "{{.Text}}  {{.Percent}}%"}
 	ActBytes         = &msg{ID: "activity_bytes", Other: "{{.Text}}  {{.Size}}"}
@@ -83,6 +85,8 @@ var (
 	NoticePakInstalled      = &msg{ID: "notice_pak_installed", Other: "App installed"}
 	NoticePakInstallFailed  = &msg{ID: "notice_pak_install_failed", Other: "App installation failed"}
 	NoticePakDeleted        = &msg{ID: "notice_pak_deleted", Other: "App moved to the trash"}
+	NoticeImported          = &msg{ID: "notice_imported", Other: "Game data imported"}
+	NoticeImportFailed      = &msg{ID: "notice_import_failed", Other: "Import failed"}
 )
 
 // Other screens
@@ -148,4 +152,5 @@ var All = []*msg{
 	BtnDisconnect, DeviceItem, DeviceIdleItem, PlatformApple, PlatformAndroid, PlatformWeb, PlatformOther,
 	DeviceStateConnected, DeviceStateDisconnected, DeviceStateSeparator, MsgDisconnected, MsgDeviceError,
 	ActPak, ActPakFile, NoticePakInstalled, NoticePakInstallFailed, NoticePakDeleted,
+	ActImport, ActImportFile, NoticeImported, NoticeImportFailed,
 }

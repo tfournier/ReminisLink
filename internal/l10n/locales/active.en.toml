@@ -5,6 +5,12 @@ other = "{{.Text}}  {{.Size}}"
 
 
 
+[activity_import]
+other = "Importing: {{.Name}}"
+
+[activity_import_file]
+other = "Importing a game archive"
+
 [activity_pak]
 other = "Installing: {{.Name}}"
 
@@ -200,6 +206,12 @@ other = "Game moved to the trash"
 
 [notice_paired]
 other = "Paired with {{.Name}}"
+
+[notice_import_failed]
+other = "Import failed"
+
+[notice_imported]
+other = "Game data imported"
 
 [notice_pak_deleted]
 other = "App moved to the trash"

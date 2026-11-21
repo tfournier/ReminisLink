@@ -222,6 +222,8 @@ var changeExempt = map[string]bool{
 	// M12: a pak change publishes a paks event, never a library one.
 	"DELETE " + Prefix + "/paks/{pakId}": true,
 	"POST " + Prefix + "/paks/install":   true, // the job publishes on success
+	// M19: the import job publishes on success (its result has a gameId).
+	"POST " + Prefix + "/archives/{stagingId}/import": true,
 }
 
 // Every write route (M13: every former M10 write route) publishes a library

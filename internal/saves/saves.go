@@ -44,6 +44,9 @@ const (
 	ReasonBeforeRestore = "before-restore"
 	ReasonBeforeDelete  = "before-delete"
 	ReasonBeforePatch   = "before-patch"
+	// ReasonBeforeImport (M19): the save before the import of a game
+	// archive.
+	ReasonBeforeImport = "before-import"
 )
 
 const (
@@ -111,6 +114,7 @@ func (m meta) public() Backup {
 
 var validReasons = map[string]bool{
 	ReasonManual: true, ReasonBeforeReplace: true, ReasonBeforeRestore: true, ReasonBeforeDelete: true, ReasonBeforePatch: true,
+	ReasonBeforeImport: true,
 }
 
 // Options are the dependencies of a Service.

@@ -5,6 +5,12 @@ other = "{{.Text}}  {{.Size}}"
 
 
 
+[activity_import]
+other = "Import\u00a0: {{.Name}}"
+
+[activity_import_file]
+other = "Import d'une archive de jeu"
+
 [activity_pak]
 other = "Installation\u00a0: {{.Name}}"
 
@@ -200,6 +206,12 @@ other = "Jeu mis à la corbeille"
 
 [notice_paired]
 other = "Appairé avec {{.Name}}"
+
+[notice_import_failed]
+other = "Échec de l'import"
+
+[notice_imported]
+other = "Données du jeu importées"
 
 [notice_pak_deleted]
 other = "App mise à la corbeille"
