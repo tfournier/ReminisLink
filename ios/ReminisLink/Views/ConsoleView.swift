@@ -112,12 +112,14 @@ struct ConsoleView: View {
     }
 }
 
-/// The trash of the console: entries, permanent deletion with confirmation.
+/// The trash of the console: entries, restore (M18: tap an entry, or swipe
+/// it), permanent deletion with confirmation.
 struct TrashView: View {
     @Environment(AppModel.self) private var app
     let deviceId: String
     @State private var confirmEmpty = false
     @State private var entryToDelete: TrashEntry?
+    @State private var entryToRestore: TrashEntry?
     @State private var error: AppError?
 
     var body: some View {
@@ -129,20 +131,37 @@ struct TrashView: View {
             }
             Section {
                 ForEach(entries) { entry in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.label).font(.headline)
-                        Text(entry.sizeBytes.byteString)
-                        Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    Button {
+                        entryToRestore = entry
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.label).font(.headline)
+                            Text(entry.sizeBytes.byteString)
+                            Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityElement(children: .combine)
+                    .accessibilityHint(Text("Shows what comes back, then restores it."))
+                    .accessibilityIdentifier("trash.entry")
+                    .swipeActions(edge: .leading) {
+                        Button("Restore") { entryToRestore = entry }
+                            .tint(.accentColor)
+                    }
                     .swipeActions {
                         Button("Delete", role: .destructive) { entryToDelete = entry }
                     }
+                    .contextMenu {
+                        Button("Restore…", systemImage: "arrow.uturn.backward") { entryToRestore = entry }
+                        Button("Delete…", systemImage: "trash", role: .destructive) { entryToDelete = entry }
+                    }
                 }
             } footer: {
-                Text("Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied.")
+                Text("Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied. Tap an entry to restore it: its files go back to their original place, never over a file already on the SD card.")
             }
         }
         .overlay {
@@ -158,6 +177,10 @@ struct TrashView: View {
             }
         }
         .task { await session.loadTrash() }
+        .refreshable { await session.loadTrash() }
+        .sheet(item: $entryToRestore) { entry in
+            TrashRestoreView(deviceId: deviceId, entry: entry)
+        }
         .confirmationDialog("Empty the trash?", isPresented: $confirmEmpty, titleVisibility: .visible) {
             Button("Empty Trash", role: .destructive) {
                 Task { await run { try await session.emptyTrash() } }

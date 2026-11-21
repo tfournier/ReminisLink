@@ -401,6 +401,26 @@
         }
       }
     },
+    "A file appeared on the SD card where this entry goes back. Nothing was changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier est apparu sur la carte SD à l’endroit où revient cette entrée. Rien n’a été modifié."
+          }
+        }
+      }
+    },
+    "A file with the same name is already on the SD card. ReminisLink never replaces it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier du même nom est déjà sur la carte SD. ReminisLink ne le remplace jamais."
+          }
+        }
+      }
+    },
     "A file with this name already exists on the console." : {
       "localizations" : {
         "fr" : {
@@ -537,6 +557,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toutes les consoles"
+          }
+        }
+      }
+    },
+    "Already on the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déjà sur la carte SD"
           }
         }
       }
@@ -697,6 +727,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En automatique, la console choisit d’après l’archive ou son pak.json. Un pak du même nom n’est jamais remplacé sans demander."
+          }
+        }
+      }
+    },
+    "Back on the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De retour sur la carte SD"
+          }
+        }
+      }
+    },
+    "Back to the SD card" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retour sur la carte SD"
           }
         }
       }
@@ -1121,6 +1171,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Code"
+          }
+        }
+      }
+    },
+    "Comes back as %@" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revient sous le nom %@"
           }
         }
       }
@@ -1803,6 +1863,36 @@
         }
       }
     },
+    "Every file comes back with the same number added to its name, so the files of a game stay together." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque fichier revient avec le même numéro ajouté à son nom : les fichiers d’un jeu restent ensemble."
+          }
+        }
+      }
+    },
+    "Every file goes back to its original place." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque fichier retourne à son emplacement d’origine."
+          }
+        }
+      }
+    },
+    "Every file is back in its original place." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque fichier est revenu à son emplacement d’origine."
+          }
+        }
+      }
+    },
     "Everything in the trash of the console will be permanently deleted. This cannot be undone." : {
       "localizations" : {
         "fr" : {
@@ -1893,12 +1983,12 @@
         }
       }
     },
-    "Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied." : {
+    "Files stay in the trash of the console until they are removed automatically after 30 days, or until the trash is emptied. Tap an entry to restore it: its files go back to their original place, never over a file already on the SD card." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les fichiers restent dans la corbeille de la console jusqu’à leur effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée."
+            "value" : "Les fichiers restent dans la corbeille de la console jusqu’à leur effacement automatique après 30 jours, ou jusqu’à ce que la corbeille soit vidée. Touche une entrée pour la restaurer : ses fichiers retournent à leur emplacement d’origine, sans jamais remplacer un fichier déjà sur la carte SD."
           }
         }
       }
@@ -3631,6 +3721,26 @@
         }
       }
     },
+    "Restore %@?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer %@ ?"
+          }
+        }
+      }
+    },
+    "Restore Under a Free Name" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restaurer sous un nom libre"
+          }
+        }
+      }
+    },
     "Restore the Locked Copy…" : {
       "localizations" : {
         "fr" : {
@@ -4111,6 +4221,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Affiche les actions de cet emplacement"
+          }
+        }
+      }
+    },
+    "Shows what comes back, then restores it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche ce qui revient, puis le restaure."
           }
         }
       }
@@ -5105,6 +5225,16 @@
         }
       }
     },
+    "The files came back under a free name: the files already on the SD card were not changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers sont revenus sous un nom libre : ceux déjà sur la carte SD n’ont pas été modifiés."
+          }
+        }
+      }
+    },
     "The imported cheats are added after the current ones." : {
       "localizations" : {
         "fr" : {
@@ -5161,6 +5291,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La copie verrouillée est la seule version restante, ou diffère de l’état : elle part dans la corbeille de la console. L’état lui-même ne change pas."
+          }
+        }
+      }
+    },
+    "The locks and the resume history of a game come back with it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les verrous et l’historique de reprise d’un jeu reviennent avec lui."
           }
         }
       }
@@ -5701,6 +5841,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette copie ne peut pas être restaurée : elle est abîmée ou a été faite par un autre émulateur. Rien n’a été modifié."
+          }
+        }
+      }
+    },
+    "This entry is no longer in the trash of the console, or ReminisLink on the console is too old to restore it (update it)." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette entrée n’est plus dans la corbeille de la console, ou ReminisLink sur la console est trop ancien pour la restaurer (mets-le à jour)."
           }
         }
       }

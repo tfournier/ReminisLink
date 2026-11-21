@@ -569,6 +569,22 @@ final class ConsoleSession {
         await refresh()
     }
 
+    /// `GET /trash/{entryId}/restore` (M18): what a restore puts back.
+    func trashRestorePreview(_ id: String) async throws -> TrashRestorePreview {
+        try await perform { try await $0.trashRestorePreview(id: id) }
+    }
+
+    /// `POST /trash/{entryId}/restore` (M18): the files go back to their
+    /// place (or under a free name with `.rename`); the library, the paks
+    /// and the trash reload, as after any change (the `library` and `paks`
+    /// events do it for the other devices).
+    func restoreTrashEntry(_ id: String, onConflict: TrashRestoreConflict) async throws -> TrashRestoreResult {
+        let result = try await perform { try await $0.restoreTrashEntry(id: id, onConflict: onConflict) }
+        contentChanged()
+        paks.paksChanged()
+        return result
+    }
+
     /// `DELETE /clients/me`, then forgets the pairing (M13: on every Apple
     /// device of the account, which share it). Without a pairing (paired
     /// before M13), or if the console no longer knows this identity, the

@@ -101,6 +101,10 @@ enum AppError: Error, Equatable {
     case notAPak
     /// M12: the pak is older than M12 (`404` on `/paks` or `/sd/browse`).
     case needsNewerPak
+    /// M18: `404` on a restore from the trash: the entry left the trash
+    /// (restored, deleted or purged meanwhile), or the pak is older than
+    /// M18.
+    case trashEntryGone
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -198,6 +202,8 @@ enum AppError: Error, Equatable {
             String(localized: "Choose a zip archive or a folder whose name ends with .pak.")
         case .needsNewerPak:
             String(localized: "Update ReminisLink on the console to manage its apps and browse its SD card.")
+        case .trashEntryGone:
+            String(localized: "This entry is no longer in the trash of the console, or ReminisLink on the console is too old to restore it (update it).")
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -233,7 +239,7 @@ enum AppError: Error, Equatable {
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
-        case .pakRefused, .pakSelf, .notAPak, .needsNewerPak: nil
+        case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone: nil
         case .pairingClosed, .unexpected: .retry
         }
     }
@@ -292,6 +298,19 @@ enum AppError: Error, Equatable {
             let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
             if status == 404 || status == 405 { return .needsNewerPak }
         }
+        return error
+    }
+
+    /// The error of a restore from the trash (M18): a `404` (or an older
+    /// pak's `405`) is ``trashEntryGone``, a pak folder refused by the
+    /// installation checks gets its reason.
+    static func trashRestore(_ error: Error) -> AppError {
+        let error = AppError(error)
+        guard case .api(let api) = error else { return error }
+        let server: ServerError? = if case .server(let s) = api { s } else { nil }
+        if let server, let refusal = server.pakRefusal { return .pakRefused(refusal) }
+        let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
+        if status == 404 || status == 405 { return .trashEntryGone }
         return error
     }
 
