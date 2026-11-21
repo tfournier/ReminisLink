@@ -40,6 +40,15 @@ Les tests de patchs utilisent des fichiers générés par les tests eux-mêmes (
 - `make desktop` : le pak avec son interface, sur Mac, contre `testdata/sdcard` copiée dans un dossier temporaire.
 - `make headless` : serveur et annonce Bonjour seulement. Le simulateur iOS le trouve sur le Mac par Bonjour, ce qui permet de développer toute l'app sans console.
 
+### Plateformes sans console (M20)
+
+Sans les consoles tg5050, h700, my355 ni Knulli :
+
+- Tests Go des adaptateurs (`internal/osadapter/nextui/platform_test.go`, `internal/osadapter/knulli`) sur les cartes factices `testdata/sdcard` et `testdata/knulli`, reconstituées à partir du code source des firmwares (sources citées en 05 §3.2 et §3.3).
+- `TestSmokeLayouts` (`cmd/reminislink/smoke_layout_test.go`) : le vrai binaire en headless sur la carte de chaque plateforme et de Knulli ; appairage v2 à partir du lien imprimé, description de la console, bibliothèque, envoi d'un jeu vérifié sur la carte, copie de secours d'une save vérifiée dans la zone de copies. Sur macOS : système de fichiers insensible à la casse.
+- `make emulation` (`scripts/emulation/run.sh`) : le même test, compilé pour linux/arm64, dans un conteneur par plateforme (natif sur Mac Apple Silicon, qemu-user par binfmt sur une machine x86_64) : rootfs d'origine de la Brick pour tg5040 quand l'image est présente, sinon des images Debian ou Ubuntu épinglées avec la glibc du firmware ou une plus ancienne (tg5050 : glibc 2.31, h700 : 2.35, my355 : 2.28, Knulli : 2.36). Système de fichiers sensible à la casse. Si `build/reminislink` existe (`make docker-build`), la glibc la plus récente qu'il demande est comparée à celle de chaque système.
+- Limites assumées : ni écran, ni boutons, ni Wi-Fi, ni SDL réels ; les volontaires (voir `docs/appel-testeurs.md`) valident chaque console avant de l'annoncer comme prise en charge.
+
 ## 5. Tests sur console (manuels, à chaque jalon)
 
 Checklist dans `docs/specs/checklists/` (à créer au jalon M2) :
@@ -60,6 +69,7 @@ Checklist dans `docs/specs/checklists/` (à créer au jalon M2) :
 - Job Go : `make lint test` puis compilation ARM64 dans `debian:bullseye` (comme Cheat Manager), publication de `ReminisLink.pak.zip` sur tag.
 - Job iOS (runner macOS) : `swift test` pour `ReminisLinkKit`, `xcodebuild test` pour l'app.
 - Job contrat : vérifie que `openapi.yaml` est valide et que les vecteurs sont lisibles.
+- Job émulation (M20, runner `ubuntu-24.04-arm`) : `make emulation` avec le binaire du zip construit par le job de compilation (sans la Brick, dont le rootfs n'est pas dans la CI). Le job de compilation construit aussi `ReminisLink.knulli.zip`, gardé comme artefact (pas publié).
 
 ## 7. Qualité du code
 

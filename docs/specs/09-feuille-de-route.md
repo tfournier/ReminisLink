@@ -239,6 +239,8 @@ Ordre : M17, M15, M18, M19, M20, M21. Puis v1.5 (interface web), puis v2.0.
 
 **Fait quand** : le pak se construit et passe les tests et le smoke pour chaque plateforme et pour Knulli en émulation, et au moins un volontaire a validé chaque console.
 
+**Avancement (21/11/2026, branche `m20-platforms`, à relire)** : plateformes `tg5050`, `h700` et `my355` dans l'adaptateur NextUI (modèle d'après `DEVICE`, batterie de chaque plateforme) et adaptateur Knulli (05 §3.2 et §3.3, sources et hypothèses écrites) ; choix de l'adaptateur par `--os` ou `REMINISLINK_OS` ; lanceur Knulli et `ReminisLink.knulli.zip` ; `libSDL2_ttf` embarquée pour h700 comme le Pak Store. Fait sans console : tests Go, `TestSmokeLayouts` sur les cinq dispositions, `make emulation` vert sur les cinq (rootfs d'origine de la Brick, images de même glibc pour les autres ; le binaire de la version demande glibc 2.17), lanceur Knulli et binaire de la version lancés en headless dans Debian 12 ; job CI `emulation`. Écarts et décisions à prendre : (1) un binaire et un zip pour toutes les plateformes, comme le Pak Store, au lieu d'un par plateforme ; (2) les plateformes ajoutées à `platforms` de `pak.json` (le Pak Store proposera la prochaine version sur ces consoles, sans marque « expérimental » côté `pak.json`) ; (3) le zip contient un dossier `ReminisLink.pak/`, alors que le README du Pak Store demande le contenu du pak à la racine du zip et que son `Unzip` ne retire aucun dossier (même chose pour Cheat Manager) : à vérifier sur une console avant la prochaine version ; (4) publier ou non `ReminisLink.knulli.zip` dans les releases. Reste : l'appel aux testeurs ([appel-testeurs.md](../appel-testeurs.md)) et la validation par au moins un volontaire par console.
+
 ## M21 — App Android
 
 - App Android native (Kotlin, Jetpack Compose) qui parle la même API (`protocol/openapi.yaml`, vecteurs de test partagés) : découverte NSD (mDNS), appairage par QR (CameraX), TLS épinglé, signature RL2-ED25519 (clé dans Android Keystore), bibliothèque, transferts, saves, states, cheats, patchs, apps, corbeille, mode démo. Les dépendances tierces seront proposées à la personne avant d'être ajoutées, et **aucune dépendance Google propriétaire** (ni Google Play Services, ni ML Kit ; QR code avec une bibliothèque libre comme ZXing) : l'app doit pouvoir être publiée sur F-Droid comme sur Google Play.
@@ -258,7 +260,7 @@ Les fonctions de l'app sur l'écran de la console ; le pak en arrière-plan pend
 
 ## Après la v1 (idées, non engagées)
 
-- Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli.
+- Plateformes `tg5050`, `h700`, `my355`, puis adaptateur Knulli (devenu M20).
 - Android (iPad et Mac : M15).
 - TLS en option.
 - Gestionnaire de fichiers générique, lancement d'un jeu, Pak Store, mises à jour.

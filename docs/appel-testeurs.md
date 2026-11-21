@@ -1,0 +1,38 @@
+# Appel aux testeurs : ReminisLink sur d'autres consoles
+
+ReminisLink fonctionne aujourd'hui sur la **TrimUI Brick avec NextUI**. Une version expérimentale tourne aussi, en théorie, sur :
+
+- **NextUI** : TrimUI Smart Pro S (`tg5050`), Anbernic RG28XX, RG34XX, RG35XX Plus/H/Pro/SP, RG40XX H/V, RG CubeXX (`h700`), Miyoo Flip (`my355`) ;
+- **Knulli** (par exemple sur une Anbernic H700 ou une TrimUI).
+
+Nous n'avons pas ces consoles. Le pak a été construit et testé sans elles : organisation de la carte reconstituée à partir du code source de chaque firmware, serveur lancé sous émulation dans le système de chaque console. L'écran, les boutons et le Wi-Fi n'ont jamais été essayés. **Ces consoles ne sont donc pas prises en charge** tant qu'une personne qui en possède une ne les a pas validées.
+
+## Ce qu'il faut
+
+- Une des consoles ci-dessus, avec NextUI ou Knulli à jour, et une carte SD **dont vous avez une copie** (ReminisLink garde une copie de tout ce qu'il remplace ou supprime, mais c'est une version de test).
+- Un iPhone avec l'app ReminisLink (ou l'app Android de test), sur le même Wi-Fi que la console.
+
+## Installer
+
+- **NextUI** : décompressez `ReminisLink.pak.zip` (dernière version de test) dans `/Tools/<plateforme>/` de la carte, pour obtenir `/Tools/<plateforme>/ReminisLink.pak/launch.sh` (`<plateforme>` : `tg5050`, `h700` ou `my355`). Ouvrez **Outils > ReminisLink**.
+- **Knulli** : décompressez `ReminisLink.knulli.zip` dans `/userdata/roms/tools/` (vous obtenez `ReminisLink.sh` et un dossier caché `.ReminisLink`). Mettez à jour la liste des jeux, puis ouvrez **Outils > ReminisLink**.
+
+## À essayer (dans l'ordre)
+
+1. Le pak s'ouvre : le QR code s'affiche, les boutons répondent (A, Y, B), B ferme le pak.
+2. L'app trouve la console et s'appaire avec le QR code.
+3. La bibliothèque montre vos systèmes et vos jeux (jaquettes comprises) ; le tableau de bord montre la batterie et le Wi-Fi.
+4. Envoyez un petit jeu depuis l'app, puis lancez-le sur la console.
+5. Faites une copie de secours d'une save, jouez, sauvegardez en jeu, restaurez la copie : la partie revient.
+6. Verrouillez un state, écrasez-le en jeu, rouvrez le pak : il revient.
+7. Supprimez un jeu de test : il part dans la corbeille de ReminisLink.
+
+## Nous faire un retour
+
+Ouvrez un ticket sur https://github.com/tfournier/ReminisLink/issues avec :
+
+- la console, le firmware et sa version (NextUI : écran des réglages ; Knulli : menu Système) ;
+- ce qui marche et ce qui ne marche pas, dans la liste ci-dessus ;
+- les journaux du pak : `ReminisLink.txt` et `ReminisLink.stderr.txt` dans `/.userdata/<plateforme>/logs/` (NextUI) ou `/userdata/system/logs/` (Knulli). Ils ne contiennent ni le secret d'appairage ni clé privée ; relisez-les quand même avant de les joindre (le nom de la console et celui de votre réseau Wi-Fi peuvent y figurer).
+
+Merci ! Chaque console sera annoncée comme prise en charge après la validation d'au moins une personne qui la possède.
