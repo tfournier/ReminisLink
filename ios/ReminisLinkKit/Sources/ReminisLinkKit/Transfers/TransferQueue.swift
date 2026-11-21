@@ -219,13 +219,21 @@ public final class TransferQueue {
         scratchDirectory: URL,
         background: BackgroundActivity = NoBackgroundActivity(),
         retry: RetryPolicy = RetryPolicy(),
+        isCurrentClient: @escaping @Sendable (APIClient) -> Bool = { _ in true },
         client: @escaping () async throws -> APIClient
     ) {
         self.scratchDirectory = scratchDirectory
         self.background = background
         self.retry = retry
+        self.isCurrentClient = isCurrentClient
         self.client = client
     }
+
+    /// Whether a client is still the one to sign with (M15: the app drops a
+    /// client when the pairing changes). A running upload whose client is
+    /// no longer current stops after its chunk and goes on with a client
+    /// taken again from ``client``.
+    private let isCurrentClient: @Sendable (APIClient) -> Bool
 
     /// Uploads or jobs still running.
     public var isBusy: Bool {
@@ -456,7 +464,8 @@ public final class TransferQueue {
             let clock = clock
             let result: UploadResult
             do {
-                result = try await upload.run(client: api, shouldPause: { flag.isSet }, progress: { offset in
+                let isCurrent = isCurrentClient
+                result = try await upload.run(client: api, shouldPause: { flag.isSet || !isCurrent(api) }, progress: { offset in
                     let elapsed = clock.now - start
                     let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
                     await item.report(offset: offset, at: seconds)

@@ -47,6 +47,9 @@ public enum DeviceStoreError: Error, Equatable, Sendable {
     /// M15: still not, ``DeviceStore/missingIdentityDelay`` after it was
     /// first seen missing here: its key may exist nowhere any more.
     case identityMissing
+    /// M15: a reset was asked for, but the pointer changed or its key
+    /// arrived meanwhile: nothing was changed.
+    case resetNotNeeded
 }
 
 /// Paired devices and their credentials (docs/specs/06-app-ios.md §6, M13).
@@ -185,16 +188,41 @@ public final class DeviceStore {
     /// only path that replaces the pointer, for a pointer whose key never
     /// arrived. No identity item is deleted: every console keeps signing
     /// with the identity of its pairing, wherever that key is.
+    ///
+    /// Offered only for a pointer whose key has been missing on this device
+    /// for ``missingIdentityDelay`` (``lostIdentityPointer()``), and done
+    /// only if, when confirmed, the pointer is still that one and its key
+    /// still missing: otherwise ``DeviceStoreError/resetNotNeeded`` and
+    /// nothing changes.
     @discardableResult
-    public func resetIdentity() throws -> ClientIdentity {
+    public func resetIdentity(replacing clientId: String) throws -> ClientIdentity {
+        guard lostIdentityPointer() == clientId else { throw DeviceStoreError.resetNotNeeded }
         let identity = ClientIdentity.generate()
         try secureStore.set(
             try JSONEncoder().encode(IdentityRecord(identity: identity)), for: Self.account(clientId: identity.clientId)
         )
-        try secureStore.set(try JSONEncoder().encode(Pointer(clientId: identity.clientId, name: nil)), for: Self.identityAccount)
+        // Checked once more right before the write (the key may have just
+        // arrived), and an update only: never a pointer created here.
+        guard lostIdentityPointer() == clientId,
+              try secureStore.replace(
+                  try JSONEncoder().encode(Pointer(clientId: identity.clientId, name: nil)), for: Self.identityAccount
+              )
+        else { throw DeviceStoreError.resetNotNeeded }
         defaults.removeObject(forKey: Self.missingSinceKey)
         sharedItemsChanged()
         return identity
+    }
+
+    /// The `clientId` of the pointer when its key has been missing on this
+    /// device for longer than ``missingIdentityDelay`` (the only case where
+    /// the identity can be reset), else nil.
+    public func lostIdentityPointer() -> String? {
+        guard let pointer = try? currentPointer(), (try? identity(clientId: pointer.clientId)) == .some(nil) else { return nil }
+        guard let since = defaults.dictionary(forKey: Self.missingSinceKey)?[pointer.clientId] as? Date else {
+            defaults.set([pointer.clientId: now()], forKey: Self.missingSinceKey)
+            return nil
+        }
+        return now().timeIntervalSince(since) > Self.missingIdentityDelay ? pointer.clientId : nil
     }
 
     /// The name of the identity shown on the consoles (`clientName`), as
@@ -342,11 +370,11 @@ public final class DeviceStore {
     }
 
     /// Records the address of a working connection (pinned TLS, signed
-    /// requests accepted), on this device only.
-    public func noteEndpoint(_ endpoint: Endpoint, for deviceId: String) {
-        guard let record = try? consoleRecord(deviceId), lastEndpoint(for: deviceId) != endpoint,
-              let data = try? JSONEncoder().encode(EndpointNote(pin: record.pin, endpoint: endpoint))
-        else { return }
+    /// requests accepted), on this device only, with the pin of the
+    /// connection that validated it (`pin`): used only while the pairing
+    /// still has that pin, never for a pairing that replaced it meanwhile.
+    public func noteEndpoint(_ endpoint: Endpoint, for deviceId: String, pin: String) {
+        guard let data = try? JSONEncoder().encode(EndpointNote(pin: pin, endpoint: endpoint)) else { return }
         defaults.set(data, forKey: Self.endpointKey(deviceId))
     }
 
@@ -475,6 +503,13 @@ public final class DeviceStore {
     private func update(_ deviceId: String, signal: Bool, _ change: (inout PairedDevice) -> Void) throws {
         if var record = try consoleRecord(deviceId) {
             change(&record.device)
+            // Not a pairing change (a name a connection noted): read again
+            // just before writing, and only over the same pairing (identity
+            // and pin), never over one that replaced it meanwhile.
+            if !signal {
+                guard let current = try consoleRecord(deviceId), current.clientId == record.clientId, current.pin == record.pin
+                else { return reload() }
+            }
             try write(record, signal: signal)
         } else if let index = legacy.firstIndex(where: { $0.id == deviceId }) {
             change(&legacy[index])

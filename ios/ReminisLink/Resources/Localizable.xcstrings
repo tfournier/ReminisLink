@@ -3041,6 +3041,16 @@
         }
       }
     },
+    "Offered only when the identity of your Apple devices has not reached this device for a while." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Proposé seulement quand l’identité de tes appareils Apple n’arrive pas sur cet appareil depuis un moment."
+          }
+        }
+      }
+    },
     "Offline" : {
       "localizations" : {
         "fr" : {
@@ -5245,6 +5255,16 @@
         }
       }
     },
+    "The identity of your Apple devices has arrived. Nothing was changed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’identité de tes appareils Apple est arrivée. Rien n’a été modifié."
+          }
+        }
+      }
+    },
     "The identity of your Apple devices has not fully reached this device through iCloud Keychain yet. Keep it connected to the internet, then try again." : {
       "localizations" : {
         "fr" : {
@@ -6519,12 +6539,12 @@
         }
       }
     },
-    "Your Apple devices will use a new identity for the consoles you pair from now on. Consoles already paired keep working wherever their pairing has arrived; a console that says its pairing has not arrived on this device must be paired again from here." : {
+    "Your Apple devices will use a new identity for the consoles you pair from now on. Consoles already paired keep working, here too once their pairing reaches this device; only a console paired solely with the missing identity would have to be paired again from this device." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tes appareils Apple utiliseront une nouvelle identité pour les consoles que tu appaireras désormais. Les consoles déjà appairées continuent de fonctionner partout où leur appairage est arrivé ; une console qui indique que son appairage n’est pas arrivé sur cet appareil doit être appairée de nouveau depuis celui-ci."
+            "value" : "Tes appareils Apple utiliseront une nouvelle identité pour les consoles que tu appaireras désormais. Les consoles déjà appairées continuent de fonctionner, ici aussi dès que leur appairage arrive sur cet appareil ; seule une console appairée uniquement avec l’identité manquante devrait être appairée de nouveau depuis cet appareil."
           }
         }
       }

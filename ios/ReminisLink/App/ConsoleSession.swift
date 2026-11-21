@@ -19,7 +19,12 @@ final class ConsoleSession {
     /// Set here and by the `device` events (M14).
     var status: DeviceStatus?
     private(set) var trash: TrashList?
-    private(set) var client: APIClient?
+    private(set) var client: APIClient? {
+        didSet { currentClient.set(client) }
+    }
+    /// The current client, readable from any thread: a running upload
+    /// checks between chunks that its client is still this one (M15).
+    @ObservationIgnored let currentClient = CurrentClientBox()
     /// Changes when games were added or deleted: the library screens reload.
     /// Also changed by the `library` events (M14).
     var libraryRevision = 0
@@ -45,8 +50,11 @@ final class ConsoleSession {
     /// the user opens the console again.
     private(set) var closedByConsole = false
 
-    /// Uploads were paused because the credentials changed (M15).
-    @ObservationIgnored private var pausedForCredentials = false
+    /// Uploads were paused because the credentials changed (M15): they
+    /// resume after the next connection, not on a return to the foreground.
+    @ObservationIgnored private(set) var pausedForCredentials = false
+    /// The connection dropped last, cancelled (tests wait for its end).
+    @ObservationIgnored private(set) var droppedConnection: Task<Void, Never>?
 
     /// The credentials of the last connection (nil before one read them).
     @ObservationIgnored private(set) var signedWith: SigningKey?
@@ -157,8 +165,10 @@ final class ConsoleSession {
     /// explicit action: every automatic path (screens, transfers, a sheet
     /// that ends) comes through here and is refused.
     func connect(explicit: Bool = false) async {
-        // M16: a demo that ended connects no more.
-        guard !app.isShutDown else { return }
+        // M16: a demo that ended connects no more. M15: nothing connects in
+        // the background (a deferred action, a screen still shown); the
+        // console shown connects when the app is active again.
+        guard !app.isShutDown, !app.isInBackground else { return }
         if closedByConsole {
             guard explicit else { return }
             closedByConsole = false
@@ -250,7 +260,7 @@ final class ConsoleSession {
             app.store.noteConsoleName(status.deviceName, for: deviceId)
             // M13: the address answered with the pinned certificate and
             // accepted the signature: the fallback when Bonjour is silent.
-            app.store.noteEndpoint(endpoint, for: deviceId)
+            app.store.noteEndpoint(endpoint, for: deviceId, pin: credentials.pin)
             self.client = client
             state = .connected
             closedByConsole = false
@@ -374,8 +384,11 @@ final class ConsoleSession {
     /// client, ``SessionSaveSource``), and uploads pause after their
     /// current chunk until a new connection.
     private func dropConnection() {
+        droppedConnection = attempt?.task
         attempt?.task?.cancel()
         attempt = nil
+        // A trash answer of the dropped client is never published.
+        _ = trashLoads.begin()
         client = nil
         signedWith = nil
         stopEventStream()
@@ -620,9 +633,11 @@ final class ConsoleSession {
     }
 
     private func makeTransfers() -> TransferQueue {
+        let current = currentClient
         let queue = TransferQueue(
             scratchDirectory: app.transferDirectory.appending(path: "chunks-\(deviceId)"),
             background: app.background,
+            isCurrentClient: { current.isCurrent($0) },
             client: { [weak self] in
                 guard let self else { throw CancellationError() }
                 do {
@@ -665,7 +680,9 @@ final class ConsoleSession {
     /// The app dropped this session (forgotten console, new pairing): its
     /// event stream closes and the pak manager lets it go.
     func detach() {
-        stopEventStream()
+        // M15: nothing keeps signing with the pairing of a dropped session
+        // (a sync, an upload, a screen that still holds it).
+        dropConnection()
         paksStorage = nil
     }
 
@@ -759,4 +776,13 @@ private final class ConnectionAttempt {
         waiters.removeAll()
         for continuation in continuations { continuation.resume() }
     }
+}
+
+/// The client of a session, readable from any thread (M15).
+nonisolated final class CurrentClientBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private weak var client: APIClient?
+
+    func set(_ client: APIClient?) { lock.withLock { self.client = client } }
+    func isCurrent(_ client: APIClient) -> Bool { lock.withLock { self.client === client } }
 }

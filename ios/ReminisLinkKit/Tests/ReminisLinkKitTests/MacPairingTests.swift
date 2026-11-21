@@ -190,7 +190,7 @@ struct MacPairingTests {
         // What a connection notes is not a pairing change: not signalled
         // (two devices reaching the console at different addresses would
         // wake each other up).
-        store.noteEndpoint(Endpoint(host: "192.168.1.50", port: 47821), for: deviceId)
+        store.noteEndpoint(Endpoint(host: "192.168.1.50", port: 47821), for: deviceId, pin: pin)
         store.noteConsoleName("Renamed on the console", for: deviceId)
         #expect(changes == 5)
         try store.remove(deviceId)
@@ -220,14 +220,47 @@ struct MacPairingTests {
             try DeviceStore(secureStore: keychain, defaults: defaults, now: { clock.now }).identity()
         }
 
+        #expect(store.lostIdentityPointer() == lost.clientId)
         var changes = 0
         store.onSharedItemsChange = { changes += 1 }
-        let fresh = try store.resetIdentity()
+        // Asked for another pointer (it changed meanwhile): nothing changes.
+        #expect(throws: DeviceStoreError.resetNotNeeded) { try store.resetIdentity(replacing: local.clientId) }
+        #expect(changes == 0)
+        let fresh = try store.resetIdentity(replacing: lost.clientId)
         #expect(changes == 1)
         #expect(fresh != local)
         #expect(try store.identity() == fresh)
         #expect(try keychain.data(for: DeviceStore.account(clientId: local.clientId)) != nil)
         #expect(defaults.object(forKey: DeviceStore.missingSinceKey) == nil)
+        #expect(store.lostIdentityPointer() == nil)
+    }
+
+    /// The reset is never offered, nor done, for an identity that works or
+    /// whose key is only late: on a healthy device; before the delay; when
+    /// the key arrives while the confirmation is shown.
+    @Test func theResetIsRefusedUnlessTheKeyIsLost() throws {
+        let healthy = DeviceStore(secureStore: InMemorySecureStore(), defaults: makeDefaults())
+        let identity = try healthy.identity()
+        #expect(healthy.lostIdentityPointer() == nil)
+        #expect(throws: DeviceStoreError.resetNotNeeded) { try healthy.resetIdentity(replacing: identity.clientId) }
+        #expect(try healthy.identity() == identity)
+
+        let iPhoneKeychain = InMemorySecureStore()
+        let shared = try DeviceStore(secureStore: iPhoneKeychain, defaults: makeDefaults()).identity()
+        let macKeychain = InMemorySecureStore()
+        try deliver([DeviceStore.identityAccount], from: iPhoneKeychain, to: macKeychain)
+        let clock = IdentityTestClock()
+        let mac = DeviceStore(secureStore: macKeychain, defaults: makeDefaults(), now: { clock.now })
+        #expect(mac.lostIdentityPointer() == nil)
+        clock.now += 5 * 60
+        #expect(mac.lostIdentityPointer() == nil)
+        #expect(throws: DeviceStoreError.resetNotNeeded) { try mac.resetIdentity(replacing: shared.clientId) }
+        clock.now += 6 * 60
+        #expect(mac.lostIdentityPointer() == shared.clientId)
+        // The key arrives while the confirmation is shown.
+        try deliver([DeviceStore.account(clientId: shared.clientId)], from: iPhoneKeychain, to: macKeychain)
+        #expect(throws: DeviceStoreError.resetNotNeeded) { try mac.resetIdentity(replacing: shared.clientId) }
+        #expect(try mac.identity() == shared)
     }
 
     /// The address noted by a connection stays on this device: it never
@@ -240,7 +273,7 @@ struct MacPairingTests {
         try store.save(deviceId: deviceId, name: "Brick", model: .brick, pin: pin, endpoint: paired)
         let record = try keychain.data(for: DeviceStore.account(deviceId: deviceId))
         let moved = Endpoint(host: "192.168.1.50", port: 47821)
-        store.noteEndpoint(moved, for: deviceId)
+        store.noteEndpoint(moved, for: deviceId, pin: pin)
         #expect(store.lastEndpoint(for: deviceId) == moved)
         #expect(try keychain.data(for: DeviceStore.account(deviceId: deviceId)) == record)
         // Paired again elsewhere with another pin: the old note is ignored.
@@ -248,10 +281,14 @@ struct MacPairingTests {
         try DeviceStore(secureStore: keychain, defaults: makeDefaults())
             .save(deviceId: deviceId, name: "Brick", model: .brick, pin: otherPin, endpoint: paired)
         #expect(store.lastEndpoint(for: deviceId) == paired)
+        // A connection of the old pairing answers late: its address is
+        // noted with its own pin, never used for the new pairing.
+        store.noteEndpoint(moved, for: deviceId, pin: pin)
+        #expect(store.lastEndpoint(for: deviceId) == paired)
         // Removed elsewhere: noting an address or the console's name
         // never brings the record back.
         try keychain.remove(account: DeviceStore.account(deviceId: deviceId))
-        store.noteEndpoint(moved, for: deviceId)
+        store.noteEndpoint(moved, for: deviceId, pin: pin)
         store.noteConsoleName("Renamed", for: deviceId)
         #expect(try keychain.data(for: DeviceStore.account(deviceId: deviceId)) == nil)
     }

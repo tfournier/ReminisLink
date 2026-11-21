@@ -118,7 +118,7 @@ struct AppLogicTests {
         let session = app.session(for: pak.deviceId)
         await session.connect()
         #expect(session.error == .consoleNotFound)
-        app.store.noteEndpoint(pak.endpoint, for: pak.deviceId)
+        app.store.noteEndpoint(pak.endpoint, for: pak.deviceId, pin: pak.pin)
         await session.connect()
         #expect(session.state == .connected)
     }

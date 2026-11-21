@@ -257,13 +257,69 @@ struct MacPairingAppTests {
         await waitUntil { hasNewEntry() }
         #expect(hasNewEntry())
         gate.open()
-        // The old answer arrives: it must never replace the new content
-        // (watched until it has had every chance to be published).
-        await waitUntil(timeout: .milliseconds(500)) { !hasNewEntry() }
+        // The old connection, with its held answer, has ended: it did not
+        // replace the new content.
+        await session.droppedConnection?.value
         #expect(hasNewEntry())
         #expect(session.state == .connected)
         #expect(session.client != nil)
         #expect(pak.platforms(clientId: renewed.clientId).lastSeen != nil)
+    }
+
+    /// Same, but the new record arrives without its key: the session
+    /// pauses, and a trash request of the dropped connection, answered
+    /// late (after a change on the console), never fills the trash.
+    @Test func aTrashAnswerOfADroppedConnectionIsNeverShown() async throws {
+        let pak = makePak()
+        let mac = makeApp(pak, keychain: macKeychain)
+        let iPhone = makeApp(pak, keychain: iPhoneKeychain)
+        try await iPhone.pairDirectly(with: pak)
+        let old = try iPhone.store.identity()
+        try deliver(try iPhoneKeychain.allAccounts())
+        mac.reloadPairings()
+        let gate = pak.holdNextArrival(method: "GET", path: "/api/v1/trash")
+        show(mac, pak.deviceId)
+        let session = mac.session(for: pak.deviceId)
+        await waitUntil { gate.reached }
+        _ = try await renewPairing(pak, iPhone: iPhone, forgetting: old)
+        try deliver([Account.console(pak.deviceId)])
+        mac.reloadPairings()
+        #expect(session.error == .pairingNotSynced)
+        // The held request reaches the console only now: its answer lists
+        // this entry.
+        pak.addTrashEntry(reason: "delete", label: "Late answer", trashedAt: Date())
+        gate.open()
+        await session.droppedConnection?.value
+        let late = { session.trash?.entries.contains { $0.label == "Late answer" } == true }
+        await waitUntil(timeout: .milliseconds(500)) { late() }
+        #expect(!late())
+        #expect(session.error == .pairingNotSynced)
+    }
+
+    /// Pairing the console again on this device while a sync runs: the old
+    /// session is dropped with its client, the sync sends nothing more.
+    @Test func aLocalRepairStopsTheSyncOfTheOldSession() async throws {
+        let pak = makePak()
+        let mac = makeApp(pak, keychain: macKeychain)
+        mac.syncOnConnect = false
+        let iPhone = makeApp(pak, keychain: iPhoneKeychain)
+        try await iPhone.pairDirectly(with: pak)
+        try deliver(try iPhoneKeychain.allAccounts())
+        mac.reloadPairings()
+        show(mac, pak.deviceId)
+        let session = mac.session(for: pak.deviceId)
+        await waitUntil { session.state == .connected }
+        let gate = pak.holdNextAnswer(method: "GET", path: "/api/v1/saves")
+        mac.startSaveSync(deviceId: pak.deviceId)
+        await waitUntil { gate.reached }
+        mac.didReplaceKey(for: pak.deviceId)
+        #expect(session.client == nil)
+        let requests = pak.log.count
+        gate.open()
+        let state = mac.saveSync(for: pak.deviceId)
+        await waitUntil { !state.isRunning }
+        #expect(!state.isRunning)
+        #expect(pak.log.count == requests)
     }
 
     /// A save sync keeps no client of its own: once the pairing is
@@ -323,9 +379,13 @@ struct MacPairingAppTests {
         #expect(session.state == .idle)
         await session.connectIfNeeded()
         #expect(session.state == .idle)
+        // A deferred action does not connect either.
+        _ = try? await session.perform { try await $0.device() }
+        #expect(session.state == .idle)
         #expect(pak.platforms(clientId: renewed.clientId).lastSeen == nil)
+        // Back in the foreground: the console shown connects by itself.
         mac.becomeActive()
-        await session.connectIfNeeded()
+        await waitUntil { session.state == .connected }
         #expect(session.state == .connected)
         #expect(pak.platforms(clientId: renewed.clientId).lastSeen != nil)
     }

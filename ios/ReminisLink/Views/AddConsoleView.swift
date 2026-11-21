@@ -244,15 +244,9 @@ struct AddConsoleView: View {
                 // checked before ImageIO reads it.
                 guard let picture = try await item.loadTransferable(type: ImportedPicture.self) else { return .failed(.file) }
                 defer { try? FileManager.default.removeItem(at: picture.url) }
-                try Task.checkCancellation()
-                payloads = try await Task.detached { try QRCodeReader.payloads(inImageAt: picture.url) }.value
+                payloads = try await decode(picture.url, securityScoped: false)
             case .file(let url):
-                payloads = try await Task.detached { () throws -> [String] in
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    try Task.checkCancellation()
-                    return try QRCodeReader.payloads(inImageAt: url)
-                }.value
+                payloads = try await decode(url, securityScoped: true)
             }
             try Task.checkCancellation()
             return .found(PairingCodeSearch(payloads: payloads))
@@ -263,6 +257,18 @@ struct AddConsoleView: View {
         } catch {
             return Task.isCancelled ? .cancelled : .failed(.file)
         }
+    }
+
+    /// Reads a picture off the main actor, in a child of the import task:
+    /// closing the screen cancels it, and a cancelled import never starts
+    /// ImageIO or Vision.
+    @concurrent
+    private nonisolated static func decode(_ url: URL, securityScoped: Bool) async throws -> [String] {
+        try Task.checkCancellation()
+        let access = securityScoped && url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        try Task.checkCancellation()
+        return try QRCodeReader.payloads(inImageAt: url)
     }
 
     private func importFinished(_ outcome: ImportOutcome) {
@@ -297,6 +303,9 @@ struct ImportedPicture: Transferable {
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(importedContentType: .image) { received in
+            // Too large: refused before anything is copied.
+            let size = try received.file.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard size <= QRCodeReader.maxImageBytes else { throw QRCodeReader.ImageError.tooLarge }
             let copy = FileManager.default.temporaryDirectory
                 .appending(path: "qr-import-\(UUID().uuidString)")
                 .appendingPathExtension(received.file.pathExtension)

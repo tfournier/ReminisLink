@@ -525,8 +525,14 @@ final class AppModel {
         // forgotten a console (iCloud Keychain).
         reloadPairings()
         for session in sessions.values {
-            session.transfers.resumeAfterSuspension()
+            // Paused because the pairing changed: after the next connection.
+            if !session.pausedForCredentials { session.transfers.resumeAfterSuspension() }
             session.setForeground(true)
+        }
+        // M15: the console shown, dropped while in the background (its
+        // pairing changed), connects again: its screen will not ask.
+        if let deviceId = openConsoleId, let session = sessions[deviceId], session.state == .idle {
+            Task { await session.connect() }
         }
         checkShareInbox()
     }
