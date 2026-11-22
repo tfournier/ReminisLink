@@ -1,4 +1,4 @@
-ReminisLink turns your iPhone into the companion of your retro handheld. Open ReminisLink on the handheld, manage everything from your phone over your home Wi-Fi, close it and play.
+ReminisLink turns your iPhone, iPad or Mac into the companion of your retro handheld. Open ReminisLink on the handheld, manage everything from your phone over your home Wi-Fi, close it and play.
 
 BRING YOUR OWN FILES
 ReminisLink lists the games found on the SD card of your handheld, but provides no game, no catalog and no source of games. You add the games, saves, patches and cheat files you already own, from the Files app or from the share sheet of any app.
@@ -7,6 +7,7 @@ YOUR LIBRARY
 • Every game on the SD card in one list, with search and filters by system
 • For each game: size, save, save states, cheats and box art; tap the art to change it
 • Download any file of a game to your iPhone
+• Export everything of a game as one archive and import it into another handheld
 
 SAVES AND SAVE STATES
 • Download, replace, back up and restore saves; the current save is always copied first
@@ -21,11 +22,11 @@ APPS ON THE HANDHELD
 • Install one from a zip in Files or on the SD card, or remove one
 
 NOTHING IS LOST
-Deleted games and games patched in place go to the trash of the handheld, until they reach 30 days of counted age (purged at launch) or you empty it; a replaced save is first copied to the backups.
+Deleted games and games patched in place go to the trash of the handheld, until they reach 30 days of counted age (purged at launch) or you empty it; a replaced save is first copied to the backups. Restore anything from the trash in one tap: a game comes back with its save, states, cheats and box art, and nothing on the SD card is ever overwritten.
 
-SAVES ON YOUR IPHONE
-• Copy the saves of the handheld to your own iCloud Drive, with one tap or each time it connects
-• Up to 10 versions of each save, in the ReminisLink folder of the Files app
+SAVES ON YOUR DEVICES
+• Copy the saves and save states of the handheld to your own iCloud Drive, with one tap or each time it connects
+• Up to 10 versions of each save and state, in the ReminisLink folder of the Files app
 
 ALWAYS UP TO DATE
 The app refreshes on its own when the SD card changes, shows transfers and battery live, and goes back to your list when you close ReminisLink on the handheld.
@@ -35,7 +36,11 @@ SIMPLE AND PRIVATE
 • Encrypted connection, checked against the handheld's own certificate
 • No account, no server, no analytics, no ads: the app talks only to your handheld on your local network
 
-REQUIREMENTS
-The free ReminisLink tool must be installed on the handheld: see the installation guide on reminis.link. Version 1.0 works with the TrimUI Brick running NextUI. The iPhone and the handheld must be on the same Wi-Fi network.
+COMPATIBLE HANDHELDS
+• TrimUI Brick with NextUI
+• Experimental, looking for testers: TrimUI Smart Pro S, Anbernic H700 handhelds (RG35XX, RG40XX and others) and Miyoo Flip with NextUI, and handhelds running Knulli
 
-ReminisLink is an independent project. TrimUI and NextUI are the names of their respective owners, who are not affiliated with ReminisLink.
+REQUIREMENTS
+The free ReminisLink tool must be installed on the handheld: see the installation guide on reminis.link. The iPhone, iPad or Mac (with Apple silicon) and the handheld must be on the same Wi-Fi network.
+
+ReminisLink is an independent project. TrimUI, Anbernic, Miyoo, NextUI and Knulli are the names of their respective owners, who are not affiliated with ReminisLink.

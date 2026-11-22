@@ -64,7 +64,7 @@ struct DemoModeAppTests {
         let device = try #require(demo.app.store.devices.first)
         #expect(demo.app.store.devices.count == 1)
         #expect(device.model == .demo)
-        #expect(device.name == String(localized: "Demo Brick"))
+        #expect(device.name == String(localized: "Demo Handheld"))
         #expect(demo.root.lastPathComponent.hasPrefix(DemoMode.prefix))
         // Signed requests work.
         let session = demo.app.session(for: demo.pak.deviceId)

@@ -217,7 +217,7 @@ But : une seule app, un seul binaire, sur iPhone, iPad et Mac à puce Apple (mê
 
 ## Plan après la v1.0.0 (décidé le 21/11/2026)
 
-Ordre : M17, M15, M18, M19, M20, M21. M22 (captures d'écran) proposé le 21/11/2026, après M18 à M20. Puis v1.5 (interface web), puis v2.0.
+Ordre : M17, M15, M18, M19, M20, M21. M22 (captures d'écran) proposé le 21/11/2026, après M18 à M20 ; M23 (navigation, fichiers de la carte, renommage d'un jeu) proposé le 22/11/2026, après M22. Puis v1.5 (interface web), puis v2.0.
 
 ## M18 — Restaurer depuis la corbeille
 
@@ -263,6 +263,16 @@ Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{e
 **Fait quand** : les captures prises sur la console s'affichent dans l'app, se téléchargent et se suppriment (vers la corbeille), tests et smoke compris. Ordre : après M18 à M20, qui touchent les mêmes couches (contrat, serveur, app).
 
 **Réalisé (22/11/2026, branche `m22-screenshots`, à relire)** : emplacements relevés dans le code source (05 §3.1 à §3.3) : NextUI `Screenshots/<nom d'affichage>.<AAAA-MM-JJ-HH-MM-SS>.png` à la racine de la carte, identique sur les quatre plateformes (`SDCARD_PATH` constant) ; Knulli `/userdata/screenshots/` (RetroArch `<ROM>-<AAMMJJ>-<HHMMSS>.png`, raccourci `knulli-screenshot_…`). Contrat d'abord : `GET /screenshots`, `GET /screenshots/{screenshotId}`, `GET /screenshots/{screenshotId}/thumbnail` (JPEG 320 × 320 fait avec la bibliothèque standard), `POST /screenshots/trash` (une entrée de corbeille `delete-screenshot`, tout ou rien, restaurée par M18 sans règle propre), événement `screenshots` (04). Pak : `Roots.Screenshots` et lecture des noms par adaptateur, paquet `internal/screenshots` (dossier par `os.Root`, aucun lien, nom exact, images hostiles refusées avant décodage, aperçus en mémoire), route d'écriture sous le verrou, bandeau sur l'écran du pak. App : écran **Captures d'écran** (06 §11 bis : grille selon la largeur, capture entière, partage, Photos, Fichiers, sélection multiple, corbeille), faux pak du mode démo avec des images dessinées. Tests : Go (identifiants hostiles, liens, casse sur ext4, PNG forgé), `scripts/smoke-screenshots.sh` (pak headless et cinq dispositions), `make emulation LAYOUTS="tg5040 knulli"` vert, `swift test`, tests de l'app et UI (mode démo) sur iPhone et iPad. Écart : `gameName` seulement informatif (le nom ne dit pas le système, aucun `gameId`). Android : TODO dans 10.
+
+## M23 — Navigation et fichiers de la carte SD (proposé par la personne le 22/11/2026)
+
+- **Barre d'onglets** : retirer Transferts et Corbeille de la barre d'onglets (accessibles depuis l'onglet Console, par exemple), et y mettre **Apps** et **Fichiers** (navigateur de la carte SD). Mise en page universelle (barre du haut ou barre latérale sur iPad et Mac).
+- **Fichiers** : le navigateur de la carte SD (aujourd'hui en lecture seule) permet d'**ajouter** un fichier dans un dossier et de **supprimer** un fichier ou un dossier (vers la corbeille, règle 1). Contrat d'abord ; dossiers protégés (`.userdata`, dossier de ReminisLink, système) refusés ; chemins par identifiants opaques uniquement (règle 2).
+- **Renommer un jeu** : renomme la ROM et tous ses fichiers liés (save, `.rtc`, états et vignettes, codes de triche, jaquette, playlist d'un jeu dossier) en une opération journalisée, sans jamais écraser un fichier existant ; règles de nommage de chaque OS (NextUI, Knulli).
+- **Fiche d'un jeu** : le nombre de codes de triche au lieu de « Oui ».
+- Android suit.
+
+**Fait quand** : la nouvelle navigation, l'ajout et la suppression de fichiers et le renommage d'un jeu fonctionnent depuis l'app, tests et smoke compris. Ordre : après M22.
 
 ## v1.5 — Interface web
 

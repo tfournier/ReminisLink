@@ -1,4 +1,4 @@
-ReminisLink fait de ton iPhone le compagnon de ta console rétro. Ouvre ReminisLink sur la console, gère tout depuis ton téléphone par le Wi-Fi de la maison, ferme-le et joue.
+ReminisLink fait de ton iPhone, ton iPad ou ton Mac le compagnon de ta console rétro. Ouvre ReminisLink sur la console, gère tout depuis ton téléphone par le Wi-Fi de la maison, ferme-le et joue.
 
 APPORTE TES PROPRES FICHIERS
 ReminisLink liste les jeux présents sur la carte SD de ta console, mais ne fournit aucun jeu, aucun catalogue et aucune source de jeux. Tu ajoutes les jeux, sauvegardes, patchs et fichiers de codes de triche que tu possèdes déjà, depuis l’app Fichiers ou le menu de partage de n’importe quelle app.
@@ -7,6 +7,7 @@ TA BIBLIOTHÈQUE
 • Tous les jeux de la carte SD dans une seule liste, avec recherche et filtres par système
 • Pour chaque jeu : taille, sauvegarde, états de jeu, codes de triche et jaquette ; touche la jaquette pour la changer
 • Télécharge n’importe quel fichier d’un jeu sur ton iPhone
+• Exporte tout ce qui concerne un jeu dans une archive et importe-la sur une autre console
 
 SAUVEGARDES ET ÉTATS DE JEU
 • Télécharge, remplace, copie et restaure tes sauvegardes ; la sauvegarde actuelle est toujours copiée avant
@@ -21,11 +22,11 @@ LES APPS DE LA CONSOLE
 • Installe-en un depuis un zip dans Fichiers ou sur la carte SD, ou supprime-le
 
 RIEN NE SE PERD
-Les jeux supprimés et les jeux patchés sur place vont dans la corbeille de la console, jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu la vides ; une sauvegarde remplacée est d’abord gardée dans les copies de secours.
+Les jeux supprimés et les jeux patchés sur place vont dans la corbeille de la console, jusqu’à 30 jours d’âge comptabilisé (purge au lancement) ou jusqu’à ce que tu la vides ; une sauvegarde remplacée est d’abord gardée dans les copies de secours. Restaure n’importe quoi depuis la corbeille d’une touche : un jeu revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette, et rien sur la carte SD n’est jamais écrasé.
 
-TES SAUVEGARDES SUR L’IPHONE
-• Copie les sauvegardes de la console dans ton propre iCloud Drive, d’une touche ou à chaque connexion
-• Jusqu’à 10 versions de chacune, dans le dossier ReminisLink de l’app Fichiers
+TES SAUVEGARDES SUR TES APPAREILS
+• Copie les sauvegardes et les états de jeu de la console dans ton propre iCloud Drive, d’une touche ou à chaque connexion
+• Jusqu’à 10 versions de chacun, dans le dossier ReminisLink de l’app Fichiers
 
 TOUJOURS À JOUR
 L’app se rafraîchit seule quand la carte SD change, affiche les transferts et la batterie en direct, et revient à ta liste quand tu fermes ReminisLink sur la console.
@@ -35,7 +36,11 @@ SIMPLE ET PRIVÉ
 • Connexion chiffrée, vérifiée avec le certificat propre à ta console
 • Pas de compte, pas de serveur, pas de mesure d’audience, pas de publicité : l’app ne parle qu’à ta console, sur ton réseau local
 
-CONFIGURATION REQUISE
-L’outil gratuit ReminisLink doit être installé sur la console : voir le guide d’installation sur reminis.link. La version 1.0 fonctionne avec la TrimUI Brick sous NextUI. L’iPhone et la console doivent être sur le même réseau Wi-Fi.
+CONSOLES COMPATIBLES
+• TrimUI Brick sous NextUI
+• En test, avec appel aux testeurs : TrimUI Smart Pro S, consoles Anbernic H700 (RG35XX, RG40XX et autres) et Miyoo Flip sous NextUI, et les consoles sous Knulli
 
-ReminisLink est un projet indépendant. TrimUI et NextUI sont les noms de leurs propriétaires respectifs, qui ne sont pas affiliés à ReminisLink.
+CONFIGURATION REQUISE
+L’outil gratuit ReminisLink doit être installé sur la console : voir le guide d’installation sur reminis.link. L’iPhone, l’iPad ou le Mac (à puce Apple) et la console doivent être sur le même réseau Wi-Fi.
+
+ReminisLink est un projet indépendant. TrimUI, Anbernic, Miyoo, NextUI et Knulli sont les noms de leurs propriétaires respectifs, qui ne sont pas affiliés à ReminisLink.

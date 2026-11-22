@@ -216,7 +216,9 @@ class PakIntegrationTest {
             compose.onNodeWithText(context.getString(R.string.role_rom), useUnmergedTree = true).assertExists()
 
             transfersSavesAndStates(parsed.deviceId, it)
+            cheatsTrashAndApps(parsed.deviceId, it)
         }
+        sharedPatch(parsed.deviceId)
     }
 
     /** Waits for a condition; on a timeout, the screen goes to the log (no secret is on it). */
@@ -262,7 +264,6 @@ class PakIntegrationTest {
         val client = kotlinx.coroutines.runBlocking { context.container.client(deviceId) }
         // The system whose emulator pak is on the test card (its state folder is known).
         val system = kotlinx.coroutines.runBlocking { client.systems() }.first { it.tag == "MGBA" }
-        val gameName = "Fern Courier Test"
         val rom = ByteArray(10_000) { (it * 31 % 251).toByte() }
         val gameId = send(deviceId, "$gameName.gba", rom, link.reminis.core.UploadTarget.Rom(system.id, "$gameName.gba")).gameId!!
         val detail = kotlinx.coroutines.runBlocking { client.game(gameId) }
@@ -307,5 +308,151 @@ class PakIntegrationTest {
         waitForTag("locked0")
         val slot = kotlinx.coroutines.runBlocking { client.states(gameId) }.slots.first { it.slot == 0 }
         assertTrue("the state is not locked on the console", slot.locked)
+    }
+
+    private val gameName = "Fern Courier Test"
+
+    private fun back(scenario: ActivityScenario<MainActivity>) = scenario.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+
+    private fun fernGame(client: link.reminis.core.ApiClient) =
+        kotlinx.coroutines.runBlocking { client.allGames() }.games.firstOrNull { it.name == gameName }
+
+    /**
+     * Increment 3 against the real pak, with files the test creates (names
+     * and bytes invented): a cheat turned on from the Cheats screen, the
+     * game deleted from its screen then restored from the Trash screen, a
+     * small pak zip built here installed (followed on the Apps screen),
+     * then deleted from the Apps screen.
+     */
+    private fun cheatsTrashAndApps(deviceId: String, scenario: ActivityScenario<MainActivity>) {
+        val client = kotlinx.coroutines.runBlocking { context.container.client(deviceId) }
+        val gameId = fernGame(client)!!.id
+        // A cheat written with the API, then turned on from the Cheats screen.
+        kotlinx.coroutines.runBlocking {
+            val list = client.cheats(gameId)
+            client.replaceCheats(
+                gameId, link.reminis.core.CheatsUpdate(listOf(link.reminis.core.Cheat(description = "Fern lantern", code = "01234567", enabled = false))),
+                list.etag,
+            )
+        }
+        back(scenario)
+        waitForTag("game")
+        compose.onNodeWithTag("game").performScrollToNode(hasTestTag("openCheats"))
+        compose.onNodeWithTag("openCheats").performClick()
+        waitForText("Fern lantern")
+        compose.onNodeWithTag("cheatToggle0").performClick()
+        compose.onNodeWithTag("cheatsSave").performClick()
+        waitForText(context.getString(R.string.cheats_saved))
+        val cheats = kotlinx.coroutines.runBlocking { client.cheats(gameId) }
+        assertTrue("the cheat is not on on the console", cheats.cheats.single().enabled)
+
+        // The game deleted from its screen, then restored from the trash.
+        back(scenario)
+        waitForTag("gameMenu")
+        compose.onNodeWithTag("gameMenu").performClick()
+        compose.onNodeWithTag("deleteGame").performClick()
+        waitFor("deletion preview") {
+            compose.onAllNodesWithTag("deleteGameConfirm").fetchSemanticsNodes().any {
+                !it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
+            }
+        }
+        compose.onNodeWithTag("deleteGameConfirm").performClick()
+        waitForTag("search")
+        waitFor("the game gone from the console") { fernGame(client) == null }
+        back(scenario)
+        waitForTag("dashboard")
+        compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openTrash"))
+        compose.onNodeWithTag("openTrash").performClick()
+        val entry = kotlinx.coroutines.runBlocking { client.trash() }.entries.first { it.reason == "delete-game" && it.label == gameName }
+        waitForTag("trashLabel-${entry.id}")
+        compose.onNodeWithTag("trashLabel-${entry.id}", useUnmergedTree = true).performClick()
+        waitForTag("trashRestoreConfirm")
+        compose.onNodeWithTag("trashRestoreConfirm").performClick()
+        waitForTag("trashRestoreDone")
+        compose.onNodeWithText(context.getString(R.string.trash_done_original)).assertExists()
+        assertEquals("the game is not back with its id", gameId, fernGame(client)?.id)
+        val restoredCheats = kotlinx.coroutines.runBlocking { client.cheats(gameId) }
+        assertTrue("the cheats did not come back with the game", restoredCheats.cheats.single().enabled)
+        compose.onNodeWithTag("trashRestoreFinished").performClick()
+        waitForTag("trash")
+        back(scenario)
+        waitForTag("dashboard")
+
+        // A pak zip built here, installed through the queue and followed on the Apps screen.
+        val dir = java.io.File(context.container.transferDirectory, java.util.UUID.randomUUID().toString()).apply { mkdirs() }
+        val zip = java.io.File(dir, "file")
+        java.util.zip.ZipOutputStream(zip.outputStream()).use { out ->
+            out.putNextEntry(java.util.zip.ZipEntry("Fern Tool.pak/launch.sh"))
+            out.write("#!/bin/sh\necho fern\n".toByteArray())
+            out.closeEntry()
+            out.putNextEntry(java.util.zip.ZipEntry("Fern Tool.pak/pak.json"))
+            out.write("{\"name\":\"Fern Tool\",\"version\":\"0.0.1\",\"type\":\"TOOL\"}".toByteArray())
+            out.closeEntry()
+        }
+        val installer = context.container.pakInstaller
+        val installId = installer.install(deviceId, zip, "Fern Tool.pak.zip", link.reminis.core.PakInstallKind.AUTO)
+        compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openApps"))
+        compose.onNodeWithTag("openApps").performClick()
+        waitFor("the pak installed") {
+            installer.installs.value.first { it.id == installId }.phase.let {
+                it == link.reminis.core.PakInstall.Phase.Installed || it is link.reminis.core.PakInstall.Phase.Failed
+            }
+        }
+        assertEquals(link.reminis.core.PakInstall.Phase.Installed, installer.installs.value.first { it.id == installId }.phase)
+        assertTrue("the local copy of the zip was not deleted", !dir.exists())
+        waitForTag("pakDelete-Fern Tool")
+        compose.onNodeWithTag("paks").performScrollToNode(hasTestTag("pakDelete-Fern Tool"))
+        compose.onNodeWithTag("pakDelete-Fern Tool").performClick()
+        compose.onNodeWithTag("confirmOk").performClick()
+        waitForText(context.getString(R.string.pak_deleted, "Fern Tool"))
+        val paks = kotlinx.coroutines.runBlocking { client.paks() }
+        assertTrue("the pak is still installed", paks.none { it.name == "Fern Tool" })
+        val trash = kotlinx.coroutines.runBlocking { client.trash() }
+        assertTrue("the pak is not in the trash", trash.entries.any { it.reason == "delete-pak" && it.label == "Fern Tool" })
+    }
+
+    /**
+     * A small invented IPS patch shared to the app (as another app would):
+     * the Patch screen opens, the game is chosen there, the patch goes to
+     * the staging area and its job runs on the console; the screen closes
+     * by itself on the new game, whose ROM starts with the patched bytes.
+     */
+    private fun sharedPatch(deviceId: String) {
+        val client = kotlinx.coroutines.runBlocking { context.container.client(deviceId) }
+        val ips = "PATCH".toByteArray() + byteArrayOf(0, 0, 0, 0, 4) + "FERN".toByteArray() + "EOF".toByteArray()
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "Fern Fix ${System.currentTimeMillis()}.ips")
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
+        try {
+            resolver.openOutputStream(uri, "wt")!!.use { it.write(ips) }
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).setClass(context, MainActivity::class.java)
+                .setType("application/octet-stream").putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            ActivityScenario.launch<MainActivity>(intent).use {
+                waitForTag("patchGameSearch")
+                compose.onNodeWithTag("patchGameSearch").performTextInput("Fern Courier")
+                waitForText(gameName)
+                compose.onNodeWithText(gameName).performClick()
+                waitForTag("patchFile")
+                compose.onNodeWithTag("patchScreen").performScrollToNode(hasTestTag("patchApply"))
+                compose.onNodeWithTag("patchApply").performClick()
+                waitFor("the patch applied") {
+                    compose.onAllNodesWithText(context.getString(R.string.patch_applied_new), substring = true).fetchSemanticsNodes().isNotEmpty() ||
+                        compose.onAllNodesWithTag("patchError", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithText(context.getString(R.string.patch_applied_new), substring = true).assertExists()
+            }
+        } finally {
+            resolver.delete(uri, null, null)
+        }
+        val patched = kotlinx.coroutines.runBlocking { client.allGames() }.games.first { it.name == "$gameName (patched)" }
+        val rom = kotlinx.coroutines.runBlocking { client.game(patched.id) }.files.first { it.role == link.reminis.core.GameFileRoles.ROM }
+        val bytes = java.io.ByteArrayOutputStream()
+        kotlinx.coroutines.runBlocking { client.download(link.reminis.core.DownloadSource.GameFile(patched.id, rom.fileId!!), bytes) }
+        val original = ByteArray(10_000) { (it * 31 % 251).toByte() }
+        assertTrue("the ROM was not patched", bytes.toByteArray().copyOfRange(0, 4).contentEquals("FERN".toByteArray()))
+        assertTrue("the rest of the ROM changed", bytes.toByteArray().copyOfRange(4, 10_000).contentEquals(original.copyOfRange(4, 10_000)))
     }
 }

@@ -151,6 +151,60 @@ public enum LibraryFiltering {
     }
 }
 
+/// Everything the flat library derives from its games, its systems and
+/// its query: the consoles of the filter, the labels and the games shown,
+/// in order. Building it sorts every game (`localizedStandardCompare`),
+/// which takes a noticeable time on a large library.
+public struct LibraryPresentation: Sendable, Equatable {
+    public let groups: [SystemGroup]
+    /// The label of each system id.
+    public let labels: [String: String]
+    /// The console shown under each game, by system id.
+    public let rowLabels: [String: String]
+    /// The games matching the query, in its order.
+    public let games: [LibraryGame]
+
+    public init(systems: [GameSystem], games: [LibraryGame], query: LibraryQuery) {
+        let groups = LibraryFiltering.groups(systems: systems, games: games)
+        self.groups = groups
+        labels = LibraryFiltering.labels(systems)
+        rowLabels = LibraryFiltering.rowLabels(systems: systems, games: games)
+        self.games = LibraryFiltering.apply(query, to: games, groups: groups)
+    }
+}
+
+/// Remembers the last ``LibraryPresentation``, so a view drawn again with
+/// the same games, systems and query reuses it instead of filtering and
+/// sorting the whole library on the main thread again. The Library list is
+/// drawn again on every navigation of its tab (selecting a game, going
+/// back, opening its save: the selection is the tab's path). Comparing the
+/// inputs is cheap: the arrays of an unchanged library share their storage.
+@MainActor
+public final class LibraryPresentationCache {
+    private struct Inputs: Equatable {
+        let systems: [GameSystem]
+        let games: [LibraryGame]
+        let query: LibraryQuery
+    }
+
+    private var inputs: Inputs?
+    private var cached: LibraryPresentation?
+    /// How many presentations were built (tests).
+    public private(set) var builds = 0
+
+    public init() {}
+
+    public func presentation(systems: [GameSystem], games: [LibraryGame], query: LibraryQuery) -> LibraryPresentation {
+        let inputs = Inputs(systems: systems, games: games, query: query)
+        if let cached, self.inputs == inputs { return cached }
+        let presentation = LibraryPresentation(systems: systems, games: games, query: query)
+        self.inputs = inputs
+        cached = presentation
+        builds += 1
+        return presentation
+    }
+}
+
 /// Whether the library can be shown as one flat list, or the app browses
 /// per system (a library over 20 000 games, or a pak without `GET /games`).
 public enum LibraryMode: Equatable, Sendable {

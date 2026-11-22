@@ -220,6 +220,30 @@ func TestAllGamesReadsEachSystemRootOnce(t *testing.T) {
 	}
 }
 
+// The files of a game (GET /games/{gameId}, the game sheet) read each
+// folder once: the save and its clock share one read of Saves/<TAG>.
+func TestGameFilesReadsEachFolderOnce(t *testing.T) {
+	a, sd := newAdapter(t)
+	testutil.WriteFile(t, sd, "Saves/GBA/Starlight Courier.gba.rtc", "r")
+	g, err := a.Game(gba + "/Starlight Courier.gba")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := countReads(t)
+	files, err := a.GameFiles(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files.Save == nil || files.RTC == nil || files.Cheats == nil || files.Art == nil || len(files.States) == 0 {
+		t.Fatalf("files = %+v", files)
+	}
+	for dir, n := range reads {
+		if n > 1 {
+			t.Errorf("%s read %d times", dir, n)
+		}
+	}
+}
+
 // An unreadable system folder has no game for WalkSummaries, as Systems
 // leaves it out; the other systems are walked.
 func TestWalkSummariesUnreadableSystem(t *testing.T) {

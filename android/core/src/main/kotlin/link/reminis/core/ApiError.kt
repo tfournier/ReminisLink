@@ -18,6 +18,7 @@ object ErrorCodes {
     const val STATE_LOCKED = "state_locked"
     const val TOO_LARGE = "too_large"
     const val UNSUPPORTED_FORMAT = "unsupported_format"
+    const val PATCH_MISMATCH = "patch_mismatch"
     const val INSUFFICIENT_STORAGE = "insufficient_storage"
     const val TOO_MANY_ATTEMPTS = "too_many_attempts"
     const val DEVICE_BUSY = "device_busy"

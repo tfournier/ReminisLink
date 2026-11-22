@@ -864,7 +864,7 @@ extension AppModel {
     static func makeDemo() -> AppModel {
         let environment = ProcessInfo.processInfo.environment
         DemoMode.removeLeftovers(name: DemoMode.debugName)
-        let demo = DemoMode(name: DemoMode.debugName, host: FakePak.demoHost, deviceName: "Demo Brick", model: .brick, isDemo: false) { pak, defaults in
+        let demo = DemoMode(name: DemoMode.debugName, host: FakePak.demoHost, deviceName: String(localized: "Demo Handheld"), model: .brick, isDemo: false) { pak, defaults in
             // UI tests: the first save of a cheat list meets a change made
             // on the console (412).
             pak.conflictOnNextCheatsSave = environment["RL_UITEST_CHEATS_CONFLICT"] == "1"

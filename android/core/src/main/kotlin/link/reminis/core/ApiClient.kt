@@ -225,6 +225,80 @@ class ApiClient(
         }
     }
 
+    // MARK: cheats (M5)
+
+    suspend fun cheats(gameId: String): CheatList = signedJson("GET", listOf("games", gameId, "cheats"))
+
+    /**
+     * `PUT /games/{gameId}/cheats` with `If-Match`: the whole list. If the
+     * file changed meanwhile, `412` ([CheatEditor.isConflict]). An empty
+     * list deletes the file (its content stays in the `.cht.bak`).
+     */
+    suspend fun replaceCheats(gameId: String, update: CheatsUpdate, etag: String): CheatList = signedJson(
+        "PUT", listOf("games", gameId, "cheats"),
+        body = ProtocolJson.encodeToString(update).toRequestBody(JSON), headers = mapOf("If-Match" to etag),
+    )
+
+    /** `POST /games/{gameId}/cheats/import`; `422 unsupported_format` when no cheat is found. */
+    suspend fun importCheats(gameId: String, request: CheatImportRequest): CheatImportResult = signedJson(
+        "POST", listOf("games", gameId, "cheats", "import"), body = request.toJson().toRequestBody(JSON),
+    )
+
+    /** `GET /sd/files?type=...`: the `.cht` or patch files of the SD card. */
+    suspend fun sdFiles(type: SdFileType): List<SdFile> =
+        signedJson<SdFileList>("GET", listOf("sd", "files"), query = listOf("type" to type.wire)).files
+
+    // MARK: patches and jobs (M6)
+
+    /** `POST /games/{gameId}/patch`: the console applies the patch in a job. */
+    suspend fun patchGame(gameId: String, request: PatchRequest): JobAccepted = signedJson(
+        "POST", listOf("games", gameId, "patch"), body = request.toJson().toRequestBody(JSON), accept = 202,
+    )
+
+    suspend fun job(id: String): Job = signedJson("GET", listOf("jobs", id))
+
+    /** `DELETE /jobs/{jobId}`: the job in its new state (a running one gets `cancelRequested`). */
+    suspend fun cancelJob(id: String): Job = signedJson("DELETE", listOf("jobs", id))
+
+    // MARK: paks (M12)
+
+    /** `GET /paks`; a pak older than M12 answers `404`. */
+    suspend fun paks(): List<Pak> = signedJson<PakList>("GET", listOf("paks")).paks
+
+    /** `DELETE /paks/{pakId}`: the pak folder goes to the trash; ReminisLink itself gets `409` (`details.self`). */
+    suspend fun deletePak(id: String): TrashMoveResult = signedJson("DELETE", listOf("paks", id))
+
+    // MARK: trash (M18) and game deletion (M8)
+
+    suspend fun trash(): TrashList = signedJson("GET", listOf("trash"))
+
+    /** Permanently empties the trash (`X-RL-Confirm: empty-trash`). */
+    suspend fun emptyTrash(): FreedBytes = signedJson("DELETE", listOf("trash"), headers = CONFIRM_EMPTY_TRASH)
+
+    /** Permanently deletes one trash entry (`X-RL-Confirm: empty-trash`). */
+    suspend fun deleteTrashEntry(id: String): FreedBytes =
+        signedJson("DELETE", listOf("trash", id), headers = CONFIRM_EMPTY_TRASH)
+
+    /** `GET /trash/{entryId}/restore`: what a restore would put back, and where. Read only. */
+    suspend fun trashRestorePreview(id: String): TrashRestorePreview = signedJson("GET", listOf("trash", id, "restore"))
+
+    /**
+     * `POST /trash/{entryId}/restore`. [TrashRestoreConflict.FAIL]: `409`
+     * with `details.conflicts` when a place is taken.
+     */
+    suspend fun restoreTrashEntry(id: String, onConflict: TrashRestoreConflict): TrashRestoreResult = signedJson(
+        "POST", listOf("trash", id, "restore"),
+        body = ProtocolJson.encodeToString(TrashRestoreRequest(onConflict.wire)).toRequestBody(JSON),
+    )
+
+    /** `GET /games/{gameId}/deletion`: what [deleteGame] would move and keep now. */
+    suspend fun deletionPreview(gameId: String, keepSave: Boolean): DeletionPreview =
+        signedJson("GET", listOf("games", gameId, "deletion"), query = listOf("keepSave" to keepSave.toString()))
+
+    /** `DELETE /games/{gameId}`: the game and its data go to the trash (`keepSave`: the save and states stay). */
+    suspend fun deleteGame(gameId: String, keepSave: Boolean): TrashMoveResult =
+        signedJson("DELETE", listOf("games", gameId), query = listOf("keepSave" to keepSave.toString()))
+
     // MARK: downloads
 
     /**
@@ -326,7 +400,8 @@ class ApiClient(
         query: List<Pair<String, String>> = emptyList(),
         body: okhttp3.RequestBody? = null,
         accept: Int = 200,
-    ): T = decode(signedResponse { request(method, segments, query, body, signed = true) }, accept)
+        headers: Map<String, String> = emptyMap(),
+    ): T = decode(signedResponse { request(method, segments, query, body, signed = true, headers = headers) }, accept)
 
     /** A signed request answered `204 No Content`. */
     private suspend fun signedEmpty(method: String, segments: List<String>) {
@@ -350,8 +425,10 @@ class ApiClient(
         query: List<Pair<String, String>> = emptyList(),
         body: okhttp3.RequestBody? = null,
         signed: Boolean = false,
+        headers: Map<String, String> = emptyMap(),
     ): Request {
         val builder = Request.Builder().url(url(segments, query)).header(PLATFORM_HEADER, PLATFORM)
+        headers.forEach { (name, value) -> builder.header(name, value) }
         builder.method(method, body ?: if (method == "POST" || method == "PUT") ByteArray(0).toRequestBody(null) else null)
         if (signed) builder.tag(SignRequest::class.java, SignRequest)
         return builder.build()
@@ -419,6 +496,7 @@ class ApiClient(
         const val MAX_SAVE_BODY_BYTES = 64L shl 20
         private val JSON = "application/json".toMediaType()
         private val PNG = "image/png".toMediaType()
+        private val CONFIRM_EMPTY_TRASH = mapOf("X-RL-Confirm" to "empty-trash")
 
         /** Shared connection pool and dispatcher; each console derives its own pinned client. */
         val defaultBaseClient: OkHttpClient by lazy {

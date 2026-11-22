@@ -6,6 +6,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.Alignment
+import link.reminis.app.container
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -55,6 +63,8 @@ import link.reminis.core.GameFileRoles
 
 @Composable
 fun DashboardScreen(
+    onApps: () -> Unit = {},
+    onTrash: () -> Unit = {},
     deviceId: String,
     onBack: () -> Unit,
     onLibrary: () -> Unit,
@@ -77,7 +87,7 @@ fun DashboardScreen(
         },
     ) { modifier ->
         LoadContent(status, onRetry = { vm.refresh(reconnect = true) }, modifier = modifier) { device ->
-            Dashboard(device, modifier, onLibrary, onTransfers, onForget = { forgetting = true })
+            Dashboard(device, modifier, onLibrary, onTransfers, onApps, onTrash, onForget = { forgetting = true })
         }
     }
     if (forgetting) {
@@ -86,7 +96,15 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun Dashboard(device: DeviceStatus, modifier: Modifier, onLibrary: () -> Unit, onTransfers: () -> Unit, onForget: () -> Unit) {
+private fun Dashboard(
+    device: DeviceStatus,
+    modifier: Modifier,
+    onLibrary: () -> Unit,
+    onTransfers: () -> Unit,
+    onApps: () -> Unit,
+    onTrash: () -> Unit,
+    onForget: () -> Unit,
+) {
     val context = LocalContext.current
     LazyColumn(modifier.fillMaxSize().testTag("dashboard")) {
         item {
@@ -133,6 +151,12 @@ private fun Dashboard(device: DeviceStatus, modifier: Modifier, onLibrary: () ->
                 }
                 OutlinedButton(onClick = onTransfers, modifier = Modifier.fillMaxWidth().testTag("openTransfers")) {
                     Text(stringResource(R.string.transfers_title))
+                }
+                OutlinedButton(onClick = onApps, modifier = Modifier.fillMaxWidth().testTag("openApps")) {
+                    Text(stringResource(R.string.paks_title))
+                }
+                OutlinedButton(onClick = onTrash, modifier = Modifier.fillMaxWidth().testTag("openTrash")) {
+                    Text(stringResource(R.string.trash_title))
                 }
                 OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.forget)) }
             }
@@ -218,7 +242,16 @@ fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit
 // MARK: game
 
 @Composable
-fun GameScreen(deviceId: String, gameId: String, onBack: () -> Unit, onSave: (String) -> Unit, onStates: (String) -> Unit) {
+fun GameScreen(
+    deviceId: String,
+    gameId: String,
+    onBack: () -> Unit,
+    onSave: (String) -> Unit,
+    onStates: (String) -> Unit,
+    onCheats: () -> Unit = {},
+    onPatch: () -> Unit = {},
+    onDeleted: () -> Unit = {},
+) {
     val app = LocalContext.current.applicationContext as Application
     val vm: GameViewModel = viewModel(key = "game-$deviceId-$gameId") { GameViewModel(app, deviceId, gameId) }
     val game by vm.game.collectAsState()
@@ -227,6 +260,9 @@ fun GameScreen(deviceId: String, gameId: String, onBack: () -> Unit, onSave: (St
     val error by vm.error.collectAsState()
     var menu by remember { mutableStateOf(false) }
     var removingArt by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
+    val gameNotice by LocalContext.current.container.gameNotice.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(gameNotice) { vm.takeNotice(gameNotice) }
     val picture = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let(vm::setArt) }
     val loaded = (game as? Load.Loaded)?.value
     AppScaffold(
@@ -248,6 +284,11 @@ fun GameScreen(deviceId: String, gameId: String, onBack: () -> Unit, onSave: (St
                             onClick = { menu = false; removingArt = true },
                         )
                     }
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.game_delete)) },
+                        onClick = { menu = false; deleting = true; vm.previewDeletion(keepSave = false) },
+                        modifier = Modifier.testTag("deleteGame"),
+                    )
                 }
             }
         },
@@ -255,10 +296,13 @@ fun GameScreen(deviceId: String, gameId: String, onBack: () -> Unit, onSave: (St
         LoadContent(game, onRetry = { vm.refresh() }, modifier = modifier) { detail ->
             GameDetailView(
                 detail, modifier, working, notice, error, vm::dismissMessages,
-                onSave = { onSave(detail.name) }, onStates = { onStates(detail.name) },
+                onSave = { onSave(detail.name) }, onStates = { onStates(detail.name) }, onCheats = onCheats, onPatch = onPatch,
                 onDownload = { file, uri -> vm.download(file, detail.name, uri) },
             )
         }
+    }
+    if (deleting) {
+        DeleteGameDialog(vm, (game as? Load.Loaded)?.value?.name.orEmpty(), onDeleted = onDeleted, onDismiss = { deleting = false; vm.closeDeletion() })
     }
     if (removingArt) {
         ConfirmDialog(
@@ -281,6 +325,8 @@ private fun GameDetailView(
     onDismiss: () -> Unit,
     onSave: () -> Unit,
     onStates: () -> Unit,
+    onCheats: () -> Unit,
+    onPatch: () -> Unit,
     onDownload: (GameFile, android.net.Uri) -> Unit,
 ) {
     val context = LocalContext.current
@@ -305,7 +351,18 @@ private fun GameDetailView(
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onStates).testTag("openStates"),
             )
-            Info(stringResource(R.string.game_cheats), game.cheatFileCount.toString())
+            ListItem(
+                headlineContent = { Text(stringResource(if (game.cheatFileCount > 0) R.string.game_cheats_file else R.string.game_cheats_none)) },
+                overlineContent = { Text(stringResource(R.string.cheats_title)) },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onCheats).testTag("openCheats"),
+            )
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.patch_apply_ellipsis)) },
+                supportingContent = { Text(stringResource(R.string.patch_row_help)) },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                modifier = Modifier.clickable(onClick = onPatch).testTag("openPatch"),
+            )
             HorizontalDivider()
             Text(
                 stringResource(R.string.game_files),
@@ -340,4 +397,63 @@ private fun roleLabel(file: GameFile): String = when (file.role) {
     GameFileRoles.CHEATS -> stringResource(R.string.role_cheats)
     GameFileRoles.ART -> stringResource(R.string.role_art)
     else -> file.role
+}
+
+/**
+ * Deletion of a game (docs/specs/06-app-ios.md §4.5): what moves to the
+ * trash of the console, read from the console, and the option to keep the
+ * save and the states; everything stays in the trash at least 30 days.
+ */
+@Composable
+private fun DeleteGameDialog(vm: GameViewModel, name: String, onDeleted: () -> Unit, onDismiss: () -> Unit) {
+    val deletion by vm.deletion.collectAsState()
+    val context = LocalContext.current
+    val keepSave = deletion?.keepSave ?: false
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.game_delete_title, name)) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).testTag("deleteGameDialog"),
+            ) {
+                when (val d = deletion?.preview) {
+                    null, Load.Loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                    is Load.Failed -> Text(errorMessage(context, d.error), color = MaterialTheme.colorScheme.error)
+                    is Load.Loaded -> {
+                        // The exact list, with the paths relative to the SD card (docs/specs/04-api-v1.md).
+                        Text(
+                            pluralStringResource(R.plurals.game_delete_moved, d.value.moved.size, d.value.moved.size, formatBytes(context, d.value.movedBytes)),
+                        )
+                        d.value.moved.forEach {
+                            Text(it.name, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("deleteMoved"))
+                        }
+                        if (d.value.kept.isNotEmpty()) {
+                            Text(stringResource(R.string.game_delete_kept))
+                            d.value.kept.forEach {
+                                Text(it.name, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("deleteKept"))
+                            }
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.game_delete_keep_save), modifier = Modifier.weight(1f))
+                    androidx.compose.material3.Switch(
+                        checked = keepSave,
+                        onCheckedChange = { vm.previewDeletion(it) },
+                        modifier = Modifier.testTag("deleteKeepSave"),
+                    )
+                }
+                Text(stringResource(R.string.game_delete_footer), style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { vm.delete { onDeleted() }; onDismiss() },
+                enabled = deletion?.preview is Load.Loaded,
+                modifier = Modifier.testTag("deleteGameConfirm"),
+            ) { Text(stringResource(R.string.trash_move_to)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
 }

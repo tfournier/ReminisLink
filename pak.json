@@ -2,7 +2,7 @@
   "name": "ReminisLink",
   "version": "v1.0.2",
   "type": "TOOL",
-  "description": "Manage the ROMs, saves, save states, cheats and patches of your handheld from your iPhone, over your local Wi-Fi. Bring your own files.",
+  "description": "Manage the ROMs, saves, save states, cheats and patches of your handheld from your iPhone, iPad or Mac, over your local Wi-Fi. Bring your own files. Tested on the TrimUI Brick; experimental on the TrimUI Smart Pro S, Anbernic H700 handhelds and Miyoo Flip (testers welcome).",
   "author": "Thomas Fournier",
   "repo_url": "https://github.com/tfournier/ReminisLink",
   "release_filename": "ReminisLink.pak.zip",

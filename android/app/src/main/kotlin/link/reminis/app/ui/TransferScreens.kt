@@ -58,6 +58,12 @@ import link.reminis.core.LibraryGame
 import link.reminis.core.OnConflict
 import link.reminis.core.TransferDirection
 import link.reminis.core.TransferItem
+import link.reminis.core.TrackedJob
+import link.reminis.core.JobKinds
+import link.reminis.core.JobStates
+import link.reminis.core.PakJobFailure
+import link.reminis.core.PatchJobFailure
+import kotlinx.coroutines.launch
 import link.reminis.core.TransferPhase
 
 // MARK: transfers
@@ -69,10 +75,18 @@ import link.reminis.core.TransferPhase
  */
 @Composable
 fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
-    val queue = LocalContext.current.container.transfers
+    val container = LocalContext.current.container
+    val queue = container.transfers
     val all by queue.items.collectAsState()
-    val items = all.filter { it.deviceId == deviceId }
+    val items = all.filter { it.deviceId == deviceId && !it.isHidden }
+    val allJobs by container.jobs.jobs.collectAsState()
+    val jobs = allJobs.filter { it.deviceId == deviceId && !it.hidden }
     var confirmCancel by remember { mutableStateOf<TransferItem?>(null) }
+    var cancelJob by remember { mutableStateOf<TrackedJob?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var jobError by remember { mutableStateOf<Throwable?>(null) }
+    // The jobs of the console (patches, pak installations), every second while visible.
+    PollWhileVisible(deviceId) { container.jobs.refresh(deviceId) }
 
     AppScaffold(
         title = stringResource(R.string.transfers_title),
@@ -80,9 +94,12 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
         actions = {
             val clearable = items.any {
                 it.phase.isFinished || (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD)
-            }
+            } || jobs.any { it.isFinished }
             if (clearable) {
-                TextButton(onClick = { queue.clearFinished(deviceId) }, modifier = Modifier.testTag("clearFinished")) {
+                TextButton(
+                    onClick = { queue.clearFinished(deviceId); container.jobs.clearFinished(deviceId) },
+                    modifier = Modifier.testTag("clearFinished"),
+                ) {
                     Text(stringResource(R.string.transfers_clear))
                 }
             }
@@ -95,12 +112,17 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
             )
         },
     ) { modifier ->
-        if (items.isEmpty()) {
+        if (items.isEmpty() && jobs.isEmpty()) {
             Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
                 Text(stringResource(R.string.transfers_empty), style = MaterialTheme.typography.bodyLarge)
             }
         } else {
             LazyColumn(modifier.fillMaxSize().testTag("transfers")) {
+                jobError?.let { e -> item { MessageCard(null, e) { jobError = null } } }
+                items(jobs.reversed(), key = { "job-" + it.jobId }) { job ->
+                    JobRow(job, onCancel = { cancelJob = job })
+                    HorizontalDivider()
+                }
                 items(items.reversed(), key = { it.id }) { item ->
                     TransferRow(
                         item,
@@ -112,6 +134,26 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
                 }
             }
         }
+    }
+    cancelJob?.let { job ->
+        ConfirmDialog(
+            title = stringResource(R.string.job_cancel_title, job.title),
+            message = stringResource(R.string.job_cancel_message),
+            confirm = stringResource(R.string.transfer_cancel),
+            onConfirm = {
+                scope.launch {
+                    jobError = try {
+                        container.jobs.cancel(deviceId, job.jobId)
+                        null
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        e
+                    }
+                }
+            },
+            onDismiss = { cancelJob = null },
+        )
     }
     confirmCancel?.let { item ->
         ConfirmDialog(
@@ -365,5 +407,47 @@ private fun GamePickerDialog(vm: AddFilesViewModel, onPicked: (LibraryGame) -> U
         },
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
+}
+
+/** A job of the console (a patch, a pak installation): its state as last polled. */
+@Composable
+private fun JobRow(job: TrackedJob, onCancel: () -> Unit) {
+    val context = LocalContext.current
+    val state = job.job
+    ListItem(
+        headlineContent = { Text(job.title) },
+        supportingContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!job.isFinished) {
+                    val fraction = state?.progress?.fraction
+                    if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                Text(
+                    when {
+                        job.lost -> stringResource(R.string.error_job_lost)
+                        state == null -> stringResource(R.string.job_waiting)
+                        state.state == JobStates.SUCCEEDED ->
+                            stringResource(if (job.kind == JobKinds.PAK_INSTALL) R.string.pak_installed else R.string.job_done)
+                        state.state == JobStates.FAILED -> state.serverError?.let {
+                            errorMessage(context, if (job.kind == JobKinds.PAK_INSTALL) pakError(PakJobFailure(it)) else patchError(PatchJobFailure(it)))
+                        } ?: stringResource(R.string.transfer_failed)
+                        state.state == JobStates.CANCELLED -> stringResource(R.string.transfer_cancelled)
+                        job.cancelRequested -> stringResource(R.string.patch_cancelling)
+                        job.kind == JobKinds.PAK_INSTALL -> stringResource(R.string.pak_installing)
+                        else -> stringResource(R.string.patch_applying)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                job.pollError?.let { Text(errorMessage(context, it), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        trailingContent = {
+            if (!job.isFinished && !job.cancelRequested) {
+                TextButton(onClick = onCancel) { Text(stringResource(R.string.transfer_cancel)) }
+            }
+        },
+        modifier = Modifier.testTag("job"),
     )
 }

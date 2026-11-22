@@ -426,11 +426,11 @@ fun SectionTitle(text: String) {
 }
 
 @Composable
-fun Footnote(text: String) {
+fun Footnote(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
 }

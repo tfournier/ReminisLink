@@ -1251,8 +1251,12 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 	// A file reached through a symbolic link below the root of the card
 	// is listed, but never opened (confine.OpenUnder) nor written through
 	// (confine.CheckDir) by the services (rule 2).
-	files.Save = a.findFold(filepath.Join(a.roots.Saves, g.System.Tag), a.saveName(g.ROMName))
-	files.RTC = a.findFold(filepath.Join(a.roots.Saves, g.System.Tag), a.rtcName(g.ROMName))
+	// One read of Saves/<TAG> for the save and the clock: every folder of
+	// the game sheet is read once.
+	savesDir := filepath.Join(a.roots.Saves, g.System.Tag)
+	saveEntries := readNames(savesDir)
+	files.Save = a.pickFold(savesDir, saveEntries, a.saveName(g.ROMName))
+	files.RTC = a.pickFold(savesDir, saveEntries, a.rtcName(g.ROMName))
 	if st := a.layout.States; st != nil {
 		if dir := a.statesDir(g.System.Tag); dir != "" {
 			key := st.Key(g.ROMName)

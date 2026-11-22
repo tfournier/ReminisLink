@@ -15,7 +15,7 @@ extension DeviceModel {
     var localizedName: String {
         switch self {
         case .desktop: String(localized: "Desktop")
-        case .demo: String(localized: "Demo Console")
+        case .demo: String(localized: "Demo mode")
         default: displayName
         }
     }
