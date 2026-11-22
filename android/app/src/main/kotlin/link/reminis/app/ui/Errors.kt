@@ -13,12 +13,93 @@ import link.reminis.core.ConsoleNotFoundException
 import link.reminis.core.ErrorCodes
 import link.reminis.core.PairingException
 import link.reminis.core.PairingLinkException
+import link.reminis.core.JobLostException
+import link.reminis.core.PakJobFailure
+import link.reminis.core.PakRefusal
+import link.reminis.core.PatchJobFailure
+import link.reminis.core.isPakSelfConflict
+import link.reminis.core.pakRefusal
+import link.reminis.core.patchMismatchReason
+import link.reminis.core.trashReplaceRefusal
 
 /** Pairing is closed on the console (`pairingOpen: false` in `/hello`). */
 class PairingClosedException : Exception("pairing closed")
 
+/** A failure whose text depends on where it happened (a patch, a pak, a restore): already chosen. */
+class UserMessage(@param:androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList(), cause: Throwable? = null) :
+    Exception("user message", cause)
+
+/** The error of a patch request (M6): the console's refusals get their own texts. */
+fun patchError(error: Throwable): Throwable {
+    val server = when (error) {
+        is PatchJobFailure -> {
+            when (error.server.code) {
+                ErrorCodes.CONFLICT -> return UserMessage(R.string.patch_error_rom_changed, cause = error)
+                ErrorCodes.TOO_LARGE -> return UserMessage(R.string.patch_error_too_large, cause = error)
+            }
+            error.server
+        }
+        is ApiException.Server -> error
+        else -> return error
+    }
+    return when (server.code) {
+        ErrorCodes.PATCH_MISMATCH -> UserMessage(
+            if (server.patchMismatchReason == "already-patched") R.string.patch_error_already else R.string.patch_error_mismatch,
+            cause = error,
+        )
+        ErrorCodes.UNSUPPORTED_FORMAT -> UserMessage(R.string.patch_error_unsupported, cause = error)
+        else -> server
+    }
+}
+
+/**
+ * The error of a pak action (M12): a refused archive gets its reason,
+ * ReminisLink itself its own text; a `404` on the list ([routeMissing])
+ * means an older pak.
+ */
+fun pakError(error: Throwable, routeMissing: Boolean = false): Throwable {
+    val server = (error as? PakJobFailure)?.server ?: error as? ApiException.Server
+    server?.pakRefusal?.let { return PakRefusalException(it) }
+    if (server?.isPakSelfConflict == true) return UserMessage(R.string.pak_error_self, cause = error)
+    if (routeMissing) {
+        val status = (error as? ApiException.UnexpectedStatus)?.status ?: server?.status
+        if (status == 404 || status == 405) return UserMessage(R.string.pak_error_needs_newer, cause = error)
+    }
+    return server ?: error
+}
+
+/** Carries a pak refusal to [errorMessage]. */
+class PakRefusalException(val refusal: PakRefusal) : Exception("pak refused")
+
+/** The error of a restore from the trash (M18): a `404` (or an older pak's `405`) is a gone entry. */
+fun trashRestoreError(error: Throwable): Throwable {
+    val server = error as? ApiException.Server
+    if (server?.trashReplaceRefusal != null) return UserMessage(R.string.trash_replace_refused, cause = error)
+    server?.pakRefusal?.let { return PakRefusalException(it) }
+    val status = (error as? ApiException.UnexpectedStatus)?.status ?: server?.status
+    if (status == 404 || status == 405) return UserMessage(R.string.trash_entry_gone, cause = error)
+    return error
+}
+
+private fun pakRefusalMessage(context: Context, refusal: PakRefusal): String = when (refusal) {
+    PakRefusal.NotAnArchive -> context.getString(R.string.pak_refused_not_archive)
+    PakRefusal.NoPak -> context.getString(R.string.pak_refused_no_pak)
+    PakRefusal.NoLaunchScript -> context.getString(R.string.pak_refused_no_launch)
+    PakRefusal.SeveralPaks -> context.getString(R.string.pak_refused_several)
+    PakRefusal.UnsafeEntry -> context.getString(R.string.pak_refused_unsafe)
+    PakRefusal.TooLarge -> context.getString(R.string.pak_refused_too_large)
+    PakRefusal.UnsupportedCompression -> context.getString(R.string.pak_refused_compression)
+    PakRefusal.NoName -> context.getString(R.string.pak_refused_no_name)
+    is PakRefusal.Other -> context.getString(R.string.pak_refused_other, refusal.reason)
+}
+
 /** A translated message for any failure; the English server message only goes to the logs. */
 fun errorMessage(context: Context, error: Throwable): String = when (error) {
+    is UserMessage -> context.getString(error.id, *error.args.toTypedArray())
+    is PakRefusalException -> pakRefusalMessage(context, error.refusal)
+    is PatchJobFailure -> errorMessage(context, patchError(error))
+    is PakJobFailure -> errorMessage(context, pakError(error))
+    is JobLostException -> context.getString(R.string.error_job_lost)
     is ConsoleNotFoundException -> context.getString(R.string.error_not_found)
     is PairingClosedException -> context.getString(R.string.error_pairing_closed)
     is PairingLinkGoneException -> context.getString(R.string.error_link_gone)
@@ -47,7 +128,7 @@ fun errorMessage(context: Context, error: Throwable): String = when (error) {
         ErrorCodes.UNKNOWN_CLIENT -> context.getString(R.string.error_unknown_client)
         ErrorCodes.DISCONNECTED -> context.getString(R.string.error_disconnected)
         ErrorCodes.SHUTTING_DOWN -> context.getString(R.string.error_shutting_down)
-        ErrorCodes.CONFLICT -> context.getString(R.string.error_conflict)
+        ErrorCodes.CONFLICT -> context.getString(if (error.status == 412) R.string.cheats_conflict_short else R.string.error_conflict)
         ErrorCodes.CHECKSUM_MISMATCH -> context.getString(R.string.error_checksum)
         ErrorCodes.STATE_LOCKED -> context.getString(R.string.error_state_locked)
         ErrorCodes.TOO_LARGE -> context.getString(R.string.error_too_large)

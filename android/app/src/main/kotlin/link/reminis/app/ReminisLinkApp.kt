@@ -22,6 +22,8 @@ import link.reminis.core.Locator
 import link.reminis.core.PairedConsole
 import link.reminis.core.PairingLink
 import link.reminis.core.PairingLinkException
+import link.reminis.core.JobTracker
+import link.reminis.core.PakInstaller
 import link.reminis.core.TransferQueue
 
 class ReminisLinkApp : Application() {
@@ -72,6 +74,9 @@ class PendingLinks {
     val size: Int get() = links.size
 }
 
+/** A notice shown once by the screen of a game ([gameId] of [deviceId]). */
+data class GameNotice(val deviceId: String, val gameId: String, val text: String)
+
 /** Long-lived objects of the app. */
 class AppContainer(context: Context) {
     val identityStore = IdentityStore(context)
@@ -107,6 +112,34 @@ class AppContainer(context: Context) {
         // Every time work is added or resumed (idempotent): no start depends on a busy flag's transitions.
         onActive = { TransferService.start(appContext) },
     ) { deviceId, refresh -> client(deviceId, refresh) }
+
+    /** Jobs of the consoles (patches, pak installations), polled by the screens that show them. */
+    val jobs = JobTracker({ deviceId -> pairingIdentity(deviceId) }) { deviceId -> client(deviceId) }
+
+    /** The identity of the current pairing of a console (pin and pairing date), null when forgotten. */
+    fun pairingIdentity(deviceId: String): Any? = consoles.get(deviceId)?.let { it.pin to it.pairedAt }
+
+    /**
+     * Runs [block] only if [identity] is still the pairing of [deviceId],
+     * under the lock that forgetting and replacing a pairing hold.
+     */
+    fun ifPairing(deviceId: String, identity: Any?, block: () -> Unit): Boolean = synchronized(pairingLock) {
+        if (identity == null || pairingIdentity(deviceId) != identity) return@synchronized false
+        block()
+        true
+    }
+
+    /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
+    val pakInstaller = PakInstaller(transferScope, transfers, jobs) { file -> file.parentFile?.deleteRecursively() }
+
+    /** A notice for the game screen of a console (a patch applied, the screen closed by itself). */
+    val gameNotice = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
+
+    /** The library of a console changed from this phone (a game deleted, restored or patched): its screens reload. */
+    val libraryChanged = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 16)
+
+    /** The background scope of the app (cleanups that outlive a screen). */
+    val backgroundScope: CoroutineScope get() = transferScope
 
     init {
         // Listed now, before any new copy can be made; deleted in the background.
@@ -220,7 +253,14 @@ class AppContainer(context: Context) {
     fun replacePairing(console: PairedConsole) = synchronized(pairingLock) {
         consoles.put(console)
         clients.remove(console.deviceId)
+        // The jobs of the previous pairing are never asked through the new one.
+        jobs.dropConsole(console.deviceId)
+        pakInstaller.dropConsole(console.deviceId)
     }
+
+    /** Tests only: deletion previews answered (applied or not), a client-side signal. */
+    @androidx.annotation.VisibleForTesting
+    val deletionAnswersForTests = java.util.concurrent.atomic.AtomicInteger()
 
     /**
      * Forgets a console on this phone. Its transfers stop and never start
@@ -231,8 +271,10 @@ class AppContainer(context: Context) {
         synchronized(pairingLock) {
             consoles.remove(deviceId)
             clients.remove(deviceId)
+            jobs.dropConsole(deviceId)
         }
         transfers.dropConsole(deviceId)
+        pakInstaller.dropConsole(deviceId)
     }
 
     /**

@@ -22,6 +22,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import link.reminis.app.ui.AddConsoleScreen
+import link.reminis.app.ui.CheatsScreen
+import link.reminis.app.ui.PaksScreen
+import link.reminis.app.ui.PatchScreen
+import link.reminis.app.ui.TrashRestoreScreen
+import link.reminis.app.ui.TrashScreen
 import link.reminis.app.ui.AddFilesScreen
 import link.reminis.app.ui.ConsolesScreen
 import link.reminis.app.ui.DashboardScreen
@@ -49,6 +54,24 @@ object Routes {
     const val STATES = "console/{deviceId}/game/{gameId}/states?name={name}"
     const val TRANSFERS = "console/{deviceId}/transfers"
     const val ADD_FILES = "add-files?deviceId={deviceId}&share={share}"
+    const val CHEATS = "console/{deviceId}/game/{gameId}/cheats"
+    const val PATCH = "patch?deviceId={deviceId}&gameId={gameId}&share={share}"
+    const val APPS = "console/{deviceId}/apps"
+    const val TRASH = "console/{deviceId}/trash"
+    const val TRASH_RESTORE = "console/{deviceId}/trash/{entryId}?label={label}"
+
+    fun cheats(deviceId: String, gameId: String) = "console/$deviceId/game/$gameId/cheats"
+    fun apps(deviceId: String) = "console/$deviceId/apps"
+    fun trash(deviceId: String) = "console/$deviceId/trash"
+    fun trashRestore(deviceId: String, entryId: String, label: String) =
+        "console/$deviceId/trash/$entryId?label=${android.net.Uri.encode(label)}"
+
+    /** The Patch screen of a game, or of a shared patch (an opaque token of [ShareInbox]). */
+    fun patch(deviceId: String? = null, gameId: String? = null, share: String? = null) = buildString {
+        append("patch")
+        val query = listOfNotNull(deviceId?.let { "deviceId=$it" }, gameId?.let { "gameId=$it" }, share?.let { "share=$it" })
+        if (query.isNotEmpty()) append("?").append(query.joinToString("&"))
+    }
 
     fun pair(token: String) = "pair/$token"
     fun dashboard(deviceId: String) = "console/$deviceId"
@@ -74,13 +97,16 @@ class MainActivity : ComponentActivity() {
     /** Files shared by another app: the token of [ShareInbox]. */
     private val incomingShare = mutableStateOf<String?>(null)
 
+    /** One patch shared by another app (`.ips`, `.bps`, `.ups`): the Patch screen instead of Add. */
+    private val incomingPatch = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // Only a fresh launch: a recreated activity gets its old intent back.
         if (savedInstanceState == null) {
             takePairingLink(intent)?.let { incomingLink.value = it }
-            takeShare(intent)?.let { incomingShare.value = it }
+            takeShare(intent)
         }
         setContent {
             ReminisLinkTheme {
@@ -89,6 +115,8 @@ class MainActivity : ComponentActivity() {
                     onLinkHandled = { incomingLink.value = null },
                     incomingShare = incomingShare.value,
                     onShareHandled = { incomingShare.value = null },
+                    incomingPatch = incomingPatch.value,
+                    onPatchHandled = { incomingPatch.value = null },
                 )
             }
         }
@@ -97,7 +125,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         takePairingLink(intent)?.let { incomingLink.value = it }
-        takeShare(intent)?.let { incomingShare.value = it }
+        takeShare(intent)
     }
 
     /**
@@ -106,15 +134,22 @@ class MainActivity : ComponentActivity() {
      * link) is ignored: the console downloads nothing. Not replayed from the
      * recent apps.
      */
-    private fun takeShare(intent: Intent?): String? {
-        if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return null
+    private fun takeShare(intent: Intent?) {
+        if (intent == null || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
         val uris: List<android.net.Uri> = when (intent.action) {
             Intent.ACTION_SEND -> listOfNotNull(streamExtra(intent))
             Intent.ACTION_SEND_MULTIPLE -> streamListExtra(intent)
-            else -> return null
+            else -> return
         }.filter { it.scheme == android.content.ContentResolver.SCHEME_CONTENT }
-        if (uris.isEmpty()) return null
-        return container.shareInbox.put(uris)
+        if (uris.isEmpty()) return
+        val token = container.shareInbox.put(uris)
+        // One patch file and nothing else opens the Patch screen (docs/specs/06-app-ios.md §4.8).
+        val single = uris.singleOrNull()
+        if (single != null && link.reminis.core.PatchNaming.isPatchFileName(LocalFiles.displayName(contentResolver, single))) {
+            incomingPatch.value = token
+        } else {
+            incomingShare.value = token
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -149,6 +184,8 @@ fun AppNavigation(
     onLinkHandled: () -> Unit,
     incomingShare: String? = null,
     onShareHandled: () -> Unit = {},
+    incomingPatch: String? = null,
+    onPatchHandled: () -> Unit = {},
 ) {
     val nav = rememberNavController()
     val links = LocalContext.current.container.pendingLinks
@@ -163,6 +200,12 @@ fun AppNavigation(
         if (incomingShare != null) {
             nav.navigate(Routes.addFiles(share = incomingShare))
             onShareHandled()
+        }
+    }
+    LaunchedEffect(incomingPatch) {
+        if (incomingPatch != null) {
+            nav.navigate(Routes.patch(share = incomingPatch))
+            onPatchHandled()
         }
     }
     val id = navArgument("deviceId") { type = NavType.StringType }
@@ -204,6 +247,8 @@ fun AppNavigation(
                 onBack = { nav.popBackStack() },
                 onLibrary = { nav.navigate(Routes.library(deviceId)) },
                 onTransfers = { nav.navigate(Routes.transfers(deviceId)) },
+                onApps = { nav.navigate(Routes.apps(deviceId)) },
+                onTrash = { nav.navigate(Routes.trash(deviceId)) },
                 onForgotten = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
             )
         }
@@ -226,6 +271,63 @@ fun AppNavigation(
                 onBack = { nav.popBackStack() },
                 onSave = { nav.navigate(Routes.save(deviceId, game)) },
                 onStates = { name -> nav.navigate(Routes.states(deviceId, game, name)) },
+                onCheats = { nav.navigate(Routes.cheats(deviceId, game)) },
+                onPatch = { nav.navigate(Routes.patch(deviceId = deviceId, gameId = game)) },
+                onDeleted = { nav.popBackStack() },
+            )
+        }
+        composable(Routes.CHEATS, arguments = listOf(id, gameId)) { entry ->
+            CheatsScreen(
+                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
+                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(
+            Routes.PATCH,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("gameId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("share") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
+            val fromGame = entry.arguments?.getString("gameId")
+            PatchScreen(
+                deviceId = entry.arguments?.getString("deviceId"),
+                gameId = fromGame,
+                shareToken = entry.arguments?.getString("share"),
+                onBack = { nav.popBackStack() },
+                onFinished = { device, target ->
+                    // Back on the game the patch was applied to, or on the new game.
+                    nav.popBackStack()
+                    if (target != fromGame) nav.navigate(Routes.game(device, target))
+                },
+            )
+        }
+        composable(Routes.APPS, arguments = listOf(id)) { entry ->
+            PaksScreen(deviceId = entry.arguments?.getString("deviceId").orEmpty(), onBack = { nav.popBackStack() })
+        }
+        composable(Routes.TRASH, arguments = listOf(id)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            TrashScreen(
+                deviceId = deviceId,
+                onBack = { nav.popBackStack() },
+                onRestore = { nav.navigate(Routes.trashRestore(deviceId, it.id, it.label)) },
+            )
+        }
+        composable(
+            Routes.TRASH_RESTORE,
+            arguments = listOf(
+                id,
+                navArgument("entryId") { type = NavType.StringType },
+                navArgument("label") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            TrashRestoreScreen(
+                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
+                entryId = entry.arguments?.getString("entryId").orEmpty(),
+                label = entry.arguments?.getString("label").orEmpty(),
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.SAVE, arguments = listOf(id, gameId)) { entry ->

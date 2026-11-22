@@ -340,6 +340,10 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
                 if (item.deviceId == deviceId && item.target is UploadTarget.Rom) refresh()
             }
         }
+        // A game deleted, restored or patched from this phone.
+        viewModelScope.launch {
+            container.libraryChanged.collect { if (it == deviceId) refresh() }
+        }
     }
 
     fun setQuery(text: String) {
@@ -421,7 +425,69 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
         container.client(deviceId).deleteGameArt(gameId)
         refresh(quiet = true)
     }
+
+    /** A notice left by another screen (a patch applied): shown once, and the game read again. */
+    fun takeNotice(notice: link.reminis.app.GameNotice?) {
+        if (notice == null || notice.deviceId != deviceId || notice.gameId != gameId) return
+        container.gameNotice.compareAndSet(notice, null)
+        showText(notice.text)
+        refresh(quiet = true)
+    }
+
+    private val _deletion = MutableStateFlow<DeletionState?>(null)
+
+    /**
+     * The deletion being confirmed: the option shown and the preview of
+     * `GET /games/{gameId}/deletion` for that option only.
+     */
+    val deletion: StateFlow<DeletionState?> = _deletion.asStateFlow()
+    private var deletionGeneration = 0
+
+    /**
+     * Asks what a deletion with [keepSave] would move now. Only the answer
+     * of the latest request for the option shown is applied: an answer for
+     * the other position of the option never enables the confirmation.
+     */
+    fun previewDeletion(keepSave: Boolean) {
+        val generation = ++deletionGeneration
+        _deletion.value = DeletionState(keepSave, Load.Loading)
+        viewModelScope.launch {
+            val result = try {
+                Load.Loaded(container.client(deviceId).deletionPreview(gameId, keepSave))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Load.Failed(e)
+            }
+            val current = _deletion.value
+            if (current != null && generation == deletionGeneration && current.keepSave == keepSave) _deletion.value = current.copy(preview = result)
+            container.deletionAnswersForTests.incrementAndGet()
+        }
+    }
+
+    fun closeDeletion() {
+        deletionGeneration++
+        _deletion.value = null
+    }
+
+    /** `DELETE /games/{gameId}`: the game and its data go to the trash of the console. */
+    fun delete(onDeleted: () -> Unit) {
+        val state = _deletion.value ?: return
+        // Only the preview of the option shown can be confirmed.
+        if (state.preview !is Load.Loaded) return
+        delete(state.keepSave, onDeleted)
+    }
+
+    private fun delete(keepSave: Boolean, onDeleted: () -> Unit) = perform(null) {
+        closeDeletion()
+        container.client(deviceId).deleteGame(gameId, keepSave)
+        container.libraryChanged.tryEmit(deviceId)
+        onDeleted()
+    }
 }
+
+/** A deletion being confirmed: the option shown and its preview. */
+data class DeletionState(val keepSave: Boolean, val preview: Load<link.reminis.core.DeletionPreview>)
 
 /** A short message shown after an action (a string resource and its arguments). */
 data class Notice(@param:androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList())
@@ -446,6 +512,11 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
 
     protected fun showNotice(notice: Notice?) {
         _notice.value = notice
+    }
+
+    /** A text already translated (a notice from another screen). */
+    protected fun showText(text: String) {
+        _notice.value = Notice(R.string.plain_text, listOf(text))
     }
 
     /** Runs a user action: one at a time, a notice on success, the error otherwise. */
