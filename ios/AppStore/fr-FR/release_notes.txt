@@ -4,5 +4,6 @@ Nouveautés :
 Améliorations :
 • Après l'application d'un patch, l'écran du patch se ferme tout seul.
 • La bibliothèque n'attend plus la jaquette d'un jeu sorti de l'écran.
+• Un jeu s'ouvre plus vite dans une grande bibliothèque : la liste n'est plus filtrée et triée à nouveau chaque fois que tu ouvres un jeu, reviens en arrière ou ouvres sa sauvegarde.
 • L'interface en français n'emploie plus que des mots français.
 • Si l'app et ReminisLink sur la console ont des versions trop éloignées, l'app indique laquelle mettre à jour au lieu d'afficher une erreur.

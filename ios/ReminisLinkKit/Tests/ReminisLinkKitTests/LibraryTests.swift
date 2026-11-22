@@ -355,6 +355,38 @@ struct LibraryFilterTests {
         #expect(!query.isFiltered)
         #expect(query == LibraryQuery(text: "a", sort: .size))
     }
+
+    @Test func presentationIsWhatTheFiltersGive() {
+        let query = LibraryQuery(systemLabel: "Game Boy Advance", sort: .size)
+        let presentation = LibraryPresentation(systems: Self.systems, games: Self.games, query: query)
+        #expect(presentation.groups == groups)
+        #expect(presentation.labels == LibraryFiltering.labels(Self.systems))
+        #expect(presentation.rowLabels == LibraryFiltering.rowLabels(systems: Self.systems, games: Self.games))
+        #expect(presentation.games == LibraryFiltering.apply(query, to: Self.games, groups: groups))
+    }
+
+    /// The Library list is drawn again on every navigation of its tab: the
+    /// games are filtered and sorted again only when an input changed.
+    @MainActor @Test func presentationIsBuiltOncePerChangeOfItsInputs() {
+        let cache = LibraryPresentationCache()
+        let first = cache.presentation(systems: Self.systems, games: Self.games, query: LibraryQuery())
+        for _ in 0..<5 {
+            #expect(cache.presentation(systems: Self.systems, games: Self.games, query: LibraryQuery()) == first)
+        }
+        #expect(cache.builds == 1)
+        // Another query, other games, other systems: built again.
+        let searched = cache.presentation(systems: Self.systems, games: Self.games, query: LibraryQuery(text: "maze"))
+        #expect(searched.games.map(\.summary.name) == ["Mosslight Maze"])
+        #expect(cache.builds == 2)
+        let fewer = Array(Self.games.dropLast())
+        #expect(cache.presentation(systems: Self.systems, games: fewer, query: LibraryQuery(text: "maze")).games.isEmpty)
+        #expect(cache.builds == 3)
+        _ = cache.presentation(systems: Array(Self.systems.dropLast()), games: fewer, query: LibraryQuery(text: "maze"))
+        #expect(cache.builds == 4)
+        // An equal library decoded again (new arrays) reuses it.
+        _ = cache.presentation(systems: Array(Self.systems.dropLast()), games: Array(fewer), query: LibraryQuery(text: "maze"))
+        #expect(cache.builds == 4)
+    }
 }
 
 @Suite("Closing of the pak")

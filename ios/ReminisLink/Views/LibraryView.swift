@@ -108,12 +108,17 @@ struct FlatLibraryList: View {
     @Binding var toDelete: DeleteTarget?
     let error: AppError?
     let retry: () async -> Void
+    /// The list is drawn again on every navigation of the Library tab (the
+    /// selection is the tab's path): the filtered and sorted games are
+    /// reused until the games, the systems or the query change.
+    @State private var cache = LibraryPresentationCache()
 
     var body: some View {
-        let groups = LibraryFiltering.groups(systems: systems, games: all.games)
-        let labels = LibraryFiltering.labels(systems)
-        let rowLabels = LibraryFiltering.rowLabels(systems: systems, games: all.games)
-        let games = LibraryFiltering.apply(query, to: all.games, groups: groups)
+        let presentation = cache.presentation(systems: systems, games: all.games, query: query)
+        let groups = presentation.groups
+        let labels = presentation.labels
+        let rowLabels = presentation.rowLabels
+        let games = presentation.games
         // M15: in a wide window a game is selected and shown beside the list.
         List(selection: librarySelection) {
             if let error {
