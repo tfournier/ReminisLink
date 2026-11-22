@@ -340,6 +340,10 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
                 if (item.deviceId == deviceId && item.target is UploadTarget.Rom) refresh()
             }
         }
+        // A game deleted, restored or patched from this phone.
+        viewModelScope.launch {
+            container.libraryChanged.collect { if (it == deviceId) refresh() }
+        }
     }
 
     fun setQuery(text: String) {
@@ -421,6 +425,44 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
         container.client(deviceId).deleteGameArt(gameId)
         refresh(quiet = true)
     }
+
+    /** A notice left by another screen (a patch applied): shown once, and the game read again. */
+    fun takeNotice(notice: link.reminis.app.GameNotice?) {
+        if (notice == null || notice.deviceId != deviceId || notice.gameId != gameId) return
+        container.gameNotice.compareAndSet(notice, null)
+        showText(notice.text)
+        refresh(quiet = true)
+    }
+
+    private val _deletion = MutableStateFlow<Load<link.reminis.core.DeletionPreview>?>(null)
+
+    /** What a deletion would move to the trash now (`GET /games/{gameId}/deletion`), while the confirmation shows. */
+    val deletion: StateFlow<Load<link.reminis.core.DeletionPreview>?> = _deletion.asStateFlow()
+
+    fun previewDeletion(keepSave: Boolean) {
+        _deletion.value = Load.Loading
+        viewModelScope.launch {
+            _deletion.value = try {
+                Load.Loaded(container.client(deviceId).deletionPreview(gameId, keepSave))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Load.Failed(e)
+            }
+        }
+    }
+
+    fun closeDeletion() {
+        _deletion.value = null
+    }
+
+    /** `DELETE /games/{gameId}`: the game and its data go to the trash of the console. */
+    fun delete(keepSave: Boolean, onDeleted: () -> Unit) = perform(null) {
+        _deletion.value = null
+        container.client(deviceId).deleteGame(gameId, keepSave)
+        container.libraryChanged.tryEmit(deviceId)
+        onDeleted()
+    }
 }
 
 /** A short message shown after an action (a string resource and its arguments). */
@@ -446,6 +488,11 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
 
     protected fun showNotice(notice: Notice?) {
         _notice.value = notice
+    }
+
+    /** A text already translated (a notice from another screen). */
+    protected fun showText(text: String) {
+        _notice.value = Notice(R.string.plain_text, listOf(text))
     }
 
     /** Runs a user action: one at a time, a notice on success, the error otherwise. */

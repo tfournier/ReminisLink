@@ -22,6 +22,8 @@ import link.reminis.core.Locator
 import link.reminis.core.PairedConsole
 import link.reminis.core.PairingLink
 import link.reminis.core.PairingLinkException
+import link.reminis.core.JobTracker
+import link.reminis.core.PakInstaller
 import link.reminis.core.TransferQueue
 
 class ReminisLinkApp : Application() {
@@ -72,6 +74,9 @@ class PendingLinks {
     val size: Int get() = links.size
 }
 
+/** A notice shown once by the screen of a game ([gameId] of [deviceId]). */
+data class GameNotice(val deviceId: String, val gameId: String, val text: String)
+
 /** Long-lived objects of the app. */
 class AppContainer(context: Context) {
     val identityStore = IdentityStore(context)
@@ -107,6 +112,21 @@ class AppContainer(context: Context) {
         // Every time work is added or resumed (idempotent): no start depends on a busy flag's transitions.
         onActive = { TransferService.start(appContext) },
     ) { deviceId, refresh -> client(deviceId, refresh) }
+
+    /** Jobs of the consoles (patches, pak installations), polled by the screens that show them. */
+    val jobs = JobTracker { deviceId -> client(deviceId) }
+
+    /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
+    val pakInstaller = PakInstaller(transferScope, transfers, jobs) { file -> file.parentFile?.deleteRecursively() }
+
+    /** A notice for the game screen of a console (a patch applied, the screen closed by itself). */
+    val gameNotice = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
+
+    /** The library of a console changed from this phone (a game deleted, restored or patched): its screens reload. */
+    val libraryChanged = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 16)
+
+    /** The background scope of the app (cleanups that outlive a screen). */
+    val backgroundScope: CoroutineScope get() = transferScope
 
     init {
         // Listed now, before any new copy can be made; deleted in the background.
@@ -233,6 +253,8 @@ class AppContainer(context: Context) {
             clients.remove(deviceId)
         }
         transfers.dropConsole(deviceId)
+        jobs.dropConsole(deviceId)
+        pakInstaller.dropConsole(deviceId)
     }
 
     /**
