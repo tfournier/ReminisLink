@@ -87,8 +87,12 @@ struct PatchAppTests {
         }
     }
 
-    func waitUntilGone(_ url: URL) async {
-        for _ in 0..<50 where FileManager.default.fileExists(atPath: url.path) {
+    /// The local copy is deleted by a detached, utility-priority task
+    /// (`PickedFile.remove()`): on a busy CI runner it may run more than a
+    /// second later.
+    func waitUntilGone(_ url: URL, timeout: Duration = .seconds(10)) async {
+        let deadline = ContinuousClock.now + timeout
+        while FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(20))
         }
     }
