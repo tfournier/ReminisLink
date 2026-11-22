@@ -195,6 +195,31 @@ set in Xcode):
   `CHANGELOG.md` has no `## X.Y.Z` section for a release. A tag
   `ios-beta-v…` starts the Beta workflow only (the prefix `ios-v` of Release
   cannot match it); these checks are a second guard.
+- **Release gate** (`ci_post_clone.sh`, Release and Beta workflows): the
+  build stops before the archive unless the GitHub CI (`ci.yml`, a push to
+  `main`; a run started by a tag never counts) passed the jobs `ios` and
+  `contract` on the commit built (`CI_COMMIT`), with the conclusion
+  `success` (skipped, neutral, cancelled, timed out... are failures; a job
+  that already failed outweighs one still running). It reads the public
+  GitHub API without a token, every page
+  (`api.github.com/repos/tfournier/ReminisLink/actions/workflows/ci.yml/runs?head_sha=…&branch=main&event=push`,
+  then the jobs of each run: `rl_require_ci_build` in `common.sh`, `curl`
+  and `jq`, both part of macOS 15 and later, hence of the Xcode Cloud image;
+  without `jq` the build fails). CI still running, failed or absent, GitHub
+  unreachable, or its rate limit reached (60 requests an hour per address):
+  the build fails with the reason, never passes silently; start it again
+  once the CI is green. One exception: the commit `Release app X.Y.Z` of
+  `make ios-vX.Y.Z` is pushed with its tag, so its own CI starts with the
+  build. When the commit built has no finished result and no job failed,
+  and the local clone shows that it is that commit (exactly one parent,
+  present in the clone; message exactly `Release app X.Y.Z` for the tag's
+  version; its whole diff, `git diff --no-renames --name-status`, only
+  modifies `CHANGELOG.md` and `AppStore/<locale>/release_notes.txt`: no
+  file added, deleted or renamed), the results of its parent on `main`
+  count, the commit `make` checked. To build
+  once without the check (exceptional), add the environment variable
+  `RL_SKIP_CI_CHECK` = `1` to the workflow, then remove it. `make ios-v…`
+  already refuses to tag a `HEAD` whose CI did not pass (`scripts/require-ci.sh`).
 - `ci_post_xcodebuild.sh` (Release workflow, after the archive): creates the
   App Store version `X.Y.Z` if needed, sets its "What's New" (English and
   French, from `CHANGELOG.md`) and "Automatically release this version",
