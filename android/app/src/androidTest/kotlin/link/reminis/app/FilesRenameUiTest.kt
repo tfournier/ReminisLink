@@ -295,6 +295,8 @@ class FilesRenameUiTest {
     fun errorAnswersCloseTheConnection() {
         ActivityScenario.launch(MainActivity::class.java).use {
             val demo = openDemo()
+            // The sync made at the connection (increment 7) ends first: its requests would see the 401 too.
+            waitFor("sync at connection") { context.container.sync.state(demo.deviceId).lastReport != null && !context.container.sync.state(demo.deviceId).isRunning }
             tap("tabFiles")
             waitFor("root") { hasTag("sd-Downloads") }
             // Any request of a screen: `401 disconnected` → the dashboard says it, with Reconnect.
