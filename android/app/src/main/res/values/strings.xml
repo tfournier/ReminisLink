@@ -584,6 +584,7 @@
     <string name="screenshots_truncated">Only the 5,000 newest screenshots are shown.</string>
     <string name="screenshots_needs_newer">Update ReminisLink on the console to see its screenshots.</string>
     <string name="screenshot_gone">This screenshot is no longer on the console. The list was refreshed.</string>
+    <string name="screenshot_changed">This screenshot changed on the console: nothing was moved. The list was refreshed; check it and try again.</string>
     <string name="screenshot_too_large">This screenshot is too large to show here. Share it to open it in another app.</string>
     <string name="screenshots_select">Select</string>
     <string name="screenshots_done">Done</string>

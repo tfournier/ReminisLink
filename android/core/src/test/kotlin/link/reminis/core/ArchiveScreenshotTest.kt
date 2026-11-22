@@ -180,6 +180,86 @@ class ArchiveScreenshotTest {
         withTimeout(5_000) { while (demo.pak.stagedCount != 0) delay(20) }
     }
 
+    private suspend fun waitUntil(what: String, condition: () -> Boolean) = withTimeout(15_000) {
+        while (!condition()) delay(20)
+    }.also { assertTrue(what, condition()) }
+
+    @Test
+    fun screenClosedWhileCompleteIsAnsweredDeletesTheStagingEntry() = runBlocking {
+        val hold = java.util.concurrent.CountDownLatch(1)
+        demo.pak.holdCompleteAnswer = hold
+        val run = run(null)
+        run.start(copy(export(game("Thistledown Isles").id, false)), "a.reminislink.zip")
+        // The console wrote the entry; its answer is held.
+        waitUntil("complete done") { demo.pak.completesAnswered.get() == 1 && demo.pak.stagedCount == 1 }
+        run.abandon()
+        demo.pak.holdCompleteAnswer = null
+        hold.countDown()
+        waitUntil("entry deleted once the answer came") { demo.pak.stagedCount == 0 }
+        assertTrue(run.step.value !is ArchiveStep.Ready)
+    }
+
+    @Test
+    fun jobFailingWithAConflictKeepsThatGameThenClosingDeletes() = runBlocking {
+        val isles = game("Thistledown Isles")
+        val run = run(null)
+        run.start(copy(export(isles.id, false)), "a.reminislink.zip")
+        run.awaitStep { it == ArchiveStep.Ready }
+        demo.pak.failNextArchiveImport = "conflict" to kotlinx.serialization.json.buildJsonObject {
+            put("gameId", kotlinx.serialization.json.JsonPrimitive(isles.id))
+        }
+        run.confirm("Import")
+        val failed = run.finish() as ArchiveStep.Failed
+        assertTrue(failed.error is ArchiveJobFailure)
+        assertEquals("Import into That Game is offered", isles.id, run.existingGameId.value)
+        assertEquals("kept while the screen can act on it", 1, demo.pak.stagedCount)
+        run.abandon()
+        waitUntil("deleted when the screen goes") { demo.pak.stagedCount == 0 }
+    }
+
+    @Test
+    fun closedDuringStartingThenRefusedDeletesTheStagingEntry() = runBlocking {
+        val dash = game("Quillwork Tactics")
+        val run = run(ArchiveTarget.Game(dash.id))
+        run.start(copy(export(dash.id, false)), "a.reminislink.zip")
+        run.awaitStep { it == ArchiveStep.Ready }
+        // The target is gone: POST /import answers 404 after the screen closed.
+        client.deleteGame(dash.id, keepSave = false)
+        run.confirm("Import")
+        run.abandon()
+        waitUntil("deleted after the refusal") { demo.pak.stagedCount == 0 }
+    }
+
+    @Test
+    fun screenClosedDuringAFailingImportDeletesTheStagingEntry() = runBlocking {
+        val isles = game("Thistledown Isles")
+        val run = run(null)
+        run.start(copy(export(isles.id, false)), "a.reminislink.zip")
+        run.awaitStep { it == ArchiveStep.Ready }
+        demo.pak.failNextArchiveImport = "internal" to null
+        run.confirm("Import")
+        run.awaitStep { it == ArchiveStep.Importing }
+        run.abandon()
+        waitUntil("deleted once the job failed") { demo.pak.stagedCount == 0 }
+    }
+
+    @Test
+    fun pairingReplacedBetweenChunksStopsTheUpload() = runBlocking {
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        val bytes = export(game("Thistledown Isles").id, rom = true)
+        assertTrue("several chunks", bytes.size > 2 * link.reminis.core.demo.FakePak.CHUNK_SIZE)
+        val run = ArchiveImportRun(
+            demo.deviceId, scope, jobs, { client }, null,
+            // identity, two checks, the loop, chunk 1; from chunk 2 on another pairing.
+            pairing = { if (calls.incrementAndGet() >= 6) "pairing B" else "pairing A" },
+        )
+        run.start(copy(bytes), "big.reminislink.zip")
+        val failed = run.awaitStep { it is ArchiveStep.Failed } as ArchiveStep.Failed
+        assertTrue("${failed.error}", failed.error is ConsoleForgottenException)
+        assertEquals("no complete through another pairing", 0, demo.pak.completesAnswered.get())
+        assertEquals(0, demo.pak.stagedCount)
+    }
+
     @Test
     fun importResultAndPlanModels() {
         val plan = ProtocolJson.decodeFromString(
@@ -310,12 +390,23 @@ class ArchiveScreenshotTest {
         assertEquals(3, ScreenshotGridLayout.columns(360f))
         assertEquals(8, ScreenshotGridLayout.columns(2000f))
         assertEquals(2, ScreenshotGridLayout.columns(Float.NaN))
-        var selection = ScreenshotSelection().toggled("a").toggled("b").toggled("a")
-        assertEquals(setOf("b"), selection.ids)
+        var selection = ScreenshotSelection().toggled(shots[0]).toggled(shots[1]).toggled(shots[0])
+        assertEquals(listOf("b"), selection.selected(shots).map { it.screenshotId })
         selection = selection.toggledAll(shots)
         assertEquals(4, selection.count)
         assertTrue(selection.toggledAll(shots).isEmpty)
         assertEquals(listOf("a"), selection.kept(shots.take(1)).selected(shots).map { it.screenshotId })
+        // The same name replaced on the console (another size): a new version leaves the selection.
+        val replaced = shots[0].copy(sizeBytes = 99)
+        assertTrue(shots[0] in selection)
+        assertFalse(replaced in selection)
+        assertTrue(selection.kept(listOf(replaced) + shots.drop(1)).selected(listOf(replaced)).isEmpty())
+        assertEquals(listOf("a"), exactScreenshots(setOf(shots[0].thumbnailKey), shots).map { it.screenshotId })
+        try {
+            exactScreenshots(setOf(shots[0].thumbnailKey), listOf(replaced))
+            fail("a replaced screenshot was accepted")
+        } catch (_: ScreenshotChangedException) {
+        }
         assertEquals(listOf(500, 1), ScreenshotTrashRequest.batches((0..500).map { "$it" } + "1").map { it.size })
         val taken = mutableSetOf<String>()
         assertEquals("a.png", freeFileName("a.png", taken))

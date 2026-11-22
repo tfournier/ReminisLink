@@ -221,9 +221,12 @@ class AppContainer(context: Context) {
         // Listed now, before any new copy can be made; deleted in the background.
         val leftovers = transferDirectory.listFiles().orEmpty()
         transferScope.launch(Dispatchers.IO) { leftovers.forEach { it.deleteRecursively() } }
-        // Copies made for the share sheet by a previous process (M22).
-        val shared = ScreenshotManager.sharedDirectory(appContext).listFiles().orEmpty()
-        transferScope.launch(Dispatchers.IO) { shared.forEach { it.deleteRecursively() } }
+        // Copies made for the share sheet more than an hour ago, and the temporary files of a
+        // screenshot being shown when a previous process died (M22).
+        transferScope.launch(Dispatchers.IO) {
+            ScreenshotManager.purgeShared(appContext)
+            ScreenshotManager.purgePreviews(appContext)
+        }
         // M22: a `screenshots` event (or a new stream) reloads the screenshots of that console.
         scope.launch {
             events.changes.collect { change ->

@@ -66,7 +66,7 @@ fun ConfirmDialog(
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = { onDismiss(); onConfirm() }, modifier = Modifier.testTag("confirmOk")) { Text(confirm) }
+            TextButton(onClick = { onConfirm(); onDismiss() }, modifier = Modifier.testTag("confirmOk")) { Text(confirm) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
     )

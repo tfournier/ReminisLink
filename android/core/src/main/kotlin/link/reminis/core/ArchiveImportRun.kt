@@ -7,6 +7,7 @@ import kotlinx.coroutines.Job as CoroutineJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Steps of [ArchiveImportRun] (docs/specs/06-app-ios.md §4.5, M19). */
@@ -39,6 +40,9 @@ sealed interface ArchiveStep {
     /** The app side runs (leaving the screen stops it). */
     val holdsTheScreen: Boolean get() = this is Preparing || this is Sending || this is Inspecting || this is Starting
 }
+
+private const val WATCH_POLLS = 300
+private const val WATCH_INTERVAL_MILLIS = 2_000L
 
 /** A failed `archive-import` job: its error, as the console reports it. */
 class ArchiveJobFailure(val server: ApiException.Server) : Exception("archive import job: ${server.code}")
@@ -116,6 +120,14 @@ class ArchiveImportRun(
     private var running: CoroutineJob? = null
     private var identity: Any? = null
 
+    /** The screen went away ([abandon]): an archive left on the console is deleted as soon as it is known. */
+    @Volatile
+    private var abandoned = false
+
+    /** `complete` of the staging upload is sent and not answered yet. */
+    @Volatile
+    private var completing = false
+
     /** Something was sent to this console: the console can no longer be changed. */
     val isBoundToConsole: Boolean get() = _step.value.isBusy || stagingId != null || upload != null
 
@@ -133,8 +145,13 @@ class ArchiveImportRun(
         jobId = null
         localCopy = file
         identity = pairing()
+        abandoned = false
+        completing = false
         _step.value = ArchiveStep.Preparing
-        running = scope.launch {
+        val started = identity
+        // In the application's scope (Codex review round 1): once `complete` is sent, its answer is
+        // read even if the screen is gone, and the staging entry it made is deleted then.
+        running = durableScope.launch {
             try {
                 checkPairing()
                 // A pak older than M19 says so before the archive is sent (Codex review of M19).
@@ -148,15 +165,31 @@ class ArchiveImportRun(
                 _step.value = ArchiveStep.Sending(0f)
                 val size = current.sizeBytes
                 checkPairing()
-                val result = current.run(client(), progress = { offset ->
-                    if (_step.value is ArchiveStep.Sending) {
-                        _step.value = ArchiveStep.Sending(if (size > 0) (offset.toFloat() / size).coerceIn(0f, 1f) else 1f)
-                    }
-                })
+                val result = try {
+                    current.run(
+                        client(),
+                        // Checked before every request (creation, status, each chunk, complete): a
+                        // pairing replaced meanwhile never gets one of them (Codex review round 1).
+                        shouldPause = { pairing() != started },
+                        progress = { offset ->
+                            if (_step.value is ArchiveStep.Sending) {
+                                _step.value = ArchiveStep.Sending(if (size > 0) (offset.toFloat() / size).coerceIn(0f, 1f) else 1f)
+                            }
+                        },
+                        willComplete = { completing = true },
+                    )
+                } catch (e: UploadFailure) {
+                    if (e.reason == UploadFailure.Reason.PAUSED && pairing() != started) throw ConsoleForgottenException()
+                    throw e
+                } finally {
+                    completing = false
+                }
                 upload = null
                 releaseLocalCopy()
                 val id = result.stagingId ?: throw ApiException.InvalidResponse("no stagingId")
-                if (!ifPairing(identity) { stagingId = id }) throw ConsoleForgottenException()
+                if (!ifPairing(started) { stagingId = id }) throw ConsoleForgottenException()
+                // The screen closed while `complete` was answered: the entry leaves the card at once.
+                if (abandoned) return@launch dropStaging()
                 inspect()
             } catch (e: CancellationException) {
                 throw e
@@ -219,6 +252,25 @@ class ArchiveImportRun(
             }
             _step.value = ArchiveStep.Importing
             advance()
+            if (abandoned) watchJob(accepted.jobId)
+        }
+    }
+
+    /**
+     * The screen is gone while the import runs: the job is followed from
+     * the application's scope (10 minutes at most), and a failed import
+     * leaves the staging area (a succeeded one is deleted by the console).
+     */
+    private fun watchJob(id: String) {
+        val started = identity
+        durableScope.launch {
+            repeat(WATCH_POLLS) {
+                if (jobs.get(deviceId, id)?.isFinished == true || pairing() != started) return@repeat
+                delay(WATCH_INTERVAL_MILLIS)
+                runCatching { jobs.refresh(deviceId) }
+            }
+            val tracked = jobs.get(deviceId, id) ?: return@launch
+            if (tracked.isFinished && tracked.job?.state != JobStates.SUCCEEDED) dropStaging()
         }
     }
 
@@ -242,15 +294,18 @@ class ArchiveImportRun(
             return
         }
         val job = tracked.job ?: return
-        _step.value = when (job.state) {
-            JobStates.SUCCEEDED -> ArchiveImportResult.from(job.result)?.let { ArchiveStep.Succeeded(it) }
-                ?: ArchiveStep.Failed(ApiException.InvalidResponse("archive import without result"))
-            JobStates.FAILED -> job.serverError?.let { ArchiveStep.Failed(ArchiveJobFailure(it)) }
-                ?: ArchiveStep.Failed(ApiException.InvalidResponse("failed job without error"))
-            else -> ArchiveStep.Failed(ApiException.InvalidResponse("job state ${job.state}"))
+        when (job.state) {
+            JobStates.SUCCEEDED -> {
+                _step.value = ArchiveImportResult.from(job.result)?.let { ArchiveStep.Succeeded(it) }
+                    ?: ArchiveStep.Failed(ApiException.InvalidResponse("archive import without result"))
+                // The console deletes the staging entry when the import succeeds.
+                stagingId = null
+            }
+            // Through fail() like iOS (Codex review round 1): a `409` keeps "Import into That Game",
+            // a refused archive leaves the card.
+            JobStates.FAILED -> fail(job.serverError?.let { ArchiveJobFailure(it) } ?: ApiException.InvalidResponse("failed job without error"))
+            else -> fail(ApiException.InvalidResponse("job state ${job.state}"))
         }
-        // The console deletes the staging entry when the import succeeds.
-        if (_step.value is ArchiveStep.Succeeded) stagingId = null
     }
 
     private fun fail(e: Throwable) {
@@ -260,8 +315,9 @@ class ArchiveImportRun(
                 ?.takeIf { it.isString }?.content
         }
         _step.value = ArchiveStep.Failed(e)
-        // A refused archive will not be imported: off the card at once.
-        if (server != null && server.code == ErrorCodes.UNSUPPORTED_FORMAT) dropStaging()
+        // A refused archive will not be imported, and nobody can act on an archive whose screen
+        // is gone (a `409` after the screen closed during Starting): off the card at once.
+        if (abandoned || (server != null && server.code == ErrorCodes.UNSUPPORTED_FORMAT)) dropStaging()
     }
 
     private fun checkPairing() {
@@ -303,11 +359,17 @@ class ArchiveImportRun(
      * console deletes it when the import succeeds).
      */
     fun abandon() {
+        abandoned = true
         jobId?.let { jobs.disown(deviceId, it) }
         when (_step.value) {
-            is ArchiveStep.Succeeded, ArchiveStep.Starting, ArchiveStep.Importing -> return
+            is ArchiveStep.Succeeded -> return
+            // The answer of POST /import decides: a failure deletes the archive (fail()), a job is watched.
+            ArchiveStep.Starting -> return
+            ArchiveStep.Importing -> return jobId?.let(::watchJob) ?: Unit
             else -> Unit
         }
+        // `complete` is in flight: its answer arrives in the application's scope and deletes the entry.
+        if (completing) return
         running?.cancel()
         running = null
         dropUpload()

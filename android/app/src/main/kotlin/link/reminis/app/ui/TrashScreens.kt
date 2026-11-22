@@ -117,8 +117,8 @@ fun TrashScreen(deviceId: String, onBack: () -> Unit, onRestore: (TrashEntry) ->
     val notice by vm.notice.collectAsState()
     val error by vm.error.collectAsState()
     val context = LocalContext.current
-    var confirmEmpty by remember { mutableStateOf(false) }
-    var toDelete by remember { mutableStateOf<TrashEntry?>(null) }
+    var confirmEmpty by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var toDeleteId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     val entries = (trash as? Load.Loaded)?.value?.entries.orEmpty()
 
     // Read again whenever the screen shows (after a restore, too).
@@ -161,7 +161,7 @@ fun TrashScreen(deviceId: String, onBack: () -> Unit, onRestore: (TrashEntry) ->
                             }
                         },
                         trailingContent = {
-                            IconButton(onClick = { toDelete = entry }, enabled = !working, modifier = Modifier.testTag("trashDelete")) {
+                            IconButton(onClick = { toDeleteId = entry.id }, enabled = !working, modifier = Modifier.testTag("trashDelete")) {
                                 Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.action_delete_ellipsis))
                             }
                         },
@@ -185,14 +185,14 @@ fun TrashScreen(deviceId: String, onBack: () -> Unit, onRestore: (TrashEntry) ->
             onDismiss = { confirmEmpty = false },
         )
     }
-    toDelete?.let { entry ->
+    entries.firstOrNull { it.id == toDeleteId }?.let { entry ->
         val label = trashLabel(entry)
         ConfirmDialog(
             title = stringResource(R.string.trash_delete_title),
             message = stringResource(R.string.trash_delete_message, label),
             confirm = stringResource(R.string.action_delete),
             onConfirm = { vm.delete(entry, label) },
-            onDismiss = { toDelete = null },
+            onDismiss = { toDeleteId = null },
         )
     }
 }
@@ -281,7 +281,7 @@ fun TrashRestoreScreen(deviceId: String, entryId: String, label: String, onBack:
     val working by vm.working.collectAsState()
     val error by vm.error.collectAsState()
     val conflictAppeared by vm.conflictAppeared.collectAsState()
-    var confirmReplace by remember { mutableStateOf(false) }
+    var confirmReplace by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     AppScaffold(
         title = if (result == null) stringResource(R.string.trash_restore_title, label) else stringResource(R.string.trash_restored_title),

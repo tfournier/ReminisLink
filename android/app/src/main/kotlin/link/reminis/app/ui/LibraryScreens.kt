@@ -329,7 +329,7 @@ fun LibraryScreen(
                         modifier = Modifier.padding(24.dp),
                     )
                 }
-                LazyColumn(Modifier.fillMaxSize().testTag("games")) {
+                LazyColumn(Modifier.fillMaxSize().testTag("games"), state = vm.listState) {
                     items(games, key = { it.id }) { game ->
                         val badges = buildList {
                             library.systems[game.systemId]?.let(::add)
@@ -379,8 +379,8 @@ fun GameScreen(
     val error by vm.error.collectAsState()
     val archiveExport by vm.archiveExport.collectAsState()
     var menu by remember { mutableStateOf(false) }
-    var removingArt by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf(false) }
+    var removingArt by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var deleting by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val gameNotice by LocalContext.current.container.gameNotice.collectAsState()
     androidx.compose.runtime.LaunchedEffect(gameNotice) { vm.takeNotice(gameNotice) }
     val picture = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> uri?.let(vm::setArt) }
@@ -415,7 +415,7 @@ fun GameScreen(
     ) { modifier ->
         LoadContent(game, onRetry = { vm.refresh() }, modifier = modifier) { detail ->
             GameDetailView(
-                detail, modifier, working, notice, error, vm::dismissMessages,
+                detail, modifier, vm.listState, working, notice, error, vm::dismissMessages,
                 onSave = { onSave(detail.name) }, onStates = { onStates(detail.name) }, onCheats = onCheats, onPatch = onPatch,
                 onDownload = { file, uri -> vm.download(file, detail.name, uri) },
                 archive = ArchiveActions(
@@ -429,6 +429,8 @@ fun GameScreen(
         }
     }
     if (deleting) {
+        // Restored after the process died: the preview is asked again.
+        androidx.compose.runtime.LaunchedEffect(Unit) { if (vm.deletion.value == null) vm.previewDeletion(keepSave = false) }
         DeleteGameDialog(vm, (game as? Load.Loaded)?.value?.name.orEmpty(), onDeleted = onDeleted, onDismiss = { deleting = false; vm.closeDeletion() })
     }
     if (removingArt) {
@@ -446,6 +448,7 @@ fun GameScreen(
 private fun GameDetailView(
     game: GameDetail,
     modifier: Modifier,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     working: Boolean,
     notice: Notice?,
     error: Throwable?,
@@ -460,7 +463,7 @@ private fun GameDetailView(
     val context = LocalContext.current
     val creator = rememberDocumentCreator()
     var askExport by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    LazyColumn(modifier.fillMaxSize().testTag("game")) {
+    LazyColumn(modifier.fillMaxSize().testTag("game"), state = listState) {
         item {
             if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
             MessageCard(notice, error, onDismiss)

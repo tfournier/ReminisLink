@@ -141,6 +141,7 @@ fun errorMessage(context: Context, error: Throwable): String = when (error) {
     is link.reminis.core.ScreenshotsPartlyMovedException ->
         context.resources.getQuantityString(R.plurals.screenshots_partly_moved, error.moved, error.moved)
     is ScreenshotTooLargeException -> context.getString(R.string.screenshot_too_large)
+    is link.reminis.core.ScreenshotChangedException -> context.getString(R.string.screenshot_changed)
     is link.reminis.core.ArchivesNeedNewerPakException -> context.getString(R.string.archive_needs_newer)
     is link.reminis.core.ArchiveJobFailure -> errorMessage(context, archiveError(error))
     is PakRefusalException -> pakRefusalMessage(context, error.refusal)

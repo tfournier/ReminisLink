@@ -137,26 +137,48 @@ object ScreenshotGridLayout {
     }
 }
 
-/** What a selection of screenshots holds (multiple selection). Immutable. */
-data class ScreenshotSelection(val ids: Set<String> = emptySet()) {
-    val isEmpty: Boolean get() = ids.isEmpty()
-    val count: Int get() = ids.size
+/**
+ * What a selection of screenshots holds (multiple selection). Immutable.
+ * It holds listed **versions** ([Screenshot.thumbnailKey]: id, size and
+ * date), never bare ids (Codex review round 1 of the Android increment 5):
+ * a screenshot replaced on the console under the same name is another
+ * version, which leaves the selection at the next reload instead of being
+ * moved to the trash in place of the one shown.
+ */
+data class ScreenshotSelection(val versions: Set<String> = emptySet()) {
+    val isEmpty: Boolean get() = versions.isEmpty()
+    val count: Int get() = versions.size
 
-    operator fun contains(id: String): Boolean = id in ids
+    operator fun contains(shot: Screenshot): Boolean = shot.thumbnailKey in versions
 
-    fun toggled(id: String) = ScreenshotSelection(if (id in ids) ids - id else ids + id)
+    fun toggled(shot: Screenshot) = ScreenshotSelection(if (shot.thumbnailKey in versions) versions - shot.thumbnailKey else versions + shot.thumbnailKey)
 
     /** Every screenshot, or none when all are selected already. */
     fun toggledAll(all: List<Screenshot>): ScreenshotSelection {
-        val every = all.map { it.screenshotId }.toSet()
-        return ScreenshotSelection(if (every.isNotEmpty() && ids.containsAll(every)) emptySet() else every)
+        val every = all.map { it.thumbnailKey }.toSet()
+        return ScreenshotSelection(if (every.isNotEmpty() && versions.containsAll(every)) emptySet() else every)
     }
 
-    /** Keeps only the screenshots still listed (after a reload). */
-    fun kept(listed: List<Screenshot>) = ScreenshotSelection(ids intersect listed.map { it.screenshotId }.toSet())
+    /** Keeps only the versions still listed (after a reload): a replaced screenshot leaves. */
+    fun kept(listed: List<Screenshot>) = ScreenshotSelection(versions intersect listed.map { it.thumbnailKey }.toSet())
 
     /** The selected screenshots, in the order of [all]. */
-    fun selected(all: List<Screenshot>): List<Screenshot> = all.filter { it.screenshotId in ids }
+    fun selected(all: List<Screenshot>): List<Screenshot> = all.filter { it.thumbnailKey in versions }
+}
+
+/** A screenshot shown (or selected) is no longer the one listed by the console: nothing was moved. */
+class ScreenshotChangedException : Exception("screenshot changed on the console")
+
+/**
+ * The screenshots of [versions] in [listed] (a list just read from the
+ * console), or [ScreenshotChangedException] when one of them is gone or
+ * was replaced under the same name: the trash always refers to the exact
+ * version shown.
+ */
+fun exactScreenshots(versions: Set<String>, listed: List<Screenshot>): List<Screenshot> {
+    val found = listed.filter { it.thumbnailKey in versions }
+    if (found.size != versions.size) throw ScreenshotChangedException()
+    return found
 }
 
 /** A name not in [taken] (ignoring case, like most phone file systems): ` (n)` before the extension. */

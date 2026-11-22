@@ -592,6 +592,7 @@
     <string name="screenshots_truncated">Seules les 5 000 captures les plus récentes sont affichées.</string>
     <string name="screenshots_needs_newer">Mets à jour ReminisLink sur la console pour voir ses captures d’écran.</string>
     <string name="screenshot_gone">Cette capture n’est plus sur la console. La liste a été actualisée.</string>
+    <string name="screenshot_changed">Cette capture a changé sur la console : rien n’a été déplacé. La liste a été actualisée ; vérifie-la et réessaie.</string>
     <string name="screenshot_too_large">Cette capture est trop grande pour être affichée ici. Partage-la pour l’ouvrir dans une autre app.</string>
     <string name="screenshots_select">Sélectionner</string>
     <string name="screenshots_done">Terminé</string>

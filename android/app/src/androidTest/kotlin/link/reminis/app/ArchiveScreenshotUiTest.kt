@@ -17,6 +17,8 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -372,7 +374,8 @@ class ArchiveScreenshotUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
-                    val size = if (wide) DpSize(1100.dp, 800.dp) else DpSize(400.dp, 800.dp)
+                    // Low enough that the list scrolls, tall enough for two panes.
+                    val size = if (wide) DpSize(1100.dp, 760.dp) else DpSize(400.dp, 760.dp)
                     DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(size)) {
                         ReminisLinkTheme { Box { AppNavigation(incomingLink = null, onLinkHandled = {}) } }
                     }
@@ -382,23 +385,77 @@ class ArchiveScreenshotUiTest {
             waitFor("dashboard") { hasTag("dashboard") }
             rule.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
             rule.onNodeWithTag("openLibrary").performClick()
-            waitFor("library") { hasText("Mosslight Maze") }
+            waitFor("library") { hasText("Brambleway Dash") }
             assertTrue("placeholder of the detail pane", hasTag("gamePanePlaceholder"))
-            rule.onNodeWithTag("search").performTextInput("moss")
-            rule.onNodeWithText("Mosslight Maze", substring = true).performClick()
+            // The last game, scrolled to: the first one leaves the screen.
+            rule.onNodeWithTag("games").performScrollToNode(androidx.compose.ui.test.hasText("Thistledown Isles"))
+            rule.onNodeWithText("Thistledown Isles").performClick()
             waitFor("two panes") { hasTag("game") && hasTag("games") }
+            rule.onNodeWithText("Brambleway Dash").assertIsNotDisplayed()
             // Narrow window: the game alone, the same one.
             wide = false
             waitFor("one pane") { hasTag("game") && !hasTag("games") }
-            // Wide again: both, the game still chosen, the search kept.
+            // Wide again: both, the game still chosen, the list where it was (Codex review round 1).
             wide = true
             waitFor("two panes again") { hasTag("game") && hasTag("games") }
-            assertTrue(hasText("moss"))
+            rule.onNodeWithText("Brambleway Dash").assertIsNotDisplayed()
+            rule.onAllNodesWithText("Thistledown Isles").onFirst().assertIsDisplayed()
             // Narrow, then back: the list.
             wide = false
             waitFor("one pane again") { hasTag("game") && !hasTag("games") }
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             waitFor("the list") { hasTag("games") && !hasTag("game") }
+        }
+    }
+
+    /**
+     * A screenshot replaced on the console by another file of the same name
+     * (another listed version) while its confirmation is open (Codex review
+     * round 1): nothing is moved, the list is read again and the error says
+     * so. This console sends no events (the confirmation stays open).
+     */
+    @Test
+    fun screenshotReplacedDuringTheConfirmationIsNotMoved() {
+        val name = pak.screenshotNames.first()
+        ActivityScenario.launch(MainActivity::class.java).use {
+            waitFor("consoles") { hasText("Juniper Test Console") }
+            compose.onNodeWithText("Juniper Test Console").performClick()
+            waitFor("dashboard") { hasTag("dashboard") }
+            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openScreenshots"))
+            compose.onNodeWithTag("openScreenshots").performClick()
+            waitFor("grid") { count("screenshotCell") >= 2 }
+            compose.onAllNodesWithTag("screenshotCell")[0].performTouchInput { longClick() }
+            compose.onNodeWithTag("screenshotsTrash").performClick()
+            waitFor("confirmation") { hasTag("confirmOk") }
+            pak.replaceScreenshot(name)
+            compose.onNodeWithTag("confirmOk").performClick()
+            waitFor("refused") { hasText(context.getString(R.string.screenshot_changed)) }
+            assertTrue("the replacing screenshot was moved", name in pak.screenshotNames)
+            // The selection dropped the version that left.
+            waitFor("selection emptied") { hasText(context.getString(R.string.screenshots_select_prompt)) }
+        }
+    }
+
+    /** The same in the demo, with the `screenshots` event: the open confirmation closes, the image is read again. */
+    @Test
+    fun demoScreenshotReplacedWhileShownClosesItsConfirmation() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            compose.onNodeWithTag("tryDemo").performClick()
+            waitFor("dashboard") { hasTag("dashboard") }
+            val demo = context.container.demo.value!!
+            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openScreenshots"))
+            compose.onNodeWithTag("openScreenshots").performClick()
+            waitFor("grid") { count("screenshotCell") >= 6 }
+            val name = demo.pak.screenshotNames.first()
+            compose.onAllNodesWithTag("screenshotCell").onFirst().performClick()
+            waitFor("image") { hasTag("screenshotImage") }
+            compose.onNodeWithTag("screenshotMore").performClick()
+            compose.onNodeWithTag("screenshotTrash").performClick()
+            waitFor("confirmation") { hasTag("confirmOk") }
+            demo.pak.replaceScreenshot(name, notify = true)
+            waitFor("confirmation closed") { !hasTag("confirmOk") && hasText(context.getString(R.string.screenshot_changed)) }
+            waitFor("image of the new version") { hasTag("screenshotImage") }
+            assertTrue(name in demo.pak.screenshotNames)
         }
     }
 }

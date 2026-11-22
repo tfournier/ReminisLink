@@ -419,6 +419,12 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
+    /**
+     * The position of the list, kept while the list leaves the composition
+     * (a narrow window shows the game alone; Codex review round 1).
+     */
+    val listState = androidx.compose.foundation.lazy.LazyListState()
+
     init {
         refresh()
         // A game sent from this phone: the list reloads.
@@ -479,6 +485,9 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
     ActionViewModel(app, deviceId) {
     private val _game = MutableStateFlow<Load<GameDetail>>(Load.Loading)
     val game: StateFlow<Load<GameDetail>> = _game.asStateFlow()
+
+    /** The position in the game screen, kept when it moves between one and two panes. */
+    val listState = androidx.compose.foundation.lazy.LazyListState()
 
     init {
         refresh()

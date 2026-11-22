@@ -106,7 +106,7 @@ open class ScreenshotActionsViewModel(app: Application, protected val deviceId: 
     val working: StateFlow<Boolean> = _working.asStateFlow()
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
-    private val _error = MutableStateFlow<Throwable?>(null)
+    protected val _error = MutableStateFlow<Throwable?>(null)
     val error: StateFlow<Throwable?> = _error.asStateFlow()
 
     /** Copies ready for the share sheet (consumed by the screen). */
@@ -166,10 +166,39 @@ open class ScreenshotActionsViewModel(app: Application, protected val deviceId: 
         }
     }
 
-    protected fun trash(shots: List<Screenshot>, after: () -> Unit) {
-        if (shots.isEmpty()) return
+    private val _pendingTrash = MutableStateFlow<Set<String>?>(null)
+
+    /**
+     * The listed versions a confirmation asks to move (kept across a
+     * rotation). It closes by itself when one of them leaves the list or
+     * is replaced under the same name (Codex review round 1).
+     */
+    val pendingTrash: StateFlow<Set<String>?> = _pendingTrash.asStateFlow()
+
+    fun askTrash(shots: List<Screenshot>) {
+        if (shots.isNotEmpty()) _pendingTrash.value = shots.map { it.thumbnailKey }.toSet()
+    }
+
+    fun cancelTrash() {
+        _pendingTrash.value = null
+    }
+
+    /** The list changed: a confirmation for a version no longer listed closes, and says why. */
+    protected fun checkPendingTrash() {
+        val pending = _pendingTrash.value ?: return
+        val listed = manager.screenshots.map { it.thumbnailKey }.toSet()
+        if (!listed.containsAll(pending)) {
+            _pendingTrash.value = null
+            _error.value = link.reminis.core.ScreenshotChangedException()
+        }
+    }
+
+    /** Moves exactly the versions confirmed (refused, and the list refreshed, if one changed). */
+    protected fun confirmTrash(after: () -> Unit) {
+        val versions = _pendingTrash.value ?: return
+        _pendingTrash.value = null
         perform {
-            manager.trash(shots)
+            manager.trashExact(versions)
             after()
         }
     }
@@ -182,10 +211,18 @@ class ScreenshotsViewModel(app: Application, deviceId: String) : ScreenshotActio
     private val _selection = MutableStateFlow(ScreenshotSelection())
     val selection: StateFlow<ScreenshotSelection> = _selection.asStateFlow()
 
+    /** The position in the grid, kept while the screen leaves the composition (Codex review round 1). */
+    val gridState = androidx.compose.foundation.lazy.grid.LazyGridState()
+
     init {
         manager.load()
-        // A reload drops from the selection what is gone.
-        viewModelScope.launch { manager.revision.collect { _selection.value = _selection.value.kept(manager.screenshots) } }
+        // A reload drops from the selection what is gone or was replaced (another version).
+        viewModelScope.launch {
+            manager.revision.collect {
+                _selection.value = _selection.value.kept(manager.screenshots)
+                checkPendingTrash()
+            }
+        }
     }
 
     fun setSelecting(on: Boolean) {
@@ -193,15 +230,15 @@ class ScreenshotsViewModel(app: Application, deviceId: String) : ScreenshotActio
         if (!on) _selection.value = ScreenshotSelection()
     }
 
-    fun toggle(id: String) {
-        _selection.value = _selection.value.toggled(id)
+    fun toggle(shot: Screenshot) {
+        _selection.value = _selection.value.toggled(shot)
     }
 
     fun toggleAll() {
         _selection.value = _selection.value.toggledAll(manager.screenshots)
     }
 
-    fun trashSelection(shots: List<Screenshot>) = trash(shots) { setSelecting(false) }
+    fun trashConfirmed() = confirmTrash { setSelecting(false) }
 }
 
 /**
@@ -221,7 +258,7 @@ fun ScreenshotsScreen(deviceId: String, onBack: () -> Unit, onOpen: (String) -> 
     val working by vm.working.collectAsState()
     val notice by vm.notice.collectAsState()
     val error by vm.error.collectAsState()
-    var toTrash by remember { mutableStateOf<List<String>?>(null) }
+    val toTrash by vm.pendingTrash.collectAsState()
     var demoNote by rememberSaveable { mutableStateOf(false) }
     val shots = (list as? Load.Loaded)?.value?.screenshots.orEmpty()
     val picked = selection.selected(shots)
@@ -265,7 +302,7 @@ fun ScreenshotsScreen(deviceId: String, onBack: () -> Unit, onOpen: (String) -> 
                             )
                         }
                     }
-                    IconButton(onClick = { toTrash = picked.map { it.screenshotId } }, enabled = picked.isNotEmpty() && !working, modifier = Modifier.testTag("screenshotsTrash")) {
+                    IconButton(onClick = { vm.askTrash(picked) }, enabled = picked.isNotEmpty() && !working, modifier = Modifier.testTag("screenshotsTrash")) {
                         Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.screenshots_trash))
                     }
                     var more by remember { mutableStateOf(false) }
@@ -293,6 +330,7 @@ fun ScreenshotsScreen(deviceId: String, onBack: () -> Unit, onOpen: (String) -> 
                 val days = remember(l.value) { ScreenshotList.byDay(l.value.screenshots) }
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columns),
+                    state = vm.gridState,
                     horizontalArrangement = Arrangement.spacedBy(ScreenshotGridLayout.SPACING.dp),
                     verticalArrangement = Arrangement.spacedBy(ScreenshotGridLayout.SPACING.dp),
                     modifier = Modifier.fillMaxSize().testTag("screenshotsGrid"),
@@ -321,14 +359,14 @@ fun ScreenshotsScreen(deviceId: String, onBack: () -> Unit, onOpen: (String) -> 
                             }
                         }
                         items(day.screenshots, key = { it.screenshotId }) { shot ->
-                            val selected = shot.screenshotId in selection
+                            val selected = shot in selection
                             ScreenshotCell(
                                 shot, vm.manager, selecting, selected,
                                 modifier = Modifier.combinedClickable(
-                                    onClick = { if (selecting) vm.toggle(shot.screenshotId) else onOpen(shot.screenshotId) },
+                                    onClick = { if (selecting) vm.toggle(shot) else onOpen(shot.screenshotId) },
                                     onLongClick = {
                                         if (!selecting) vm.setSelecting(true)
-                                        vm.toggle(shot.screenshotId)
+                                        vm.toggle(shot)
                                     },
                                 ),
                             )
@@ -338,14 +376,14 @@ fun ScreenshotsScreen(deviceId: String, onBack: () -> Unit, onOpen: (String) -> 
             }
         }
     }
-    toTrash?.let { ids ->
-        val chosen = shots.filter { it.screenshotId in ids }
+    toTrash?.let { versions ->
+        val n = versions.size
         ConfirmDialog(
-            title = if (chosen.size == 1) stringResource(R.string.screenshot_trash_title) else pluralStringResource(R.plurals.screenshots_trash_title, chosen.size, chosen.size),
-            message = stringResource(if (chosen.size == 1) R.string.screenshot_trash_message else R.string.screenshots_trash_message),
+            title = if (n == 1) stringResource(R.string.screenshot_trash_title) else pluralStringResource(R.plurals.screenshots_trash_title, n, n),
+            message = stringResource(if (n == 1) R.string.screenshot_trash_message else R.string.screenshots_trash_message),
             confirm = stringResource(R.string.screenshots_trash),
-            onConfirm = { vm.trashSelection(chosen) },
-            onDismiss = { toTrash = null },
+            onConfirm = vm::trashConfirmed,
+            onDismiss = vm::cancelTrash,
         )
     }
     if (demoNote) DemoScreenshotsDialog { demoNote = false }
@@ -464,35 +502,72 @@ class ScreenshotViewModel(app: Application, deviceId: String, private val screen
     private val _image = MutableStateFlow<Load<Bitmap>>(Load.Loading)
     val image: StateFlow<Load<Bitmap>> = _image.asStateFlow()
 
-    /** The screenshot as listed (null when the list was not read, or it left). */
-    val screenshot: Screenshot? get() = manager.find(screenshotId)
+    private val _shown = MutableStateFlow<Screenshot?>(null)
 
-    private var loaded = false
+    /**
+     * The listed version whose image and details are shown (Codex review
+     * round 1): a screenshot replaced on the console under the same name is
+     * another version; the image is then read again and a confirmation
+     * open for the previous version closes.
+     */
+    val shown: StateFlow<Screenshot?> = _shown.asStateFlow()
 
-    /** Downloads and decodes the image once (at most [maxPixels] on its longest side). */
+    /** The screenshot as listed now (null when the list was not read, or it left). */
+    private val listed: Screenshot? get() = manager.find(screenshotId)
+
+    private var maxPixels = 0
+    private var job: kotlinx.coroutines.Job? = null
+
+    init {
+        viewModelScope.launch {
+            manager.revision.collect {
+                val now = listed
+                val before = _shown.value
+                if (before != null && now?.thumbnailKey != before.thumbnailKey) {
+                    checkPendingTrash()
+                    if (now != null && maxPixels > 0) show(now) else if (now == null) {
+                        job?.cancel()
+                        _shown.value = null
+                    }
+                } else if (before == null && now != null && maxPixels > 0) {
+                    show(now)
+                }
+            }
+        }
+    }
+
+    /** Downloads and decodes the image of the listed version (at most [maxPixels] on its longest side). */
     fun load(maxPixels: Int, again: Boolean = false) {
-        if (loaded && !again) return
-        loaded = true
-        val shot = screenshot ?: run {
+        if (this.maxPixels > 0 && !again) return
+        this.maxPixels = maxPixels
+        val shot = listed ?: run {
             manager.load()
             return
         }
+        show(shot)
+    }
+
+    private fun show(shot: Screenshot) {
+        job?.cancel()
+        _shown.value = shot
         _image.value = Load.Loading
-        viewModelScope.launch {
-            _image.value = try {
+        job = viewModelScope.launch {
+            val result = try {
                 Load.Loaded(manager.displayImage(shot, maxPixels))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Load.Failed(e)
             }
+            if (_shown.value?.thumbnailKey == shot.thumbnailKey) _image.value = result
         }
     }
 
-    fun moveToTrash(onDone: () -> Unit) {
-        val shot = screenshot ?: return
-        trash(listOf(shot), onDone)
+    fun askTrash() {
+        _shown.value?.let { askTrash(listOf(it)) }
     }
+
+    fun moveToTrash(onDone: () -> Unit) = confirmTrash(onDone)
 }
 
 /** One screenshot, whole: its game, date, size and file name, with Share, Save to Gallery and Move to Trash. */
@@ -505,16 +580,16 @@ fun ScreenshotScreen(deviceId: String, screenshotId: String, onBack: () -> Unit)
     val notice by vm.notice.collectAsState()
     val error by vm.error.collectAsState()
     val list by vm.manager.list.collectAsState()
-    val shot = remember(list) { vm.screenshot }
+    val shot = vm.shown.collectAsState().value
     var menu by remember { mutableStateOf(false) }
-    var confirmTrash by remember { mutableStateOf(false) }
+    val confirmTrash = vm.pendingTrash.collectAsState().value != null
     var demoNote by rememberSaveable { mutableStateOf(false) }
     val gallery = rememberGalleryActions(vm, onDemo = { demoNote = true })
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     // At most the size of the screen, in pixels: a large image is subsampled while it is decoded.
     val maxPixels = with(density) { maxOf(configuration.screenWidthDp, configuration.screenHeightDp).dp.roundToPx() }.coerceIn(320, 4096)
-    LaunchedEffect(shot != null) { if (shot != null) vm.load(maxPixels) }
+    LaunchedEffect(Unit) { vm.load(maxPixels) }
 
     AppScaffold(
         title = shot?.title.orEmpty(),
@@ -536,7 +611,7 @@ fun ScreenshotScreen(deviceId: String, screenshotId: String, onBack: () -> Unit)
                         )
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.screenshots_trash_ellipsis)) },
-                            onClick = { menu = false; confirmTrash = true },
+                            onClick = { menu = false; vm.askTrash() },
                             modifier = Modifier.testTag("screenshotTrash"),
                         )
                     }
@@ -584,7 +659,7 @@ fun ScreenshotScreen(deviceId: String, screenshotId: String, onBack: () -> Unit)
             message = stringResource(R.string.screenshot_trash_message),
             confirm = stringResource(R.string.screenshots_trash),
             onConfirm = { vm.moveToTrash(onDone = onBack) },
-            onDismiss = { confirmTrash = false },
+            onDismiss = vm::cancelTrash,
         )
     }
     if (demoNote) DemoScreenshotsDialog { demoNote = false }

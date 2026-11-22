@@ -179,7 +179,9 @@ class ScreenshotManager(
      */
     suspend fun exportForSharing(shots: List<Screenshot>): List<File> = withContext(Dispatchers.IO) {
         val root = sharedDirectory(context)
-        root.listFiles().orEmpty().forEach { it.deleteRecursively() }
+        // One folder per export, kept for an hour: an app that reads a share later still finds it
+        // (Codex review round 1); older ones go.
+        purgeShared(context)
         val directory = File(root, UUID.randomUUID().toString()).apply { mkdirs() }
         val taken = mutableSetOf<String>()
         try {
@@ -253,11 +255,34 @@ class ScreenshotManager(
     // MARK: trash
 
     /**
+     * Moves exactly the listed [versions] to the trash (Codex review round
+     * 1): the list is read again first, and if one of them left or was
+     * replaced under the same name, nothing is moved
+     * ([link.reminis.core.ScreenshotChangedException]) and the new list
+     * is shown. The pak only takes identifiers; its own identity check
+     * covers a replacement during the move itself.
+     */
+    suspend fun trashExact(versions: Set<String>) {
+        if (versions.isEmpty()) return
+        val fresh = try {
+            client().screenshots()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw screenshotsError(e, list = true)
+        }
+        generation++
+        _list.value = Load.Loaded(fresh)
+        _revision.value++
+        trash(link.reminis.core.exactScreenshots(versions, fresh.screenshots))
+    }
+
+    /**
      * `POST /screenshots/trash` in batches of 500. The list reloads, and the
      * trash too, also after a failure (earlier batches, or screenshots the
      * pak says stayed in the trash, may have moved: a partial move says so).
      */
-    suspend fun trash(shots: List<Screenshot>) {
+    private suspend fun trash(shots: List<Screenshot>) {
         try {
             trashScreenshotsInBatches(shots.map { it.screenshotId }) { client().trashScreenshots(it) }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -296,6 +321,21 @@ class ScreenshotManager(
         /** The share area (cache, served by the FileProvider of the manifest). */
         fun sharedDirectory(context: Context) = File(context.cacheDir, "shared")
 
+        /** How long the copies of one share are kept for the app that received them. */
+        const val SHARE_KEPT_MILLIS = 60 * 60 * 1000L
+
+        /** Deletes the share folders older than [SHARE_KEPT_MILLIS] (at each share and at start). */
+        fun purgeShared(context: Context, now: Long = System.currentTimeMillis()) {
+            sharedDirectory(context).listFiles().orEmpty()
+                .filter { now - it.lastModified() > SHARE_KEPT_MILLIS }
+                .forEach { it.deleteRecursively() }
+        }
+
+        /** Deletes the temporary files of a screenshot being shown, left by a process that died (at start). */
+        fun purgePreviews(context: Context) {
+            context.cacheDir.listFiles().orEmpty().filter { it.name.startsWith("rl-shot-") }.forEach { it.deleteRecursively() }
+        }
+
         private fun mimeType(shot: Screenshot) = when (shot.format) {
             ScreenshotFormats.JPEG -> "image/jpeg"
             ScreenshotFormats.BMP -> "image/bmp"
@@ -313,12 +353,24 @@ class ScreenshotManager(
                 (it is java.io.IOException && it.message?.contains("ENOSPC") == true)
         }
 
-        /** The power of two that brings [width] × [height] to at most [maxPixels] on the longest side. */
+        /** The most memory a decoded image may take (ARGB_8888, 4 bytes per pixel). */
+        const val MAX_BITMAP_BYTES = 64L shl 20
+
+        /**
+         * The first power of two that brings both sides of [width] × [height]
+         * to at most [maxPixels] and the decoded bitmap under
+         * [MAX_BITMAP_BYTES] (Codex review round 1: 8000 × 8000 with a 4096 px
+         * limit takes 2, not 1).
+         */
         fun sampleSize(width: Int, height: Int, maxPixels: Int): Int {
+            val limit = maxPixels.coerceAtLeast(1)
             var sample = 1
-            val longest = maxOf(width, height)
-            while (longest / (sample * 2) >= maxPixels.coerceAtLeast(1)) sample *= 2
-            return sample
+            while (true) {
+                val w = (width + sample - 1) / sample
+                val h = (height + sample - 1) / sample
+                if (w <= limit && h <= limit && w.toLong() * h * 4 <= MAX_BITMAP_BYTES) return sample
+                sample *= 2
+            }
         }
 
         private fun decodeBytes(bytes: ByteArray, maxPixels: Int): Bitmap? {

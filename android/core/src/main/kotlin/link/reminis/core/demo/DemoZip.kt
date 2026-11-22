@@ -17,7 +17,7 @@ import java.util.zip.ZipOutputStream
 object DemoZip {
     /** The most entries, and the most bytes all entries together may hold, when reading. */
     const val MAX_ENTRIES = 512
-    const val MAX_TOTAL_BYTES = 64L shl 20
+    const val MAX_TOTAL_BYTES = FakePak.MAX_KEPT_ARCHIVE_BYTES
 
     /** A zip of [entries] (in order); [deflate]: compressed entries, else stored. */
     fun write(entries: List<Pair<String, ByteArray>>, deflate: Boolean = false): ByteArray {
@@ -58,7 +58,8 @@ object DemoZip {
                 if (++count > MAX_ENTRIES) return null
                 if (entry.isDirectory) continue
                 if (files.containsKey(entry.name)) return null
-                val data = ByteArrayOutputStream()
+                // Sized from the entry when it says (no growth copies).
+                val data = ByteArrayOutputStream(entry.size.takeIf { it in 0..MAX_TOTAL_BYTES }?.toInt() ?: 8192)
                 while (true) {
                     val n = zip.read(buffer)
                     if (n < 0) break
