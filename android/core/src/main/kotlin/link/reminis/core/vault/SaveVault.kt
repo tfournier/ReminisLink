@@ -127,6 +127,14 @@ data class StateVersionInfo(
     override val series: String get() = "state/$slot"
 }
 
+/** One file of an assembly list (`.rl-partial.json`). */
+@Serializable
+internal data class AssemblyFile(val name: String, val sha256: String)
+
+/** The assembly list of a folder being written: the files it will hold, written before any of them. */
+@Serializable
+internal data class Assembly(val files: List<AssemblyFile>)
+
 /** A stored save version; [id]: its folder name (or its path in the vault, in another folder of the game). */
 data class SaveVersion(val id: String, val info: SaveVersionInfo)
 
@@ -280,8 +288,10 @@ class SaveVault(
     }
 
     /** [latestStateVersions], each slot only if the files of its newest version are there with their size. */
-    fun latestPresentStateVersions(deviceId: String, gameId: String): Map<Int, StateVersion> = synchronized(lock) {
+    fun latestPresentStateVersions(deviceId: String, gameId: String, slots: Set<Int>): Map<Int, StateVersion> = synchronized(lock) {
+        // Only the slots the console listed: a slot kept in the vault but gone from the console is never read nor hashed.
         stored(StateVersionInfo.serializer(), STATE_MANIFEST, gameFolders(deviceId, gameId), gameId)
+            .filter { it.info.slot in slots }
             .groupBy { it.info.slot }
             .mapNotNull { (slot, versions) ->
                 val group = groups(versions).firstOrNull() ?: return@mapNotNull null
@@ -404,40 +414,50 @@ class SaveVault(
         var folders = gameFolders(console.deviceId, game.gameId)
         if (folders.isEmpty()) folders = listOf(ensureGameFolder(console, game))
         val gameFolder = folders[0]
-        cleanPartials(gameFolder)
+        tidy(gameFolder)
         val sequence = (stored(serializer, manifest, folders, game.gameId).filter { it.info.series == series }.maxOfOrNull { it.info.sequence } ?: 0) + 1
         val syncedAt = now().let { Instant.ofEpochSecond(it.epochSecond) }
         val versionFiles = files.zip(names).map { (file, name) -> SaveVersionFile(name, file.sha256.lowercase(), file.file.length()) }
         val info = makeInfo(sequence, syncedAt.toString(), versionFiles)
         val name = uniqueName(folderName(syncedAt), gameFolder)
-        val published = publishFolder(gameFolder, name) { folder, written ->
-            files.zip(names).forEach { (file, fileName) ->
-                var copied = ""
-                written += store.createFile(folder, fileName) { out -> copied = file.file.inputStream().use { copyHashing(it, out) } }
-                // Hashed as copied: a file that changed since it was checked is never published.
-                if (copied != file.sha256.lowercase()) throw IOException("file changed while stored")
-            }
-            written += store.createFile(folder, manifest) { out -> out.write(VAULT_JSON.encodeToString(serializer, info).toByteArray()) }
-        }
+        val manifestBytes = VAULT_JSON.encodeToString(serializer, info).toByteArray()
+        val planned = files.zip(names).map { (file, fileName) ->
+            // Hashed as copied: a file that changed since it was checked is never published.
+            Planned(fileName, file.sha256.lowercase()) { out -> file.file.inputStream().use { copyHashing(it, out) } }
+        } + Planned(manifest, sha256(manifestBytes.inputStream())) { out -> copyHashing(manifestBytes.inputStream(), out) }
+        val published = publishFolder(gameFolder, name, planned)
         rotate(serializer, manifest, series, folders, published, game.gameId)
         return published.name to info
     }
 
+    /** A file a publication writes: its name, its SHA-256 known beforehand, and how to write it (returns the SHA-256 written). */
+    private class Planned(val name: String, val sha256: String, val write: (java.io.OutputStream) -> String)
+
+    /** The identity file of a console or game folder, planned. */
+    private fun identityFile(name: String, json: String): Planned {
+        val bytes = json.toByteArray()
+        return Planned(name, sha256(bytes.inputStream())) { out -> copyHashing(bytes.inputStream(), out) }
+    }
+
     /**
-     * A new folder [name] in [parent], filled by [fill]: assembled under a
-     * hidden temporary name then renamed in one step; a store that cannot
-     * rename gets it filled again under its final name, then the hidden
-     * copy deleted (a new item first, the old one deleted after). [fill]
-     * adds every item it writes to its list: on a failure, exactly those are
-     * deleted, then the folder if it is left empty (never a recursive
-     * deletion). A final folder that cannot be emptied has no manifest: it
-     * is ignored by every read, and said in the log.
+     * A new folder [name] in [parent] holding the [planned] files (the
+     * manifest last): assembled under a hidden temporary name, then renamed
+     * in one step; a store that cannot rename gets the folder written again
+     * under its final name, then the hidden copy cleaned (a new item first,
+     * the old one after).
+     *
+     * Every folder being written first receives its assembly list
+     * (`.rl-partial.json`: the names and SHA-256 of the files it will hold),
+     * so that a cleanup, later or on a failure, deletes only those files,
+     * each read again and matching its SHA-256: a file another device put in
+     * the folder is never touched. The list is removed once the folder is
+     * complete (a leftover one in a version folder is allowed and purged with
+     * it).
      */
-    private fun publishFolder(parent: Node, name: String, fill: (VaultEntry, MutableList<VaultEntry>) -> Unit): Node {
+    private fun publishFolder(parent: Node, name: String, planned: List<Planned>): Node {
         val partial = store.createFolder(parent.entry, "$PARTIAL_PREFIX${now().toEpochMilli()}-${UUID.randomUUID()}")
-        val partialWritten = mutableListOf<VaultEntry>()
         try {
-            fill(partial, partialWritten)
+            writeAll(partial, planned)
             val renamed = try {
                 store.rename(partial, name)
             } catch (e: VaultUnavailableException) {
@@ -445,79 +465,132 @@ class SaveVault(
             } catch (e: IOException) {
                 null
             }
-            if (renamed != null) return parent.child(renamed)
+            if (renamed != null) {
+                dropAssemblyList(renamed)
+                return parent.child(renamed)
+            }
             val folder = store.createFolder(parent.entry, name)
-            val written = mutableListOf<VaultEntry>()
             try {
-                fill(folder, written)
+                writeAll(folder, planned)
             } catch (e: Exception) {
-                if (!removeWritten(folder, written)) log("vault: an unfinished version folder without manifest was left (${e.javaClass.simpleName})")
+                runCatching { removeListed(folder, now = true) }
+                    .onFailure { log("vault: an unfinished version folder without manifest was left (${e.javaClass.simpleName})") }
                 throw e
             }
-            if (!removeWritten(partial, partialWritten)) log("vault: an assembly folder could not be removed")
+            dropAssemblyList(folder)
+            runCatching { removeListed(partial, now = true) }.onFailure { log("vault: an assembly folder could not be cleaned") }
             return parent.child(folder)
         } catch (e: Exception) {
-            runCatching { removeWritten(partial, partialWritten) }
+            runCatching { removeListed(partial, now = true) }
             throw e
         }
     }
 
-    /** Deletes the items [written] by this vault in [folder], one by one, then the folder if it is left empty. */
-    private fun removeWritten(folder: VaultEntry, written: List<VaultEntry>): Boolean = try {
-        written.forEach { store.delete(it) }
-        store.children(folder).isEmpty() && (!store.removesFolders || store.delete(folder))
-    } catch (e: VaultUnavailableException) {
-        throw e
-    } catch (e: IOException) {
-        false
+    /** The assembly list first, then each planned file (its SHA-256 as written must be the planned one). */
+    private fun writeAll(folder: VaultEntry, planned: List<Planned>) {
+        val list = VAULT_JSON.encodeToString(Assembly.serializer(), Assembly(planned.map { AssemblyFile(it.name, it.sha256) })).toByteArray()
+        store.createFile(folder, ASSEMBLY_FILE) { out -> out.write(list) }
+        for (file in planned) {
+            var written = ""
+            store.createFile(folder, file.name) { out -> written = file.write(out) }
+            if (written != file.sha256) throw IOException("file changed while stored")
+        }
+    }
+
+    /** Removes the assembly list of a folder now complete (best effort: a leftover list is allowed in a version folder). */
+    private fun dropAssemblyList(folder: VaultEntry) {
+        try {
+            store.children(folder).firstOrNull { it.name == ASSEMBLY_FILE && !it.isDirectory }?.let { store.delete(it) }
+        } catch (e: VaultUnavailableException) {
+            throw e
+        } catch (e: IOException) {
+            log("vault: an assembly list was left in a version folder")
+        }
     }
 
     /**
-     * Removes a leftover assembly folder without ever deleting a folder
-     * recursively: only when it holds nothing but regular files, each
-     * deleted one by one; then the folder, only if it reads empty again and
-     * the store removes folders (never with SAF: an empty folder is left).
-     * A sub-folder or any other item keeps it.
+     * Cleans a folder written by this vault from its assembly list: each
+     * listed file still there is read again and deleted only if it matches
+     * its SHA-256 (anything else, not listed or changed, stays); the list
+     * goes once none of its files is left; then the folder, if it is empty
+     * ([removeIfEmpty]). Without a list, only an empty folder is removed.
+     * [now]: a folder this publication itself just wrote (no waiting).
      */
-    private fun removeFolder(folder: VaultEntry): Boolean {
+    private fun removeListed(folder: VaultEntry, now: Boolean) {
         val children = store.children(folder)
-        if (children.any { it.isDirectory }) {
-            log("vault: a folder was kept: it holds an unexpected item")
-            return false
-        }
-        for (child in children) {
-            if (!store.delete(child)) {
-                log("vault: a folder was kept: a file could not be deleted")
-                return false
+        val listEntry = children.firstOrNull { it.name == ASSEMBLY_FILE && !it.isDirectory }
+        if (listEntry != null) {
+            val list = try {
+                store.openRead(listEntry).use { VAULT_JSON.decodeFromString(Assembly.serializer(), readAtMost(it, MAX_MANIFEST_BYTES.toInt()).decodeToString()) }
+            } catch (e: VaultUnavailableException) {
+                throw e
+            } catch (e: Exception) {
+                log("vault: an assembly list could not be read: its folder is kept")
+                return
             }
-        }
-        return removeIfEmpty(folder)
-    }
-
-    /** Deletes [folder] if it reads empty and the store removes folders (an empty folder is ignored by every read). */
-    private fun removeIfEmpty(folder: VaultEntry): Boolean {
-        if (!store.removesFolders) return true
-        if (store.children(folder).isNotEmpty()) {
-            log("vault: a folder was kept: something arrived in it meanwhile")
-            return false
-        }
-        return store.delete(folder)
-    }
-
-    /** Hidden folders of an assembly that was stopped (the app quit) more than an hour ago. */
-    private fun cleanPartials(folder: Node) {
-        val limit = now().toEpochMilli() - 3_600_000
-        for (entry in store.children(folder.entry)) {
-            if (!entry.isDirectory || !entry.name.startsWith(PARTIAL_PREFIX)) continue
-            val started = entry.name.removePrefix(PARTIAL_PREFIX).substringBefore('-').toLongOrNull() ?: continue
-            if (started < limit) {
-                try {
-                    removeFolder(entry)
+            var left = 0
+            for (file in list.files) {
+                val entry = children.firstOrNull { it.name == file.name && !it.isDirectory } ?: continue
+                val sha = try {
+                    store.openRead(entry).use { sha256(it) }
                 } catch (e: VaultUnavailableException) {
                     throw e
                 } catch (e: IOException) {
-                    log("vault: an assembly folder could not be removed (${e.javaClass.simpleName})")
+                    null
                 }
+                if (sha == file.sha256 && store.delete(entry)) continue
+                left++
+                log("vault: a file of an assembly folder was kept (changed, or not deleted)")
+            }
+            if (left == 0) store.delete(listEntry)
+        }
+        removeIfEmpty(folder, justWritten = now)
+    }
+
+    /**
+     * Deletes one of the vault's own folders (a version folder by its name,
+     * or an assembly folder `.rl-partial-…`) once it reads empty, right
+     * before the deletion. A storage provider (SAF) deletes a folder with
+     * whatever is in it at that moment: there the folder must also be
+     * untouched for more than an hour (its last modification), so that only
+     * a file put in an empty folder that stayed so for an hour, within the
+     * milliseconds between the reading and the deletion, could be lost.
+     */
+    private fun removeIfEmpty(folder: VaultEntry, justWritten: Boolean = false): Boolean {
+        if (!isOwnFolder(folder.name)) return false
+        if (store.foldersNeedAge) {
+            if (justWritten) return false
+            val modified = folder.modifiedMillis ?: return false
+            if (now().toEpochMilli() - modified < FOLDER_AGE_MILLIS) return false
+        }
+        if (store.children(folder).isNotEmpty()) return false
+        return store.delete(folder)
+    }
+
+    /**
+     * Housekeeping of a folder at a publication (a game folder; the vault
+     * root and system folders for the console and game folders): assembly
+     * folders older than an hour, and version folders left without a
+     * manifest (a purge, a failed copy), are cleaned from their assembly
+     * list and removed once empty ([removeListed], [removeIfEmpty]).
+     */
+    private fun tidy(folder: Node) {
+        val limit = now().toEpochMilli() - FOLDER_AGE_MILLIS
+        for (entry in store.children(folder.entry)) {
+            if (!entry.isDirectory) continue
+            try {
+                if (entry.name.startsWith(PARTIAL_PREFIX)) {
+                    val started = entry.name.removePrefix(PARTIAL_PREFIX).substringBefore('-').toLongOrNull() ?: continue
+                    if (started < limit) removeListed(entry, now = false)
+                } else if (VERSION_FOLDER.matches(entry.name)) {
+                    val names = store.children(entry).map { it.name }
+                    if (SAVE_MANIFEST in names || STATE_MANIFEST in names) continue
+                    removeListed(entry, now = false)
+                }
+            } catch (e: VaultUnavailableException) {
+                throw e
+            } catch (e: IOException) {
+                log("vault: a leftover folder could not be cleaned (${e.javaClass.simpleName})")
             }
         }
     }
@@ -542,55 +615,58 @@ class SaveVault(
     }
 
     /**
-     * Deletes a version beyond the limit file by file, never a folder
-     * recursively (a storage provider has no conditional atomic deletion,
-     * so the window is kept as short as possible):
-     * - only when its folder holds nothing but regular files: its listed
-     *   files, its manifest and known system files (a sub-folder, even one
-     *   named `.DS_Store`, keeps it);
-     * - each listed file is read again (size and SHA-256) right before its
-     *   own deletion, and kept if it no longer matches the manifest (a file
-     *   replaced meanwhile, by another device); the manifest goes last,
-     *   after being read again and found unchanged;
-     * - the folder itself is deleted only by a store that removes folders
-     *   (the app's storage), once it reads empty; with SAF it is left empty
-     *   (no manifest: ignored by every read).
+     * Deletes a version beyond the limit, never a folder recursively (a
+     * storage provider has no conditional atomic deletion, so the window is
+     * kept as short as possible):
+     * 1. its folder must hold nothing but regular files: its listed files,
+     *    its manifest, a leftover assembly list and known system files (a
+     *    sub-folder, even one named `.DS_Store`, keeps it);
+     * 2. every listed file is read again (size and SHA-256); one that no
+     *    longer matches keeps the whole version;
+     * 3. the manifest, read again and unchanged, is deleted first: from then
+     *    on the version is neither listed nor counted (an interruption
+     *    leaves orphan files without manifest, ignored by every read, never
+     *    a listed version that cannot be restored);
+     * 4. then each verified file, read again right before its own deletion
+     *    (one replaced meanwhile stays), then the system files;
+     * 5. then the folder once empty ([removeIfEmpty]; with SAF, at a later
+     *    publication, an hour after).
      */
     private fun <I : VaultVersionRecord> purge(version: Stored<I>, serializer: KSerializer<I>, manifest: String) {
         val folder = version.folder.entry
         val children = store.children(folder)
-        val expected = setOf(manifest) + SYSTEM_FILES + version.info.files.map { it.name }
+        val expected = setOf(manifest, ASSEMBLY_FILE) + SYSTEM_FILES + version.info.files.map { it.name }
         if (children.any { it.isDirectory || it.name !in expected }) {
             log("vault: a version beyond the limit was kept: it holds an unexpected item")
             return
         }
-        val byName = version.info.files.associateBy { it.name }
-        for (child in children.filter { it.name != manifest }) {
-            val file = byName[child.name]
-            if (file != null) {
-                // Read again right before its deletion: a file replaced since the check stays.
-                val (size, sha) = store.openRead(child).use { measure(it) }
-                if (size != file.sizeBytes || sha != file.sha256) {
-                    log("vault: a version beyond the limit was kept: a file changed meanwhile")
-                    return
-                }
-            }
-            if (!store.delete(child)) {
-                log("vault: a version beyond the limit was kept: a file could not be deleted")
+        val verified = version.info.files.map { file ->
+            val entry = children.firstOrNull { it.name == file.name }
+            if (entry == null || store.openRead(entry).use { measure(it) } != (file.sizeBytes to file.sha256)) {
+                log("vault: a version beyond the limit was kept: a file changed meanwhile")
                 return
+            }
+            entry to file
+        }
+        val manifestEntry = children.firstOrNull { it.name == manifest } ?: return
+        if (readJson(version.folder, manifest, serializer) != version.info || !store.delete(manifestEntry)) {
+            log("vault: a version beyond the limit was kept: its manifest changed or could not be deleted")
+            return
+        }
+        for ((entry, file) in verified) {
+            // Read again right before its own deletion: a file replaced since the check stays.
+            val again = try {
+                store.openRead(entry).use { measure(it) }
+            } catch (e: VaultUnavailableException) {
+                throw e
+            } catch (e: IOException) {
+                null
+            }
+            if (again != (file.sizeBytes to file.sha256) || !store.delete(entry)) {
+                log("vault: a file of a purged version was kept (changed, or not deleted)")
             }
         }
-        val manifestEntry = store.children(folder).firstOrNull { it.name == manifest && !it.isDirectory }
-        if (manifestEntry != null) {
-            if (readJson(version.folder, manifest, serializer) != version.info) {
-                log("vault: a version beyond the limit was kept: its manifest changed meanwhile")
-                return
-            }
-            if (!store.delete(manifestEntry)) {
-                log("vault: a version beyond the limit was kept: its manifest could not be deleted")
-                return
-            }
-        }
+        children.filter { it.name in SYSTEM_FILES || it.name == ASSEMBLY_FILE }.forEach { store.delete(it) }
         removeIfEmpty(folder)
     }
 
@@ -618,7 +694,7 @@ class SaveVault(
             val entry = children.firstOrNull { it.name == file.name }
             entry != null && !entry.isDirectory && entry.sizeBytes == file.sizeBytes && store.openRead(entry).use { sha256(it) } == file.sha256
         }
-        val expected = setOf(manifest) + SYSTEM_FILES + version.info.files.map { it.name }
+        val expected = setOf(manifest, ASSEMBLY_FILE) + SYSTEM_FILES + version.info.files.map { it.name }
         ok to (ok && children.all { !it.isDirectory && it.name in expected })
     } catch (e: VaultUnavailableException) {
         throw e
@@ -686,10 +762,8 @@ class SaveVault(
     private fun ensureConsoleFolder(console: VaultConsoleInfo): Node {
         loadConsoleIndex()[console.deviceId]?.firstOrNull()?.let { return it }
         val root = rootNode()
-        cleanPartials(root)
-        val folder = publishFolder(root, uniqueName(folderName(console.name), root)) { f, written ->
-            written += store.createFile(f, CONSOLE_FILE) { it.write(VAULT_JSON.encodeToString(VaultConsoleInfo.serializer(), console).toByteArray()) }
-        }
+        tidy(root)
+        val folder = publishFolder(root, uniqueName(folderName(console.name), root), listOf(identityFile(CONSOLE_FILE, VAULT_JSON.encodeToString(VaultConsoleInfo.serializer(), console))))
         consoleIndex = loadConsoleIndex() + (console.deviceId to listOf(folder))
         gameIndex.remove(console.deviceId)
         return folder
@@ -699,10 +773,8 @@ class SaveVault(
         gameFolders(console.deviceId, game.gameId).firstOrNull()?.let { return it }
         val consoleFolder = ensureConsoleFolder(console)
         val system = systemFolder(folderName(game.systemName), consoleFolder)
-        cleanPartials(system)
-        val folder = publishFolder(system, uniqueName(folderName(game.name), system)) { f, written ->
-            written += store.createFile(f, GAME_FILE) { it.write(VAULT_JSON.encodeToString(VaultGameInfo.serializer(), game).toByteArray()) }
-        }
+        tidy(system)
+        val folder = publishFolder(system, uniqueName(folderName(game.name), system), listOf(identityFile(GAME_FILE, VAULT_JSON.encodeToString(VaultGameInfo.serializer(), game))))
         loadGameIndex(console.deviceId)[game.gameId] = listOf(folder)
         return folder
     }
@@ -782,6 +854,18 @@ class SaveVault(
         /** Files a desktop system adds to a folder it shows (macOS, Windows): ignored in a version folder. */
         private val SYSTEM_FILES = setOf(".DS_Store", "Thumbs.db", "desktop.ini")
         private const val PARTIAL_PREFIX = ".rl-partial-"
+
+        /** The assembly list of a folder being written: the names and SHA-256 of the files it will hold. */
+        const val ASSEMBLY_FILE = ".rl-partial.json"
+
+        /** How long a leftover folder must stay untouched before a storage provider (SAF) has it deleted. */
+        private const val FOLDER_AGE_MILLIS = 3_600_000L
+
+        /** The name of a version folder: `2026-11-19 15.42.10`, `… state 3`, with a ` (2)` the vault may add. */
+        private val VERSION_FOLDER = Regex("""\d{4}-\d{2}-\d{2} \d{2}\.\d{2}\.\d{2}( state \d+)?( \(\d+\))?""")
+
+        /** A folder the vault itself makes and may remove once empty: a version folder or an assembly folder. */
+        private fun isOwnFolder(name: String) = name.startsWith(PARTIAL_PREFIX) || VERSION_FOLDER.matches(name)
         private const val MAX_MANIFEST_BYTES = 1L shl 20
 
         private val VAULT_JSON = Json {
@@ -896,7 +980,12 @@ class SaveVault(
 
         /** Whether two versions hold the same files (names, sizes, SHA-256) of the same series of the same game. */
         private fun sameContent(a: VaultVersionRecord, b: VaultVersionRecord): Boolean =
-            a.gameId == b.gameId && a.series == b.series && a.files == b.files
+            a.gameId == b.gameId && a.series == b.series && a.files.size == b.files.size &&
+                a.files.zip(b.files).all { (x, y) -> sameFile(x, y) }
+
+        /** Same SHA-256 and size, and names canonically equivalent (NFC and NFD alike), as Swift compares them. */
+        private fun sameFile(a: SaveVersionFile, b: SaveVersionFile): Boolean =
+            a.sha256 == b.sha256 && a.sizeBytes == b.sizeBytes && compareNames(a.name, b.name) == 0
 
         /** At most [limit] bytes of [input]. */
         internal fun readAtMost(input: InputStream, limit: Int): ByteArray {

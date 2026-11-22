@@ -69,23 +69,38 @@ class AndroidApiTest {
         return api.supers.mapNotNull { level(db, it, member, seen) }.minOrNull()?.let { maxOf(it, api.since) }
     }
 
-    /** Every `java.*` / `javax.*` class, method and field the class files use (`javap -c -p` of the JDK). */
+    /**
+     * Every `java.*` / `javax.*` class, method and field the class files use,
+     * read from their constant pools (`javap -v -p` of the JDK): the
+     * references of the instructions, and the `MethodHandle` entries that the
+     * `BootstrapMethods` of an invokedynamic point to (a Java method
+     * reference such as `Thread::startVirtualThread`, whose instruction does
+     * not name its target).
+     */
     private fun uses(classFiles: List<File>): Set<Use> {
         val javap = ToolProvider.findFirst("javap").orElseThrow()
-        // `// Method java/io/InputStream.readNBytes:(I)[B`, `// Field ...`, `// class java/util/HexFormat`.
-        val reference = Regex("""// (Method|InterfaceMethod|Field) (javax?/[\w/$]+)\.("?[^:"]+"?):(\S+)""")
-        val classReference = Regex("""// class (javax?/[\w/$]+)""")
+        // `#7 = Methodref #8.#9 // java/io/InputStream.readNBytes:(I)[B`, `= Fieldref`, `= InterfaceMethodref`,
+        // `= MethodHandle 6:#31 // REF_invokeStatic java/lang/Thread.startVirtualThread:(...)`, `= Class #12 // java/util/HexFormat`.
+        val reference = Regex("""= (Methodref|InterfaceMethodref|Fieldref)\s.*// (javax?/[\w/$]+)\.("?[^:"]+"?):(\S+)""")
+        val handle = Regex("""= MethodHandle\s.*// REF_(\w+) (javax?/[\w/$]+)\.("?[^:"]+"?):(\S+)""")
+        val classReference = Regex("""= Class\s.*// (javax?/[\w/$]+)\s*$""")
         val uses = mutableSetOf<Use>()
         classFiles.chunked(200).forEach { chunk ->
             val out = StringWriter()
             val err = StringWriter()
-            val code = javap.run(PrintWriter(out), PrintWriter(err), *(listOf("-c", "-p") + chunk.map { it.path }).toTypedArray())
+            val code = javap.run(PrintWriter(out), PrintWriter(err), *(listOf("-v", "-p") + chunk.map { it.path }).toTypedArray())
             assertTrue("javap failed: $err", code == 0)
             for (line in out.toString().lineSequence()) {
                 reference.find(line)?.let { m ->
                     val (kind, owner, rawName, descriptor) = m.destructured
                     val name = rawName.trim('"')
-                    uses += Use(owner, if (kind == "Field") name else "$name$descriptor")
+                    uses += Use(owner, if (kind == "Fieldref") name else "$name$descriptor")
+                }
+                handle.find(line)?.let { m ->
+                    val (_, owner, rawName, descriptor) = m.destructured
+                    val name = rawName.trim('"')
+                    // REF_getField / getStatic / putField / putStatic name a field; the REF_invoke* kinds a method.
+                    uses += Use(owner, if (!descriptor.startsWith("(")) name else "$name$descriptor")
                 }
                 classReference.find(line)?.let { uses += Use(it.groupValues[1], null) }
             }
@@ -95,6 +110,7 @@ class AndroidApiTest {
 
     /** The uses Android [minSdk] does not have, as readable lines. */
     private fun problems(uses: Set<Use>, db: Map<String, ApiClass>, minSdk: Int): Set<String> = uses.mapNotNull { use ->
+        if (use.owner in DESUGARED_BOOTSTRAPS) return@mapNotNull null
         val api = db[use.owner] ?: return@mapNotNull "${use.owner} (class not on Android)"
         if (use.member == null) return@mapNotNull if (api.since > minSdk) "${use.owner} (API ${api.since})" else null
         if ("${use.owner}.${use.member}" in INHERITED_FROM_HIDDEN) return@mapNotNull null
@@ -138,6 +154,17 @@ class AndroidApiTest {
         assertTrue("an allowed member was flagged: $problems", problems.none { it.contains("StringBuilder.setLength") })
     }
 
+    /** A Java method reference (`Thread::startVirtualThread`): its target is only in the BootstrapMethods' MethodHandle. */
+    @Test
+    fun aMethodReferenceIsCaught() {
+        val db = databaseOrSkip()
+        val probe = File(MethodReferenceProbe::class.java.getResource("MethodReferenceProbe.class")!!.toURI())
+        val found = uses(listOf(probe))
+        assertTrue(found.toString(), Use("java/lang/Thread", "startVirtualThread(Ljava/lang/Runnable;)Ljava/lang/Thread;") in found)
+        val problems = problems(found, db, minSdk)
+        assertTrue(problems.toString(), problems.any { it.startsWith("java/lang/Thread.startVirtualThread") })
+    }
+
     companion object {
         /**
          * Members the API database does not list under the class the code
@@ -146,6 +173,17 @@ class AndroidApiTest {
          * in the Android reference of the public class. Add an entry only
          * after checking it the same way.
          */
+        /**
+         * Bootstrap methods of invokedynamic that D8 rewrites when it builds
+         * the app (lambdas and method references, string concatenation of
+         * Java 9+ bytecode): they never reach Android. Their MethodHandle
+         * targets, the methods actually called, are still checked.
+         */
+        val DESUGARED_BOOTSTRAPS = setOf(
+            "java/lang/invoke/LambdaMetafactory",
+            "java/lang/invoke/StringConcatFactory",
+        )
+
         val INHERITED_FROM_HIDDEN = setOf(
             // StringBuilder.setLength(int): Android reference, java.lang.StringBuilder, "Added in API level 1".
             "java/lang/StringBuilder.setLength(I)V",

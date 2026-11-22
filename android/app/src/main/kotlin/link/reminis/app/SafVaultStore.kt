@@ -105,15 +105,16 @@ class SafVaultStore(context: Context, val treeUri: Uri) : VaultStore {
     }
 
     /**
-     * Never a folder: a provider deletes a folder with whatever is in it at
-     * that moment (a file arrived from another device included), and SAF has
-     * no conditional deletion. Folders are left (an empty one has no
-     * manifest: ignored by every read); only files are deleted.
+     * A provider deletes a folder with whatever is in it at that moment (a
+     * file arrived from another device included), and SAF has no
+     * conditional deletion: the vault only asks for one of its own folders,
+     * empty and untouched for an hour, and the folder is listed again right
+     * before the deletion.
      */
-    override val removesFolders: Boolean get() = false
+    override val foldersNeedAge: Boolean get() = true
 
     override fun delete(entry: VaultEntry): Boolean = unavailableOnFailure {
-        if (entry.isDirectory) return@unavailableOnFailure false
+        if (entry.isDirectory && children(entry).isNotEmpty()) return@unavailableOnFailure false
         DocumentsContract.deleteDocument(resolver, uri(entry.ref))
     }
 
@@ -134,7 +135,8 @@ class SafVaultStore(context: Context, val treeUri: Uri) : VaultStore {
         val name = cursor.getString(1) ?: id
         val mime = cursor.getString(2)
         val size = if (cursor.isNull(3)) 0 else cursor.getLong(3)
-        return VaultEntry(name, mime == Document.MIME_TYPE_DIR, size, id)
+        val modified = if (cursor.columnCount > 4 && !cursor.isNull(4)) cursor.getLong(4) else null
+        return VaultEntry(name, mime == Document.MIME_TYPE_DIR, size, id, modified)
     }
 
     /** A revoked permission, a provider gone or a folder removed: the vault is unavailable (never a silent loss). */
@@ -155,6 +157,8 @@ class SafVaultStore(context: Context, val treeUri: Uri) : VaultStore {
 
     companion object {
         private const val MIME_TYPE = "application/octet-stream"
-        private val COLUMNS = arrayOf(Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE, Document.COLUMN_SIZE)
+        private val COLUMNS = arrayOf(
+            Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE, Document.COLUMN_SIZE, Document.COLUMN_LAST_MODIFIED,
+        )
     }
 }

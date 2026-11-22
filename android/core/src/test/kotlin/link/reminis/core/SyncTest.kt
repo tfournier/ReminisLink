@@ -480,23 +480,112 @@ class SyncTest {
         assertNotNull(vault().export(demo.deviceId, save.gameId, vault().latestVersion(demo.deviceId, save.gameId)!!, File(work, "out")))
     }
 
-    /** A storage provider: folders are never deleted, only files. */
-    private class ProviderStore(root: File) : FileVaultStore(root) {
-        override val removesFolders: Boolean get() = false
-        override fun delete(entry: VaultEntry): Boolean = if (entry.isDirectory) false else super.delete(entry)
+    /** A storage provider (SAF): an empty folder is deleted only when untouched for an hour. */
+    private open class ProviderStore(root: File) : FileVaultStore(root) {
+        override val foldersNeedAge: Boolean get() = true
     }
 
     @Test
-    fun aProviderNeverHasAFolderDeleted() {
+    fun aProviderHasAnEmptiedFolderDeletedOnlyAnHourLater() {
         val store = ProviderStore(root)
+        // The clock of the vault follows the real one here (folder dates are real).
+        clock = Instant.now()
         val v = vault(store, max = 1)
         val first = v.addVersion(console, game, file("Juniper Trail.pcr.sav", "ONE"), null, null)
+        clock = clock.plusSeconds(61)
         v.addVersion(console, game, file("Juniper Trail.pcr.sav", "TWO"), null, null)
         val folder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail/${first.id}")
-        // Emptied file by file, left in place, and no longer a version.
+        // Emptied file by file (manifest first), left in place for now, and no longer a version.
         assertTrue(folder.isDirectory)
         assertTrue(folder.list()!!.isEmpty())
         assertEquals(listOf(2), vault(store).versions(console.deviceId, game.gameId).map { it.info.sequence })
+        // An hour later, the next publication of the game removes it.
+        folder.setLastModified(System.currentTimeMillis() - 2 * 3_600_000)
+        clock = clock.plusSeconds(61)
+        vault(store, max = 1).addVersion(console, game, file("Juniper Trail.pcr.sav", "THREE"), null, null)
+        assertFalse(folder.exists())
+    }
+
+    @Test
+    fun aForeignFileInAnAssemblyFolderStays() {
+        val v = vault()
+        v.addVersion(console, game, file("Juniper Trail.pcr.sav", "FIRST"), null, null)
+        val gameFolder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail")
+        // An assembly folder left two hours ago, its list naming two files; a third one put there by another device.
+        val partial = File(gameFolder, ".rl-partial-${clock.toEpochMilli() - 2 * 3_600_000}-left").apply { mkdirs() }
+        File(partial, "ours.sav").writeText("OURS")
+        File(partial, "changed.sav").writeText("CHANGED SINCE")
+        File(partial, "theirs.sav").writeText("FROM ANOTHER DEVICE")
+        File(partial, ".rl-partial.json").writeText(
+            """{"files":[{"name":"ours.sav","sha256":"${sha("OURS".toByteArray())}"},{"name":"changed.sav","sha256":"${sha("ORIGINAL".toByteArray())}"}]}""",
+        )
+        clock = clock.plusSeconds(61)
+        vault().addVersion(console, game, file("Juniper Trail.pcr.sav", "SECOND"), null, null)
+        // Only our own file with its SHA-256 went; the foreign and the changed ones stay, with the list.
+        assertEquals(setOf("changed.sav", "theirs.sav", ".rl-partial.json"), partial.list()!!.toSet())
+    }
+
+    /** A provider that refuses to delete the clock file of a version (and records the order of deletions). */
+    private class StubbornStore(root: File) : FileVaultStore(root) {
+        val deleted = mutableListOf<String>()
+        override fun delete(entry: VaultEntry): Boolean {
+            if (entry.name.endsWith(".rtc")) return false
+            return super.delete(entry).also { if (it) deleted += entry.name }
+        }
+    }
+
+    @Test
+    fun anInterruptedPurgeLeavesOrphansNeverAListedVersion() {
+        val store = StubbornStore(root)
+        val v = vault(store, max = 1)
+        val first = v.addVersion(console, game, file("Juniper Trail.pcr.sav", "ONE"), file("Juniper Trail.pcr.rtc", "R1"), null)
+        v.addVersion(console, game, file("Juniper Trail.pcr.sav", "TWO"), file("Juniper Trail.pcr.rtc", "R2"), null)
+        // The manifest went first, then the save; the clock file could not be deleted.
+        val purged = store.deleted.dropWhile { it != ".version.json" }
+        assertEquals(listOf(".version.json", "Juniper Trail.pcr.sav"), purged.take(2))
+        val folder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail/${first.id}")
+        assertEquals(listOf("Juniper Trail.pcr.rtc"), folder.list()!!.toList())
+        // An orphan file, never listed nor counted.
+        assertEquals(listOf(2), vault().versions(console.deviceId, game.gameId).map { it.info.sequence })
+    }
+
+    @Test
+    fun identicalVersionsWithNfcAndNfdNamesCountOnce() {
+        val v = vault()
+        val bytes = "SAME"
+        v.addVersion(console, game, file("Café.sav", bytes), null, null)
+        clock = clock.plusSeconds(61)
+        v.addVersion(console, game, file("Café.sav", bytes), null, null)
+        // As Swift: the same file under two spellings of one name is one version (both kept).
+        assertEquals(1, vault().versions(console.deviceId, game.gameId).size)
+        assertEquals(2, File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail").list()!!.count { !it.startsWith(".") })
+    }
+
+    /** Counts the reads of the vault's files by name. */
+    private class CountingStore(root: File) : FileVaultStore(root) {
+        val reads = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        override fun openRead(file: VaultEntry): java.io.InputStream {
+            reads.merge(file.name, 1, Int::plus)
+            return super.openRead(file)
+        }
+    }
+
+    @Test
+    fun aSlotGoneFromTheConsoleIsNeitherReadNorHashed() = runBlocking {
+        val store = CountingStore(root)
+        sync(store = store).run()
+        val all = demo.client.allStates().states
+        val kept = all.first()
+        // The console now lists one state only: the others stay in the vault, untouched.
+        val real = ApiSyncSource { demo.client }
+        val source = object : SaveSyncSource by real {
+            override suspend fun allStates() = StateList(listOf(kept))
+        }
+        store.reads.clear()
+        sync(source, store).run()
+        val stateFiles = all.filter { it.id != kept.id }.map { it.path.substringAfterLast('/') }
+        assertTrue("a slot gone from the console was read: ${store.reads}", stateFiles.none { (store.reads[it] ?: 0) > 0 })
+        assertTrue((store.reads[kept.path.substringAfterLast('/')] ?: 0) > 0)
     }
 
     @Test

@@ -10,7 +10,14 @@ import java.io.OutputStream
  * An item of a vault folder: a file or a folder, named [name], reached by
  * [ref] (an opaque handle of its [VaultStore]: a path, a document id).
  */
-data class VaultEntry(val name: String, val isDirectory: Boolean, val sizeBytes: Long, val ref: String)
+data class VaultEntry(
+    val name: String,
+    val isDirectory: Boolean,
+    val sizeBytes: Long,
+    val ref: String,
+    /** Its last modification (epoch milliseconds), null when the store does not say. */
+    val modifiedMillis: Long? = null,
+)
 
 /**
  * The vault folder is gone or cannot be used any more: a folder of the
@@ -64,11 +71,13 @@ interface VaultStore {
     fun delete(entry: VaultEntry): Boolean
 
     /**
-     * Whether [delete] removes (empty) folders. False for a storage
-     * provider (SAF), which deletes a folder with whatever arrived in it:
-     * the vault then leaves an emptied folder in place.
+     * Whether an empty folder must have stayed untouched for an hour before
+     * the vault has it deleted. True for a storage provider (SAF), which
+     * deletes a folder with whatever is in it at that moment: only a file put
+     * in an empty folder untouched for an hour, in the milliseconds between
+     * the reading and the deletion, could be lost.
      */
-    val removesFolders: Boolean get() = true
+    val foldersNeedAge: Boolean get() = false
 
     /** What the user sees of the root: a folder name, or null for the app's own storage. */
     val displayName: String? get() = null
@@ -125,5 +134,5 @@ open class FileVaultStore(val rootDirectory: File) : VaultStore {
 
     override fun delete(entry: VaultEntry): Boolean = File(entry.ref).delete()
 
-    private fun entry(file: File) = VaultEntry(file.name, file.isDirectory, if (file.isFile) file.length() else 0, file.absolutePath)
+    private fun entry(file: File) = VaultEntry(file.name, file.isDirectory, if (file.isFile) file.length() else 0, file.absolutePath, file.lastModified())
 }

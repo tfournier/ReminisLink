@@ -165,6 +165,8 @@ class SaveSync(
                 var statesUnchanged = 0
                 val stateFailures = mutableListOf<SaveSyncFailure>()
                 val latestByGame = mutableMapOf<String, Map<Int, StateVersion>>()
+                // The slots of each game the console listed: only those are read in the vault.
+                val listedSlots = listing.list.states.groupBy { it.gameId }.mapValues { (_, states) -> states.map { it.slot }.toSet() }
                 for (summary in listing.list.states) {
                     if (stopped != null) break
                     coroutineContextActive()
@@ -172,7 +174,7 @@ class SaveSync(
                     progress(state)
                     try {
                         val latest = latestByGame.getOrPut(summary.gameId) {
-                            withContext(Dispatchers.IO) { vault.latestPresentStateVersions(console.deviceId, summary.gameId) }
+                            withContext(Dispatchers.IO) { vault.latestPresentStateVersions(console.deviceId, summary.gameId, listedSlots[summary.gameId].orEmpty()) }
                         }[summary.slot]
                         if (needsNewVersion(summary, latest)) {
                             sync(summary, labels[summary.systemId] ?: systemNameFromStatePath(summary.path))
