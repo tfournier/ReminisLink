@@ -1,7 +1,8 @@
 # Lint, test and build the pak, check the contract and test the iOS app on
 # every push and pull request. On a vX.Y.Z tag, also publish the GitHub
-# release read by the NextUI Pak Store (ReminisLink.pak.zip); on a
-# vX.Y.Z-beta.N or vX.Y.Z-rc.N tag, a GitHub pre-release (never "Latest").
+# release read by the NextUI Pak Store (ReminisLink.pak.zip, with
+# ReminisLink.knulli.zip beside it); on a vX.Y.Z-beta.N or vX.Y.Z-rc.N tag,
+# a GitHub pre-release (never "Latest") with the same two zips.
 # The app's tags (ios-vX.Y.Z, ios-beta-vX.Y.Z-beta.N) never start this
 # workflow: Xcode Cloud builds them (ios/README.md, "Release"); the Android
 # app's tags (android-vX.Y.Z...) start .github/workflows/android-release.yml
@@ -89,8 +90,9 @@ jobs:
           path: dist/ReminisLink.pak.zip
           if-no-files-found: error
 
-      # Knulli (experimental, M20): built and kept as an artifact only; the
-      # release job does not publish it.
+      # Knulli (experimental, M20): attached to every pak release and
+      # pre-release by the release job, from v1.1.0-beta.1 on (decision of
+      # 2026-11-23).
       - name: Build the Knulli zip
         run: |
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
@@ -222,6 +224,10 @@ jobs:
         with:
           name: reminislink-pak
           path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: reminislink-knulli
+          path: dist
 
       - name: Publish the GitHub release
         env:
@@ -230,5 +236,9 @@ jobs:
         # latest (vX.Y.Z) or prerelease (vX.Y.Z-beta.N, -rc.N); any other
         # tag (an app tag above all) stops there: only a pak release can be
         # "Latest", the release the Pak Store reads. A re-run sets the flags
-        # of the existing release again before replacing its zip.
-        run: scripts/publish-pak-release.sh "$TAG" dist/ReminisLink.pak.zip
+        # of the existing release again, then never deletes nor replaces a
+        # published zip: identical (SHA-256) kept, missing uploaded,
+        # different: the job fails and asks for a manual check. The
+        # NextUI zip keeps its name: the Pak Store downloads the asset named
+        # by release_filename in pak.json.
+        run: scripts/publish-pak-release.sh "$TAG" dist/ReminisLink.pak.zip dist/ReminisLink.knulli.zip

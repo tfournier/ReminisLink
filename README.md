@@ -67,7 +67,7 @@ The experimental handhelds have never been tried on a real device. The pak is bu
 
 Back up your SD card first. ReminisLink keeps a copy of everything it replaces or deletes, but this is a test version. Step-by-step instructions, in French, are in [docs/appel-testeurs.md](docs/appel-testeurs.md).
 
-**Install:**
+**Install:** both zips, `ReminisLink.pak.zip` and `ReminisLink.knulli.zip`, are attached to each release and pre-release of the pak from `v1.1.0-beta.1` on: take the latest pre-release (`vX.Y.Z-beta.N`) on the [releases page](https://github.com/tfournier/ReminisLink/releases).
 - **NextUI** (`tg5050`, `h700`, `my355`): unzip the same `ReminisLink.pak.zip` as for the Brick into `/Tools/<platform>/`, so that you get `/Tools/<platform>/ReminisLink.pak/launch.sh`.
 - **Knulli**: unzip `ReminisLink.knulli.zip` into `/userdata/roms/tools/`, then open **Tools > ReminisLink**. On Knulli, cheats and tool paks are not available, and the data of ReminisLink is in `/userdata/system/ReminisLink`.
 
