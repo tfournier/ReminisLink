@@ -9,8 +9,8 @@
 # submit_for_review.sh).
 #
 # Release gate: the Release and Beta workflows build a tag only when the
-# GitHub CI (ci.yml, a push to main) passed the jobs "ios", "ios-ui" and
-# "contract" on the commit built (CI_COMMIT), read from the public GitHub API
+# GitHub CI (ci.yml, a push to main) passed the jobs "ios", "ios-ui-1",
+# "ios-ui-2" and "contract" on the commit built (CI_COMMIT), read from the public GitHub API
 # without a token (rl_require_ci_build in common.sh; the commit "Release app
 # X.Y.Z" of make ios-vX.Y.Z is judged by its parent while its own CI runs,
 # checked from the local clone). CI running, failed or absent, GitHub unreachable or
