@@ -22,6 +22,7 @@ goes to TestFlight only and needs no section of its own.
 ### English
 
 New:
+- Screenshots: the Console tab lists the screenshots taken on your handheld, by day. Open one, share it, save it to Photos or Files, or select several to share or move them to the trash of the handheld (where they can be restored).
 - Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
 
 Improvements:
@@ -33,6 +34,7 @@ Improvements:
 ### Français
 
 Nouveautés :
+- Captures d'écran : l'onglet Console liste les captures d'écran prises sur ta console, par jour. Ouvre-en une, partage-la, enregistre-la dans Photos ou Fichiers, ou sélectionnes-en plusieurs pour les partager ou les mettre à la corbeille de la console (d'où elles peuvent revenir).
 - Restaurer depuis la corbeille : touche une entrée de l'onglet Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre, ou, pour une sauvegarde remplacée, à la place de la sauvegarde actuelle (gardée d'abord).
 
 Améliorations :

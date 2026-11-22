@@ -10,7 +10,7 @@ enum Route: Hashable {
     var deviceId: String? {
         switch self {
         case .console(let id), .library(let id), .systems(let id), .trash(let id), .transfers(let id), .syncedSaves(let id): id
-        case .paks(let id): id
+        case .paks(let id), .screenshots(let id): id
         case .sdFolder(let folder): folder.deviceId
         case .folder(let folder): folder.deviceId
         case .game(let game), .save(let game), .states(let game), .cheats(let game): game.deviceId
@@ -44,6 +44,9 @@ enum Route: Hashable {
     /// The tool and emulator paks of a console (milestone M12), pushed
     /// in its Console tab.
     case paks(String)
+    /// The screenshots taken on a console (milestone M22), pushed in its
+    /// Console tab.
+    case screenshots(String)
     /// A folder of the SD card, read only (milestone M12), pushed in the
     /// Console tab from its Storage section.
     case sdFolder(SdFolderRoute)

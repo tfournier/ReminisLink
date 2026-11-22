@@ -1,4 +1,5 @@
 New:
+• Screenshots: the Console tab lists the screenshots taken on your handheld, by day. Open one, share it, save it to Photos or Files, or select several to share or move them to the trash of the handheld (where they can be restored).
 • Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
 
 Improvements:

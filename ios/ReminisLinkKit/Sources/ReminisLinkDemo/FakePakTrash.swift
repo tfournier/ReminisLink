@@ -34,6 +34,9 @@ enum FakeTrashPayload {
     case backup(key: String, backup: FakeBackup)
     /// A deleted state of a slot of the game whose data key is `key`.
     case state(key: String, slot: Int, entry: FakeSlot)
+    /// Screenshots moved to the trash (M22): back in the screenshots
+    /// folder, " (N)" before the extension with `rename`.
+    case screenshots([FakeScreenshot])
 }
 
 extension FakePak {
@@ -93,6 +96,8 @@ extension FakePak {
             return number == nil && gameData[key]?.backups.contains { $0.id == backup.id } == true
         case .state(let key, let slot, _):
             return number == nil && gameData[key]?.slots[slot]?.state != nil
+        case .screenshots(let shots):
+            return shots.contains { screenshotTaken(Self.screenshotName($0.name, number: number)) }
         }
     }
 
@@ -144,6 +149,8 @@ extension FakePak {
             if taken(payload, number: nil) { plan.conflicts = files }
             plan.replaceUnavailable = "not-a-save"
             return plan
+        case .screenshots(let shots):
+            plan.conflicts = shots.filter { screenshotTaken($0.name) }.map { "Screenshots/" + $0.name }
         }
         plan.replaceUnavailable = "not-a-save"
         if !plan.conflicts.isEmpty {
@@ -182,6 +189,7 @@ extension FakePak {
             }
         }
         var pakRestored = false
+        var screenshotsRestored = false
         let response = lock.withLock { () -> FakeResponse in
             guard let plan = restorePlan(id: id) else {
                 return .error(404, code: "not_found", message: "Trash entry not found")
@@ -226,6 +234,12 @@ extension FakePak {
                 gameData[key]?.backups.insert(backup, at: 0)
             case .state(let key, let slot, let entry)?:
                 gameData[key]?.slots[slot] = entry
+            case .screenshots(let shots)?:
+                for var shot in shots {
+                    shot.name = Self.screenshotName(shot.name, number: renamed ? plan.free : nil)
+                    screenshotsState.screenshots.append(shot)
+                }
+                screenshotsRestored = true
             case nil:
                 break // never reached: a conflict without a free name
             }
@@ -239,6 +253,7 @@ extension FakePak {
                                "replacedEntryId": NSNull(), "replaced": [String](), "replacedKeptAs": NSNull()])
         }
         if pakRestored { emitPaks() }
+        if screenshotsRestored { emitScreenshots() }
         return response
     }
 

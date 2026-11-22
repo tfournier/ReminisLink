@@ -37,7 +37,7 @@ struct TrashRestoreView: View {
                 if preview == nil && error == nil && result == nil { ProgressView() }
             }
             .readableWidth()
-            .navigationTitle(result == nil ? "Restore \(entry.label)?" : "Restored")
+            .navigationTitle(result == nil ? "Restore \(entry.displayLabel)?" : "Restored")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: result == nil ? .cancellationAction : .confirmationAction) {

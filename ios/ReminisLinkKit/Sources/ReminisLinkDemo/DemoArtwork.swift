@@ -39,9 +39,9 @@ public enum DemoArtwork {
     }
 
     /// A 4:3 "screenshot" of a game for the thumbnail of a save state.
-    public static func screen(for title: String, slot: Int, width: Int = 640, height: Int = 480) -> Data {
+    public static func screen(for title: String, slot: Int, width: Int = 640, height: Int = 480, jpeg: Bool = false) -> Data {
         let palette = Palette(seed: title + "#\(slot)")
-        return render(width: width, height: height) { context, w, h in
+        return render(width: width, height: height, type: jpeg ? "public.jpeg" : "public.png") { context, w, h in
             // Sky, sun, hills and blocks: a made-up level.
             drawGradient(context, palette.top, palette.bottom, width: w, height: h)
             context.setFillColor(palette.accent)
@@ -115,7 +115,9 @@ public enum DemoArtwork {
         }
     }
 
-    private static func render(width: Int, height: Int, draw: (CGContext, CGFloat, CGFloat) -> Void) -> Data {
+    private static func render(
+        width: Int, height: Int, type: String = "public.png", draw: (CGContext, CGFloat, CGFloat) -> Void
+    ) -> Data {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
                   data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -125,7 +127,7 @@ public enum DemoArtwork {
         draw(context, CGFloat(width), CGFloat(height))
         guard let image = context.makeImage() else { return Data() }
         let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return Data() }
+        guard let destination = CGImageDestinationCreateWithData(data, type as CFString, 1, nil) else { return Data() }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return Data() }
         return data as Data

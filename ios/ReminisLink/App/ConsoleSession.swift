@@ -41,6 +41,14 @@ final class ConsoleSession {
         return manager
     }
     @ObservationIgnored private var paksStorage: PakManager?
+    /// The screenshots of this console (milestone M22).
+    var screenshots: ScreenshotManager {
+        if let screenshotsStorage { return screenshotsStorage }
+        let manager = ScreenshotManager(session: self)
+        screenshotsStorage = manager
+        return manager
+    }
+    @ObservationIgnored private var screenshotsStorage: ScreenshotManager?
     /// Waits for a reconnection after `401 disconnected` (cheat import,
     /// patch upload).
     @ObservationIgnored private var reconnectionWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
@@ -684,6 +692,7 @@ final class ConsoleSession {
         // (a sync, an upload, a screen that still holds it).
         dropConnection()
         paksStorage = nil
+        screenshotsStorage = nil
     }
 
     /// The end of the demo mode (M16): cancels what this session runs
@@ -699,6 +708,7 @@ final class ConsoleSession {
         await transfers.waitUntilIdle()
         await paksStorage?.shutDown()
         paksStorage = nil
+        screenshotsStorage = nil
     }
 
     /// Games were added or deleted: reload the library and the dashboard.
@@ -738,6 +748,8 @@ final class ConsoleSession {
         let result = try await perform { try await $0.restoreTrashEntry(id: id, onConflict: onConflict) }
         contentChanged()
         paks.paksChanged()
+        // M22: a screenshot may have come back.
+        screenshotsStorage?.screenshotsChanged()
         return result
     }
 

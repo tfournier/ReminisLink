@@ -751,6 +751,49 @@ public actor APIClient {
         )
     }
 
+    // MARK: - Screenshots (milestone M22)
+
+    /// `GET /screenshots`: the screenshots of the console, newest first. A
+    /// pak older than M22 answers `404`.
+    public func screenshots() async throws -> ScreenshotList {
+        try await signedJSON(method: "GET", segments: ["screenshots"])
+    }
+
+    /// The largest preview accepted (the pak sends a JPEG of at most
+    /// 320 x 320, a few tens of KB).
+    public static let maxScreenshotThumbnailBytes = 2 << 20
+
+    /// `GET /screenshots/{id}/thumbnail`: the JPEG preview, nil when the
+    /// pak makes none (`404`: a BMP, an image it cannot decode, or a
+    /// screenshot gone meanwhile).
+    public func screenshotThumbnail(id: String) async throws -> Data? {
+        let (data, response) = try await performSigned(method: "GET", segments: ["screenshots", id, "thumbnail"])
+        if response.statusCode == 404 { return nil }
+        try check(response, data: data, accept: [200])
+        guard data.count <= Self.maxScreenshotThumbnailBytes else {
+            throw APIError.invalidResponse("screenshot preview too large")
+        }
+        return data
+    }
+
+    /// `GET /screenshots/{id}`: the whole image, streamed to disk into a
+    /// new directory under `directory`, named after `Content-Disposition`
+    /// (else `fallbackName`).
+    public func downloadScreenshot(
+        id: String, fallbackName: String = "screenshot.png", into directory: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) async throws -> DownloadedFile {
+        try await downloadSigned(segments: ["screenshots", id], fallbackName: fallbackName, into: directory, progress: progress)
+    }
+
+    /// `POST /screenshots/trash`: 1 to 500 screenshots go to the trash in
+    /// one entry (reason `delete-screenshot`), all or nothing (`404` with
+    /// `details.missing` when one is gone). A write: `429 device_busy` when
+    /// another write ran too long.
+    public func trashScreenshots(_ request: ScreenshotTrashRequest) async throws -> TrashMoveResult {
+        try await signedJSON(method: "POST", segments: ["screenshots", "trash"], body: ProtocolJSON.encoder().encode(request))
+    }
+
     // MARK: - Plumbing
 
     /// Builds a request. Segments are percent-encoded one by one, and the

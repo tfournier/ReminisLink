@@ -1,4 +1,5 @@
 Nouveautés :
+• Captures d'écran : l'onglet Console liste les captures d'écran prises sur ta console, par jour. Ouvre-en une, partage-la, enregistre-la dans Photos ou Fichiers, ou sélectionnes-en plusieurs pour les partager ou les mettre à la corbeille de la console (d'où elles peuvent revenir).
 • Restaurer depuis la corbeille : touche une entrée de l'onglet Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre, ou, pour une sauvegarde remplacée, à la place de la sauvegarde actuelle (gardée d'abord).
 
 Améliorations :

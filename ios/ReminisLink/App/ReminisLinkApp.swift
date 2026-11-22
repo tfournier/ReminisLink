@@ -131,7 +131,12 @@ struct RouteDestination: View {
     let route: Route
 
     var body: some View {
-        screen.readableWidth()
+        if case .screenshots = route {
+            // M22: the grid uses the whole width of the window.
+            screen
+        } else {
+            screen.readableWidth()
+        }
     }
 
     @ViewBuilder
@@ -152,6 +157,7 @@ struct RouteDestination: View {
         case .syncedSaves(let id): SyncedSavesView(deviceId: id)
         case .syncedGame(let game): SyncedGameView(route: game)
         case .paks(let id): PaksView(deviceId: id)
+        case .screenshots(let id): ScreenshotsView(deviceId: id)
         case .sdFolder(let folder): SdFolderView(route: folder)
         }
     }
