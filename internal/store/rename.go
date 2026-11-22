@@ -64,9 +64,48 @@ type renameRecord struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Via  string `json:"via"`
-	// ID is the identity (device and inode) of the entry that moves:
-	// a roll back only renames that entry back (Codex review of M23).
-	ID string `json:"id,omitempty"`
+	// The entry that moves, as a roll back recognizes it (Codex review of
+	// M23): its kind (file or dir), and for a file its size and
+	// modification time in nanoseconds. ID (device and inode) only
+	// accepts faster: the exFAT driver of Linux numbers inodes in memory,
+	// so after a restart the same file has another one; a different ID
+	// never refuses alone.
+	ID      string `json:"id,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+	Size    int64  `json:"size,omitempty"`
+	MtimeNS int64  `json:"mtimeNs,omitempty"`
+}
+
+// recordOf describes the entry fi for the journal.
+func recordOf(r renameRecord, fi fs.FileInfo) renameRecord {
+	r.ID = identityOf(fi)
+	if fi.IsDir() {
+		r.Kind = "dir"
+		return r
+	}
+	r.Kind = "file"
+	r.Size = fi.Size()
+	r.MtimeNS = fi.ModTime().UnixNano()
+	return r
+}
+
+// isEntry reports whether fi is the entry r recorded: the same inode
+// (fast), or the same kind and, for a file, the same size and
+// modification time. A folder is compared on its kind only: renaming the
+// playlist inside it changes its date. A journal without a kind (older)
+// accepts any entry.
+func (r renameRecord) isEntry(fi fs.FileInfo) bool {
+	if r.ID != "" && identityOf(fi) == r.ID {
+		return true
+	}
+	switch r.Kind {
+	case "":
+		return true
+	case "dir":
+		return fi.IsDir()
+	default:
+		return fi.Mode().IsRegular() && fi.Size() == r.Size && fi.ModTime().UnixNano() == r.MtimeNS
+	}
 }
 
 type renameJournal struct {
@@ -126,15 +165,14 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep, verify func() erro
 				return fmt.Errorf("rename: step %d: %w", i, withoutPathErr(err))
 			}
 		}
-		ident := identityOf(info)
-		j.Steps = append(j.Steps, renameRecord{From: filepath.ToSlash(rf), To: filepath.ToSlash(rt), Via: filepath.ToSlash(via), ID: ident})
+		j.Steps = append(j.Steps, recordOf(renameRecord{From: filepath.ToSlash(rf), To: filepath.ToSlash(rt), Via: filepath.ToSlash(via)}, info))
 	}
 	root.Close()
 	dir := filepath.Join(t.renames, id)
 	if err := t.mkdirInSD(dir); err != nil {
 		return fmt.Errorf("rename: journal folder: %w", err)
 	}
-	if err := t.writeJSONConfined(dir, renameJournalFile, j, func(d string) error { return t.syncDir(d) }); err != nil {
+	if err := t.writeJSONConfined(dir, renameJournalFile, j, t.syncSD); err != nil {
 		_ = t.removeJournal(dir)
 		return fmt.Errorf("rename: %w", err)
 	}
@@ -157,7 +195,7 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep, verify func() erro
 		// A rename that is not durable is not done (Codex review of M23):
 		// a power cut could keep some new names and lose others. The group
 		// goes back, and the journal stays until that is durable too.
-		if err := t.syncDir(filepath.Dir(abs(s.To))); err != nil {
+		if err := t.syncSD(filepath.Dir(abs(s.To))); err != nil {
 			if !t.rollbackRenames(sd, j.Steps[:i+1]) || t.removeJournal(dir) != nil {
 				t.log.Error("rename: roll back failed, left for the next start", "journal", id, "error", err)
 			}
@@ -177,9 +215,11 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep, verify func() erro
 	// answered as a success (Codex review of M23).
 	if err := t.removeJournal(dir); err != nil {
 		t.log.Error("rename: journal not removed, rolling back", "journal", id, "error", err)
-		if werr := t.writeJSONConfined(dir, renameJournalFile, j, func(d string) error { return t.syncDir(d) }); werr != nil {
+		// The journal is written again as a safety net for the next start,
+		// but the files go back first whatever happens to it (Codex review
+		// of M23, round 3).
+		if werr := t.writeJSONConfined(dir, renameJournalFile, j, t.syncSD); werr != nil {
 			t.log.Error("rename: journal cannot be written again", "journal", id, "error", werr)
-			return fmt.Errorf("%w: %w", ErrRenameCommit, err)
 		}
 		if t.rollbackRenames(sd, j.Steps) {
 			_ = t.removeJournal(dir)
@@ -240,8 +280,8 @@ func (t *Trash) rollbackRenames(sd string, steps []renameRecord) (ok bool) {
 	// is synced under its old name; a path that no longer exists is never
 	// synced (Codex review of M23).
 	defer func() {
-		for d := range t.rollbackFolders(sd, steps) {
-			if err := t.syncDir(d); err != nil {
+		for d := range t.rollbackFolders(root, sd, steps) {
+			if err := t.syncSD(d); err != nil {
 				t.log.Error("rename: roll back: sync failed, journal kept", "error", err)
 				ok = false
 			}
@@ -253,14 +293,11 @@ func (t *Trash) rollbackRenames(sd string, steps []renameRecord) (ok bool) {
 		// Only the entry the step moved goes back: another one now at its
 		// new or temporary name (made after a power cut) is never touched.
 		ours := func(rel string) bool {
-			if s.ID == "" {
-				return true
-			}
 			fi, err := root.Lstat(filepath.FromSlash(rel))
 			if err != nil {
 				return false
 			}
-			if id := identityOf(fi); id != "" && id != s.ID {
+			if !s.isEntry(fi) {
 				t.log.Warn("rename: roll back: another entry at the new name, left as it is", "file", rel)
 				return false
 			}
@@ -300,11 +337,17 @@ func (t *Trash) removeFile(root *os.Root, rel string) error {
 // of each step's old name, translated through the folders renamed back by
 // the steps (a parent named after a step's new name, which no longer
 // exists, is found under that step's old name), only when it exists.
-func (t *Trash) rollbackFolders(sd string, steps []renameRecord) map[string]bool {
+func (t *Trash) rollbackFolders(root *os.Root, sd string, steps []renameRecord) map[string]bool {
 	out := map[string]bool{}
 	abs := func(rel string) string { return filepath.Join(sd, filepath.FromSlash(rel)) }
+	// Read through the card root, no link at any component (Codex review
+	// of M23, round 3): a folder replaced by a link is not there.
 	exists := func(p string) bool {
-		fi, err := os.Lstat(p)
+		rel, err := t.confinedRel(root, p)
+		if err != nil {
+			return false
+		}
+		fi, err := root.Lstat(rel)
 		return err == nil && fi.IsDir()
 	}
 	for _, s := range steps {
@@ -380,13 +423,42 @@ func (t *Trash) removeJournal(dir string) error {
 	if err := t.removeFile(root, filepath.Join(rel, renameJournalFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return withoutPathErr(err)
 	}
-	if err := t.syncDir(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := t.syncSD(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	_ = root.Remove(filepath.Join(rel, renameJournalFile+".tmp"))
 	_ = root.Remove(rel)
-	_ = t.syncDir(filepath.Dir(dir))
+	_ = t.syncSD(filepath.Dir(dir))
 	return nil
+}
+
+// syncSD syncs a folder of the card through its root, refusing a link at
+// any component (Codex review of M23, round 3: a folder of the card
+// replaced by a link to another one is never synced through it). Tests
+// that replace the sync (SetSyncDir) get it called after the check.
+func (t *Trash) syncSD(dir string) error {
+	root, err := t.openSD()
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	rel, err := t.confinedRel(root, dir)
+	if err != nil {
+		return err
+	}
+	if t.syncReplaced {
+		return t.syncDir(dir)
+	}
+	d, err := root.Open(rel)
+	if err != nil {
+		return withoutPathErr(err)
+	}
+	err = d.Sync()
+	cerr := d.Close()
+	if err != nil && !syncUnsupported(err) {
+		return fmt.Errorf("sync: %w", withoutPathErr(err))
+	}
+	return cerr
 }
 
 // recoverRenamesLocked rolls back the rename groups a power cut

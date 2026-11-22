@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -329,10 +330,14 @@ func TestRenameGroupJournalNotRemoved(t *testing.T) {
 	if !exists(rom) || !exists(sav) || renamesLeft(t, tr) != 0 {
 		t.Fatal("not rolled back")
 	}
-	// The removal made durable fails (the sync of its folder): the same.
+	// The removal made durable fails (the sync of the journal folder), and
+	// keeps failing for the journal written again: injected only once the
+	// files moved (Codex review of M23, round 3). The files go back first
+	// whatever happens to the journal.
 	tr.removeJournalFile = nil
+	newROM := filepath.Join(filepath.Dir(rom), "New.gba")
 	tr.SetSyncDir(func(dir string) error {
-		if filepath.Dir(dir) == tr.renames {
+		if filepath.Dir(dir) == tr.renames && exists(newROM) {
 			return errors.New("sync failed")
 		}
 		return nil
@@ -340,7 +345,7 @@ func TestRenameGroupJournalNotRemoved(t *testing.T) {
 	if err := tr.RenameGroup("Old", steps, nil); err == nil {
 		t.Fatal("success although the journal removal is not durable")
 	}
-	if !exists(rom) {
+	if !exists(rom) || !exists(sav) || exists(newROM) {
 		t.Fatal("not rolled back")
 	}
 	// The journal kept by that failure goes at the next start.
@@ -352,6 +357,122 @@ func TestRenameGroupJournalNotRemoved(t *testing.T) {
 	refused := errors.New("not listed")
 	if err := tr.RenameGroup("Old", steps, func() error { return refused }); !errors.Is(err, refused) || !exists(rom) || renamesLeft(t, tr) != 0 {
 		t.Fatalf("verify: %v", err)
+	}
+}
+
+// Codex review of M23 (round 3): the exFAT driver of Linux numbers inodes
+// in memory: after a restart the renamed file has another inode. The
+// recovery still recognizes it (kind, size, date) and puts it back.
+func TestRenameGroupRecoveryWithAnotherInode(t *testing.T) {
+	tr, sd, clk, _ := newTestTrash(t)
+	rom := write(t, sd, "Roms/GBA (GBA)/Old.gba", "rom")
+	sav := write(t, sd, "Saves/GBA/Old.gba.sav", "save")
+	steps := []RenameStep{
+		{From: rom, To: filepath.Join(filepath.Dir(rom), "New.gba")},
+		{From: sav, To: filepath.Join(filepath.Dir(sav), "New.gba.sav")},
+	}
+	calls := 0
+	tr.renameExcl = func(a, b string) error {
+		calls++
+		if calls == 2 {
+			panic("power cut")
+		}
+		return tr.renameNoReplaceInSD(a, b)
+	}
+	func() {
+		defer func() { _ = recover() }()
+		_ = tr.RenameGroup("Old", steps, nil)
+	}()
+	// The restart: every inode of the journal is another one now.
+	des, err := os.ReadDir(tr.renames)
+	if err != nil || len(des) != 1 {
+		t.Fatalf("journal: %v", err)
+	}
+	jp := filepath.Join(tr.renames, des[0].Name(), renameJournalFile)
+	data, err := os.ReadFile(jp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var j renameJournal
+	if err := json.Unmarshal(data, &j); err != nil {
+		t.Fatal(err)
+	}
+	for i := range j.Steps {
+		if j.Steps[i].ID == "" {
+			t.Skip("no inode here")
+		}
+		j.Steps[i].ID = "1:999999999"
+	}
+	data, _ = json.Marshal(j)
+	if err := os.WriteFile(jp, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tr2 := NewTrash(Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, clk.Now, nil)
+	if err := tr2.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(rom) || exists(filepath.Join(filepath.Dir(rom), "New.gba")) || !exists(sav) || renamesLeft(t, tr2) != 0 {
+		t.Fatal("not put back")
+	}
+	// Another file at the new name (other size) is still never taken.
+	if (renameRecord{ID: "1:2", Kind: "file", Size: 3, MtimeNS: 1}).isEntry(lstat(t, sav)) {
+		t.Fatal("another file accepted")
+	}
+}
+
+// Codex review of M23 (round 3): a folder of the card replaced by a link
+// (ext4) is never synced through it by the recovery.
+func TestRenameGroupRecoveryNeverSyncsThroughALink(t *testing.T) {
+	tr, sd, clk, _ := newTestTrash(t)
+	write(t, sd, "Roms/GBA (GBA)/Arcade/Old.gba", "rom")
+	write(t, sd, "Saves/GBA/Old.gba.sav", "save")
+	arcade := filepath.Join(sd, "Roms", "GBA (GBA)", "Arcade")
+	steps := []RenameStep{
+		{From: filepath.Join(arcade, "Old.gba"), To: filepath.Join(arcade, "New.gba")},
+		{From: filepath.Join(sd, "Saves/GBA/Old.gba.sav"), To: filepath.Join(sd, "Saves/GBA/New.gba.sav")},
+	}
+	calls := 0
+	tr.renameExcl = func(a, b string) error {
+		calls++
+		if calls == 2 {
+			panic("power cut")
+		}
+		return tr.renameNoReplaceInSD(a, b)
+	}
+	func() {
+		defer func() { _ = recover() }()
+		_ = tr.RenameGroup("Old", steps, nil)
+	}()
+	// The system folder becomes a link to a folder outside the card that
+	// holds an Arcade folder too.
+	outside := t.TempDir()
+	write(t, outside, "Arcade/New.gba", "outside")
+	gba := filepath.Join(sd, "Roms", "GBA (GBA)")
+	if err := os.Rename(gba, gba+".moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, gba); err != nil {
+		t.Skip("no links")
+	}
+	var synced []string
+	tr2 := NewTrash(Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, clk.Now, nil)
+	tr2.SetSyncDir(func(dir string) error {
+		synced = append(synced, dir)
+		return nil
+	})
+	if err := tr2.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range synced {
+		if strings.HasPrefix(d, gba+string(filepath.Separator)) || d == gba {
+			t.Fatalf("synced through the link: %s", d)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(outside, "Arcade", "New.gba")); string(b) != "outside" {
+		t.Fatal("the outside file was touched")
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "Arcade", "Old.gba")); err == nil {
+		t.Fatal("renamed outside the card")
 	}
 }
 

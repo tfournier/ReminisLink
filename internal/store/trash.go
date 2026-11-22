@@ -234,9 +234,11 @@ type Trash struct {
 	// removeJournalFile, when set, replaces the removal of a rename
 	// journal (tests).
 	removeJournalFile func(rel string) error
-	now               func() time.Time
-	log               *slog.Logger
-	rand              io.Reader
+	// syncReplaced: SetSyncDir replaced the sync (tests).
+	syncReplaced bool
+	now          func() time.Time
+	log          *slog.Logger
+	rand         io.Reader
 	// credit ages the entries (nil: no automatic purge).
 	credit *CreditClock
 	// rename is os.Rename, syncDir is SyncDirChecked and saveEntry is
@@ -297,6 +299,7 @@ func (t *Trash) SetSyncDir(sync func(dir string) error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.syncDir = sync
+	t.syncReplaced = true
 }
 
 // UseCreditClock ages the entries with c (docs/specs/05-console-pak.md
