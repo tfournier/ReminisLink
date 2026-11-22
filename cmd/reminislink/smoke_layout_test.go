@@ -405,6 +405,10 @@ func runLayoutSmoke(t *testing.T, bin, zipFile string, l smokeLayout) {
 	}
 	t.Logf("save backup %s: %d bytes, copy under the ReminisLink data folder", backup.ID, backup.SizeBytes)
 
+	// M22: the screenshots of the OS folder, downloaded, previewed, moved
+	// to the trash and restored.
+	smokeScreenshots(t, c, roots)
+
 	call(t, c, http.MethodDelete, "/api/v1/clients/me", nil, http.StatusNoContent, nil)
 	p.stop()
 	if _, err := os.Stat(filepath.Join(roots.Logs, app.LogFileName)); err != nil {
