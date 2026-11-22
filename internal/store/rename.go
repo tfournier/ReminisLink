@@ -130,8 +130,16 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep) error {
 			}
 			return fmt.Errorf("rename: %w", err)
 		}
+		// A rename that is not durable is not done (Codex review of M23):
+		// a power cut could keep some new names and lose others. The group
+		// goes back, and the journal stays until that is durable too.
 		if err := t.syncDir(filepath.Dir(abs(s.To))); err != nil {
-			t.log.Warn("rename: sync failed", "error", err)
+			if t.rollbackRenames(sd, j.Steps[:i+1]) {
+				t.removeJournal(dir)
+			} else {
+				t.log.Error("rename: roll back failed, left for the next start", "journal", id, "error", err)
+			}
+			return fmt.Errorf("rename: sync: %w", err)
 		}
 	}
 	t.removeJournal(dir)
@@ -174,15 +182,29 @@ func (t *Trash) renameStep(from, to, via string) error {
 // reports whether every one went back (or was never done). A step is done
 // when its new name exists under that exact spelling and its old one does
 // not, or when its temporary name exists.
-func (t *Trash) rollbackRenames(sd string, steps []renameRecord) bool {
+func (t *Trash) rollbackRenames(sd string, steps []renameRecord) (ok bool) {
 	root, err := t.openSD()
 	if err != nil {
 		t.log.Error("rename: roll back: cannot open the card", "error", err)
 		return false
 	}
 	defer root.Close()
-	ok := true
+	ok = true
 	abs := func(rel string) string { return filepath.Join(sd, filepath.FromSlash(rel)) }
+	// The folders of every step (put back now, or by an earlier roll back
+	// whose sync failed): synced before the journal can go.
+	touched := map[string]bool{}
+	for _, s := range steps {
+		touched[filepath.Dir(abs(s.From))] = true
+	}
+	defer func() {
+		for d := range touched {
+			if err := t.syncDir(d); err != nil {
+				t.log.Error("rename: roll back: sync failed, journal kept", "error", err)
+				ok = false
+			}
+		}
+	}()
 	for i := len(steps) - 1; i >= 0; i-- {
 		s := steps[i]
 		fromThere := exactExists(root, s.From)
@@ -196,11 +218,15 @@ func (t *Trash) rollbackRenames(sd string, steps []renameRecord) bool {
 			if err := t.renameBack(abs(s.Via), abs(s.From)); err != nil {
 				t.log.Error("rename: roll back failed", "file", s.From, "error", err)
 				ok = false
+			} else {
+				touched[filepath.Dir(abs(s.From))] = true
 			}
 		case exactExists(root, s.To) && !fromThere:
 			if err := t.renameStepBack(abs(s.To), abs(s.From), abs(s.Via)); err != nil {
 				t.log.Error("rename: roll back failed", "file", s.From, "error", err)
 				ok = false
+			} else {
+				touched[filepath.Dir(abs(s.From))] = true
 			}
 		}
 	}

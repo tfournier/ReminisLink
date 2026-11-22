@@ -154,6 +154,73 @@ func TestRenameGroupRecoverAfterCut(t *testing.T) {
 	}
 }
 
+// TestRenameGroupSyncFailure: the renames succeed but a folder cannot be
+// synced (Codex review of M23): the group goes back and fails; when the
+// roll back cannot be synced either, the journal stays and the next start
+// puts the files back, keeping the journal until its folders are synced.
+func TestRenameGroupSyncFailure(t *testing.T) {
+	tr, sd, clk, _ := newTestTrash(t)
+	rom := write(t, sd, "Roms/GBA (GBA)/Old.gba", "rom")
+	sav := write(t, sd, "Saves/GBA/Old.gba.sav", "save")
+	steps := []RenameStep{
+		{From: rom, To: filepath.Join(filepath.Dir(rom), "New.gba")},
+		{From: sav, To: filepath.Join(filepath.Dir(sav), "New.gba.sav")},
+	}
+	saves := filepath.Dir(sav)
+	failSaves := func(dir string) error {
+		if dir == saves {
+			return errors.New("sync failed")
+		}
+		return nil
+	}
+	tr.SetSyncDir(failSaves)
+	if err := tr.RenameGroup("Old", steps); err == nil {
+		t.Fatal("a rename that was not synced succeeded")
+	}
+	// The roll back of the save folder could not be synced: journal kept.
+	if renamesLeft(t, tr) != 1 {
+		t.Fatal("journal removed although the roll back is not durable")
+	}
+	if !exists(rom) || !exists(sav) {
+		t.Fatal("not rolled back")
+	}
+	// Next start, the sync still failing: the journal stays again.
+	tr2 := NewTrash(Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, clk.Now, nil)
+	tr2.SetSyncDir(failSaves)
+	if err := tr2.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if renamesLeft(t, tr2) != 1 {
+		t.Fatal("journal removed by a recovery that was not synced")
+	}
+	// Then it works.
+	tr3 := NewTrash(Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, clk.Now, nil)
+	if err := tr3.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if renamesLeft(t, tr3) != 0 || !exists(rom) || !exists(sav) {
+		t.Fatal("journal left after a synced recovery")
+	}
+	// A sync failure of a folder whose roll back syncs: no journal left.
+	tr4 := NewTrash(Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}, sd, clk.Now, nil)
+	calls := 0
+	tr4.SetSyncDir(func(dir string) error {
+		if dir == saves {
+			calls++
+			if calls == 1 {
+				return errors.New("sync failed once")
+			}
+		}
+		return nil
+	})
+	if err := tr4.RenameGroup("Old", steps); err == nil {
+		t.Fatal("success after a failed sync")
+	}
+	if renamesLeft(t, tr4) != 0 || !exists(rom) || !exists(sav) {
+		t.Fatal("not rolled back cleanly")
+	}
+}
+
 func TestRenameGroupRefusesLinksAndOtherFolders(t *testing.T) {
 	tr, sd, _, _ := newTestTrash(t)
 	rom := write(t, sd, "Roms/GBA (GBA)/Old.gba", "rom")
