@@ -287,6 +287,54 @@ class FilesRenameTest {
         }
     }
 
+    /**
+     * Codex review 1: Weather already installed, the SD source of a
+     * confirmed replacement of Clock becomes Weather, and the trash cannot
+     * be read: the installation is "to check", never plain "Installed",
+     * and clearing the finished installations keeps it while its check runs.
+     */
+    @Test
+    fun replacementWhoseCheckFailsStaysToCheck() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val queue = TransferQueue(scope) { _, _ -> client }
+            val jobs = JobTracker { client }
+            val installer = PakInstaller(scope, queue, jobs, client = { client })
+            suspend fun until(id: String, p: (PakInstall) -> Boolean): PakInstall = withTimeout(10_000) {
+                while (true) {
+                    jobs.refresh(demo.deviceId)
+                    installer.installs.value.firstOrNull { it.id == id }?.takeIf(p)?.let { return@withTimeout it }
+                    delay(100)
+                }
+                @Suppress("UNREACHABLE_CODE")
+                error("unreachable")
+            }
+            val downloads = folder("Downloads").entries
+            val weather = installer.installFromSd(demo.deviceId, downloads.first { it.name == "Weather.pak.zip" }, PakInstallKind.AUTO)
+            until(weather) { it.phase == PakInstall.Phase.Installed }
+            val id = installer.installFromSd(demo.deviceId, downloads.first { it.name == "Clock.pak.zip" }, PakInstallKind.AUTO)
+            until(id) { it.phase == PakInstall.Phase.NeedsReplacement("Clock") }
+            demo.pak.nextPakSourceName = "Weather.pak.zip"
+            val held = java.util.concurrent.CountDownLatch(1)
+            demo.pak.holdTrashAnswer = held
+            demo.pak.failTrashList = true
+            installer.replace(id)
+            until(id) { it.phase == PakInstall.Phase.Installed && it.check == PakInstall.Check.CHECKING }
+            installer.clearFinished(demo.deviceId)
+            assertNotNull("a check still running is kept", installer.installs.value.firstOrNull { it.id == id })
+            assertNull("an installation without a check leaves", installer.installs.value.firstOrNull { it.id == weather })
+            held.countDown()
+            val done = until(id) { it.check != PakInstall.Check.CHECKING }
+            assertEquals(PakInstall.Check.UNVERIFIED, done.check)
+            assertNull(done.mismatch)
+            installer.clearFinished(demo.deviceId)
+            assertNull(installer.installs.value.firstOrNull { it.id == id })
+        } finally {
+            demo.pak.holdTrashAnswer = null
+            scope.cancel()
+        }
+    }
+
     @Test
     fun errorObserverSeesEveryErrorAnswer() = runBlocking {
         refused<ApiException.Server> { client.game("unknown") }

@@ -81,6 +81,14 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
     val items = all.filter { it.deviceId == deviceId && !it.isHidden }
     val allJobs by container.jobs.jobs.collectAsState()
     val jobs = allJobs.filter { it.deviceId == deviceId && !it.hidden }
+    // A pak installation waiting for the user (a pak of the same name is installed), or whose
+    // replacement left something to say: its actions here too, as on iOS.
+    val allInstalls by container.pakInstaller.installs.collectAsState()
+    val installs = allInstalls.filter {
+        it.deviceId == deviceId &&
+            (it.phase is link.reminis.core.PakInstall.Phase.NeedsReplacement || it.mismatch != null || it.check == link.reminis.core.PakInstall.Check.UNVERIFIED || it.check == link.reminis.core.PakInstall.Check.CHECKING)
+    }
+    var toReplace by remember { mutableStateOf<link.reminis.core.PakInstall?>(null) }
     var confirmCancel by remember { mutableStateOf<TransferItem?>(null) }
     var cancelJob by remember { mutableStateOf<TrackedJob?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -113,13 +121,21 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
             )
         },
     ) { modifier ->
-        if (items.isEmpty() && jobs.isEmpty()) {
+        if (items.isEmpty() && jobs.isEmpty() && installs.isEmpty()) {
             Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
                 Text(stringResource(R.string.transfers_empty), style = MaterialTheme.typography.bodyLarge)
             }
         } else {
             LazyColumn(modifier.fillMaxSize().testTag("transfers")) {
                 jobError?.let { e -> item { MessageCard(null, e) { jobError = null } } }
+                items(installs, key = { "install-" + it.id }) { install ->
+                    PakInstallRow(
+                        install,
+                        onReplace = { toReplace = install },
+                        onKeep = { container.pakInstaller.keepInstalled(install.id) },
+                    )
+                    HorizontalDivider()
+                }
                 items(jobs.reversed(), key = { "job-" + it.jobId }) { job ->
                     JobRow(job, onCancel = { cancelJob = job })
                     HorizontalDivider()
@@ -154,6 +170,14 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
                 }
             },
             onDismiss = { cancelJob = null },
+        )
+    }
+    toReplace?.let { install ->
+        PakReplaceDialog(
+            install,
+            onReplace = { toReplace = null; container.pakInstaller.replace(install.id) },
+            onKeep = { toReplace = null; container.pakInstaller.keepInstalled(install.id) },
+            onDismiss = { toReplace = null },
         )
     }
     confirmCancel?.let { item ->

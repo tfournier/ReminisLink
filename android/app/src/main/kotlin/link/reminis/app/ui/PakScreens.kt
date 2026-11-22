@@ -282,7 +282,7 @@ fun PaksScreen(deviceId: String, onBack: () -> Unit) {
                 item {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.paks_installations), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp).weight(1f))
-                        if (installs.any { it.phase.isFinished }) {
+                        if (installs.any { it.isClearable }) {
                             TextButton(onClick = vm::clearFinished) { Text(stringResource(R.string.transfers_clear)) }
                         }
                     }
@@ -343,19 +343,11 @@ fun PaksScreen(deviceId: String, onBack: () -> Unit) {
         )
     }
     toReplace?.let { install ->
-        val name = (install.phase as? PakInstall.Phase.NeedsReplacement)?.name ?: install.name
-        AlertDialog(
-            onDismissRequest = { toReplace = null },
-            title = { Text(stringResource(R.string.pak_replace_title, name)) },
-            text = { Text(stringResource(R.string.pak_replace_message)) },
-            confirmButton = {
-                TextButton(onClick = { toReplace = null; vm.replace(install) }, modifier = Modifier.testTag("pakReplaceConfirm")) {
-                    Text(stringResource(R.string.action_replace))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { toReplace = null; vm.keepInstalled(install) }) { Text(stringResource(R.string.pak_keep_installed)) }
-            },
+        PakReplaceDialog(
+            install,
+            onReplace = { toReplace = null; vm.replace(install) },
+            onKeep = { toReplace = null; vm.keepInstalled(install) },
+            onDismiss = { toReplace = null },
         )
     }
     draft?.let { file ->
@@ -376,8 +368,28 @@ fun PaksScreen(deviceId: String, onBack: () -> Unit) {
     }
 }
 
+/** "Replace <name>? The current version goes to the trash of the console." (Apps and Transfers). */
 @Composable
-private fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: () -> Unit) {
+fun PakReplaceDialog(install: PakInstall, onReplace: () -> Unit, onKeep: () -> Unit, onDismiss: () -> Unit) {
+    val name = (install.phase as? PakInstall.Phase.NeedsReplacement)?.name ?: install.name
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.pak_replace_title, name)) },
+        text = { Text(stringResource(R.string.pak_replace_message)) },
+        confirmButton = {
+            TextButton(onClick = onReplace, modifier = Modifier.testTag("pakReplaceConfirm")) {
+                Text(stringResource(R.string.action_replace))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onKeep, modifier = Modifier.testTag("pakKeepInstalled")) { Text(stringResource(R.string.pak_keep_installed)) }
+        },
+    )
+}
+
+/** One installation: its progress, its outcome, and Replace… / Keep the Installed One after a conflict (Apps and Transfers). */
+@Composable
+fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: () -> Unit) {
     val context = LocalContext.current
     val phase = install.phase
     Column(Modifier.fillMaxWidth().padding(16.dp).testTag("pakInstall"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -398,7 +410,12 @@ private fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: ()
                 }
                 is PakInstall.Phase.Installing -> stringResource(R.string.pak_installing)
                 is PakInstall.Phase.NeedsReplacement -> stringResource(R.string.pak_already_installed, phase.name)
-                PakInstall.Phase.Installed -> stringResource(R.string.pak_installed)
+                PakInstall.Phase.Installed -> when (install.check) {
+                    PakInstall.Check.CHECKING -> stringResource(R.string.pak_installed_checking)
+                    // The check could not say which pak was installed: never plain "Installed".
+                    PakInstall.Check.UNVERIFIED -> stringResource(R.string.pak_installed_unverified)
+                    else -> stringResource(R.string.pak_installed)
+                }
                 is PakInstall.Phase.Failed -> errorMessage(context, pakError(phase.error))
                 PakInstall.Phase.Cancelled -> stringResource(R.string.transfer_cancelled)
             },
@@ -406,6 +423,14 @@ private fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: ()
             color = if (failure) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.testTag("pakInstallStatus"),
         )
+        if (phase == PakInstall.Phase.Installed && install.check == PakInstall.Check.UNVERIFIED) {
+            Text(
+                stringResource(R.string.pak_installed_unverified_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("pakInstallUnverified"),
+            )
+        }
         // A replacement installed another pak than the one confirmed (the SD file changed meanwhile).
         val mismatch = install.mismatch
         val confirmed = install.confirmedName

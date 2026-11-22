@@ -756,4 +756,8 @@
         <item quantity="one">%d game</item>
         <item quantity="other">%d games</item>
     </plurals>
+    <!-- Codex review 1 of the sixth increment -->
+    <string name="pak_installed_checking">Installed. Checking which pak was installed…</string>
+    <string name="pak_installed_unverified">Installed, to check</string>
+    <string name="pak_installed_unverified_help">ReminisLink could not check which pak this replacement installed: the file on the SD card may have changed since you confirmed. Check the list of apps and the trash of the console.</string>
 </resources>

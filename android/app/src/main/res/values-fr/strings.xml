@@ -773,4 +773,8 @@
         <item quantity="many">%d jeux</item>
         <item quantity="other">%d jeux</item>
     </plurals>
+    <!-- Codex review 1 of the sixth increment -->
+    <string name="pak_installed_checking">Installé. Vérification du pak installé…</string>
+    <string name="pak_installed_unverified">Installé, à vérifier</string>
+    <string name="pak_installed_unverified_help">ReminisLink n’a pas pu vérifier quel pak ce remplacement a installé : le fichier de la carte SD a pu changer depuis ta confirmation. Vérifie la liste des apps et la corbeille de la console.</string>
 </resources>

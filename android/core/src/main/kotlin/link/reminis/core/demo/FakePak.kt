@@ -295,6 +295,7 @@ class FakePak(
                 completesAnswered.incrementAndGet()
                 holdCompleteAnswer?.await(20, TimeUnit.SECONDS)
             }
+            if (method == "GET" && s == listOf("trash")) holdTrashAnswer?.await(20, TimeUnit.SECONDS)
             if (method == "POST" && s.size == 3 && s[0] == "archives" && s[2] == "import") {
                 importsAnswered.incrementAndGet()
                 holdImportAnswer?.await(20, TimeUnit.SECONDS)
@@ -322,6 +323,14 @@ class FakePak(
         streams.forEach { runCatching { it.sink.close() } }
         streams.clear()
     }
+
+    /** Tests: `GET /trash` answers `500` (the check of a replaced pak cannot read it). */
+    @Volatile
+    var failTrashList = false
+
+    /** Tests: while set, the answer of `GET /trash` waits for it (outside the lock: the work is done first). */
+    @Volatile
+    var holdTrashAnswer: java.util.concurrent.CountDownLatch? = null
 
     /** Tests: every request answers `503 shutting_down` (the streams stay open), as a pak closing. */
     @Volatile
@@ -384,6 +393,7 @@ class FakePak(
         m == "POST" && s == listOf("sd", "folders") -> createSdFolder(r, body)
         m == "POST" && s == listOf("sd", "trash") -> trashSdEntries(r, body)
         m == "POST" && s == listOf("paks", "install") -> installFromSd(r, body)
+        m == "GET" && s == listOf("trash") && failTrashList -> error(r, 500, "internal", "Trash unreadable")
         m == "GET" && s == listOf("trash") -> json(r, 200, trashJson())
         m == "DELETE" && s == listOf("trash") -> emptyTrash(r)
         s.size >= 2 && s[0] == "trash" -> trashRoute(r, m, s, body)
