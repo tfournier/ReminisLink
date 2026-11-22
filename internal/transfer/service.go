@@ -64,7 +64,8 @@ type Target struct {
 // destination is a resolved Target.
 type destination struct {
 	kind string
-	dir  string // rom: destination folder
+	dir  string // rom, sd-file: destination folder
+	rel  string // sd-file: destination folder relative to the SD card
 	name string // rom, staging: cleaned file name ("" while unknown)
 	game osadapter.Game
 	slot int
@@ -265,6 +266,8 @@ func (s *Service) resolve(t Target) (destination, *Error, error) {
 			return d, nil, err
 		}
 		d.dir = dir
+	case KindSDFile:
+		return s.resolveSDFile(t, d)
 	case KindPak:
 		if t.FileName != nil {
 			// Informative (the label of the job): cleaned, never used as a path.
@@ -357,6 +360,12 @@ func (s *Service) conflictError(existing string) *Error {
 // checkConflict reports early (at creation) that a rom target already
 // exists with onConflict=fail. install checks again.
 func (s *Service) checkConflict(d destination, onConflict string) *Error {
+	if d.kind == KindSDFile && onConflict == ConflictFail {
+		if existing := findFold(d.dir, d.name); existing != "" {
+			return s.sdConflictError(d.dir, existing, d.name)
+		}
+		return nil
+	}
 	if d.kind != KindROM || onConflict != ConflictFail || d.name == "" {
 		return nil
 	}
@@ -449,6 +458,8 @@ func (s *Service) installLocked(d destination, tmp, onConflict string) (map[stri
 	switch d.kind {
 	case KindROM:
 		return s.installROM(d, tmp, onConflict)
+	case KindSDFile:
+		return s.installSDFile(d, tmp, onConflict)
 	case KindStaging:
 		id := "st_" + s.now().UTC().Format(idTimeLayout) + "_" + s.randomHex(4)
 		dir := filepath.Join(s.opts.Layout.StagingDir(), id)

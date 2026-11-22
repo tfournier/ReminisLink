@@ -57,6 +57,14 @@ struct FakePaksState {
     /// The next installation reads this name instead of its source's (the
     /// source changed between two attempts).
     var nextSourceName: String?
+    /// M23: files and folders added through the SD browser (outside the
+    /// library), by path, and the paths moved to the trash (lowercased).
+    var sdExtras: [String: FakeSdExtra] = [:]
+    var sdRemoved: Set<String> = []
+    /// Folders changed since (lowercased path → new date).
+    var sdTouched: [String: Date] = [:]
+    /// Changes of each folder (lowercased path), part of its version.
+    var sdRevisions: [String: Int] = [:]
 
     static let sample: [FakeInstalledPak] = {
         let date = ProtocolJSON.parseDate("2026-11-18T17:00:00Z") ?? Date(timeIntervalSince1970: 1_795_000_000)
@@ -71,11 +79,11 @@ struct FakePaksState {
 }
 
 /// A node of the fake SD card.
-private struct FakeSdNode {
+struct FakeSdNode {
     let name: String
     /// Nil for a folder.
     let size: Int64?
-    let modifiedAt: Date
+    var modifiedAt: Date
     var children: [FakeSdNode] = []
 
     var isFolder: Bool { size == nil }
@@ -157,6 +165,10 @@ extension FakePak {
             return guarded { browse(folderId: params["folderId"]) }
         case ("GET", let s) where s.count == 4 && s[0] == "sd" && s[1] == "browse" && s[3] == "content":
             return guarded { sdContent(id: s[2]) }
+        case ("POST", ["sd", "folders"]):
+            return guarded { createSdFolder(body: body) }
+        case ("POST", ["sd", "trash"]):
+            return guarded { trashSdEntries(body: body) }
         default:
             return nil
         }
@@ -345,7 +357,7 @@ extension FakePak {
     }
 
     /// The SD card as it is now (paks and library included).
-    private func sdTree() -> FakeSdNode {
+    func sdTree() -> FakeSdNode {
         let date = ProtocolJSON.parseDate("2026-11-18T17:00:00Z") ?? Date()
         func folder(_ name: String, _ children: [FakeSdNode] = []) -> FakeSdNode {
             FakeSdNode(name: name, size: nil, modifiedAt: date, children: children)
@@ -373,7 +385,7 @@ extension FakePak {
             }
             return folder(system.folder, Array(children.values))
         }
-        return folder("", [
+        var root = folder("", [
             folder(".userdata", [
                 // `ReminisLink/` (client keys, TLS key, trash, staging) is
                 // never listed.
@@ -393,6 +405,8 @@ extension FakePak {
             folder("Saves"),
             folder("Tools", [folder("tg5040", pakFolders("tool"))]),
         ])
+        applySdChanges(to: &root)
+        return root
     }
 
     /// Whether a path names the data of ReminisLink (never listed).
@@ -401,7 +415,7 @@ extension FakePak {
         return lower == ".userdata/shared/reminislink" || lower.hasPrefix(".userdata/shared/reminislink/")
     }
 
-    private func node(at path: String) -> FakeSdNode? {
+    func node(at path: String) -> FakeSdNode? {
         guard !Self.isHidden(path) else { return nil }
         var node = sdTree()
         guard !path.isEmpty else { return node }
@@ -427,9 +441,12 @@ extension FakePak {
         }
         let entries = sorted.prefix(Self.maxSdEntries).map { child -> [String: Any] in
             let childPath = path.isEmpty ? child.name : path + "/" + child.name
+            let protection = Self.sdDeleteProtection(childPath)
             return [
                 "sdEntryId": Self.sdEntryId(childPath), "name": child.name, "kind": child.isFolder ? "folder" : "file",
                 "sizeBytes": child.size.map { $0 as Any } ?? NSNull(), "modifiedAt": ProtocolJSON.formatDate(child.modifiedAt),
+                "deletable": protection == nil, "protection": protection.map { $0 as Any } ?? NSNull(),
+                "version": sdVersion(path: childPath, node: child),
             ]
         }
         let parent = path.split(separator: "/").dropLast().joined(separator: "/")
@@ -437,6 +454,7 @@ extension FakePak {
             "folderId": folderId.map { $0 as Any } ?? NSNull(), "path": path,
             "parentId": parent.isEmpty ? NSNull() : Self.sdEntryId(parent) as Any,
             "entries": Array(entries), "truncated": sorted.count > Self.maxSdEntries,
+            "writable": Self.sdReadOnly(path) == nil,
         ])
     }
 

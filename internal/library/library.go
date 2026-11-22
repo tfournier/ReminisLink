@@ -29,6 +29,9 @@ var ErrNotFound = errors.New("not found")
 type Library struct {
 	adapter osadapter.Adapter
 	layout  store.Layout
+	// protected are places of ReminisLink the SD browser never changes
+	// (ProtectPaths, M23).
+	protected []string
 }
 
 // New returns a library reading the SD card through a, with the
@@ -100,6 +103,8 @@ type GameDetail struct {
 	Kind       string     `json:"kind"`
 	Files      []GameFile `json:"files"`
 	TotalBytes int64      `json:"totalBytes"`
+	// CheatCount (M23): the cheats of its .cht file, as Game.CheatCount.
+	CheatCount int `json:"cheatCount"`
 }
 
 // timestamp is the API form of a date: UTC, whole seconds (RFC 3339).
@@ -187,16 +192,16 @@ func (l *Library) ListGames(systemID, folderID string) (Listing, error) {
 		out.Folders = append(out.Folders, Folder{ID: EncodeID(f.Path), Name: f.Name, GameCount: f.GameCount})
 	}
 	for _, g := range listing.Games {
-		out.Games = append(out.Games, apiGame(g, locks))
+		out.Games = append(out.Games, l.apiGame(g, locks))
 	}
 	return out, nil
 }
 
 // apiGame is the API form of a listed game; locks come from lockedSlots.
-func apiGame(g osadapter.GameSummary, locks map[string]int) Game {
+func (l *Library) apiGame(g osadapter.GameSummary, locks map[string]int) Game {
 	cheatCount := 0
 	if g.CheatFile != "" {
-		cheatCount = countCheats(g.CheatFile)
+		cheatCount = l.cheatCount(g.System.Tag, g.CheatFile)
 	}
 	return Game{
 		ID:               EncodeID(g.Path),
@@ -329,6 +334,9 @@ func (l *Library) Game(gameID string) (GameDetail, error) {
 	for _, f := range files {
 		d.Files = append(d.Files, f.GameFile)
 		d.TotalBytes += f.SizeBytes
+		if f.Role == "cheats" {
+			d.CheatCount = l.cheatCount(g.System.Tag, f.path)
+		}
 	}
 	return d, nil
 }
@@ -495,7 +503,7 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 			if err := ctx.Err(); err != nil {
 				return AllGames{}, err
 			}
-			lg := LibraryGame{Game: apiGame(f.g, locks), SystemID: systemID}
+			lg := LibraryGame{Game: l.apiGame(f.g, locks), SystemID: systemID}
 			if sub, ok := strings.CutPrefix(f.folder, sys.Folder+"/"); ok {
 				id := EncodeID(f.folder)
 				lg.FolderID, lg.FolderPath = &id, &sub
@@ -509,9 +517,27 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 	return out, nil
 }
 
-// countCheats counts the cheats of a .cht file (cheats.CountFile; counted
-// by tests).
-var countCheats = cheats.CountFile
+// cheatCount is the one way the library counts the cheats of a game (the
+// listings, the game detail, the answer of a rename): the .cht is opened
+// like GET /games/{gameId}/files/{fileId}, under Cheats/ through os.Root,
+// no link at any component, inside Cheats/<TAG> (Codex review of M23). A
+// refused or unreadable file counts 0.
+func (l *Library) cheatCount(tag, path string) int {
+	roots := l.adapter.Roots()
+	if _, err := confine.RelToRoot(filepath.Join(roots.Cheats, tag), path); err != nil {
+		return 0
+	}
+	file, _, err := confine.OpenUnder(confine.Base(roots.SD, roots.Cheats), path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	return countCheats(file)
+}
+
+// countCheats counts the cheats of an opened .cht file
+// (cheats.CountReader; counted by tests).
+var countCheats = cheats.CountReader
 
 // errEnough stops a walk that found all it needs.
 var errEnough = errors.New("enough games")

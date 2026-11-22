@@ -87,7 +87,7 @@ struct UploadRow: View {
             switch target {
             case .save: self = .replaceSave
             case .state: self = .replaceState
-            case .rom, .staging: self = .keepBoth
+            case .rom, .staging, .sdFile: self = .keepBoth
             case .pak: self = .installAgain
             }
         }
@@ -113,6 +113,13 @@ struct UploadRow: View {
 
     private var isConflict: Bool {
         (item.failure as? APIError)?.code == .conflict
+    }
+
+    /// M23: the folder of an sd-file upload became protected (`409
+    /// details.protected`): no other name helps.
+    private var protection: SdProtection? {
+        if case .server(let server)? = item.failure as? APIError { return server.sdProtection }
+        return nil
     }
 
     var body: some View {
@@ -193,15 +200,30 @@ struct UploadRow: View {
             Text(resend.explanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        case .failed where isConflict:
-            HStack {
-                Button("Keep Both") { Task { await queue.retry(item, onConflict: .rename) } }
-                Button("Replace") { Task { await queue.retry(item, onConflict: .overwrite) } }
-            }
-            .buttonStyle(.bordered)
-            Text("Replace moves the file on the console to its trash.")
+        case .failed where protection != nil:
+            // No Keep Both: another name does not lift the protection.
+            Text("The console protects this folder: the file cannot be added there. Choose another folder in Files.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("upload.protected")
+        case .failed where isConflict:
+            if case .sdFile = item.target {
+                // M23: a file of the SD browser is never replaced.
+                Button("Keep Both") { Task { await queue.retry(item, onConflict: .rename) } }
+                    .buttonStyle(.bordered)
+                Text("A file of the same name is already in this folder. Keep Both adds a number to the new one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Button("Keep Both") { Task { await queue.retry(item, onConflict: .rename) } }
+                    Button("Replace") { Task { await queue.retry(item, onConflict: .overwrite) } }
+                }
+                .buttonStyle(.bordered)
+                Text("Replace moves the file on the console to its trash.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         case .failed:
             Button("Try Again") { queue.resume(item) }
                 .buttonStyle(.bordered)
@@ -254,6 +276,8 @@ struct UploadRow: View {
         return switch target {
         case .save, .state: AppError.gameData(failure).message
         case .pak: AppError.pak(failure).message
+        // M23: a protected folder is said as such, never as a taken name.
+        case .sdFile: AppError.sdWrite(failure).message
         default: AppError(failure).message
         }
     }

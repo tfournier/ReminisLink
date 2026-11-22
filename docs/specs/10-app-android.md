@@ -105,6 +105,8 @@ Pas encore : désappairage côté console (`DELETE /clients/me`), historique de 
 
 Synchronisation des états (`GET /states`, M19) : avec celle des sauvegardes, en attente d'une décision (dossier choisi par l'utilisateur, §6 quinquies).
 
+TODO(M23) : onglets Console, Bibliothèque, Apps, Fichiers (Transferts et Corbeille ouverts depuis l'onglet Console, avec leurs compteurs) ; écritures du navigateur de la carte (cible d'envoi `sd-file` sans jamais remplacer, `POST /sd/folders`, `POST /sd/trash` avec confirmation qui nomme les éléments, `writable` / `deletable` / `protection`) ; **Renommer…** sur la fiche d'un jeu (`POST /games/{gameId}/rename`, règles de nom de `GameNameRule`, nouveau `gameId`) ; nombre de codes de triche (`cheatCount` de `GET /games/{gameId}`), comme iOS 06 §4 et §11.
+
 ## 6 ter. Quatrième incrément
 
 ### Événements (M14, 04 `GET /events`)

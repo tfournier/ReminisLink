@@ -630,6 +630,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
             if let response = routeScreenshots(method: method, segments: segments, body: body) {
                 return response
             }
+            if let response = routeFiles(method: method, segments: segments, body: body) {
+                return response
+            }
             return .error(404, code: "not_found", message: "No route")
         }
     }
@@ -852,6 +855,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         return .json(200, [
             "id": id, "systemId": system.id, "name": game.name, "fileName": game.fileName,
             "kind": game.kind.rawValue, "files": files, "totalBytes": total,
+            "cheatCount": currentData(system: system, game: game).cheats.count,
         ])
     }
 
@@ -976,6 +980,8 @@ extension FakePak {
         case staging(fileName: String?)
         /// Milestone M12: a pak archive (`pakKind`: auto, tool or emu).
         case pak(kind: String, fileName: String?)
+        /// Milestone M23: a file added to a folder of the SD browser.
+        case sdFile(folder: String, fileName: String)
     }
 
     fileprivate enum ParsedTarget {
@@ -1046,6 +1052,14 @@ extension FakePak {
                 return .refused(.error(400, code: "invalid_request", message: "Invalid pakKind"))
             }
             return .ok(.pak(kind: pakKind, fileName: fileName))
+        case "sd-file":
+            guard let fileName else {
+                return .refused(.error(400, code: "invalid_request", message: "Missing fileName"))
+            }
+            switch sdWritableFolder(t["folderId"]) {
+            case .success(let folder): return .ok(.sdFile(folder: folder, fileName: fileName))
+            case .failure(let refusal): return .refused(refusal.response)
+            }
         default:
             return .refused(.error(400, code: "invalid_request", message: "Unknown target kind"))
         }
@@ -1076,6 +1090,12 @@ extension FakePak {
             guard size <= Self.maxPakArchiveBytes else {
                 return .error(413, code: "too_large", message: "Pak archive larger than 1 GiB")
             }
+        }
+        if case .sdFile(let folder, let name) = target {
+            guard onConflict != "overwrite" else {
+                return .error(400, code: "invalid_request", message: "overwrite is not allowed for an sd-file target")
+            }
+            if onConflict == "fail", let refusal = sdConflict(folder: folder, name: name) { return refusal }
         }
         if case .rom(let system, let folder, let name?) = target, onConflict == "fail" {
             let path = gamePath(system, folder: folder, name: name)
@@ -1246,6 +1266,8 @@ extension FakePak {
         case .pak(let kind, let name):
             // A downloaded archive (M12): installed by its download job.
             return installPak(FakePakPlan(sourceName: name ?? fallbackName, kind: kind, onConflict: onConflict))
+        case .sdFile(let folder, let name):
+            return storeSdFile(folder: folder, name: name, sizeBytes: sizeBytes, onConflict: onConflict)
         }
     }
 

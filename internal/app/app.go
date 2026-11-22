@@ -221,6 +221,9 @@ func Open(opts Options) (a *App, err error) {
 		return a, err
 	}
 	a.lib = library.New(a.adapter, a.layout)
+	// The folder of the running pak is never changed through the SD card
+	// browser (M23).
+	a.lib.ProtectPaths(selfPakDir())
 	a.trash = store.NewTrash(a.layout, opts.Roots.SD, nil, logger)
 	// From here config.json is only written through a.config.
 	a.config = store.NewConfigFile(a.layout.ConfigFile())

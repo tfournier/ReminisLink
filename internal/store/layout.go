@@ -36,3 +36,7 @@ func (l Layout) PatchesDir() string { return filepath.Join(l.Root, "patches") }
 
 // TLSDir holds the certificate of the pak and its private key (M13).
 func (l Layout) TLSDir() string { return filepath.Join(l.Root, "tls") }
+
+// RenamesDir holds the journals of the renames in progress (M23): one
+// folder per rename, removed once it is done.
+func (l Layout) RenamesDir() string { return filepath.Join(l.Root, "renames") }

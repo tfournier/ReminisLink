@@ -19,6 +19,7 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | GET | `/games/{gameId}/files/{fileId}` | Télécharger un fichier du jeu (M11) |
 | GET | `/games/{gameId}/art` | Jaquette (PNG) |
 | DELETE | `/games/{gameId}` | Supprimer un jeu et ses données (vers la corbeille) |
+| POST | `/games/{gameId}/rename` | Renommer un jeu et tous ses fichiers (journalisé, M23) |
 | GET | `/trash` | Contenu et taille de la corbeille |
 | DELETE | `/trash` | Vider la corbeille |
 | DELETE | `/trash/{entryId}` | Supprimer définitivement une entrée de la corbeille |
@@ -53,8 +54,10 @@ Toutes les routes commencent par `/api/v1`. Sauf mention contraire, elles sont *
 | GET | `/archives/{stagingId}` | Vérifier une archive envoyée et prévoir son import (M19) |
 | DELETE | `/archives/{stagingId}` | Supprimer une archive envoyée abandonnée (M19) |
 | POST | `/archives/{stagingId}/import` | Importer une archive (crée une tâche, M19) |
-| GET | `/sd/browse` | Contenu d'un dossier de la carte SD, en lecture (M12) |
+| GET | `/sd/browse` | Contenu d'un dossier de la carte SD (M12 ; `writable`, `deletable` en M23) |
 | GET | `/sd/browse/{sdEntryId}/content` | Télécharger un fichier de la carte SD (M12) |
+| POST | `/sd/folders` | Créer un dossier dans le navigateur de la carte (M23) |
+| POST | `/sd/trash` | Mettre des fichiers et dossiers de la carte à la corbeille (M23) |
 | GET | `/screenshots` | Captures d'écran prises sur la console (M22) |
 | GET | `/screenshots/{screenshotId}` | Télécharger une capture d'écran (M22) |
 | GET | `/screenshots/{screenshotId}/thumbnail` | Aperçu réduit d'une capture (JPEG, M22) |
@@ -301,9 +304,12 @@ Tous les jeux de tous les systèmes de `GET /systems` (avec ou sans émulateur),
     { "fileId": "...", "role": "cheats","path": "Cheats/GBA/Sky Garden Quest.gba.cht", "sizeBytes": 2048, "modifiedAt": "..." },
     { "fileId": "...", "role": "art",   "path": "Roms/Game Boy Advance (GBA)/.media/Sky Garden Quest.png", "sizeBytes": 50211, "modifiedAt": "..." }
   ],
-  "totalBytes": 17377096
+  "totalBytes": 17377096,
+  "cheatCount": 12
 }
 ```
+
+`cheatCount` (M23, facultatif : absent d'un pak plus ancien) : le nombre de codes de triche du `.cht`, comme `cheatCount` de la liste des jeux ; la fiche l'affiche au lieu de « Oui ». Le `.cht` est ouvert comme par `GET /games/{gameId}/files/{fileId}` (confiné, jamais à travers un lien) ; refusé ou illisible : 0.
 
 `path` est **informatif** (affiché à l'utilisateur, relatif à la racine de la carte SD). L'app ne DOIT jamais le renvoyer au serveur.
 
@@ -604,6 +610,7 @@ Liste les fichiers utilisables de la carte SD : `.cht` sous `Cheats/` pour `type
 | `state` | `gameId`, `slot` | Un emplacement de state (refusé si verrouillé) |
 | `staging` | `fileName` | Zone temporaire ReminisLink, pour un patch ou un `.cht` à importer ensuite (supprimée après 24 h) |
 | `pak` | `pakKind` (`tool`, `emu`, `auto` par défaut), `fileName` (nom de l'archive : affiché sur la console, et nom de repli d'une archive « à plat » sans `name` utilisable dans son `pak.json`) | Archive zip d'un pak, installée par une tâche `pak-install` (M12, voir `POST /paks/install`) ; 1 Gio au plus (`413 too_large`) |
+| `sd-file` | `folderId` (`sdEntryId` d'un dossier `writable` du navigateur, `null` pour la racine de la carte), `fileName` | Un fichier ajouté depuis l'onglet Fichiers (M23) : jamais de remplacement (`onConflict` `fail` ou `rename` seulement, `overwrite` → `400`) ; conflit vérifié à la création et à la fin (`409 conflict`, `details.existing` et `details.freeName`, le nom que `rename` donnerait) ; dossier protégé → `409` avec `details.protected` ; dans `Roms/`, le fichier devient un jeu si l'OS le liste |
 
 `onConflict` : `fail` (par défaut, `409 conflict`), `rename` (ajoute ` (2)`, ` (3)`...), `overwrite` (l'ancien fichier part dans la corbeille). Ne s'applique qu'aux cibles `rom`, `staging` et `pak` (pour `pak`, `fail` ou `overwrite` seulement ; le nom du pak n'est connu qu'à la lecture de l'archive, le conflit est donc vérifié par la tâche d'installation) : pour `save` et `state`, le fichier existant est toujours remplacé, après avoir été mis à la corbeille (M4 ; M5 y ajoute la copie de sauvegarde `before-replace`).
 
@@ -625,7 +632,7 @@ En-têtes : `Upload-Offset`, `Content-Length`, `X-RL-Content-SHA256: UNSIGNED`. 
 
 ### `POST /uploads/{uploadId}/complete`
 
-Réponse `200` selon la cible : `{ "gameId": "..." }` (`rom`), `{ "backup": {...} }` (`save`), `{ "slot": {...} }` (`state`), `{ "stagingId": "..." }` (`staging`) ou `{ "jobId": "..." }` (`pak`, M12 : l'archive passe dans la zone d'attente, l'envoi est terminé, et une tâche `pak-install` l'installe ; extraire jusqu'à 1 Gio peut durer plus longtemps qu'une requête). Le résultat de la tâche est `{ "pakId": "..." }`.
+Réponse `200` selon la cible : `{ "gameId": "..." }` (`rom`), `{ "backup": {...} }` (`save`), `{ "slot": {...} }` (`state`), `{ "stagingId": "..." }` (`staging`), `{ "sdEntryId": "..." }` (`sd-file`, M23) ou `{ "jobId": "..." }` (`pak`, M12 : l'archive passe dans la zone d'attente, l'envoi est terminé, et une tâche `pak-install` l'installe ; extraire jusqu'à 1 Gio peut durer plus longtemps qu'une requête). Le résultat de la tâche est `{ "pakId": "..." }`.
 
 ### `POST /downloads` (retiré le 20/11/2026 et écarté, décision de la personne)
 
@@ -727,6 +734,27 @@ Consultation seule en M12. Identifiants `sdEntryId` opaques, résolus par le pak
 ### `GET /sd/browse/{sdEntryId}/content`
 
 Le fichier entier, comme `GET /games/{gameId}/files/{fileId}` (`Content-Disposition`, `Content-Length`, pas de `Range`). Dossier, lien, chemin passant par un lien, fichier absent ou données de ReminisLink : `404 not_found`.
+
+### Écritures du navigateur (M23)
+
+L'onglet **Fichiers** de l'app ajoute des fichiers (cible d'envoi `sd-file`), crée des dossiers et met des fichiers ou des dossiers à la corbeille. Toujours par identifiants opaques (règle 2) ; écritures sous le verrou d'écriture ; un événement `library` suit (systèmes inconnus : tout est relu).
+
+- **`writable`** (dossier) et **`deletable`** / **`protection`** (entrée) dans `GET /sd/browse` : ce que le pak accepte, selon les règles de protection (`SdProtection`, détaillées en [05 §3.4](05-console-pak.md#34-emplacements-protégés-du-navigateur-de-la-carte-m23)) : `system` (dossier dont l'OS a besoin, lecture seule avec tout son contenu), `data` (ReminisLink lui-même : ses données, le dossier du pak en cours, le lanceur Knulli), `root` (dossier principal de l'OS, racine de la carte, ou dossier qui contient un emplacement protégé : jamais à la corbeille, mais on peut y ajouter), `link` (dossier qui contient un lien symbolique ou un fichier spécial, refusé seulement au moment de la mise à la corbeille). Absents d'un pak plus ancien : lecture seule.
+- **`POST /sd/folders`** `{ "parentId": "se_..." | null, "name": "Hacks" }` → `201` avec l'entrée créée. Nom nettoyé comme un nom de fichier d'envoi (`400 invalid_name`) ; parent protégé → `409` avec `details.protected` ; nom pris (sans tenir compte de la casse là où le système de fichiers l'ignore) → `409` avec `details.existing` ; parent disparu → `404`.
+- **`POST /sd/trash`** `{ "items": [ { "sdEntryId": "se_...", "sizeBytes": 512, "modifiedAt": "...", "version": "v1-..." } ] }` (1 à 100, doublons comptés une fois ; une entrée contenue dans une autre de la liste part avec elle) → `200` `TrashMoveResult`, **une** entrée de corbeille de raison `delete-file` (libellé : le nom, ou `<n> items`). Tout ou rien : identifiant illisible → `400 invalid_id` ; entrée absente, lien ou atteinte par un lien → `404` avec `details.missing` ; entrée protégée ou dossier contenant un lien → `409` avec `details.protected` (raison de la première) et `details.refused`. Chaque élément porte la version que le client a affichée (`sizeBytes`, `modifiedAt` et `version`, opaque, de l'entrée listée, tous obligatoires, `sizeBytes` présent et `null` pour un dossier, `version` non vide, sinon `400` ; la `version` est faite du type, de la taille et de la date en nanosecondes, jamais de l'inode, que le pilote exFAT de Linux numérote en mémoire ; revue Codex de M23) : le pak la compare à l'entrée de la carte avant tout déplacement, si bien qu'un fichier remplacé depuis par un autre client n'est jamais mis à la corbeille à sa place ; pour un dossier, sa date (et sa `version`), qui change quand on y ajoute ou retire une entrée. Une différence → `409` avec `details.changed` (ordre des contrôles : absent, protégé, changé) ; l'app relit le dossier. Ensuite, un fichier n'est déplacé que s'il est encore celui vérifié (même appareil et inode). `POST /trash/{entryId}/restore` remet tout à sa place (M18, règle générique : `rename` donne `<nom> (2)`, `replace` → `422 not-a-save`).
+
+## Renommer un jeu (M23)
+
+### `POST /games/{gameId}/rename`
+
+`{ "name": "Sky Garden Quest (Europe)" }` → `200` `{ "game": Game, "renamed": [ { "from": "...", "to": "..." } ] }` : le jeu sous son nouvel identifiant (le `gameId` change) et les fichiers renommés (chemins informatifs, les copies de ReminisLink en `ReminisLink/...`).
+
+- `name` est le nouveau nom **sans** l'extension : l'extension de la ROM (ou de la playlist d'un jeu dossier) est gardée. Normalisé en NFC ; refusé (`400 invalid_name`) s'il est vide, contient `/`, `\`, un caractère de contrôle ou de mise en forme, un caractère interdit par exFAT (`" * : < > ? |`, jamais remplacé par `_` comme dans un envoi), commence par un point, finit par une espace ou un point, est réservé par Windows, est un nom que l'OS ne listerait pas comme ce jeu (règle de l'adaptateur, `IsGameName` : dossier de médias de Knulli comme `videos` ou `images`, dossier `.pak`, extension ignorée par la bibliothèque ; revue Codex de M23), ou si un des noms renommés dépasse 255 octets. Rien ne bouge alors. Le même nom ne change rien (`200`, `renamed` vide) ; un nom qui ne diffère que par la casse est renommé (en deux temps sur exFAT).
+- Sont renommés, selon les règles de l'adaptateur ([05 §3](05-console-pak.md#3-adaptateur-dos)) : la ROM (un `.m3u` seul, sans ses disques ; le dossier d'un jeu dossier et sa playlist `.m3u` ou `.cue`, les disques gardant leur nom), la save et son `.rtc`, les states et leurs fichiers annexes (vignettes et disques de `.minui` sur NextUI, vignettes sur Knulli), le `.cht` et son `.cht.bak` (seul aussi, quand la liste a été vidée), la jaquette, et les copies de ReminisLink (dossiers des verrous de states, des copies de save et de l'historique de reprise). Une jaquette partagée avec un autre jeu (Knulli K5) reste en place.
+- Jamais d'écrasement : un nouveau nom pris (par un autre fichier, ou par un autre jeu du même tag, qui partagerait alors la save et les states ; comparé sur la clé des données : le nom complet sur NextUI, le nom sans extension sur Knulli) → `409 conflict` avec `details.conflicts` (emplacements pris), rien n'est renommé ; jeu dont un autre jeu du même tag partage la save et les states (même clé : `Ridge.chd` et `Ridge.pbp` sur Knulli, deux `Game.gba` dans deux dossiers sur NextUI), ou jeu dossier dont une autre playlist du système liste les disques → `409` avec `details.shared: true` (revue Codex de M23). Saves ou states dans un format que le pak ne nomme pas → `422 unsupported_format`.
+- **Journal** : avant le premier renommage, un journal `ReminisLink/renames/<id>/journal.json` liste toutes les étapes (le nom temporaire caché d'une étape qui ne change que la casse, et l'identité — appareil et inode — de l'entrée qui bouge) ; il est effacé une fois la dernière faite et synchronisée. Un journal trouvé au lancement est un renommage interrompu par une coupure : chaque étape est défaite, la dernière d'abord, sans jamais remplacer un fichier ni toucher une autre entrée trouvée au nouveau nom (identité différente) ; les dossiers qui existent après le retour en arrière sont synchronisés avant d'effacer le journal (jamais un chemin disparu) : le jeu est entièrement renommé ou pas du tout.
+- **Relecture avant validation** : une fois tout renommé, le jeu doit être listé sous son nouveau nom (une playlist qui nomme déjà le nouveau fichier en ferait un de ses disques) ; sinon `409` avec `details.conflicts` et tout revient. `200` seulement quand le journal est effacé pour de bon (suppression synchronisée) ; sinon le renommage est défait et la réponse est `500`. Tags et clés comparés sans tenir compte de la casse (revue Codex de M23, tour 2).
+- Route d'écriture ; événement `library` ensuite.
 
 ## Captures d'écran (M22)
 

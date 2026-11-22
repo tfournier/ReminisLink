@@ -53,6 +53,23 @@ type ScreenshotName struct {
 	TakenAt time.Time
 }
 
+// SDRules are the places of the SD card the browser never changes (M23,
+// docs/specs/05-console-pak.md §3.4), as absolute paths. Library adds
+// the ReminisLink data folder and the running pak.
+type SDRules struct {
+	// System are read only with everything in them (folders the OS needs).
+	System []string
+	// HiddenRootSystem: every entry whose name starts with "." at the root
+	// of the card is System too.
+	HiddenRootSystem bool
+	// Roots are the main folders of the OS: never moved to the trash,
+	// files and folders can be added in them.
+	Roots []string
+	// Data are places of ReminisLink itself (besides Roots.Data and
+	// Roots.Pak): never changed.
+	Data []string
+}
+
 // System is a folder of Roms/ with a "(TAG)" suffix.
 type System struct {
 	Folder string // folder name under Roms/ (source of the systemId)
@@ -238,6 +255,12 @@ type Adapter interface {
 	// IsSystemGameFile reports whether a file named name, in a folder of
 	// sys, is listed as a game (Knulli: one of the system's extensions).
 	IsSystemGameFile(sys System, name string) bool
+	// IsGameName reports whether a game of sys may be named name: a file
+	// the library lists as a game, or a folder it does not skip (hidden,
+	// a media folder of the OS such as Knulli's videos, a .pak folder that
+	// NextUI launches as a pak). The rename of a game refuses the others
+	// (M23).
+	IsGameName(sys System, name string, folder bool) bool
 
 	// SaveDir reads the save folder of a tag once, to find the save and
 	// the clock file of many games with the same rule as GameFiles (GET
@@ -284,6 +307,9 @@ type Adapter interface {
 	// ScreenshotName reads the file name of a screenshot of
 	// Roots().Screenshots as the OS writes it (M22).
 	ScreenshotName(name string) ScreenshotName
+
+	// SDRules are the protected places of the SD card browser (M23).
+	SDRules() SDRules
 
 	DeviceInfo() (DeviceInfo, error)
 }

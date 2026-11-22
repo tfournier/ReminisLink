@@ -434,10 +434,13 @@ public struct GameDetail: Codable, Sendable, Equatable {
     public let kind: GameKind
     public let files: [GameFile]
     public let totalBytes: Int64
+    /// M23: the number of cheats (nil from an older pak: only whether it
+    /// has a cheat file is known, ``hasCheats``).
+    public let cheatCount: Int?
 
     public init(
         id: String, systemId: String, name: String, fileName: String, kind: GameKind,
-        files: [GameFile], totalBytes: Int64
+        files: [GameFile], totalBytes: Int64, cheatCount: Int? = nil
     ) {
         self.id = id
         self.systemId = systemId
@@ -446,6 +449,7 @@ public struct GameDetail: Codable, Sendable, Equatable {
         self.kind = kind
         self.files = files
         self.totalBytes = totalBytes
+        self.cheatCount = cheatCount
     }
 
     public var hasSave: Bool { files.contains { $0.role == .save } }

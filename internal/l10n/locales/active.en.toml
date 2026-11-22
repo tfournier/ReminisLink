@@ -201,8 +201,20 @@ other = "Cheats updated"
 
 
 
+[notice_file_added]
+other = "File added"
+
+[notice_files_deleted]
+other = "Files moved to the trash"
+
+[notice_folder_created]
+other = "Folder created"
+
 [notice_game_deleted]
 other = "Game moved to the trash"
+
+[notice_game_renamed]
+other = "Game renamed"
 
 [notice_paired]
 other = "Paired with {{.Name}}"

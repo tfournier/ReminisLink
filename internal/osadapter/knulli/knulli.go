@@ -215,6 +215,7 @@ func New(roots osadapter.Roots, env nextui.Env) Adapter {
 			return filepath.Join(roots.Roms, sys.Folder, "images")
 		},
 		ArtName:    func(g osadapter.Game) string { return stem(path.Base(g.Path)) + "-image.png" },
+		SDRules:    sdRules,
 		DeviceInfo: d.info,
 		Battery:    d.battery,
 	})}

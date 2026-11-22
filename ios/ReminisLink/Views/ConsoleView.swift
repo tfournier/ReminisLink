@@ -2,8 +2,9 @@ import ReminisLinkKit
 import SwiftUI
 
 /// Dashboard of a console (docs/specs/06-app-ios.md §4.3), its Console tab
-/// (M11: the library, transfers and trash have their own tabs, and nothing
-/// is added from here).
+/// (M11: the library has its own tab, and nothing is added from here; M23:
+/// the transfers and the trash open from here, the apps and the files of
+/// the SD card have their own tabs).
 struct ConsoleView: View {
     @Environment(AppModel.self) private var app
     let deviceId: String
@@ -31,6 +32,35 @@ struct ConsoleView: View {
 
             SaveSyncSection(deviceId: deviceId, isConnected: session.state == .connected)
 
+            // M23: the transfers and the trash (no longer tabs, shown
+            // even while offline: paused uploads), and the screenshots (M22).
+            Section {
+                NavigationLink(value: Route.transfers(deviceId)) {
+                    LabeledContent {
+                        if activeTransfers(session) > 0 {
+                            CountBadge(count: activeTransfers(session))
+                        }
+                    } label: {
+                        Label("Transfers", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+                .accessibilityIdentifier("console.transfers")
+                NavigationLink(value: Route.trash(deviceId)) {
+                    LabeledContent {
+                        if let count = session.trash?.entries.count, count > 0 {
+                            Text(count, format: .number).foregroundStyle(.secondary)
+                        }
+                    } label: {
+                        Label("Trash", systemImage: "trash")
+                    }
+                }
+                .accessibilityIdentifier("console.trash")
+                NavigationLink(value: Route.screenshots(deviceId)) {
+                    Label("Screenshots", systemImage: "camera.viewfinder")
+                }
+                .accessibilityIdentifier("console.screenshots")
+            }
+
             if let status = session.status {
                 Section("Console") {
                     LabeledContent("Name", value: status.deviceName)
@@ -49,32 +79,22 @@ struct ConsoleView: View {
                         }
                     }
                 }
-                // M12: the apps of the console, and its SD card (read only).
-                Section {
-                    NavigationLink(value: Route.paks(deviceId)) {
-                        Label("Apps", systemImage: "square.stack.3d.down.right")
-                    }
-                    .accessibilityIdentifier("console.paks")
-                    // M22: the screenshots taken on the console.
-                    NavigationLink(value: Route.screenshots(deviceId)) {
-                        Label("Screenshots", systemImage: "camera.viewfinder")
-                    }
-                    .accessibilityIdentifier("console.screenshots")
-                } footer: {
-                    Text("The tools and emulators installed on the console, and the screenshots taken on it.")
-                }
                 Section {
                     ForEach(status.storage) { storage in
-                        NavigationLink(value: Route.sdFolder(SdFolderRoute(deviceId: deviceId, folderId: nil, title: storage.label))) {
+                        Button {
+                            app.consoleTab = .files
+                        } label: {
                             StorageBar(storage: storage, trashBytes: session.trash?.totalBytes)
+                                .contentShape(Rectangle())
                         }
-                        .accessibilityHint(Text("Browse the SD card"))
+                        .buttonStyle(.plain)
+                        .accessibilityHint(Text("Opens the Files tab"))
                         .accessibilityIdentifier("console.storage")
                     }
                 } header: {
                     Text("Storage")
                 } footer: {
-                    Text("Tap to browse the SD card (read only).")
+                    Text("Tap to browse the SD card in the Files tab.")
                 }
                 ConnectedClientsSection(clients: status.connectedClients)
             }
@@ -100,6 +120,10 @@ struct ConsoleView: View {
             }
         }
         .refreshable { await session.refresh() }
+        // The count of the Trash row.
+        .task(id: session.state == .connected) {
+            if session.state == .connected { await session.loadTrash() }
+        }
         .confirmationDialog("Unpair this console?", isPresented: $confirmUnpair, titleVisibility: .visible) {
             Button("Unpair", role: .destructive) {
                 Task {
@@ -114,6 +138,29 @@ struct ConsoleView: View {
         } message: {
             Text("The console will forget this iPhone. To reconnect, pair it again: on the console, open Settings > Pair a New Device and scan the QR code.")
         }
+    }
+}
+
+extension ConsoleView {
+    /// The uploads and jobs still running (the badge of the Transfers row).
+    func activeTransfers(_ session: ConsoleSession) -> Int {
+        session.transfers.uploads.filter { !$0.phase.isFinished }.count
+            + session.transfers.jobs.filter { !$0.isFinished }.count
+    }
+}
+
+/// A count in a capsule, as a tab badge (the Transfers row, M23).
+struct CountBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text(count, format: .number)
+            .font(.caption.bold().monospacedDigit())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.red))
+            .accessibilityLabel(Text("\(count) in progress"))
     }
 }
 

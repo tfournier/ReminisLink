@@ -73,13 +73,32 @@ struct ErgonomicsAppTests {
         #expect(app.consoleTab == .library)
         #expect(app.tabPaths[.library] == [])
 
-        // As the Add screen after an upload: the Transfers tab.
+        // As the Add screen after an upload: Transfers, pushed in the
+        // Console tab (M23: no longer a tab).
         app.path = [.console(id), .transfers(id)]
-        #expect(app.consoleTab == .transfers)
-        #expect(app.path.last == .transfers(id))
+        #expect(app.consoleTab == .console)
+        #expect(app.tabPaths[.console] == [.transfers(id)])
+        #expect(app.path == [.console(id), .transfers(id)])
+        // The trash too.
+        app.path = [.console(id), .trash(id)]
+        #expect(app.consoleTab == .console && app.path == [.console(id), .trash(id)])
         // The Library tab kept its screens (same console).
         app.consoleTab = .library
         #expect(app.path == [.console(id), .library(id)])
+
+        // M23: the Apps and Files tabs, and a folder pushed in Files.
+        app.path = [.console(id), .paks(id)]
+        #expect(app.consoleTab == .apps && app.path == [.console(id), .paks(id)])
+        let folder = SdFolderRoute(deviceId: id, folderId: "se_Um9tcw", title: "Roms")
+        app.path = [.console(id), .sdFolder(.root(id)), .sdFolder(folder)]
+        #expect(app.consoleTab == .files)
+        #expect(app.tabPaths[.files] == [.sdFolder(folder)])
+        #expect(app.path == [.console(id), .sdFolder(.root(id)), .sdFolder(folder)])
+        // Each tab keeps its own screens.
+        app.consoleTab = .console
+        #expect(app.path == [.console(id), .trash(id)])
+        app.consoleTab = .files
+        #expect(app.path.last == .sdFolder(folder))
 
         // The dashboard: the Console tab.
         app.path = [.console(id)]

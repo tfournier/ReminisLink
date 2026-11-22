@@ -27,6 +27,11 @@ struct GameDetailView: View {
     @State private var archiveError: AppError?
     @State private var askArchive = false
     @State private var archiveImport: ArchiveImportContext?
+    /// M23: the rename of the game.
+    @State private var isRenaming = false
+    @State private var newName = ""
+    @State private var renameError: AppError?
+    @State private var isRenamingNow = false
 
     /// The Patch screen closed by itself on this game (docs/specs/06-app-ios.md §4.5).
     private var patchNotice: PatchNotice? {
@@ -100,7 +105,12 @@ struct GameDetailView: View {
                     .accessibilityIdentifier("game.states")
                     NavigationLink(value: Route.cheats(route)) {
                         LabeledContent {
-                            Text(detail.hasCheats ? "Yes" : "No")
+                            // M23: the number, from a pak that gives it.
+                            if let count = detail.cheatCount {
+                                Text(count, format: .number)
+                            } else {
+                                Text(detail.hasCheats ? "Yes" : "No")
+                            }
                         } label: {
                             Label("Cheats", systemImage: "wand.and.stars")
                         }
@@ -149,6 +159,23 @@ struct GameDetailView: View {
                 }
                 archiveSection(detail)
                 Section {
+                    if let renameError {
+                        ErrorView(error: renameError)
+                    }
+                    Button {
+                        newName = GameNameRule.editableName(fileName: detail.fileName, isFolder: detail.kind.isFolder)
+                        isRenaming = true
+                    } label: {
+                        HStack {
+                            Label("Rename…", systemImage: "pencil")
+                            if isRenamingNow {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isRenamingNow)
+                    .accessibilityIdentifier("game.rename")
                     Button("Delete…", role: .destructive) {
                         toDelete = DeleteTarget(deviceId: route.deviceId, gameId: route.gameId, name: detail.name)
                     }
@@ -203,11 +230,56 @@ struct GameDetailView: View {
         } message: {
             Text("A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this iPhone or import on another console.")
         }
+        .alert("Rename the Game", isPresented: $isRenaming) {
+            TextField("Name", text: $newName)
+                .accessibilityIdentifier("game.rename.name")
+            Button("Rename") { Task { await rename() } }
+                .accessibilityIdentifier("game.rename.confirm")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(renameMessage)
+        }
         .sheet(item: $toDelete, onDismiss: {
             // The game is gone: back to its folder.
             if deleted, app.path.last == .game(route) { app.path.removeLast() }
         }) { target in
             DeleteGameView(target: target, onDeleted: { deleted = true })
+        }
+    }
+
+    /// What the rename keeps and does (the extension, the files that follow).
+    private var renameMessage: String {
+        let ext = detail.map { GameNameRule.keptExtension(fileName: $0.fileName, isFolder: $0.kind.isFolder) } ?? ""
+        let follows = String(localized: "Its save, states, cheats and art are renamed with it, never over another file.")
+        return ext.isEmpty ? follows : String(localized: "The extension \(ext) is kept.") + " " + follows
+    }
+
+    /// M23: renames the game, then shows it under its new identifier.
+    private func rename() async {
+        guard let detail else { return }
+        let ext = GameNameRule.keptExtension(fileName: detail.fileName, isFolder: detail.kind.isFolder)
+        if let problem = GameNameRule.problem(newName, fileExtension: ext) {
+            renameError = .gameNameProblem(problem)
+            return
+        }
+        isRenamingNow = true
+        defer { isRenamingNow = false }
+        do {
+            let result = try await app.session(for: route.deviceId).renameGame(id: route.gameId, name: newName)
+            renameError = nil
+            let renamed = GameRoute(
+                deviceId: route.deviceId, gameId: result.game.id, systemLabel: route.systemLabel,
+                name: result.game.name, hasArt: result.game.hasArt, fileName: result.game.fileName
+            )
+            var path = app.path
+            if let index = path.lastIndex(of: .game(route)) {
+                // Screens pushed above the game named the old one.
+                path = Array(path[..<index]) + [.game(renamed)]
+                app.path = path
+            }
+        } catch {
+            let error = AppError(error)
+            if !error.isCancellation { renameError = error }
         }
     }
 

@@ -197,13 +197,23 @@ func validTag(tag string) bool {
 	return tag != "" && tag != "." && tag != ".." && strings.TrimSpace(tag) == tag && !strings.ContainsAny(tag, `/\`)
 }
 
+// ShortcutTag is the tag of the tool shortcuts made by the third-party
+// Shortcuts pak (Helaas/nextui-shortcuts-pak, src/device.c
+// create_tool_shortcut): a folder "Roms/<name> (SHORTCUT)/" holding a
+// .m3u that points at a pak of Tools/, launched by its bridge emulator
+// Emus/<platform>/SHORTCUT.pak. Such a folder launches a tool, it holds
+// no game: it is not a system of the library (M23). Its ROM shortcuts
+// ("Roms/<name> (<TAG>)/" with a .shortcut file) are still listed (TODO
+// in docs/specs/09-feuille-de-route.md, M23).
+const ShortcutTag = "SHORTCUT"
+
 // parseSystem returns the system stored in a folder of Roms/.
 func parseSystem(folder string) (osadapter.System, bool) {
 	if hidden(folder) || strings.ContainsAny(folder, `/\`) {
 		return osadapter.System{}, false
 	}
 	m := tagRe.FindStringSubmatch(folder)
-	if m == nil || !validTag(m[1]) {
+	if m == nil || !validTag(m[1]) || m[1] == ShortcutTag {
 		return osadapter.System{}, false
 	}
 	label := leadingNum.ReplaceAllString(folder, "")

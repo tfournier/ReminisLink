@@ -65,7 +65,7 @@ final class ScreenshotsUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["error"].exists, "an error is shown")
 
         // The trash of the console holds them, in one entry.
-        app.consoleTabs["Trash"].tap()
+        app.openTrash()
         XCTAssertTrue(app.staticTexts["2 screenshots"].waitForExistence(timeout: 10), "no trash entry for the screenshots")
         attachScreenshot(of: app, named: "screenshots-trash")
     }

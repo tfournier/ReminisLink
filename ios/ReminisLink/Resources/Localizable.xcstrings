@@ -211,6 +211,16 @@
         }
       }
     },
+    "%lld files are being sent. Follow them in Transfers, on the Console tab." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi de %lld fichiers. Suis-les dans Transferts, dans l’onglet Console."
+          }
+        }
+      }
+    },
     "%lld files could not be copied" : {
       "localizations" : {
         "en" : {
@@ -411,6 +421,16 @@
         }
       }
     },
+    "%lld in progress" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld en cours"
+          }
+        }
+      }
+    },
     "%lld locked states" : {
       "localizations" : {
         "en" : {
@@ -591,6 +611,16 @@
         }
       }
     },
+    "A file of the same name is already in this folder. Keep Both adds a number to the new one." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier du même nom est déjà dans ce dossier. « Garder les deux » ajoute un numéro au nouveau."
+          }
+        }
+      }
+    },
     "A file with the same name is already on the SD card. ReminisLink never replaces it without asking." : {
       "localizations" : {
         "fr" : {
@@ -627,6 +657,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un verrou garde une copie de l’état sur la console. Il ne peut pas empêcher un jeu d’écraser l’état : l’état est restauré à la prochaine ouverture de ReminisLink sur la console s’il a été écrasé en jeu."
+          }
+        }
+      }
+    },
+    "A name cannot end with a space or a dot." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nom ne peut pas finir par une espace ou un point."
+          }
+        }
+      }
+    },
+    "A name cannot hold invisible or control characters." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nom ne peut pas contenir de caractères invisibles ou de contrôle."
+          }
+        }
+      }
+    },
+    "A name cannot hold the character %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nom ne peut pas contenir le caractère %@."
+          }
+        }
+      }
+    },
+    "A name cannot start with a dot: the console would hide the game." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un nom ne peut pas commencer par un point : la console cacherait le jeu."
           }
         }
       }
@@ -765,6 +835,16 @@
         }
       }
     },
+    "Add Files…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter des fichiers…"
+          }
+        }
+      }
+    },
     "Add More Files…" : {
       "localizations" : {
         "fr" : {
@@ -855,12 +935,42 @@
         }
       }
     },
+    "An item changed on the SD card since it was shown: nothing was moved. The folder was refreshed: check it, then try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un élément a changé sur la carte SD depuis son affichage : rien n’a été déplacé. Le dossier a été actualisé : vérifie-le, puis réessaie."
+          }
+        }
+      }
+    },
+    "An item of this name is already in this folder." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un élément de ce nom est déjà dans ce dossier."
+          }
+        }
+      }
+    },
     "Another console answered at this address." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Une autre console a répondu à cette adresse."
+          }
+        }
+      }
+    },
+    "Another game shares the save, the states or the discs of this game: renaming it would take them from that game. Rename both on a computer." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un autre jeu partage la sauvegarde, les états ou les disques de ce jeu : le renommer les lui retirerait. Renomme les deux sur un ordinateur."
           }
         }
       }
@@ -1153,7 +1263,8 @@
             "value" : "Parcourir la carte SD"
           }
         }
-      }
+      },
+      "extractionState" : "stale"
     },
     "Cancel" : {
       "localizations" : {
@@ -2257,6 +2368,16 @@
         }
       }
     },
+    "Enter a name." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisis un nom."
+          }
+        }
+      }
+    },
     "Every file comes back with the same number added to its name, so the files of a game stay together." : {
       "localizations" : {
         "fr" : {
@@ -2483,6 +2604,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dossiers"
+          }
+        }
+      }
+    },
+    "Folders go with everything in them." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les dossiers partent avec tout leur contenu."
           }
         }
       }
@@ -2967,12 +3098,32 @@
         }
       }
     },
+    "Items you delete go to the trash of the console. ReminisLink's own data is not shown." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce que tu supprimes va dans la corbeille de la console. Les données de ReminisLink ne sont pas affichées."
+          }
+        }
+      }
+    },
     "Its pairing will be replaced on all your Apple devices. The console must present the same identity as its QR code." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Son appairage sera remplacé sur tous tes appareils Apple. La console doit présenter la même identité que son QR code."
+          }
+        }
+      }
+    },
+    "Its save, states, cheats and art are renamed with it, never over another file." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sa sauvegarde, ses états, ses codes de triche et sa jaquette sont renommés avec lui, sans jamais remplacer un autre fichier."
           }
         }
       }
@@ -3291,6 +3442,16 @@
         }
       }
     },
+    "Move %lld items to the trash?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre %lld éléments à la corbeille ?"
+          }
+        }
+      }
+    },
     "Move %lld screenshots to the trash of the console?" : {
       "localizations" : {
         "fr" : {
@@ -3337,6 +3498,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mettre à la corbeille…"
+          }
+        }
+      }
+    },
+    "Move to the trash?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre à la corbeille ?"
           }
         }
       }
@@ -3491,6 +3662,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nouveau fichier"
+          }
+        }
+      }
+    },
+    "New Folder" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau dossier"
+          }
+        }
+      }
+    },
+    "New Folder…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouveau dossier…"
           }
         }
       }
@@ -3925,6 +4116,16 @@
         }
       }
     },
+    "Opens the Files tab" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvre l’onglet Fichiers"
+          }
+        }
+      }
+    },
     "Opens the screenshot." : {
       "localizations" : {
         "fr" : {
@@ -4233,6 +4434,17 @@
             "value" : "Lecture seule. Les données de ReminisLink ne sont pas affichées."
           }
         }
+      },
+      "extractionState" : "stale"
+    },
+    "Read only: the console needs this folder." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lecture seule : la console a besoin de ce dossier."
+          }
+        }
       }
     },
     "Reading the picture…" : {
@@ -4411,6 +4623,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retirer l’image ?"
+          }
+        }
+      }
+    },
+    "Rename" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renommer"
+          }
+        }
+      }
+    },
+    "Rename the Game" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renommer le jeu"
+          }
+        }
+      }
+    },
+    "Rename…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renommer…"
           }
         }
       }
@@ -5039,6 +5281,16 @@
         }
       }
     },
+    "Select at most 100 items at a time." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionne au plus 100 éléments à la fois."
+          }
+        }
+      }
+    },
     "Selects or deselects the screenshot." : {
       "localizations" : {
         "fr" : {
@@ -5577,6 +5829,17 @@
             "value" : "Touche pour parcourir la carte SD (lecture seule)."
           }
         }
+      },
+      "extractionState" : "stale"
+    },
+    "Tap to browse the SD card in the Files tab." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touche pour parcourir la carte SD dans l’onglet Fichiers."
+          }
+        }
       }
     },
     "Target" : {
@@ -5803,6 +6066,16 @@
         }
       }
     },
+    "The console does not accept this name." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console n’accepte pas ce nom."
+          }
+        }
+      }
+    },
     "The console found nothing it can use in this file." : {
       "localizations" : {
         "fr" : {
@@ -5919,6 +6192,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console n’a listé que ses 20 000 premiers états."
+          }
+        }
+      }
+    },
+    "The console protects this folder: the file cannot be added there. Choose another folder in Files." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console protège ce dossier : le fichier ne peut pas y être ajouté. Choisis un autre dossier dans Fichiers."
+          }
+        }
+      }
+    },
+    "The console protects this place: it cannot be changed from the app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console protège cet emplacement : impossible de le modifier depuis l’app."
           }
         }
       }
@@ -6281,6 +6574,16 @@
         }
       }
     },
+    "The extension %@ is kept." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’extension %@ est conservée."
+          }
+        }
+      }
+    },
     "The file arrived damaged on the console and was discarded. Send it again." : {
       "localizations" : {
         "fr" : {
@@ -6425,6 +6728,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Les fichiers sont revenus sous un nom libre : ceux déjà sur la carte SD n’ont pas été modifiés."
+          }
+        }
+      }
+    },
+    "The folder is made on the SD card of the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le dossier est créé sur la carte SD de la console."
           }
         }
       }
@@ -6953,7 +7266,8 @@
             "value" : "Les outils et émulateurs installés sur la console, et les captures d’écran prises dessus."
           }
         }
-      }
+      },
+      "extractionState" : "stale"
     },
     "The trash is empty" : {
       "localizations" : {
@@ -6981,6 +7295,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Elles restent 30 jours dans la corbeille de la console, où tu peux les restaurer."
+          }
+        }
+      }
+    },
+    "They stay in the trash of the console for 30 days, and can be restored from the Trash screen." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ils restent 30 jours dans la corbeille de la console et peuvent être restaurés depuis l’écran Corbeille."
           }
         }
       }
@@ -7209,6 +7533,16 @@
         }
       }
     },
+    "This folder holds a link or a special file: it cannot go to the trash." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce dossier contient un lien ou un fichier spécial : il ne peut pas aller à la corbeille."
+          }
+        }
+      }
+    },
     "This folder holds more than 5,000 items: only the first 5,000 are shown." : {
       "localizations" : {
         "fr" : {
@@ -7225,6 +7559,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce dossier est vide"
+          }
+        }
+      }
+    },
+    "This folder is needed by the console, or holds a protected folder: it cannot go to the trash." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a besoin de ce dossier, ou il contient un dossier protégé : il ne peut pas aller à la corbeille."
+          }
+        }
+      }
+    },
+    "This folder is needed by the console: nothing in it can be added or deleted from the app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console a besoin de ce dossier : rien ne peut y être ajouté ni supprimé depuis l’app."
           }
         }
       }
@@ -7309,6 +7663,26 @@
         }
       }
     },
+    "This is part of ReminisLink itself: it cannot be changed from the app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cela fait partie de ReminisLink : impossible de le modifier depuis l’app."
+          }
+        }
+      }
+    },
+    "This item is no longer on the SD card. The folder was refreshed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cet élément n’est plus sur la carte SD. Le dossier a été actualisé."
+          }
+        }
+      }
+    },
     "This item no longer exists on the console." : {
       "localizations" : {
         "fr" : {
@@ -7345,6 +7719,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ce nom identifie tous tes appareils Apple connectés au même compte Apple : ils partagent un seul appairage grâce au trousseau iCloud."
+          }
+        }
+      }
+    },
+    "This name is already taken on the console." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce nom est déjà pris sur la console."
+          }
+        }
+      }
+    },
+    "This name is already taken on the console: %@." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce nom est déjà pris sur la console : %@."
+          }
+        }
+      }
+    },
+    "This name is reserved by Windows: the SD card would not be readable on a computer." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce nom est réservé par Windows : la carte SD ne serait plus lisible sur un ordinateur."
+          }
+        }
+      }
+    },
+    "This name is too long." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce nom est trop long."
           }
         }
       }
@@ -7793,6 +8207,16 @@
         }
       }
     },
+    "Update ReminisLink on the console to add, rename or delete files." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mets à jour ReminisLink sur la console pour ajouter, renommer ou supprimer des fichiers."
+          }
+        }
+      }
+    },
     "Update ReminisLink on the console to export and import game archives." : {
       "localizations" : {
         "fr" : {
@@ -8050,6 +8474,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enregistrer"
+          }
+        }
+      }
+    },
+    "and %lld more" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "et %lld de plus"
           }
         }
       }

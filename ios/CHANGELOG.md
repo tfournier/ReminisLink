@@ -22,9 +22,13 @@ goes to TestFlight only and needs no section of its own.
 ### English
 
 New:
+- New tabs: Console, Library, Apps and Files. Transfers and Trash open from the Console tab, with the number of transfers in progress and of trash entries.
+- Files: browse the SD card of your handheld, add files from your iPhone, create folders, and move files or folders to the trash of the handheld (after a confirmation that names them; they can be restored). The folders the handheld needs stay read only.
+- Rename a game: its save, states, cheats and box art are renamed with it, never over another file.
+- The game screen shows the number of cheats.
 - Screenshots: the Console tab lists the screenshots taken on your handheld, by day. Open one, share it, save it to Photos or Files, or select several to share or move them to the trash of the handheld (where they can be restored).
 - iPad and Mac: the same app now runs on iPad (lists and games side by side on a wide screen, every orientation, Split View and Stage Manager) and on Macs with Apple silicon.
-- Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
+- Restore from the trash: tap an entry of the Trash screen to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
 - Game archives: export everything of a game (save, clock file, states, cheats, box art, and the game file if you wish) as one file, and import it into the same handheld or another one. Whatever it replaces is kept first.
 - Save states in iCloud Drive: states are now copied with the saves, with the same 10 versions per slot.
 - Pairing on a Mac: scan the QR code with the Mac's camera, or import a picture of it; a handheld paired on your iPhone appears on your other Apple devices within seconds.
@@ -36,14 +40,18 @@ Improvements:
 - The French interface now uses plain French words throughout.
 - When this app and ReminisLink on the handheld are too far apart in version, the app says which one to update instead of showing an error.
 
-Requires ReminisLink 1.1 on the handheld for the trash restore, the game archives and the states in iCloud Drive.
+Requires ReminisLink 1.1 on the handheld for the trash restore, the game archives, the states in iCloud Drive, adding and deleting files and renaming games.
 
 ### Français
 
 Nouveautés :
+- Nouveaux onglets : Console, Bibliothèque, Apps et Fichiers. Transferts et Corbeille s'ouvrent depuis l'onglet Console, avec le nombre de transferts en cours et d'entrées de la corbeille.
+- Fichiers : parcours la carte SD de ta console, ajoute des fichiers depuis ton iPhone, crée des dossiers, et mets des fichiers ou des dossiers à la corbeille de la console (après une confirmation qui les nomme ; ils peuvent revenir). Les dossiers dont la console a besoin restent en lecture seule.
+- Renommer un jeu : sa sauvegarde, ses états, ses codes de triche et sa jaquette sont renommés avec lui, sans jamais remplacer un autre fichier.
+- La fiche d'un jeu affiche le nombre de codes de triche.
 - Captures d'écran : l'onglet Console liste les captures d'écran prises sur ta console, par jour. Ouvre-en une, partage-la, enregistre-la dans Photos ou Fichiers, ou sélectionnes-en plusieurs pour les partager ou les mettre à la corbeille de la console (d'où elles peuvent revenir).
 - iPad et Mac : la même app fonctionne maintenant sur iPad (listes et jeux côte à côte sur grand écran, toutes les orientations, Split View et Stage Manager) et sur les Mac à puce Apple.
-- Restaurer depuis la corbeille : touche une entrée de l'onglet Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre, ou, pour une sauvegarde remplacée, à la place de la sauvegarde actuelle (gardée d'abord).
+- Restaurer depuis la corbeille : touche une entrée de l'écran Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre, ou, pour une sauvegarde remplacée, à la place de la sauvegarde actuelle (gardée d'abord).
 - Archives de jeux : exporte tout ce qui concerne un jeu (sauvegarde, fichier d'horloge, états, codes de triche, jaquette, et le fichier du jeu si tu veux) en un seul fichier, puis importe-le sur la même console ou sur une autre. Ce qu'il remplace est gardé d'abord.
 - États de jeu dans iCloud Drive : les états sont maintenant copiés avec les sauvegardes, avec les mêmes 10 versions par emplacement.
 - Appairage sur Mac : scanne le QR code avec la caméra du Mac, ou importe une photo du QR code ; une console appairée sur ton iPhone apparaît sur tes autres appareils Apple en quelques secondes.
@@ -55,7 +63,7 @@ Améliorations :
 - L'interface en français n'emploie plus que des mots français.
 - Si l'app et ReminisLink sur la console ont des versions trop éloignées, l'app indique laquelle mettre à jour au lieu d'afficher une erreur.
 
-La restauration depuis la corbeille, les archives de jeux et les états dans iCloud Drive demandent ReminisLink 1.1 sur la console.
+La restauration depuis la corbeille, les archives de jeux, les états dans iCloud Drive, l'ajout et la suppression de fichiers et le renommage des jeux demandent ReminisLink 1.1 sur la console.
 
 ## 1.0.0
 

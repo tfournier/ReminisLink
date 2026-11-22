@@ -37,6 +37,9 @@ enum FakeTrashPayload {
     /// Screenshots moved to the trash (M22): back in the screenshots
     /// folder, " (N)" before the extension with `rename`.
     case screenshots([FakeScreenshot])
+    /// Entries of the SD browser moved to the trash (M23): back at their
+    /// place (no free name in the fake).
+    case sdEntries(FakeSdTrash)
 }
 
 extension FakePak {
@@ -98,6 +101,8 @@ extension FakePak {
             return number == nil && gameData[key]?.slots[slot]?.state != nil
         case .screenshots(let shots):
             return shots.contains { screenshotTaken(Self.screenshotName($0.name, number: number)) }
+        case .sdEntries(let trash):
+            return number != nil || !sdTakenPlaces(trash).isEmpty
         }
     }
 
@@ -151,6 +156,8 @@ extension FakePak {
             return plan
         case .screenshots(let shots):
             plan.conflicts = shots.filter { screenshotTaken($0.name) }.map { "Screenshots/" + $0.name }
+        case .sdEntries(let trash):
+            plan.conflicts = sdTakenPlaces(trash)
         }
         plan.replaceUnavailable = "not-a-save"
         if !plan.conflicts.isEmpty {
@@ -240,6 +247,8 @@ extension FakePak {
                     screenshotsState.screenshots.append(shot)
                 }
                 screenshotsRestored = true
+            case .sdEntries(let trash)?:
+                if restoreSdEntries(trash) { pakRestored = true }
             case nil:
                 break // never reached: a conflict without a free name
             }

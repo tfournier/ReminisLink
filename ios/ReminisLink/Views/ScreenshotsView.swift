@@ -79,6 +79,10 @@ struct ScreenshotsView: View {
         }
         .navigationTitle("Screenshots")
         .toolbar { toolbar(manager) }
+        // While selecting, the tab bar steps aside for the selection bar, as
+        // in Photos: on iOS 26 the floating tab bar of an iPhone covered the
+        // bottom bar (its actions were not reachable).
+        .toolbar(isSelecting ? .hidden : .automatic, for: .tabBar)
         .task { await manager.load() }
         .refreshable { await manager.load() }
         .onChange(of: manager.revision) { _, _ in selection.keep(manager.screenshots) }

@@ -144,6 +144,30 @@ enum AppError: Error, Equatable {
     /// M22: only this many screenshots went to the trash (a later batch
     /// failed); the list and the trash were read again.
     case screenshotsPartlyMoved(Int)
+    /// M23: a protected place of the SD card (`409` with
+    /// `details.protected`).
+    case sdProtected(SdProtection)
+    /// M23: an item of this name is already in the folder.
+    case sdNameTaken
+    /// M23: an item changed on the card since it was shown (`409
+    /// details.changed`): nothing moved, the folder is read again.
+    case sdEntryChanged
+    /// M23: more than 100 items selected for one move to the trash.
+    case sdTooManySelected
+    /// M23: an item of the SD browser is gone (`404`): the folder is read
+    /// again.
+    case sdEntryGone
+    /// M23: a pak older than M23 (`404` or `405` on the writes of the SD
+    /// browser or on a rename).
+    case filesNeedNewerPak
+    /// M23: the new name of a game is taken (the places, informative).
+    case renameTaken([String])
+    /// M23: a folder game whose discs another playlist lists.
+    case renameSharedDiscs
+    /// M23: the console refused the new name (`400 invalid_name`).
+    case invalidGameName
+    /// M23: what is wrong with a new game name, said before sending.
+    case gameNameProblem(GameNameRule.Problem)
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -277,6 +301,42 @@ enum AppError: Error, Equatable {
             String(localized: "ReminisLink may not add photos to your library. Allow it in Settings, or use Share to save the screenshots.")
         case .trashEntryGone:
             String(localized: "This entry is no longer in the trash of the console, or ReminisLink on the console is too old to restore it (update it).")
+        case .sdProtected(let protection):
+            switch protection {
+            case .system: String(localized: "This folder is needed by the console: nothing in it can be added or deleted from the app.")
+            case .data: String(localized: "This is part of ReminisLink itself: it cannot be changed from the app.")
+            case .root: String(localized: "This folder is needed by the console, or holds a protected folder: it cannot go to the trash.")
+            case .link: String(localized: "This folder holds a link or a special file: it cannot go to the trash.")
+            default: String(localized: "The console protects this place: it cannot be changed from the app.")
+            }
+        case .sdNameTaken:
+            String(localized: "An item of this name is already in this folder.")
+        case .sdEntryChanged:
+            String(localized: "An item changed on the SD card since it was shown: nothing was moved. The folder was refreshed: check it, then try again.")
+        case .sdTooManySelected:
+            String(localized: "Select at most 100 items at a time.")
+        case .sdEntryGone:
+            String(localized: "This item is no longer on the SD card. The folder was refreshed.")
+        case .filesNeedNewerPak:
+            String(localized: "Update ReminisLink on the console to add, rename or delete files.")
+        case .renameTaken(let places):
+            places.isEmpty
+                ? String(localized: "This name is already taken on the console.")
+                : String(localized: "This name is already taken on the console: \(places.joined(separator: ", ")).")
+        case .renameSharedDiscs:
+            String(localized: "Another game shares the save, the states or the discs of this game: renaming it would take them from that game. Rename both on a computer.")
+        case .invalidGameName:
+            String(localized: "The console does not accept this name.")
+        case .gameNameProblem(let problem):
+            switch problem {
+            case .empty: String(localized: "Enter a name.")
+            case .forbiddenCharacter(let c): String(localized: "A name cannot hold the character \(String(c)).")
+            case .invisibleCharacter: String(localized: "A name cannot hold invisible or control characters.")
+            case .startsWithDot: String(localized: "A name cannot start with a dot: the console would hide the game.")
+            case .trailingSpaceOrDot: String(localized: "A name cannot end with a space or a dot.")
+            case .reserved: String(localized: "This name is reserved by Windows: the SD card would not be readable on a computer.")
+            case .tooLong: String(localized: "This name is too long.")
+            }
         case .cancelled:
             String(localized: "Cancelled.")
         case .unexpected:
@@ -312,6 +372,9 @@ enum AppError: Error, Equatable {
         case .upload(.tooManyRestarts): .retry
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
+        case .sdProtected, .sdNameTaken, .sdEntryGone, .filesNeedNewerPak, .renameTaken, .renameSharedDiscs: nil
+        case .sdEntryChanged, .sdTooManySelected: nil
+        case .invalidGameName, .gameNameProblem: nil
         case .invalidArchive, .archiveGameExists, .archiveEmpty, .archivesNeedNewerPak: nil
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone, .trashReplaceRefused: nil
         case .screenshotsNeedNewerPak, .screenshotGone, .screenshotTooLarge, .screenshotsPartlyMoved: nil
@@ -399,6 +462,38 @@ enum AppError: Error, Equatable {
         let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
         if list, status == 404 || status == 405 { return .screenshotsNeedNewerPak }
         if !list, status == 404 { return .screenshotGone }
+        return error
+    }
+
+    /// The error of a write of the SD browser (M23): a protected place, a
+    /// taken name, an item gone, or an older pak (`405`, or the `404` "No
+    /// route" of a route it does not have).
+    static func sdWrite(_ error: Error) -> AppError {
+        let error = AppError(error)
+        guard case .api(let api) = error else { return error }
+        let server: ServerError? = if case .server(let s) = api { s } else { nil }
+        if let protection = server?.sdProtection { return .sdProtected(protection) }
+        if let server, !server.sdChanged.isEmpty { return .sdEntryChanged }
+        if server?.code == .conflict { return .sdNameTaken }
+        let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
+        if status == 405 || server?.isMissingRoute == true { return .filesNeedNewerPak }
+        if status == 404 { return .sdEntryGone }
+        return error
+    }
+
+    /// The error of the rename of a game (M23).
+    static func rename(_ error: Error) -> AppError {
+        let error = AppError(error)
+        guard case .api(let api) = error else { return error }
+        let server: ServerError? = if case .server(let s) = api { s } else { nil }
+        if let server, server.renameSharesDiscs { return .renameSharedDiscs }
+        if let server, server.code == .conflict { return .renameTaken(server.renameConflicts) }
+        if server?.code == .invalidName { return .invalidGameName }
+        if server?.code == .unsupportedFormat { return .unsupportedGameFormat }
+        if server?.isMissingRoute == true { return .filesNeedNewerPak }
+        if server?.code == .notFound { return .gameRemoved }
+        let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
+        if status == 404 || status == 405 { return .filesNeedNewerPak }
         return error
     }
 
@@ -541,6 +636,8 @@ enum AppError: Error, Equatable {
                 return String(localized: "The request is too large for the console.")
             case .conflict where server.status == 412:
                 return String(localized: "The list changed on the console. Reload it.")
+            case .conflict where server.sdProtection != nil:
+                return AppError.sdProtected(server.sdProtection!).message
             case .conflict:
                 if case .string(let existing)? = server.details["existing"] {
                     return String(localized: "A file with this name already exists on the console: \(existing)")

@@ -308,6 +308,9 @@ func (s *Server) changesUpload(h http.HandlerFunc) http.HandlerFunc {
 			// A pak upload queues a job: its success publishes paks.
 		case transfer.KindROM:
 			s.events.Library(target.SystemID)
+		case transfer.KindSDFile:
+			// Anywhere on the card (a game when it lands in Roms/).
+			s.events.Library()
 		default:
 			s.events.Library(systemOfGame(target.GameID))
 		}

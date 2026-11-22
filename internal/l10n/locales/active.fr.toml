@@ -201,8 +201,20 @@ other = "Codes de triche modifiés"
 
 
 
+[notice_file_added]
+other = "Fichier ajouté"
+
+[notice_files_deleted]
+other = "Fichiers mis à la corbeille"
+
+[notice_folder_created]
+other = "Dossier créé"
+
 [notice_game_deleted]
 other = "Jeu mis à la corbeille"
+
+[notice_game_renamed]
+other = "Jeu renommé"
 
 [notice_paired]
 other = "Appairé avec {{.Name}}"

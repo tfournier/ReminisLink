@@ -24,11 +24,10 @@ final class PaksUITests: XCTestCase {
         // Console tab > Apps: tools, then emulators; ReminisLink marked.
         // Below the dashboard's first screen on a tall phone (rows are
         // created lazily): scrolled to once the console answered.
-        let paks = app.buttons["console.paks"]
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'DemoOS-20261013'")).firstMatch
             .waitForExistence(timeout: 15), "not connected")
-        XCTAssertTrue(GameDataUITest.scrollTo(paks, in: app), "no Apps row")
-        paks.tap()
+        // M23: a tab of its own.
+        app.consoleTabs["Apps"].tapWhenEnabled(timeout: 10)
         XCTAssertTrue(app.navigationBars["Apps"].waitForExistence(timeout: 10))
         let me = app.descendants(matching: .any)["pak.ReminisLink"].firstMatch
         XCTAssertTrue(me.waitForExistence(timeout: 10), "ReminisLink not listed")
@@ -70,11 +69,8 @@ final class PaksUITests: XCTestCase {
         XCTAssertTrue(files.waitForNonExistence(timeout: 10), "still listed")
         attachScreenshot(of: app, named: "deleted")
 
-        // The SD browser, from the Storage section of the Console tab.
-        app.navigationBars["Apps"].buttons.firstMatch.tap()
-        let storage = app.buttons["console.storage"].firstMatch
-        XCTAssertTrue(GameDataUITest.scrollTo(storage, in: app))
-        storage.tap()
+        // The SD browser: the Files tab (M23).
+        app.consoleTabs["Files"].tapWhenEnabled(timeout: 10)
         XCTAssertTrue(app.buttons["sd.Roms"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["sd..userdata"].exists)
         attachScreenshot(of: app, named: "sd-root")
@@ -117,10 +113,7 @@ final class PaksUITests: XCTestCase {
         attachScreenshot(of: app, named: "installed")
 
         // Console tab > Apps: listed; deleted to the trash.
-        app.consoleTabs["Console"].tap()
-        let paks = app.buttons["console.paks"]
-        XCTAssertTrue(GameDataUITest.scrollTo(paks, in: app, attempts: 8), "no Apps row")
-        paks.tap()
+        app.consoleTabs["Apps"].tapWhenEnabled(timeout: 10)
         let row = app.descendants(matching: .any)["pak.\(name)"].firstMatch
         XCTAssertTrue(GameDataUITest.scrollTo(row, in: app), "the pak is not listed")
         XCTAssertTrue(row.label.contains("0.0.1"), row.label)
@@ -131,11 +124,8 @@ final class PaksUITests: XCTestCase {
         GameDataUITest.waitForNotice(app, timeout: 20)
         XCTAssertTrue(row.waitForNonExistence(timeout: 10), "still listed")
 
-        // The root of the SD card, without ReminisLink's data.
-        app.navigationBars["Apps"].buttons.firstMatch.tap()
-        let storage = app.buttons["console.storage"].firstMatch
-        XCTAssertTrue(GameDataUITest.scrollTo(storage, in: app))
-        storage.tap()
+        // The root of the SD card, without ReminisLink's data: the Files tab.
+        app.consoleTabs["Files"].tapWhenEnabled(timeout: 10)
         XCTAssertTrue(app.buttons["sd.Roms"].waitForExistence(timeout: 20), "no Roms folder at the root")
         attachScreenshot(of: app, named: "sd-root")
         let userdata = app.buttons["sd..userdata"]
