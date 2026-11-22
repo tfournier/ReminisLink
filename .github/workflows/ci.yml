@@ -136,7 +136,12 @@ jobs:
       - name: Zips, case-sensitive unit tests and smoke tests in each userland
         run: make emulation REQUIRE_ZIPS=1
 
+  # The app's tests run in two jobs side by side (each builds the app: a
+  # build shared through an artifact would only add an upload, a download
+  # and a job start before the tests). The release gate of the app needs
+  # both (CI_JOBS_IOS in the Makefile, RL_CI_JOBS_IOS for Xcode Cloud).
   ios:
+    # ReminisLinkKit, the release scripts and the app's unit tests.
     # Swift tools 6.2 and the iOS 18+ simulator: Xcode 26.
     runs-on: macos-26
     steps:
@@ -148,11 +153,32 @@ jobs:
       # (Swift, CryptoKit) against a local mock of the API.
       - name: Release scripts with the App Store Connect client
         run: make release-checks
-      - name: App tests
+      - name: App unit tests
         working-directory: ios
         run: |
           # The runner image changes its simulators over time: take the
           # first available iPhone instead of a fixed model name.
+          udid=$(xcrun simctl list devices available -j |
+            jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
+          echo "Simulator: $udid"
+          xcodebuild test -scheme ReminisLink \
+            -destination "id=$udid" \
+            -only-testing:ReminisLinkTests \
+            -retry-tests-on-failure -test-iterations 3 \
+            CODE_SIGNING_ALLOWED=NO
+
+  ios-ui:
+    # The app's UI tests (demo mode: in-process fake pak, no network, no
+    # Keychain), on 2 clones of the simulator at once: each clone runs whole
+    # test classes, with its own app container, Keychain and UserDefaults.
+    # 2 workers for the 3 cores and 7 GB of the runner. The simulator is
+    # chosen as in the ios job.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - name: App UI tests
+        working-directory: ios
+        run: |
           udid=$(xcrun simctl list devices available -j |
             jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
           echo "Simulator: $udid"
@@ -161,6 +187,8 @@ jobs:
           # run again, up to 3 times in all, before the job fails.
           xcodebuild test -scheme ReminisLink \
             -destination "id=$udid" \
+            -only-testing:ReminisLinkUITests \
+            -parallel-testing-enabled YES -parallel-testing-worker-count 2 \
             -retry-tests-on-failure -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO
 
