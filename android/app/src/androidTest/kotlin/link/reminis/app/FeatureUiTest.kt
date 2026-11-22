@@ -237,6 +237,12 @@ class FeatureUiTest {
         waitForTag("dashboard", 30_000)
     }
 
+    /** A tab of the open console (M23). */
+    private fun openTab(tag: String) {
+        compose.onNodeWithTag("dashboard").assertExists()
+        compose.onNodeWithTag(tag).performClick()
+    }
+
     private fun openFromDashboard(tag: String) {
         compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag(tag))
         compose.onNodeWithTag(tag).performClick()
@@ -244,7 +250,7 @@ class FeatureUiTest {
 
     private fun openGame() {
         openDashboard()
-        openFromDashboard("openLibrary")
+        openTab("tabLibrary")
         waitForTag("games")
         compose.onNodeWithText("Moss Lantern").performClick()
         waitForTag("game")
@@ -303,7 +309,7 @@ class FeatureUiTest {
     fun anAppIsDeletedAndReminisLinkIsProtected() {
         ActivityScenario.launch(MainActivity::class.java).use {
             openDashboard()
-            openFromDashboard("openApps")
+            openTab("tabApps")
             waitForTag("pak-Thistle Clock")
             compose.onNodeWithTag("pakSelf", useUnmergedTree = true).assertExists()
             assertTrue(compose.onAllNodesWithTag("pakDelete-ReminisLink").fetchSemanticsNodes().isEmpty())

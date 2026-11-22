@@ -208,8 +208,8 @@ class PakIntegrationTest {
 
             compose.onNodeWithTag("openConsole").performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("dashboard").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-            compose.onNodeWithTag("openLibrary").performClick()
+            compose.onNodeWithTag("dashboard").assertExists()
+            compose.onNodeWithTag("tabLibrary").performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("games").fetchSemanticsNodes().isNotEmpty() }
             val games = compose.onNodeWithTag("games").onChildren()
             assertTrue("the library is empty", games.fetchSemanticsNodes().isNotEmpty())
@@ -406,8 +406,8 @@ class PakIntegrationTest {
         }
         val installer = context.container.pakInstaller
         val installId = installer.install(deviceId, zip, "Fern Tool.pak.zip", link.reminis.core.PakInstallKind.AUTO)
-        compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openApps"))
-        compose.onNodeWithTag("openApps").performClick()
+        compose.onNodeWithTag("dashboard").assertExists()
+        compose.onNodeWithTag("tabApps").performClick()
         waitFor("the pak installed") {
             installer.installs.value.first { it.id == installId }.phase.let {
                 it == link.reminis.core.PakInstall.Phase.Installed || it is link.reminis.core.PakInstall.Phase.Failed

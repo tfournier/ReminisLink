@@ -42,8 +42,8 @@ class ReleaseSmokeTest {
             compose.waitUntil(10_000) { has("dashboard") }
             val demo = context.container.demo.value!!
             compose.waitUntil(10_000) { context.container.events.isLive(demo.deviceId) }
-            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-            compose.onNodeWithTag("openLibrary").performClick()
+            compose.onNodeWithTag("dashboard").assertExists()
+            compose.onNodeWithTag("tabLibrary").performClick()
             compose.waitUntil(10_000) { compose.onAllNodesWithText("Thistledown Isles").fetchSemanticsNodes().isNotEmpty() }
             InstrumentationRegistry.getInstrumentation().runOnMainSync { context.container.quitDemo() }
         }

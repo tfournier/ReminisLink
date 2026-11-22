@@ -82,8 +82,8 @@ class DemoEventsUiTest {
             assertNull(context.container.consoles.get(demo.deviceId))
             waitFor("stream open") { context.container.events.isLive(demo.deviceId) }
 
-            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-            compose.onNodeWithTag("openLibrary").performClick()
+            compose.onNodeWithTag("dashboard").assertExists()
+            compose.onNodeWithTag("tabLibrary").performClick()
             waitFor("library") { hasText("Brambleway Dash") }
 
             // Another client deletes a game: the open list follows without any action here.

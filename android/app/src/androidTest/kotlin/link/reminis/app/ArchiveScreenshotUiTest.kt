@@ -177,8 +177,8 @@ class ArchiveScreenshotUiTest {
         waitFor("consoles") { hasText("Juniper Test Console") }
         compose.onNodeWithText("Juniper Test Console").performClick()
         waitFor("dashboard") { hasTag("dashboard") }
-        compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-        compose.onNodeWithTag("openLibrary").performClick()
+        compose.onNodeWithTag("dashboard").assertExists()
+        compose.onNodeWithTag("tabLibrary").performClick()
         waitFor("library") { hasText(name) }
         compose.onNodeWithText(name).performClick()
         waitFor("game") { hasTag("game") }
@@ -392,8 +392,8 @@ class ArchiveScreenshotUiTest {
             }
             rule.onNodeWithTag("tryDemo").performClick()
             waitFor("dashboard") { hasTag("dashboard") }
-            rule.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-            rule.onNodeWithTag("openLibrary").performClick()
+            rule.onNodeWithTag("dashboard").assertExists()
+            rule.onNodeWithTag("tabLibrary").performClick()
             waitFor("library") { hasText("Brambleway Dash") }
             assertTrue("placeholder of the detail pane", hasTag("gamePanePlaceholder"))
             // The last game, scrolled to: the first one leaves the screen.
