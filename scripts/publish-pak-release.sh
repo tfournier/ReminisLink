@@ -7,15 +7,24 @@
 #   vX.Y.Z-beta.N/rc.N  "Pre-release", never "Latest", notes: the
 #                       "Unreleased" entry (pak.json is not changed for it)
 #
-# Any other tag (an app tag above all) stops here. On a re-run the release
+# Every zip given is attached: ReminisLink.pak.zip (NextUI, the asset the Pak
+# Store downloads, release_filename in pak.json) and, from v1.1.0-beta.1 on,
+# ReminisLink.knulli.zip. Any other tag (an app tag above all) stops here,
+# and so does a missing zip, before gh is called. On a re-run the release
 # exists: its pre-release and Latest flags are set again from the tag before
-# its zip is replaced, so a wrongly marked release is corrected.
+# its zips are replaced, so a wrongly marked release is corrected.
 #
-# Usage: scripts/publish-pak-release.sh <tag> <zip>   (needs gh, GH_TOKEN, jq)
+# Usage: scripts/publish-pak-release.sh <tag> <zip>...   (needs gh, GH_TOKEN, jq)
 set -euo pipefail
 
-tag="${1:?usage: publish-pak-release.sh <tag> <zip>}"
-zip="${2:?usage: publish-pak-release.sh <tag> <zip>}"
+usage="usage: publish-pak-release.sh <tag> <zip>..."
+tag="${1:?$usage}"
+shift
+[ "$#" -gt 0 ] || { echo "$usage" >&2; exit 1; }
+zips=("$@")
+for zip in "${zips[@]}"; do
+	[ -f "$zip" ] || { echo "No such zip: $zip" >&2; exit 1; }
+done
 root="$(cd "$(dirname "$0")/.." && pwd)"
 notes="$(mktemp "${TMPDIR:-/tmp}/rl-release-notes.XXXXXX")"
 trap 'rm -f "$notes"' EXIT
@@ -35,10 +44,10 @@ fi
 
 if gh release view "$tag" >/dev/null 2>&1; then
 	# Re-run: the flags first (a pre-release must never stay "Latest"),
-	# then the zip.
+	# then the zips.
 	gh release edit "$tag" "${flags[@]}"
-	gh release upload "$tag" "$zip" --clobber
+	gh release upload "$tag" "${zips[@]}" --clobber
 else
-	gh release create "$tag" "$zip" --verify-tag --title "$tag" --notes-file "$notes" "${flags[@]}"
+	gh release create "$tag" "${zips[@]}" --verify-tag --title "$tag" --notes-file "$notes" "${flags[@]}"
 fi
 echo "Published $tag as $kind."

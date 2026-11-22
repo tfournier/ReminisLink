@@ -74,7 +74,9 @@ workflow="$root/.github/workflows/ci.yml"
 expect "CI tag filter is exactly [\"v*\"]" 0 grep -Eq '^    tags: \["v\*"\]$' "$workflow"
 expect "CI has no other tag filter" 0 test "$(grep -c 'tags:' "$workflow")" = 1
 expect "CI release job runs for refs/tags/v only" 0 grep -Fq "if: startsWith(github.ref, 'refs/tags/v')" "$workflow"
-expect "CI release job publishes through scripts/publish-pak-release.sh" 0 grep -Fq 'run: scripts/publish-pak-release.sh "$TAG" dist/ReminisLink.pak.zip' "$workflow"
+expect "CI release job publishes both zips through scripts/publish-pak-release.sh" 0 grep -Fq 'run: scripts/publish-pak-release.sh "$TAG" dist/ReminisLink.pak.zip dist/ReminisLink.knulli.zip' "$workflow"
+expect "CI release job downloads the Knulli zip" 0 grep -Fq 'name: reminislink-knulli' <(sed -n '/^  release:/,$p' "$workflow")
+expect "pak.json release_filename is still ReminisLink.pak.zip (read by the Pak Store)" 0 grep -Eq '"release_filename": *"ReminisLink.pak.zip"' "$root/pak.json"
 glob_matches() { [[ "$1" == v* ]]; }
 for tag in ios-v1.0.1 ios-beta-v1.1.0-beta.1; do expect "app tag $tag does not match the CI tag glob" 1 glob_matches "$tag"; done
 expect "pak tag v1.0.1 matches the CI tag glob" 0 glob_matches v1.0.1
@@ -84,25 +86,32 @@ fakes="$root/scripts/release-tests"
 publish() {
 	: >"$tmp/fake.log"
 	env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" FAKE_RELEASE_EXISTS="${2:-0}" \
-		"$root/scripts/publish-pak-release.sh" "$1" "$tmp/ReminisLink.pak.zip"
+		"$root/scripts/publish-pak-release.sh" "$1" "$tmp/ReminisLink.pak.zip" "$tmp/ReminisLink.knulli.zip"
 }
 logged() { grep -Fxq -- "$1" "$tmp/fake.log"; }
 not_logged() { ! grep -Fq -- "$1" "$tmp/fake.log"; }
-touch "$tmp/ReminisLink.pak.zip"
+touch "$tmp/ReminisLink.pak.zip" "$tmp/ReminisLink.knulli.zip"
 if command -v jq >/dev/null 2>&1; then
 	expect "publish v1.0.1: new release" 0 publish v1.0.1
 	expect "  created as Latest, not a pre-release" 0 grep -Eq '^gh release create v1.0.1 .* --prerelease=false --latest$' "$tmp/fake.log"
+	expect "  with both zips, NextUI first" 0 grep -Eq '^gh release create v1.0.1 [^ ]*/ReminisLink.pak.zip [^ ]*/ReminisLink.knulli.zip --verify-tag ' "$tmp/fake.log"
 	expect "publish v1.1.0-beta.1: new pre-release" 0 publish v1.1.0-beta.1
 	expect "  created as a pre-release, never Latest" 0 grep -Eq '^gh release create v1.1.0-beta.1 .* --prerelease --latest=false$' "$tmp/fake.log"
+	expect "  with both zips" 0 grep -Eq '^gh release create v1.1.0-beta.1 [^ ]*/ReminisLink.pak.zip [^ ]*/ReminisLink.knulli.zip ' "$tmp/fake.log"
+	expect "  never marked Latest" 1 grep -Eq -- '--latest( |$)' "$tmp/fake.log"
 	expect "publish v1.1.0-beta.1 again (release exists, maybe marked Latest)" 0 publish v1.1.0-beta.1 1
 	expect "  flags set again before the zip" 0 logged "gh release edit v1.1.0-beta.1 --prerelease --latest=false"
-	expect "  then the zip replaced" 0 grep -Eq '^gh release upload v1.1.0-beta.1 .* --clobber$' "$tmp/fake.log"
+	expect "  then both zips replaced" 0 grep -Eq '^gh release upload v1.1.0-beta.1 [^ ]*/ReminisLink.pak.zip [^ ]*/ReminisLink.knulli.zip --clobber$' "$tmp/fake.log"
 	expect "  edit comes before upload" 0 test "$(grep -n 'release edit' "$tmp/fake.log" | cut -d: -f1)" -lt "$(grep -n 'release upload' "$tmp/fake.log" | cut -d: -f1)"
 	expect "  nothing created" 0 not_logged "release create"
 	expect "publish v1.0.1 again: back to Latest" 0 publish v1.0.1 1
 	expect "  flags set again" 0 logged "gh release edit v1.0.1 --prerelease=false --latest"
 	expect "publish ios-v1.0.1: refused" 1 publish ios-v1.0.1
 	expect "  gh never called for an app tag" 0 test ! -s "$tmp/fake.log"
+	: >"$tmp/fake.log"
+	expect "publish without a zip: refused" 1 env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" "$root/scripts/publish-pak-release.sh" v1.1.0
+	expect "publish with a missing Knulli zip: refused" 1 env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" "$root/scripts/publish-pak-release.sh" v1.1.0 "$tmp/ReminisLink.pak.zip" "$tmp/missing.knulli.zip"
+	expect "  gh never called without its zips" 0 test ! -s "$tmp/fake.log"
 else
 	echo "skip  pak release publication (needs jq, as on the CI runner)"
 fi

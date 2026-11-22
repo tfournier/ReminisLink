@@ -15,7 +15,7 @@ Nous n'avons pas ces consoles. Le pak a été construit et testé sans elles : o
 ## Récupérer le pak
 
 - **NextUI** (`tg5050`, `h700`, `my355`) : le même `ReminisLink.pak.zip` que pour la Brick. La version expérimentale est publiée comme **pré-version** (`vX.Y.Z-beta.N`) sur https://github.com/tfournier/ReminisLink/releases : le Pak Store ne propose pas les pré-versions, il faut l'installer à la main (ci-dessous).
-- **Knulli** : `ReminisLink.knulli.zip` n'est pas encore publié dans les versions. Il est construit à chaque passage de l'intégration continue : ouvrez https://github.com/tfournier/ReminisLink/actions/workflows/ci.yml, choisissez le dernier passage réussi sur la branche `main`, puis, en bas de la page, l'artefact **reminislink-knulli** (il faut être connecté à GitHub ; GitHub le livre dans un zip qui contient `ReminisLink.knulli.zip` ; les artefacts expirent au bout de 90 jours). Ou demandez-le dans un ticket.
+- **Knulli** : `ReminisLink.knulli.zip`, joint à chaque version et pré-version du pak à partir de `v1.1.0-beta.1`, à côté de `ReminisLink.pak.zip`, sur la même page https://github.com/tfournier/ReminisLink/releases (dépliez **Assets** sous la version). Prenez la pré-version la plus récente.
 
 ## Installer
 
