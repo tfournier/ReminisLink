@@ -181,6 +181,17 @@ class FilesRenameTest {
     }
 
     @Test
+    fun renameResultOfTheContract() {
+        // `Game` of the contract: no systemId (the real pak sends none).
+        val result = ProtocolJson.decodeFromString<GameRenameResult>(
+            """{"game":{"id":"g2","name":"Moss","fileName":"Moss.hab","kind":"file","sizeBytes":3,"modifiedAt":"2026-11-18T17:00:00Z",""" +
+                """"hasSave":true,"stateCount":0,"lockedStateCount":0,"cheatCount":0,"hasArt":false},"renamed":[{"from":"a","to":"b"}]}""",
+        )
+        assertEquals("g2", result.game.id)
+        assertEquals(listOf(RenamedFile("a", "b")), result.renamed)
+    }
+
+    @Test
     fun gameNameRules() {
         assertEquals(GameNameRule.Problem.Empty, GameNameRule.problem("  "))
         assertEquals(GameNameRule.Problem.ForbiddenCharacter(':'), GameNameRule.problem("Moss: Two"))

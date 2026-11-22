@@ -216,6 +216,8 @@ class PakIntegrationTest {
             assertTrue("the library is empty", games.fetchSemanticsNodes().isNotEmpty())
             games.onFirst().performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("game").fetchSemanticsNodes().isNotEmpty() }
+            // The files come after the art and the rows: scrolled into view first.
+            compose.onNodeWithTag("game").performScrollToNode(androidx.compose.ui.test.hasText(context.getString(R.string.role_rom)))
             compose.onNodeWithText(context.getString(R.string.role_rom), useUnmergedTree = true).assertExists()
 
             transfersSavesAndStates(parsed.deviceId, it)
