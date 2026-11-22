@@ -996,11 +996,15 @@ paths:
 
         Never overwrites: when a new name is taken (by another file of the
         card, or another game of the same tag, whose save and states would
-        then be shared), `409 conflict` with `details.conflicts` (the taken
-        places, relative to the SD card) and nothing is renamed. A folder
-        game whose discs another playlist of the system also lists is
-        refused with `409 conflict` and `details.shared: true` (that
-        playlist would lose them). An art file shared with another game
+        then be shared: compared on the data key of the ROM name, the whole
+        file name on NextUI and the name without its extension on Knulli),
+        `409 conflict` with `details.conflicts` (the taken places, relative
+        to the SD card) and nothing is renamed. A game whose save and states
+        another game of the same tag shares (the same data key: `Ridge.chd`
+        and `Ridge.pbp` on Knulli, two `Game.gba` in two folders on NextUI),
+        or a folder game whose discs another playlist of the system also
+        lists, is refused with `409 conflict` and `details.shared: true`
+        (the other game would lose them). An art file shared with another game
         (Knulli, K5) stays in place. When the saves or the states of the
         game use a format the pak does not name (see `Unprocessable`),
         `422 unsupported_format`: their files would keep the old name.

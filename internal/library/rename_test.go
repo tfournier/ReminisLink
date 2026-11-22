@@ -221,6 +221,42 @@ func TestRenameGameRefusals(t *testing.T) {
 	}
 }
 
+// Codex review of M23: on Knulli, Ridge.chd and Ridge.pbp of a system share
+// Ridge.srm and the states: neither is renamed, and no game takes the name
+// whose data belongs to another (compared on the key, not the file name).
+func TestRenameGameKnulliSharedKey(t *testing.T) {
+	l, _, sd := knulliLibrary(t, t.TempDir())
+	writeSD(t, sd, "roms/psx/Ridge.chd", "disc")
+	writeSD(t, sd, "roms/psx/Ridge.pbp", "eboot")
+	writeSD(t, sd, "saves/psx/Ridge.srm", "progress")
+	_, err := l.PlanRename(EncodeID("psx/Ridge.chd"), "Ridge Racer")
+	var conflict *RenameConflictError
+	if !errors.As(err, &conflict) || !conflict.Shared {
+		t.Fatalf("shared key: %v", err)
+	}
+	// A game without a save renamed to the key of another game.
+	writeSD(t, sd, "roms/psx/Other.chd", "disc")
+	_, err = l.PlanRename(EncodeID("psx/Other.chd"), "Ridge")
+	if !errors.As(err, &conflict) || conflict.Shared || len(conflict.Conflicts) == 0 {
+		t.Fatalf("taken key: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(sd, "saves/psx/Ridge.srm")); err != nil {
+		t.Fatal("save moved")
+	}
+}
+
+// The same on NextUI: two games of one ROM file name in two folders of the
+// same tag share their save.
+func TestRenameGameNextUISharedKey(t *testing.T) {
+	l, sd := newLibrary(t)
+	writeSD(t, sd, "Roms/Game Boy Advance (GBA)/Hacks/Starlight Courier.gba", "copy")
+	_, err := l.PlanRename(EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba"), "Star")
+	var conflict *RenameConflictError
+	if !errors.As(err, &conflict) || !conflict.Shared {
+		t.Fatalf("shared key: %v", err)
+	}
+}
+
 func TestRenameGameKnulli(t *testing.T) {
 	l, trash, sd := knulliLibrary(t, t.TempDir())
 	plan, err := l.PlanRename(EncodeID("gba/Starlight Courier.gba"), "Star Courier")

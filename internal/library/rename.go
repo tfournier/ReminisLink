@@ -1,6 +1,7 @@
 package library
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -91,6 +92,19 @@ func (l *Library) PlanRename(gameID, name string) (RenamePlan, error) {
 	shared := l.adapter.SharedFiles(g)
 	artShared := files.Art != nil && shared[files.Art.Path]
 	if g.Kind.IsFolder() && len(shared) > 0 && !(artShared && len(shared) == 1) {
+		return RenamePlan{}, &RenameConflictError{Shared: true}
+	}
+	// The save, clock file and states are named after a key of the ROM
+	// name (NextUI: the whole file name; Knulli: without its extension):
+	// another game of the tag with the same key shares them (Ridge.chd and
+	// Ridge.pbp on Knulli, two Game.gba in two folders on NextUI). Moving
+	// them would take its progress (Codex review of M23).
+	key := l.adapter.StateKey(g.ROMName)
+	others, err := l.gamesWithKey(g, key)
+	if err != nil {
+		return RenamePlan{}, err
+	}
+	if len(others) > 0 {
 		return RenamePlan{}, &RenameConflictError{Shared: true}
 	}
 	main, err := resolveUnder(l.romsRoot(), g.Path)
@@ -184,10 +198,18 @@ func (l *Library) PlanRename(gameID, name string) (RenamePlan, error) {
 			conflicts = append(conflicts, l.sdDisplay(s.step.To))
 		}
 	}
-	// Another game of the tag under the new name would share the save and
-	// the states (NextUI names them after the ROM file name only).
-	if !strings.EqualFold(newROM, g.ROMName) && l.adapter.GameExists(g.System.Tag, newROM) {
-		conflicts = append(conflicts, l.sdDisplay(newMain))
+	// Another game of the tag whose key is the new one would share the
+	// save and the states: compared on the key, not on the file name.
+	if newKey := l.adapter.StateKey(newROM); !strings.EqualFold(newKey, key) {
+		taken, err := l.gamesWithKey(g, newKey)
+		if err != nil {
+			return RenamePlan{}, err
+		}
+		for _, o := range taken {
+			if p, err := resolveUnder(l.romsRoot(), o.Path); err == nil {
+				conflicts = append(conflicts, l.sdDisplay(p))
+			}
+		}
 	}
 	if len(conflicts) > 0 {
 		return RenamePlan{}, &RenameConflictError{Conflicts: conflicts}
@@ -209,4 +231,30 @@ func (l *Library) sdDisplay(p string) string {
 		return filepath.ToSlash(rel)
 	}
 	return filepath.Base(p)
+}
+
+// gamesWithKey returns the other games of the tag of g (every system folder
+// of that tag, subfolders included) whose data key (StateKey of the ROM
+// name) is key, compared ignoring case.
+func (l *Library) gamesWithKey(g osadapter.Game, key string) ([]osadapter.Game, error) {
+	systems, err := l.adapter.SystemFolders()
+	if err != nil {
+		return nil, err
+	}
+	var out []osadapter.Game
+	for _, sys := range systems {
+		if sys.Tag != g.System.Tag {
+			continue
+		}
+		err := l.adapter.WalkGames(context.Background(), sys, func(o osadapter.Game) error {
+			if o.Path != g.Path && strings.EqualFold(l.adapter.StateKey(o.ROMName), key) {
+				out = append(out, o)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
