@@ -45,6 +45,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import link.reminis.app.R
+import link.reminis.app.container
 import link.reminis.core.Backup
 import link.reminis.core.BackupLabel
 import link.reminis.core.BackupReasons
@@ -266,6 +267,9 @@ fun StatesScreen(deviceId: String, gameId: String, gameName: String, onBack: () 
     val creator = rememberDocumentCreator()
     var selected by remember { mutableStateOf<Slot?>(null) }
     var confirmation by remember { mutableStateOf<StateConfirmation?>(null) }
+    val history by vm.history.collectAsState()
+    var restoringResume by remember { mutableStateOf<link.reminis.core.ResumeHistoryEntry?>(null) }
+    val demo = LocalContext.current.container.isDemo(deviceId)
 
     AppScaffold(
         title = stringResource(R.string.states_title),
@@ -301,6 +305,26 @@ fun StatesScreen(deviceId: String, gameId: String, gameName: String, onBack: () 
                         onClick = { if (!working) selected = slot },
                     )
                 }
+                // The resume history (M5): the last versions of the automatic resume state.
+                val entries = history?.entries
+                if (entries != null && (list.resume != null || entries.isNotEmpty())) {
+                    item { SectionTitle(stringResource(R.string.resume_history)) }
+                    if (entries.isEmpty()) {
+                        item { Text(stringResource(R.string.resume_none), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
+                    }
+                    items(entries, key = { "rh-" + it.id }) { entry ->
+                        ListItem(
+                            headlineContent = { Text(formatDate(entry.capturedAt)) },
+                            trailingContent = { Text(formatBytes(context, entry.sizeBytes)) },
+                            modifier = Modifier.clickable(enabled = !working) { restoringResume = entry }.testTag("resumeEntry"),
+                        )
+                    }
+                    item {
+                        // The demo names no real product.
+                        Footnote(stringResource(if (demo) R.string.resume_footer_demo else R.string.resume_footer))
+                        Footnote(stringResource(R.string.resume_footer_archive))
+                    }
+                }
                 item {
                     Footnote(stringResource(R.string.states_lock_help))
                     Footnote(stringResource(R.string.states_trash_help))
@@ -333,6 +357,15 @@ fun StatesScreen(deviceId: String, gameId: String, gameName: String, onBack: () 
                         if (slot.canDelete) add(stringResource(R.string.action_delete_ellipsis) to { confirmation = StateConfirmation.Delete(slot) })
                     },
                     onDismiss = { selected = null },
+                )
+            }
+            restoringResume?.let { entry ->
+                ConfirmDialog(
+                    title = stringResource(R.string.resume_restore_title),
+                    message = stringResource(R.string.resume_restore_message, formatDate(entry.capturedAt)),
+                    confirm = stringResource(R.string.action_restore),
+                    onConfirm = { vm.restoreResume(entry) },
+                    onDismiss = { restoringResume = null },
                 )
             }
             confirmation?.let { c ->

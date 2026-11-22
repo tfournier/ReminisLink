@@ -211,8 +211,30 @@ class ConsoleEvents(
      */
     fun takeUserOpened(deviceId: String): Boolean = opened.remove(deviceId)
 
+    /** Bumped at each reconnection accepted by a console (any thread reads it). */
+    private val reconnections = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /** The count of reconnections of [deviceId], read when an error answer arrives ([disconnectedByRequest]). */
+    fun reconnection(deviceId: String): Int = reconnections[deviceId] ?: 0
+
+    /**
+     * Any request of the console (a screen, a transfer, M23) got `401
+     * disconnected`, read while [seenAtReconnection] reconnections had been
+     * accepted: unless a reconnection came since (the answer is stale), the
+     * connection closes as iOS does: no stream, the dashboard says it with
+     * Reconnect. True when this answer closed it (it was not closed yet).
+     */
+    fun disconnectedByRequest(deviceId: String, error: Throwable, seenAtReconnection: Int): Boolean {
+        if (reconnection(deviceId) != seenAtReconnection || pairingIdentity(deviceId) == null) return false
+        if (deviceId in _disconnected.value) return false
+        disconnectedByConsole(deviceId)
+        _changes.tryEmit(ConsoleChange.Lost(deviceId, error))
+        return true
+    }
+
     /** The console accepted `POST /clients/me/connect` (Reconnect): the stream may open again. */
     fun reconnected(deviceId: String) {
+        reconnections.merge(deviceId, 1, Int::plus)
         _disconnected.update { it - deviceId }
         lostConsoles -= deviceId
         update()

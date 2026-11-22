@@ -47,6 +47,89 @@ object LocalFiles {
         return Normalizer.normalize(last, Normalizer.Form.NFC)
     }
 
+    /** The tree chosen is not a folder whose name ends with `.pak`, or it is larger than a pak may be. */
+    class NotAPakFolderException(message: String) : Exception(message)
+
+    /**
+     * Zips a folder whose name ends with `.pak` (`ACTION_OPEN_DOCUMENT_TREE`;
+     * iOS zips it with `NSFileCoordinator .forUploading`) into a new
+     * directory of [root], named `<Name>.pak.zip`, its entries under
+     * `<Name>.pak/` (a layout the pak accepts). Read through the Storage
+     * Access Framework only: no storage permission, no extra library.
+     */
+    suspend fun zipPakFolder(context: Context, tree: Uri, root: File): PickedFile {
+        val directory = File(root, UUID.randomUUID().toString())
+        var handed = false
+        try {
+            val picked = withContext(Dispatchers.IO) {
+                val resolver = context.contentResolver
+                val rootId = DocumentsContract.getTreeDocumentId(tree)
+                val folderName = displayName(resolver, DocumentsContract.buildDocumentUriUsingTree(tree, rootId))
+                if (!folderName.lowercase().endsWith(".pak") || folderName.length <= 4) throw NotAPakFolderException("not a .pak folder")
+                if (!directory.mkdirs()) throw LocalFileException(FileNotFoundException("transfer directory"))
+                val destination = File(directory, "file")
+                var entries = 0
+                var bytes = 0L
+                try {
+                    java.util.zip.ZipOutputStream(destination.outputStream().buffered()).use { zip ->
+                        fun add(parentId: String, prefix: String) {
+                            val columns = arrayOf(
+                                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                            )
+                            val rows = mutableListOf<Triple<String, String, String>>()
+                            resolver.query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId), columns, null, null, null)?.use { c ->
+                                while (c.moveToNext()) rows += Triple(c.getString(0), c.getString(1).orEmpty(), c.getString(2).orEmpty())
+                            }
+                            for ((id, rawName, mime) in rows.sortedBy { it.second.lowercase() }) {
+                                val name = Normalizer.normalize(rawName, Normalizer.Form.NFC)
+                                // Never a path: a name with a separator, or a dot name, is skipped.
+                                if (name.isEmpty() || name == "." || name == ".." || name.contains('/') || name.contains('\\')) continue
+                                if (++entries > PakFolderZip.MAX_ENTRIES) throw NotAPakFolderException("too many entries")
+                                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                                    zip.putNextEntry(java.util.zip.ZipEntry("$prefix$name/"))
+                                    zip.closeEntry()
+                                    add(id, "$prefix$name/")
+                                    continue
+                                }
+                                zip.putNextEntry(java.util.zip.ZipEntry("$prefix$name"))
+                                val input = resolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, id))
+                                    ?: throw FileNotFoundException("document")
+                                input.use { inp ->
+                                    val buffer = ByteArray(256 * 1024)
+                                    while (true) {
+                                        val n = inp.read(buffer)
+                                        if (n < 0) break
+                                        bytes += n
+                                        if (bytes > PakFolderZip.MAX_BYTES) throw NotAPakFolderException("too large")
+                                        zip.write(buffer, 0, n)
+                                    }
+                                }
+                                zip.closeEntry()
+                            }
+                        }
+                        add(rootId, "$folderName/")
+                    }
+                    PickedFile(destination, "$folderName.zip", destination.length())
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: NotAPakFolderException) {
+                    throw e
+                } catch (e: LocalFileException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw LocalFileException(e)
+                }
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            handed = true
+            return picked
+        } finally {
+            if (!handed) withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { directory.deleteRecursively() }
+        }
+    }
+
     /**
      * Copies a document into a new directory of [root] (`<uuid>/file`), so
      * an upload can be resumed after the picker's access ends. The local
@@ -83,6 +166,12 @@ object LocalFiles {
             if (!handed) withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { directory.deleteRecursively() }
         }
     }
+}
+
+/** The pak's own limits (1 GiB, 10 000 entries) for a zipped `.pak` folder: beyond, the console refuses it anyway. */
+internal object PakFolderZip {
+    const val MAX_BYTES = 1L shl 30
+    const val MAX_ENTRIES = 10_000
 }
 
 /** A download written into a document created by the user (`ACTION_CREATE_DOCUMENT`). */

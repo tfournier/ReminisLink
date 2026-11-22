@@ -145,10 +145,27 @@ class StatesViewModel(app: Application, deviceId: String, private val gameId: St
     /** Only the last load shows its answer. */
     private var generation = 0
 
+    private val _history = MutableStateFlow<link.reminis.core.ResumeHistory?>(null)
+
+    /** The resume history of the game (null until read, or from a pak that does not answer it). */
+    val history: StateFlow<link.reminis.core.ResumeHistory?> = _history.asStateFlow()
+
     init {
         load()
         reloadAfterTransfers(gameId) { load(quiet = true) }
         reloadOnLibraryChanges { load(quiet = true) }
+    }
+
+    /**
+     * `POST /games/{gameId}/resume-history/{entryId}/restore`: the current
+     * resume state is archived first, then replaced by this version.
+     */
+    fun restoreResume(entry: link.reminis.core.ResumeHistoryEntry) = perform(Notice(R.string.resume_restored)) {
+        val restored = container.client(deviceId).restoreResumeHistory(gameId, entry.id)
+        // Newer than any load in flight: those are dropped.
+        generation++
+        _history.value = restored
+        load(quiet = true)
     }
 
     fun load(quiet: Boolean = false) {
@@ -162,7 +179,19 @@ class StatesViewModel(app: Application, deviceId: String, private val gameId: St
             } catch (e: Exception) {
                 Load.Failed(e)
             }
+            val history = if (result is Load.Loaded) {
+                try {
+                    container.client(deviceId).resumeHistory(gameId)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
             if (current != generation) return@launch
+            if (result is Load.Loaded) _history.value = history
             if (result is Load.Loaded) {
                 _restored.update { it + result.value.slots.filter(Slot::wasRestored).map(Slot::slot) }
                 loadThumbnails(result.value)

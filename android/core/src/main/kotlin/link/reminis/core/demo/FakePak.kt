@@ -282,7 +282,7 @@ class FakePak(
 
     fun handle(request: Request): Response {
         requestsReceived.incrementAndGet()
-        if (closed) return error(request, 503, "shutting_down", "Shutting down")
+        if (closed || answerShuttingDown) return error(request, 503, "shutting_down", "Shutting down")
         val segments = request.url.pathSegments
         if (segments.size < 2 || segments[0] != "api" || segments[1] != "v1") return error(request, 404, "not_found", "No route")
         val s = segments.drop(2)
@@ -322,6 +322,10 @@ class FakePak(
         streams.forEach { runCatching { it.sink.close() } }
         streams.clear()
     }
+
+    /** Tests: every request answers `503 shutting_down` (the streams stay open), as a pak closing. */
+    @Volatile
+    var answerShuttingDown = false
 
     /** Tests: `GET /events` requests received (accepted or refused). */
     val eventsRequests = java.util.concurrent.atomic.AtomicInteger()

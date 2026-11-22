@@ -67,19 +67,22 @@ import link.reminis.core.GameFileRoles
 
 @Composable
 fun DashboardScreen(
-    onApps: () -> Unit = {},
     onTrash: () -> Unit = {},
     onScreenshots: () -> Unit = {},
     deviceId: String,
     onBack: () -> Unit,
-    onLibrary: () -> Unit,
     onTransfers: () -> Unit,
+    /** M23: the storage opens the Files tab. */
+    onFiles: () -> Unit = {},
     onForgotten: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as Application
     val vm: DashboardViewModel = viewModel(key = "dashboard-$deviceId") { DashboardViewModel(app, deviceId) }
     val status by vm.status.collectAsState()
-    var forgetting by remember { mutableStateOf(false) }
+    val trash by vm.trash.collectAsState()
+    val activeTransfers by vm.activeTransfers.collectAsState()
+    val unpairError by vm.unpairError.collectAsState()
+    var unpairing by remember { mutableStateOf(false) }
     val title = (status as? Load.Loaded)?.value?.deviceName ?: vm.consoleName
 
     AppScaffold(
@@ -100,33 +103,56 @@ fun DashboardScreen(
             )
         } else {
             LoadContent(status, onRetry = vm::retry, modifier = modifier) { device ->
-                Dashboard(device, modifier, onLibrary, onTransfers, onApps, onScreenshots, onTrash, onForget = { forgetting = true })
+                Dashboard(
+                    device, modifier, trash, activeTransfers, unpairError,
+                    onTransfers, onScreenshots, onTrash, onFiles, onUnpair = { unpairing = true },
+                )
             }
         }
     }
-    if (forgetting) {
-        ForgetDialog(title, onConfirm = { vm.forget(); forgetting = false; onForgotten() }, onDismiss = { forgetting = false })
+    if (unpairing) {
+        ConfirmDialog(
+            title = stringResource(R.string.unpair_title),
+            message = stringResource(R.string.unpair_message),
+            confirm = stringResource(R.string.unpair),
+            onConfirm = { vm.unpair(onForgotten) },
+            onDismiss = { unpairing = false },
+        )
     }
 }
 
+/**
+ * The Console tab (docs/specs/06-app-ios.md §4.3, M23): the rows of
+ * Transfers (the uploads and jobs running) and Trash (its entries), the
+ * screenshots, the console's state, the storage (which opens the Files
+ * tab), the devices connected, and Unpair.
+ */
 @Composable
 private fun Dashboard(
     device: DeviceStatus,
     modifier: Modifier,
-    onLibrary: () -> Unit,
+    trash: link.reminis.core.TrashList?,
+    activeTransfers: Int,
+    unpairError: Throwable?,
     onTransfers: () -> Unit,
-    onApps: () -> Unit,
     onScreenshots: () -> Unit,
     onTrash: () -> Unit,
-    onForget: () -> Unit,
+    onFiles: () -> Unit,
+    onUnpair: () -> Unit,
 ) {
     val context = LocalContext.current
     LazyColumn(modifier.fillMaxSize().testTag("dashboard")) {
         item {
+            NavigationRow(stringResource(R.string.transfers_title), activeTransfers.takeIf { it > 0 }, onTransfers, "openTransfers")
+            NavigationRow(stringResource(R.string.trash_title), trash?.entries?.size?.takeIf { it > 0 }, onTrash, "openTrash")
+            // M22: the screenshots taken on the console.
+            NavigationRow(stringResource(R.string.screenshots_title), null, onScreenshots, "openScreenshots")
+            HorizontalDivider()
             Info(stringResource(R.string.dashboard_model), modelName(context, device.model))
             Info(stringResource(R.string.dashboard_os), listOfNotNull(device.os, device.osVersion).joinToString(" "))
             Info(stringResource(R.string.dashboard_pak), device.pakVersion)
             Info(stringResource(R.string.dashboard_ip), device.network.ipv4)
+            device.network.ssid?.let { Info(stringResource(R.string.dashboard_wifi), it) }
             Info(
                 stringResource(R.string.battery),
                 device.battery?.let {
@@ -141,7 +167,10 @@ private fun Dashboard(
             )
         }
         items(device.storage, key = { it.id }) { storage ->
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                Modifier.fillMaxWidth().clickable(onClick = onFiles).padding(16.dp).testTag("storage"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Text(storage.label)
                 LinearProgressIndicator(
                     progress = { if (storage.totalBytes > 0) storage.usedBytes.toFloat() / storage.totalBytes else 0f },
@@ -151,8 +180,12 @@ private fun Dashboard(
                     stringResource(R.string.storage_free, formatBytes(context, storage.freeBytes), formatBytes(context, storage.totalBytes)),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                trash?.totalBytes?.takeIf { it > 0 }?.let {
+                    Text(stringResource(R.string.dashboard_storage_trash, formatBytes(context, it)), style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
+        item { Footnote(stringResource(R.string.dashboard_storage_footer)) }
         if (device.connectedClients.isNotEmpty()) {
             item {
                 HorizontalDivider()
@@ -161,26 +194,30 @@ private fun Dashboard(
         }
         item {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onLibrary, modifier = Modifier.fillMaxWidth().testTag("openLibrary")) {
-                    Text(stringResource(R.string.library))
+                unpairError?.let { Text(errorMessage(context, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("unpairError")) }
+                OutlinedButton(onClick = onUnpair, modifier = Modifier.fillMaxWidth().testTag("unpair")) {
+                    Text(stringResource(R.string.unpair), color = MaterialTheme.colorScheme.error)
                 }
-                OutlinedButton(onClick = onTransfers, modifier = Modifier.fillMaxWidth().testTag("openTransfers")) {
-                    Text(stringResource(R.string.transfers_title))
-                }
-                OutlinedButton(onClick = onApps, modifier = Modifier.fillMaxWidth().testTag("openApps")) {
-                    Text(stringResource(R.string.paks_title))
-                }
-                // M22: the screenshots taken on the console.
-                OutlinedButton(onClick = onScreenshots, modifier = Modifier.fillMaxWidth().testTag("openScreenshots")) {
-                    Text(stringResource(R.string.screenshots_title))
-                }
-                OutlinedButton(onClick = onTrash, modifier = Modifier.fillMaxWidth().testTag("openTrash")) {
-                    Text(stringResource(R.string.trash_title))
-                }
-                OutlinedButton(onClick = onForget, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.forget)) }
             }
         }
     }
+}
+
+/** A row that opens a screen, with a count in a badge (M23: running transfers, trash entries). */
+@Composable
+private fun NavigationRow(title: String, count: Int?, onClick: () -> Unit, tag: String) {
+    ListItem(
+        headlineContent = { Text(title) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (count != null) {
+                    androidx.compose.material3.Badge(modifier = Modifier.testTag("$tag-count")) { Text(count.toString()) }
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+            }
+        },
+        modifier = Modifier.clickable(onClick = onClick).testTag(tag),
+    )
 }
 
 @Composable
@@ -246,6 +283,8 @@ fun LibraryPanes(
                             onPatch = { onPatch(game) },
                             onDeleted = { selected = null },
                             onImportArchive = { onImportArchive(game) },
+                            // M23: the game under its new identifier.
+                            onRenamed = { selected = it },
                         )
                     }
                 }
@@ -339,6 +378,7 @@ fun LibraryScreen(
                             if (game.cheatCount > 0) add(pluralStringResource(R.plurals.cheat_count, game.cheatCount, game.cheatCount))
                         }
                         ListItem(
+                            leadingContent = { link.reminis.app.GameArt(deviceId, game.id, game.hasArt, 44.dp) },
                             headlineContent = { Text(game.name) },
                             supportingContent = { Text(badges.joinToString(" · ")) },
                             colors = if (game.id == selectedGameId) {
@@ -370,9 +410,12 @@ fun GameScreen(
     onPatch: () -> Unit = {},
     onDeleted: () -> Unit = {},
     onImportArchive: () -> Unit = {},
+    /** M23: renamed, the game has a new identifier (the screens above it close). */
+    onRenamed: (String) -> Unit = {},
 ) {
     val app = LocalContext.current.applicationContext as Application
     val vm: GameViewModel = viewModel(key = "game-$deviceId-$gameId") { GameViewModel(app, deviceId, gameId) }
+    var renaming by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val game by vm.game.collectAsState()
     val working by vm.working.collectAsState()
     val notice by vm.notice.collectAsState()
@@ -405,6 +448,11 @@ fun GameScreen(
                         )
                     }
                     DropdownMenuItem(
+                        text = { Text(stringResource(R.string.game_rename)) },
+                        onClick = { menu = false; renaming = true },
+                        modifier = Modifier.testTag("renameGame"),
+                    )
+                    DropdownMenuItem(
                         text = { Text(stringResource(R.string.game_delete)) },
                         onClick = { menu = false; deleting = true; vm.previewDeletion(keepSave = false) },
                         modifier = Modifier.testTag("deleteGame"),
@@ -415,7 +463,7 @@ fun GameScreen(
     ) { modifier ->
         LoadContent(game, onRetry = { vm.refresh() }, modifier = modifier) { detail ->
             GameDetailView(
-                detail, modifier, vm.listState, working, notice, error, vm::dismissMessages,
+                deviceId, detail, modifier, vm.listState, working, notice, error, vm::dismissMessages,
                 onSave = { onSave(detail.name) }, onStates = { onStates(detail.name) }, onCheats = onCheats, onPatch = onPatch,
                 onDownload = { file, uri -> vm.download(file, detail.name, uri) },
                 archive = ArchiveActions(
@@ -433,6 +481,9 @@ fun GameScreen(
         androidx.compose.runtime.LaunchedEffect(Unit) { if (vm.deletion.value == null) vm.previewDeletion(keepSave = false) }
         DeleteGameDialog(vm, (game as? Load.Loaded)?.value?.name.orEmpty(), onDeleted = onDeleted, onDismiss = { deleting = false; vm.closeDeletion() })
     }
+    if (renaming && loaded != null) {
+        RenameGameDialog(loaded, onRename = { name -> renaming = false; vm.rename(name, onRenamed) }, onDismiss = { renaming = false })
+    }
     if (removingArt) {
         ConfirmDialog(
             title = stringResource(R.string.art_remove_title),
@@ -444,8 +495,43 @@ fun GameScreen(
     }
 }
 
+/**
+ * Renames a game (M23): the name without its extension, which is kept and
+ * said, with what follows the game; checked with the rules of the pak
+ * before anything is sent.
+ */
+@Composable
+private fun RenameGameDialog(game: GameDetail, onRename: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(link.reminis.core.GameNameRule.editableName(game.fileName, game.isFolder)) }
+    val extension = link.reminis.core.GameNameRule.keptExtension(game.fileName, game.isFolder)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.game_rename_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("renameName"),
+                )
+                val help = stringResource(R.string.game_rename_help)
+                Text(
+                    if (extension.isEmpty()) help else stringResource(R.string.game_rename_extension, extension) + " " + help,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onRename(name) }, modifier = Modifier.testTag("renameConfirm")) { Text(stringResource(R.string.game_rename_action)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
+}
+
 @Composable
 private fun GameDetailView(
+    deviceId: String,
     game: GameDetail,
     modifier: Modifier,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -467,6 +553,13 @@ private fun GameDetailView(
         item {
             if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
             MessageCard(notice, error, onDismiss)
+            // The art the console shows in its game list.
+            val art = game.files.firstOrNull { it.role == GameFileRoles.ART }
+            if (art != null) {
+                key(art.modifiedAt, art.sizeBytes) {
+                    link.reminis.app.GameArt(deviceId, game.id, true, 120.dp, Modifier.padding(start = 16.dp, top = 8.dp))
+                }
+            }
             Info(stringResource(R.string.game_file), game.fileName)
             Info(stringResource(R.string.game_size), formatBytes(context, game.totalBytes))
             ListItem(
@@ -484,7 +577,15 @@ private fun GameDetailView(
                 modifier = Modifier.clickable(onClick = onStates).testTag("openStates"),
             )
             ListItem(
-                headlineContent = { Text(stringResource(if (game.cheatFileCount > 0) R.string.game_cheats_file else R.string.game_cheats_none)) },
+                headlineContent = {
+                    // M23: the number of cheats; Yes or No from an older pak.
+                    val count = game.cheatCount
+                    Text(
+                        if (count != null) pluralStringResource(R.plurals.cheat_count, count, count)
+                        else stringResource(if (game.cheatFileCount > 0) R.string.game_cheats_yes else R.string.game_cheats_no),
+                        modifier = Modifier.testTag("cheatCount"),
+                    )
+                },
                 overlineContent = { Text(stringResource(R.string.cheats_title)) },
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                 modifier = Modifier.clickable(onClick = onCheats).testTag("openCheats"),

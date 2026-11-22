@@ -200,9 +200,21 @@ private fun TransferRow(item: TransferItem, onCancel: () -> Unit, onResume: () -
         }
         Text(status(context, item), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("transferStatus"))
         item.failure?.let { failure ->
-            Text(errorMessage(context, failure), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            // M23: a file of the Files tab says a protected folder or a taken name as such.
+            val shown = if (item.target is link.reminis.core.UploadTarget.SdFile) sdWriteError(failure) else failure
+            Text(errorMessage(context, shown), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         when {
+            // No Keep Both: another name does not lift the protection.
+            item.isProtectedFolder && item.phase == TransferPhase.FAILED ->
+                Text(stringResource(R.string.transfer_sd_protected), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("transferProtected"))
+            // M23: a file of the SD browser is never replaced.
+            item.isNameConflict && item.target is link.reminis.core.UploadTarget.SdFile -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(onClick = { onRetry(OnConflict.RENAME) }, modifier = Modifier.testTag("keepBoth")) {
+                    Text(stringResource(R.string.transfer_keep_both))
+                }
+                Text(stringResource(R.string.transfer_sd_conflict), style = MaterialTheme.typography.bodySmall)
+            }
             item.isNameConflict -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { onRetry(OnConflict.RENAME) }) { Text(stringResource(R.string.transfer_keep_both)) }
                 OutlinedButton(onClick = { onRetry(OnConflict.OVERWRITE) }) { Text(stringResource(R.string.transfer_replace)) }

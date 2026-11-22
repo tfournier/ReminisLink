@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,7 +58,7 @@ import link.reminis.core.PairingLinkException
 // MARK: consoles list
 
 @Composable
-fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () -> Unit = {}) {
+fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () -> Unit = {}, onSettings: () -> Unit = {}) {
     val vm: ConsolesViewModel = viewModel()
     val consoles by vm.consoles.collectAsState()
     val online by vm.online.collectAsState()
@@ -77,6 +78,11 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () ->
     AppScaffold(
         title = stringResource(R.string.consoles_title),
         onBack = null,
+        actions = {
+            androidx.compose.material3.IconButton(onClick = onSettings, modifier = Modifier.testTag("openSettings")) {
+                Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.settings_title))
+            }
+        },
         floatingActionButton = {
             // The demo (M16) pairs nothing: quit it to add a real console.
             if (consoles.isNotEmpty() && demo == null) {

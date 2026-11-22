@@ -83,7 +83,7 @@ scroll_to() {
 tap "Try Without a Console"
 wait_for "Demo Handheld"
 wait_for "Demo mode"
-scroll_to "Library"
+wait_for "Library"
 tap "Library"
 wait_for "Thistledown Isles"
 wait_for "Brambleway Dash"

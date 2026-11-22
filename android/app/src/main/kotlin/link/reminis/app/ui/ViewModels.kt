@@ -310,7 +310,61 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
     /** Only the last read publishes. */
     private var generation = 0
 
+    private val _trash = MutableStateFlow<link.reminis.core.TrashList?>(null)
+
+    /** M23: the trash of the console, for the count of the Trash row and the part of the storage it takes. */
+    val trash: StateFlow<link.reminis.core.TrashList?> = _trash.asStateFlow()
+
+    /** M23: the uploads, downloads and jobs of this console still running (the badge of the Transfers row). */
+    val activeTransfers: StateFlow<Int> = kotlinx.coroutines.flow.combine(container.transfers.items, container.jobs.jobs) { items, jobs ->
+        items.count { it.deviceId == deviceId && !it.phase.isFinished && !it.isHidden } +
+            jobs.count { it.deviceId == deviceId && !it.lost && it.job?.isFinished != true }
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, 0)
+
+    private val _unpairError = MutableStateFlow<Throwable?>(null)
+    val unpairError: StateFlow<Throwable?> = _unpairError.asStateFlow()
+
+    private var trashGeneration = 0
+
+    /** Reads the trash quietly (a failure keeps the last count). */
+    private fun loadTrash() {
+        val current = ++trashGeneration
+        viewModelScope.launch {
+            val list = runCatching { container.client(deviceId).trash() }.getOrNull() ?: return@launch
+            if (current == trashGeneration) _trash.value = list
+        }
+    }
+
+    /**
+     * `DELETE /clients/me`, then the console is forgotten on this phone.
+     * A console that no longer knows this phone (`401 unknown_client`) is
+     * only forgotten here; any other failure is shown and nothing changes.
+     */
+    fun unpair(onDone: () -> Unit) {
+        _unpairError.value = null
+        viewModelScope.launch {
+            try {
+                if (!container.isDemo(deviceId)) {
+                    try {
+                        container.client(deviceId).unpair()
+                    } catch (e: ApiException.Server) {
+                        if (e.code != link.reminis.core.ErrorCodes.UNKNOWN_CLIENT) throw e
+                    }
+                }
+                container.forget(deviceId)
+                onDone()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _unpairError.value = e
+            }
+        }
+    }
+
     init {
+        // The trash changed from another screen, or on the console (M14).
+        viewModelScope.launch { container.trashChanged.collect { if (it == deviceId) loadTrash() } }
+        viewModelScope.launch { container.libraryChanged.collect { if (it == deviceId) loadTrash() } }
         // Opened from the list of consoles: an action of the user, which may lift a disconnection (M10).
         refresh(explicit = container.events.takeUserOpened(deviceId))
         // M14: the console's events (battery, connected devices, storage; a new stream; a lost connection).
@@ -323,6 +377,7 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
                     }
                     // No `device` event is sent at the start: the status is read once after each `hello`.
                     is link.reminis.app.ConsoleChange.CatchUp -> refresh(quiet = true)
+                    is link.reminis.app.ConsoleChange.Library, is link.reminis.app.ConsoleChange.Screenshots -> loadTrash()
                     is link.reminis.app.ConsoleChange.Lost -> {
                         generation++
                         _status.value = Load.Failed(change.error)
@@ -357,7 +412,9 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
             if (current != generation) return@launch
             // The console closed ReminisLink or disconnected this phone while this read was out:
             // its answer is stale, and the transfers paused since stay paused.
-            if (epoch != container.events.epoch(deviceId)) return@launch
+            // An explicit reconnection that the console accepted is the newest state, whatever its
+            // first `401 disconnected` (seen by the error observer meanwhile) did to the epoch.
+            if (!(explicit && result is Load.Loaded) && epoch != container.events.epoch(deviceId)) return@launch
             // Seen first, even by a quiet read: the console disconnected this phone, or closed ReminisLink.
             when ((result as? Load.Failed)?.error.let { it as? ApiException.Server }?.code) {
                 link.reminis.core.ErrorCodes.DISCONNECTED -> {
@@ -373,6 +430,7 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
             }
             if (quiet && result is Load.Failed && _status.value is Load.Loaded) return@launch
             _status.value = result
+            if (result is Load.Loaded) loadTrash()
             // The console answers again: the transfers paused by a lost connection (or by the console closing) go on.
             if (result is Load.Loaded) container.transfers.resumePaused(deviceId)
         }
@@ -405,7 +463,6 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
         refresh(reconnect = true, explicit = true)
     }
 
-    fun forget() = container.forget(deviceId)
 }
 
 // MARK: library
@@ -577,12 +634,35 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
             }
         }
         container.client(deviceId).setGameArt(gameId, png)
+        container.artCache.invalidate(deviceId)
         refresh(quiet = true)
     }
 
     fun removeArt() = perform(Notice(R.string.art_removed)) {
         container.client(deviceId).deleteGameArt(gameId)
+        container.artCache.invalidate(deviceId)
         refresh(quiet = true)
+    }
+
+    /**
+     * `POST /games/{gameId}/rename` (M23): [name] without the extension,
+     * checked first with the rules of the pak (nothing is sent when it
+     * breaks one); the game comes back under a new identifier.
+     */
+    fun rename(name: String, onRenamed: (String) -> Unit) = perform(null) {
+        val detail = (_game.value as? Load.Loaded)?.value ?: return@perform
+        val normalized = link.reminis.core.GameNameRule.normalized(name)
+        link.reminis.core.GameNameRule.problem(normalized, link.reminis.core.GameNameRule.keptExtension(detail.fileName, detail.isFolder))
+            ?.let { throw nameProblemMessage(it) }
+        val result = try {
+            container.client(deviceId).renameGame(gameId, normalized)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw renameError(e)
+        }
+        container.libraryChanged.tryEmit(deviceId)
+        if (result.game.id != gameId) onRenamed(result.game.id) else refresh(quiet = true)
     }
 
     /** A notice left by another screen (a patch applied): shown once, and the game read again. */
@@ -648,8 +728,14 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
 /** A deletion being confirmed: the option shown and its preview. */
 data class DeletionState(val keepSave: Boolean, val preview: Load<link.reminis.core.DeletionPreview>)
 
-/** A short message shown after an action (a string resource and its arguments). */
-data class Notice(@param:androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList())
+/** A short message shown after an action (a string resource, or a plural one with [quantity], and its arguments). */
+data class Notice(
+    @param:androidx.annotation.StringRes val id: Int,
+    val args: List<Any> = emptyList(),
+    /** A plural text instead of [id], for [quantity]. */
+    @param:androidx.annotation.PluralsRes val plural: Int? = null,
+    val quantity: Int = 0,
+)
 
 /**
  * A screen of one console whose actions show a working state, then a notice
@@ -671,6 +757,11 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
 
     protected fun showNotice(notice: Notice?) {
         _notice.value = notice
+    }
+
+    protected fun showFailure(error: Throwable?) {
+        _notice.value = null
+        _error.value = error
     }
 
     /** A text already translated (a notice from another screen). */

@@ -254,6 +254,7 @@ fun ScreenshotsScreen(deviceId: String, onBack: () -> Unit, onOpen: (String) -> 
     val vm: ScreenshotsViewModel = viewModel(key = "screenshots-$deviceId") { ScreenshotsViewModel(app, deviceId) }
     val list by vm.manager.list.collectAsState()
     val selecting by vm.selecting.collectAsState()
+    HideTabBarWhile(selecting)
     val selection by vm.selection.collectAsState()
     val working by vm.working.collectAsState()
     val notice by vm.notice.collectAsState()

@@ -84,6 +84,9 @@ class AppContainer(context: Context) {
     val discovery = Discovery(context)
     val pendingLinks = PendingLinks()
 
+    /** The box art of the games shown (the covers of the library and of the game screen). */
+    val artCache = GameArtCache()
+
     /** Work that must outlive a screen: a pairing exchange once `POST /pair` is sent. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -141,9 +144,13 @@ class AppContainer(context: Context) {
         // The real consoles are left alone while the demo runs (as on iOS): their transfers pause
         // and resume when the demo ends; discovery, probes and requests to them are off.
         transfers.holdForDemo { !isDemo(it) }
-        val console = link.reminis.core.demo.DemoConsole(appContext.getString(R.string.demo_console_name)) { n ->
-            appContext.getString(R.string.demo_cheat_name, n)
-        }
+        var started: link.reminis.core.demo.DemoConsole? = null
+        val console = link.reminis.core.demo.DemoConsole(
+            appContext.getString(R.string.demo_console_name),
+            // The demo's answers close its connection as a real console's do.
+            errorObserver = { error -> started?.let { serverError(it.deviceId, error) } },
+        ) { n -> appContext.getString(R.string.demo_cheat_name, n) }
+        started = console
         // Under the pairing lock: no address of a real console is written once the demo has started.
         synchronized(pairingLock) { _demo.value = console }
         // Searches and probes of real consoles in flight stop now.
@@ -196,7 +203,7 @@ class AppContainer(context: Context) {
     }
 
     /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
-    val pakInstaller = PakInstaller(transferScope, transfers, jobs) { file -> file.parentFile?.deleteRecursively() }
+    val pakInstaller = PakInstaller(transferScope, transfers, jobs, client = { client(it) }) { file -> file.parentFile?.deleteRecursively() }
 
     /** A notice for the game screen of a console (a patch applied, the screen closed by itself). */
     val gameNotice = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
@@ -230,8 +237,11 @@ class AppContainer(context: Context) {
         scope.launch {
             events.changes.collect { change ->
                 if (change is ConsoleChange.Screenshots || change is ConsoleChange.CatchUp) screenshotManagers[change.deviceId]?.changed()
+                // An art may have been set or removed by any client.
+                if (change is ConsoleChange.Library || change is ConsoleChange.CatchUp) artCache.invalidate(change.deviceId)
             }
         }
+        scope.launch { libraryChanged.collect { artCache.invalidate(it) } }
     }
 
     /** `clientName` of `POST /pair`: typed by the user, the device model by default. */
@@ -273,7 +283,30 @@ class AppContainer(context: Context) {
         expectedDeviceId = deviceId,
         credentials = credentials,
         pin = pin,
+        // Only a paired client's answers (not those of a pairing in progress) close the connection.
+        errorObserver = if (credentials != null) ({ error -> serverError(deviceId, error) }) else null,
     )
+
+    /**
+     * Every error answer of a console's client (a screen, a transfer, a job;
+     * M23 on Android, as iOS observes them): `503 shutting_down` means the
+     * console closed ReminisLink, `401 disconnected` that it disconnected
+     * this phone; either closes the connection (its transfers pause).
+     * Called on the thread that read the answer.
+     */
+    private fun serverError(deviceId: String, error: link.reminis.core.ApiException.Server) {
+        when (error.code) {
+            link.reminis.core.ErrorCodes.DISCONNECTED -> {
+                val seen = events.reconnection(deviceId)
+                scope.launch {
+                    if (events.disconnectedByRequest(deviceId, error, seen)) transfers.pauseConsole(deviceId)
+                }
+            }
+            link.reminis.core.ErrorCodes.SHUTTING_DOWN -> scope.launch {
+                if (pairingIdentity(deviceId) != null) events.closedSeenByRequest(deviceId)
+            }
+        }
+    }
 
     /**
      * A signed client for a paired console, connected (`/hello` answered with
