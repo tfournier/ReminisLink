@@ -84,6 +84,12 @@ func CountFile(path string) int {
 		return 0
 	}
 	defer f.Close()
+	return CountReader(f)
+}
+
+// CountReader is CountFile for an opened file (the game detail opens it
+// confined, M23).
+func CountReader(f io.Reader) int {
 	head := make([]byte, HeaderBytes)
 	n, err := io.ReadFull(f, head)
 	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {

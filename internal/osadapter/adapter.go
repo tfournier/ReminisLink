@@ -255,6 +255,12 @@ type Adapter interface {
 	// IsSystemGameFile reports whether a file named name, in a folder of
 	// sys, is listed as a game (Knulli: one of the system's extensions).
 	IsSystemGameFile(sys System, name string) bool
+	// IsGameName reports whether a game of sys may be named name: a file
+	// the library lists as a game, or a folder it does not skip (hidden,
+	// a media folder of the OS such as Knulli's videos, a .pak folder that
+	// NextUI launches as a pak). The rename of a game refuses the others
+	// (M23).
+	IsGameName(sys System, name string, folder bool) bool
 
 	// SaveDir reads the save folder of a tag once, to find the save and
 	// the clock file of many games with the same rule as GameFiles (GET

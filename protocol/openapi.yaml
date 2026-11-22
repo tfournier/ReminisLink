@@ -982,15 +982,18 @@ paths:
         and every file named after it, with the rules of the OS adapter
         (docs/specs/05-console-pak.md §3): the save and its clock file, the
         states and their side files (NextUI thumbnails and disc files of
-        `.minui`, Knulli thumbnails), the cheats and their `.cht.bak`, the
+        `.minui`, Knulli thumbnails), the cheats and their `.cht.bak` (alone
+        too, when the list was emptied), the
         art, and the ReminisLink copies (state locks, save backups and resume
         history folders). `name` is the new name **without** the extension:
         the extension of the ROM (or of the playlist of a folder game) is
         kept; it is normalized to NFC and refused (`400 invalid_name`) when
         empty, holding `/`, `\`, a control or format character, a character
         exFAT forbids (`" * : < > ? |`), starting with `.`, ending with a space
-        or a dot, a name Windows reserves, or when any renamed file name
-        would exceed 255 bytes. A name equal to the current one changes
+        or a dot, a name Windows reserves, a name the OS would not list as
+        this game (a media folder of Knulli such as `videos` or `images`,
+        a `.pak` folder, an extension the library ignores), or when any
+        renamed file name would exceed 255 bytes; nothing moves then. A name equal to the current one changes
         nothing (`200`, empty `renamed`). A name that differs only by case is
         renamed (two steps on exFAT, which ignores case).
 
@@ -3860,7 +3863,7 @@ components:
         cheatCount:
           type: integer
           minimum: 0
-          description: 'M23: the number of cheats of its `.cht` file (0 without one), as `Game.cheatCount`. Absent from an older pak.'
+          description: 'M23: the number of cheats of its `.cht` file (0 without one, or when the file is refused: it is opened like `GET /games/{gameId}/files/{fileId}`, never through a link), as `Game.cheatCount`. Absent from an older pak.'
 
     DeletionItem:
       type: object

@@ -113,6 +113,49 @@ func mustRel(t *testing.T, sd, p string) string {
 	return filepath.ToSlash(rel)
 }
 
+// Codex review of M23: the .cht.bak is renamed even when the list was
+// emptied (the .cht deleted).
+func TestRenameGameCheatBackupAlone(t *testing.T) {
+	l, sd := newLibrary(t)
+	if err := os.Remove(filepath.Join(sd, "Cheats/GBA/Starlight Courier.gba.cht")); err != nil {
+		t.Fatal(err)
+	}
+	writeSD(t, sd, "Cheats/GBA/Starlight Courier.gba.cht.bak", "old cheats")
+	if _, err := renameGame(t, l, sd, EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba"), "Star Courier"); err != nil {
+		t.Fatal(err)
+	}
+	mustExist(t, sd, "Cheats/GBA/Star Courier.gba.cht.bak")
+	mustNotExist(t, sd, "Cheats/GBA/Starlight Courier.gba.cht.bak")
+}
+
+// Codex review of M23: the cheat count of the game sheet never reads a
+// .cht through a link (a Cheats/<TAG> folder linked elsewhere).
+func TestGameDetailCheatCountRefusesLinks(t *testing.T) {
+	l, sd := newLibrary(t)
+	outside := t.TempDir()
+	writeSD(t, outside, "Starlight Courier.gba.cht", "cheats = 3\n")
+	if err := os.RemoveAll(filepath.Join(sd, "Cheats", "GBA")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(sd, "Cheats", "GBA")); err != nil {
+		t.Skip("no links")
+	}
+	d, err := l.Game(EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := false
+	for _, f := range d.Files {
+		listed = listed || f.Role == "cheats"
+	}
+	if !listed {
+		t.Skip("the cheats file is not listed through the link here")
+	}
+	if d.CheatCount != 0 {
+		t.Fatalf("counted %d cheats through a link", d.CheatCount)
+	}
+}
+
 func TestRenameGameFolder(t *testing.T) {
 	l, sd := newLibrary(t)
 	plan, err := renameGame(t, l, sd, EncodeID("Sony PlayStation (PS)/Mossy Hollow"), "Mossy Valley")
@@ -254,6 +297,32 @@ func TestRenameGameNextUISharedKey(t *testing.T) {
 	var conflict *RenameConflictError
 	if !errors.As(err, &conflict) || !conflict.Shared {
 		t.Fatalf("shared key: %v", err)
+	}
+}
+
+// Codex review of M23: a name the OS keeps for something else is refused
+// before anything moves: Knulli's media folders, a .pak folder.
+func TestRenameGameReservedNames(t *testing.T) {
+	l, sd := newLibrary(t)
+	before := tree(t, sd)
+	for _, name := range []string{"Mossy.pak", "MOSSY.PAK"} {
+		if _, err := l.PlanRename(EncodeID("Sony PlayStation (PS)/Mossy Hollow"), name); !errors.Is(err, ErrInvalidName) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if tree(t, sd) != before {
+		t.Fatal("the card changed")
+	}
+	k, _, ksd := knulliLibrary(t, t.TempDir())
+	writeSD(t, ksd, "roms/psx/Deep/Deep.m3u", "d.chd\n")
+	writeSD(t, ksd, "roms/psx/Deep/d.chd", "disc")
+	for _, name := range []string{"videos", "Images", "manuals"} {
+		if _, err := k.PlanRename(EncodeID("psx/Deep"), name); !errors.Is(err, ErrInvalidName) {
+			t.Errorf("knulli %s: %v", name, err)
+		}
+	}
+	if _, err := k.PlanRename(EncodeID("psx/Deep"), "Deeper"); err != nil {
+		t.Errorf("a plain name: %v", err)
 	}
 }
 

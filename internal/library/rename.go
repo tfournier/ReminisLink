@@ -76,8 +76,11 @@ func (l *Library) PlanRename(gameID, name string) (RenamePlan, error) {
 	if g.Kind.IsFolder() {
 		newFile, newROM = name, name+filepath.Ext(g.ROMName)
 	}
-	if !g.Kind.IsFolder() && !l.adapter.IsSystemGameFile(g.System, newFile) {
-		return RenamePlan{}, fmt.Errorf("%w: not a game file name", ErrInvalidName)
+	// A name the OS would not list as this game (Knulli's videos folder,
+	// a .pak folder, an ignored extension) is refused before anything
+	// moves (Codex review of M23): the game would vanish.
+	if !l.adapter.IsGameName(g.System, newFile, g.Kind.IsFolder()) {
+		return RenamePlan{}, fmt.Errorf("%w: not a game name for the OS", ErrInvalidName)
 	}
 	plan := RenamePlan{Old: g, New: g}
 	plan.New.Path = path.Join(path.Dir(g.Path), newFile)
@@ -158,9 +161,16 @@ func (l *Library) PlanRename(gameID, name string) (RenamePlan, error) {
 	for _, f := range files.StateSide {
 		data(f.Path)
 	}
+	// The cheats and the copy the cheat routes keep (<file>.cht.bak),
+	// which stays when the list is emptied and the .cht deleted (Codex
+	// review of M23): renamed alone then.
+	cheatPath := l.adapter.CheatPath(g)
 	if files.Cheats != nil {
 		data(files.Cheats.Path)
-		if bak := store.FindFold(filepath.Dir(files.Cheats.Path), filepath.Base(files.Cheats.Path)+".bak", false); bak != "" {
+		cheatPath = files.Cheats.Path
+	}
+	if cheatPath != "" {
+		if bak := store.FindFold(filepath.Dir(cheatPath), filepath.Base(cheatPath)+".bak", false); bak != "" {
 			data(bak)
 		}
 	}

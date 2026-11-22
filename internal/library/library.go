@@ -335,7 +335,7 @@ func (l *Library) Game(gameID string) (GameDetail, error) {
 		d.Files = append(d.Files, f.GameFile)
 		d.TotalBytes += f.SizeBytes
 		if f.Role == "cheats" {
-			d.CheatCount = countCheats(f.path)
+			d.CheatCount = countCheatsConfined(f)
 		}
 	}
 	return d, nil
@@ -515,6 +515,22 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 		}
 	}
 	return out, nil
+}
+
+// countCheatsConfined counts the cheats of the .cht of a game opened like
+// GET /games/{gameId}/files/{fileId}: under Cheats/ through os.Root, no
+// link at any component, inside Cheats/<TAG> (Codex review of M23). A
+// refused or unreadable file counts 0.
+func countCheatsConfined(f gameFile) int {
+	if _, err := confine.RelToRoot(f.within, f.path); err != nil {
+		return 0
+	}
+	file, _, err := confine.OpenUnder(f.root, f.path)
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+	return cheats.CountReader(file)
 }
 
 // countCheats counts the cheats of a .cht file (cheats.CountFile; counted

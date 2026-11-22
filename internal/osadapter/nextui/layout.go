@@ -2,6 +2,7 @@ package nextui
 
 import (
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/tfournier/ReminisLink/internal/osadapter"
@@ -123,6 +124,16 @@ func (a *Adapter) systemOf(folder string) (osadapter.System, bool) {
 // library: hidden, or a media folder of the OS.
 func (a *Adapter) skip(name string) bool {
 	return hidden(name) || (a.layout.Skip != nil && a.layout.Skip(name))
+}
+
+// IsGameName is the rule of osadapter.Adapter: a game file, or a folder
+// that is neither skipped (hidden, a media folder of the OS) nor a .pak
+// folder (NextUI launches it as a pak, nextui.c).
+func (a *Adapter) IsGameName(sys osadapter.System, name string, folder bool) bool {
+	if !folder {
+		return a.gameFile(sys, name)
+	}
+	return !a.skip(name) && !strings.HasSuffix(fold(name), ".pak")
 }
 
 // IsSystemGameFile is gameFile (osadapter.Adapter).
