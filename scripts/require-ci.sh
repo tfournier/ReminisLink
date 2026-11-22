@@ -1,9 +1,11 @@
 #!/bin/bash
 # Release gate before a tag (make vX.Y.Z, make ios-vX.Y.Z, make android-vX.Y.Z):
 #   scripts/require-ci.sh <commit> <job>...
-# succeeds only when a GitHub CI run (.github/workflows/ci.yml, event push) of
-# <commit> passed every job named; otherwise it says why (CI running, failed,
-# absent, GitHub unreachable) and fails. Reads the API with the gh CLI (your
+# succeeds only when a GitHub CI run of <commit> itself (.github/workflows/ci.yml,
+# a push to main, never a tag) passed every job named with the conclusion
+# "success"; otherwise it says why (CI running, failed, absent, GitHub
+# unreachable) and fails. No exception: unlike the Xcode Cloud check, the
+# results of a parent never stand for <commit>. Reads the API with the gh CLI (your
 # login: no rate limit to speak of); the logic is shared with the Xcode Cloud
 # check (rl_require_ci in ios/ci_scripts/common.sh).
 #

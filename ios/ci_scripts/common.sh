@@ -135,17 +135,26 @@ rl_has_asc_key() {
 # --- Release gate: the GitHub CI must be green ------------------------------
 #
 # A release (iOS app, Android app or pak) is built only from a commit whose
-# GitHub CI (.github/workflows/ci.yml, a "push" run) passed the jobs that
-# matter for it. Used by ci_post_clone.sh (Xcode Cloud: public API, curl, no
-# token) and by scripts/require-ci.sh (make vX.Y.Z, ios-v..., android-v...:
-# the gh CLI, RL_GITHUB_CLIENT=gh). Anything but a green result fails: CI
-# running, failed or absent, GitHub unreachable or rate limited. The only way
+# GitHub CI passed the jobs that matter for it. Only the runs of
+# .github/workflows/ci.yml for a push to the branch main count (never a run
+# started by a tag, never a pull request), and only the conclusion "success":
+# skipped, neutral, cancelled, timed_out, action_required and failure are all
+# failures, and a job that already failed outweighs one still running.
+#
+# Used by scripts/require-ci.sh (make vX.Y.Z, ios-v..., android-v...: the gh
+# CLI, RL_GITHUB_CLIENT=gh, rl_require_ci: HEAD's own results, no exception)
+# and by ci_post_clone.sh (Xcode Cloud: public API, curl, no token,
+# rl_require_ci_build: the one exception of the release-notes commit, see
+# rl_notes_commit). CI running, failed or absent, GitHub unreachable or rate
+# limited, an unexpected answer: refused, never a silent pass. The only way
 # around it is RL_SKIP_CI_CHECK=1, set by hand for one exceptional release,
 # never by default (it prints a warning).
 
 RL_GITHUB_REPO="${RL_GITHUB_REPO:-tfournier/ReminisLink}"
 RL_GITHUB_API="${RL_GITHUB_API:-https://api.github.com}"
-RL_CI_WORKFLOW_PATH="${RL_CI_WORKFLOW_PATH:-.github/workflows/ci.yml}"
+RL_CI_WORKFLOW_FILE="${RL_CI_WORKFLOW_FILE:-ci.yml}"
+RL_CI_BRANCH="${RL_CI_BRANCH:-main}"
+RL_GITHUB_PER_PAGE="${RL_GITHUB_PER_PAGE:-100}"
 # The jobs an app build needs (CI_JOBS_IOS of the Makefile is the same list).
 RL_CI_JOBS_IOS="ios contract"
 
@@ -185,34 +194,60 @@ rl_github_get() {
 	rl_fail "the GitHub API answered HTTP $code for $path: the CI result is unknown, so nothing is built"
 }
 
-# rl_ci_state <sha> <job>...: reads the CI runs (event push) of <sha> and
-# sets RL_CI_STATE and RL_CI_DETAIL (one line per run: its address and
-# "<job>=<result>" for each job named). RL_CI_STATE is success (one run
-# passed every job named), pending (none did, one is still running), failure
-# or absent (no CI run for this commit).
+# rl_github_list <path with a query> <key>: reads every page of a list of the
+# GitHub API (&per_page=...&page=1, 2...) until total_count items of the
+# array <key> are read; prints {"items": [...]}. An incomplete answer fails.
+rl_github_list() {
+	local path="$1" key="$2" page=1 answer total got items="[]"
+	while :; do
+		answer="$(rl_github_get "$path&per_page=$RL_GITHUB_PER_PAGE&page=$page")" || exit 1
+		total="$(jq -r '.total_count' <<<"$answer")" || rl_fail "unexpected answer from the GitHub API ($path)"
+		[[ "$total" =~ ^[0-9]+$ ]] || rl_fail "unexpected answer from the GitHub API ($path): no total_count"
+		got="$(jq -r --arg key "$key" '.[$key] | if type == "array" then length else "none" end' <<<"$answer")" ||
+			rl_fail "unexpected answer from the GitHub API ($path)"
+		[[ "$got" =~ ^[0-9]+$ ]] || rl_fail "unexpected answer from the GitHub API ($path): no $key"
+		items="$(jq -c --arg key "$key" --argjson acc "$items" '$acc + .[$key]' <<<"$answer")" ||
+			rl_fail "unexpected answer from the GitHub API ($path)"
+		[ "$(jq 'length' <<<"$items")" -lt "$total" ] || break
+		[ "$got" -gt 0 ] || rl_fail "the GitHub API lists $total items for $path but page $page is empty: incomplete answer"
+		page=$((page + 1))
+		[ "$page" -le 50 ] || rl_fail "the GitHub API list $path has more than 50 pages: refused"
+	done
+	printf '{"items": %s}\n' "$items"
+}
+
+# rl_ci_state <sha> <job>...: reads the CI runs of <sha> (ci.yml, push to
+# main) and sets RL_CI_STATE and RL_CI_DETAIL (one line per run: its address
+# and "<job>=<result>" for each job named). RL_CI_STATE is
+#   success  one run passed every job named;
+#   failure  none did, and one job named ended otherwise than in success
+#            (failure, skipped, neutral, cancelled, timed_out...), or a
+#            finished run lacks one of them;
+#   pending  none did, nothing failed, and one run is still running;
+#   absent   no such run for this commit.
 rl_ci_state() {
-	local sha="$1" runs jobs id status url verdict results
+	local sha="$1" runs jobs id status url verdict results failed=0 pending=0
 	shift
 	RL_CI_STATE=absent
 	RL_CI_DETAIL=""
-	runs="$(rl_github_get "repos/$RL_GITHUB_REPO/actions/runs?head_sha=$sha&event=push&per_page=100")" || exit 1
-	runs="$(jq -r --arg path "$RL_CI_WORKFLOW_PATH" \
-		'.workflow_runs[] | select(.path == $path) | [.id, .status, .html_url] | @tsv' <<<"$runs")" ||
+	runs="$(rl_github_list "repos/$RL_GITHUB_REPO/actions/workflows/$RL_CI_WORKFLOW_FILE/runs?head_sha=$sha&branch=$RL_CI_BRANCH&event=push" workflow_runs)" || exit 1
+	runs="$(jq -r --arg sha "$sha" --arg branch "$RL_CI_BRANCH" \
+		'.items[] | select(.head_sha == $sha and .head_branch == $branch and .event == "push") | [.id, .status, .html_url] | @tsv' <<<"$runs")" ||
 		rl_fail "unexpected answer from the GitHub API (workflow runs of $sha)"
 	[ -n "$runs" ] || return 0
-	RL_CI_STATE=failure
 	while IFS=$'\t' read -r id status url; do
 		[[ "$id" =~ ^[0-9]+$ ]] || rl_fail "unexpected workflow run id '$id'"
-		jobs="$(rl_github_get "repos/$RL_GITHUB_REPO/actions/runs/$id/jobs?per_page=100")" || exit 1
+		jobs="$(rl_github_list "repos/$RL_GITHUB_REPO/actions/runs/$id/jobs?filter=latest" jobs)" || exit 1
 		# A job's result is its conclusion once completed, "running" before,
 		# "missing" when the run has no such job (yet, while it is queued).
 		IFS=$'\t' read -r verdict results < <(jq -r --arg status "$status" '. as $r |
-			[$ARGS.positional[] as $name | ([$r.jobs[] | select(.name == $name)] | last) as $job |
+			[$ARGS.positional[] as $name | ([$r.items[] | select(.name == $name)] | last) as $job |
 				{name: $name, result: (if $job == null then "missing"
 					elif $job.status != "completed" then "running"
 					else ($job.conclusion // "unknown") end)}] as $res |
-			(if all($res[]; .result == "success") then "success"
-			elif any($res[]; .result == "running") or ($status != "completed" and any($res[]; .result == "missing")) then "pending"
+			(if any($res[]; .result != "success" and .result != "running" and .result != "missing") then "failure"
+			elif all($res[]; .result == "success") then "success"
+			elif any($res[]; .result == "running") or $status != "completed" then "pending"
 			else "failure" end) + "\t" + ([$res[] | "\(.name)=\(.result)"] | join(" "))' --args "$@" <<<"$jobs") ||
 			rl_fail "unexpected answer from the GitHub API (jobs of run $id)"
 		case "$verdict" in
@@ -221,67 +256,121 @@ rl_ci_state() {
 			RL_CI_DETAIL="  $url  $results"
 			return 0
 			;;
-		pending) RL_CI_STATE=pending ;;
-		failure) ;;
+		pending) pending=1 ;;
+		failure) failed=1 ;;
 		*) rl_fail "unexpected answer from the GitHub API (jobs of run $id)" ;;
 		esac
 		RL_CI_DETAIL="$RL_CI_DETAIL${RL_CI_DETAIL:+$'\n'}  $url  $results"
 	done <<<"$runs"
+	if [ "$failed" = 1 ]; then
+		RL_CI_STATE=failure
+	elif [ "$pending" = 1 ]; then
+		RL_CI_STATE=pending
+	else
+		RL_CI_STATE=failure
+	fi
 }
 
-# rl_notes_only_parent <sha>: prints the parent of <sha> when <sha> has one
-# parent and only changes the app's release notes (ios/CHANGELOG.md,
-# ios/AppStore/<locale>/release_notes.txt), as the commit "Release app X.Y.Z"
-# of make ios-vX.Y.Z does; prints nothing otherwise. That commit is pushed
-# with its tag, so its own CI starts with the Xcode Cloud build: the CI
-# result of its parent, the commit checked by make, stands for it.
-rl_notes_only_parent() {
-	local commit
-	commit="$(rl_github_get "repos/$RL_GITHUB_REPO/commits/$1")" || exit 1
-	jq -r 'if (.parents | length) == 1 and (.files | length) > 0 and
-		all(.files[].filename; . == "ios/CHANGELOG.md" or test("^ios/AppStore/[A-Za-z-]+/release_notes\\.txt$"))
-		then .parents[0].sha else empty end' <<<"$commit" ||
-		rl_fail "unexpected answer from the GitHub API (commit $1)"
-}
-
-# rl_require_ci <sha> <job>...: returns when the CI of <sha> passed every
-# job named; exits 1 with the reason otherwise (see above).
-rl_require_ci() {
-	local sha="$1" parent jobs
-	shift
-	jobs="$*"
-	if [ "${RL_SKIP_CI_CHECK:-}" = 1 ]; then
-		rl_log "WARNING: RL_SKIP_CI_CHECK=1: the CI result of ${sha:-this commit} ($jobs) is NOT checked"
-		return 0
-	fi
-	[[ "$sha" =~ ^[0-9a-f]{40}$ ]] || rl_fail "'$sha' is not a full commit hash: cannot read its CI result"
-	[ "$#" -gt 0 ] || rl_fail "rl_require_ci: no CI job named"
-	command -v jq >/dev/null 2>&1 || rl_fail "jq is needed to read the CI result"
-	rl_ci_state "$sha" "$@"
-	if [ "$RL_CI_STATE" = absent ] || [ "$RL_CI_STATE" = pending ]; then
-		parent="$(rl_notes_only_parent "$sha")" || exit 1
-		if [ -n "$parent" ]; then
-			rl_log "$sha only changes the app's release notes: the CI of its parent $parent stands for it"
-			sha="$parent"
-			rl_ci_state "$sha" "$@"
-		fi
-	fi
+# rl_ci_report <sha> <jobs>: returns on success, exits 1 with the reason
+# otherwise (RL_CI_STATE and RL_CI_DETAIL of rl_ci_state).
+rl_ci_report() {
+	local sha="$1" jobs="$2"
 	local skip="RL_SKIP_CI_CHECK=1 bypasses this check, for an exceptional release only."
 	case "$RL_CI_STATE" in
 	success)
-		rl_log "CI passed for $sha ($jobs):"
+		rl_log "CI passed for $sha on $RL_CI_BRANCH ($jobs):"
 		printf '%s\n' "$RL_CI_DETAIL"
 		;;
 	pending)
 		printf '%s\n' "$RL_CI_DETAIL" >&2
-		rl_fail "no CI run of $sha passed yet ($jobs) and one is still running: wait until it passes, then try again. $skip"
+		rl_fail "the CI of $sha on $RL_CI_BRANCH has not passed yet ($jobs) and is still running: wait until it passes, then try again. $skip"
 		;;
 	failure)
 		printf '%s\n' "$RL_CI_DETAIL" >&2
-		rl_fail "the CI of $sha did not pass ($jobs): fix it (or run the failed jobs again) before releasing. $skip"
+		rl_fail "the CI of $sha on $RL_CI_BRANCH did not pass ($jobs): only \"success\" counts; fix it (or run the failed jobs again) before releasing. $skip"
 		;;
 	*)
-		rl_fail "no CI run (push to $RL_GITHUB_REPO) for $sha: push the commit and wait for the CI to pass before releasing. $skip"
+		rl_fail "no CI run of $RL_CI_WORKFLOW_FILE for a push of $sha to $RL_CI_BRANCH: push the commit to $RL_CI_BRANCH and wait for the CI to pass before releasing. $skip"
 		;;
 	esac
+}
+
+# rl_gate_start <sha> <job>...: the checks common to both gates. Returns 1
+# when RL_SKIP_CI_CHECK=1 (nothing to check), exits 1 on a bad argument.
+rl_gate_start() {
+	local sha="$1"
+	shift
+	if [ "${RL_SKIP_CI_CHECK:-}" = 1 ]; then
+		rl_log "WARNING: RL_SKIP_CI_CHECK=1: the CI result of ${sha:-this commit} ($*) is NOT checked"
+		return 1
+	fi
+	[[ "$sha" =~ ^[0-9a-f]{40}$ ]] || rl_fail "'$sha' is not a full commit hash: cannot read its CI result"
+	[ "$#" -gt 0 ] || rl_fail "no CI job named"
+	command -v jq >/dev/null 2>&1 || rl_fail "jq is needed to read the CI result"
+}
+
+# rl_require_ci <sha> <job>...: returns when a CI run of <sha> itself (push
+# to main) passed every job named; exits 1 with the reason otherwise. No
+# exception: the gate of the make targets.
+rl_require_ci() {
+	local sha="$1"
+	shift
+	rl_gate_start "$sha" "$@" || return 0
+	rl_ci_state "$sha" "$@"
+	rl_ci_report "$sha" "$*"
+}
+
+# rl_notes_commit <sha> <message>: whether <sha> is the release-notes commit
+# of make ios-vX.Y.Z, read from the local clone (RL_GIT_DIR, default the
+# repository of these scripts; Xcode Cloud clones the history): exactly one
+# parent, present in the clone; message exactly <message>; and its whole
+# diff (git diff --no-renames --name-status) only modifies (M)
+# ios/CHANGELOG.md and ios/AppStore/<locale>/release_notes.txt: no file
+# added, deleted, renamed or changed in type. Sets RL_NOTES_PARENT, or
+# RL_NOTES_WHY when it is not such a commit.
+rl_notes_commit() {
+	local sha="$1" expected="$2" dir="${RL_GIT_DIR:-$RL_IOS_DIR/..}" parents message changes line
+	local notes=$'^M\tios/AppStore/[A-Za-z-]+/release_notes\\.txt$'
+	RL_NOTES_PARENT=""
+	RL_NOTES_WHY=""
+	command -v git >/dev/null 2>&1 || { RL_NOTES_WHY="git is not installed"; return 1; }
+	git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null || { RL_NOTES_WHY="$sha is not in the local clone"; return 1; }
+	parents="$(git -C "$dir" rev-list --parents -n 1 "$sha")" || { RL_NOTES_WHY="cannot read the parents of $sha"; return 1; }
+	set -- $parents
+	[ "$#" = 2 ] || { RL_NOTES_WHY="$sha does not have exactly one parent in the local clone"; return 1; }
+	git -C "$dir" cat-file -e "$2^{commit}" 2>/dev/null || { RL_NOTES_WHY="the parent $2 is not in the local clone"; return 1; }
+	message="$(git -C "$dir" log -1 --format=%B "$sha")" || { RL_NOTES_WHY="cannot read the message of $sha"; return 1; }
+	[ "$message" = "$expected" ] || { RL_NOTES_WHY="its message is not \"$expected\""; return 1; }
+	changes="$(git -C "$dir" diff --no-renames --name-status "$2" "$sha")" || { RL_NOTES_WHY="cannot read its changes"; return 1; }
+	[ -n "$changes" ] || { RL_NOTES_WHY="it changes nothing"; return 1; }
+	while IFS= read -r line; do
+		[ "$line" = $'M\tios/CHANGELOG.md' ] || [[ "$line" =~ $notes ]] ||
+			{ RL_NOTES_WHY="it changes more than the release notes ($line)"; return 1; }
+	done <<<"$changes"
+	RL_NOTES_PARENT="$2"
+}
+
+# rl_require_ci_build <sha> <notes message> <job>...: the gate of an Xcode
+# Cloud build. As rl_require_ci, with one exception: make ios-vX.Y.Z pushes
+# its commit "Release app X.Y.Z" with the tag, so that commit's own CI starts
+# with the build. When <sha> has no finished result and nothing failed
+# (absent or pending), and is such a commit (rl_notes_commit, <notes
+# message>), the results of its parent on main count, the commit make
+# checked. A job of <sha> that already failed is always a refusal.
+rl_require_ci_build() {
+	local sha="$1" message="$2"
+	shift 2
+	rl_gate_start "$sha" "$@" || return 0
+	rl_ci_state "$sha" "$@"
+	if [ "$RL_CI_STATE" = absent ] || [ "$RL_CI_STATE" = pending ]; then
+		if rl_notes_commit "$sha" "$message"; then
+			[ -z "$RL_CI_DETAIL" ] || printf '%s\n' "$RL_CI_DETAIL"
+			rl_log "$sha is the release-notes commit \"$message\" (its own CI has not finished): the CI of its parent $RL_NOTES_PARENT stands for it"
+			sha="$RL_NOTES_PARENT"
+			rl_ci_state "$sha" "$@"
+		else
+			rl_log "no exception for $sha: $RL_NOTES_WHY"
+		fi
+	fi
+	rl_ci_report "$sha" "$*"
 }

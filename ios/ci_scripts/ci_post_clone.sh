@@ -9,10 +9,12 @@
 # submit_for_review.sh).
 #
 # Release gate: the Release and Beta workflows build a tag only when the
-# GitHub CI passed the jobs "ios" and "contract" on the commit built
-# (CI_COMMIT), read from the public GitHub API without a token (rl_require_ci
-# in common.sh). CI running, failed or absent, GitHub unreachable or rate
-# limited: the build stops here, before the archive. RL_SKIP_CI_CHECK=1 (an
+# GitHub CI (ci.yml, a push to main) passed the jobs "ios" and "contract" on
+# the commit built (CI_COMMIT), read from the public GitHub API without a
+# token (rl_require_ci_build in common.sh; the commit "Release app X.Y.Z" of
+# make ios-vX.Y.Z is judged by its parent while its own CI runs, checked
+# from the local clone). CI running, failed or absent, GitHub unreachable or
+# rate limited: the build stops here, before the archive. RL_SKIP_CI_CHECK=1 (an
 # environment variable of the workflow, set by hand for one exceptional
 # build) skips the check with a warning.
 set -euo pipefail
@@ -25,7 +27,8 @@ case "${CI_WORKFLOW:-}" in
 "$RL_RELEASE_WORKFLOW" | "$RL_BETA_WORKFLOW")
 	[ -n "${CI_COMMIT:-}" ] || [ "${RL_SKIP_CI_CHECK:-}" = 1 ] ||
 		rl_fail "tag ${CI_TAG:-}: CI_COMMIT is not set, cannot check the GitHub CI of the commit built"
-	rl_require_ci "${CI_COMMIT:-}" $RL_CI_JOBS_IOS
+	# shellcheck disable=SC2086 # the list of jobs splits on purpose
+	rl_require_ci_build "${CI_COMMIT:-}" "Release app $RL_VERSION" $RL_CI_JOBS_IOS
 	;;
 esac
 
