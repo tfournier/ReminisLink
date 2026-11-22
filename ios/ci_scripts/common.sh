@@ -320,14 +320,38 @@ rl_require_ci() {
 	rl_ci_report "$sha" "$*"
 }
 
+# rl_fetch_parent <dir> <parent>: brings <parent> into the clone <dir>.
+# Xcode Cloud's clone is shallow (depth 1: the parent is missing): first
+# git fetch --deepen=1 from the clone's remote, then, if the parent is still
+# missing, a fetch of the parent alone. Never prompts for credentials.
+# Returns 1 when the parent is still missing (no network, no access).
+rl_fetch_parent() {
+	local dir="$1" parent="$2" remote depth=()
+	remote="$(git -C "$dir" remote 2>/dev/null | head -n 1)"
+	[ -n "$remote" ] || return 1
+	rl_log "the clone lacks the parent $parent: fetching it from $remote"
+	if [ "$(git -C "$dir" rev-parse --is-shallow-repository 2>/dev/null)" = true ]; then
+		GIT_TERMINAL_PROMPT=0 git -C "$dir" fetch --quiet --deepen=1 "$remote" >&2 || true
+		# Keep a shallow clone shallow when the parent alone is fetched.
+		depth=(--depth=1)
+	fi
+	if ! git -C "$dir" cat-file -e "$parent^{commit}" 2>/dev/null; then
+		GIT_TERMINAL_PROMPT=0 git -C "$dir" fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$parent" >&2 || true
+	fi
+	git -C "$dir" cat-file -e "$parent^{commit}" 2>/dev/null
+}
+
 # rl_notes_commit <sha> <message>: whether <sha> is the release-notes commit
 # of make ios-vX.Y.Z, read from the local clone (RL_GIT_DIR, default the
-# repository of these scripts; Xcode Cloud clones the history): exactly one
-# parent, present in the clone; message exactly <message>; and its whole
-# diff (git diff --no-renames --name-status) only modifies (M)
-# ios/CHANGELOG.md and ios/AppStore/<locale>/release_notes.txt: no file
-# added, deleted, renamed or changed in type. Sets RL_NOTES_PARENT, or
-# RL_NOTES_WHY when it is not such a commit.
+# repository of these scripts): exactly one parent (from the commit object),
+# present in the clone, fetched first when the clone is shallow (Xcode
+# Cloud's: rl_fetch_parent), the checks then made as on a full clone;
+# message exactly <message>; and its whole diff (git diff --no-renames
+# --name-status) only modifies (M) ios/CHANGELOG.md and
+# ios/AppStore/<locale>/release_notes.txt: no file added, deleted, renamed
+# or changed in type. Sets RL_NOTES_PARENT, or RL_NOTES_WHY when it is not
+# such a commit (or its parent cannot be fetched: then the build waits for
+# the CI of the commit itself, and is started again by hand).
 rl_notes_commit() {
 	local sha="$1" expected="$2" dir="${RL_GIT_DIR:-$RL_IOS_DIR/..}" parents message changes line
 	local notes=$'^M\tios/AppStore/[A-Za-z-]+/release_notes\\.txt$'
@@ -335,12 +359,21 @@ rl_notes_commit() {
 	RL_NOTES_WHY=""
 	command -v git >/dev/null 2>&1 || { RL_NOTES_WHY="git is not installed"; return 1; }
 	git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null || { RL_NOTES_WHY="$sha is not in the local clone"; return 1; }
-	parents="$(git -C "$dir" rev-list --parents -n 1 "$sha")" || { RL_NOTES_WHY="cannot read the parents of $sha"; return 1; }
+	# The parents written in the commit object itself: a shallow clone (as
+	# Xcode Cloud's) hides them from rev-list, not from the object.
+	parents="$(git -C "$dir" --no-replace-objects cat-file -p "$sha" | sed -n '/^$/q; s/^parent //p')" ||
+		{ RL_NOTES_WHY="cannot read the parents of $sha"; return 1; }
 	set -- $parents
-	[ "$#" = 2 ] || { RL_NOTES_WHY="$sha does not have exactly one parent in the local clone"; return 1; }
-	git -C "$dir" cat-file -e "$2^{commit}" 2>/dev/null || { RL_NOTES_WHY="the parent $2 is not in the local clone"; return 1; }
+	[ "$#" = 1 ] || { RL_NOTES_WHY="$sha does not have exactly one parent"; return 1; }
+	set -- "$sha" "$1"
 	message="$(git -C "$dir" log -1 --format=%B "$sha")" || { RL_NOTES_WHY="cannot read the message of $sha"; return 1; }
 	[ "$message" = "$expected" ] || { RL_NOTES_WHY="its message is not \"$expected\""; return 1; }
+	# A shallow clone (Xcode Cloud's) lacks the parent: fetch it, then check
+	# as on a full clone.
+	if ! git -C "$dir" cat-file -e "$2^{commit}" 2>/dev/null; then
+		rl_fetch_parent "$dir" "$2" ||
+			{ RL_NOTES_WHY="its parent $2 is not in the local clone (shallow: $(git -C "$dir" rev-parse --is-shallow-repository 2>/dev/null || echo unknown)) and could not be fetched: wait until the CI of $sha passes on $RL_CI_BRANCH, then start the build again (Rebuild in Xcode Cloud); the CI of the commit itself then lets it through"; return 1; }
+	fi
 	changes="$(git -C "$dir" diff --no-renames --name-status "$2" "$sha")" || { RL_NOTES_WHY="cannot read its changes"; return 1; }
 	[ -n "$changes" ] || { RL_NOTES_WHY="it changes nothing"; return 1; }
 	while IFS= read -r line; do

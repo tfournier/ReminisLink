@@ -592,6 +592,25 @@ if [ "$have_jq" = 1 ]; then
 	expect "  says why" 0 grep -q "exactly one parent" "$tmp/out"
 	ci_runs "$notes_ok" 301:in_progress
 	expect "gate: release-notes commit missing from the clone: refused" 1 gate CI_COMMIT="$notes_ok" RL_GIT_DIR="$tmp/empty"
+	# Xcode Cloud clones with depth 1: the parent is fetched, then checked.
+	g branch -q -f release "$notes_ok"
+	git clone -q --depth 1 --branch release "file://$gitrepo" "$tmp/shallow"
+	expect "shallow clone: really shallow, without the parent" 0 test \
+		"$(git -C "$tmp/shallow" rev-parse --is-shallow-repository):$(git -C "$tmp/shallow" cat-file -t "$notes_base" 2>/dev/null)" = "true:"
+	expect "gate: release-notes commit in a shallow clone, parent green: build goes on" 0 gate CI_COMMIT="$notes_ok" RL_GIT_DIR="$tmp/shallow"
+	cp "$tmp/out" "$tmp/shallow.out"
+	expect "  the parent fetched first" 0 grep -q "the clone lacks the parent $notes_base: fetching it" "$tmp/shallow.out"
+	expect "  then the parent's CI counted" 0 grep -q "CI passed for $notes_base" "$tmp/shallow.out"
+	expect "  the parent is now in the clone" 0 git -C "$tmp/shallow" cat-file -e "$notes_base^{commit}"
+	git clone -q --depth 1 --branch release "file://$gitrepo" "$tmp/shallow-offline"
+	git -C "$tmp/shallow-offline" remote set-url origin "file://$tmp/nonexistent-remote"
+	expect "gate: shallow clone, parent cannot be fetched: refused" 1 gate CI_COMMIT="$notes_ok" RL_GIT_DIR="$tmp/shallow-offline"
+	expect "  says to wait for the commit's CI, then Rebuild" 0 grep -q "could not be fetched: wait until the CI of $notes_ok passes on main, then start the build again (Rebuild in Xcode Cloud)" "$tmp/out"
+	g branch -q -f release "$notes_with_code"
+	git clone -q --depth 1 --branch release "file://$gitrepo" "$tmp/shallow-code"
+	expect "gate: shallow clone, notes and code changed: still refused after the fetch" 1 gate CI_COMMIT="$notes_with_code" RL_GIT_DIR="$tmp/shallow-code"
+	expect "  says why" 0 grep -q "changes more than the release notes" "$tmp/out"
+	ci_runs "$notes_ok" 301:in_progress
 	ci_jobs 300 ios:completed:failure contract:completed:success
 	expect "gate: release-notes commit, parent red: refused" 1 gate CI_COMMIT="$notes_ok"
 	ci_runs "$notes_base" 300:completed:v1.2.9

@@ -216,7 +216,13 @@ set in Xcode):
   version; its whole diff, `git diff --no-renames --name-status`, only
   modifies `CHANGELOG.md` and `AppStore/<locale>/release_notes.txt`: no
   file added, deleted or renamed), the results of its parent on `main`
-  count, the commit `make` checked. To build
+  count, the commit `make` checked. Xcode Cloud's clone is shallow (depth
+  1), so the parent is first fetched from the clone's remote (`git fetch
+  --deepen=1`, then the parent alone), and every check is made as on a full
+  clone. If it cannot be fetched (no network, no access), the build is
+  refused with that reason: wait until the CI of the release commit passes
+  on `main`, then start the build again (*Rebuild* in Xcode Cloud); the
+  commit's own green CI then lets it through. To build
   once without the check (exceptional), add the environment variable
   `RL_SKIP_CI_CHECK` = `1` to the workflow, then remove it. `make ios-v…`
   already refuses to tag a `HEAD` whose CI did not pass (`scripts/require-ci.sh`).
