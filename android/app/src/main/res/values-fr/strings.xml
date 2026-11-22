@@ -110,7 +110,7 @@
     <string name="error_pairing_proof">La console n’a pas pu prouver son identité. L’appairage a été annulé.</string>
     <string name="error_too_many_attempts">Trop d’essais. Attends un instant, puis réessaie.</string>
     <string name="error_unknown_client">La console ne connaît plus ce téléphone. Appaire-le de nouveau avec son QR code.</string>
-    <string name="error_disconnected">La console a déconnecté ce téléphone. Reconnecte-le depuis l’écran Appareils de la console.</string>
+    <string name="error_disconnected">La console a déconnecté ce téléphone. Ouvre la console dans l’app et touche Se reconnecter.</string>
     <string name="error_shutting_down">ReminisLink se ferme sur la console.</string>
     <string name="error_storage">Les informations d’appairage n’ont pas pu être lues ou enregistrées sur ce téléphone.</string>
     <string name="error_generic">Une erreur est survenue (%1$s).</string>
@@ -481,4 +481,25 @@
     </plurals>
     <string name="cheats_console_changed">Cette liste a changé sur la console. Tes modifications ne peuvent plus l’écraser : abandonne-les pour voir la nouvelle liste.</string>
     <string name="game_delete_kept">Reste sur la carte SD :</string>
+
+    <!-- Événements (M14) : la console a quitté ReminisLink, déconnecté par la console -->
+    <string name="closed_title">La console a quitté ReminisLink</string>
+    <string name="closed_message">Les envois en cours sont en pause. Ouvre ReminisLink sur la console, puis la console ici, pour continuer.</string>
+    <string name="action_dismiss">Fermer</string>
+    <string name="reconnect">Se reconnecter</string>
+    <string name="dashboard_disconnected">Déconnecté par la console.</string>
+
+    <!-- Mode démo (M16) : les mêmes textes que l’app iOS -->
+    <string name="demo_console_name">Console de démo</string>
+    <string name="demo_cheat_name">Code de démo %1$d</string>
+    <string name="demo_mode">Mode démo</string>
+    <string name="demo_banner_title">Mode démo</string>
+    <string name="demo_banner_message">Console et jeux inventés : rien ne quitte ce téléphone, seuls les fichiers que tu télécharges sont gardés.</string>
+    <string name="demo_quit">Quitter</string>
+    <string name="demo_quit_description">Quitter la démo</string>
+    <string name="demo_try">Essayer sans console</string>
+    <string name="demo_try_footer">Une console de démo avec des jeux inventés, pour essayer chaque fonction. Rien ne quitte ce téléphone ; seuls les fichiers que tu télécharges sont gardés.</string>
+    <string name="demo_pair_title">Quitter la démo pour appairer cette console ?</string>
+    <string name="demo_pair_message">Le mode démo ne se connecte jamais à une vraie console. Quitte-le pour continuer avec ce lien d’appairage.</string>
+    <string name="demo_pair_blocked">Quitte la démo pour appairer une console.</string>
 </resources>

@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import okhttp3.Call
@@ -72,8 +73,9 @@ class ApiClient(
     // MARK: unsigned routes
 
     /** `GET /hello`: checks the device id and the compatibility, and measures the clock offset. */
-    suspend fun hello(): Hello {
-        val response = execute(request("GET", listOf("hello")))
+    suspend fun hello(timeoutMillis: Long? = null): Hello {
+        val client = timeoutMillis?.let { http.newBuilder().callTimeout(it, TimeUnit.MILLISECONDS).build() } ?: http
+        val response = execute(request("GET", listOf("hello")), client = client)
         val hello: Hello = decode(response, accept = 200)
         clockOffsetSeconds = parseRfc3339Seconds(hello.serverTime)?.let { it - nowMillis() / 1000 } ?: 0
         if (expectedDeviceId != null && hello.deviceId != expectedDeviceId) {
@@ -109,6 +111,57 @@ class ApiClient(
     // MARK: signed routes
 
     suspend fun device(): DeviceStatus = signedJson("GET", listOf("device"))
+
+    /**
+     * `POST /clients/me/connect` (M10): lifts a disconnection decided on the
+     * console. Only on an action of the user (opening the console from the
+     * list, Reconnect), never on an automatic reconnection.
+     */
+    suspend fun connectClient() = signedEmpty("POST", listOf("clients", "me", "connect"))
+
+    // MARK: events (M14)
+
+    /** The pinned client of the event stream: no read timeout (the stream's own liveness watch applies, 35 s). */
+    private val eventsHttp: OkHttpClient by lazy { http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build() }
+
+    /**
+     * Opens `GET /events` (signed; the signature is checked at the opening
+     * only). The stream's bytes are read from the returned source, never
+     * ahead of the parser. An error answer (`401 disconnected`, `404` of a
+     * pak older than M14, `429` with `Retry-After`, `503 shutting_down`)
+     * throws. `Last-Event-ID` is not sent: the pak ignores it and the app
+     * reloads what it shows after each `hello`.
+     */
+    suspend fun openEvents(): EventByteSource = coroutineScope {
+        // The call is cancelled as soon as this coroutine is (the app goes to the background,
+        // 35 s of silence), from before it is sent until the stream is handed over: an error
+        // answer whose body stalls never keeps the socket open.
+        val call = java.util.concurrent.atomic.AtomicReference<Call?>(null)
+        val handedOver = java.util.concurrent.atomic.AtomicBoolean(false)
+        val watcher = launch {
+            try {
+                awaitCancellation()
+            } finally {
+                if (!handedOver.get()) call.get()?.cancel()
+            }
+        }
+        try {
+            // The error bodies have no read timeout on this client: every read of one (the 401 of
+            // signedResponse included) is bounded in time, and in size by serverError.
+            val response = signedResponse(onCall = { call.set(it) }, client = eventsHttp, errorTimeoutMillis = ERROR_BODY_TIMEOUT_MILLIS) {
+                request("GET", listOf("events"), signed = true, headers = mapOf("Accept" to "text/event-stream"))
+            }
+            if (response.code != 200) throw boundedServerError(response, call.get(), ERROR_BODY_TIMEOUT_MILLIS)
+            val body = response.body ?: run {
+                response.close()
+                throw ApiException.InvalidResponse("empty body")
+            }
+            handedOver.set(true)
+            ResponseEventSource(response, body, call.get())
+        } finally {
+            watcher.cancel()
+        }
+    }
 
     suspend fun systems(): List<GameSystem> = signedJson<SystemList>("GET", listOf("systems")).systems
 
@@ -376,13 +429,20 @@ class ApiClient(
      * `/hello` corrects the offset and the request is built and signed
      * again, once. Any other answer is returned as is (the caller closes it).
      */
-    private suspend fun signedResponse(onCall: ((Call) -> Unit)? = null, build: () -> Request): Response {
+    private suspend fun signedResponse(
+        onCall: ((Call) -> Unit)? = null,
+        client: OkHttpClient = http,
+        /** Bounds the read of an error body in time (a client without read timeout, `GET /events`). */
+        errorTimeoutMillis: Long? = null,
+        build: () -> Request,
+    ): Response {
         if (signer == null) throw ApiException.NotPaired()
         var retried = false
         while (true) {
-            val response = execute(build(), onCall)
+            var call: Call? = null
+            val response = execute(build(), { call = it; onCall?.invoke(it) }, client)
             if (response.code == 401 && !retried) {
-                val error = serverError(response)
+                val error = if (errorTimeoutMillis == null) serverError(response) else boundedServerError(response, call, errorTimeoutMillis)
                 if (error is ApiException.Server && error.code == ErrorCodes.CLOCK_SKEW) {
                     retried = true
                     hello()
@@ -434,8 +494,8 @@ class ApiClient(
         return builder.build()
     }
 
-    private suspend fun execute(request: Request, onCall: ((Call) -> Unit)? = null): Response = try {
-        http.newCall(request).also { onCall?.invoke(it) }.await()
+    private suspend fun execute(request: Request, onCall: ((Call) -> Unit)? = null, client: OkHttpClient = http): Response = try {
+        client.newCall(request).also { onCall?.invoke(it) }.await()
     } catch (e: IOException) {
         throw if (e.causeChain().any { it is PinMismatchException }) ApiException.IdentityChanged() else ApiException.Network(e)
     }
@@ -447,6 +507,16 @@ class ApiClient(
     private suspend fun bodyText(response: Response): String? = withContext(Dispatchers.IO) {
         try {
             response.body?.string()
+        } catch (e: IOException) {
+            throw ApiException.Network(e)
+        }
+    }
+
+    /** The body of an error answer, at most [MAX_ERROR_BODY_BYTES] (a larger one is unreadable: null). */
+    private suspend fun errorText(response: Response): String? = withContext(Dispatchers.IO) {
+        val source = response.body?.source() ?: return@withContext null
+        try {
+            if (source.request(MAX_ERROR_BODY_BYTES + 1)) null else source.readUtf8()
         } catch (e: IOException) {
             throw ApiException.Network(e)
         }
@@ -464,9 +534,28 @@ class ApiClient(
         }
     }
 
+    /**
+     * [serverError] read within [timeoutMillis]: a blocked read is ended by
+     * cancelling [call]; then a network failure.
+     */
+    private suspend fun boundedServerError(response: Response, call: Call?, timeoutMillis: Long): ApiException = coroutineScope {
+        val late = java.util.concurrent.atomic.AtomicBoolean(false)
+        val timer = launch {
+            delay(timeoutMillis)
+            late.set(true)
+            call?.cancel()
+        }
+        val error = try {
+            serverError(response)
+        } finally {
+            timer.cancel()
+        }
+        if (late.get()) ApiException.Network(IOException("error answer not read in time")) else error
+    }
+
     private suspend fun serverError(response: Response): ApiException = response.use {
         val text = try {
-            bodyText(it).orEmpty()
+            errorText(it).orEmpty()
         } catch (_: ApiException.Network) {
             ""
         }
@@ -494,6 +583,12 @@ class ApiClient(
 
         /** Larger saves go through `POST /uploads` (target `save`). */
         const val MAX_SAVE_BODY_BYTES = 64L shl 20
+
+        /** An error answer is a small JSON envelope: a larger body is not read. */
+        const val MAX_ERROR_BODY_BYTES = 64L * 1024
+
+        /** How long the body of an error answer of `GET /events` may take to arrive. */
+        const val ERROR_BODY_TIMEOUT_MILLIS = 5_000L
         private val JSON = "application/json".toMediaType()
         private val PNG = "image/png".toMediaType()
         private val CONFIRM_EMPTY_TRASH = mapOf("X-RL-Confirm" to "empty-trash")
@@ -515,6 +610,39 @@ class ApiClient(
         } catch (_: java.time.format.DateTimeParseException) {
             null
         }
+    }
+}
+
+/** The bytes of an open event stream, pulled by the reader (nothing is read ahead of the parser). */
+interface EventByteSource {
+    /** Reads into [buffer]; the number of bytes, -1 at the end of the stream. Throws [ApiException.Network] on a failure. */
+    suspend fun read(buffer: ByteArray): Int
+
+    /** Closes the connection (any thread, idempotent); a blocked [read] ends. */
+    fun cancel()
+}
+
+/** The body of `GET /events`, read off the caller's thread. */
+private class ResponseEventSource(
+    private val response: Response,
+    body: okhttp3.ResponseBody,
+    private val call: Call?,
+) : EventByteSource {
+    private val source = body.source()
+    private val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    override suspend fun read(buffer: ByteArray): Int = withContext(Dispatchers.IO) {
+        try {
+            source.read(buffer, 0, buffer.size)
+        } catch (e: IOException) {
+            throw ApiException.Network(e)
+        }
+    }
+
+    override fun cancel() {
+        if (!cancelled.compareAndSet(false, true)) return
+        call?.cancel()
+        closeInBackground(response)
     }
 }
 
@@ -615,11 +743,19 @@ class FileRegionBody(
 
 private fun Throwable.causeChain(): Sequence<Throwable> = generateSequence(this) { it.cause }
 
+private val closer = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "okhttp-close").apply { isDaemon = true } }
+
+private fun closeInBackground(response: Response) {
+    closer.execute { runCatching { response.close() } }
+}
+
 /** Runs a call on OkHttp's dispatcher; cancelling the coroutine cancels the call. */
 internal suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     enqueue(object : Callback {
         override fun onResponse(call: Call, response: Response) {
-            continuation.resume(response) { _, value, _ -> value.close() }
+            // Cancelled meanwhile: the answer is closed off the caller's thread (closing a TLS
+            // socket writes to it, which Android forbids on the main thread).
+            continuation.resume(response) { _, value, _ -> closeInBackground(value) }
         }
 
         override fun onFailure(call: Call, e: IOException) {

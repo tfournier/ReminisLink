@@ -25,6 +25,7 @@
 #   make vX.Y.Z          release a version: bump pak.json, commit, tag and push
 #   make vX.Y.Z-beta.N   pre-release (also -rc.N): tag and push only, pak.json unchanged
 #   make ios-vX.Y.Z      release the iOS app (ios-vX.Y.Z-beta.N: TestFlight only, tag ios-beta-vX.Y.Z-beta.N); Xcode Cloud builds the tag
+#   make android-vX.Y.Z  release the Android app (android-vX.Y.Z-beta.N, -rc.N: pre-release); the CI builds the tag
 #   make release-checks  test the release scripts (pak tags, Xcode Cloud scripts, app release notes)
 
 APP           := reminislink
@@ -91,7 +92,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release knulli-pak knulli-release emulation check-version release-checks clean docker-image android-test android-build FORCE
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release knulli-pak knulli-release emulation check-version release-checks clean docker-image android-test android-build android-release-apk FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -263,6 +264,25 @@ android-test: ## Run the Android unit tests (:core reads protocol/test-vectors i
 
 android-build: ## Build the Android debug APK
 	$(GRADLEW) :app:assembleDebug
+
+android-release-apk: ## Build the Android release APK (signed when RL_ANDROID_KEYSTORE... are set, unsigned otherwise)
+	$(GRADLEW) :app:assembleRelease
+
+android-v%: FORCE ## Release the Android app (make android-v1.2.3, or -beta.N / -rc.N): writes android/version.properties, commits, tags and pushes; .github/workflows/android-release.yml builds the tag
+	@set -e; V="$@"; X="$${V#android-v}"; \
+	kind="$$(scripts/android-release-kind.sh "$$V")" || exit 1; \
+	code="$$(scripts/android-version-code.sh "$$V")"; \
+	[ "$$($(GIT) rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
+	[ -z "$$($(GIT) status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
+	if $(GIT) rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
+	for locale in en-US fr-FR; do \
+		[ -s "android/app/fastlane/metadata/android/$$locale/changelogs/$$code.txt" ] || { echo "Write android/app/fastlane/metadata/android/$$locale/changelogs/$$code.txt first (the notes of $$X)"; exit 1; }; \
+	done; \
+	sed -e "s/^versionName=.*/versionName=$$X/" -e "s/^versionCode=.*/versionCode=$$code/" android/version.properties > android/version.properties.tmp && mv android/version.properties.tmp android/version.properties; \
+	if ! $(GIT) diff --quiet -- android/version.properties; then $(GIT) commit -q -m "Release Android app $$X" -- android/version.properties; fi; \
+	$(GIT) tag -a "$$V" -m "Android app $$kind $$V"; \
+	$(GIT) push --atomic origin HEAD "refs/tags/$$V"; \
+	echo "Tagged $$V (versionCode $$code): the Android release workflow publishes the APK (never Latest)."
 
 clean: ## Remove build outputs
 	rm -rf $(BUILD_DIR) $(DIST_DIR)

@@ -1,0 +1,50 @@
+<p>ReminisLink turns your Android phone into the companion of your retro handheld. Open ReminisLink on the handheld, manage everything from your phone over your home Wi-Fi, close it and play.</p>
+
+<p><b>Bring your own files</b><br>
+ReminisLink lists the games found on the SD card of your handheld, but provides no game, no catalog and no source of games. You add the games, saves, patches and cheat files you already own, from your phone's files or from the share menu of any app.</p>
+
+<p><b>Your library</b></p>
+<ul>
+<li>Every game on the SD card in one list, with a search that ignores case and accents</li>
+<li>For each game: size, save, save states, cheats and its files; change or remove its box art</li>
+<li>Download any file of a game to your phone</li>
+</ul>
+
+<p><b>Saves and save states</b></p>
+<ul>
+<li>Download, replace, back up and restore saves; the current save is always copied first</li>
+<li>See every save state slot with its thumbnail, and lock a state: if it is overwritten or deleted, ReminisLink puts the locked copy back the next time it starts</li>
+</ul>
+
+<p><b>Cheats and patches</b></p>
+<ul>
+<li>Turn cheats on or off, edit and reorder them, import .cht files</li>
+<li>Apply IPS, BPS and UPS patches (translations, fixes) to a game you own, into a new file by default</li>
+</ul>
+
+<p><b>Apps on the handheld</b><br>
+See the tools and emulators installed on the handheld, install one from a zip on your phone, or remove one.</p>
+
+<p><b>Nothing is lost</b><br>
+Deleted games, replaced files and games patched in place go to the trash of the handheld for 30 days; a replaced save is first copied to the backups. Restore anything from the trash: a game comes back with its save, states, cheats and box art, and nothing on the SD card is ever overwritten.</p>
+
+<p><b>Always up to date</b><br>
+The app refreshes on its own when the SD card changes, shows the battery live, and goes back to your list when you close ReminisLink on the handheld. Transfers go on in the background, and resume after a lost connection.</p>
+
+<p><b>Simple and private</b></p>
+<ul>
+<li>Pair in one scan of the QR code shown on the handheld</li>
+<li>Encrypted connection, checked against the handheld's own certificate; every request is signed with a key that never leaves the phone</li>
+<li>No account, no server, no analytics, no ads, no Google services: the app talks only to your handheld on your local network</li>
+</ul>
+
+<p><b>Try it first</b><br>
+"Try Without a Console" opens a demo console with made-up games, to try every screen. Nothing leaves the phone.</p>
+
+<p><b>Compatible handhelds</b><br>
+TrimUI Brick with NextUI. Experimental, looking for testers: TrimUI Smart Pro S, Anbernic H700 handhelds and Miyoo Flip with NextUI, and handhelds running Knulli.</p>
+
+<p><b>Requirements</b><br>
+The free ReminisLink tool must be installed on the handheld: see the installation guide on reminis.link. The phone and the handheld must be on the same Wi-Fi network.</p>
+
+<p>ReminisLink is an independent project. TrimUI, Anbernic, Miyoo, NextUI and Knulli are the names of their respective owners, who are not affiliated with ReminisLink.</p>

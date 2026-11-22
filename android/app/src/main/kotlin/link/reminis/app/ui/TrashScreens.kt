@@ -63,6 +63,11 @@ class TrashViewModel(app: Application, deviceId: String) : ActionViewModel(app, 
     private val _trash = MutableStateFlow<Load<TrashList>>(Load.Loading)
     val trash: StateFlow<Load<TrashList>> = _trash.asStateFlow()
 
+    init {
+        // M14: any change of the SD card may fill or empty the trash (a `library` event, any client).
+        reloadOnLibraryChanges { load() }
+    }
+
     /** Only the last load shows its answer. */
     private var generation = 0
 

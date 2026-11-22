@@ -34,6 +34,7 @@ import link.reminis.core.PairedConsole
 import link.reminis.core.PairingAttempt
 import link.reminis.core.PairingLink
 import link.reminis.core.Pairing
+import link.reminis.core.updated
 
 /** A screen's content: loading, loaded or failed. */
 sealed interface Load<out T> {
@@ -74,6 +75,8 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
      * pinned certificate, and goes Offline when its service disappears.
      */
     fun startBrowsing() {
+        // The demo mode (M16) never looks for nor probes the real consoles.
+        if (container.demo.value != null) return
         if (browsing?.isActive == true) return
         browsing = viewModelScope.launch {
             runCatching {
@@ -204,6 +207,11 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
     /** The user confirmed (external link, or replacing an existing pairing), or retries after an error. */
     fun start() {
         val link = link ?: return
+        // The demo mode (M16) never reaches a real console: quit it first.
+        if (container.demo.value != null) {
+            _state.value = _state.value.copy(error = UserMessage(R.string.demo_pair_blocked))
+            return
+        }
         val id = attempts.begin() ?: return
         _state.value = _state.value.copy(step = PairingStep.SEARCHING, error = null)
         job = viewModelScope.launch {
@@ -295,27 +303,105 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
     val status: StateFlow<Load<DeviceStatus>> = _status.asStateFlow()
     val console: PairedConsole? get() = container.consoles.get(deviceId)
 
+    /** The name shown before `GET /device` answers (the demo console has no stored entry). */
+    val consoleName: String get() = container.consoleName(deviceId)
+
+    /** Only the last read publishes. */
+    private var generation = 0
+
     init {
-        refresh()
+        // Opened from the list of consoles: an action of the user, which may lift a disconnection (M10).
+        refresh(explicit = container.events.takeUserOpened(deviceId))
+        // M14: the console's events (battery, connected devices, storage; a new stream; a lost connection).
+        viewModelScope.launch {
+            container.events.changes.collect { change ->
+                if (change.deviceId != deviceId) return@collect
+                when (change) {
+                    is link.reminis.app.ConsoleChange.Device -> _status.update { current ->
+                        if (current is Load.Loaded) Load.Loaded(current.value.updated(change.device)) else current
+                    }
+                    // No `device` event is sent at the start: the status is read once after each `hello`.
+                    is link.reminis.app.ConsoleChange.CatchUp -> refresh(quiet = true)
+                    is link.reminis.app.ConsoleChange.Lost -> {
+                        generation++
+                        _status.value = Load.Failed(change.error)
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 
-    fun refresh(reconnect: Boolean = false) {
-        _status.value = Load.Loading
+    /**
+     * Reads `GET /device`. [explicit]: an action of the user (opening the
+     * console from the list, Reconnect): a `401 disconnected` is lifted with
+     * `POST /clients/me/connect`, never otherwise. [quiet]: keeps the screen
+     * while reading, and a failure keeps the last status.
+     */
+    fun refresh(reconnect: Boolean = false, explicit: Boolean = false, quiet: Boolean = false) {
+        val current = ++generation
+        val epoch = container.events.epoch(deviceId)
+        if (!quiet || _status.value !is Load.Loaded) _status.value = Load.Loading
         viewModelScope.launch {
-            _status.value = try {
-                Load.Loaded(container.client(deviceId, refresh = reconnect).device())
+            val result = try {
+                Load.Loaded(read(reconnect, explicit))
             } catch (e: ApiException.Network) {
                 // The address changed: look for the console again once.
-                runCatching { Load.Loaded(container.client(deviceId, refresh = true).device()) }
-                    .getOrElse { Load.Failed(it) }
+                runCatching { Load.Loaded(read(refresh = true, explicit = explicit)) }.getOrElse { Load.Failed(it) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Load.Failed(e)
             }
-            // The console answers again: the transfers paused by a lost connection go on.
-            if (_status.value is Load.Loaded) container.transfers.resumePaused(deviceId)
+            if (current != generation) return@launch
+            // The console closed ReminisLink or disconnected this phone while this read was out:
+            // its answer is stale, and the transfers paused since stay paused.
+            if (epoch != container.events.epoch(deviceId)) return@launch
+            // Seen first, even by a quiet read: the console disconnected this phone, or closed ReminisLink.
+            when ((result as? Load.Failed)?.error.let { it as? ApiException.Server }?.code) {
+                link.reminis.core.ErrorCodes.DISCONNECTED -> {
+                    _status.value = result
+                    container.events.disconnectedByConsole(deviceId)
+                    return@launch
+                }
+                link.reminis.core.ErrorCodes.SHUTTING_DOWN -> {
+                    _status.value = result
+                    container.events.closedSeenByRequest(deviceId)
+                    return@launch
+                }
+            }
+            if (quiet && result is Load.Failed && _status.value is Load.Loaded) return@launch
+            _status.value = result
+            // The console answers again: the transfers paused by a lost connection (or by the console closing) go on.
+            if (result is Load.Loaded) container.transfers.resumePaused(deviceId)
         }
+    }
+
+    private suspend fun read(refresh: Boolean, explicit: Boolean): DeviceStatus {
+        val client = container.client(deviceId, refresh = refresh)
+        return try {
+            // An action of the user that the console answers: no longer disconnected (the console may
+            // have lifted it itself, or the 401 was a single answer), the stream may open again.
+            client.device().also { if (explicit) container.events.reconnected(deviceId) }
+        } catch (e: ApiException.Server) {
+            if (e.code != link.reminis.core.ErrorCodes.DISCONNECTED || !explicit) throw e
+            client.connectClient()
+            client.device().also { container.events.reconnected(deviceId) }
+        }
+    }
+
+    /** Retry after an error: an action of the user, so a lost connection or a closed console may connect again. */
+    fun retry() {
+        container.events.userOpened(deviceId)
+        container.events.takeUserOpened(deviceId)
+        refresh(reconnect = true)
+    }
+
+    /** "Reconnect" after a disconnection by the console (`POST /clients/me/connect`). */
+    fun reconnectToConsole() {
+        container.events.userOpened(deviceId)
+        container.events.takeUserOpened(deviceId)
+        refresh(reconnect = true, explicit = true)
     }
 
     fun forget() = container.forget(deviceId)
@@ -337,12 +423,22 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
         // A game sent from this phone: the list reloads.
         viewModelScope.launch {
             container.transfers.finished.collect { item ->
-                if (item.deviceId == deviceId && item.target is UploadTarget.Rom) refresh()
+                if (item.deviceId == deviceId && item.target is UploadTarget.Rom) refresh(quiet = true)
             }
         }
         // A game deleted, restored or patched from this phone.
         viewModelScope.launch {
-            container.libraryChanged.collect { if (it == deviceId) refresh() }
+            container.libraryChanged.collect { if (it == deviceId) refresh(quiet = true) }
+        }
+        // M14: a change made on the SD card by any client, or a new event stream.
+        viewModelScope.launch {
+            container.events.changes.collect { change ->
+                if (change.deviceId == deviceId &&
+                    (change is link.reminis.app.ConsoleChange.Library || change is link.reminis.app.ConsoleChange.CatchUp)
+                ) {
+                    refresh(quiet = true)
+                }
+            }
         }
     }
 
@@ -352,10 +448,15 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
 
     fun filtered(content: LibraryContent, query: String): List<LibraryGame> = LibrarySearch.filter(content.games, query)
 
-    fun refresh() {
-        _content.value = Load.Loading
+    /** Only the last read publishes. */
+    private var generation = 0
+
+    /** Reads the library; [quiet] keeps the list shown while reading, and a failure keeps it. */
+    fun refresh(quiet: Boolean = false) {
+        val current = ++generation
+        if (!quiet || _content.value !is Load.Loaded) _content.value = Load.Loading
         viewModelScope.launch {
-            _content.value = try {
+            val result = try {
                 val client = container.client(deviceId)
                 val systems = client.systems().associate { it.id to it.label }
                 val all = client.allGames()
@@ -365,6 +466,8 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
             } catch (e: Exception) {
                 Load.Failed(e)
             }
+            if (current != generation) return@launch
+            if (!quiet || result is Load.Loaded || _content.value !is Load.Loaded) _content.value = result
         }
     }
 }
@@ -379,6 +482,15 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
     init {
         refresh()
         reloadAfterTransfers(gameId) { refresh(quiet = true) }
+        // M14: its system changed on the SD card, or a new event stream.
+        onConsoleChanges { change ->
+            val systemId = (_game.value as? Load.Loaded)?.value?.systemId
+            when (change) {
+                is link.reminis.app.ConsoleChange.Library -> if (change.affects(systemId)) refresh(quiet = true)
+                is link.reminis.app.ConsoleChange.CatchUp -> refresh(quiet = true)
+                else -> Unit
+            }
+        }
     }
 
     fun refresh(quiet: Boolean = false) {
@@ -550,6 +662,18 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
         container.lastDownloadDocumentForTests = destination
         container.transfers.enqueueDownload(deviceId, source, fileName, gameName, DocumentSink(app, destination), sizeBytes)
         _notice.value = Notice(R.string.download_queued, listOf(fileName))
+    }
+
+    /** Runs [handle] for every change of this console's event stream (M14). */
+    protected fun onConsoleChanges(handle: (link.reminis.app.ConsoleChange) -> Unit) {
+        viewModelScope.launch {
+            container.events.changes.collect { if (it.deviceId == deviceId) handle(it) }
+        }
+    }
+
+    /** Calls [reload] on a `library` change or a new stream of this console (M14). */
+    protected fun reloadOnLibraryChanges(reload: () -> Unit) = onConsoleChanges { change ->
+        if (change is link.reminis.app.ConsoleChange.Library || change is link.reminis.app.ConsoleChange.CatchUp) reload()
     }
 
     /** Calls [reload] after an upload to [gameId] of this console finishes (a save or a state sent). */

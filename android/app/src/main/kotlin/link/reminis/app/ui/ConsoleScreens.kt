@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,15 +57,20 @@ import link.reminis.core.PairingLinkException
 // MARK: consoles list
 
 @Composable
-fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit) {
+fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () -> Unit = {}) {
     val vm: ConsolesViewModel = viewModel()
     val consoles by vm.consoles.collectAsState()
     val online by vm.online.collectAsState()
     var forgetting by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val container = context.container
+    val demo by container.demo.collectAsState()
+    val closed by container.events.closed.collectAsState()
 
-    LifecycleResumeEffect(Unit) {
+    // No mDNS browsing nor /hello probe of the real consoles while the demo runs (M16).
+    LifecycleResumeEffect(demo) {
         vm.reload()
-        vm.startBrowsing()
+        if (demo == null) vm.startBrowsing() else vm.stopBrowsing()
         onPauseOrDispose { vm.stopBrowsing() }
     }
 
@@ -72,7 +78,8 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit) {
         title = stringResource(R.string.consoles_title),
         onBack = null,
         floatingActionButton = {
-            if (consoles.isNotEmpty()) {
+            // The demo (M16) pairs nothing: quit it to add a real console.
+            if (consoles.isNotEmpty() && demo == null) {
                 ExtendedFloatingActionButton(
                     onClick = onAdd,
                     icon = { Icon(Icons.Filled.Add, contentDescription = null) },
@@ -81,15 +88,33 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit) {
             }
         },
     ) { modifier ->
-        if (consoles.isEmpty()) {
-            Welcome(onAdd, modifier)
+        val demoConsole = demo
+        if (demoConsole != null) {
+            // The demo mode shows its own console only, like the separate app of the iOS demo.
+            LazyColumn(modifier.fillMaxSize().testTag("consoles")) {
+                item {
+                    ListItem(
+                        headlineContent = { Text(demoConsole.pak.deviceName) },
+                        supportingContent = {
+                            Text(listOf(stringResource(R.string.demo_mode), stringResource(R.string.status_online)).joinToString(" · "))
+                        },
+                        modifier = Modifier.clickable { onOpen(demoConsole.deviceId) }.testTag("demoConsole"),
+                    )
+                    HorizontalDivider()
+                }
+            }
+        } else if (consoles.isEmpty()) {
+            Welcome(onAdd, onTryDemo, modifier)
         } else {
             LazyColumn(modifier.fillMaxSize().testTag("consoles")) {
+                closed?.let { notice ->
+                    item(key = "closed") { ClosedNoticeCard(notice, onDismiss = container.events::dismissClosed) }
+                }
                 items(consoles, key = { it.deviceId }) { console ->
                     ListItem(
                         headlineContent = { Text(console.deviceName) },
                         supportingContent = {
-                            val model = console.model?.let(DeviceModels::displayName).orEmpty()
+                            val model = console.model?.let { modelName(context, it) }.orEmpty()
                             val status = stringResource(if (console.deviceId in online) R.string.status_online else R.string.status_offline)
                             Text(listOf(model, status).filter { it.isNotEmpty() }.joinToString(" · "))
                         },
@@ -99,6 +124,15 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit) {
                         modifier = Modifier.clickable { onOpen(console.deviceId) },
                     )
                     HorizontalDivider()
+                }
+                // M16: the demo stays reachable once consoles are paired.
+                item(key = "demo") {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.demo_try)) },
+                        supportingContent = { Text(stringResource(R.string.demo_try_footer)) },
+                        leadingContent = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                        modifier = Modifier.clickable(onClick = onTryDemo).testTag("tryDemo"),
+                    )
                 }
             }
         }
@@ -122,7 +156,7 @@ fun ForgetDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun Welcome(onAdd: () -> Unit, modifier: Modifier) {
+private fun Welcome(onAdd: () -> Unit, onTryDemo: () -> Unit, modifier: Modifier) {
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -138,6 +172,11 @@ private fun Welcome(onAdd: () -> Unit, modifier: Modifier) {
         Button(onClick = onAdd, modifier = Modifier.fillMaxWidth().testTag("addConsole")) {
             Text(stringResource(R.string.add_console))
         }
+        OutlinedButton(onClick = onTryDemo, modifier = Modifier.fillMaxWidth().testTag("tryDemo")) {
+            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+            Text(stringResource(R.string.demo_try), modifier = Modifier.padding(start = 8.dp))
+        }
+        Text(stringResource(R.string.demo_try_footer), style = MaterialTheme.typography.bodySmall)
     }
 }
 

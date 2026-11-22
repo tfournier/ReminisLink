@@ -51,6 +51,7 @@ class SaveViewModel(app: Application, deviceId: String, private val gameId: Stri
     init {
         load()
         reloadAfterTransfers(gameId) { load(quiet = true) }
+        reloadOnLibraryChanges { load(quiet = true) }
     }
 
     fun load(quiet: Boolean = false) {
@@ -147,6 +148,7 @@ class StatesViewModel(app: Application, deviceId: String, private val gameId: St
     init {
         load()
         reloadAfterTransfers(gameId) { load(quiet = true) }
+        reloadOnLibraryChanges { load(quiet = true) }
     }
 
     fun load(quiet: Boolean = false) {

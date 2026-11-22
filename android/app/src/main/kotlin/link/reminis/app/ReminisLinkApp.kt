@@ -117,7 +117,72 @@ class AppContainer(context: Context) {
     val jobs = JobTracker({ deviceId -> pairingIdentity(deviceId) }) { deviceId -> client(deviceId) }
 
     /** The identity of the current pairing of a console (pin and pairing date), null when forgotten. */
-    fun pairingIdentity(deviceId: String): Any? = consoles.get(deviceId)?.let { it.pin to it.pairedAt }
+    fun pairingIdentity(deviceId: String): Any? {
+        demo.value?.let { if (it.deviceId == deviceId) return it.identity }
+        return consoles.get(deviceId)?.let { it.pin to it.pairedAt }
+    }
+
+    // MARK: demo mode (M16)
+
+    private val _demo = kotlinx.coroutines.flow.MutableStateFlow<link.reminis.core.demo.DemoConsole?>(null)
+
+    /**
+     * The demo console while the demo mode runs ("Try Without a Console"):
+     * a fake pak in this process, with made-up games, reached without any
+     * network and never written to the list of consoles.
+     */
+    val demo: kotlinx.coroutines.flow.StateFlow<link.reminis.core.demo.DemoConsole?> get() = _demo
+
+    fun isDemo(deviceId: String): Boolean = _demo.value?.deviceId == deviceId
+
+    /** Starts a new demo session (a previous one ends first) and returns its console. */
+    fun startDemo(): link.reminis.core.demo.DemoConsole {
+        quitDemo()
+        // The real consoles are left alone while the demo runs (as on iOS): their transfers pause
+        // and resume when the demo ends; discovery, probes and requests to them are off.
+        transfers.holdForDemo { !isDemo(it) }
+        val console = link.reminis.core.demo.DemoConsole(appContext.getString(R.string.demo_console_name)) { n ->
+            appContext.getString(R.string.demo_cheat_name, n)
+        }
+        // Under the pairing lock: no address of a real console is written once the demo has started.
+        synchronized(pairingLock) { _demo.value = console }
+        // Searches and probes of real consoles in flight stop now.
+        resolutions.children.forEach { it.cancel() }
+        return console
+    }
+
+    /** Ends the demo: its transfers and jobs are dropped, its fake pak stops, nothing is kept. */
+    fun quitDemo() {
+        val console = _demo.value ?: return
+        _demo.value = null
+        events.dropConsole(console.deviceId)
+        transfers.dropConsole(console.deviceId)
+        jobs.dropConsole(console.deviceId)
+        pakInstaller.dropConsole(console.deviceId)
+        console.close()
+        // Exactly the transfers the demo paused, whatever their phase now; never one paused before it.
+        transfers.releaseDemoHold()
+    }
+
+    /** The name shown for a console: the demo's, or the stored one. */
+    fun consoleName(deviceId: String): String =
+        _demo.value?.takeIf { it.deviceId == deviceId }?.pak?.deviceName ?: consoles.get(deviceId)?.deviceName.orEmpty()
+
+    /**
+     * The event stream of the console shown (M14). Started and stopped by
+     * the activity (foreground) and the navigation (the console shown).
+     */
+    val events: ConsoleEvents by lazy {
+        ConsoleEvents(
+            scope = scope,
+            pairingIdentity = { pairingIdentity(it) },
+            client = { id, refresh -> client(id, refresh) },
+            consoleName = { consoleName(it) },
+            onClosed = { transfers.pauseConsole(it) },
+            onJob = { id, job, identity -> jobs.apply(id, job, identity) },
+            onLive = { id -> backgroundScope.launch { runCatching { jobs.refresh(id) } } },
+        )
+    }
 
     /**
      * Runs [block] only if [identity] is still the pairing of [deviceId],
@@ -194,25 +259,69 @@ class AppContainer(context: Context) {
      * each candidate is tried with the same pin.
      */
     suspend fun client(deviceId: String, refresh: Boolean = false): ApiClient = lock.withLock {
+        _demo.value?.let { if (it.deviceId == deviceId) return it.client }
+        noDemo()
         if (!refresh) clients[deviceId]?.let { return it }
         val console = consoles.get(deviceId) ?: throw ApiException.NotPaired()
-        val identity = withContext(Dispatchers.IO) { identityStore.identity() }
-        val credentials = DeviceCredentials(deviceId, identity.clientId, identity.key, console.pin)
-        val candidates = Locator.candidates(console.lastEndpoint) { discovery.find(deviceId) }
-        val (endpoint, connected) = Locator.connectFirst(candidates) { ep ->
-            val client = newClient(ep, deviceId, console.pin, credentials)
-            client to client.hello()
+        // The demo may start during any of the suspensions below: checked again after each one,
+        // and the whole resolution is cancelled when it starts ([resolving]).
+        val (endpoint, client, hello) = resolving {
+            val identity = withContext(Dispatchers.IO) { identityStore.identity() }
+            noDemo()
+            val credentials = DeviceCredentials(deviceId, identity.clientId, identity.key, console.pin)
+            val candidates = Locator.candidates(console.lastEndpoint) { discovery.find(deviceId).also { noDemo() } }
+            val (endpoint, connected) = Locator.connectFirst(candidates) { ep ->
+                noDemo()
+                val client = newClient(ep, deviceId, console.pin, credentials)
+                client to client.hello()
+            }
+            noDemo()
+            Triple(endpoint, connected.first, connected.second)
         }
-        val (client, hello) = connected
         withContext(Dispatchers.IO) {
             synchronized(pairingLock) {
-                // The pairing may have been replaced or forgotten during the network calls.
+                // The pairing may have been replaced or forgotten during the network calls,
+                // or the demo started: nothing is written then.
+                noDemo()
                 if (!isCurrent(console)) throw ApiException.NotPaired()
                 remember(console, endpoint, hello.deviceName, hello.model)
                 clients[deviceId] = client
             }
         }
         client
+    }
+
+    /** The demo mode never reaches a real console (its paused transfers wait for the end of the demo). */
+    private fun noDemo() {
+        if (_demo.value != null) throw ApiException.Network(java.io.IOException("demo mode: real consoles are not contacted"))
+    }
+
+    /** Parent of the network resolutions of real consoles: cancelled all at once when the demo starts. */
+    private val resolutions = kotlinx.coroutines.SupervisorJob()
+
+    /**
+     * Runs [block] (a resolution: mDNS, `/hello`) so that starting the demo
+     * cancels it, while the caller's own cancellation still applies. A
+     * resolution cut by the demo ends as a network failure.
+     */
+    private suspend fun <T> resolving(block: suspend () -> T): T = kotlinx.coroutines.coroutineScope {
+        val child = kotlinx.coroutines.Job(resolutions)
+        val watcher = launch {
+            try {
+                kotlinx.coroutines.awaitCancellation()
+            } finally {
+                child.cancel()
+            }
+        }
+        try {
+            withContext(child) { block() }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (child.isCancelled && coroutineContext[kotlinx.coroutines.Job]?.isActive == true) throw ApiException.Network(java.io.IOException("demo mode started"))
+            throw e
+        } finally {
+            watcher.cancel()
+            child.complete()
+        }
     }
 
     /** Whether [console] (as read before a network call) is still the stored pairing. */
@@ -228,15 +337,17 @@ class AppContainer(context: Context) {
      * address finishing late never overwrites the newer one.
      */
     suspend fun validates(deviceId: String, endpoint: Endpoint): Boolean {
+        // No probe of a real console during the demo, and no address written.
+        if (_demo.value != null) return false
         val console = consoles.get(deviceId) ?: return false
         val probe = probes.next(deviceId)
         return try {
-            val hello = newClient(endpoint, deviceId, console.pin).hello()
+            val hello = resolving { newClient(endpoint, deviceId, console.pin).hello() }
             withContext(Dispatchers.IO) {
                 // Still the newest probe and the same pairing, checked and saved atomically.
                 probes.ifCurrent(deviceId, probe) {
                     synchronized(pairingLock) {
-                        if (!isCurrent(console)) return@synchronized false
+                        if (_demo.value != null || !isCurrent(console)) return@synchronized false
                         remember(console, endpoint, hello.deviceName, hello.model)
                         true
                     }
@@ -256,6 +367,8 @@ class AppContainer(context: Context) {
         // The jobs of the previous pairing are never asked through the new one.
         jobs.dropConsole(console.deviceId)
         pakInstaller.dropConsole(console.deviceId)
+        // The event stream of the previous pairing stops (it also checks the identity itself).
+        scope.launch { events.dropConsole(console.deviceId) }
     }
 
     /** Tests only: deletion previews answered (applied or not), a client-side signal. */
@@ -268,11 +381,17 @@ class AppContainer(context: Context) {
      * whose `complete` is in flight keeps its real outcome.
      */
     fun forget(deviceId: String) {
+        if (isDemo(deviceId)) {
+            quitDemo()
+            return
+        }
         synchronized(pairingLock) {
             consoles.remove(deviceId)
             clients.remove(deviceId)
             jobs.dropConsole(deviceId)
         }
+        // Only now: the stream is re-evaluated without a pairing, so none can start again.
+        scope.launch { events.dropConsole(deviceId) }
         transfers.dropConsole(deviceId)
         pakInstaller.dropConsole(deviceId)
     }

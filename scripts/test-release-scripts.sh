@@ -107,6 +107,75 @@ else
 	echo "skip  pak release publication (needs jq, as on the CI runner)"
 fi
 
+# --- Android tags (M21) -------------------------------------------------------
+
+for script in android-version-code.sh android-release-kind.sh publish-android-release.sh; do
+	expect "bash -n $script" 0 bash -n "$root/scripts/$script"
+done
+code_is() { [ "$("$root/scripts/android-version-code.sh" "$1" 2>/dev/null)" = "$2" ]; }
+expect "versionCode of 0.1.0" 0 code_is 0.1.0 10099
+expect "versionCode of android-v1.2.3" 0 code_is android-v1.2.3 1020399
+expect "versionCode of 1.2.3-beta.4" 0 code_is 1.2.3-beta.4 1020304
+expect "versionCode of 1.2.3-rc.2" 0 code_is 1.2.3-rc.2 1020352
+android_order_ok() {
+	local previous=0 v c
+	for v in 0.9.9 1.0.0-beta.1 1.0.0-beta.49 1.0.0-rc.1 1.0.0-rc.48 1.0.0 1.0.1 1.1.0-beta.1 1.1.0 2.0.0; do
+		c="$("$root/scripts/android-version-code.sh" "$v")" || return 1
+		[ "$c" -gt "$previous" ] || return 1
+		previous=$c
+	done
+}
+expect "versionCodes grow with SemVer (pre-releases before their release)" 0 android_order_ok
+for v in 1.2 1.100.0 1.2.100 01.2.3 1.2.3-beta.50 1.2.3-rc.49 1.2.3-beta.0 1.2.3-alpha.1 v1.2.3 ios-v1.2.3 ""; do
+	expect "Android version '$v' refused" 1 "$root/scripts/android-version-code.sh" "$v"
+done
+expect "android/version.properties: versionCode matches versionName" 0 test \
+	"$("$root/scripts/android-version-code.sh" "$(sed -n 's/^versionName=//p' "$root/android/version.properties")")" = \
+	"$(sed -n 's/^versionCode=//p' "$root/android/version.properties")"
+android_kind_is() { [ "$("$root/scripts/android-release-kind.sh" "$1" 2>/dev/null)" = "$2" ]; }
+expect "android-v1.0.0 is a release" 0 android_kind_is android-v1.0.0 release
+for tag in android-v1.1.0-beta.1 android-v1.1.0-rc.2; do expect "$tag is a pre-release" 0 android_kind_is "$tag" prerelease; done
+for tag in v1.0.0 ios-v1.0.0 android-v1.0 android-v1.0.0-alpha.1 android-1.0.0 "android-v1.0.0 x"; do
+	expect "tag '$tag' is not an Android release" 1 "$root/scripts/android-release-kind.sh" "$tag"
+done
+for tag in android-v1.0.0 android-v1.1.0-beta.1; do
+	expect "Android tag $tag is not a pak release" 1 "$root/scripts/pak-release-kind.sh" "$tag"
+	expect "Android tag $tag does not match the pak CI tag glob" 1 glob_matches "$tag"
+done
+android_workflow="$root/.github/workflows/android-release.yml"
+expect "Android workflow tag filter is exactly [\"android-v*\"]" 0 grep -Eq '^    tags: \["android-v\*"\]$' "$android_workflow"
+expect "Android workflow has no other trigger" 0 test "$(grep -c -E '^  (push|pull_request|workflow_dispatch|schedule):' "$android_workflow")" = 1
+expect "Android workflow publishes through scripts/publish-android-release.sh" 0 grep -Fq 'run: scripts/publish-android-release.sh "$TAG" "$APK" "$SIGNING"' "$android_workflow"
+android_glob() { [[ "$1" == android-v* ]]; }
+for tag in v1.0.1 v1.1.0-beta.1 ios-v1.0.1; do expect "tag $tag does not start the Android workflow" 1 android_glob "$tag"; done
+
+publish_android() {
+	: >"$tmp/fake.log"
+	env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" FAKE_RELEASE_EXISTS="${2:-0}" FAKE_ASSETS="${4:-}" \
+		"$root/scripts/publish-android-release.sh" "$1" "$tmp/app.apk" "${3:-signed}"
+}
+touch "$tmp/app.apk"
+expect "publish android-v1.0.0: new release" 0 publish_android android-v1.0.0
+expect "  never Latest, not a pre-release" 0 grep -Eq '^gh release create android-v1.0.0 .* --prerelease=false --latest=false$' "$tmp/fake.log"
+expect "publish android-v1.1.0-beta.1: new pre-release" 0 publish_android android-v1.1.0-beta.1
+expect "  a pre-release, never Latest" 0 grep -Eq '^gh release create android-v1.1.0-beta.1 .* --prerelease --latest=false$' "$tmp/fake.log"
+expect "publish android-v1.0.0 again: flags set again" 0 publish_android android-v1.0.0 1
+expect "  never Latest" 0 logged "gh release edit android-v1.0.0 --prerelease=false --latest=false"
+expect "  then the APK replaced" 0 grep -Eq '^gh release upload android-v1.0.0 .* --clobber$' "$tmp/fake.log"
+expect "  notes written again" 0 grep -Eq '^gh release edit android-v1.0.0 --notes-file ' "$tmp/fake.log"
+expect "signed re-run over a debug-signed release" 0 publish_android android-v1.0.0 1 signed "ReminisLink-android-1.0.0-debug-signed.apk"
+expect "  the debug-signed APK deleted" 0 logged "gh release delete-asset android-v1.0.0 ReminisLink-android-1.0.0-debug-signed.apk --yes"
+expect "  after the signed upload" 0 test "$(grep -n 'release upload' "$tmp/fake.log" | cut -d: -f1)" -lt "$(grep -n 'delete-asset' "$tmp/fake.log" | cut -d: -f1)"
+expect "  the notes rewritten last (after the upload and the deletion)" 0 test "$(grep -n 'delete-asset' "$tmp/fake.log" | cut -d: -f1)" -lt "$(grep -n 'release edit .* --notes-file' "$tmp/fake.log" | cut -d: -f1)"
+expect "keyless re-run over a signed release: refused" 1 publish_android android-v1.0.0 1 debug-signed "ReminisLink-android-1.0.0.apk"
+expect "  nothing edited nor uploaded" 0 not_logged "release upload"
+expect "keyless re-run over a debug-signed release: allowed" 0 publish_android android-v1.0.0 1 debug-signed "ReminisLink-android-1.0.0-debug-signed.apk"
+expect "  nothing deleted" 0 not_logged "delete-asset"
+for tag in v1.0.1 ios-v1.0.1; do
+	expect "publish_android $tag: refused" 1 publish_android "$tag"
+	expect "  gh never called" 0 test ! -s "$tmp/fake.log"
+done
+
 # --- Xcode Cloud scripts -----------------------------------------------------
 
 changelog="$tmp/CHANGELOG.md"

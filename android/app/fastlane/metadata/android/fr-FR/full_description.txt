@@ -1,0 +1,50 @@
+<p>ReminisLink fait de ton téléphone Android le compagnon de ta console rétro. Ouvre ReminisLink sur la console, gère tout depuis ton téléphone par le Wi-Fi de la maison, ferme-le et joue.</p>
+
+<p><b>Apporte tes propres fichiers</b><br>
+ReminisLink liste les jeux présents sur la carte SD de ta console, mais ne fournit aucun jeu, aucun catalogue et aucune source de jeux. Tu ajoutes les jeux, sauvegardes, patchs et fichiers de codes de triche que tu possèdes déjà, depuis les fichiers de ton téléphone ou le menu de partage de n’importe quelle app.</p>
+
+<p><b>Ta bibliothèque</b></p>
+<ul>
+<li>Tous les jeux de la carte SD dans une seule liste, avec une recherche qui ignore la casse et les accents</li>
+<li>Pour chaque jeu : taille, sauvegarde, états, codes de triche et ses fichiers ; change ou retire sa jaquette</li>
+<li>Télécharge n’importe quel fichier d’un jeu sur ton téléphone</li>
+</ul>
+
+<p><b>Sauvegardes et états</b></p>
+<ul>
+<li>Télécharge, remplace, copie et restaure tes sauvegardes ; la sauvegarde actuelle est toujours copiée avant</li>
+<li>Chaque emplacement d’état avec sa vignette, et le verrouillage d’un état : s’il est écrasé ou supprimé, ReminisLink remet la copie verrouillée à son prochain lancement</li>
+</ul>
+
+<p><b>Codes de triche et patchs</b></p>
+<ul>
+<li>Active, désactive, modifie et réordonne tes codes de triche, importe des fichiers .cht</li>
+<li>Applique des patchs IPS, BPS et UPS (traductions, corrections) à un jeu que tu possèdes, dans un nouveau fichier par défaut</li>
+</ul>
+
+<p><b>Les apps de la console</b><br>
+Vois les outils et émulateurs installés sur la console, installe-en un depuis un zip de ton téléphone, ou supprime-le.</p>
+
+<p><b>Rien ne se perd</b><br>
+Les jeux supprimés, les fichiers remplacés et les jeux patchés sur place vont dans la corbeille de la console pendant 30 jours ; une sauvegarde remplacée est d’abord gardée dans les copies de secours. Restaure n’importe quoi depuis la corbeille : un jeu revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette, et rien sur la carte SD n’est jamais écrasé.</p>
+
+<p><b>Toujours à jour</b><br>
+L’app se rafraîchit seule quand la carte SD change, affiche la batterie en direct, et revient à ta liste quand tu fermes ReminisLink sur la console. Les transferts continuent en arrière-plan et reprennent après une coupure.</p>
+
+<p><b>Simple et privé</b></p>
+<ul>
+<li>Appairage en un scan du QR code affiché par la console</li>
+<li>Connexion chiffrée, vérifiée avec le certificat propre à ta console ; chaque requête est signée avec une clé qui ne quitte jamais le téléphone</li>
+<li>Pas de compte, pas de serveur, pas de mesure d’audience, pas de publicité, pas de services Google : l’app ne parle qu’à ta console, sur ton réseau local</li>
+</ul>
+
+<p><b>Essaie d’abord</b><br>
+« Essayer sans console » ouvre une console de démo avec des jeux inventés, pour essayer chaque écran. Rien ne quitte le téléphone.</p>
+
+<p><b>Consoles compatibles</b><br>
+TrimUI Brick sous NextUI. En test, avec appel aux testeurs : TrimUI Smart Pro S, consoles Anbernic H700 et Miyoo Flip sous NextUI, et les consoles sous Knulli.</p>
+
+<p><b>Configuration requise</b><br>
+L’outil gratuit ReminisLink doit être installé sur la console : voir le guide d’installation sur reminis.link. Le téléphone et la console doivent être sur le même réseau Wi-Fi.</p>
+
+<p>ReminisLink est un projet indépendant. TrimUI, Anbernic, Miyoo, NextUI et Knulli sont les noms de leurs propriétaires respectifs, qui ne sont pas affiliés à ReminisLink.</p>
