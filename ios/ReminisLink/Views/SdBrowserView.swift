@@ -31,7 +31,7 @@ struct SdFolderView: View {
     @State private var exported: ExportedFile?
     // M23: the writes.
     @State private var isSelecting = false
-    @State private var selection = Set<String>()
+    @State private var selection = SdSelection()
     @State private var pendingTrash: [SdEntry] = []
     @State private var isAddingFiles = false
     @State private var isNamingFolder = false
@@ -42,7 +42,8 @@ struct SdFolderView: View {
     private var isPicking: Bool { onPick != nil }
     private var canWrite: Bool { !isPicking && folder?.writable == true }
     private var deletableEntries: [SdEntry] { folder?.entries.filter(\.deletable) ?? [] }
-    private var selectedEntries: [SdEntry] { deletableEntries.filter { selection.contains($0.sdEntryId) } }
+    /// The entries as they were when selected (their versions are sent).
+    private var selectedEntries: [SdEntry] { selection.entries }
 
     var body: some View {
         List {
@@ -188,14 +189,11 @@ struct SdFolderView: View {
     private func selectableRow(_ entry: SdEntry) -> some View {
         let selected = selection.contains(entry.sdEntryId)
         return Button {
-            if selected {
-                selection.remove(entry.sdEntryId)
-            } else if selection.count >= SdTrashRequest.maxIds {
-                // One request, all or nothing (Codex review of M23).
-                actionError = .sdTooManySelected
-            } else {
-                selection.insert(entry.sdEntryId)
+            // One request, all or nothing (Codex review of M23): at most 100.
+            if selection.toggle(entry) {
                 if actionError == .sdTooManySelected { actionError = nil }
+            } else {
+                actionError = .sdTooManySelected
             }
         } label: {
             HStack {
@@ -225,7 +223,7 @@ struct SdFolderView: View {
 
     private func finishSelection() {
         isSelecting = false
-        selection = []
+        selection.clear()
     }
 
     private func trash(_ entries: [SdEntry]) async {
@@ -324,6 +322,8 @@ struct SdFolderView: View {
             let folder = try await app.session(for: route.deviceId).perform { try await $0.browseSd(folderId: folderId) }
             guard loads.isCurrent(generation) else { return }
             self.folder = folder
+            // An entry that changed or left is no longer the one selected.
+            selection.prune(listing: folder.entries)
             error = nil
         } catch {
             guard loads.isCurrent(generation) else { return }

@@ -98,6 +98,49 @@ public struct SdTrashRequest: Encodable, Sendable, Equatable {
     public var isComplete: Bool { items.allSatisfy { !$0.version.isEmpty } }
 }
 
+/// The selection of the Files tab (M23): each entry is kept as it was when
+/// selected (identifier and version). A refresh drops the entries that
+/// changed or left (a file replaced by another of the same name is not the
+/// one selected), and the move to the trash sends the remembered versions,
+/// never those of the current listing (Codex review of M23, round 3).
+public struct SdSelection: Sendable, Equatable {
+    public private(set) var entries: [SdEntry] = []
+
+    public init() {}
+
+    public var count: Int { entries.count }
+    public var isEmpty: Bool { entries.isEmpty }
+
+    public func contains(_ id: String) -> Bool { entries.contains { $0.sdEntryId == id } }
+
+    /// Selects or deselects an entry; false when it would go beyond
+    /// ``SdTrashRequest/maxIds`` (nothing changes then).
+    @discardableResult
+    public mutating func toggle(_ entry: SdEntry) -> Bool {
+        if let index = entries.firstIndex(where: { $0.sdEntryId == entry.sdEntryId }) {
+            entries.remove(at: index)
+            return true
+        }
+        guard entries.count < SdTrashRequest.maxIds else { return false }
+        entries.append(entry)
+        return true
+    }
+
+    /// Keeps only the entries still listed with the same version (size,
+    /// date and version); returns how many were dropped.
+    @discardableResult
+    public mutating func prune(listing: [SdEntry]) -> Int {
+        let before = entries.count
+        entries.removeAll { selected in
+            guard let now = listing.first(where: { $0.sdEntryId == selected.sdEntryId }) else { return true }
+            return now.version != selected.version || now.sizeBytes != selected.sizeBytes || now.modifiedAt != selected.modifiedAt
+        }
+        return before - entries.count
+    }
+
+    public mutating func clear() { entries = [] }
+}
+
 /// `POST /games/{gameId}/rename`.
 public struct GameRenameRequest: Codable, Sendable, Equatable {
     /// The new name without the extension.

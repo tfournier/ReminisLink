@@ -153,6 +153,62 @@ struct SdWriteTests {
         #expect(try await client.browseSd(folderId: folder.sdEntryId).entries.count == 2)
     }
 
+    /// Codex review of M23 (round 3): in the demo, a file replaced by
+    /// another of the same name and size within the same second gets
+    /// another version, so the first listing cannot move the new one.
+    @Test func aReplacedFileGetsAnotherVersionInTheDemo() async throws {
+        let pak = makePak()
+        let client = try await pairedClient(pak)
+        let downloads = FakePak.sdEntryId("Downloads")
+        let file = try makeFile(size: 64, name: "same.txt")
+        let data = try Data(contentsOf: file)
+        func send() async throws {
+            let upload = ResumableUpload(
+                source: UploadSource(fileURL: file, sizeBytes: Int64(data.count), sha256: sha256Hex(data)),
+                target: .sdFile(folderId: downloads, fileName: "same.txt"), onConflict: .fail,
+                scratchDirectory: downloadsDirectory()
+            )
+            _ = try await upload.run(client: client)
+        }
+        try await send()
+        let first = try #require(try await client.browseSd(folderId: downloads).entries.first { $0.name == "same.txt" })
+        _ = try await client.trashSdEntries(SdTrashRequest(entries: [first]))
+        try await send()
+        let second = try #require(try await client.browseSd(folderId: downloads).entries.first { $0.name == "same.txt" })
+        #expect(second.version != first.version)
+        let stale = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(entries: [first])) }
+        #expect(stale?.sdChanged == [first.sdEntryId])
+    }
+
+    /// Codex review of M23 (round 3): the selection keeps the version of
+    /// each entry; a refresh drops the replaced or gone ones.
+    @Test func selectionKeepsTheVersionShown() {
+        let date = Date(timeIntervalSince1970: 1_000)
+        let a = SdEntry(sdEntryId: "se_a", name: "a", kind: .file, sizeBytes: 1, modifiedAt: date, version: "v2-a")
+        let b = SdEntry(sdEntryId: "se_b", name: "b", kind: .file, sizeBytes: 1, modifiedAt: date, version: "v2-b")
+        var selection = SdSelection()
+        let addedA = selection.toggle(a)
+        let addedB = selection.toggle(b)
+        #expect(addedA && addedB && selection.count == 2)
+        let replaced = SdEntry(sdEntryId: "se_a", name: "a", kind: .file, sizeBytes: 1, modifiedAt: date, version: "v2-other")
+        let dropped = selection.prune(listing: [replaced, b])
+        #expect(dropped == 1)
+        #expect(selection.entries == [b])
+        // The request carries the remembered version.
+        #expect(SdTrashRequest(entries: selection.entries).items.map(\.version) == ["v2-b"])
+        let droppedAll = selection.prune(listing: [])
+        #expect(droppedAll == 1 && selection.isEmpty)
+        // At most 100.
+        for i in 0..<100 {
+            selection.toggle(SdEntry(sdEntryId: "se_\(i)", name: "\(i)", kind: .file, sizeBytes: 1, modifiedAt: date, version: "v"))
+        }
+        let added101 = selection.toggle(a)
+        #expect(!added101 && selection.count == 100)
+        let removed = selection.toggle(SdEntry(sdEntryId: "se_0", name: "0", kind: .file, sizeBytes: 1, modifiedAt: date, version: "v"))
+        #expect(removed)
+        #expect(selection.count == 99)
+    }
+
     @Test func aFileAddedToASystemFolderIsAGame() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

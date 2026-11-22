@@ -74,6 +74,13 @@ extension FakePak {
         return "v1-" + String(hash, radix: 16)
     }
 
+    /// A file or folder written at path (or moved away): its version
+    /// changes, even within the same second with the same size (Codex
+    /// review of M23, round 3).
+    func bumpSdRevision(_ path: String) {
+        lock.withLock { paksState.sdRevisions[path.lowercased(), default: 0] += 1 }
+    }
+
     /// A folder changed (an entry added to or removed from it): its date
     /// changes, as on the card.
     func touchSdFolder(_ path: String) {
@@ -191,6 +198,7 @@ extension FakePak {
         }
         let path = Self.join(folder, target)
         touchSdFolder(folder)
+        bumpSdRevision(path)
         if let (system, inside) = systemPlace(of: path) {
             // A game of the library once it lands in a system folder.
             let game = DemoLibrary.Game(path: inside, sizeBytes: sizeBytes, modifiedAt: Date())
@@ -227,6 +235,7 @@ extension FakePak {
         let path = Self.join(folder, name)
         let now = Date()
         touchSdFolder(folder)
+        bumpSdRevision(path)
         lock.withLock {
             paksState.sdRemoved.remove(path.lowercased())
             paksState.sdExtras[path] = FakeSdExtra(size: nil, modifiedAt: now)
@@ -311,7 +320,10 @@ extension FakePak {
             }
         }
         var paksChanged = false
-        for path in paths { touchSdFolder(Self.parentOf(path)) }
+        for path in paths {
+            touchSdFolder(Self.parentOf(path))
+            bumpSdRevision(path)
+        }
         let response = lock.withLock { () -> FakeResponse in
             var trash = FakeSdTrash(paths: paths)
             for path in paths {
