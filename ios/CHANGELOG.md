@@ -31,6 +31,7 @@ New:
 Improvements:
 - After a patch is applied, the patch screen closes by itself.
 - The library no longer waits for the box art of a game scrolled out of view.
+- A game opens faster from a large library: the list is no longer filtered and sorted again each time you open a game, go back or open its save.
 - The French interface now uses plain French words throughout.
 - When this app and ReminisLink on the handheld are too far apart in version, the app says which one to update instead of showing an error.
 
@@ -48,6 +49,7 @@ Nouveautés :
 Améliorations :
 - Après l'application d'un patch, l'écran du patch se ferme tout seul.
 - La bibliothèque n'attend plus la jaquette d'un jeu sorti de l'écran.
+- Un jeu s'ouvre plus vite dans une grande bibliothèque : la liste n'est plus filtrée et triée à nouveau chaque fois que tu ouvres un jeu, reviens en arrière ou ouvres sa sauvegarde.
 - L'interface en français n'emploie plus que des mots français.
 - Si l'app et ReminisLink sur la console ont des versions trop éloignées, l'app indique laquelle mettre à jour au lieu d'afficher une erreur.
 
