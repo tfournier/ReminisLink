@@ -22,7 +22,11 @@ goes to TestFlight only and needs no section of its own.
 ### English
 
 New:
+- iPad and Mac: the same app now runs on iPad (lists and games side by side on a wide screen, every orientation, Split View and Stage Manager) and on Macs with Apple silicon.
 - Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
+- Game archives: export everything of a game (save, clock file, states, cheats, box art, and the game file if you wish) as one file, and import it into the same handheld or another one. Whatever it replaces is kept first.
+- Save states in iCloud Drive: states are now copied with the saves, with the same 10 versions per slot.
+- Pairing on a Mac: scan the QR code with the Mac's camera, or import a picture of it; a handheld paired on your iPhone appears on your other Apple devices within seconds.
 
 Improvements:
 - After a patch is applied, the patch screen closes by itself.
@@ -30,16 +34,24 @@ Improvements:
 - The French interface now uses plain French words throughout.
 - When this app and ReminisLink on the handheld are too far apart in version, the app says which one to update instead of showing an error.
 
+Requires ReminisLink 1.1 on the handheld for the trash restore, the game archives and the states in iCloud Drive.
+
 ### Français
 
 Nouveautés :
+- iPad et Mac : la même app fonctionne maintenant sur iPad (listes et jeux côte à côte sur grand écran, toutes les orientations, Split View et Stage Manager) et sur les Mac à puce Apple.
 - Restaurer depuis la corbeille : touche une entrée de l'onglet Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre, ou, pour une sauvegarde remplacée, à la place de la sauvegarde actuelle (gardée d'abord).
+- Archives de jeux : exporte tout ce qui concerne un jeu (sauvegarde, fichier d'horloge, états, codes de triche, jaquette, et le fichier du jeu si tu veux) en un seul fichier, puis importe-le sur la même console ou sur une autre. Ce qu'il remplace est gardé d'abord.
+- États de jeu dans iCloud Drive : les états sont maintenant copiés avec les sauvegardes, avec les mêmes 10 versions par emplacement.
+- Appairage sur Mac : scanne le QR code avec la caméra du Mac, ou importe une photo du QR code ; une console appairée sur ton iPhone apparaît sur tes autres appareils Apple en quelques secondes.
 
 Améliorations :
 - Après l'application d'un patch, l'écran du patch se ferme tout seul.
 - La bibliothèque n'attend plus la jaquette d'un jeu sorti de l'écran.
 - L'interface en français n'emploie plus que des mots français.
 - Si l'app et ReminisLink sur la console ont des versions trop éloignées, l'app indique laquelle mettre à jour au lieu d'afficher une erreur.
+
+La restauration depuis la corbeille, les archives de jeux et les états dans iCloud Drive demandent ReminisLink 1.1 sur la console.
 
 ## 1.0.0
 

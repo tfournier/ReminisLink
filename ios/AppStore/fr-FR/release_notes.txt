@@ -1,8 +1,14 @@
 Nouveautés :
+• iPad et Mac : la même app fonctionne maintenant sur iPad (listes et jeux côte à côte sur grand écran, toutes les orientations, Split View et Stage Manager) et sur les Mac à puce Apple.
 • Restaurer depuis la corbeille : touche une entrée de l'onglet Corbeille pour voir ce qui revient, puis restaure-la. Un jeu supprimé revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette ; une app supprimée ou un fichier remplacé revient aussi. Un fichier déjà sur la carte SD n'est jamais remplacé : la restauration se fait alors sous un nom libre, ou, pour une sauvegarde remplacée, à la place de la sauvegarde actuelle (gardée d'abord).
+• Archives de jeux : exporte tout ce qui concerne un jeu (sauvegarde, fichier d'horloge, états, codes de triche, jaquette, et le fichier du jeu si tu veux) en un seul fichier, puis importe-le sur la même console ou sur une autre. Ce qu'il remplace est gardé d'abord.
+• États de jeu dans iCloud Drive : les états sont maintenant copiés avec les sauvegardes, avec les mêmes 10 versions par emplacement.
+• Appairage sur Mac : scanne le QR code avec la caméra du Mac, ou importe une photo du QR code ; une console appairée sur ton iPhone apparaît sur tes autres appareils Apple en quelques secondes.
 
 Améliorations :
 • Après l'application d'un patch, l'écran du patch se ferme tout seul.
 • La bibliothèque n'attend plus la jaquette d'un jeu sorti de l'écran.
 • L'interface en français n'emploie plus que des mots français.
 • Si l'app et ReminisLink sur la console ont des versions trop éloignées, l'app indique laquelle mettre à jour au lieu d'afficher une erreur.
+
+La restauration depuis la corbeille, les archives de jeux et les états dans iCloud Drive demandent ReminisLink 1.1 sur la console.

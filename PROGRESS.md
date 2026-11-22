@@ -122,26 +122,15 @@ Conséquence : tant que `agy` est absent, la revue croisée se fait avec un sous
 Tranchées : premier commit de `main`, M1 avant M0, écart `DELETE /games/{gameId}`, CLI Antigravity installée, report des choix de M1 dans la spec (voir Décisions).
 
 ## Plus tard
-- M7 Go : `github.com/BurntSushi/toml` en dépendance directe, mais seulement dans `internal/l10n/l10n_test.go` (comme Cheat Manager ; déjà tirée par gabagool) ; `go-sdl2` en direct (dépendance de gabagool) — acceptés par l'agent principal.
-- M7 Go : ~~batterie, PIN sous le pli~~ (batterie affichée depuis M8, PIN retiré en M13) ; « : » et « % » avec espace insécable dans l'interface française du pak (2026-11-20) ; SSID toujours `null` (sources confirmées en 05 §6).
-- `make desktop` sur le Mac demande `brew install pkg-config sdl2 sdl2_ttf sdl2_image sdl2_gfx` (non installé).
-- Images et volumes Docker laissés par M7 : `reminislink-build`, `reminislink-screenshots`, `reminislink-shots`, `rhysd/actionlint`, volumes `reminislink-*`.
-- M6 Go : les `.ips`/`.bps`/`.ups` posés sous `Roms/` ne sont pas listés comme des jeux (`ignoredExt`), alors que NextUI, qui ne filtre aucune extension, les affiche (m0/source-analysis.md) : écart voulu, ce ne sont pas des jeux.
-- CI absente du dépôt : y brancher `make fuzz` en mode court (M7).
-- 2026-11-19 : 4 processus `reminislink-host --headless` laissés par l'agent principal pendant M3/M4 (commande d'arrêt visant un mauvais nom de processus) ; arrêtés. Arrêter désormais par PID.
-- M5 Go : ~~fichier `.rtc`~~ fait (sauvegardé, restauré, emporté avec le jeu ; vérifié et documenté pour la v1.0.1 du pak, 2026-11-20) ; formats NextUI non par défaut seulement refusés (pas listés) ; jaquette d'un multi-disques au nom avec point (`TODO(M0)`).
-- 2026-11-19 : interruption par limite d'utilisation (~40 min) pendant M5 ; agents repris sans perte.
-- M4 iOS : ouverture de l'app depuis l'extension de partage via `openURL` remonté par la chaîne des répondeurs (pas d'API publique) — risque en revue App Store, à valider avant M7.
-- M4 iOS : table extension → tag NextUI pour suggérer le système (`TODO(M0)`).
-- ~~M4 Go : certificats racine HTTPS~~ — sans objet depuis le 2026-11-20 (le pak ne télécharge plus rien).
-- M2 : `github.com/miekg/dns` passe en dépendance directe (déjà tirée par zeroconf), utilisée seulement par un test d'échappement du nom Bonjour ; accepté par l'agent principal.
-- M2 : les `.bin` référencés par un `.cue` (et non par le `.m3u`) restent listés comme jeux : à revoir au M0.
-- M2 : `make headless` laisse ses copies dans `$TMPDIR/reminislink-sd.*`.
-- M2 : le vecteur `get-query-sorted-and-encoded` contient une clé en double (`a=2&a=10`) : refusé en HTTP (`400`) depuis M2 ; envisager un vecteur HTTP sans doublon.
-- Revue Antigravity M1 : dans `byteBudget.acquire`, remettre à `nil` la case libérée de `waiters` après retrait (mineur).
-- Revue Antigravity M1 : l'app doit toujours construire ses URL avec `Signer.encodeQuery` (à vérifier en M3).
-- Revue M1 : imposer la même horloge au `Verifier` et au cache de nonces (constructeur unique).
-- M2 : refuser les clés de requête en double (`400 invalid_request`, 03 §4.2).
-- M2 : `ReadHeaderTimeout`, délai d'inactivité de lecture, `BaseContext` annulé à l'arrêt ; brancher `Require(RouteSave)` et `Require(RouteChunk)`.
-- Revue M1 (pour M2) : vérifier qu'un `folderId` appartient au `systemId` de la route.
-- Revue M1 : NFC/NFD — voulu : les identifiants encodent les octets réels du nom sur la carte (pas de normalisation, sinon le fichier ne serait plus retrouvé) ; les noms affichés et les noms reçus sont normalisés en NFC (M8) ; couvert par des tests NFD (library, nextui, transfer, ui).
+Nettoyé le 2026-11-22 : seuls restent les points vérifiés comme encore ouverts dans le code ou les docs (les points faits sont dans l'historique Git).
+
+- **Avant la sortie 1.1.0** : déposer les nouvelles captures App Store (branche `appstore-screenshots-1.1`), recoller les textes App Store FR (promo, mots-clés, description), ajouter tg5050, h700 et my355 à `platforms` de `pak.json` dans le commit de la v1.1.0 du pak, valider la compatibilité Mac dans App Store Connect après l'essai sur Mac.
+- **Essai sur Mac** du build TestFlight 1.1.0 (9) : caméra, import d'une image du QR code, console appairée sur l'iPhone qui apparaît seule, menu Partager du Finder, réinitialisation d'identité (après 10 min sans clé).
+- **SSID** toujours `null` sur la console (`TODO(M0)` dans `internal/osadapter/nextui/nextui.go`, sources en 05 §6).
+- **Horloge de la Brick sur batterie** à vérifier (`TODO(M0)` dans `internal/store/credit.go`) ; relevés M0 à faire par la personne (`docs/specs/m0/`).
+- **Extension de partage** : elle ouvre l'app par un sélecteur non public (`openURL:options:completionHandler:` cherché dans la chaîne des répondeurs, `ios/ReminisLinkShare/ShareViewController.swift`) ; accepté en revue pour la 1.0.0, mais Apple peut le refuser à une revue future : si c'est le cas, remplacer par un message « Ouvre ReminisLink pour suivre l'envoi ».
+- **Test d'interface instable** : `PatchUITests.testPatchFromTheSDCardInDemoMode` (« no notice ») échoue sur les simulateurs iOS 18.5, passe en CI (simulateur plus récent, trois essais).
+- **Images et volumes Docker** laissés sur le Mac par les builds (`reminislink-build`, `reminislink-screenshots`, volumes `reminislink-*`) ; `make headless` laisse ses copies dans `$TMPDIR/reminislink-sd.*`.
+- **`make desktop` sur le Mac** demande `brew install pkg-config sdl2 sdl2_ttf sdl2_image sdl2_gfx`.
+- **Cheat Manager** (autre dépôt) : bibliothèque `libSDL2_gfx` de Debian 11 incompatible avec my355 (correctif en cours) ; README limité à tg5040 (en cours).
+- **Google Play** : vérification d'identité du compte développeur en attente ; garder le compte actif jusqu'à la publication d'Android.

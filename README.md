@@ -23,7 +23,7 @@ ReminisLink lets you manage the games on your retro handheld from your iPhone: R
 
 It has two parts:
 
-- **The pak**: the ReminisLink program for the handheld (NextUI on the TrimUI Brick first), shown as "ReminisLink" in the Tools menu. You open it, manage your games from the phone, close it and play.
+- **The pak**: the ReminisLink program for the handheld (NextUI on the TrimUI Brick; other NextUI handhelds and Knulli are experimental), shown as "ReminisLink" in the Tools menu. You open it, manage your games from the phone, close it and play.
 - **ReminisLink for iOS**: the iPhone app. It finds the handheld on the local Wi-Fi network (Bonjour), pairs with a QR code and talks to the pak over HTTPS, pinned to the fingerprint of the certificate's public key (SPKI) carried by the QR code. The app and the pak only talk over your local network (save copies can go to your iCloud Drive); the pak never connects to the internet.
 
 ![Pairing screen of the pak (illustrative QR code)](docs/screenshots/pairing.png)
@@ -45,7 +45,17 @@ The screenshots come from the desktop mode (`make screenshots`); on the console 
 
 ## Installation
 
-The pak needs NextUI on a TrimUI Brick (platform `tg5040`).
+### Compatible handhelds
+
+| Handheld | Firmware | Status |
+|---|---|---|
+| TrimUI Brick (`tg5040`) | NextUI | Supported, tested on the device |
+| TrimUI Smart Pro S (`tg5050`) | NextUI | Experimental, looking for testers |
+| Anbernic H700 handhelds (`h700`: RG28XX, RG34XX, RG35XX Plus/H/Pro/SP, RG40XX H/V, RG CubeXX) | NextUI | Experimental, looking for testers |
+| Miyoo Flip (`my355`) | NextUI | Experimental, looking for testers |
+| Handhelds running Knulli | Knulli | Experimental, looking for testers |
+
+The experimental handhelds come with the next release of the pak (1.1). The app runs on iPhone, iPad and Macs with Apple silicon (iOS 18 or later).
 
 ### Other handhelds (experimental, looking for testers)
 

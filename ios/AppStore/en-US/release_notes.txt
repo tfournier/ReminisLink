@@ -1,8 +1,14 @@
 New:
+• iPad and Mac: the same app now runs on iPad (lists and games side by side on a wide screen, every orientation, Split View and Stage Manager) and on Macs with Apple silicon.
 • Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
+• Game archives: export everything of a game (save, clock file, states, cheats, box art, and the game file if you wish) as one file, and import it into the same handheld or another one. Whatever it replaces is kept first.
+• Save states in iCloud Drive: states are now copied with the saves, with the same 10 versions per slot.
+• Pairing on a Mac: scan the QR code with the Mac's camera, or import a picture of it; a handheld paired on your iPhone appears on your other Apple devices within seconds.
 
 Improvements:
 • After a patch is applied, the patch screen closes by itself.
 • The library no longer waits for the box art of a game scrolled out of view.
 • The French interface now uses plain French words throughout.
 • When this app and ReminisLink on the handheld are too far apart in version, the app says which one to update instead of showing an error.
+
+Requires ReminisLink 1.1 on the handheld for the trash restore, the game archives and the states in iCloud Drive.
