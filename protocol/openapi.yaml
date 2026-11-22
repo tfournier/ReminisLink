@@ -109,7 +109,8 @@ info:
     SD card one at a time: deletions, replacements, restores, save
     backups, cheats (an import waits once its source is read), art,
     trash, state locks, the deletion of a pak (M12) or of screenshots (M22),
-    and the final step of an upload (`POST /uploads/{uploadId}/complete`).
+    the new folders, the deletions of SD card entries and the renaming of a
+    game (M23), and the final step of an upload (`POST /uploads/{uploadId}/complete`).
     Creating or cancelling an
     upload, its chunks (`PUT /uploads/{uploadId}`) and cancelling a job
     only touch the staging area of the pak and never wait. A patch or a
@@ -173,7 +174,7 @@ tags:
   - name: Paks
     description: Tool and emulator paks of the console (M12).
   - name: SD
-    description: Read-only browser of the SD card (M12).
+    description: Browser of the SD card (M12, read only), with adding, new folders and deletion to the trash (M23).
   - name: Archives
     description: A game's data as a zip archive, exported and imported between consoles (M19).
   - name: Screenshots
@@ -966,6 +967,95 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /games/{gameId}/rename:
+    post:
+      tags: [Library]
+      operationId: renameGame
+      summary: Rename a game and all its files (M23)
+      description: |
+        Gives the game a new name: the ROM (a `.m3u` file alone, its discs
+        stay; the folder of a folder game and its playlist `.m3u` or `.cue`)
+        and every file named after it, with the rules of the OS adapter
+        (docs/specs/05-console-pak.md §3): the save and its clock file, the
+        states and their side files (NextUI thumbnails and disc files of
+        `.minui`, Knulli thumbnails), the cheats and their `.cht.bak`, the
+        art, and the ReminisLink copies (state locks, save backups and resume
+        history folders). `name` is the new name **without** the extension:
+        the extension of the ROM (or of the playlist of a folder game) is
+        kept; it is normalized to NFC and refused (`400 invalid_name`) when
+        empty, holding `/`, `\`, a control or format character, a character
+        exFAT forbids (`" * : < > ? |`), starting with `.`, ending with a space
+        or a dot, a name Windows reserves, or when any renamed file name
+        would exceed 255 bytes. A name equal to the current one changes
+        nothing (`200`, empty `renamed`). A name that differs only by case is
+        renamed (two steps on exFAT, which ignores case).
+
+        Never overwrites: when a new name is taken (by another file of the
+        card, or another game of the same tag, whose save and states would
+        then be shared), `409 conflict` with `details.conflicts` (the taken
+        places, relative to the SD card) and nothing is renamed. A folder
+        game whose discs another playlist of the system also lists is
+        refused with `409 conflict` and `details.shared: true` (that
+        playlist would lose them). An art file shared with another game
+        (Knulli, K5) stays in place. When the saves or the states of the
+        game use a format the pak does not name (see `Unprocessable`),
+        `422 unsupported_format`: their files would keep the old name.
+
+        The renames are journaled in the ReminisLink data folder (one
+        journal per rename): after a power cut the next start puts every
+        renamed file back under its old name, so the game is either fully
+        renamed or not at all. Write route (see "Writes one at a time"); a
+        `library` event follows (M14). The gameId changes: the answer
+        gives the new one.
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GameRenameRequest' }
+            example: { name: Sky Garden Quest (Europe) }
+      responses:
+        '200':
+          description: The game under its new name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GameRenameResult' }
+              example:
+                game:
+                  id: R2FtZSBCb3kgQWR2YW5jZSAoR0JBKS9Ta3kgR2FyZGVuIFF1ZXN0IChFdXJvcGUpLmdiYQ
+                  name: Sky Garden Quest (Europe)
+                  fileName: Sky Garden Quest (Europe).gba
+                  kind: file
+                  sizeBytes: 16777216
+                  modifiedAt: '2026-10-02T09:12:00Z'
+                  hasSave: true
+                  stateCount: 0
+                  lockedStateCount: 0
+                  cheatCount: 0
+                  hasArt: false
+                renamed:
+                  - { from: Roms/Game Boy Advance (GBA)/Sky Garden Quest.gba, to: Roms/Game Boy Advance (GBA)/Sky Garden Quest (Europe).gba }
+                  - { from: Saves/GBA/Sky Garden Quest.gba.sav, to: Saves/GBA/Sky Garden Quest (Europe).gba.sav }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: A new name is taken (`details.conflicts`), or the discs of a folder game are shared (`details.shared`); nothing was renamed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  code: conflict
+                  message: Name already taken
+                  details: { conflicts: [Saves/GBA/Sky Garden Quest (Europe).gba.sav] }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
@@ -2045,8 +2135,12 @@ paths:
         at most 16 MiB). The announced `sha256` protects the unsigned chunks.
         `onConflict`: `fail` (`409 conflict`), `rename` (adds ` (2)`,
         ` (3)`...), `overwrite` (the old file goes to the trash). It only
-        applies to the `rom`, `staging` and `pak` targets (a staging file never
-        conflicts); for `save` the existing save is always replaced, after
+        applies to the `rom`, `staging`, `pak` and `sd-file` targets (a staging
+        file never conflicts); the `sd-file` target (M23) accepts `fail` and
+        `rename` only (`overwrite` is `400 invalid_request`: a file of the
+        browser is never replaced), and its conflict is checked at creation
+        and again at completion (`409 conflict` with `details.existing` and
+        `details.freeName`, the name `rename` would give, null when none); for `save` the existing save is always replaced, after
         being copied as a `before-replace` backup; for `state` the existing
         state is always replaced, after being moved to the trash. For the
         `pak` target (M12) only `fail` and `overwrite` are accepted
@@ -2184,7 +2278,7 @@ paths:
         Otherwise `fsync`, conflict rule, rename to the destination. The
         response depends on the target: `rom` → `gameId`, `save` → `backup`
         (copy of the previous save), `state` → `slot`, `staging` →
-        `stagingId`, `pak` → `jobId` (M12).
+        `stagingId`, `pak` → `jobId` (M12), `sd-file` → `sdEntryId` (M23).
 
         `pak` target (M12): the archive is moved to the staging area of the
         pak (the upload is finished) and a job of kind `pak-install` is
@@ -2789,7 +2883,7 @@ paths:
     get:
       tags: [SD]
       operationId: browseSd
-      summary: List a folder of the SD card (read only, M12)
+      summary: List a folder of the SD card (M12)
       description: |
         The folders and files of one folder of the SD card: the root
         without `folderId`, else the folder named by the `sdEntryId` of a
@@ -2805,6 +2899,10 @@ paths:
         folder (any more) gets `404`; one that cannot be decoded, or names
         a path outside the card, `400 invalid_id`. Read route: never waits
         for a write.
+
+        M23: the folder says whether files can be added and folders made in
+        it (`writable`), and each entry whether it can go to the trash
+        (`deletable`), with the protection rules of `SdProtection`.
       parameters:
         - name: folderId
           in: query
@@ -2864,6 +2962,99 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /sd/folders:
+    post:
+      tags: [SD]
+      operationId: createSdFolder
+      summary: Create a folder in the SD card browser (M23)
+      description: |
+        Creates the folder `name` in the folder `parentId` (the `sdEntryId`
+        of a folder, or null for the root of the card). The parent must be
+        writable (`writable: true` in its listing): otherwise `409 conflict`
+        with `details.protected`. `name` is cleaned like a file name of an
+        upload (`400 invalid_name` when refused). When an entry of that name
+        exists (ignoring case where the file system does), `409 conflict`
+        with `details.existing`; nothing is replaced. A parent that is gone
+        is `404`. Write route (see "Writes one at a time"); a `library`
+        event follows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SdFolderRequest' }
+            example: { parentId: se_Um9tcw, name: Hacks }
+      responses:
+        '201':
+          description: The new folder.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SdEntry' }
+              example: { sdEntryId: se_Um9tcy9IYWNrcw, name: Hacks, kind: folder, sizeBytes: null, modifiedAt: '2026-11-22T10:00:00Z', deletable: true }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/Internal' }
+        '503': { $ref: '#/components/responses/ShuttingDown' }
+
+  /sd/trash:
+    post:
+      tags: [SD]
+      operationId: trashSdEntries
+      summary: Move files and folders of the SD card to the trash (M23)
+      description: |
+        Moves the entries named by their `sdEntryId` (1 to 100, duplicates
+        counted once; an entry inside another one of the list moves with
+        it) to the ReminisLink trash in **one** entry (reason `delete-file`,
+        label: the name of the entry, or `<n> items`). Nothing is erased
+        before the trash is purged; `POST /trash/{entryId}/restore` puts
+        them back at their place (`onConflict: rename` gives `<name> (2)`;
+        `replace` answers `422`, `not-a-save`). All or nothing: an
+        unreadable identifier answers `400 invalid_id`; an entry that does
+        not exist (any more), is a link or is reached through one, `404
+        not_found` with `details.missing`; an entry that is not deletable
+        (see `SdProtection`), or a folder holding a symbolic link or a
+        special file at any depth (it could not come back from the trash),
+        `409 conflict` with `details.protected` (the reason of the first)
+        and `details.refused` (their identifiers). Nothing is moved then.
+        Write route (see "Writes one at a time"); a `library` event follows.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SdTrashRequest' }
+            example: { sdEntryIds: [se_Um9tcy9IYWNrcw] }
+      responses:
+        '200':
+          description: Moved to the trash.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrashMoveResult' }
+              example:
+                trashEntryId: tr_20261122T100000Z_c3d4
+                moved:
+                  - Roms/Hacks/readme.txt
+                movedBytes: 512
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: An entry does not exist; nothing was moved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  code: not_found
+                  message: Entry not found
+                  details: { missing: [se_Um9tcy9IYWNrcw] }
+        '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/TooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/Internal' }
@@ -3221,7 +3412,9 @@ components:
         `conflict` (target exists: `details.existing`; wrong upload offset:
         `details.offset`; M12: deleting or replacing the pak of ReminisLink
         itself, `details.self: true`; M18: places of a trash restore taken,
-        `details.conflicts`), `checksum_mismatch` or `state_locked`.
+        `details.conflicts`; M23: a protected place of the SD card,
+        `details.protected`, see `SdProtection`; new names of a game rename
+        taken, `details.conflicts`), `checksum_mismatch` or `state_locked`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -3686,7 +3879,7 @@ components:
           description: Wall clock time of the console when the entry was made (informative; the console clock may be wrong).
         reason:
           type: string
-          enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore, delete-backup, delete-pak, replace-pak, import-archive, delete-screenshot]
+          enum: [delete-game, delete-state, overwrite, replace-rom, lock-restore, restore, delete-backup, delete-pak, replace-pak, import-archive, delete-screenshot, delete-file]
           description: |
             `delete-backup`: a save backup deleted by the app or pushed out by
             the automatic limits (10 automatic backups per game, 5 resume
@@ -3695,8 +3888,10 @@ components:
             or replaced by an installation. `import-archive` (M19): the files
             of a game replaced by the import of a game archive.
             `delete-screenshot` (M22): screenshots moved to the trash
-            (`POST /screenshots/trash`). Clients show an unknown reason as a
-            generic entry.
+            (`POST /screenshots/trash`). `delete-file` (M23): files and
+            folders of the SD card moved to the trash from the browser
+            (`POST /sd/trash`). Clients show an unknown reason as a generic
+            entry.
         label: { type: string }
         files:
           type: array
@@ -4128,7 +4323,7 @@ components:
 
     OnConflict:
       type: string
-      description: Only for the `rom`, `staging` and `pak` targets (`pak` accepts `fail` and `overwrite` only, M12). `save` always replaces the existing save after copying it as a `before-replace` backup; `state` always replaces the existing state after moving it to the trash (refused when the slot is locked).
+      description: Only for the `rom`, `staging`, `pak` and `sd-file` targets (`pak` accepts `fail` and `overwrite` only, M12; `sd-file` accepts `fail` and `rename` only, M23). `save` always replaces the existing save after copying it as a `before-replace` backup; `state` always replaces the existing state after moving it to the trash (refused when the slot is locked).
       enum: [fail, rename, overwrite]
       default: fail
     UploadTarget:
@@ -4182,6 +4377,26 @@ components:
             kind: { type: string, const: pak }
             pakKind: { $ref: '#/components/schemas/PakInstallKind' }
             fileName: { $ref: '#/components/schemas/FileName' }
+        - type: object
+          required: [kind, folderId, fileName]
+          description: |
+            M23: a file added to a folder of the SD card browser
+            (`GET /sd/browse`): `folderId` is the `sdEntryId` of a folder
+            whose listing says `writable: true`, or null for the root of the
+            card (when it is writable). `fileName` is cleaned like the other
+            targets. A folder that is not writable is `409 conflict` with
+            `details.protected`; a folder that is gone `404`. The file is
+            installed without ever replacing an entry (see `onConflict`); a
+            file added under `Roms/` becomes a game when the OS lists it.
+            `complete` answers `{ "sdEntryId": "..." }` and a `library`
+            event follows.
+          properties:
+            kind: { type: string, const: sd-file }
+            folderId:
+              oneOf:
+                - $ref: '#/components/schemas/OpaqueId'
+                - type: 'null'
+            fileName: { $ref: '#/components/schemas/FileName' }
     CreateUploadRequest:
       type: object
       required: [target, sizeBytes, sha256]
@@ -4226,6 +4441,11 @@ components:
           description: 'M12, `pak` target: the `pak-install` job that installs the archive.'
           properties:
             jobId: { $ref: '#/components/schemas/OpaqueId' }
+        - type: object
+          required: [sdEntryId]
+          description: 'M23, `sd-file` target: the file in the browser.'
+          properties:
+            sdEntryId: { $ref: '#/components/schemas/OpaqueId' }
     PatchRequest:
       type: object
       required: [patch]
@@ -4406,10 +4626,21 @@ components:
           minimum: 0
           description: Null for a folder.
         modifiedAt: { $ref: '#/components/schemas/Timestamp' }
+        deletable:
+          type: boolean
+          description: 'M23: `POST /sd/trash` accepts this entry (see `SdProtection`); a folder holding a link is only refused when moved. Absent (a pak before M23): false.'
+        protection:
+          description: 'M23: why the entry is not deletable, null when it is (absent before M23). `link` is only found when the entry is moved.'
+          oneOf:
+            - $ref: '#/components/schemas/SdProtection'
+            - type: 'null'
     SdFolder:
       type: object
       required: [folderId, path, parentId, entries, truncated]
       properties:
+        writable:
+          type: boolean
+          description: 'M23: files can be added (upload target `sd-file`) and folders created (`POST /sd/folders`) here (see `SdProtection`). Absent (a pak before M23): false.'
         folderId:
           type: [string, 'null']
           description: '`sdEntryId` of this folder, null for the root of the SD card.'
@@ -4421,3 +4652,70 @@ components:
           type: array
           items: { $ref: '#/components/schemas/SdEntry' }
         truncated: { type: boolean, description: More than 5000 entries; only the first 5000 (in the sort order) are listed. }
+    SdProtection:
+      type: string
+      enum: [system, data, root, link]
+      description: |
+        M23: why a place of the SD card cannot be changed through the
+        browser (`details.protected` of a `409 conflict`). Clients show an
+        unknown value as a generic refusal.
+        - `system`: a folder the OS needs, read only with everything in it.
+          NextUI: every entry whose name starts with `.` at the root of the
+          card (`.system/`, `.userdata/`, `.tmp_update/`...). Knulli:
+          `system/` (`/userdata/system`: settings, logs) and every entry
+          whose name starts with `.` at the root of `/userdata`.
+        - `data`: ReminisLink itself: its data folder (never listed), the
+          folder of the running pak (NextUI `Tools/<platform>/ReminisLink.pak`,
+          Knulli `roms/tools/.ReminisLink`) and the Knulli launcher
+          `roms/tools/ReminisLink.sh`, and their contents.
+        - `root`: a main folder of the OS (NextUI `Roms`, `Saves`, `Cheats`,
+          `Bios`, `Tools`, `Emus`, `Tools/<platform>`, `Emus/<platform>`,
+          `Screenshots`; Knulli `roms`, `saves`, `bios`, `cheats`,
+          `screenshots`, `roms/tools`), the root of the card, or a folder
+          holding any protected place: it cannot go to the trash, but files
+          and folders can be added in it.
+        - `link`: a folder holding a symbolic link or a special file.
+        Names are compared ignoring case (a stricter rule on a
+        case-sensitive Knulli card).
+    SdFolderRequest:
+      type: object
+      required: [parentId, name]
+      properties:
+        parentId:
+          oneOf:
+            - $ref: '#/components/schemas/OpaqueId'
+            - type: 'null'
+          description: '`sdEntryId` of the parent folder, null for the root of the card.'
+        name: { $ref: '#/components/schemas/FileName' }
+    SdTrashRequest:
+      type: object
+      required: [sdEntryIds]
+      additionalProperties: false
+      properties:
+        sdEntryIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: '#/components/schemas/OpaqueId' }
+    GameRenameRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: The new name without the extension (kept from the ROM, or from the playlist of a folder game).
+    GameRenameResult:
+      type: object
+      required: [game, renamed]
+      properties:
+        game: { $ref: '#/components/schemas/Game' }
+        renamed:
+          type: array
+          description: The files and folders renamed, relative to the SD card (informative); ReminisLink copies are given as `ReminisLink/...`.
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from: { type: string }
+              to: { type: string }
