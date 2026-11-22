@@ -100,7 +100,14 @@ func TestSDFoldersAndTrash(t *testing.T) {
 	}
 
 	// Trash: refused requests move nothing; then the folder and a file.
-	body := func(ids ...string) []byte { return mustJSON(t, map[string]any{"sdEntryIds": ids}) }
+	// The items carry the version the client listed (Codex review of M23).
+	body := func(ids ...string) []byte {
+		var items []map[string]any
+		for _, id := range ids {
+			items = append(items, f.sdItem(id))
+		}
+		return mustJSON(t, map[string]any{"items": items})
+	}
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, body(), http.StatusBadRequest)
 	r := f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, body(entry.ID, library.SDEntryID("Roms")), http.StatusConflict)
 	if !strings.Contains(string(r.Body), `"protected":"root"`) || !f.exists("Roms/Game Boy Advance (GBA)/New Folder") {
@@ -133,6 +140,51 @@ func TestSDFoldersAndTrash(t *testing.T) {
 	if !f.exists("Roms/Game Boy Advance (GBA)/readme.txt") || !f.exists("Roms/Game Boy Advance (GBA)/New Folder") {
 		t.Fatal("not restored")
 	}
+}
+
+// sdItem is the item of POST /sd/trash for an entry, from the listing of
+// its folder (a zero version when it is not listed).
+func (f *fixture) sdItem(id string) map[string]any {
+	f.t.Helper()
+	item := map[string]any{"sdEntryId": id, "sizeBytes": nil, "modifiedAt": "2000-01-01T00:00:00Z"}
+	rel, err := library.DecodeID(strings.TrimPrefix(id, "se_"))
+	if err != nil {
+		return item
+	}
+	parent := ""
+	if i := strings.LastIndex(rel, "/"); i >= 0 {
+		parent = "?folderId=" + library.SDEntryID(rel[:i])
+	}
+	var folder library.SDFolder
+	r := f.client.Do(f.t, http.MethodGet, "/api/v1/sd/browse"+parent, nil)
+	if r.Status != http.StatusOK {
+		return item
+	}
+	r.JSON(f.t, &folder)
+	for _, e := range folder.Entries {
+		if e.ID == id {
+			item["sizeBytes"] = e.SizeBytes
+			item["modifiedAt"] = e.ModifiedAt
+			item["version"] = e.Version
+		}
+	}
+	return item
+}
+
+// A file replaced since it was listed is never moved in its place.
+func TestSDTrashRefusesAChangedFile(t *testing.T) {
+	f := newFixture(t)
+	f.writeSD("Stuff/notes.txt", "seen")
+	id := library.SDEntryID("Stuff/notes.txt")
+	seen := f.sdItem(id)
+	f.writeSD("Stuff/notes.txt", "replaced by another client, longer")
+	r := f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{seen}}), http.StatusConflict)
+	if !strings.Contains(string(r.Body), `"changed":["`+id+`"]`) || !f.exists("Stuff/notes.txt") {
+		t.Fatalf("changed: %s", r.Body)
+	}
+	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{map[string]any{"sdEntryId": id}}}), http.StatusBadRequest)
+	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"sdEntryIds": []string{id}}), http.StatusBadRequest)
+	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{f.sdItem(id)}}), http.StatusOK)
 }
 
 func TestRenameGameRoute(t *testing.T) {

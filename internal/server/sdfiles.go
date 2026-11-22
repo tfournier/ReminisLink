@@ -42,16 +42,25 @@ func (s *Server) handleCreateSDFolder(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTrashSD(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SDEntryIDs []string `json:"sdEntryIds"`
+		Items []*library.SDTrashItem `json:"items"`
 	}
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if len(req.SDEntryIDs) == 0 || len(req.SDEntryIDs) > library.MaxSDTrash {
-		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "sdEntryIds must hold 1 to 100 identifiers", nil)
+	if len(req.Items) == 0 || len(req.Items) > library.MaxSDTrash {
+		auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "items must hold 1 to 100 entries", nil)
 		return
 	}
-	res, apiErr, err := s.opts.Transfers.TrashSDEntries(req.SDEntryIDs)
+	items := make([]library.SDTrashItem, 0, len(req.Items))
+	for _, it := range req.Items {
+		// The version the client showed is required (Codex review of M23).
+		if it == nil || it.ID == "" || it.ModifiedAt.IsZero() {
+			auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Each item needs sdEntryId, sizeBytes and modifiedAt", nil)
+			return
+		}
+		items = append(items, *it)
+	}
+	res, apiErr, err := s.opts.Transfers.TrashSDEntries(items)
 	if apiErr != nil || err != nil {
 		s.transferError(w, r, apiErr, err)
 		return

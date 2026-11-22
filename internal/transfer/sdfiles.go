@@ -47,9 +47,12 @@ func protectedError(p *library.ProtectedError) *Error {
 func sdError(err error, what string) *Error {
 	var p *library.ProtectedError
 	var m *library.MissingError
+	var c *library.ChangedError
 	switch {
 	case errors.As(err, &p):
 		return protectedError(p)
+	case errors.As(err, &c):
+		return &Error{Status: http.StatusConflict, Code: CodeConflict, Message: "Entry changed since it was listed", Details: map[string]any{"changed": c.IDs}}
 	case errors.As(err, &m):
 		return &Error{Status: http.StatusNotFound, Code: CodeNotFound, Message: what + " not found", Details: map[string]any{"missing": m.IDs}}
 	}
@@ -165,10 +168,10 @@ func (s *Service) CreateSDFolder(parentID, name string) (library.SDEntry, *Error
 
 // TrashSDEntries moves entries of the browser to the trash in one entry
 // (POST /sd/trash, reason delete-file).
-func (s *Service) TrashSDEntries(ids []string) (store.MoveResult, *Error, error) {
+func (s *Service) TrashSDEntries(items []library.SDTrashItem) (store.MoveResult, *Error, error) {
 	s.installMu.Lock()
 	defer s.installMu.Unlock()
-	sel, err := s.opts.Library.SelectSDTrash(ids)
+	sel, err := s.opts.Library.SelectSDTrash(items)
 	if err != nil {
 		if apiErr := sdError(err, "Entry"); apiErr != nil {
 			return store.MoveResult{}, apiErr, nil

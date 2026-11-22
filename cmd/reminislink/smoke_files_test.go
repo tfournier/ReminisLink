@@ -86,17 +86,20 @@ func smokeFiles(t *testing.T, c *testutil.Client, roots osadapter.Roots, system,
 	for _, e := range root.Entries {
 		if e.Kind == library.SDEntryFolder && strings.HasPrefix(e.Name, ".") {
 			call(t, c, http.MethodPost, "/api/v1/sd/folders", map[string]any{"parentId": e.ID, "name": "x"}, http.StatusConflict, nil)
-			call(t, c, http.MethodPost, "/api/v1/sd/trash", map[string]any{"sdEntryIds": []string{e.ID}}, http.StatusConflict, nil)
+			call(t, c, http.MethodPost, "/api/v1/sd/trash", trashBody(e), http.StatusConflict, nil)
 		}
 	}
-	romsID := library.SDEntryID(sdRel(t, roots, roots.Roms))
-	call(t, c, http.MethodPost, "/api/v1/sd/trash", map[string]any{"sdEntryIds": []string{romsID}}, http.StatusConflict, nil)
+	for _, e := range root.Entries {
+		if e.ID == library.SDEntryID(sdRel(t, roots, roots.Roms)) {
+			call(t, c, http.MethodPost, "/api/v1/sd/trash", trashBody(e), http.StatusConflict, nil)
+		}
+	}
 	// To the trash and back.
 	var moved struct {
 		TrashEntryID string   `json:"trashEntryId"`
 		Moved        []string `json:"moved"`
 	}
-	call(t, c, http.MethodPost, "/api/v1/sd/trash", map[string]any{"sdEntryIds": []string{folder.ID}}, http.StatusOK, &moved)
+	call(t, c, http.MethodPost, "/api/v1/sd/trash", trashBody(listed(t, c, sysID, folder.ID)), http.StatusOK, &moved)
 	if _, err := os.Lstat(dir); err == nil || len(moved.Moved) != 2 {
 		t.Fatalf("folder not moved: %+v", moved)
 	}
@@ -104,7 +107,7 @@ func smokeFiles(t *testing.T, c *testutil.Client, roots osadapter.Roots, system,
 	if b, err := os.ReadFile(filepath.Join(dir, "notes.txt")); err != nil || !bytes.Equal(b, data) {
 		t.Fatalf("restored: %v", err)
 	}
-	call(t, c, http.MethodPost, "/api/v1/sd/trash", map[string]any{"sdEntryIds": []string{folder.ID}}, http.StatusOK, nil)
+	call(t, c, http.MethodPost, "/api/v1/sd/trash", trashBody(listed(t, c, sysID, folder.ID)), http.StatusOK, nil)
 
 	// Rename the game and back: its save follows.
 	ext := path.Ext(gameName)
@@ -134,6 +137,28 @@ func smokeFiles(t *testing.T, c *testutil.Client, roots osadapter.Roots, system,
 		t.Fatalf("renamed back: %v", err)
 	}
 	t.Logf("files: folder, upload (conflict, free name), trash and restore, protected places; %s renamed (%d files) and back", gameName, len(renamed.Renamed))
+}
+
+// trashBody is the body of POST /sd/trash for a listed entry, with the
+// version the listing gave.
+func trashBody(e library.SDEntry) map[string]any {
+	return map[string]any{"items": []any{map[string]any{
+		"sdEntryId": e.ID, "sizeBytes": e.SizeBytes, "modifiedAt": e.ModifiedAt, "version": e.Version,
+	}}}
+}
+
+// listed reads the entry id in the folder parentID as the browser lists it.
+func listed(t *testing.T, c *testutil.Client, parentID, id string) library.SDEntry {
+	t.Helper()
+	var f library.SDFolder
+	call(t, c, http.MethodGet, "/api/v1/sd/browse?folderId="+parentID, nil, http.StatusOK, &f)
+	for _, e := range f.Entries {
+		if e.ID == id {
+			return e
+		}
+	}
+	t.Fatalf("%s not listed", id)
+	return library.SDEntry{}
 }
 
 func mustMarshal(t *testing.T, v any) []byte {

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func entryNamed(t *testing.T, f SDFolder, name string) SDEntry {
@@ -96,31 +98,100 @@ func TestSDProtectionNextUI(t *testing.T) {
 	}
 }
 
+// items builds the items of POST /sd/trash as the app does from a listing:
+// the version of each entry read on the card now (missing entries get a
+// zero version).
+func items(t *testing.T, sd string, ids ...string) []SDTrashItem {
+	t.Helper()
+	var out []SDTrashItem
+	for _, id := range ids {
+		it := SDTrashItem{ID: id, ModifiedAt: time.Unix(1, 0)}
+		if rel, err := DecodeID(strings.TrimPrefix(id, "se_")); err == nil {
+			if fi, err := os.Lstat(filepath.Join(sd, filepath.FromSlash(rel))); err == nil {
+				it.ModifiedAt = fi.ModTime()
+				it.Version = sdVersion(fi)
+				if !fi.IsDir() {
+					size := fi.Size()
+					it.SizeBytes = &size
+				}
+			}
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
 func TestSelectSDTrash(t *testing.T) {
 	l, sd := newLibrary(t)
 	writeSD(t, sd, "Roms/Game Boy Advance (GBA)/Hacks/notes.txt", "n")
 	readme := SDEntryID("Roms/Game Boy Advance (GBA)/readme.txt")
 	hacks := SDEntryID("Roms/Game Boy Advance (GBA)/Hacks")
-	sel, err := l.SelectSDTrash([]string{readme, readme})
+	sel, err := l.SelectSDTrash(items(t, sd, readme, readme))
 	if err != nil || len(sel.Items) != 1 || sel.Label != "readme.txt" || sel.Items[0].Identity == nil {
 		t.Fatalf("one file: %+v %v", sel, err)
 	}
-	sel, err = l.SelectSDTrash([]string{readme, hacks})
+	sel, err = l.SelectSDTrash(items(t, sd, readme, hacks))
 	if err != nil || len(sel.Items) != 2 || sel.Label != "2 items" || sel.Items[1].Identity != nil {
 		t.Fatalf("two: %+v %v", sel, err)
 	}
 	// Protected entries: nothing is selected, the refused ones are named.
 	var p *ProtectedError
-	_, err = l.SelectSDTrash([]string{readme, SDEntryID("Roms"), SDEntryID(".userdata/shared/minuisettings.txt")})
+	_, err = l.SelectSDTrash(items(t, sd, readme, SDEntryID("Roms"), SDEntryID(".userdata/shared/minuisettings.txt")))
 	if !errors.As(err, &p) || p.Reason != ProtectRoot || len(p.IDs) != 2 {
 		t.Fatalf("protected: %v", err)
 	}
 	var m *MissingError
-	if _, err := l.SelectSDTrash([]string{readme, SDEntryID("Roms/nope.txt"), SDEntryID(".userdata/shared/ReminisLink/clients.json")}); !errors.As(err, &m) || len(m.IDs) != 2 {
+	if _, err := l.SelectSDTrash(items(t, sd, readme, SDEntryID("Roms/nope.txt"), SDEntryID(".userdata/shared/ReminisLink/clients.json"))); !errors.As(err, &m) || len(m.IDs) != 2 {
 		t.Fatalf("missing: %v", err)
 	}
-	if _, err := l.SelectSDTrash([]string{"se_" + EncodeID("/etc/passwd")}); !errors.Is(err, ErrInvalidID) {
+	if _, err := l.SelectSDTrash(items(t, sd, "se_"+EncodeID("/etc/passwd"))); !errors.Is(err, ErrInvalidID) {
 		t.Fatalf("absolute: %v", err)
+	}
+}
+
+// Codex review of M23: a file replaced since the client listed it (another
+// client trashed it and sent a new one of the same name) is never moved in
+// its place; nor a folder whose content changed.
+func TestSelectSDTrashRefusesAChangedEntry(t *testing.T) {
+	l, sd := newLibrary(t)
+	writeSD(t, sd, "Stuff/notes.txt", "seen by the client")
+	seen := items(t, sd, SDEntryID("Stuff/notes.txt"), SDEntryID("Stuff"))
+	// The same name, another file (other size, date and inode).
+	if err := os.Remove(filepath.Join(sd, "Stuff/notes.txt")); err != nil {
+		t.Fatal(err)
+	}
+	writeSD(t, sd, "Stuff/notes.txt", "a new file, longer")
+	later := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(filepath.Join(sd, "Stuff/notes.txt"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(filepath.Join(sd, "Stuff"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	var c *ChangedError
+	if _, err := l.SelectSDTrash(seen[:1]); !errors.As(err, &c) || len(c.IDs) != 1 {
+		t.Fatalf("replaced file: %v", err)
+	}
+	if _, err := l.SelectSDTrash(seen[1:]); !errors.As(err, &c) {
+		t.Fatalf("changed folder: %v", err)
+	}
+	// The same size and date but another inode: the version tells.
+	fresh := items(t, sd, SDEntryID("Stuff/notes.txt"))
+	if fresh[0].Version != "" {
+		stale := fresh[0]
+		stale.Version = "v1-0000000000000000"
+		if _, err := l.SelectSDTrash([]SDTrashItem{stale}); !errors.As(err, &c) {
+			t.Fatalf("other version: %v", err)
+		}
+	}
+	if sel, err := l.SelectSDTrash(fresh); err != nil || len(sel.Items) != 1 {
+		t.Fatalf("fresh: %+v %v", sel, err)
+	}
+	// A folder listed as a file (or the reverse) is changed too.
+	wrong := fresh[0]
+	wrong.SizeBytes = nil
+	if _, err := l.SelectSDTrash([]SDTrashItem{wrong}); !errors.As(err, &c) {
+		t.Fatalf("kind: %v", err)
 	}
 }
 
@@ -136,12 +207,12 @@ func TestSelectSDTrashRefusesLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	var p *ProtectedError
-	if _, err := l.SelectSDTrash([]string{SDEntryID("Stuff")}); !errors.As(err, &p) || p.Reason != ProtectLink {
+	if _, err := l.SelectSDTrash(items(t, sd, SDEntryID("Stuff"))); !errors.As(err, &p) || p.Reason != ProtectLink {
 		t.Fatalf("folder with a link: %v", err)
 	}
 	var m *MissingError
 	for _, rel := range []string{"Out", "Out/secret.txt", "Stuff/link"} {
-		if _, err := l.SelectSDTrash([]string{SDEntryID(rel)}); !errors.As(err, &m) {
+		if _, err := l.SelectSDTrash(items(t, sd, SDEntryID(rel))); !errors.As(err, &m) {
 			t.Errorf("%s: %v", rel, err)
 		}
 		if _, _, err := l.SDFolderDir(SDEntryID(rel)); !errors.Is(err, ErrNotFound) {

@@ -45,6 +45,40 @@ type MissingError struct{ IDs []string }
 
 func (e *MissingError) Error() string { return "SD card entries not found" }
 
+// ChangedError: entries of POST /sd/trash are not the version the client
+// showed (409 with details.changed).
+type ChangedError struct{ IDs []string }
+
+func (e *ChangedError) Error() string { return "SD card entries changed since they were listed" }
+
+// SDTrashItem is an item of POST /sd/trash: an entry and the version the
+// client showed (SdTrashItem).
+type SDTrashItem struct {
+	ID         string    `json:"sdEntryId"`
+	SizeBytes  *int64    `json:"sizeBytes"`
+	ModifiedAt time.Time `json:"modifiedAt"`
+	Version    string    `json:"version"`
+}
+
+// matches reports whether the entry described by info is the version the
+// client showed: same modification time (whole seconds), same size for a
+// file, same version when both are known (Codex review of M23).
+func (it SDTrashItem) matches(info fs.FileInfo) bool {
+	if !info.ModTime().UTC().Truncate(time.Second).Equal(it.ModifiedAt.UTC().Truncate(time.Second)) {
+		return false
+	}
+	if info.IsDir() != (it.SizeBytes == nil) {
+		return false
+	}
+	if !info.IsDir() && *it.SizeBytes != info.Size() {
+		return false
+	}
+	if v := sdVersion(info); it.Version != "" && v != "" && v != it.Version {
+		return false
+	}
+	return true
+}
+
 // MaxSDTrash bounds the entries of one POST /sd/trash.
 const MaxSDTrash = 100
 
@@ -201,7 +235,10 @@ func (l *Library) SDEntryAt(rel string) (SDEntry, error) {
 
 // describe builds the SDEntry of a listed entry.
 func (l *Library) describe(r sdRules, comps []string, name string, info fs.FileInfo) SDEntry {
-	e := SDEntry{ID: SDEntryID(strings.Join(comps, "/")), Name: name, ModifiedAt: info.ModTime().UTC().Truncate(time.Second)}
+	e := SDEntry{
+		ID: SDEntryID(strings.Join(comps, "/")), Name: name, ModifiedAt: info.ModTime().UTC().Truncate(time.Second),
+		Version: sdVersion(info),
+	}
 	if info.IsDir() {
 		e.Kind = SDEntryFolder
 	} else {
@@ -223,25 +260,27 @@ type SDTrashSelection struct {
 	Label string
 }
 
-// SelectSDTrash resolves the sdEntryIds of POST /sd/trash (duplicates
-// once): ErrInvalidID for an unreadable one, *MissingError for those that
+// SelectSDTrash resolves the items of POST /sd/trash (duplicates once):
+// ErrInvalidID for an unreadable identifier, *MissingError for those that
 // name nothing (a link, missing, ReminisLink data), *ProtectedError for
 // those that cannot go to the trash (a protected place, or a folder
-// holding a link or a special file, which could not come back). An entry
-// inside another of the list moves with it (store.Trash.Move).
-func (l *Library) SelectSDTrash(ids []string) (SDTrashSelection, error) {
+// holding a link or a special file, which could not come back),
+// *ChangedError for those that are not the version the client showed. An
+// entry inside another of the list moves with it (store.Trash.Move).
+func (l *Library) SelectSDTrash(items []SDTrashItem) (SDTrashSelection, error) {
 	root, sd, err := l.sdRoot()
 	if err != nil {
 		return SDTrashSelection{}, err
 	}
 	defer root.Close()
 	r := l.rules(sd)
-	var missing, refused []string
+	var missing, refused, changed []string
 	reason := ""
 	seen := map[string]bool{}
 	var sel SDTrashSelection
 	var names []string
-	for _, id := range ids {
+	for _, item := range items {
+		id := item.ID
 		if seen[id] {
 			continue
 		}
@@ -271,6 +310,10 @@ func (l *Library) SelectSDTrash(ids []string) (SDTrashSelection, error) {
 			refused = append(refused, id)
 			continue
 		}
+		if !item.matches(e.info) {
+			changed = append(changed, id)
+			continue
+		}
 		var identity fs.FileInfo
 		if e.info.Mode().IsRegular() {
 			identity = e.info // moved only if it is still that file
@@ -283,6 +326,9 @@ func (l *Library) SelectSDTrash(ids []string) (SDTrashSelection, error) {
 	}
 	if len(refused) > 0 {
 		return SDTrashSelection{}, &ProtectedError{Reason: reason, IDs: refused}
+	}
+	if len(changed) > 0 {
+		return SDTrashSelection{}, &ChangedError{IDs: changed}
 	}
 	if len(sel.Items) == 1 {
 		sel.Label = names[0]

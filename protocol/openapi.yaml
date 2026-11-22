@@ -3014,9 +3014,9 @@ paths:
       operationId: trashSdEntries
       summary: Move files and folders of the SD card to the trash (M23)
       description: |
-        Moves the entries named by their `sdEntryId` (1 to 100, duplicates
-        counted once; an entry inside another one of the list moves with
-        it) to the ReminisLink trash in **one** entry (reason `delete-file`,
+        Moves the entries named by their `sdEntryId` (1 to 100 `items`,
+        duplicates counted once; an entry inside another one of the list
+        moves with it) to the ReminisLink trash in **one** entry (reason `delete-file`,
         label: the name of the entry, or `<n> items`). Nothing is erased
         before the trash is purged; `POST /trash/{entryId}/restore` puts
         them back at their place (`onConflict: rename` gives `<name> (2)`;
@@ -3028,13 +3028,27 @@ paths:
         special file at any depth (it could not come back from the trash),
         `409 conflict` with `details.protected` (the reason of the first)
         and `details.refused` (their identifiers). Nothing is moved then.
+
+        Each item carries the version of the entry the client showed
+        (`SdTrashItem`: its `modifiedAt`, its `sizeBytes`, and its `version`
+        when the listing gave one): the pak compares them with the entry on
+        the card right before moving anything, so a file replaced since it
+        was listed (by another client) is never moved in its place (Codex
+        review of M23). For a folder, its `modifiedAt` (and `version`) is
+        compared: it changes when an entry is added to or removed from it.
+        Any difference answers `409 conflict` with `details.changed` (the
+        identifiers of the entries that changed) and nothing is moved; the
+        client reads the folder again. The checks run in this order:
+        missing (`404`), protected (`409 details.protected`), changed
+        (`409 details.changed`). Once checked, each file moves only if it is
+        still that file (same device and inode).
         Write route (see "Writes one at a time"); a `library` event follows.
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/SdTrashRequest' }
-            example: { sdEntryIds: [se_Um9tcy9IYWNrcw] }
+            example: { items: [{ sdEntryId: se_Um9tcy9IYWNrcw, sizeBytes: null, modifiedAt: '2026-11-22T10:00:00Z', version: v1-8f2c41d07a93be55 }] }
       responses:
         '200':
           description: Moved to the trash.
@@ -3417,8 +3431,10 @@ components:
         `details.offset`; M12: deleting or replacing the pak of ReminisLink
         itself, `details.self: true`; M18: places of a trash restore taken,
         `details.conflicts`; M23: a protected place of the SD card,
-        `details.protected`, see `SdProtection`; new names of a game rename
-        taken, `details.conflicts`), `checksum_mismatch` or `state_locked`.
+        `details.protected`, see `SdProtection`; an entry of `POST /sd/trash`
+        changed since it was listed, `details.changed`; new names of a game
+        rename taken, `details.conflicts`), `checksum_mismatch` or
+        `state_locked`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -4637,6 +4653,9 @@ components:
         deletable:
           type: boolean
           description: 'M23: `POST /sd/trash` accepts this entry (see `SdProtection`); a folder holding a link is only refused when moved. Absent (a pak before M23): false.'
+        version:
+          type: string
+          description: 'M23: opaque, changes when the entry is replaced (another file or folder at the same name) or modified; sent back in `POST /sd/trash`. Absent when the pak cannot tell.'
         protection:
           description: 'M23: why the entry is not deletable, null when it is (absent before M23). `link` is only found when the entry is moved.'
           oneOf:
@@ -4697,14 +4716,29 @@ components:
         name: { $ref: '#/components/schemas/FileName' }
     SdTrashRequest:
       type: object
-      required: [sdEntryIds]
+      required: [items]
       additionalProperties: false
       properties:
-        sdEntryIds:
+        items:
           type: array
           minItems: 1
           maxItems: 100
-          items: { $ref: '#/components/schemas/OpaqueId' }
+          items: { $ref: '#/components/schemas/SdTrashItem' }
+    SdTrashItem:
+      type: object
+      required: [sdEntryId, sizeBytes, modifiedAt]
+      description: 'An entry to move, with the version the client showed (the fields of its `SdEntry`).'
+      properties:
+        sdEntryId: { $ref: '#/components/schemas/OpaqueId' }
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+          description: The `sizeBytes` of the entry as listed (null for a folder).
+        modifiedAt: { $ref: '#/components/schemas/Timestamp' }
+        version:
+          type: string
+          description: The `version` of the entry as listed, when the listing gave one.
     GameRenameRequest:
       type: object
       required: [name]

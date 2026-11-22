@@ -49,6 +49,9 @@ type SDEntry struct {
 	// or why not (SdProtection).
 	Deletable  bool    `json:"deletable"`
 	Protection *string `json:"protection"`
+	// Version (M23): opaque, changes when the entry is replaced or
+	// modified; POST /sd/trash compares it ("" when unknown).
+	Version string `json:"version,omitempty"`
 }
 
 // SDFolder is the answer of GET /sd/browse.
