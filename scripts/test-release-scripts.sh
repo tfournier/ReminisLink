@@ -738,6 +738,12 @@ make_app_release() {
 	cp "$root/Makefile" "$root/pak.json" "$copy/"
 	cp -R "$root/ios/ci_scripts" "$root/ios/AppStore" "$copy/ios/"
 	cp "$root/ios/CHANGELOG.md" "$copy/ios/"
+	# A pak pre-release takes its notes from "Unreleased": add one to the
+	# copy of pak.json when the real one has none (right after a release).
+	if ! grep -q '^    "Unreleased":' "$copy/pak.json"; then
+		sed 's/^  "changelog": {$/  "changelog": {\
+    "Unreleased": "A test change.",/' "$copy/pak.json" > "$copy/pak.json.tmp" && mv "$copy/pak.json.tmp" "$copy/pak.json"
+	fi
 	# The release test needs an Unreleased section: add one to the copy
 	# when the real changelog has none right now.
 	if ! grep -q '^## Unreleased$' "$copy/ios/CHANGELOG.md"; then
