@@ -89,7 +89,7 @@ GIT ?= git
 # GitHub CI must be green). RL_SKIP_CI_CHECK=1 skips the check, for one
 # exceptional release only, never by default.
 CI_JOBS_PAK     ?= go contract build emulation
-CI_JOBS_IOS     ?= ios contract
+CI_JOBS_IOS     ?= ios ios-ui contract
 CI_JOBS_ANDROID ?= android
 REQUIRE_CI      ?= scripts/require-ci.sh
 
