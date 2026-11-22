@@ -7,6 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.Alignment
 import link.reminis.app.container
@@ -404,27 +408,39 @@ private fun roleLabel(file: GameFile): String = when (file.role) {
 private fun DeleteGameDialog(vm: GameViewModel, name: String, onDeleted: () -> Unit, onDismiss: () -> Unit) {
     val deletion by vm.deletion.collectAsState()
     val context = LocalContext.current
-    var keepSave by remember { mutableStateOf(false) }
+    val keepSave = deletion?.keepSave ?: false
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.game_delete_title, name)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("deleteGameDialog")) {
-                when (val d = deletion) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()).testTag("deleteGameDialog"),
+            ) {
+                when (val d = deletion?.preview) {
                     null, Load.Loading -> LinearProgressIndicator(Modifier.fillMaxWidth())
                     is Load.Failed -> Text(errorMessage(context, d.error), color = MaterialTheme.colorScheme.error)
                     is Load.Loaded -> {
+                        // The exact list, with the paths relative to the SD card (docs/specs/04-api-v1.md).
                         Text(
                             pluralStringResource(R.plurals.game_delete_moved, d.value.moved.size, d.value.moved.size, formatBytes(context, d.value.movedBytes)),
                         )
-                        d.value.moved.take(8).forEach { Text(it.name.substringAfterLast('/'), style = MaterialTheme.typography.bodySmall) }
+                        d.value.moved.forEach {
+                            Text(it.name, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("deleteMoved"))
+                        }
+                        if (d.value.kept.isNotEmpty()) {
+                            Text(stringResource(R.string.game_delete_kept))
+                            d.value.kept.forEach {
+                                Text(it.name, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("deleteKept"))
+                            }
+                        }
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.game_delete_keep_save), modifier = Modifier.weight(1f))
                     androidx.compose.material3.Switch(
                         checked = keepSave,
-                        onCheckedChange = { keepSave = it; vm.previewDeletion(it) },
+                        onCheckedChange = { vm.previewDeletion(it) },
                         modifier = Modifier.testTag("deleteKeepSave"),
                     )
                 }
@@ -433,8 +449,8 @@ private fun DeleteGameDialog(vm: GameViewModel, name: String, onDeleted: () -> U
         },
         confirmButton = {
             TextButton(
-                onClick = { onDismiss(); vm.delete(keepSave) { onDeleted() } },
-                enabled = deletion is Load.Loaded,
+                onClick = { vm.delete { onDeleted() }; onDismiss() },
+                enabled = deletion?.preview is Load.Loaded,
                 modifier = Modifier.testTag("deleteGameConfirm"),
             ) { Text(stringResource(R.string.trash_move_to)) }
         },

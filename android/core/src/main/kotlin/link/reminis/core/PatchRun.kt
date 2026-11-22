@@ -87,6 +87,12 @@ class PatchRun(
     private val cancelPollMillis: Long = 1_000,
     /** The local copy of a file, once the console has it (or the upload is cancelled). */
     private val onLocalCopyDone: (PatchInput.LocalFile) -> Unit = {},
+    /**
+     * Outlives the screen: once `POST /patch` is sent, its answer is read,
+     * its job followed (Transfers) and a cancellation asked meanwhile sent,
+     * even if the screen closed in between.
+     */
+    private val durableScope: CoroutineScope = scope,
 ) {
     private val _step = MutableStateFlow<PatchStep>(PatchStep.Idle)
     val step: StateFlow<PatchStep> = _step.asStateFlow()
@@ -102,14 +108,18 @@ class PatchRun(
     val cancelError: StateFlow<Throwable?> = _cancelError.asStateFlow()
 
     /** The job followed now. */
+    @Volatile
     var jobId: String? = null
         private set
 
     private var staged: Pair<String, String>? = null
     private var upload: Pair<String, ResumableUpload>? = null
     private var uploadInput: PatchInput.LocalFile? = null
-    private var cancelRequested = false
-    private val cancelledJobs = mutableSetOf<String>()
+    @Volatile private var cancelRequested = false
+
+    /** `POST /patch` was sent: its outcome belongs to [durableScope], not to the screen. */
+    @Volatile private var posted = false
+    private val cancelledJobs = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private var running: CoroutineJob? = null
 
     /** Something was sent to this console: the console can no longer be changed. */
@@ -119,6 +129,7 @@ class PatchRun(
     fun start(gameId: String, input: PatchInput, mode: PatchOutputMode, fileName: String?, title: String) {
         if (_step.value.isBusy || _cancelling.value) return
         cancelRequested = false
+        posted = false
         _cancelError.value = null
         _step.value = PatchStep.Starting
         running = scope.launch {
@@ -130,18 +141,32 @@ class PatchRun(
                 // Never after a cancellation.
                 if (cancelRequested) return@launch finishCancelledRequest()
                 _step.value = PatchStep.Starting
-                val accepted = client().patchGame(gameId, PatchRequest(source, mode, fileName))
-                jobId = accepted.jobId
-                jobs.track(deviceId, accepted.jobId, title, JobKinds.PATCH)
-                _step.value = PatchStep.Patching
-                if (cancelRequested) cancelJob(accepted.jobId)
+                posted = true
+                // The request, its job and a cancellation asked meanwhile survive the screen.
+                durableScope.launch { postAndFollow(gameId, PatchRequest(source, mode, fileName), title) }.join()
             } catch (e: CancellationException) {
-                if (_step.value != PatchStep.CancellingUpload && cancelRequested) finishCancelledRequest()
+                if (!posted && _step.value != PatchStep.CancellingUpload && cancelRequested) finishCancelledRequest()
                 throw e
             } catch (e: Exception) {
                 fail(e)
             }
         }
+    }
+
+    /** `POST /games/{gameId}/patch`, then its job followed; cancelled at once if asked meanwhile. */
+    private suspend fun postAndFollow(gameId: String, request: PatchRequest, title: String) {
+        val accepted = try {
+            client().patchGame(gameId, request)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            fail(e)
+            return
+        }
+        jobId = accepted.jobId
+        jobs.track(deviceId, accepted.jobId, title, JobKinds.PATCH)
+        _step.value = PatchStep.Patching
+        if (cancelRequested) cancelJob(accepted.jobId)
     }
 
     /** Sends the file to the staging area and returns its `stagingId`. */
@@ -226,7 +251,7 @@ class PatchRun(
             step is PatchStep.Patching -> {
                 cancelRequested = true
                 val id = jobId
-                if (id != null) scope.launch { cancelJob(id) } else _cancelling.value = true
+                if (id != null) durableScope.launch { cancelJob(id) } else _cancelling.value = true
             }
             else -> Unit
         }

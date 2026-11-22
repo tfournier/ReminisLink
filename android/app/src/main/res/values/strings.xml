@@ -475,4 +475,6 @@
         <item quantity="one">%1$d file (%2$s) goes to the trash of the console:</item>
         <item quantity="other">%1$d files (%2$s) go to the trash of the console:</item>
     </plurals>
+    <string name="cheats_console_changed">This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list.</string>
+    <string name="game_delete_kept">Stays on the SD card:</string>
 </resources>

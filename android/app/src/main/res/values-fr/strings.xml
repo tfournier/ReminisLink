@@ -479,4 +479,6 @@
         <item quantity="many">%1$d fichiers (%2$s) vont dans la corbeille de la console :</item>
         <item quantity="other">%1$d fichiers (%2$s) vont dans la corbeille de la console :</item>
     </plurals>
+    <string name="cheats_console_changed">Cette liste a changé sur la console. Tes modifications ne peuvent plus l’écraser : abandonne-les pour voir la nouvelle liste.</string>
+    <string name="game_delete_kept">Reste sur la carte SD :</string>
 </resources>

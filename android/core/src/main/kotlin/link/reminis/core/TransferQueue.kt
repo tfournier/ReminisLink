@@ -103,6 +103,8 @@ data class TransferItem(
     val isReserved: Boolean = false,
     /** Its console was forgotten: it never starts again. */
     val isDropped: Boolean = false,
+    /** Cleared from the list by the user, kept until its owner (a pak installation) read its outcome. */
+    val isHidden: Boolean = false,
 ) {
     /** 0..1 of the current step (hashing, then transfer); null when the size is unknown. */
     val fraction: Float?
@@ -197,6 +199,10 @@ class TransferQueue(
         var reserved = false
         var dropped = false
 
+        /** Its owner reads its outcome: [clearFinished] only hides it until [release]. */
+        var pinned = false
+        var hidden = false
+
         /** A failed download deleting its partial document (counts as busy). */
         var cleaning = false
 
@@ -256,13 +262,23 @@ class TransferQueue(
         destination: String,
         onConflict: OnConflict = OnConflict.FAIL,
         ownsFile: Boolean,
+        /** Its owner reads its outcome: clearing the list only hides it until [release]. */
+        pinned: Boolean = false,
     ): String = add(
         Entry(
             id = UUID.randomUUID().toString(), deviceId = deviceId, direction = TransferDirection.UPLOAD,
             fileName = fileName, destination = destination, sizeBytes = file.length(),
             file = file, ownsFile = ownsFile, target = target, onConflict = onConflict,
-        ),
+        ).also { it.pinned = pinned },
     )
+
+    /** The owner of a pinned transfer read its outcome: a transfer already cleared by the user goes. */
+    fun release(id: String) = synchronized(lock) {
+        val entry = entries.firstOrNull { it.id == id } ?: return@synchronized
+        entry.pinned = false
+        if (entry.hidden) entries.remove(entry)
+        publish()
+    }
 
     /** Adds a download of [source] into [sink]. */
     fun enqueueDownload(
@@ -527,11 +543,13 @@ class TransferQueue(
 
     /** Removes the finished transfers of a console (all consoles when null) from the list. */
     fun clearFinished(deviceId: String? = null) = synchronized(lock) {
-        entries.removeAll {
+        val cleared = entries.filter {
             val finished = it.phase.isFinished ||
                 (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD && !it.cleaning)
             finished && (deviceId == null || it.deviceId == deviceId)
         }
+        // A pinned transfer is only hidden: its owner still reads its outcome.
+        cleared.forEach { if (it.pinned) it.hidden = true else entries.remove(it) }
         publish()
     }
 
@@ -812,7 +830,7 @@ class TransferQueue(
             hashedBytes = e.hashedBytes, bytesPerSecond = rate,
             secondsRemaining = if (rate != null && rate > 0 && size != null) ((size - e.doneBytes) / rate).toLong() else null,
             failure = e.failure, isCompleting = e.isCompleting, result = e.result, target = e.target,
-            isReserved = e.reserved, isDropped = e.dropped,
+            isReserved = e.reserved, isDropped = e.dropped, isHidden = e.hidden,
         )
     }
 }

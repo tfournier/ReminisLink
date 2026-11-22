@@ -127,16 +127,27 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
         load()
     }
 
-    /** Replaces the list (first load, Reload after a conflict, after an import): local edits are dropped. */
+    /**
+     * Reads the list (first load, refresh, Reload after a conflict, after
+     * an import). Its answer replaces the shown list only if nothing was
+     * edited while it was in flight; otherwise the edits stay, and a list
+     * that changed on the console is held back until they are discarded.
+     */
     fun load() {
         if (_ui.value !is Load.Loaded) _ui.value = Load.Loading
         _conflict.value = false
+        val since = editor?.revision
         viewModelScope.launch {
             try {
                 val client = container.client(deviceId)
                 if (_game.value == null) _game.value = runCatching { client.game(gameId) }.getOrNull()
                 val list = client.cheats(gameId)
-                editor?.load(list) ?: run { editor = CheatEditor(list) }
+                val current = editor
+                if (current == null) {
+                    editor = CheatEditor(list)
+                } else if (current.applyRead(list, since ?: -1) == CheatEditor.ReadOutcome.HELD) {
+                    showNotice(Notice(R.string.cheats_console_changed))
+                }
                 publish()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

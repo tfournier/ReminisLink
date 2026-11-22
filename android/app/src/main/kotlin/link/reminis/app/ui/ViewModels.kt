@@ -434,36 +434,59 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
         refresh(quiet = true)
     }
 
-    private val _deletion = MutableStateFlow<Load<link.reminis.core.DeletionPreview>?>(null)
+    private val _deletion = MutableStateFlow<DeletionState?>(null)
 
-    /** What a deletion would move to the trash now (`GET /games/{gameId}/deletion`), while the confirmation shows. */
-    val deletion: StateFlow<Load<link.reminis.core.DeletionPreview>?> = _deletion.asStateFlow()
+    /**
+     * The deletion being confirmed: the option shown and the preview of
+     * `GET /games/{gameId}/deletion` for that option only.
+     */
+    val deletion: StateFlow<DeletionState?> = _deletion.asStateFlow()
+    private var deletionGeneration = 0
 
+    /**
+     * Asks what a deletion with [keepSave] would move now. Only the answer
+     * of the latest request for the option shown is applied: an answer for
+     * the other position of the option never enables the confirmation.
+     */
     fun previewDeletion(keepSave: Boolean) {
-        _deletion.value = Load.Loading
+        val generation = ++deletionGeneration
+        _deletion.value = DeletionState(keepSave, Load.Loading)
         viewModelScope.launch {
-            _deletion.value = try {
+            val result = try {
                 Load.Loaded(container.client(deviceId).deletionPreview(gameId, keepSave))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Load.Failed(e)
             }
+            val current = _deletion.value ?: return@launch
+            if (generation == deletionGeneration && current.keepSave == keepSave) _deletion.value = current.copy(preview = result)
         }
     }
 
     fun closeDeletion() {
+        deletionGeneration++
         _deletion.value = null
     }
 
     /** `DELETE /games/{gameId}`: the game and its data go to the trash of the console. */
-    fun delete(keepSave: Boolean, onDeleted: () -> Unit) = perform(null) {
-        _deletion.value = null
+    fun delete(onDeleted: () -> Unit) {
+        val state = _deletion.value ?: return
+        // Only the preview of the option shown can be confirmed.
+        if (state.preview !is Load.Loaded) return
+        delete(state.keepSave, onDeleted)
+    }
+
+    private fun delete(keepSave: Boolean, onDeleted: () -> Unit) = perform(null) {
+        closeDeletion()
         container.client(deviceId).deleteGame(gameId, keepSave)
         container.libraryChanged.tryEmit(deviceId)
         onDeleted()
     }
 }
+
+/** A deletion being confirmed: the option shown and its preview. */
+data class DeletionState(val keepSave: Boolean, val preview: Load<link.reminis.core.DeletionPreview>)
 
 /** A short message shown after an action (a string resource and its arguments). */
 data class Notice(@param:androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList())

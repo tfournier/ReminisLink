@@ -78,9 +78,9 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
     val container = LocalContext.current.container
     val queue = container.transfers
     val all by queue.items.collectAsState()
-    val items = all.filter { it.deviceId == deviceId }
+    val items = all.filter { it.deviceId == deviceId && !it.isHidden }
     val allJobs by container.jobs.jobs.collectAsState()
-    val jobs = allJobs.filter { it.deviceId == deviceId }
+    val jobs = allJobs.filter { it.deviceId == deviceId && !it.hidden }
     var confirmCancel by remember { mutableStateOf<TransferItem?>(null) }
     var cancelJob by remember { mutableStateOf<TrackedJob?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()

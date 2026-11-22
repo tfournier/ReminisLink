@@ -104,6 +104,7 @@ class PakInstaller(
     /** A forgotten console: its installations end (copies deleted). */
     fun dropConsole(deviceId: String) {
         _installs.value.filter { it.deviceId == deviceId && !it.phase.isFinished }.forEach { install ->
+            install.uploadId?.let(queue::release)
             set(install.id, PakInstall.Phase.Cancelled)
         }
     }
@@ -114,6 +115,8 @@ class PakInstaller(
         val uploadId = queue.enqueueUpload(
             install.deviceId, file, install.name, UploadTarget.Pak(install.name, install.kind), install.name,
             onConflict = if (replacing) OnConflict.OVERWRITE else OnConflict.FAIL, ownsFile = false,
+            // Clearing the Transfers list only hides it until its outcome is read here.
+            pinned = true,
         )
         synchronized(lock) {
             _installs.value = _installs.value.map {
@@ -130,6 +133,7 @@ class PakInstaller(
                 val item = items.firstOrNull { it.id == install.uploadId } ?: continue
                 when (item.phase) {
                     TransferPhase.DONE -> {
+                        queue.release(item.id)
                         val newJob = item.result?.jobId
                         if (newJob == null) {
                             set(install.id, PakInstall.Phase.Failed(ApiException.InvalidResponse("no jobId")))
@@ -143,7 +147,10 @@ class PakInstaller(
                             }
                         }
                     }
-                    TransferPhase.CANCELLED -> set(install.id, PakInstall.Phase.Cancelled)
+                    TransferPhase.CANCELLED -> {
+                        queue.release(item.id)
+                        set(install.id, PakInstall.Phase.Cancelled)
+                    }
                     // Resumed or retried from the Transfers screen; the copy is kept meanwhile.
                     TransferPhase.PAUSED, TransferPhase.FAILED ->
                         setSending(install.id, PakInstall.Phase.Sending(item.fraction, paused = true, failure = item.failure))

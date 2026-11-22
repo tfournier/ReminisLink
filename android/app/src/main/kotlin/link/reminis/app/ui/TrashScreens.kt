@@ -331,7 +331,8 @@ private fun RestoreActions(
             ),
             style = MaterialTheme.typography.bodySmall,
         )
-        if (p.replaceable) ReplaceAction(p, working, onReplace)
+        // Also says why the current save cannot be replaced now (place-blocked, backup-taken).
+        if (p.replaceable || p.replaceBlocked) ReplaceAction(p, working, onReplace)
     }
 }
 

@@ -5,6 +5,7 @@ import java.security.MessageDigest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -293,7 +294,7 @@ class FeatureTest {
         jobs.refresh(deviceId)
         assertEquals("a lost job is not polled again", 1, server.requestCount)
         jobs.clearFinished(deviceId)
-        assertTrue(jobs.jobs.value.isEmpty())
+        assertTrue("cleared rows are hidden, still known to their owners", jobs.jobs.value.single().hidden)
     }
 
     // MARK: paks
@@ -451,4 +452,115 @@ class FeatureTest {
         assertEquals("/api/v1/games/R0FNRQ?keepSave=true", delete.path)
         assertSigned(delete)
     }
+
+    // MARK: Codex round 1: answers that arrive late
+
+    @Test
+    fun aCheatReadThatAnswersAfterAnEditNeverErasesIt() {
+        val first = CheatList(listOf(Cheat(0, "A", "1", false)), "e1")
+        val editor = CheatEditor(first)
+        // A read starts, then the user turns the cheat on before it answers.
+        val since = editor.revision
+        editor.setEnabled(editor.entries[0].id, true)
+        // Same list on the console: the edit stays and can still be saved over it.
+        assertEquals(CheatEditor.ReadOutcome.UNCHANGED, editor.applyRead(first, since))
+        assertTrue(editor.cheats[0].enabled)
+        assertEquals("e1", editor.etag)
+        // Another list on the console: held back, the edit stays.
+        val changed = CheatList(listOf(Cheat(0, "A", "1", false), Cheat(1, "B", "2", true)), "e2")
+        assertEquals(CheatEditor.ReadOutcome.HELD, editor.applyRead(changed, since))
+        assertTrue(editor.hasChanges)
+        assertTrue(editor.cheats[0].enabled)
+        assertEquals("e1", editor.etag)
+        // Discarding the edits shows the held list.
+        editor.discardChanges()
+        assertEquals(listOf("A", "B"), editor.cheats.map { it.description })
+        assertEquals("e2", editor.etag)
+        // No edit since the request: the read replaces the list (Reload after a 412).
+        val again = editor.revision
+        assertEquals(CheatEditor.ReadOutcome.APPLIED, editor.applyRead(first, again))
+        assertEquals("e1", editor.etag)
+    }
+
+    @Test
+    fun aPatchCancelledWhileItsRequestIsInFlightIsCancelledEvenAfterTheScreenClosed() = runBlocking {
+        val held = java.util.concurrent.CountDownLatch(1)
+        val posted = java.util.concurrent.CountDownLatch(1)
+        val deleted = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/v1/games/g/patch" -> {
+                    // The pak accepted the request; its answer is held.
+                    posted.countDown()
+                    held.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                    json("""{"jobId":"job_d"}""", 202)
+                }
+                request.method == "DELETE" && request.path == "/api/v1/jobs/job_d" -> {
+                    deleted.countDown()
+                    job("job_d", "cancelled", cancelRequested = true)
+                }
+                request.path == "/api/v1/jobs/job_d" -> job("job_d", "cancelled", cancelRequested = true)
+                else -> error("not_found", 404)
+            }
+        }
+        val screen = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val app = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val jobs = JobTracker { client() }
+            val run = PatchRun(deviceId, screen, jobs, { client() }, RetryPolicy.immediate, cancelPollMillis = 1, durableScope = app)
+            run.start("g", PatchInput.SdCard("sd_1"), PatchOutputMode.REPLACE, null, "Moss")
+            assertTrue(posted.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            // First back: a cancel, waiting for the job id. Second back: the screen closes.
+            run.cancel()
+            assertTrue(run.cancelling.value)
+            screen.cancel()
+            held.countDown()
+            assertTrue("the job was never cancelled", deleted.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            withTimeout(10_000) { jobs.jobs.first { list -> list.any { it.jobId == "job_d" && it.isFinished } } }
+            assertEquals("the job is followed for the Transfers screen", "Moss", jobs.get(deviceId, "job_d")!!.title)
+        } finally {
+            app.cancel()
+        }
+    }
+
+    @Test
+    fun clearingFinishedTransfersNeverLosesAPakInstallation() = withScope { scope ->
+        val bytes = "PK-fake-zip-2".toByteArray()
+        server.enqueue(json("""{"uploadId":"up_9","chunkSize":64,"offset":0,"expiresAt":"2026-11-25T17:00:00Z"}""", 201))
+        server.enqueue(MockResponse().setResponseCode(204).setHeader("Upload-Offset", bytes.size))
+        server.enqueue(json("""{"jobId":"job_z"}"""))
+        server.enqueue(job("job_z", "succeeded", result = """{"pakId":"pk_z"}"""))
+        // The installer's collector runs on its own thread, held while the user clears the list.
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val gate = java.util.concurrent.Semaphore(0)
+        fun hold() = executor.execute { gate.acquire() }
+        val installerScope = CoroutineScope(SupervisorJob() + executor.asCoroutineDispatcherForTest())
+        try {
+            val queue = TransferQueue(scope, RetryPolicy.immediate) { _, _ -> client() }
+            val jobs = JobTracker { client() }
+            val installer = PakInstaller(installerScope, queue, jobs)
+            hold()
+            val id = installer.install(deviceId, file(bytes), "Thistle.pak.zip", PakInstallKind.AUTO)
+            withTimeout(10_000) { queue.items.first { list -> list.any { it.phase == TransferPhase.DONE } } }
+            queue.clearFinished(deviceId)
+            assertTrue("the upload is only hidden", queue.items.value.single().isHidden)
+            gate.release()
+            withTimeout(10_000) { installer.installs.first { it.single { i -> i.id == id }.phase is PakInstall.Phase.Installing } }
+            assertTrue("released once its job id was read", queue.items.value.isEmpty())
+            // The finished job cleared from Transfers before the installer reads it.
+            hold()
+            jobs.refresh(deviceId)
+            jobs.clearFinished(deviceId)
+            gate.release()
+            withTimeout(10_000) { installer.installs.first { it.single { i -> i.id == id }.phase == PakInstall.Phase.Installed } }
+            assertTrue(jobs.jobs.value.single().hidden)
+        } finally {
+            installerScope.cancel()
+            executor.shutdownNow()
+        }
+    }
+
+    private fun java.util.concurrent.ExecutorService.asCoroutineDispatcherForTest(): kotlinx.coroutines.CoroutineDispatcher =
+        asCoroutineDispatcher()
 }
+

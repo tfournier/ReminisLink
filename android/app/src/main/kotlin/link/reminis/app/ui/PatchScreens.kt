@@ -156,6 +156,8 @@ class PatchViewModel(
         _run.value = PatchRun(
             deviceId, viewModelScope, container.jobs, { container.client(deviceId) },
             onLocalCopyDone = { input -> container.backgroundScope.launch(Dispatchers.IO) { input.file.parentFile?.deleteRecursively() } },
+            // The answer of POST /patch, its job and a cancellation outlive this screen.
+            durableScope = container.scope,
         )
     }
 

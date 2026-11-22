@@ -22,6 +22,8 @@ data class TrackedJob(
     val pollError: Throwable? = null,
     /** A cancellation was sent and acknowledged; the final state is the console's. */
     val cancelSent: Boolean = false,
+    /** Cleared from the Transfers screen: still followed for the screens that wait for its outcome. */
+    val hidden: Boolean = false,
 ) {
     val isFinished: Boolean get() = lost || job?.isFinished == true
 
@@ -82,9 +84,13 @@ class JobTracker(private val client: suspend (deviceId: String) -> ApiClient) {
         change(deviceId, jobId) { it.copy(job = job, cancelSent = true, pollError = null) }
     }
 
-    /** Forgets the finished jobs of a console (or of every console). */
+    /**
+     * Hides the finished jobs of a console (or of every console) from the
+     * Transfers screen. They stay known: a screen or the pak installer that
+     * has not read an outcome yet still finds it.
+     */
     fun clearFinished(deviceId: String? = null) = _jobs.update { list ->
-        list.filterNot { it.isFinished && (deviceId == null || it.deviceId == deviceId) }
+        list.map { if (it.isFinished && (deviceId == null || it.deviceId == deviceId)) it.copy(hidden = true) else it }
     }
 
     /** A forgotten console: its jobs are no longer followed. */

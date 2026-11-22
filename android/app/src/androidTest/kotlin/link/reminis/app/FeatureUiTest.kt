@@ -13,6 +13,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
@@ -136,6 +138,20 @@ class FeatureUiTest {
             )
             path == "/api/v1/games/$gameId" -> json(game(gameId, "Moss Lantern", "Moss Lantern.gba"))
             path == "/api/v1/games/$patchedId" -> json(game(patchedId, "Moss Lantern (patched)", "Moss Lantern (patched).gba"))
+            path == "/api/v1/games/$gameId/deletion?keepSave=false" -> json(
+                // A folder game: more than 8 files, two of them with the same name in different folders.
+                """{"moved":[${(1..9).joinToString(",") { "{\"name\":\"Roms/Pocket Advance (GBA)/Moss Lantern/track$it.bin\",\"role\":\"rom\",\"size\":1}" }},
+                {"name":"Roms/Pocket Advance (GBA)/Moss Lantern/disc1/data.bin","role":"other","size":1},
+                {"name":"Roms/Pocket Advance (GBA)/Moss Lantern/disc2/data.bin","role":"other","size":1},
+                {"name":"Saves/GBA/Moss Lantern.gba.sav","role":"save","size":1}],"kept":[],"movedBytes":12}""",
+            )
+            // Answered late: it must never stand for the option shown after it.
+            path == "/api/v1/games/$gameId/deletion?keepSave=true" -> json(
+                """{"moved":[{"name":"Roms/Pocket Advance (GBA)/Moss Lantern/track1.bin","role":"rom","size":1}],
+                "kept":[{"name":"Saves/GBA/Moss Lantern.gba.sav","role":"save","size":1}],"movedBytes":1}""",
+            ).setHeadersDelay(2, java.util.concurrent.TimeUnit.SECONDS)
+            path == "/api/v1/games/$gameId?keepSave=false" && method == "DELETE" ->
+                json("""{"trashEntryId":"tr_9","moved":["Saves/GBA/Moss Lantern.gba.sav"],"movedBytes":12}""")
             path == "/api/v1/games/$gameId/cheats" && method == "GET" -> json(cheats)
             path == "/api/v1/games/$gameId/cheats" && method == "PUT" -> {
                 if (request.getHeader("If-Match") != "\"sha256-off\"") {
@@ -331,5 +347,31 @@ class FeatureUiTest {
         }
         val post = requests.first { it.method == "POST" && it.path == "/api/v1/trash/tr_1/restore" }
         assertEquals("""{"onConflict":"replace"}""", post.body.clone().readUtf8())
+    }
+
+    @Test
+    fun aDeletionPreviewOfTheOtherOptionNeverStandsForTheOptionShown() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            openGame()
+            compose.onNodeWithTag("gameMenu").performClick()
+            compose.onNodeWithTag("deleteGame").performClick()
+            waitForText("Saves/GBA/Moss Lantern.gba.sav")
+            // On (its preview answers late), then off again at once.
+            compose.onNodeWithTag("deleteKeepSave").performScrollTo().performClick()
+            compose.onNodeWithTag("deleteKeepSave").performScrollTo().performClick()
+            waitForText("Saves/GBA/Moss Lantern.gba.sav")
+            // The late answer for "keep" arrives: it changes nothing.
+            Thread.sleep(3_000)
+            compose.waitForIdle()
+            assertTrue(compose.onAllNodesWithText(context.getString(R.string.game_delete_kept)).fetchSemanticsNodes().isEmpty())
+            // The exact list, with relative paths: 12 files, the two data.bin told apart.
+            assertEquals(12, compose.onAllNodesWithTag("deleteMoved").fetchSemanticsNodes().size)
+            compose.onNodeWithText("Roms/Pocket Advance (GBA)/Moss Lantern/disc2/data.bin").assertExists()
+            compose.onNodeWithTag("deleteGameConfirm").assertIsEnabled().performClick()
+            waitForTag("search")
+        }
+        assertTrue(requests.any { it.method == "GET" && it.path == "/api/v1/games/$gameId/deletion?keepSave=true" })
+        assertTrue(requests.any { it.method == "DELETE" && it.path == "/api/v1/games/$gameId?keepSave=false" })
+        assertTrue(requests.none { it.method == "DELETE" && it.path == "/api/v1/games/$gameId?keepSave=true" })
     }
 }

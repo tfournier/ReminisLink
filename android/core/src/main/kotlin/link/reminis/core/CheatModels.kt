@@ -105,6 +105,45 @@ class CheatEditor(list: CheatList) {
 
     val cheats: List<Cheat> get() = entries.map { it.cheat }
 
+    /** Bumped by every change of the shown list: a read started before a change never overwrites it. */
+    var revision: Int = 0
+        private set
+
+    /** A newer list of the console held back by local edits; [discardChanges] shows it. */
+    var consoleList: CheatList? = null
+        private set
+
+    /** What a list read from the pak did ([applyRead]). */
+    enum class ReadOutcome {
+        /** Shown (no edit since the request, or no edit at all). */
+        APPLIED,
+
+        /** The same list (same etag): the local edits stay, still savable. */
+        UNCHANGED,
+
+        /** Another list: the local edits stay (never clobbered) and can no longer be saved over it. */
+        HELD,
+    }
+
+    /**
+     * A list read from the pak, whose request started at [since]
+     * ([revision] then). It replaces the shown list only if nothing was
+     * edited since the request (or nothing is edited at all): edits made
+     * while the read was in flight are never lost (mirror of `CheatsLoader.swift`).
+     */
+    fun applyRead(list: CheatList, since: Int): ReadOutcome {
+        if (revision == since || !hasChanges) {
+            load(list)
+            return ReadOutcome.APPLIED
+        }
+        if (list.etag == etag) {
+            consoleList = null
+            return ReadOutcome.UNCHANGED
+        }
+        consoleList = list
+        return ReadOutcome.HELD
+    }
+
     /** Edits not saved yet (order, content, additions, deletions). */
     val hasChanges: Boolean get() = cheats != original
 
@@ -113,16 +152,26 @@ class CheatEditor(list: CheatList) {
         original = list.cheats
         etag = list.etag
         entries = list.cheats.map(::entry)
+        consoleList = null
+        revision++
     }
 
+    /** Drops the local edits; a newer list of the console, if one was held back, is shown. */
     fun discardChanges() {
-        entries = original.map(::entry)
+        val held = consoleList
+        if (held != null) {
+            load(held)
+        } else {
+            entries = original.map(::entry)
+            revision++
+        }
     }
 
     /** Adds a cheat at the end; false when it is not valid. */
     fun add(description: String, code: String, enabled: Boolean): Boolean {
         val (d, c) = validated(description, code) ?: return false
         entries = entries + entry(Cheat(description = d, code = c, enabled = enabled))
+        revision++
         return true
     }
 
@@ -131,15 +180,18 @@ class CheatEditor(list: CheatList) {
         val (d, c) = validated(description, code) ?: return false
         if (entries.none { it.id == id }) return false
         entries = entries.map { if (it.id == id) it.copy(cheat = it.cheat.copy(description = d, code = c, enabled = enabled)) else it }
+        revision++
         return true
     }
 
     fun setEnabled(id: String, enabled: Boolean) {
         entries = entries.map { if (it.id == id) it.copy(cheat = it.cheat.copy(enabled = enabled)) else it }
+        revision++
     }
 
     fun remove(id: String) {
         entries = entries.filter { it.id != id }
+        revision++
     }
 
     /** Moves a cheat one place up (-1) or down (+1). */
@@ -151,6 +203,7 @@ class CheatEditor(list: CheatList) {
         val list = entries.toMutableList()
         list.add(to, list.removeAt(from))
         entries = list
+        revision++
     }
 
     /** The body of `PUT /cheats`: the whole list in order, renumbered. */
