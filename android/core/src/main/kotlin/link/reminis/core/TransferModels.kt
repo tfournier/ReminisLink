@@ -41,6 +41,19 @@ sealed interface UploadTarget {
         override val kind get() = "state"
     }
 
+    /** A file for the staging area (a patch, a `.cht` to import): `complete` answers its `stagingId`. */
+    data class Staging(val fileName: String) : UploadTarget {
+        override val kind get() = "staging"
+    }
+
+    /**
+     * M12: a pak archive (zip) to install; `complete` answers the `jobId` of
+     * a `pak-install` job. `onConflict` accepts `fail` and `overwrite` only.
+     */
+    data class Pak(val fileName: String, val pakKind: PakInstallKind = PakInstallKind.AUTO) : UploadTarget {
+        override val kind get() = "pak"
+    }
+
     fun toJson(): JsonObject = buildJsonObject {
         put("kind", kind)
         when (this@UploadTarget) {
@@ -53,6 +66,11 @@ sealed interface UploadTarget {
             is State -> {
                 put("gameId", gameId)
                 put("slot", slot)
+            }
+            is Staging -> put("fileName", fileName)
+            is Pak -> {
+                put("pakKind", pakKind.wire)
+                put("fileName", fileName)
             }
         }
     }
