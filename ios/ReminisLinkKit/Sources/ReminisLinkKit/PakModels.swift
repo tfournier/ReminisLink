@@ -149,15 +149,39 @@ public struct SdEntry: Codable, Sendable, Equatable, Hashable, Identifiable {
     /// Nil for a folder.
     public let sizeBytes: Int64?
     public let modifiedAt: Date
+    /// M23: `POST /sd/trash` accepts the entry (false from an older pak).
+    public let deletable: Bool
+    /// M23: why it is not deletable (``SdProtection``), nil when it is.
+    public let protection: SdProtection?
 
     public var id: String { sdEntryId }
 
-    public init(sdEntryId: String, name: String, kind: SdEntryKind, sizeBytes: Int64?, modifiedAt: Date) {
+    public init(
+        sdEntryId: String, name: String, kind: SdEntryKind, sizeBytes: Int64?, modifiedAt: Date,
+        deletable: Bool = false, protection: SdProtection? = nil
+    ) {
         self.sdEntryId = sdEntryId
         self.name = name
         self.kind = kind
         self.sizeBytes = sizeBytes
         self.modifiedAt = modifiedAt
+        self.deletable = deletable
+        self.protection = protection
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sdEntryId, name, kind, sizeBytes, modifiedAt, deletable, protection
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sdEntryId = try c.decode(String.self, forKey: .sdEntryId)
+        name = try c.decode(String.self, forKey: .name)
+        kind = try c.decode(SdEntryKind.self, forKey: .kind)
+        sizeBytes = try c.decodeIfPresent(Int64.self, forKey: .sizeBytes)
+        modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
+        deletable = try c.decodeIfPresent(Bool.self, forKey: .deletable) ?? false
+        protection = try c.decodeIfPresent(SdProtection.self, forKey: .protection)
     }
 
     public var isFolder: Bool { kind == .folder }
@@ -187,19 +211,26 @@ public struct SdFolder: Codable, Sendable, Equatable {
     public let entries: [SdEntry]
     /// More than 5000 entries: only the first 5000 are listed.
     public let truncated: Bool
+    /// M23: files can be added and folders made here (false from an older
+    /// pak).
+    public let writable: Bool
 
-    public init(folderId: String?, path: String, parentId: String?, entries: [SdEntry], truncated: Bool = false) {
+    public init(
+        folderId: String?, path: String, parentId: String?, entries: [SdEntry], truncated: Bool = false,
+        writable: Bool = false
+    ) {
         self.folderId = folderId
         self.path = path
         self.parentId = parentId
         self.entries = entries
         self.truncated = truncated
+        self.writable = writable
     }
 
     public var isRoot: Bool { folderId == nil }
 
     private enum CodingKeys: String, CodingKey {
-        case folderId, path, parentId, entries, truncated
+        case folderId, path, parentId, entries, truncated, writable
     }
 
     public init(from decoder: Decoder) throws {
@@ -209,6 +240,7 @@ public struct SdFolder: Codable, Sendable, Equatable {
         parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
         entries = try c.decode([SdEntry].self, forKey: .entries)
         truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+        writable = try c.decodeIfPresent(Bool.self, forKey: .writable) ?? false
     }
 }
 

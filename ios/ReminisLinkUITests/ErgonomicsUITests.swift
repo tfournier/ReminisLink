@@ -26,7 +26,7 @@ final class ErgonomicsUITests: XCTestCase {
         let app = launchPaired()
         let tabs = app.consoleTabs
         XCTAssertTrue(tabs.waitForExistence(timeout: 15), "no tab bar")
-        for name in ["Console", "Library", "Transfers", "Trash"] {
+        for name in ["Console", "Library", "Apps", "Files"] {
             XCTAssertTrue(tabs[name].exists, "no \(name) tab")
         }
         // The Console tab: the dashboard, without adding (M11).
@@ -38,11 +38,20 @@ final class ErgonomicsUITests: XCTestCase {
 
         tabs["Library"].tap()
         XCTAssertTrue(app.buttons["library.add"].waitForExistence(timeout: 10), "adding stays in the Library")
-        tabs["Transfers"].tap()
+        // M23: Apps and Files are tabs; Transfers and Trash are rows of
+        // the Console tab.
+        tabs["Apps"].tap()
+        XCTAssertTrue(app.navigationBars["Apps"].waitForExistence(timeout: 10))
+        tabs["Files"].tap()
+        XCTAssertTrue(app.buttons["sd.Roms"].waitForExistence(timeout: 10))
+        attachScreenshot(of: app, named: "tab-files")
+        app.openConsoleRow("console.transfers")
         XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout: 10))
-        tabs["Trash"].tap()
+        app.openTrash()
         XCTAssertTrue(app.navigationBars["Trash"].waitForExistence(timeout: 10))
-        attachScreenshot(of: app, named: "tab-trash")
+        attachScreenshot(of: app, named: "trash")
+        // The Consoles button is on the first screen of the tab.
+        app.goBack()
 
         // Back to the list of consoles, then into the console again.
         app.buttons["tab.consoles"].tapAfterWaiting()

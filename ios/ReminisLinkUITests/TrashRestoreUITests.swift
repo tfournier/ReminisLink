@@ -28,15 +28,15 @@ final class TrashRestoreUITests: XCTestCase {
         app.buttons["delete.done"].tapAfterWaiting(timeout: 20)
         XCTAssertTrue(row.waitForNonExistence(timeout: 20), "game still listed")
 
-        // Trash tab: tap the entry, read the preview, restore.
-        app.consoleTabs["Trash"].tapWhenEnabled(timeout: 10)
+        // The Trash screen: tap the entry, read the preview, restore.
+        app.openTrash()
         restore(app, label: game, screenshot: "trash-restore-preview")
 
         // Back in the library.
         XCTAssertTrue(libraryRow(app, game).exists)
 
         // The entry of the demo trash puts a game back too.
-        app.consoleTabs["Trash"].tapWhenEnabled(timeout: 10)
+        app.openTrash()
         restore(app, label: "Old Prototype", screenshot: nil)
         XCTAssertTrue(libraryRow(app, "Old Prototype").exists)
     }
@@ -63,7 +63,7 @@ final class TrashRestoreUITests: XCTestCase {
         alert.dialogButton("backup.deleteConfirm").tap()
         XCTAssertTrue(row.waitForNonExistence(timeout: 15), "copy still listed")
 
-        app.consoleTabs["Trash"].tapWhenEnabled(timeout: 10)
+        app.openTrash()
         let entry = GameDataUITest.button(app, "trash.entry", containing: GameDataUITest.demoGame)
         entry.tapAfterWaiting(timeout: 20)
         let replace = app.buttons["trashRestore.replace"]

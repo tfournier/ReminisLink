@@ -751,6 +751,31 @@ public actor APIClient {
         )
     }
 
+    // MARK: - SD card browser writes and game rename (milestone M23)
+
+    /// `POST /sd/folders`: a new folder in `parentId` (nil: the root of the
+    /// card). `409 conflict` when the name is taken (`details.existing`) or
+    /// the parent is protected (`details.protected`). A write.
+    public func createSdFolder(_ request: SdFolderRequest) async throws -> SdEntry {
+        try await signedJSON(method: "POST", segments: ["sd", "folders"], body: ProtocolJSON.encoder().encode(request))
+    }
+
+    /// `POST /sd/trash`: 1 to 100 entries of the browser go to the trash
+    /// in one entry (reason `delete-file`), all or nothing. A write.
+    public func trashSdEntries(_ request: SdTrashRequest) async throws -> TrashMoveResult {
+        try await signedJSON(method: "POST", segments: ["sd", "trash"], body: ProtocolJSON.encoder().encode(request))
+    }
+
+    /// `POST /games/{gameId}/rename`: the game and all its files under a
+    /// new name (extension kept). `409 conflict` with `details.conflicts`
+    /// when a name is taken. A write; the game gets a new `id`.
+    public func renameGame(id: String, name: String) async throws -> GameRenameResult {
+        try await signedJSON(
+            method: "POST", segments: ["games", id, "rename"],
+            body: ProtocolJSON.encoder().encode(GameRenameRequest(name: name))
+        )
+    }
+
     // MARK: - Screenshots (milestone M22)
 
     /// `GET /screenshots`: the screenshots of the console, newest first. A

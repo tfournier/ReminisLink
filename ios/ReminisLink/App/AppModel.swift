@@ -41,14 +41,14 @@ enum Route: Hashable {
     case syncedSaves(String)
     /// The versions of one synced save.
     case syncedGame(SyncedGameRoute)
-    /// The tool and emulator paks of a console (milestone M12), pushed
-    /// in its Console tab.
+    /// The tool and emulator paks of a console (milestone M12): its Apps
+    /// tab (M23).
     case paks(String)
     /// The screenshots taken on a console (milestone M22), pushed in its
     /// Console tab.
     case screenshots(String)
-    /// A folder of the SD card, read only (milestone M12), pushed in the
-    /// Console tab from its Storage section.
+    /// A folder of the SD card (milestone M12): the root is the Files tab
+    /// (M23), its folders are pushed in it.
     case sdFolder(SdFolderRoute)
 }
 
@@ -58,22 +58,28 @@ struct SdFolderRoute: Hashable {
     /// Nil for the root of the card.
     let folderId: String?
     let title: String
+
+    /// The root of the card: the Files tab (M23).
+    static func root(_ deviceId: String) -> SdFolderRoute {
+        SdFolderRoute(deviceId: deviceId, folderId: nil, title: "")
+    }
 }
 
-/// The tabs shown while a console is open (milestone M11).
+/// The tabs shown while a console is open (milestone M11; M23: Apps and
+/// Files instead of Transfers and Trash, which open from the Console tab).
 enum ConsoleTab: Hashable, CaseIterable {
     case console
     case library
-    case transfers
-    case trash
+    case apps
+    case files
 
     /// The route that stands for this tab in ``AppModel/path``.
     func route(_ deviceId: String) -> Route? {
         switch self {
         case .console: nil
         case .library: .library(deviceId)
-        case .transfers: .transfers(deviceId)
-        case .trash: .trash(deviceId)
+        case .apps: .paks(deviceId)
+        case .files: .sdFolder(SdFolderRoute.root(deviceId))
         }
     }
 
@@ -261,8 +267,9 @@ final class AppModel {
     @ObservationIgnored var libraryEventDebounce: Duration = .milliseconds(300)
 
     /// The navigation as one path: the list's screens, or `.console(id)`,
-    /// the route of the selected tab (`.library`, `.transfers`, `.trash`;
-    /// none for the Console tab) and the screens pushed in it. Setting it
+    /// the route of the selected tab (`.library`, `.paks`, the root
+    /// `.sdFolder`; none for the Console tab, where Transfers and Trash are
+    /// pushed) and the screens pushed in it. Setting it
     /// opens that console, tab and screens (deep links, end of an upload or
     /// of a patch), or goes back to the list.
     var path: [Route] {

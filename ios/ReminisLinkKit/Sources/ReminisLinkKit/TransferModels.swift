@@ -25,6 +25,10 @@ public enum TransferTarget: Sendable, Hashable, Encodable {
     /// `pak-install` job (``UploadResult/jobId``). `onConflict` accepts `fail` and `overwrite` only. `fileName`
     /// names a loose archive without a name in its `pak.json`.
     case pak(kind: PakInstallKind = .auto, fileName: String?)
+    /// M23: a file added to a folder of the SD card browser (`folderId`
+    /// nil: the root of the card). Completes with ``UploadResult/sdEntryId``;
+    /// `onConflict` accepts `fail` and `rename` only.
+    case sdFile(folderId: String?, fileName: String)
 
     public var kind: String {
         switch self {
@@ -33,12 +37,14 @@ public enum TransferTarget: Sendable, Hashable, Encodable {
         case .state: "state"
         case .staging: "staging"
         case .pak: "pak"
+        case .sdFile: "sd-file"
         }
     }
 
     public var fileName: String? {
         switch self {
         case .rom(_, _, let name), .staging(let name), .pak(_, let name): name
+        case .sdFile(_, let name): name
         case .save, .state: nil
         }
     }
@@ -49,6 +55,7 @@ public enum TransferTarget: Sendable, Hashable, Encodable {
         case .rom(let systemId, let folderId, _): .rom(systemId: systemId, folderId: folderId, fileName: name)
         case .staging: .staging(fileName: name)
         case .pak(let kind, _): .pak(kind: kind, fileName: name)
+        case .sdFile(let folderId, let old): .sdFile(folderId: folderId, fileName: name ?? old)
         case .save, .state: self
         }
     }
@@ -75,6 +82,10 @@ public enum TransferTarget: Sendable, Hashable, Encodable {
         case .pak(let kind, let fileName):
             try c.encode(kind, forKey: .pakKind)
             try c.encodeIfPresent(fileName, forKey: .fileName)
+        case .sdFile(let folderId, let fileName):
+            // Required, null for the root of the card.
+            if let folderId { try c.encode(folderId, forKey: .folderId) } else { try c.encodeNil(forKey: .folderId) }
+            try c.encode(fileName, forKey: .fileName)
         }
     }
 }
@@ -132,11 +143,14 @@ public struct UploadResult: Codable, Sendable, Equatable {
     public let backup: SaveBackup?
     public let slot: StateSlot?
     public let jobId: String?
+    /// M23, `sd-file` target: the file in the SD card browser.
+    public let sdEntryId: String?
 
     public init(
         gameId: String? = nil, stagingId: String? = nil, backup: SaveBackup? = nil, slot: StateSlot? = nil,
-        jobId: String? = nil
+        jobId: String? = nil, sdEntryId: String? = nil
     ) {
+        self.sdEntryId = sdEntryId
         self.gameId = gameId
         self.stagingId = stagingId
         self.backup = backup

@@ -163,8 +163,9 @@ struct RouteDestination: View {
     }
 }
 
-/// The tabs of an open console (milestone M11): Console (dashboard),
-/// Library, Transfers and Trash, each with its own navigation. A button of
+/// The tabs of an open console (milestone M11, M23): Console (dashboard,
+/// with Transfers and Trash), Library, Apps and Files (the SD card), each
+/// with its own navigation. A button of
 /// each tab's first screen goes back to the list of consoles.
 ///
 /// Large windows (M15): the tabs can become a sidebar (iPad, Mac), and the
@@ -190,14 +191,15 @@ struct ConsoleTabsView: View {
                 // library.stack).
                 LibraryTab(deviceId: deviceId)
             }
-            Tab("Transfers", systemImage: "arrow.up.arrow.down", value: ConsoleTab.transfers) {
-                tab(.transfers) { TransfersView(deviceId: deviceId) }
-                    .accessibilityIdentifier("tab.transfers")
+            // M23: the apps and the files of the SD card get tabs; the
+            // transfers and the trash open from the Console tab.
+            Tab("Apps", systemImage: "square.stack.3d.down.right", value: ConsoleTab.apps) {
+                tab(.apps) { PaksView(deviceId: deviceId) }
+                    .accessibilityIdentifier("tab.apps")
             }
-            .badge(activeTransfers(session))
-            Tab("Trash", systemImage: "trash", value: ConsoleTab.trash) {
-                tab(.trash) { TrashView(deviceId: deviceId) }
-                    .accessibilityIdentifier("tab.trash")
+            Tab("Files", systemImage: "folder", value: ConsoleTab.files) {
+                tab(.files) { SdFolderView(route: .root(deviceId)) }
+                    .accessibilityIdentifier("tab.files")
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -213,11 +215,6 @@ struct ConsoleTabsView: View {
                 Task { await session.connectIfNeeded() }
             }
         }
-    }
-
-    private func activeTransfers(_ session: ConsoleSession) -> Int {
-        session.transfers.uploads.filter { !$0.phase.isFinished }.count
-            + session.transfers.jobs.filter { !$0.isFinished }.count
     }
 
     private func tab<Content: View>(_ tab: ConsoleTab, @ViewBuilder root: () -> Content) -> some View {

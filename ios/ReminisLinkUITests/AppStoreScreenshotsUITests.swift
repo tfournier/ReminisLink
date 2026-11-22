@@ -54,10 +54,7 @@ final class AppStoreScreenshotsUITests: XCTestCase {
         shoot(app, "4-cheats")
 
         // 5. The apps of the console.
-        app.consoleTabs["Console"].tap()
-        let paks = app.buttons["console.paks"]
-        XCTAssertTrue(GameDataUITest.scrollTo(paks, in: app))
-        paks.tap()
+        app.consoleTabs["Apps"].tapWhenEnabled(timeout: 10)
         XCTAssertTrue(app.navigationBars.element(boundBy: 0).waitForExistence(timeout: 10))
         settle(3)
         shoot(app, "5-apps")

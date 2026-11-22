@@ -87,7 +87,7 @@ struct UploadRow: View {
             switch target {
             case .save: self = .replaceSave
             case .state: self = .replaceState
-            case .rom, .staging: self = .keepBoth
+            case .rom, .staging, .sdFile: self = .keepBoth
             case .pak: self = .installAgain
             }
         }
@@ -194,14 +194,23 @@ struct UploadRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failed where isConflict:
-            HStack {
+            if case .sdFile = item.target {
+                // M23: a file of the SD browser is never replaced.
                 Button("Keep Both") { Task { await queue.retry(item, onConflict: .rename) } }
-                Button("Replace") { Task { await queue.retry(item, onConflict: .overwrite) } }
+                    .buttonStyle(.bordered)
+                Text("A file of the same name is already in this folder. Keep Both adds a number to the new one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    Button("Keep Both") { Task { await queue.retry(item, onConflict: .rename) } }
+                    Button("Replace") { Task { await queue.retry(item, onConflict: .overwrite) } }
+                }
+                .buttonStyle(.bordered)
+                Text("Replace moves the file on the console to its trash.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.bordered)
-            Text("Replace moves the file on the console to its trash.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         case .failed:
             Button("Try Again") { queue.resume(item) }
                 .buttonStyle(.bordered)

@@ -181,11 +181,13 @@ struct ConsoleTabBar {
     static let tabs: [String: (symbol: String, labels: [String])] = [
         "Console": ("gamecontroller", ["Console"]),
         "Library": ("square.grid.2x2", ["Library", "Bibliothèque"]),
-        "Transfers": ("arrow.up.arrow.down", ["Transfers", "Transferts"]),
-        "Trash": ("trash", ["Trash", "Corbeille"]),
+        "Apps": ("square.stack.3d.down.right", ["Apps"]),
+        "Files": ("folder", ["Files", "Fichiers"]),
     ]
 
-    static let order = ["Console", "Library", "Transfers", "Trash"]
+    /// M23: Transfers and Trash open from the Console tab
+    /// (``XCUIApplication/openConsoleRow(_:)``).
+    static let order = ["Console", "Library", "Apps", "Files"]
 
     /// A tab of the bottom tab bar, by position, whatever the language.
     private func bottom(_ name: String) -> XCUIElement {
@@ -230,6 +232,26 @@ struct ConsoleTabBar {
 
 extension XCUIApplication {
     var consoleTabs: ConsoleTabBar { ConsoleTabBar(app: self) }
+
+    /// M23: opens a row of the dashboard (`console.trash`,
+    /// `console.transfers`, `console.screenshots`): the Console tab, back
+    /// to its first screen, then the row (scrolled to).
+    func openConsoleRow(_ identifier: String, file: StaticString = #filePath, line: UInt = #line) {
+        consoleTabs["Console"].tapWhenEnabled(timeout: 10, file: file, line: line)
+        let row = buttons[identifier].firstMatch
+        var backs = 0
+        while !row.waitForExistence(timeout: 2) && backs < 4 && !navigationBars.buttons["tab.consoles"].exists {
+            goBack()
+            backs += 1
+        }
+        XCTAssertTrue(GameDataUITest.scrollTo(row, in: self), "no \(identifier) row", file: file, line: line)
+        row.tap()
+    }
+
+    /// M23: the Trash screen, from the Console tab.
+    func openTrash(file: StaticString = #filePath, line: UInt = #line) {
+        openConsoleRow("console.trash", file: file, line: line)
+    }
 
     /// The Library tab shows the list and the selection side by side (M15).
     var showsLibraryColumns: Bool {

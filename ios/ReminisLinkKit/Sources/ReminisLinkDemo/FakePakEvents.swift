@@ -400,7 +400,7 @@ extension FakePak {
             // A patch changes the card when its job succeeds.
             if segments.count == 3 && segments[2] == "patch" { return nil }
             return touchedSystem.map { [$0] } ?? []
-        case "trash":
+        case "trash", "sd":
             return []
         default:
             return nil
@@ -424,7 +424,7 @@ extension FakePak {
         switch job.target {
         case .rom(let system, _, _): return [system.id]
         case .staging, .pak: return nil
-        case .save, .state: return []
+        case .save, .state, .sdFile: return []
         }
     }
 
