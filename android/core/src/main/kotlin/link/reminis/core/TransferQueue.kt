@@ -488,8 +488,17 @@ class TransferQueue(
      * upload after its current chunk, the running download at once (it
      * starts again on resume); waiting transfers are paused.
      */
-    fun pauseAll() = synchronized(lock) {
-        for (entry in entries) {
+    fun pauseAll() = pauseWhere { true }
+
+    /**
+     * The console closed ReminisLink (M11, `shutdown` on its event stream):
+     * its transfers pause like [pauseAll]; they go on when the user opens
+     * the console again ([resumePaused]).
+     */
+    fun pauseConsole(deviceId: String) = pauseWhere { it.deviceId == deviceId }
+
+    private fun pauseWhere(matches: (Entry) -> Boolean) = synchronized(lock) {
+        for (entry in entries.filter(matches)) {
             // A new conflict rule being applied: it lands paused instead of starting.
             if (entry.reserved) {
                 entry.pauseRequested = true

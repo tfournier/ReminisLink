@@ -287,6 +287,17 @@ class PakIntegrationTest {
         compose.onNodeWithTag("backupLabel").performTextInput("Before the e2e")
         compose.onNodeWithTag("backupCreate").performClick()
         waitForText(context.getString(R.string.backup_created))
+
+        // M14: a backup made through the API (no action in the app) shows up on the open
+        // Save screen through the event stream of the real pak.
+        waitFor("the event stream open") { context.container.events.isLive(deviceId) }
+        kotlinx.coroutines.runBlocking { client.createSaveBackup(gameId, "Made by the API") }
+        waitFor("the backup of the API on the screen") {
+            runCatching {
+                compose.onNodeWithTag("saveScreen").performScrollToNode(androidx.compose.ui.test.hasText("Made by the API"))
+            }.isSuccess
+        }
+
         send(deviceId, "$gameName.sav", "FERN-SAVE-TWO!".toByteArray(), link.reminis.core.UploadTarget.Save(gameId))
         compose.onNodeWithTag("saveScreen").performScrollToNode(androidx.compose.ui.test.hasText("Before the e2e"))
         compose.onNodeWithText("Before the e2e").performClick()

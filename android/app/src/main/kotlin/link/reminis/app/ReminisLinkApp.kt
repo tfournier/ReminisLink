@@ -117,7 +117,64 @@ class AppContainer(context: Context) {
     val jobs = JobTracker({ deviceId -> pairingIdentity(deviceId) }) { deviceId -> client(deviceId) }
 
     /** The identity of the current pairing of a console (pin and pairing date), null when forgotten. */
-    fun pairingIdentity(deviceId: String): Any? = consoles.get(deviceId)?.let { it.pin to it.pairedAt }
+    fun pairingIdentity(deviceId: String): Any? {
+        demo.value?.let { if (it.deviceId == deviceId) return it.identity }
+        return consoles.get(deviceId)?.let { it.pin to it.pairedAt }
+    }
+
+    // MARK: demo mode (M16)
+
+    private val _demo = kotlinx.coroutines.flow.MutableStateFlow<link.reminis.core.demo.DemoConsole?>(null)
+
+    /**
+     * The demo console while the demo mode runs ("Try Without a Console"):
+     * a fake pak in this process, with made-up games, reached without any
+     * network and never written to the list of consoles.
+     */
+    val demo: kotlinx.coroutines.flow.StateFlow<link.reminis.core.demo.DemoConsole?> get() = _demo
+
+    fun isDemo(deviceId: String): Boolean = _demo.value?.deviceId == deviceId
+
+    /** Starts a new demo session (a previous one ends first) and returns its console. */
+    fun startDemo(): link.reminis.core.demo.DemoConsole {
+        quitDemo()
+        val console = link.reminis.core.demo.DemoConsole(appContext.getString(R.string.demo_console_name)) { n ->
+            appContext.getString(R.string.demo_cheat_name, n)
+        }
+        _demo.value = console
+        return console
+    }
+
+    /** Ends the demo: its transfers and jobs are dropped, its fake pak stops, nothing is kept. */
+    fun quitDemo() {
+        val console = _demo.value ?: return
+        _demo.value = null
+        events.dropConsole(console.deviceId)
+        transfers.dropConsole(console.deviceId)
+        jobs.dropConsole(console.deviceId)
+        pakInstaller.dropConsole(console.deviceId)
+        console.close()
+    }
+
+    /** The name shown for a console: the demo's, or the stored one. */
+    fun consoleName(deviceId: String): String =
+        _demo.value?.takeIf { it.deviceId == deviceId }?.pak?.deviceName ?: consoles.get(deviceId)?.deviceName.orEmpty()
+
+    /**
+     * The event stream of the console shown (M14). Started and stopped by
+     * the activity (foreground) and the navigation (the console shown).
+     */
+    val events: ConsoleEvents by lazy {
+        ConsoleEvents(
+            scope = scope,
+            pairingIdentity = { pairingIdentity(it) },
+            client = { id, refresh -> client(id, refresh) },
+            consoleName = { consoleName(it) },
+            onClosed = { transfers.pauseConsole(it) },
+            onJob = { id, job, identity -> jobs.apply(id, job, identity) },
+            onLive = { id -> backgroundScope.launch { runCatching { jobs.refresh(id) } } },
+        )
+    }
 
     /**
      * Runs [block] only if [identity] is still the pairing of [deviceId],
@@ -194,6 +251,7 @@ class AppContainer(context: Context) {
      * each candidate is tried with the same pin.
      */
     suspend fun client(deviceId: String, refresh: Boolean = false): ApiClient = lock.withLock {
+        _demo.value?.let { if (it.deviceId == deviceId) return it.client }
         if (!refresh) clients[deviceId]?.let { return it }
         val console = consoles.get(deviceId) ?: throw ApiException.NotPaired()
         val identity = withContext(Dispatchers.IO) { identityStore.identity() }
@@ -256,6 +314,8 @@ class AppContainer(context: Context) {
         // The jobs of the previous pairing are never asked through the new one.
         jobs.dropConsole(console.deviceId)
         pakInstaller.dropConsole(console.deviceId)
+        // The event stream of the previous pairing stops (it also checks the identity itself).
+        scope.launch { events.dropConsole(console.deviceId) }
     }
 
     /** Tests only: deletion previews answered (applied or not), a client-side signal. */
@@ -268,6 +328,11 @@ class AppContainer(context: Context) {
      * whose `complete` is in flight keeps its real outcome.
      */
     fun forget(deviceId: String) {
+        if (isDemo(deviceId)) {
+            quitDemo()
+            return
+        }
+        scope.launch { events.dropConsole(deviceId) }
         synchronized(pairingLock) {
             consoles.remove(deviceId)
             clients.remove(deviceId)

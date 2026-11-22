@@ -86,7 +86,8 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var jobError by remember { mutableStateOf<Throwable?>(null) }
     // The jobs of the console (patches, pak installations), every second while visible.
-    PollWhileVisible(deviceId) { container.jobs.refresh(deviceId) }
+    // Not while the console's event stream is open: its `job` events keep them current (M14).
+    PollWhileVisible(deviceId) { if (!container.events.isLive(deviceId)) container.jobs.refresh(deviceId) }
 
     AppScaffold(
         title = stringResource(R.string.transfers_title),

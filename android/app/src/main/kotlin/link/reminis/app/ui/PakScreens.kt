@@ -90,6 +90,10 @@ class PaksViewModel(app: Application, deviceId: String) : ActionViewModel(app, d
 
     init {
         load()
+        // M14: installed, deleted or restored by any client, or a new event stream.
+        onConsoleChanges { change ->
+            if (change is link.reminis.app.ConsoleChange.Paks || change is link.reminis.app.ConsoleChange.CatchUp) load()
+        }
         // An installation that ended: the list is read again.
         viewModelScope.launch {
             installs.collect { list ->
@@ -159,7 +163,10 @@ class PaksViewModel(app: Application, deviceId: String) : ActionViewModel(app, d
 
     fun clearFinished() = container.pakInstaller.clearFinished(deviceId)
 
-    suspend fun pollJobs() = container.jobs.refresh(deviceId)
+    /** Polls the jobs, unless the console's event stream is open (its `job` events keep them current, M14). */
+    suspend fun pollJobs() {
+        if (!container.events.isLive(deviceId)) container.jobs.refresh(deviceId)
+    }
 
     override fun onCleared() {
         _draft.value?.let { f -> container.backgroundScope.launch(Dispatchers.IO) { f.remove() } }

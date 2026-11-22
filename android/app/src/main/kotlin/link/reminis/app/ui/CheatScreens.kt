@@ -125,6 +125,8 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
 
     init {
         load()
+        // M14: the list changed on the console (another client): read again; local edits always win.
+        reloadOnLibraryChanges { load() }
     }
 
     /**

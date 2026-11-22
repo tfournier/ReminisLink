@@ -15,6 +15,18 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.Modifier
+import androidx.navigation.compose.currentBackStackEntryAsState
+import link.reminis.app.ui.DemoBanner
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -122,6 +134,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // M14: the event stream of the console shown runs in the foreground only.
+    override fun onStart() {
+        super.onStart()
+        container.events.setForeground(true)
+    }
+
+    override fun onStop() {
+        container.events.setForeground(false)
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         takePairingLink(intent)?.let { incomingLink.value = it }
@@ -208,12 +231,58 @@ fun AppNavigation(
             onPatchHandled()
         }
     }
+    val container = LocalContext.current.container
+    // M14: the console shown (the deviceId of the current route, null on the list and the pairing
+    // screens) is the one whose event stream runs.
+    val entry by nav.currentBackStackEntryAsState()
+    val shownConsole = entry?.arguments?.getString("deviceId")
+    LaunchedEffect(shownConsole) {
+        // A screen of a demo that ended with the process (navigation state is restored, the demo is not).
+        if (shownConsole != null && container.consoles.get(shownConsole) == null && !container.isDemo(shownConsole)) {
+            nav.popBackStack(Routes.CONSOLES, inclusive = false)
+            return@LaunchedEffect
+        }
+        container.events.setOpenConsole(shownConsole)
+    }
+    // M11: the console closed ReminisLink: back to the list at once (its notice is shown there).
+    val closed by container.events.closed.collectAsState()
+    LaunchedEffect(closed) {
+        val notice = closed ?: return@LaunchedEffect
+        if (nav.currentBackStackEntry?.arguments?.getString("deviceId") == notice.deviceId) {
+            nav.popBackStack(Routes.CONSOLES, inclusive = false)
+        }
+    }
+    val demo by container.demo.collectAsState()
+    val quitDemo = {
+        container.quitDemo()
+        nav.popBackStack(Routes.CONSOLES, inclusive = false)
+    }
+    Column(Modifier.fillMaxSize()) {
+        if (demo != null) DemoBanner(onQuit = { quitDemo() }, modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars))
+        val insets = if (demo != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
+        Box(Modifier.weight(1f).then(insets)) {
+            AppNavHost(nav, links)
+        }
+    }
+}
+
+@Composable
+private fun AppNavHost(nav: androidx.navigation.NavHostController, links: PendingLinks) {
+    val container = LocalContext.current.container
     val id = navArgument("deviceId") { type = NavType.StringType }
     NavHost(navController = nav, startDestination = Routes.CONSOLES) {
         composable(Routes.CONSOLES) {
             ConsolesScreen(
                 onAdd = { nav.navigate(Routes.ADD) },
-                onOpen = { nav.navigate(Routes.dashboard(it)) },
+                onOpen = {
+                    // An action of the user: a closed console or a lost connection may connect again (M10, M11).
+                    container.events.userOpened(it)
+                    nav.navigate(Routes.dashboard(it))
+                },
+                onTryDemo = {
+                    val demo = container.startDemo()
+                    nav.navigate(Routes.dashboard(demo.deviceId))
+                },
             )
         }
         composable(Routes.ADD) {

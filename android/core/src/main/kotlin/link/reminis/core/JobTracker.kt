@@ -92,6 +92,17 @@ class JobTracker(
     }
 
     /**
+     * A `job` event of the console's stream (M14): the state of a job this
+     * app follows, without a poll. Ignored for a job not followed, or one
+     * started with another pairing than [identity] (the stream's).
+     */
+    fun apply(deviceId: String, job: Job, identity: Any?) {
+        val tracked = get(deviceId, job.id) ?: return
+        if (tracked.pairing != null && tracked.pairing != identity) return
+        change(deviceId, job.id) { it.copy(job = job, pollError = null) }
+    }
+
+    /**
      * `DELETE /jobs/{jobId}`: the answer is the job in its real state (a
      * running job stays `running` with `cancelRequested` until it stops).
      * Throws when the cancellation could not be sent: the job goes on.

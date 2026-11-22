@@ -61,17 +61,23 @@ fun LoadingView(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ErrorView(error: Throwable, onRetry: (() -> Unit)?, modifier: Modifier = Modifier) {
+fun ErrorView(
+    error: Throwable,
+    onRetry: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    message: String? = null,
+    @androidx.annotation.StringRes retryLabel: Int = R.string.action_retry,
+) {
     val context = LocalContext.current
     Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
-                errorMessage(context, error),
+                message ?: errorMessage(context, error),
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.testTag("error"),
             )
-            if (onRetry != null) Button(onClick = onRetry) { Text(stringResource(R.string.action_retry)) }
+            if (onRetry != null) Button(onClick = onRetry, modifier = Modifier.testTag("retry")) { Text(stringResource(retryLabel)) }
         }
     }
 }

@@ -75,19 +75,28 @@ fun DashboardScreen(
     val vm: DashboardViewModel = viewModel(key = "dashboard-$deviceId") { DashboardViewModel(app, deviceId) }
     val status by vm.status.collectAsState()
     var forgetting by remember { mutableStateOf(false) }
-    val title = (status as? Load.Loaded)?.value?.deviceName ?: vm.console?.deviceName.orEmpty()
+    val title = (status as? Load.Loaded)?.value?.deviceName ?: vm.consoleName
 
     AppScaffold(
         title = title,
         onBack = onBack,
         actions = {
-            IconButton(onClick = { vm.refresh(reconnect = true) }) {
+            IconButton(onClick = vm::retry) {
                 Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.refresh))
             }
         },
     ) { modifier ->
-        LoadContent(status, onRetry = { vm.refresh(reconnect = true) }, modifier = modifier) { device ->
-            Dashboard(device, modifier, onLibrary, onTransfers, onApps, onTrash, onForget = { forgetting = true })
+        val failure = (status as? Load.Failed)?.error
+        if ((failure as? link.reminis.core.ApiException.Server)?.code == link.reminis.core.ErrorCodes.DISCONNECTED) {
+            // M10: only the user lifts a disconnection decided on the console (`POST /clients/me/connect`).
+            ErrorView(
+                failure, onRetry = vm::reconnectToConsole, modifier = modifier,
+                message = stringResource(R.string.dashboard_disconnected), retryLabel = R.string.reconnect,
+            )
+        } else {
+            LoadContent(status, onRetry = vm::retry, modifier = modifier) { device ->
+                Dashboard(device, modifier, onLibrary, onTransfers, onApps, onTrash, onForget = { forgetting = true })
+            }
         }
     }
     if (forgetting) {
@@ -108,7 +117,7 @@ private fun Dashboard(
     val context = LocalContext.current
     LazyColumn(modifier.fillMaxSize().testTag("dashboard")) {
         item {
-            Info(stringResource(R.string.dashboard_model), DeviceModels.displayName(device.model))
+            Info(stringResource(R.string.dashboard_model), modelName(context, device.model))
             Info(stringResource(R.string.dashboard_os), listOfNotNull(device.os, device.osVersion).joinToString(" "))
             Info(stringResource(R.string.dashboard_pak), device.pakVersion)
             Info(stringResource(R.string.dashboard_ip), device.network.ipv4)

@@ -109,7 +109,7 @@
     <string name="error_pairing_proof">The console could not prove its identity. Pairing was cancelled.</string>
     <string name="error_too_many_attempts">Too many attempts. Wait a moment, then try again.</string>
     <string name="error_unknown_client">The console does not know this phone anymore. Pair it again with its QR code.</string>
-    <string name="error_disconnected">The console disconnected this phone. Reconnect it from the console\'s Devices screen.</string>
+    <string name="error_disconnected">The console disconnected this phone. Open the console in the app and tap Reconnect.</string>
     <string name="error_shutting_down">ReminisLink is closing on the console.</string>
     <string name="error_storage">The pairing information could not be read or saved on this phone.</string>
     <string name="error_generic">Something went wrong (%1$s).</string>
@@ -477,4 +477,22 @@
     </plurals>
     <string name="cheats_console_changed">This list changed on the console. Your changes can no longer be saved over it: discard them to see the new list.</string>
     <string name="game_delete_kept">Stays on the SD card:</string>
+
+    <!-- Events (M14): the console closed ReminisLink, disconnected by the console -->
+    <string name="closed_title">The console closed ReminisLink</string>
+    <string name="closed_message">Uploads in progress are paused. Open ReminisLink on the console, then the console here, to go on.</string>
+    <string name="action_dismiss">Dismiss</string>
+    <string name="reconnect">Reconnect</string>
+    <string name="dashboard_disconnected">Disconnected by the console.</string>
+
+    <!-- Demo mode (M16): the same texts as the iOS app -->
+    <string name="demo_console_name">Demo Handheld</string>
+    <string name="demo_cheat_name">Demo cheat %1$d</string>
+    <string name="demo_mode">Demo mode</string>
+    <string name="demo_banner_title">Demo Mode</string>
+    <string name="demo_banner_message">Made-up console and games. Nothing is sent or kept.</string>
+    <string name="demo_quit">Quit</string>
+    <string name="demo_quit_description">Quit the Demo</string>
+    <string name="demo_try">Try Without a Console</string>
+    <string name="demo_try_footer">A demo console with made-up games, to try every feature. Nothing is sent or kept.</string>
 </resources>

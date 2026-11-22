@@ -72,8 +72,9 @@ class ApiClient(
     // MARK: unsigned routes
 
     /** `GET /hello`: checks the device id and the compatibility, and measures the clock offset. */
-    suspend fun hello(): Hello {
-        val response = execute(request("GET", listOf("hello")))
+    suspend fun hello(timeoutMillis: Long? = null): Hello {
+        val client = timeoutMillis?.let { http.newBuilder().callTimeout(it, TimeUnit.MILLISECONDS).build() } ?: http
+        val response = execute(request("GET", listOf("hello")), client = client)
         val hello: Hello = decode(response, accept = 200)
         clockOffsetSeconds = parseRfc3339Seconds(hello.serverTime)?.let { it - nowMillis() / 1000 } ?: 0
         if (expectedDeviceId != null && hello.deviceId != expectedDeviceId) {
@@ -109,6 +110,39 @@ class ApiClient(
     // MARK: signed routes
 
     suspend fun device(): DeviceStatus = signedJson("GET", listOf("device"))
+
+    /**
+     * `POST /clients/me/connect` (M10): lifts a disconnection decided on the
+     * console. Only on an action of the user (opening the console from the
+     * list, Reconnect), never on an automatic reconnection.
+     */
+    suspend fun connectClient() = signedEmpty("POST", listOf("clients", "me", "connect"))
+
+    // MARK: events (M14)
+
+    /** The pinned client of the event stream: no read timeout (the stream's own liveness watch applies, 35 s). */
+    private val eventsHttp: OkHttpClient by lazy { http.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build() }
+
+    /**
+     * Opens `GET /events` (signed; the signature is checked at the opening
+     * only). The stream's bytes are read from the returned source, never
+     * ahead of the parser. An error answer (`401 disconnected`, `404` of a
+     * pak older than M14, `429` with `Retry-After`, `503 shutting_down`)
+     * throws. `Last-Event-ID` is not sent: the pak ignores it and the app
+     * reloads what it shows after each `hello`.
+     */
+    suspend fun openEvents(): EventByteSource {
+        var call: Call? = null
+        val response = signedResponse(onCall = { call = it }, client = eventsHttp) {
+            request("GET", listOf("events"), signed = true, headers = mapOf("Accept" to "text/event-stream"))
+        }
+        if (response.code != 200) throw serverError(response)
+        val body = response.body ?: run {
+            response.close()
+            throw ApiException.InvalidResponse("empty body")
+        }
+        return ResponseEventSource(response, body, call)
+    }
 
     suspend fun systems(): List<GameSystem> = signedJson<SystemList>("GET", listOf("systems")).systems
 
@@ -376,11 +410,15 @@ class ApiClient(
      * `/hello` corrects the offset and the request is built and signed
      * again, once. Any other answer is returned as is (the caller closes it).
      */
-    private suspend fun signedResponse(onCall: ((Call) -> Unit)? = null, build: () -> Request): Response {
+    private suspend fun signedResponse(
+        onCall: ((Call) -> Unit)? = null,
+        client: OkHttpClient = http,
+        build: () -> Request,
+    ): Response {
         if (signer == null) throw ApiException.NotPaired()
         var retried = false
         while (true) {
-            val response = execute(build(), onCall)
+            val response = execute(build(), onCall, client)
             if (response.code == 401 && !retried) {
                 val error = serverError(response)
                 if (error is ApiException.Server && error.code == ErrorCodes.CLOCK_SKEW) {
@@ -434,8 +472,8 @@ class ApiClient(
         return builder.build()
     }
 
-    private suspend fun execute(request: Request, onCall: ((Call) -> Unit)? = null): Response = try {
-        http.newCall(request).also { onCall?.invoke(it) }.await()
+    private suspend fun execute(request: Request, onCall: ((Call) -> Unit)? = null, client: OkHttpClient = http): Response = try {
+        client.newCall(request).also { onCall?.invoke(it) }.await()
     } catch (e: IOException) {
         throw if (e.causeChain().any { it is PinMismatchException }) ApiException.IdentityChanged() else ApiException.Network(e)
     }
@@ -515,6 +553,39 @@ class ApiClient(
         } catch (_: java.time.format.DateTimeParseException) {
             null
         }
+    }
+}
+
+/** The bytes of an open event stream, pulled by the reader (nothing is read ahead of the parser). */
+interface EventByteSource {
+    /** Reads into [buffer]; the number of bytes, -1 at the end of the stream. Throws [ApiException.Network] on a failure. */
+    suspend fun read(buffer: ByteArray): Int
+
+    /** Closes the connection (any thread, idempotent); a blocked [read] ends. */
+    fun cancel()
+}
+
+/** The body of `GET /events`, read off the caller's thread. */
+private class ResponseEventSource(
+    private val response: Response,
+    body: okhttp3.ResponseBody,
+    private val call: Call?,
+) : EventByteSource {
+    private val source = body.source()
+    private val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    override suspend fun read(buffer: ByteArray): Int = withContext(Dispatchers.IO) {
+        try {
+            source.read(buffer, 0, buffer.size)
+        } catch (e: IOException) {
+            throw ApiException.Network(e)
+        }
+    }
+
+    override fun cancel() {
+        if (!cancelled.compareAndSet(false, true)) return
+        call?.cancel()
+        runCatching { response.close() }
     }
 }
 
