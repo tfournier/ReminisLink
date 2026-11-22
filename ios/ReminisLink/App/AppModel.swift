@@ -258,6 +258,9 @@ final class AppModel {
     /// A patch was applied and its screen closed by itself: said on the
     /// sheet of the game, then cleared.
     var patchNotice: PatchNotice?
+    /// How long ``patchNotice`` stays on the sheet of the game (UI tests
+    /// lengthen it).
+    @ObservationIgnored var patchNoticeDuration: Duration = .seconds(5)
     /// How long Bonjour must have been browsing before the absence of a
     /// console means it closed ReminisLink (tests shorten it).
     @ObservationIgnored var closureMinimumBrowsing = PakClosure.minimumBrowsing
@@ -857,6 +860,7 @@ extension AppModel {
         if environment["RL_RESET_STORE"] == "1" {
             try? FileManager.default.removeItem(at: app.shareInbox.root)
         }
+        app.applyTestTimings(environment)
         app.injectTestShare(environment)
         #endif
         return app
@@ -905,8 +909,19 @@ extension AppModel {
         }
         let app = demo.app
         app.demoPairingLink = demo.pak.pairingLink
+        app.applyTestTimings(environment)
         app.injectTestShare(environment)
         return app
+    }
+
+    /// UI tests: `RL_UITEST_NOTICE_SECONDS=<seconds>` keeps the "Patch
+    /// applied" notice longer than its 5 seconds. A query of XCUITest takes
+    /// up to 4 seconds on a slow CI runner: the notice was often gone
+    /// before the test could read it.
+    func applyTestTimings(_ environment: [String: String]) {
+        if let seconds = environment["RL_UITEST_NOTICE_SECONDS"].flatMap(Double.init), seconds > 0 {
+            patchNoticeDuration = .seconds(seconds)
+        }
     }
 
     /// UI tests: `RL_UITEST_SHARE_FILE=<name>:<bytes>` stores a share
