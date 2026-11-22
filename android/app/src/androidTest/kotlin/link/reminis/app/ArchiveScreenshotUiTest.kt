@@ -290,6 +290,15 @@ class ArchiveScreenshotUiTest {
         // The share sheet gets copies served by the app's FileProvider.
         val files = manager.exportForSharing(shots)
         assertEquals(2, files.size)
+        // Its hour of retention starts once the export is complete (Codex review round 2).
+        val folder = files[0].parentFile!!
+        assertTrue(java.io.File(folder, ".ready").exists())
+        assertTrue(folder !in ScreenshotManager.staleShares(context))
+        assertTrue("an hour after the end it goes", folder in ScreenshotManager.staleShares(context, System.currentTimeMillis() + ScreenshotManager.SHARE_KEPT_MILLIS + 60_000))
+        // An export still in progress (no marker) stays, even if its folder is old.
+        val running = java.io.File(ScreenshotManager.sharedDirectory(context), "in-progress").apply { mkdirs(); setLastModified(System.currentTimeMillis() - 2 * ScreenshotManager.SHARE_KEPT_MILLIS) }
+        assertTrue(running !in ScreenshotManager.staleShares(context))
+        running.deleteRecursively()
         val shared = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", files[0])
         val bytes = context.contentResolver.openInputStream(shared)!!.use { it.readBytes() }
         assertTrue(bytes.size > 8 && bytes[1] == 'P'.code.toByte())

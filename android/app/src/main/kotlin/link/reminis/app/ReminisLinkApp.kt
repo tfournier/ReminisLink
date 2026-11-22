@@ -223,10 +223,9 @@ class AppContainer(context: Context) {
         transferScope.launch(Dispatchers.IO) { leftovers.forEach { it.deleteRecursively() } }
         // Copies made for the share sheet more than an hour ago, and the temporary files of a
         // screenshot being shown when a previous process died (M22).
-        transferScope.launch(Dispatchers.IO) {
-            ScreenshotManager.purgeShared(appContext)
-            ScreenshotManager.purgePreviews(appContext)
-        }
+        // Listed now, before any new folder can be made (Codex review round 2); deleted in the background.
+        val stale = ScreenshotManager.staleShares(appContext) + ScreenshotManager.leftoverPreviews(appContext)
+        transferScope.launch(Dispatchers.IO) { stale.forEach { it.deleteRecursively() } }
         // M22: a `screenshots` event (or a new stream) reloads the screenshots of that console.
         scope.launch {
             events.changes.collect { change ->

@@ -195,7 +195,7 @@ class ScreenshotManager(
                     throw failure(e)
                 }
                 file
-            }
+            }.also { File(directory, READY_MARKER).createNewFile() }
         } catch (e: Throwable) {
             directory.deleteRecursively()
             throw e
@@ -324,17 +324,29 @@ class ScreenshotManager(
         /** How long the copies of one share are kept for the app that received them. */
         const val SHARE_KEPT_MILLIS = 60 * 60 * 1000L
 
-        /** Deletes the share folders older than [SHARE_KEPT_MILLIS] (at each share and at start). */
-        fun purgeShared(context: Context, now: Long = System.currentTimeMillis()) {
-            sharedDirectory(context).listFiles().orEmpty()
-                .filter { now - it.lastModified() > SHARE_KEPT_MILLIS }
-                .forEach { it.deleteRecursively() }
-        }
+        /** Written in a share folder once its export is complete: its hour of retention starts then. */
+        private const val READY_MARKER = ".ready"
 
-        /** Deletes the temporary files of a screenshot being shown, left by a process that died (at start). */
-        fun purgePreviews(context: Context) {
-            context.cacheDir.listFiles().orEmpty().filter { it.name.startsWith("rl-shot-") }.forEach { it.deleteRecursively() }
-        }
+        /** A share folder whose export never completed (a process killed meanwhile) goes after a day. */
+        private const val UNFINISHED_KEPT_MILLIS = 24 * 60 * 60 * 1000L
+
+        /**
+         * The share folders to delete: ready for more than [SHARE_KEPT_MILLIS]
+         * (counted from the end of the export, Codex review round 2), or
+         * unfinished for more than a day; an export in progress stays.
+         */
+        fun staleShares(context: Context, now: Long = System.currentTimeMillis()): List<File> =
+            sharedDirectory(context).listFiles().orEmpty().filter { dir ->
+                val ready = File(dir, READY_MARKER)
+                if (ready.exists()) now - ready.lastModified() > SHARE_KEPT_MILLIS else now - dir.lastModified() > UNFINISHED_KEPT_MILLIS
+            }
+
+        /** Deletes the stale share folders (at each share). */
+        fun purgeShared(context: Context) = staleShares(context).forEach { it.deleteRecursively() }
+
+        /** The temporary files of a screenshot being shown, left by a process that died (listed at start). */
+        fun leftoverPreviews(context: Context): List<File> =
+            context.cacheDir.listFiles().orEmpty().filter { it.name.startsWith("rl-shot-") }
 
         private fun mimeType(shot: Screenshot) = when (shot.format) {
             ScreenshotFormats.JPEG -> "image/jpeg"

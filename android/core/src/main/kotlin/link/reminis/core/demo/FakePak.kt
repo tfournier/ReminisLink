@@ -273,6 +273,10 @@ class FakePak(
                 completesAnswered.incrementAndGet()
                 holdCompleteAnswer?.await(20, TimeUnit.SECONDS)
             }
+            if (method == "POST" && s.size == 3 && s[0] == "archives" && s[2] == "import") {
+                importsAnswered.incrementAndGet()
+                holdImportAnswer?.await(20, TimeUnit.SECONDS)
+            }
             response
         } catch (e: BadRequest) {
             error(request, 400, "invalid_request", e.message ?: "Invalid request")
@@ -1206,6 +1210,13 @@ class FakePak(
     /** Tests: while set, the answer of every `POST /uploads/{id}/complete` waits for it (the work is done first). */
     @Volatile
     var holdCompleteAnswer: java.util.concurrent.CountDownLatch? = null
+
+    /** Tests: while set, the answer of every `POST /archives/{id}/import` waits for it (the request is handled first). */
+    @Volatile
+    var holdImportAnswer: java.util.concurrent.CountDownLatch? = null
+
+    /** Tests: `POST /archives/{id}/import` requests handled (their answer may be held). */
+    val importsAnswered = java.util.concurrent.atomic.AtomicInteger()
 
     /** Tests: `complete` requests whose work is done (their answer may be held). */
     val completesAnswered = java.util.concurrent.atomic.AtomicInteger()

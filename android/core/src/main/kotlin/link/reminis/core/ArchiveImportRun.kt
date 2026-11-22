@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Steps of [ArchiveImportRun] (docs/specs/06-app-ios.md §4.5, M19). */
 sealed interface ArchiveStep {
@@ -41,7 +42,8 @@ sealed interface ArchiveStep {
     val holdsTheScreen: Boolean get() = this is Preparing || this is Sending || this is Inspecting || this is Starting
 }
 
-private const val WATCH_POLLS = 300
+/** How long a job whose screen is gone is followed; then its staging entry is left to the 24 h purge. */
+private const val WATCH_MILLIS = 10 * 60 * 1000L
 private const val WATCH_INTERVAL_MILLIS = 2_000L
 
 /** A failed `archive-import` job: its error, as the console reports it. */
@@ -264,13 +266,17 @@ class ArchiveImportRun(
     private fun watchJob(id: String) {
         val started = identity
         durableScope.launch {
-            repeat(WATCH_POLLS) {
-                if (jobs.get(deviceId, id)?.isFinished == true || pairing() != started) return@repeat
-                delay(WATCH_INTERVAL_MILLIS)
-                runCatching { jobs.refresh(deviceId) }
+            // Bounded as a whole (Codex review round 2): polls that time out cannot stretch it.
+            withTimeoutOrNull(WATCH_MILLIS) {
+                while (jobs.get(deviceId, id)?.isFinished != true && pairing() == started) {
+                    delay(WATCH_INTERVAL_MILLIS)
+                    runCatching { jobs.refresh(deviceId) }
+                }
             }
-            val tracked = jobs.get(deviceId, id) ?: return@launch
-            if (tracked.isFinished && tracked.job?.state != JobStates.SUCCEEDED) dropStaging()
+            val tracked = jobs.get(deviceId, id)
+            if (tracked != null && tracked.isFinished && tracked.job?.state != JobStates.SUCCEEDED) dropStaging()
+            // The watcher was the job's owner until now: the Transfers row may go once cleared.
+            if (tracked?.isFinished == true) jobs.consume(deviceId, id) else jobs.disown(deviceId, id)
         }
     }
 
@@ -360,7 +366,9 @@ class ArchiveImportRun(
      */
     fun abandon() {
         abandoned = true
-        jobId?.let { jobs.disown(deviceId, it) }
+        // During Starting and Importing the job stays owned (by the watcher, Codex review round 2):
+        // "Clear finished" in Transfers cannot drop the outcome the cleanup needs.
+        if (_step.value != ArchiveStep.Starting && _step.value != ArchiveStep.Importing) jobId?.let { jobs.disown(deviceId, it) }
         when (_step.value) {
             is ArchiveStep.Succeeded -> return
             // The answer of POST /import decides: a failure deletes the archive (fail()), a job is watched.

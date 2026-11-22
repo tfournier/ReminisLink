@@ -223,10 +223,18 @@ class ArchiveScreenshotTest {
         val run = run(ArchiveTarget.Game(dash.id))
         run.start(copy(export(dash.id, false)), "a.reminislink.zip")
         run.awaitStep { it == ArchiveStep.Ready }
-        // The target is gone: POST /import answers 404 after the screen closed.
+        // The target is gone: POST /import is refused, and its answer arrives after the screen closed
+        // (held by the fake pak until then: Codex review round 2).
         client.deleteGame(dash.id, keepSave = false)
+        val hold = java.util.concurrent.CountDownLatch(1)
+        demo.pak.holdImportAnswer = hold
         run.confirm("Import")
+        waitUntil("POST /import handled, answer held") { demo.pak.importsAnswered.get() == 1 }
+        assertEquals(ArchiveStep.Starting, run.step.value)
         run.abandon()
+        assertEquals("nothing deleted before the answer", 1, demo.pak.stagedCount)
+        demo.pak.holdImportAnswer = null
+        hold.countDown()
         waitUntil("deleted after the refusal") { demo.pak.stagedCount == 0 }
     }
 
@@ -240,7 +248,14 @@ class ArchiveScreenshotTest {
         run.confirm("Import")
         run.awaitStep { it == ArchiveStep.Importing }
         run.abandon()
+        // "Clear finished" in Transfers as soon as the failure shows: the watcher still owns the job
+        // and reads its outcome (Codex review round 2).
+        val id = run.jobId!!
+        waitUntil("the failure known") { kotlinx.coroutines.runBlocking { jobs.refresh(demo.deviceId) }; jobs.get(demo.deviceId, id)?.isFinished == true }
+        jobs.clearFinished(demo.deviceId)
+        assertNotNull("kept for its owner", jobs.get(demo.deviceId, id))
         waitUntil("deleted once the job failed") { demo.pak.stagedCount == 0 }
+        waitUntil("the row goes once read") { jobs.get(demo.deviceId, id) == null }
     }
 
     @Test
