@@ -17,7 +17,7 @@ version, run `ci_scripts/release_notes.sh sync`, commit, then tag
 `ios-vX.Y.Z` (or `make ios-vX.Y.Z`). A pre-release (`ios-beta-vX.Y.Z-beta.N`, from `make ios-vX.Y.Z-beta.N`)
 goes to TestFlight only and needs no section of its own.
 
-## Unreleased
+## 1.1.0
 
 ### English
 
