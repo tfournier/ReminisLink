@@ -103,6 +103,8 @@ class FakePak(
         var art: Blob?,
         /** The archived versions of the resume state, newest first (M5 resume history). */
         val resume: MutableList<ResumeEntry> = mutableListOf(),
+        /** The clock file next to the save (M9 sync lists and serves it; it stays when the save is replaced). */
+        var rtc: Blob? = null,
     ) {
         val fileName: String get() = path.substringAfterLast('/')
         val name: String
@@ -236,6 +238,8 @@ class FakePak(
             art = if (game.hasArt) Blob.of(DemoArtwork.png(256, 256, index * 7 + system.tag.length)) else null,
         )
         if (game.hasSave) {
+            // The first game of each system has a real-time clock file, as a game with a clock would.
+            if (index == 0) state.rtc = Blob.of(ByteArray(16) { (it * 13 + system.tag.length).toByte() })
             state.backups += BackupState("bk_20261118T170000Z_a1b2", "Before the final boss", base - 3_600_000, Blob(131_072, null, 11), "manual")
             state.backups += BackupState("bk_20261117T090000Z_c3d4", null, base - 90_000_000, Blob(131_072, null, 12), "before-replace")
         }
@@ -397,6 +401,9 @@ class FakePak(
         m == "GET" && s == listOf("systems") -> json(r, 200, systemsJson())
         m == "GET" && s == listOf("games") && allGamesUnsupported -> error(r, 404, "not_found", "No route")
         m == "GET" && s == listOf("games") -> json(r, 200, allGames())
+        m == "GET" && s == listOf("saves") -> json(r, 200, savesJson())
+        m == "GET" && s == listOf("states") && statesUnsupported -> error(r, 404, "not_found", "No route")
+        m == "GET" && s == listOf("states") -> json(r, 200, statesJson())
         m == "GET" && s.size == 3 && s[0] == "systems" && s[2] == "games" -> systemGames(r, s[1])
         s.size >= 2 && s[0] == "games" -> gameRoute(r, m, s, body)
         m == "POST" && s == listOf("uploads") -> createUpload(r, body)
@@ -469,6 +476,84 @@ class FakePak(
     }
 
     private fun gameId(system: SystemState, game: GameState) = DemoLibrary.id(system.def.folder + "/" + game.path)
+
+    // MARK: sync listings (M9, M19)
+
+    /** SHA-256 of the blobs listed, computed once per blob (their content never changes). */
+    private val blobHashes = java.util.IdentityHashMap<Blob, String>()
+
+    private fun sha256(blob: Blob): String = blobHashes.getOrPut(blob) { hash(blob) }
+
+    private fun hash(blob: Blob): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val buffer = Buffer()
+        val source = blob.source()
+        while (source.read(buffer, 64L * 1024) >= 0) digest.update(buffer.readByteArray())
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    /** Tests: answers `GET /states` like a pak older than M19 (`404`). */
+    @Volatile
+    var statesUnsupported = false
+
+    /** The thumbnail served for a state slot (drawn by the code, the same at every request). */
+    private fun thumbnail(game: GameState, slot: Int) = Blob.of(DemoArtwork.png(160, 120, slot * 5 + game.name.length))
+
+    private fun savesJson() = buildJsonObject {
+        put("saves", buildJsonArray {
+            for (system in systems) for (game in system.games) {
+                val save = game.save ?: continue
+                add(buildJsonObject {
+                    put("gameId", gameId(system, game))
+                    put("systemId", system.def.id)
+                    put("gameName", game.name)
+                    put("fileName", game.fileName)
+                    put("path", "Saves/${system.def.tag}/${game.fileName}.sav")
+                    put("sizeBytes", save.size)
+                    put("modifiedAt", time(game.saveModifiedAt))
+                    put("sha256", sha256(save))
+                    put("rtc", game.rtc?.let { rtc ->
+                        buildJsonObject {
+                            put("path", "Saves/${system.def.tag}/${game.fileName}.rtc")
+                            put("sizeBytes", rtc.size)
+                            put("modifiedAt", time(game.saveModifiedAt))
+                            put("sha256", sha256(rtc))
+                        }
+                    } ?: JsonNull)
+                })
+            }
+        })
+        put("truncated", false)
+        put("generatedAt", time(nowMillis()))
+    }
+
+    private fun statesJson() = buildJsonObject {
+        put("states", buildJsonArray {
+            for (system in systems) for (game in system.games) {
+                for ((slot, st) in game.slots.toSortedMap()) {
+                    add(buildJsonObject {
+                        put("gameId", gameId(system, game))
+                        put("systemId", system.def.id)
+                        put("gameName", game.name)
+                        put("fileName", game.fileName)
+                        put("slot", slot)
+                        put("path", ".userdata/shared/${system.def.tag}-demo/${game.fileName}.st$slot")
+                        put("sizeBytes", st.state.size)
+                        put("modifiedAt", time(st.modifiedAt))
+                        put("sha256", sha256(st.state))
+                        put("thumbnail", if (st.hasThumbnail) {
+                            val png = thumbnail(game, slot)
+                            buildJsonObject { put("sizeBytes", png.size); put("sha256", hash(png)) }
+                        } else {
+                            JsonNull
+                        })
+                    })
+                }
+            }
+        })
+        put("truncated", false)
+        put("generatedAt", time(nowMillis()))
+    }
 
     private fun find(gameId: String): Pair<SystemState, GameState>? {
         for (system in systems) for (game in system.games) if (gameId(system, game) == gameId) return system to game
@@ -700,6 +785,7 @@ class FakePak(
 
     private fun saveRoute(r: Request, m: String, system: SystemState, game: GameState, rest: List<String>, body: ByteArray): Response = when {
         m == "GET" && rest.isEmpty() -> game.save?.let { stream(r, it) } ?: error(r, 404, "not_found", "No save")
+        m == "GET" && rest == listOf("rtc") -> game.rtc?.takeIf { game.save != null }?.let { stream(r, it) } ?: error(r, 404, "not_found", "No clock file")
         m == "PUT" && rest.isEmpty() -> {
             if (body.size > 64 shl 20) {
                 error(r, 413, "too_large", "Body too large")
@@ -785,7 +871,7 @@ class FakePak(
         return when {
             m == "GET" && action.isEmpty() -> stream(r, st.state)
             m == "GET" && action == listOf("thumbnail") ->
-                if (st.hasThumbnail) stream(r, Blob.of(DemoArtwork.png(160, 120, slot * 5 + game.name.length)), "image/png") else error(r, 404, "not_found", "No thumbnail")
+                if (st.hasThumbnail) stream(r, thumbnail(game, slot), "image/png") else error(r, 404, "not_found", "No thumbnail")
             m == "DELETE" && action.isEmpty() -> {
                 if (st.lockCopy != null) return error(r, 409, "state_locked", "State is locked")
                 game.slots.remove(slot)

@@ -528,6 +528,20 @@ class ApiClient(
         body = ProtocolJson.encodeToString(ScreenshotTrashRequest(ids)).toRequestBody(JSON),
     )
 
+    // MARK: sync (M9, M19)
+
+    /**
+     * `GET /saves`: every save of the console with its SHA-256 (M9). The pak
+     * hashes every save the first time: up to 180 s without a byte, as iOS.
+     */
+    suspend fun saves(): SaveList = decode(signedResponse(client = slowHttp) { request("GET", listOf("saves"), signed = true) }, 200)
+
+    /** `GET /states`: every state with its SHA-256 and its thumbnail's (M19); `404`/`405` from an older pak. */
+    suspend fun allStates(): StateList = decode(signedResponse(client = slowHttp) { request("GET", listOf("states"), signed = true) }, 200)
+
+    /** The pinned client with the long read timeout of the sync listings. */
+    private val slowHttp: OkHttpClient by lazy { http.newBuilder().readTimeout(SYNC_LIST_TIMEOUT_SECONDS, TimeUnit.SECONDS).build() }
+
     // MARK: downloads
 
     /**
@@ -765,6 +779,9 @@ class ApiClient(
         const val CLIENT_PROTOCOL_VERSION = "1.0.0"
         const val PLATFORM_HEADER = "X-RL-Platform"
         const val PLATFORM = "android"
+
+        /** How long `GET /saves` and `GET /states` may stay silent (the pak hashes every file first). */
+        const val SYNC_LIST_TIMEOUT_SECONDS = 180L
 
         /** Larger saves go through `POST /uploads` (target `save`). */
         const val MAX_SAVE_BODY_BYTES = 64L shl 20
