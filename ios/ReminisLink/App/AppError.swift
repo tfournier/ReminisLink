@@ -132,6 +132,18 @@ enum AppError: Error, Equatable {
     /// M18: `422` of `replace`: only the save of a game still on the
     /// console can replace its current save.
     case trashReplaceRefused
+    /// M22: a pak older than M22 (`404` on `/screenshots`).
+    case screenshotsNeedNewerPak
+    /// M22: a screenshot left the console meanwhile (`404`): the list is
+    /// read again.
+    case screenshotGone
+    /// M22: the app may not add to the photo library (denied in Settings).
+    case photosDenied
+    /// M22: too large to show on the detail screen (it can be shared).
+    case screenshotTooLarge
+    /// M22: only this many screenshots went to the trash (a later batch
+    /// failed); the list and the trash were read again.
+    case screenshotsPartlyMoved(Int)
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -149,6 +161,8 @@ enum AppError: Error, Equatable {
         switch error {
         case let error as AppError: self = error
         case is CancellationError: self = .cancelled
+        // M22: a screenshot download stopped at its limit.
+        case is DownloadLimitExceeded: self = .screenshotTooLarge
         case let error as APIError: self = .api(error)
         case is ResolveError: self = .consoleNotFound
         case DeviceLookupError.localNetworkDenied: self = .localNetworkDenied
@@ -251,6 +265,16 @@ enum AppError: Error, Equatable {
             String(localized: "Update ReminisLink on the console to export and import game archives.")
         case .trashReplaceRefused:
             String(localized: "Only the save of a game still on the console can replace its current save.")
+        case .screenshotsNeedNewerPak:
+            String(localized: "Update ReminisLink on the console to see its screenshots.")
+        case .screenshotGone:
+            String(localized: "This screenshot is no longer on the console. The list was refreshed.")
+        case .screenshotTooLarge:
+            String(localized: "This screenshot is too large to show here. Share it to open it in another app.")
+        case .screenshotsPartlyMoved(let count):
+            String(localized: "Only \(count) screenshots went to the trash; the others did not. The screenshots and the trash were refreshed.")
+        case .photosDenied:
+            String(localized: "ReminisLink may not add photos to your library. Allow it in Settings, or use Share to save the screenshots.")
         case .trashEntryGone:
             String(localized: "This entry is no longer in the trash of the console, or ReminisLink on the console is too old to restore it (update it).")
         case .cancelled:
@@ -264,7 +288,7 @@ enum AppError: Error, Equatable {
 
     var action: RecoveryAction? {
         switch self {
-        case .localNetworkDenied: .openSettings
+        case .localNetworkDenied, .photosDenied: .openSettings
         case .consoleNotFound: .retry
         case .api(let error):
             switch error {
@@ -290,6 +314,7 @@ enum AppError: Error, Equatable {
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
         case .invalidArchive, .archiveGameExists, .archiveEmpty, .archivesNeedNewerPak: nil
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone, .trashReplaceRefused: nil
+        case .screenshotsNeedNewerPak, .screenshotGone, .screenshotTooLarge, .screenshotsPartlyMoved: nil
         case .pairingClosed, .pairingNotSynced, .identityNotArrived, .unexpected: .retry
         case .noPairingCodeInPicture, .pictureTooLarge: nil
         case .identityMissing: .resetIdentity
@@ -361,6 +386,19 @@ enum AppError: Error, Equatable {
             let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
             if status == 404 || status == 405 { return .needsNewerPak }
         }
+        return error
+    }
+
+    /// The error of a screenshot route (M22): a `404` on the list (or an
+    /// older pak's `405`) is ``screenshotsNeedNewerPak``, on one screenshot
+    /// ``screenshotGone``.
+    static func screenshots(_ error: Error, list: Bool = false) -> AppError {
+        let error = AppError(error)
+        guard case .api(let api) = error else { return error }
+        let server: ServerError? = if case .server(let s) = api { s } else { nil }
+        let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
+        if list, status == 404 || status == 405 { return .screenshotsNeedNewerPak }
+        if !list, status == 404 { return .screenshotGone }
         return error
     }
 

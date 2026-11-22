@@ -468,10 +468,13 @@ public struct TrashEntry: Codable, Sendable, Equatable, Hashable, Identifiable {
     public let files: [String]
     public let sizeBytes: Int64
     public let expiresAt: Date
+    /// M22: holds something moved by mistake; never purged automatically
+    /// (nil from a pak that does not say: false).
+    public let held: Bool?
 
     public init(
         id: String, trashedAt: Date, reason: String, label: String, files: [String],
-        sizeBytes: Int64, expiresAt: Date
+        sizeBytes: Int64, expiresAt: Date, held: Bool? = nil
     ) {
         self.id = id
         self.trashedAt = trashedAt
@@ -480,6 +483,7 @@ public struct TrashEntry: Codable, Sendable, Equatable, Hashable, Identifiable {
         self.files = files
         self.sizeBytes = sizeBytes
         self.expiresAt = expiresAt
+        self.held = held
     }
 }
 

@@ -161,6 +161,16 @@
         }
       }
     },
+    "%lld Selected" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld sélectionnée(s)"
+          }
+        }
+      }
+    },
     "%lld cheats" : {
       "localizations" : {
         "en" : {
@@ -437,6 +447,26 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "%lld screenshots" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld captures d’écran"
+          }
+        }
+      }
+    },
+    "%lld screenshots were added to Photos." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld captures ont été ajoutées à Photos."
           }
         }
       }
@@ -1893,12 +1923,32 @@
         }
       }
     },
+    "Demo mode: with a real console, the screenshots are added to Photos here; in the demo, nothing leaves the app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode démo : avec une vraie console, les captures sont ajoutées à Photos ici ; dans la démo, rien ne sort de l’app."
+          }
+        }
+      }
+    },
     "Description" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Description"
+          }
+        }
+      }
+    },
+    "Deselect All" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout désélectionner"
           }
         }
       }
@@ -2907,6 +2957,16 @@
         }
       }
     },
+    "It stays 30 days in the trash of the console, where you can restore it." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elle reste 30 jours dans la corbeille de la console, où tu peux la restaurer."
+          }
+        }
+      }
+    },
     "Its pairing will be replaced on all your Apple devices. The console must present the same identity as its QR code." : {
       "localizations" : {
         "fr" : {
@@ -2973,6 +3033,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gardé 24 heures dans la zone temporaire de la console, pour l’importer dans un jeu."
+          }
+        }
+      }
+    },
+    "Kept until you delete it: it holds an item moved by mistake." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gardée jusqu’à ce que tu la supprimes : elle contient un élément déplacé par erreur."
           }
         }
       }
@@ -3211,6 +3281,26 @@
         }
       }
     },
+    "More" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus"
+          }
+        }
+      }
+    },
+    "Move %lld screenshots to the trash of the console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre %lld captures à la corbeille de la console ?"
+          }
+        }
+      }
+    },
     "Move this game to another console, or keep its data: the save, the states, the cheats and the art in one file. On import, whatever is replaced goes to the console's trash first." : {
       "localizations" : {
         "fr" : {
@@ -3221,12 +3311,32 @@
         }
       }
     },
+    "Move this screenshot to the trash of the console?" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre cette capture à la corbeille de la console ?"
+          }
+        }
+      }
+    },
     "Move to Trash" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mettre à la corbeille"
+          }
+        }
+      }
+    },
+    "Move to Trash…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre à la corbeille…"
           }
         }
       }
@@ -3441,6 +3551,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Aucun QR code ReminisLink n’a été trouvé dans cette image. Utilise une image nette où l’on voit tout le QR code affiché par la console."
+          }
+        }
+      }
+    },
+    "No Screenshots" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune capture d’écran"
           }
         }
       }
@@ -3715,12 +3835,32 @@
         }
       }
     },
+    "Only %lld screenshots went to the trash; the others did not. The screenshots and the trash were refreshed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seules %lld captures sont allées à la corbeille ; les autres non. Les captures et la corbeille ont été actualisées."
+          }
+        }
+      }
+    },
     "Only if pairing keeps saying that the identity of your Apple devices has not arrived on this device." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Seulement si l’appairage indique toujours que l’identité de tes appareils Apple n’est pas arrivée sur cet appareil."
+          }
+        }
+      }
+    },
+    "Only the 5,000 newest screenshots are shown." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seules les 5 000 captures les plus récentes sont affichées."
           }
         }
       }
@@ -3781,6 +3921,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ouvrir le nouveau jeu"
+          }
+        }
+      }
+    },
+    "Opens the screenshot." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvre la capture."
           }
         }
       }
@@ -4191,6 +4341,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ReminisLink n’a pas accès à la caméra. Autorise-le dans Réglages, ou importe une image du QR code."
+          }
+        }
+      }
+    },
+    "ReminisLink may not add photos to your library. Allow it in Settings, or use Share to save the screenshots." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ReminisLink n’a pas le droit d’ajouter des photos à ta photothèque. Autorise-le dans Réglages, ou utilise Partager pour enregistrer les captures."
           }
         }
       }
@@ -4675,6 +4835,26 @@
         }
       }
     },
+    "Save to Photos" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistrer dans Photos"
+          }
+        }
+      }
+    },
+    "Saved to Photos" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enregistré dans Photos"
+          }
+        }
+      }
+    },
     "Saves are copied to your iCloud Drive, in the ReminisLink folder of the Files app." : {
       "localizations" : {
         "fr" : {
@@ -4779,6 +4959,26 @@
         }
       }
     },
+    "Screenshots" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Captures d’écran"
+          }
+        }
+      }
+    },
+    "Screenshots taken on the console appear here." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les captures d’écran prises sur la console s’affichent ici."
+          }
+        }
+      }
+    },
     "Search" : {
       "localizations" : {
         "fr" : {
@@ -4799,12 +4999,52 @@
         }
       }
     },
+    "Select" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionner"
+          }
+        }
+      }
+    },
+    "Select All" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tout sélectionner"
+          }
+        }
+      }
+    },
+    "Select Screenshots" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionne des captures"
+          }
+        }
+      }
+    },
     "Select a game" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Choisis un jeu"
+          }
+        }
+      }
+    },
+    "Selects or deselects the screenshot." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionne ou désélectionne la capture."
           }
         }
       }
@@ -4935,6 +5175,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Partager"
+          }
+        }
+      }
+    },
+    "Share…" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Partager…"
           }
         }
       }
@@ -5305,6 +5555,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Système"
+          }
+        }
+      }
+    },
+    "Taken" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prise le"
           }
         }
       }
@@ -6581,6 +6841,16 @@
         }
       }
     },
+    "The screenshot was added to Photos." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La capture a été ajoutée à Photos."
+          }
+        }
+      }
+    },
     "The state goes to the trash of the console, removed automatically after 30 days or when it is emptied." : {
       "localizations" : {
         "fr" : {
@@ -6675,12 +6945,12 @@
         }
       }
     },
-    "The tools and emulators installed on the console." : {
+    "The tools and emulators installed on the console, and the screenshots taken on it." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les outils et émulateurs installés sur la console."
+            "value" : "Les outils et émulateurs installés sur la console, et les captures d’écran prises dessus."
           }
         }
       }
@@ -6701,6 +6971,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La version est en cours d’envoi vers la console. Suis-la dans Transferts."
+          }
+        }
+      }
+    },
+    "They stay 30 days in the trash of the console, where you can restore them." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elles restent 30 jours dans la corbeille de la console, où tu peux les restaurer."
           }
         }
       }
@@ -7169,6 +7449,26 @@
         }
       }
     },
+    "This screenshot is no longer on the console. The list was refreshed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette capture n’est plus sur la console. La liste a été actualisée."
+          }
+        }
+      }
+    },
+    "This screenshot is too large to show here. Share it to open it in another app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette capture est trop grande pour être affichée ici. Partage-la pour l’ouvrir dans une autre app."
+          }
+        }
+      }
+    },
     "This state is locked on the console. Unlock it first." : {
       "localizations" : {
         "fr" : {
@@ -7509,6 +7809,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mets à jour ReminisLink sur la console pour gérer ses apps et parcourir sa carte SD."
+          }
+        }
+      }
+    },
+    "Update ReminisLink on the console to see its screenshots." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mets à jour ReminisLink sur la console pour voir ses captures d’écran."
           }
         }
       }

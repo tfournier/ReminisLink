@@ -1,4 +1,5 @@
 New:
+• Screenshots: the Console tab lists the screenshots taken on your handheld, by day. Open one, share it, save it to Photos or Files, or select several to share or move them to the trash of the handheld (where they can be restored).
 • iPad and Mac: the same app now runs on iPad (lists and games side by side on a wide screen, every orientation, Split View and Stage Manager) and on Macs with Apple silicon.
 • Restore from the trash: tap an entry of the Trash tab to see what comes back, then restore it. A deleted game comes back with its save, states, cheats and box art; a removed app or a replaced file comes back too. A file already on the SD card is never replaced: restore under a free name instead, or, for a replaced save, replace the current save (kept first).
 • Game archives: export everything of a game (save, clock file, states, cheats, box art, and the game file if you wish) as one file, and import it into the same handheld or another one. Whatever it replaces is kept first.

@@ -27,6 +27,7 @@ struct LibraryChange: Equatable {
 /// - 35 s without a byte: the connection is lost (as a network failure);
 /// - `library`: the screens reload (debounced, by system when known);
 /// - `job`: jobs follow the events, the screens stop polling;
+/// - `paks` and `screenshots` (M12, M22): their screens reload;
 /// - `device`: the dashboard (battery, connected devices, storage).
 /// A pak without `/events` (`404`) keeps the polling for this session.
 extension ConsoleSession {
@@ -103,6 +104,10 @@ extension ConsoleSession {
         case .paks:
             // M12: installed or deleted by any client.
             paks.paksChanged()
+        case .screenshots:
+            // M22: moved to the trash or restored by any client.
+            screenshots.screenshotsChanged()
+            Task { await loadTrash() }
         case .shutdown, .unknown:
             break
         }
@@ -134,8 +139,10 @@ extension ConsoleSession {
         guard isCurrent() else { return }
         lastLibraryChange = nil
         libraryRevision += 1
-        // M12: the paks may have changed meanwhile too.
+        // M12: the paks may have changed meanwhile too, and the screenshots
+        // (M22).
         paks.paksChanged()
+        screenshots.screenshotsChanged()
         await loadTrash()
         if isCurrent() { catchUpsDone += 1 }
     }

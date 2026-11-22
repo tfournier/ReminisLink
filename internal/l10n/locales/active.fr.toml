@@ -237,6 +237,9 @@ other = "Sauvegarde remplacée"
 [notice_save_restored]
 other = "Sauvegarde restaurée"
 
+[notice_screenshots_deleted]
+other = "Captures d'écran mises à la corbeille"
+
 [notice_state_deleted]
 other = "État mis à la corbeille"
 

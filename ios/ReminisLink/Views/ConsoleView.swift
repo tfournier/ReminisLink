@@ -55,8 +55,13 @@ struct ConsoleView: View {
                         Label("Apps", systemImage: "square.stack.3d.down.right")
                     }
                     .accessibilityIdentifier("console.paks")
+                    // M22: the screenshots taken on the console.
+                    NavigationLink(value: Route.screenshots(deviceId)) {
+                        Label("Screenshots", systemImage: "camera.viewfinder")
+                    }
+                    .accessibilityIdentifier("console.screenshots")
                 } footer: {
-                    Text("The tools and emulators installed on the console.")
+                    Text("The tools and emulators installed on the console, and the screenshots taken on it.")
                 }
                 Section {
                     ForEach(status.storage) { storage in
@@ -135,11 +140,18 @@ struct TrashView: View {
                         entryToRestore = entry
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.label).font(.headline)
+                            Text(entry.displayLabel).font(.headline)
                             Text(entry.sizeBytes.byteString)
-                            Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            if entry.held == true {
+                                // M22: never purged automatically.
+                                Text("Kept until you delete it: it holds an item moved by mistake.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -198,7 +210,7 @@ struct TrashView: View {
                 Task { await run { try await session.deleteTrashEntry(entry.id) } }
             }
         } message: { entry in
-            Text("\(entry.label) will be permanently deleted from the SD card. This cannot be undone.")
+            Text("\(entry.displayLabel) will be permanently deleted from the SD card. This cannot be undone.")
         }
     }
 
@@ -210,6 +222,17 @@ struct TrashView: View {
             let error = AppError(error)
             if !error.isCancellation { self.error = error }
         }
+    }
+}
+
+extension TrashEntry {
+    /// The label shown: the pak's, except for several screenshots (M22),
+    /// counted in the user's language.
+    var displayLabel: String {
+        if let count = screenshotCount, count > 1 {
+            return String(localized: "\(count) screenshots")
+        }
+        return label
     }
 }
 

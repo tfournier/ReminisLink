@@ -48,6 +48,22 @@
           }
         }
       }
+    },
+    "NSPhotoLibraryAddUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To save the screenshots of your console to your photo library."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour enregistrer les captures d'écran de ta console dans ta photothèque."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

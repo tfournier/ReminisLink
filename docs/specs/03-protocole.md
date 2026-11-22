@@ -166,7 +166,7 @@ Les suites Go et Swift DOIVENT les lire et les vérifier.
 - `systemId` = `b64u` du nom du dossier système (ex. `Game Boy Advance (GBA)`).
 - `gameId` = `b64u` du chemin du jeu relatif à `Roms/`, séparateur `/` (ex. `Game Boy Advance (GBA)/Hacks/Sky Garden Quest DX.gba`).
 - `folderId` = `b64u` du chemin d'un sous-dossier relatif à `Roms/`, même format.
-- `sdFileId`, `stagingId`, `backupId`, `entryId`, `uploadId`, `jobId`, `pakId` et `sdEntryId` (M12) : identifiants générés par le pak, opaques eux aussi.
+- `sdFileId`, `stagingId`, `backupId`, `entryId`, `uploadId`, `jobId`, `pakId` et `sdEntryId` (M12), `screenshotId` (M22) : identifiants générés par le pak, opaques eux aussi.
 - Ce sont des identifiants **opaques** : l'app ne les décode pas et ne les construit pas, elle les renvoie tels quels.
 - Le pak DOIT décoder, refuser tout composant `..`, chemin absolu ou caractère nul, puis vérifier que le chemin final, liens symboliques résolus, reste sous la racine attendue (`400 invalid_id` sinon).
 - Le décodage est **strict** : base64url non canonique, UTF-8 invalide, caractère de contrôle, `\` et chemin non canonique (`a//b`, `./a`, `a/`, `a/.`) sont refusés (`400 invalid_id`) au lieu d'être nettoyés par `filepath.Clean`, pour qu'un fichier ait un seul identifiant. *(Décision du 18/11/2026.)*

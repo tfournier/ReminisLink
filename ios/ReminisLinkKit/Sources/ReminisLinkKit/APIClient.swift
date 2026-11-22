@@ -751,6 +751,55 @@ public actor APIClient {
         )
     }
 
+    // MARK: - Screenshots (milestone M22)
+
+    /// `GET /screenshots`: the screenshots of the console, newest first. A
+    /// pak older than M22 answers `404`.
+    public func screenshots() async throws -> ScreenshotList {
+        try await signedJSON(method: "GET", segments: ["screenshots"])
+    }
+
+    /// The largest preview accepted (the pak sends a JPEG of at most
+    /// 320 x 320, a few tens of KB).
+    public static let maxScreenshotThumbnailBytes = 2 << 20
+
+    /// `GET /screenshots/{id}/thumbnail`: the JPEG preview, nil when the
+    /// pak makes none (`404`: a BMP, an image it cannot decode, or a
+    /// screenshot gone meanwhile).
+    public func screenshotThumbnail(id: String) async throws -> Data? {
+        let (data, response) = try await performSigned(method: "GET", segments: ["screenshots", id, "thumbnail"])
+        if response.statusCode == 404 { return nil }
+        try check(response, data: data, accept: [200])
+        guard data.count <= Self.maxScreenshotThumbnailBytes else {
+            throw APIError.invalidResponse("screenshot preview too large")
+        }
+        return data
+    }
+
+    /// `GET /screenshots/{id}`: the whole image, streamed to disk into a
+    /// new directory under `directory`, named after `Content-Disposition`
+    /// (else `fallbackName`).
+    ///
+    /// `maxBytes`: the download stops as soon as the body is announced or
+    /// grows larger, with ``DownloadLimitExceeded`` (Codex review of M22:
+    /// the file can be replaced by a larger one after it was listed).
+    public func downloadScreenshot(
+        id: String, fallbackName: String = "screenshot.png", into directory: URL, maxBytes: Int64? = nil,
+        progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) async throws -> DownloadedFile {
+        try await downloadSigned(
+            segments: ["screenshots", id], fallbackName: fallbackName, into: directory, maxBytes: maxBytes, progress: progress
+        )
+    }
+
+    /// `POST /screenshots/trash`: 1 to 500 screenshots go to the trash in
+    /// one entry (reason `delete-screenshot`), all or nothing (`404` with
+    /// `details.missing` when one is gone). A write: `429 device_busy` when
+    /// another write ran too long.
+    public func trashScreenshots(_ request: ScreenshotTrashRequest) async throws -> TrashMoveResult {
+        try await signedJSON(method: "POST", segments: ["screenshots", "trash"], body: ProtocolJSON.encoder().encode(request))
+    }
+
     // MARK: - Plumbing
 
     /// Builds a request. Segments are percent-encoded one by one, and the
@@ -875,12 +924,12 @@ public actor APIClient {
     /// `Content-Disposition` (or `fallbackName`).
     private func downloadSigned(
         segments: [String], query: [(name: String, value: String)] = [], fallbackName: String, into directory: URL,
-        progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+        maxBytes: Int64? = nil, progress: (@Sendable (Int64, Int64?) -> Void)? = nil
     ) async throws -> DownloadedFile {
         let ((location, errorBody), response) = try await withSignedRequests(
             method: "GET", segments: segments, query: query, headers: [:], body: nil, bodyFile: nil, bodyFileSHA256: nil
         ) { request -> ((URL?, Data), HTTPURLResponse, Data) in
-            let (location, response) = try await self.transportDownload(request, progress: progress)
+            let (location, response) = try await self.transportDownload(request, maxBytes: maxBytes, progress: progress)
             guard response.statusCode != 200 else { return ((location, Data()), response, Data()) }
             // Not the file: its body is an error, small. Read it (the error
             // is decoded from it), then drop the file.
@@ -915,11 +964,17 @@ public actor APIClient {
     }
 
     private func transportDownload(
-        _ request: URLRequest, progress: (@Sendable (Int64, Int64?) -> Void)? = nil
+        _ request: URLRequest, maxBytes: Int64? = nil, progress: (@Sendable (Int64, Int64?) -> Void)? = nil
     ) async throws -> (URL, HTTPURLResponse) {
         let trust = PinnedTrust(pin: pin)
         do {
-            let (location, response) = if let progress {
+            let (location, response) = if let maxBytes {
+                // Byte-precise (Codex review of M22): never more than
+                // maxBytes on disk.
+                try await PakCappedFileDelegate.download(
+                    request, session: session, trust: trust, maxBytes: maxBytes, onReceived: progress ?? { _, _ in }
+                )
+            } else if let progress {
                 try await PakDownloadDelegate.download(request, session: session, trust: trust, onReceived: progress)
             } else {
                 try await session.download(for: request, delegate: PakTaskDelegate(trust: trust))
@@ -1108,22 +1163,28 @@ class PakTaskDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
 /// them, so the task is driven here. Redirections stay refused.
 final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @unchecked Sendable {
     private let onReceived: @Sendable (Int64, Int64?) -> Void
+    private let maxBytes: Int64?
     private let lock = NSLock()
     private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
     /// The file, moved out of the session's temporary location.
     private var kept: URL?
+    /// The body went over `maxBytes`: the task was cancelled.
+    private var tooLarge = false
 
-    private init(trust: PinnedTrust, onReceived: @escaping @Sendable (Int64, Int64?) -> Void) {
+    private init(trust: PinnedTrust, maxBytes: Int64?, onReceived: @escaping @Sendable (Int64, Int64?) -> Void) {
         self.onReceived = onReceived
+        self.maxBytes = maxBytes
         super.init(trust: trust, onSent: nil)
     }
 
-    /// Downloads `request` to a file of the app's temporary directory.
+    /// Downloads `request` to a file of the app's temporary directory; a
+    /// body announced or grown over `maxBytes` cancels it with
+    /// ``DownloadLimitExceeded``.
     static func download(
-        _ request: URLRequest, session: URLSession, trust: PinnedTrust,
+        _ request: URLRequest, session: URLSession, trust: PinnedTrust, maxBytes: Int64? = nil,
         onReceived: @escaping @Sendable (Int64, Int64?) -> Void
     ) async throws -> (URL, URLResponse) {
-        let delegate = PakDownloadDelegate(trust: trust, onReceived: onReceived)
+        let delegate = PakDownloadDelegate(trust: trust, maxBytes: maxBytes, onReceived: onReceived)
         let task = session.downloadTask(with: request)
         task.delegate = delegate
         return try await withTaskCancellationHandler {
@@ -1152,6 +1213,11 @@ final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @u
         _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
         totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64
     ) {
+        if let maxBytes, totalBytesWritten > maxBytes || totalBytesExpectedToWrite > maxBytes {
+            lock.withLock { tooLarge = true }
+            downloadTask.cancel()
+            return
+        }
         onReceived(totalBytesWritten, totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil)
     }
 
@@ -1164,8 +1230,11 @@ final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @u
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        let kept = lock.withLock { self.kept }
-        if let error {
+        let (kept, tooLarge) = lock.withLock { (self.kept, self.tooLarge) }
+        if tooLarge {
+            if let kept { try? FileManager.default.removeItem(at: kept) }
+            finish(.failure(DownloadLimitExceeded()))
+        } else if let error {
             if let kept { try? FileManager.default.removeItem(at: kept) }
             finish(.failure(error))
         } else if let kept, let response = task.response {
@@ -1174,6 +1243,130 @@ final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @u
             finish(.failure(URLError(.cannotCreateFile)))
         }
     }
+}
+
+/// Task delegate of a download with a byte-precise limit (Codex review of
+/// M22): a data task whose chunks are appended to a file of the app's
+/// temporary directory. A `Content-Length` over the limit cancels the task
+/// before any byte of the body; a chunk that would take the file over the
+/// limit is not written: the task is cancelled, the file deleted, and the
+/// download fails with ``DownloadLimitExceeded``. Never more than
+/// `maxBytes` bytes are written.
+final class PakCappedFileDelegate: PakTaskDelegate, URLSessionDataDelegate, @unchecked Sendable {
+    private let maxBytes: Int64
+    private let onReceived: @Sendable (Int64, Int64?) -> Void
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private let file: URL
+    private var handle: FileHandle?
+    private var written: Int64 = 0
+    private var expected: Int64?
+    private var tooLarge = false
+    private var writeError: Error?
+
+    private init(trust: PinnedTrust, maxBytes: Int64, onReceived: @escaping @Sendable (Int64, Int64?) -> Void) throws {
+        self.maxBytes = maxBytes
+        self.onReceived = onReceived
+        file = FileManager.default.temporaryDirectory.appending(path: "rl-dl-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        handle = try FileHandle(forWritingTo: file)
+        super.init(trust: trust, onSent: nil)
+    }
+
+    static func download(
+        _ request: URLRequest, session: URLSession, trust: PinnedTrust, maxBytes: Int64,
+        onReceived: @escaping @Sendable (Int64, Int64?) -> Void
+    ) async throws -> (URL, URLResponse) {
+        let delegate = try PakCappedFileDelegate(trust: trust, maxBytes: maxBytes, onReceived: onReceived)
+        let task = session.dataTask(with: request)
+        task.delegate = delegate
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.lock.withLock { delegate.continuation = continuation }
+                if Task.isCancelled {
+                    task.cancel()
+                    delegate.finish(.failure(CancellationError()))
+                } else {
+                    task.resume()
+                }
+            }
+        } onCancel: {
+            task.cancel()
+            delegate.finish(.failure(CancellationError()))
+        }
+    }
+
+    private func finish(_ result: Result<(URL, URLResponse), Error>) {
+        let (continuation, handle) = lock.withLock { () -> (CheckedContinuation<(URL, URLResponse), Error>?, FileHandle?) in
+            defer { self.continuation = nil; self.handle = nil }
+            return (self.continuation, self.handle)
+        }
+        try? handle?.close()
+        if case .failure = result { try? FileManager.default.removeItem(at: file) }
+        continuation?.resume(with: result)
+    }
+
+    func urlSession(
+        _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
+        let length = response.expectedContentLength
+        let allowed = lock.withLock { () -> Bool in
+            if length > maxBytes {
+                tooLarge = true
+                return false
+            }
+            expected = length > 0 ? length : nil
+            return true
+        }
+        completionHandler(allowed ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let report = lock.withLock { () -> (Int64, Int64?)? in
+            guard !tooLarge, writeError == nil, let handle else { return nil }
+            guard written + Int64(data.count) <= maxBytes else {
+                tooLarge = true
+                return nil
+            }
+            do {
+                try handle.write(contentsOf: data)
+            } catch {
+                writeError = error
+                return nil
+            }
+            written += Int64(data.count)
+            return (written, expected)
+        }
+        if let report {
+            onReceived(report.0, report.1)
+        } else {
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let (tooLarge, writeError) = lock.withLock { (self.tooLarge, self.writeError) }
+        if tooLarge {
+            finish(.failure(DownloadLimitExceeded()))
+        } else if let writeError {
+            finish(.failure(writeError))
+        } else if let error {
+            finish(.failure(error))
+        } else if let response = task.response {
+            finish(.success((file, response)))
+        } else {
+            finish(.failure(URLError(.cannotCreateFile)))
+        }
+    }
+}
+
+/// A download stopped because its body was announced or grew over its
+/// limit (`maxBytes`).
+public struct DownloadLimitExceeded: Error, Equatable, Sendable {
+    public init() {}
 }
 
 /// Task delegate of a request whose body is read in memory up to a limit:

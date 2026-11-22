@@ -88,6 +88,8 @@ var (
 	NoticePakDeleted        = &msg{ID: "notice_pak_deleted", Other: "App moved to the trash"}
 	NoticeImported          = &msg{ID: "notice_imported", Other: "Game data imported"}
 	NoticeImportFailed      = &msg{ID: "notice_import_failed", Other: "Import failed"}
+	// NoticeScreenshotsDeleted (M22): POST /screenshots/trash.
+	NoticeScreenshotsDeleted = &msg{ID: "notice_screenshots_deleted", Other: "Screenshots moved to the trash"}
 )
 
 // Other screens
@@ -154,5 +156,5 @@ var All = []*msg{
 	DeviceStateConnected, DeviceStateDisconnected, DeviceStateSeparator, MsgDisconnected, MsgDeviceError,
 	ActPak, ActPakFile, NoticePakInstalled, NoticePakInstallFailed, NoticePakDeleted,
 	ActImport, ActImportFile, NoticeImported, NoticeImportFailed,
-	NoticeTrashRestored,
+	NoticeTrashRestored, NoticeScreenshotsDeleted,
 }

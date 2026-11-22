@@ -42,7 +42,7 @@ func TestBrowseRoot(t *testing.T) {
 	}
 	// Folders first (hidden ones listed), then files, ignoring case.
 	got := names(root)
-	if !strings.HasPrefix(got, "fo:.system,fo:.userdata,fo:Cheats,fo:Emus,fo:Roms,fo:Saves,fi:A.txt,fi:b.txt") {
+	if !strings.HasPrefix(got, "fo:.system,fo:.userdata,fo:Cheats,fo:Emus,fo:Roms,fo:Saves,fo:Screenshots,fi:A.txt,fi:b.txt") {
 		t.Fatalf("root: %s", got)
 	}
 	for _, e := range root.Entries {

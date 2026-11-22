@@ -71,12 +71,13 @@ func (f *fixture) nextEvent(s *testutil.SSE) testutil.SSEEvent {
 }
 
 var eventSchemas = map[string]string{
-	events.TypeHello:    "EventHello",
-	events.TypeShutdown: "EventShutdown",
-	events.TypeDevice:   "EventDevice",
-	events.TypeLibrary:  "EventLibrary",
-	events.TypeJob:      "Job",
-	events.TypePaks:     "EventPaks",
+	events.TypeHello:       "EventHello",
+	events.TypeShutdown:    "EventShutdown",
+	events.TypeDevice:      "EventDevice",
+	events.TypeLibrary:     "EventLibrary",
+	events.TypeJob:         "Job",
+	events.TypePaks:        "EventPaks",
+	events.TypeScreenshots: "EventScreenshots",
 }
 
 func checkEventData(t *testing.T, ev testutil.SSEEvent) {
@@ -225,6 +226,8 @@ var changeExempt = map[string]bool{
 	// M19: the import job publishes on success (its result has a gameId).
 	"POST " + Prefix + "/archives/{stagingId}/import": true,
 	"DELETE " + Prefix + "/archives/{stagingId}":      true, // the staging area only
+	// M22: moving screenshots publishes a screenshots event, not library.
+	"POST " + Prefix + "/screenshots/trash": true,
 }
 
 // Every write route (M13: every former M10 write route) publishes a library

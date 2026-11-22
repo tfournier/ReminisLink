@@ -38,7 +38,7 @@ func TestRoots(t *testing.T) {
 		SD: "/userdata", Roms: "/userdata/roms", Saves: "/userdata/saves", States: "/userdata/saves",
 		Cheats: "/userdata/cheats", Userdata: "/userdata/system", Shared: "/userdata/system",
 		Data: "/userdata/system/ReminisLink", Logs: "/userdata/system/logs",
-		Pak: "/userdata/roms/tools/.ReminisLink",
+		Pak: "/userdata/roms/tools/.ReminisLink", Screenshots: "/userdata/screenshots",
 	}
 	if r != want {
 		t.Fatalf("roots = %+v\nwant %+v", r, want)

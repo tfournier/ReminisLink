@@ -165,6 +165,8 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     let eventHub = FakeEventHub()
     /// The paks and the SD browser of milestone M12 (FakePakPaks.swift).
     var paksState = FakePaksState()
+    /// The screenshots (milestone M22, FakePakScreenshots.swift).
+    var screenshotsState = FakeScreenshotsState()
 
     public init(
         deviceId: String = FakePak.demoDeviceId,
@@ -623,6 +625,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
                 return response
             }
             if let response = routePaks(request, method: method, segments: segments, params: params, body: body) {
+                return response
+            }
+            if let response = routeScreenshots(method: method, segments: segments, body: body) {
                 return response
             }
             return .error(404, code: "not_found", message: "No route")

@@ -50,6 +50,8 @@ var formerLeaseRoutes = map[string]writeMode{
 	"DELETE /archives/{stagingId}":                          writeStaging,
 	// M18: the restore from the trash.
 	"POST /trash/{entryId}/restore": writeHandler,
+	// M22: screenshots moved to the trash.
+	"POST /screenshots/trash": writeHandler,
 }
 
 // TestWriteRoutesTakeTheWriteLock walks the route table: every signed
@@ -82,8 +84,8 @@ func TestWriteRoutesTakeTheWriteLock(t *testing.T) {
 		}
 	}
 	sort.Strings(seen)
-	if len(seen) != len(formerLeaseRoutes) || len(seen) != 27 { // 24, the archives (M19) and the restore (M18)
-		t.Errorf("%d write routes registered, want 27: %v", len(seen), seen)
+	if len(seen) != len(formerLeaseRoutes) || len(seen) != 28 { // 24, the archives (M19), the restore (M18) and the screenshots (M22)
+		t.Errorf("%d write routes registered, want 28: %v", len(seen), seen)
 	}
 	if ops := contract(t).OperationsWithStatus("423"); len(ops) != 0 {
 		t.Errorf("the contract still declares 423: %v", ops)
