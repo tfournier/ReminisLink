@@ -101,4 +101,31 @@ final class ScreenshotsUITests: XCTestCase {
         app.buttons["demo.quit"].tap()
         XCTAssertTrue(app.buttons["welcome.demo"].waitForExistence(timeout: 10), "not back on the first screen")
     }
+
+    /// Codex review of M22: the selection bar in French, whose texts are
+    /// the longest, keeps its three actions and the count reachable (the
+    /// screenshot is kept for review).
+    @MainActor
+    func testTheSelectionBarInFrench() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(fr)", "-AppleLocale", "fr_FR"]
+        app.launchEnvironment["RL_UITEST_MEMORY_STORE"] = "1"
+        app.launch()
+        app.buttons["welcome.demo"].tapAfterWaiting(timeout: 10)
+        XCTAssertTrue(app.buttons["demo.quit"].waitForExistence(timeout: 10), "not in the demo")
+        app.consoleTabs["Console"].tap()
+        let row = app.buttons["console.screenshots"]
+        XCTAssertTrue(GameDataUITest.scrollTo(row, in: app), "no Screenshots row")
+        row.tap()
+        let cells = app.buttons.matching(identifier: "screenshots.cell")
+        XCTAssertTrue(cells.firstMatch.waitForExistence(timeout: 10), "no screenshot")
+        app.buttons["screenshots.select"].tapAfterWaiting()
+        tapCell(cells.element(boundBy: 0))
+        tapCell(cells.element(boundBy: 1))
+        XCTAssertTrue(app.staticTexts["2 sélectionnée(s)"].waitForExistence(timeout: 5), "no French count")
+        for id in ["screenshots.share", "screenshots.photos", "screenshots.trash", "screenshots.selectAll"] {
+            XCTAssertTrue(app.buttons[id].isHittable, "\(id) not reachable")
+        }
+        attachScreenshot(of: app, named: "screenshots-selection-fr")
+    }
 }

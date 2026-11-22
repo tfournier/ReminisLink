@@ -3805,6 +3805,16 @@
         }
       }
     },
+    "Only %lld screenshots went to the trash; the others did not. The screenshots and the trash were refreshed." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seules %lld captures sont allées à la corbeille ; les autres non. Les captures et la corbeille ont été actualisées."
+          }
+        }
+      }
+    },
     "Only if pairing keeps saying that the identity of your Apple devices has not arrived on this device." : {
       "localizations" : {
         "fr" : {
@@ -7415,6 +7425,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cette capture n’est plus sur la console. La liste a été actualisée."
+          }
+        }
+      }
+    },
+    "This screenshot is too large to show here. Share it to open it in another app." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette capture est trop grande pour être affichée ici. Partage-la pour l’ouvrir dans une autre app."
           }
         }
       }

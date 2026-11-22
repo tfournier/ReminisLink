@@ -139,6 +139,11 @@ enum AppError: Error, Equatable {
     case screenshotGone
     /// M22: the app may not add to the photo library (denied in Settings).
     case photosDenied
+    /// M22: too large to show on the detail screen (it can be shared).
+    case screenshotTooLarge
+    /// M22: only this many screenshots went to the trash (a later batch
+    /// failed); the list and the trash were read again.
+    case screenshotsPartlyMoved(Int)
     /// The task was cancelled (the screen went away): never shown.
     case cancelled
     case unexpected
@@ -262,6 +267,10 @@ enum AppError: Error, Equatable {
             String(localized: "Update ReminisLink on the console to see its screenshots.")
         case .screenshotGone:
             String(localized: "This screenshot is no longer on the console. The list was refreshed.")
+        case .screenshotTooLarge:
+            String(localized: "This screenshot is too large to show here. Share it to open it in another app.")
+        case .screenshotsPartlyMoved(let count):
+            String(localized: "Only \(count) screenshots went to the trash; the others did not. The screenshots and the trash were refreshed.")
         case .photosDenied:
             String(localized: "ReminisLink may not add photos to your library. Allow it in Settings, or use Share to save the screenshots.")
         case .trashEntryGone:
@@ -303,7 +312,7 @@ enum AppError: Error, Equatable {
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
         case .invalidArchive, .archiveGameExists, .archiveEmpty, .archivesNeedNewerPak: nil
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone, .trashReplaceRefused: nil
-        case .screenshotsNeedNewerPak, .screenshotGone: nil
+        case .screenshotsNeedNewerPak, .screenshotGone, .screenshotTooLarge, .screenshotsPartlyMoved: nil
         case .pairingClosed, .pairingNotSynced, .identityNotArrived, .unexpected: .retry
         case .noPairingCodeInPicture, .pictureTooLarge: nil
         case .identityMissing: .resetIdentity

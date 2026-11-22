@@ -87,8 +87,57 @@ struct ScreenshotsAppTests {
         ExportedFiles.remove(exported.file)
         await waitUntil { !FileManager.default.fileExists(atPath: exported.file.directory.path) }
         #expect(!FileManager.default.fileExists(atPath: exported.file.directory.path))
-        let detail = try await manager.imageData(for: picked[0])
-        #expect(!detail.isEmpty)
+        let detail = try await manager.displayImage(for: picked[0], maxPixels: 100)
+        #expect(max(detail.width, detail.height) <= 100)
+    }
+
+    /// Codex review of M22: the detail screen decodes at most the size it
+    /// shows, off the main actor, and refuses a file too large to show.
+    @Test func theDetailImageIsDownsampled() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "rl-big-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "big.png")
+        try DemoArtwork.screen(for: "Big", slot: 1, width: 3000, height: 2000).write(to: url)
+        let image = try ScreenshotManager.downsampled(url, maxPixels: 600)
+        #expect(image.width == 600 && image.height == 400)
+        try Data("not an image".utf8).write(to: url)
+        #expect(throws: AppError.self) { try ScreenshotManager.downsampled(url, maxPixels: 600) }
+    }
+
+    @Test func aScreenshotTooLargeIsNotShown() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let manager = app.session(for: pak.deviceId).screenshots
+        let huge = Screenshot(screenshotId: FakePak.screenshotId("huge.bmp"), name: "huge.bmp", takenAt: Date(),
+                              sizeBytes: ScreenshotManager.maxPreviewBytes + 1, format: .bmp, hasThumbnail: false)
+        await #expect { _ = try await manager.displayImage(for: huge, maxPixels: 100) } throws: { error in
+            (error as? AppError) == .screenshotTooLarge
+        }
+        #expect(count(pak, "GET", "/screenshots/\(huge.screenshotId)") == 0)
+    }
+
+    /// Codex review of M22: a selection of more than 500 whose last batch
+    /// fails says how many moved, and both views are read again.
+    @Test func aPartialMoveSaysSoAndReloadsBoth() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        let manager = session.screenshots
+        for i in 0..<500 {
+            pak.addScreenshot(name: "Extra \(i).png", takenAt: Date(timeIntervalSince1970: 1_700_000_000 + Double(i)))
+        }
+        await manager.load()
+        let picked = Array(manager.screenshots.prefix(501))
+        #expect(picked.count == 501)
+        pak.trashScreenshotsFromAnotherClient(names: [picked[500].name])
+        let trashLoads = count(pak, "GET", "/trash")
+        await #expect { try await manager.trash(picked) } throws: { error in
+            (error as? AppError) == .screenshotsPartlyMoved(500)
+        }
+        #expect(count(pak, "GET", "/trash") > trashLoads)
+        #expect(manager.screenshots.count == pak.screenshotNames.count)
+        #expect(session.trash?.entries.contains { $0.screenshotCount == 500 } == true)
     }
 
     @Test func freeNamesIgnoreCase() {
@@ -130,7 +179,7 @@ struct ScreenshotsAppTests {
         }
         await waitUntil { !manager.screenshots.contains(first) }
         #expect(!manager.screenshots.contains(first))
-        await #expect { _ = try await manager.imageData(for: first) } throws: { error in
+        await #expect { _ = try await manager.displayImage(for: first, maxPixels: 100) } throws: { error in
             (error as? AppError) == .screenshotGone
         }
     }

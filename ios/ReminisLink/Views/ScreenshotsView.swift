@@ -372,9 +372,12 @@ struct ScreenshotDetailView: View {
     private func load(_ manager: ScreenshotManager) async {
         loadError = nil
         do {
-            let data = try await manager.imageData(for: screenshot)
-            guard let picture = UIImage(data: data) else { throw AppError.unexpected }
-            image = picture
+            // At most the size of the screen, in pixels: a large image is
+            // subsampled while it is decoded (Codex review of M22).
+            let screen = UIScreen.main.bounds.size
+            let maxPixels = Int(max(screen.width, screen.height) * UIScreen.main.scale)
+            let picture = try await manager.displayImage(for: screenshot, maxPixels: min(maxPixels, 4096))
+            image = UIImage(cgImage: picture)
         } catch {
             let error = AppError(error)
             if !error.isCancellation { loadError = error }

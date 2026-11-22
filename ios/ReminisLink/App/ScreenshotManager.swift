@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import Observation
 import Photos
 import ReminisLinkKit
@@ -108,18 +109,51 @@ final class ScreenshotManager {
 
     // MARK: - Downloads
 
-    /// The whole image of a screenshot, in memory (the detail screen).
-    func imageData(for screenshot: Screenshot) async throws -> Data {
+    /// The largest screenshot the detail screen shows (Codex review of
+    /// M22): a larger one can still be shared or saved.
+    nonisolated static let maxPreviewBytes: Int64 = 64 << 20
+
+    /// The image of a screenshot for the detail screen (Codex review of
+    /// M22): downloaded to a file (streamed, never in memory), then decoded
+    /// off the main actor by ImageIO at most `maxPixels` on its longest
+    /// side (a large image is subsampled while it is read), and the file
+    /// deleted. Sharing and saving download the original again.
+    func displayImage(for screenshot: Screenshot, maxPixels: Int) async throws -> CGImage {
+        guard screenshot.sizeBytes <= Self.maxPreviewBytes else { throw AppError.screenshotTooLarge }
         let directory = FileManager.default.temporaryDirectory.appending(path: "rl-shot-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let file: DownloadedFile
         do {
-            let file = try await session.perform {
+            file = try await session.perform {
                 try await $0.downloadScreenshot(id: screenshot.screenshotId, fallbackName: screenshot.name, into: directory)
             }
-            return try Data(contentsOf: file.url)
         } catch {
             throw failure(error)
         }
+        let url = file.url
+        return try await Task.detached(priority: .userInitiated) {
+            try Self.downsampled(url, maxPixels: maxPixels)
+        }.value
+    }
+
+    /// Decodes an image file at most `maxPixels` on its longest side;
+    /// a file larger than ``maxPreviewBytes`` or that is no image fails.
+    nonisolated static func downsampled(_ url: URL, maxPixels: Int) throws -> CGImage {
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        guard size <= maxPreviewBytes else { throw AppError.screenshotTooLarge }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            throw AppError.unexpected
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixels),
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            throw AppError.unexpected
+        }
+        return image
     }
 
     /// Downloads screenshots into one directory of the export area, for
@@ -210,15 +244,22 @@ final class ScreenshotManager {
     /// console (one entry per 500). The list and the trash reload.
     func trash(_ screenshots: [Screenshot]) async throws {
         let batches = ScreenshotTrashRequest.batches(screenshots.map(\.screenshotId))
+        var moved = 0
         do {
             for batch in batches {
                 _ = try await session.app.work.run { [session] in
                     try await session.perform { try await $0.trashScreenshots(batch) }
                 }
+                moved += batch.screenshotIds.count
             }
         } catch {
-            let error = failure(error)
+            // Codex review of M22: earlier batches may have moved, and a
+            // failure of the card may leave a file in a trash entry: both
+            // views are read again, and a partial move says so.
+            var error = AppError.screenshots(error)
             await load()
+            await session.loadTrash()
+            if moved > 0 && !error.isCancellation { error = .screenshotsPartlyMoved(moved) }
             throw error
         }
         let gone = Set(screenshots.map(\.screenshotId))
@@ -231,7 +272,8 @@ final class ScreenshotManager {
         await session.loadTrash()
     }
 
-    /// A screenshot gone meanwhile reloads the list.
+    /// A screenshot gone meanwhile reloads the list (the trash reloads the
+    /// list itself).
     private func failure(_ error: Error) -> AppError {
         let error = AppError.screenshots(error)
         if error == .screenshotGone { Task { await load() } }
