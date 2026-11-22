@@ -112,6 +112,9 @@ class SaveSync(
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     suspend fun run(progress: (SaveSyncProgress) -> Unit = {}): SaveSyncReport {
+        // The vault first, even when the console has nothing to copy: a folder that can no longer be
+        // reached is said at once (with the recovery actions), never a sync that looks fine.
+        withContext(Dispatchers.IO) { vault.checkAccess() }
         val list = source.saves()
         coroutineContextActive()
         // Folder names of the systems: label and tag (GBA and MGBA share a label). Without the list
@@ -169,7 +172,7 @@ class SaveSync(
                     progress(state)
                     try {
                         val latest = latestByGame.getOrPut(summary.gameId) {
-                            withContext(Dispatchers.IO) { vault.latestStateVersions(console.deviceId, summary.gameId) }
+                            withContext(Dispatchers.IO) { vault.latestPresentStateVersions(console.deviceId, summary.gameId) }
                         }[summary.slot]
                         if (needsNewVersion(summary, latest)) {
                             sync(summary, labels[summary.systemId] ?: systemNameFromStatePath(summary.path))
@@ -182,6 +185,9 @@ class SaveSync(
                         throw e
                     } catch (e: Exception) {
                         // Losing the console stops the states, not the report of the saves.
+                        // The vault folder became unavailable (a permission removed): the whole sync fails,
+                        // so that the app offers another folder; never a mere "states incomplete".
+                        if (e is VaultUnavailableException) throw e
                         if (stopsSync(e)) stopped = e
                         stateFailures += SaveSyncFailure(summary.gameId, summary.gameName, summary.slot, e)
                     }
@@ -215,7 +221,7 @@ class SaveSync(
 
     /** Stores a new version if the save changed; returns whether it did. */
     private suspend fun sync(save: SaveSummary, systemName: String): Boolean {
-        val latest = withContext(Dispatchers.IO) { vault.latestVersion(console.deviceId, save.gameId) }
+        val latest = withContext(Dispatchers.IO) { vault.latestPresentVersion(console.deviceId, save.gameId) }
         if (!needsNewVersion(save, latest)) return false
         withScratch { folder ->
             val saveFile = download(DownloadSource.Save(save.gameId), File(folder, "save"), save.sha256)

@@ -19,6 +19,7 @@ import link.reminis.core.vault.VaultConsoleInfo
 import link.reminis.core.vault.VaultEntry
 import link.reminis.core.vault.VaultGameInfo
 import link.reminis.core.vault.VaultLocation
+import link.reminis.core.vault.VaultUnavailableException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,7 +39,7 @@ class SyncTest {
     private val root = File(work, "vault")
     private var clock = Instant.parse("2026-11-19T15:42:10Z")
     private fun vault(store: FileVaultStore = FileVaultStore(root), max: Int = 10) =
-        SaveVault(store, VaultLocation.INTERNAL, max, ZoneOffset.UTC) { clock }
+        SaveVault(store, VaultLocation.INTERNAL, max, ZoneOffset.UTC, now = { clock })
 
     private val console = VaultConsoleInfo("device-fern", "Fern Handheld")
     private val game = VaultGameInfo("game-1", "sys-1", "Pocket Classic (PCL)", "Juniper Trail")
@@ -302,6 +303,131 @@ class SyncTest {
         } catch (e: ApiException.Network) {
             // The version stored before stays.
             assertNotNull(vault().consoles().singleOrNull())
+        }
+    }
+
+    // MARK: Codex review 1 of increment 7
+
+    @Test
+    fun aVersionOfAnotherGameIsNeverShownForThisOne() {
+        val v = vault()
+        val other = VaultGameInfo("game-other", "sys-1", "Pocket Classic (PCL)", "Willow Run")
+        v.addVersion(console, game, file("Juniper Trail.pcr.sav", "JUNIPER"), null, null)
+        val foreign = v.addVersion(console, other, file("Willow Run.pcr.sav", "WILLOW"), null, null)
+        val foreignState = v.addStateVersion(console, other, 0, file("Willow Run.pcr.st0", "WILLOW-STATE"), null, null)
+        // Copied by hand into the folder of the other game.
+        val system = File(root, "Fern Handheld/Pocket Classic (PCL)")
+        File(system, "Willow Run/${foreign.id}").copyRecursively(File(system, "Juniper Trail/copied"))
+        File(system, "Willow Run/${foreignState.id}").copyRecursively(File(system, "Juniper Trail/copied state"))
+        val fresh = vault()
+        assertEquals(listOf("game-1"), fresh.versions(console.deviceId, game.gameId).map { it.info.gameId })
+        assertTrue(fresh.stateVersions(console.deviceId, game.gameId).isEmpty())
+        assertEquals(1, fresh.games(console.deviceId).first { it.id == game.gameId }.versionCount)
+    }
+
+    @Test
+    fun theSameSecondIsOrderedByTheFullDateLikeIos() {
+        val gameFolder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail").apply { mkdirs() }
+        File(root, "Fern Handheld/.console.json").writeText("""{"deviceId":"device-fern","name":"Fern Handheld"}""")
+        File(gameFolder, ".game.json").writeText("""{"gameId":"game-1","systemId":"sys-1","systemName":"Pocket Classic (PCL)","name":"Juniper Trail"}""")
+        fun version(folder: String, syncedAt: String, text: String) {
+            val bytes = text.toByteArray()
+            val dir = File(gameFolder, folder).apply { mkdirs() }
+            File(dir, "J.sav").writeBytes(bytes)
+            File(dir, ".version.json").writeText(
+                """{"gameId":"game-1","sequence":3,"syncedAt":"$syncedAt","save":{"name":"J.sav","sha256":"${sha(bytes)}","sizeBytes":${bytes.size}}}""",
+            )
+        }
+        // Same sequence and second: the folder names would put "b" first, the full date says "a".
+        version("a", "2026-11-19T12:00:00.900Z", "LATER")
+        version("b", "2026-11-19T12:00:00.100Z", "EARLIER")
+        assertEquals(listOf("a", "b"), vault().versions(console.deviceId, game.gameId).map { it.id })
+    }
+
+    @Test
+    fun aVersionWithASubFolderIsNeverPurged() {
+        val v = vault(max = 1)
+        val first = v.addVersion(console, game, file("Juniper Trail.pcr.sav", "ONE"), null, null)
+        val folder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail/${first.id}")
+        // A folder named like a system file, with something in it.
+        File(folder, ".DS_Store").mkdirs()
+        File(folder, ".DS_Store/kept.txt").writeText("mine")
+        v.addVersion(console, game, file("Juniper Trail.pcr.sav", "TWO"), null, null)
+        v.addVersion(console, game, file("Juniper Trail.pcr.sav", "THREE"), null, null)
+        assertTrue(File(folder, ".DS_Store/kept.txt").isFile)
+        assertTrue(File(folder, "Juniper Trail.pcr.sav").isFile)
+        // The second, exact, was purged file by file (its folder is gone).
+        assertEquals(listOf(3, 1), vault().versions(console.deviceId, game.gameId).map { it.info.sequence })
+    }
+
+    /** A provider without rename that fails while writing the clock file in the final folder. */
+    private class FailingRtcStore(root: File) : FileVaultStore(root) {
+        override fun rename(entry: VaultEntry, name: String): VaultEntry? = null
+        override fun createFile(parent: VaultEntry, name: String, write: (OutputStream) -> Unit): VaultEntry {
+            if (name.endsWith(".rtc") && !parent.name.startsWith(".rl-partial")) throw java.io.IOException("provider failed")
+            return super.createFile(parent, name, write)
+        }
+    }
+
+    @Test
+    fun aFailedFinalCopyLeavesNothingBehind() {
+        val store = FailingRtcStore(root)
+        // The game folder first (written whole: no clock file in it).
+        vault(store).addVersion(console, game, file("Juniper Trail.pcr.sav", "FIRST"), null, null)
+        try {
+            vault(store).addVersion(console, game, file("Juniper Trail.pcr.sav", "SAVE"), file("Juniper Trail.pcr.rtc", "RTC"), null)
+            fail("the failure was hidden")
+        } catch (_: java.io.IOException) {
+        }
+        val gameFolder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail")
+        // Only the first version and the identity file: no final folder with the save alone, no assembly folder.
+        assertEquals(setOf(".game.json", "2026-11-19 15.42.10"), gameFolder.list()!!.toSet())
+        assertEquals(1, vault().versions(console.deviceId, game.gameId).size)
+    }
+
+    @Test
+    fun aMissingFileIsCopiedAgainFromTheConsole() = runBlocking {
+        sync().run()
+        val save = demo.client.saves().saves.first()
+        val latest = vault().latestVersion(demo.deviceId, save.gameId)!!
+        // The save file of the newest version disappeared from the folder (by hand, or a provider).
+        val versionFolder = root.walkTopDown().first { it.isDirectory && File(it, ".version.json").isFile && File(it, latest.info.save.name).isFile && it.name == latest.id }
+        File(versionFolder, latest.info.save.name).delete()
+        val again = sync().run()
+        assertTrue("the save was said up to date", save.gameId in again.stored)
+        assertNotNull(vault().export(demo.deviceId, save.gameId, vault().latestVersion(demo.deviceId, save.gameId)!!, File(work, "out")))
+    }
+
+    /** A folder of the picker whose permission is removed once [armed]. */
+    private class RevocableStore(root: File) : FileVaultStore(root) {
+        @Volatile var armed: (String) -> Boolean = { false }
+        private fun check(name: String) {
+            if (armed(name)) throw VaultUnavailableException("permission removed")
+        }
+        override fun root(): VaultEntry = super.root().also { check("") }
+        override fun createFile(parent: VaultEntry, name: String, write: (OutputStream) -> Unit): VaultEntry {
+            check(name)
+            return super.createFile(parent, name, write)
+        }
+    }
+
+    @Test
+    fun aRevokedFolderFailsTheSyncEvenDuringTheStatesOrWithNothingToCopy() = runBlocking {
+        val store = RevocableStore(root)
+        store.armed = { name -> ".st" in name }
+        try {
+            sync(store = store).run()
+            fail("a revocation during the states passed for an incomplete sync")
+        } catch (_: VaultUnavailableException) {
+        }
+        // Nothing to copy any more (everything synced), and the folder unavailable: said at once.
+        store.armed = { false }
+        sync(store = store).run()
+        store.armed = { true }
+        try {
+            sync(store = store).run()
+            fail("an unavailable folder passed for an up-to-date sync")
+        } catch (_: VaultUnavailableException) {
         }
     }
 }

@@ -99,7 +99,9 @@ class SafVaultStore(context: Context, val treeUri: Uri) : VaultStore {
         result
     }
 
+    /** A file, or a folder only once it lists empty: a provider deletes a folder with its content, never asked here. */
     override fun delete(entry: VaultEntry): Boolean = unavailableOnFailure {
+        if (entry.isDirectory && children(entry).isNotEmpty()) return@unavailableOnFailure false
         DocumentsContract.deleteDocument(resolver, uri(entry.ref))
     }
 

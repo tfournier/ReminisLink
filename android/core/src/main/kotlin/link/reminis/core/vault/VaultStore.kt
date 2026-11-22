@@ -57,7 +57,10 @@ interface VaultStore {
      */
     fun rename(entry: VaultEntry, name: String): VaultEntry?
 
-    /** Deletes [entry] (a folder with everything in it). False when it could not be deleted. */
+    /**
+     * Deletes [entry]: a file, or an empty folder (never recursive: a folder
+     * that is not empty stays, false). False when it could not be deleted.
+     */
     fun delete(entry: VaultEntry): Boolean
 
     /** What the user sees of the root: a folder name, or null for the app's own storage. */
@@ -113,7 +116,7 @@ open class FileVaultStore(val rootDirectory: File) : VaultStore {
         return entry(to)
     }
 
-    override fun delete(entry: VaultEntry): Boolean = File(entry.ref).deleteRecursively()
+    override fun delete(entry: VaultEntry): Boolean = File(entry.ref).delete()
 
     private fun entry(file: File) = VaultEntry(file.name, file.isDirectory, if (file.isFile) file.length() else 0, file.absolutePath)
 }

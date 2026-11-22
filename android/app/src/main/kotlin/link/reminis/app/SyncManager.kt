@@ -132,10 +132,13 @@ class SyncManager(
      * keeps the vault it listed from (restore and share read that one).
      */
     fun vault(deviceId: String? = null): SaveVault {
-        demoRoot?.let { root -> if (deviceId == null || isDemo(deviceId)) return SaveVault(FileVaultStore(root), VaultLocation.DEMO) }
-        val folder = folderUri ?: return SaveVault(FileVaultStore(internalRoot), VaultLocation.INTERNAL)
-        return SaveVault(SafVaultStore(appContext, folder), VaultLocation.FOLDER)
+        demoRoot?.let { root -> if (deviceId == null || isDemo(deviceId)) return SaveVault(FileVaultStore(root), VaultLocation.DEMO, log = vaultLog) }
+        val folder = folderUri ?: return SaveVault(FileVaultStore(internalRoot), VaultLocation.INTERNAL, log = vaultLog)
+        return SaveVault(SafVaultStore(appContext, folder), VaultLocation.FOLDER, log = vaultLog)
     }
+
+    /** What the vault kept or could not clean: a fixed text with the type of a failure, no name nor path. */
+    private val vaultLog: (String) -> Unit = { message -> Log.w(TAG, message) }
 
     /**
      * Takes the folder chosen with the picker (`ACTION_OPEN_DOCUMENT_TREE`):
