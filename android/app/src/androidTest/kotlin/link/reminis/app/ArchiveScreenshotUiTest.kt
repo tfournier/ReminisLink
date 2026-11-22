@@ -411,7 +411,7 @@ class ArchiveScreenshotUiTest {
             scenario.onActivity { activity ->
                 activity.setContent {
                     // Low enough that the list scrolls, tall enough for two panes.
-                    val size = if (wide) DpSize(1100.dp, 760.dp) else DpSize(400.dp, 760.dp)
+                    val size = if (wide) DpSize(1100.dp, 640.dp) else DpSize(400.dp, 640.dp)
                     DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(size)) {
                         ReminisLinkTheme { Box { AppNavigation(incomingLink = null, onLinkHandled = {}) } }
                     }
