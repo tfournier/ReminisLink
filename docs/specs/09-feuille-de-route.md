@@ -286,6 +286,12 @@ Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{e
 
 **Raccourcis du pak Shortcuts (note du 22/11/2026).** Le pak tiers Shortcuts (`Helaas/nextui-shortcuts-pak`, `src/device.c` `create_tool_shortcut`) crée pour chaque raccourci d'outil un dossier `Roms/<préfixe><nom> (SHORTCUT)/` (un `.m3u` vers le pak de `Tools/`, `target`, `.shortcut`), lancé par l'émulateur passerelle `Emus/<plateforme>/SHORTCUT.pak` : sans traitement, chacun apparaissait comme un système de la Bibliothèque avec un « jeu ». Ce sont des lanceurs, pas des jeux : l'adaptateur NextUI ignore désormais les dossiers de tag `SHORTCUT` (sûr : le tag nomme l'émulateur passerelle). Raccourcis de jeux (décision du 23/11/2026, branche `pak-knulli-release-shortcuts`) : le `.m3u` d'un raccourci de jeu (`create_rom_shortcut`, `Roms/<nom> (<TAG>)/<nom> (<TAG>).m3u` à côté du fichier caché `.shortcut`) n'est plus listé ni compté comme un jeu, et un dossier qui ne contient que lui n'est plus un système ; format relevé dans le code source du pak Shortcuts ([05](05-console-pak.md) §3.4).
 
+## v1.2.0 (app iOS) — Revoir l'interface sur Mac (demandé par la personne le 22/11/2026)
+
+L'app iPad tourne sur Mac (Apple silicon) depuis la 1.1.0, mais son interface n'a pas été pensée pour le Mac. À revoir écran par écran : barre latérale et barre d'onglets, largeur des listes, barre d'outils, raccourcis clavier, menus, glisser-déposer de fichiers, survol au pointeur.
+
+Premier point, signalé sur le build TestFlight `ios-beta-v1.1.0-beta.3` : changer le style du menu (barre d'onglets ou barre latérale) affiche mal les onglets de la console. La barre d'onglets se place en haut à gauche par-dessus le bouton « Consoles », un panneau vide reste après la fermeture de la barre latérale, et pendant « Connexion à la console… » la barre latérale montre les anciens onglets (Transferts, Corbeille) au lieu de Apps et Fichiers. La correction (branche `fix-ios-tab-style`) part avec cette version, pas avec la 1.1.0.
+
 ## v1.5 — Interface web
 
 L'interface web (voir « Interface web servie par le pak » ci-dessous) : web app statique sur GitHub Pages, WebCrypto, découverte façon Synology ou par `reminislink-N.local`, appairage par PIN (PAKE).
