@@ -54,6 +54,13 @@ class ApiClient(
      * as a paused upload). Null: no guard. See [guarded].
      */
     private val requestGuard: (() -> Boolean)? = null,
+    /**
+     * Sees every error answer of the pak this client reads (any route,
+     * a transfer included): the app closes the connection on `401
+     * disconnected` and `503 shutting_down`, as iOS does. Called on the
+     * thread that read the answer.
+     */
+    private val errorObserver: ((ApiException.Server) -> Unit)? = null,
 ) {
     /** Console time minus local time, in seconds, measured on the last `/hello`. */
     @Volatile
@@ -93,7 +100,7 @@ class ApiClient(
      * Shares the connection pool; the clock offset is carried over.
      */
     fun guarded(guard: () -> Boolean): ApiClient = ApiClient(
-        endpoint, expectedDeviceId, credentials, pinValue, clientProtocolVersion, baseClient, nowMillis, guard,
+        endpoint, expectedDeviceId, credentials, pinValue, clientProtocolVersion, baseClient, nowMillis, guard, errorObserver,
     ).also { it.clockOffsetSeconds = clockOffsetSeconds }
 
     // MARK: unsigned routes
@@ -144,6 +151,9 @@ class ApiClient(
      * list, Reconnect), never on an automatic reconnection.
      */
     suspend fun connectClient() = signedEmpty("POST", listOf("clients", "me", "connect"))
+
+    /** `DELETE /clients/me`: the console forgets this phone. */
+    suspend fun unpair() = signedEmpty("DELETE", listOf("clients", "me"))
 
     // MARK: events (M14)
 
@@ -287,6 +297,21 @@ class ApiClient(
     suspend fun deleteState(gameId: String, slot: Int): TrashMoveResult =
         signedJson("DELETE", listOf("games", gameId, "states", slot.toString()))
 
+    /** The box art of a game (`GET /games/{gameId}/art`), null when it has none (`404`) or it is larger than [maxBytes]. */
+    suspend fun gameArt(gameId: String, maxBytes: Long = MAX_ART_BYTES): ByteArray? {
+        val response = signedResponse { request("GET", listOf("games", gameId, "art"), signed = true) }
+        return response.use {
+            if (it.code == 404) return null
+            if (it.code != 200) throw serverError(it)
+            val body = it.body ?: return null
+            if (body.contentLength() > maxBytes) return null
+            withContext(Dispatchers.IO) {
+                val source = body.source()
+                if (source.request(maxBytes + 1)) null else source.readByteArray()
+            }
+        }
+    }
+
     /** The PNG thumbnail of a slot, null when larger than [maxBytes]. */
     suspend fun stateThumbnail(gameId: String, slot: Int, maxBytes: Long = 8L shl 20): ByteArray? {
         val response = signedResponse {
@@ -303,6 +328,15 @@ class ApiClient(
             }
         }
     }
+
+    // MARK: resume history (M5)
+
+    /** `GET /games/{gameId}/resume-history`: the last versions of the resume state. */
+    suspend fun resumeHistory(gameId: String): ResumeHistory = signedJson("GET", listOf("games", gameId, "resume-history"))
+
+    /** `POST /games/{gameId}/resume-history/{entryId}/restore`: the current version is archived first. */
+    suspend fun restoreResumeHistory(gameId: String, entryId: String): ResumeHistory =
+        signedJson("POST", listOf("games", gameId, "resume-history", entryId, "restore"))
 
     // MARK: cheats (M5)
 
@@ -328,6 +362,35 @@ class ApiClient(
         signedJson<SdFileList>("GET", listOf("sd", "files"), query = listOf("type" to type.wire)).files
 
     // MARK: patches and jobs (M6)
+
+    // MARK: SD card browser (M12, M23)
+
+    /** `GET /sd/browse`: the root of the card ([folderId] null), or a folder. */
+    suspend fun browseSd(folderId: String?): SdFolder =
+        signedJson("GET", listOf("sd", "browse"), query = folderId?.let { listOf("folderId" to it) }.orEmpty())
+
+    /** `POST /sd/folders` (M23): `201` with the folder made. */
+    suspend fun createSdFolder(request: SdFolderRequest): SdEntry = signedJson(
+        "POST", listOf("sd", "folders"), body = request.toJson().toRequestBody(JSON), accept = 201,
+    )
+
+    /** `POST /sd/trash` (M23): the entries go to the trash of the console in one entry, all or nothing. */
+    suspend fun trashSdEntries(request: SdTrashRequest): TrashMoveResult = signedJson(
+        "POST", listOf("sd", "trash"), body = request.toJson().toRequestBody(JSON),
+    )
+
+    /** `POST /paks/install` (M12): a zip or a `.pak` folder of the card, installed by a `pak-install` job. */
+    suspend fun installPakFromSd(request: PakInstallRequest): JobAccepted = signedJson(
+        "POST", listOf("paks", "install"), body = request.toJson().toRequestBody(JSON), accept = 202,
+    )
+
+    // MARK: rename a game (M23)
+
+    /** `POST /games/{gameId}/rename`: [name] without the extension; the game comes back under a new id. */
+    suspend fun renameGame(gameId: String, name: String): GameRenameResult = signedJson(
+        "POST", listOf("games", gameId, "rename"),
+        body = kotlinx.serialization.json.JsonObject(mapOf("name" to kotlinx.serialization.json.JsonPrimitive(name))).toString().toRequestBody(JSON),
+    )
 
     /** `POST /games/{gameId}/patch`: the console applies the patch in a job. */
     suspend fun patchGame(gameId: String, request: PatchRequest): JobAccepted = signedJson(
@@ -685,7 +748,7 @@ class ApiClient(
             serverMessage = envelope.error.message,
             details = envelope.error.details.orEmpty(),
             retryAfter = it.header("Retry-After")?.toIntOrNull(),
-        )
+        ).also { error -> errorObserver?.let { observe -> runCatching { observe(error) } } }
     }
 
     companion object {
@@ -707,6 +770,9 @@ class ApiClient(
 
         /** M22: the largest screenshot preview read (the pak makes JPEGs of 320 × 320 px at most). */
         const val MAX_SCREENSHOT_THUMBNAIL_BYTES = 2L shl 20
+
+        /** The largest box art read for display (the app sends PNGs of 4 MiB at most). */
+        const val MAX_ART_BYTES = 8L shl 20
 
         /** An error answer is a small JSON envelope: a larger body is not read. */
         const val MAX_ERROR_BODY_BYTES = 64L * 1024

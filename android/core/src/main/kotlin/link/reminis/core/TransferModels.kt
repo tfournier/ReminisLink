@@ -54,6 +54,15 @@ sealed interface UploadTarget {
         override val kind get() = "pak"
     }
 
+    /**
+     * M23: a file added from the Files tab to a folder of the SD card
+     * ([folderId] a writable `sdEntryId`, null for the root). Never a
+     * replacement: `onConflict` is `fail` or `rename` only.
+     */
+    data class SdFile(val folderId: String?, val fileName: String) : UploadTarget {
+        override val kind get() = "sd-file"
+    }
+
     fun toJson(): JsonObject = buildJsonObject {
         put("kind", kind)
         when (this@UploadTarget) {
@@ -70,6 +79,10 @@ sealed interface UploadTarget {
             is Staging -> put("fileName", fileName)
             is Pak -> {
                 put("pakKind", pakKind.wire)
+                put("fileName", fileName)
+            }
+            is SdFile -> {
+                put("folderId", folderId?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
                 put("fileName", fileName)
             }
         }
@@ -272,6 +285,11 @@ sealed interface DownloadSource {
     data class GameArchive(val gameId: String, val rom: Boolean) : DownloadSource {
         override val segments get() = listOf("games", gameId, "archive")
         override val query get() = if (rom) listOf("rom" to "true") else emptyList()
+    }
+
+    /** M12: `GET /sd/browse/{sdEntryId}/content`, a file of the SD card browser. */
+    data class SdFile(val sdEntryId: String) : DownloadSource {
+        override val segments get() = listOf("sd", "browse", sdEntryId, "content")
     }
 
     /** M22: `GET /screenshots/{screenshotId}`, the whole image. */

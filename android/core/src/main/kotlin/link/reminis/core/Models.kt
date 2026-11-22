@@ -157,7 +157,12 @@ data class GameDetail(
     val kind: String,
     val files: List<GameFile>,
     val totalBytes: Long,
+    /** M23: the number of cheats of the `.cht` (absent from an older pak). */
+    val cheatCount: Int? = null,
 ) {
+    /** A folder game (its playlist is renamed with the folder, M23). */
+    val isFolder: Boolean get() = kind.startsWith("folder")
+
     val hasSave: Boolean get() = files.any { it.role == GameFileRoles.SAVE }
     val stateCount: Int get() = files.count { it.role == GameFileRoles.STATE }
     val cheatFileCount: Int get() = files.count { it.role == GameFileRoles.CHEATS }

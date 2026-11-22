@@ -21,7 +21,12 @@ import okhttp3.OkHttpClient
  *   consoles.
  * - **No trace**: [close] stops the fake pak; everything it held is in memory.
  */
-class DemoConsole(deviceName: String, cheatName: (Int) -> String) {
+class DemoConsole(
+    deviceName: String,
+    /** Sees every error answer of the fake pak, as a real console's client does (`ApiClient.errorObserver`). */
+    errorObserver: ((link.reminis.core.ApiException.Server) -> Unit)? = null,
+    cheatName: (Int) -> String,
+) {
     val pak = FakePak(deviceName = deviceName, cheatName = cheatName)
     val deviceId: String get() = pak.deviceId
     val endpoint = Endpoint("${UUID.randomUUID().toString().lowercase()}.try.demo.reminislink.invalid", 443)
@@ -44,6 +49,7 @@ class DemoConsole(deviceName: String, cheatName: (Int) -> String) {
         credentials = credentials,
         pin = pin,
         baseClient = OkHttpClient.Builder().addInterceptor(pak.interceptor).build(),
+        errorObserver = errorObserver,
     )
 
     fun close() = pak.close()
