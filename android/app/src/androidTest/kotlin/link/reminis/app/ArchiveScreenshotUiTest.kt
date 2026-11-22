@@ -411,7 +411,7 @@ class ArchiveScreenshotUiTest {
             scenario.onActivity { activity ->
                 activity.setContent {
                     // Low enough that the list scrolls, tall enough for two panes.
-                    val size = if (wide) DpSize(1100.dp, 640.dp) else DpSize(400.dp, 640.dp)
+                    val size = if (wide) DpSize(1100.dp, 760.dp) else DpSize(400.dp, 760.dp)
                     DeviceConfigurationOverride(DeviceConfigurationOverride.ForcedSize(size)) {
                         ReminisLinkTheme { Box { AppNavigation(incomingLink = null, onLinkHandled = {}) } }
                     }
@@ -420,9 +420,12 @@ class ArchiveScreenshotUiTest {
             rule.onNodeWithTag("tryDemo").performClick()
             waitFor("dashboard") { hasTag("dashboard") }
             rule.onNodeWithTag("dashboard").assertExists()
+            // Games between the first and the last, so the list scrolls on a phone and on a tablet alike.
+            val demo = context.container.demo.value!!
+            (1..8).forEach { demo.pak.addGameForTests("HA", "Meadow Filler $it.hab") }
             rule.onNodeWithTag("tabLibrary").performClick()
             waitFor("library") { hasText("Brambleway Dash") }
-            assertTrue("placeholder of the detail pane", hasTag("gamePanePlaceholder"))
+            waitFor("placeholder of the detail pane") { hasTag("gamePanePlaceholder") }
             // The last game, scrolled to: the first one leaves the screen.
             rule.onNodeWithTag("games").performScrollToNode(androidx.compose.ui.test.hasText("Thistledown Isles"))
             rule.onNodeWithText("Thistledown Isles").performClick()

@@ -203,7 +203,15 @@ Le faux pak (`FakePak`) modélise la carte SD comme celui d'iOS : dossiers inven
 - `GameSummary` (le `Game` du contrat, avec `lockedStateCount`) sert à la liste d'un dossier et au renommage.
 - Démo : le faux pak liste les dossiers d'un système et sait répondre comme un pak sans `GET /games` ou avec une liste tronquée (crochets `allGamesUnsupported`, `libraryTruncated`).
 - Tests : `:core` `LibraryFilterTest` (filtres, tri, libellés, dossiers, modes, noms de console) ; instrumentés : filtres, parcours par console, balayage et **Vider la corbeille maintenant**, liste tronquée, console renommée, lien lu dans une image (QR code fait par ZXing), zip partagé envoyé comme app et installé. Toute la suite instrumentée passée aussi sur une tablette (AVD Pixel Tablet, API 35 : barre latérale des onglets, bibliothèque en deux volets).
-- La barre latérale est choisie d'après la largeur de la configuration (celle de la fenêtre, et la taille forcée des tests), plus d'après la taille physique.
+- La barre latérale est choisie d'après la largeur de la fenêtre (`LocalWindowInfo`, en dp de la densité courante : une fenêtre redimensionnée, et la taille forcée des tests, qui change la densité) ; le test des deux volets ajoute des jeux inventés pour que la liste défile sur un téléphone comme sur une tablette.
+
+### Revue Codex 1 du sixième incrément
+
+- **Remplacement d'un pak depuis la carte SD** : la vérification du pak installé appartient à l'installation (`PakInstall.check` : en cours, faite, non faite). Si elle ne peut pas se faire (`GET /paks` ou `GET /trash` en erreur, pak absent de la liste), le rang dit « Installé, à vérifier » avec l'explication, jamais « Installé » seul (iOS n'a pas ce cas : c'est le choix le plus sûr) ; « Effacer les terminées » garde une installation dont la vérification est en cours. Une installation qui attend l'utilisateur (pak du même nom) a **Remplacer…** et **Garder celui installé** aussi dans Transferts, comme iOS.
+- **Dossier `.pak` zippé** (`PakFolderZip`) : parcours itératif (file d'attente), 32 niveaux au plus, chaque identifiant de document une seule fois (un cycle est coupé), enfants lus ligne par ligne sur le curseur et lecture arrêtée à 10 000 entrées, 1 Gio de contenu au plus ; testé sur la JVM avec un faux fournisseur (cycle, chaîne sans fin, dossier sans fin).
+- **Identité de l'appairage** : l'observateur d'erreurs garde l'appairage (empreinte et date) du client qui a lu la réponse ; un `401` ou un `503` lu par un client d'un appairage précédent ne ferme rien.
+- **Image du QR code** : copiée dans le cache (50 Mo au plus, que la taille soit déclarée ou non, copie supprimée ensuite), dimensions et pixels lus sur cette même copie ; la lecture appartient à un `ViewModel` et survit à une rotation.
+- **Fin d'un renommage** : la fiche est remplacée dans sa propre entrée (état sauvegardé de la route du jeu, ou du choix de la Bibliothèque), où qu'elle soit dans la pile de son onglet ; les écrans ouverts au-dessus et les autres onglets ne bougent pas.
 
 ### Écarts restants avec iOS
 

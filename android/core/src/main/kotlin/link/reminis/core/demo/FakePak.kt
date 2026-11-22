@@ -324,6 +324,13 @@ class FakePak(
         streams.clear()
     }
 
+    /** Tests: adds a made-up game to the system of [tag] (a longer library), with a `library` event. */
+    fun addGameForTests(tag: String, fileName: String) = synchronized(lock) {
+        val system = systems.first { it.def.tag == tag }
+        system.games += GameState(fileName, "file", Blob(1_024, null, fileName.hashCode()), nowMillis(), null, nowMillis(), art = null)
+        library(system)
+    }
+
     /** Tests: `GET /trash` answers `500` (the check of a replaced pak cannot read it). */
     @Volatile
     var failTrashList = false
