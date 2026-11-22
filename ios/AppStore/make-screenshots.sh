@@ -2,14 +2,17 @@
 # App Store screenshots from the demo mode (milestones M16, M15).
 #
 #   ios/AppStore/make-screenshots.sh <simulator id> <folder suffix> <width> <height>
+#   ios/AppStore/make-screenshots.sh <iPhone 17 Pro Max id> "" 1320 2868    # en-US/, fr-FR/
+#   ios/AppStore/make-screenshots.sh <iPhone 17 Pro id> 6.3 1206 2622      # en-US-6.3/, fr-FR-6.3/
 #   ios/AppStore/make-screenshots.sh <iPad Pro 13-inch id> ipad-13 2064 2752
 #
 # For each language (en-US, fr-FR): sets the language of the simulator (so
 # the status bar date matches), 9:41 and a full battery in the status bar,
 # and runs AppStoreScreenshotsUITests. Both series are checked (the six
 # names exactly once, the expected size, no alpha) before
-# docs/screenshots/appstore/<locale>-<suffix>/ is replaced; nothing is
-# replaced if a check fails.
+# docs/screenshots/appstore/<locale>-<suffix>/ (<locale>/ for an empty
+# suffix: the iPhone 6.9" slot) is replaced; nothing is replaced if a
+# check fails.
 #
 # The simulator must be shut down: simctl cannot read status bar overrides
 # back, so a booted one (whose overrides would be lost) is refused. At the
@@ -17,8 +20,9 @@
 # the overrides set here are cleared and it is shut down again.
 set -uo pipefail
 
+(( $# == 4 )) || { echo "usage: $0 <simulator id> <folder suffix, may be empty> <width> <height>" >&2; exit 2; }
 SIM=${1:?simulator id}
-SUFFIX=${2:?folder suffix, for example ipad-13}
+SUFFIX=$2
 WIDTH=${3:?width in pixels}
 HEIGHT=${4:?height in pixels}
 IOS=${0:A:h:h}
@@ -126,7 +130,7 @@ done
 
 # Both series are complete: replace the folders.
 for locale in en-US fr-FR; do
-  target="$OUT/$locale-$SUFFIX"
+  target="$OUT/$locale${SUFFIX:+-$SUFFIX}"
   rm -rf "$target.new" "$target.old"
   # Copied next to the folder first, so the swap is two renames.
   cp -R "$WORK/out/$locale" "$target.new" || fail "$target.new not written"

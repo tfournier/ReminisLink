@@ -518,24 +518,35 @@ banner, `-RLScreenshots YES`) when `TEST_RUNNER_RL_SCREENSHOTS` is `en` or
 both languages (it sets the language of the simulator for the status bar
 date, 9:41 and a full battery), checks both series (the six names
 `1-library` to `6-consoles` exactly once, the given size, no alpha), and
-only then replaces `docs/screenshots/appstore/<locale>-<suffix>/`. The
+only then replaces `docs/screenshots/appstore/<locale>-<suffix>/`
+(`<locale>/` when the suffix is empty). The
 simulator must be shut down (simctl cannot read status bar overrides back,
 so a booted one is refused); at the end its language and region are put
 back (only those it could read), the overrides it set are cleared and it
-is shut down again. iPad 13" (2064 × 2752, iPad Pro 13-inch M5 simulator):
+is shut down again. The three App Store Connect slots (iOS 26 simulators;
+dedicated ones created for the run and deleted afterwards keep your own
+simulators untouched):
 
 ```sh
-xcrun simctl shutdown <iPad Pro 13-inch simulator id>
-ios/AppStore/make-screenshots.sh <iPad Pro 13-inch simulator id> ipad-13 2064 2752
+R=com.apple.CoreSimulator.SimRuntime.iOS-26-4
+P69=$(xcrun simctl create "RL Shots 6.9" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max $R)
+P63=$(xcrun simctl create "RL Shots 6.3" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro $R)
+PAD=$(xcrun simctl create "RL Shots iPad 13" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB $R)
+ios/AppStore/make-screenshots.sh $P69 '' 1320 2868       # iPhone 6.9": en-US/, fr-FR/
+ios/AppStore/make-screenshots.sh $P63 6.3 1206 2622      # iPhone 6.3": en-US-6.3/, fr-FR-6.3/
+ios/AppStore/make-screenshots.sh $PAD ipad-13 2064 2752  # iPad 13": en-US-ipad-13/, fr-FR-ipad-13/
+xcrun simctl delete $P69 $P63 $PAD
 ```
+
+Run them one after the other (they build the same scheme).
 
 In the demo the texts that name NextUI say "the console" instead (state
 history, game image). Apple's own feature names are kept: the Files
 footer of a game says "Save to Files, AirDrop…" in the demo and in the
 screenshots (`1-library`, `2-game`). On an iPad the
-library screenshots show the list and the game side by side.
-The iPhone sets of M16 were taken by hand; this test should give the same
-screens on an iPhone 16 Pro Max (1320 × 2868), not tried yet.
+library screenshots show the list and the game side by side. Since
+version 1.1 the iPhone sets are made by the same script (the M16 ones were
+taken by hand).
 
 ## Against the pak on the Mac (`make headless`)
 
