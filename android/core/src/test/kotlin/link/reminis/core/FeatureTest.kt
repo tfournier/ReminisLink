@@ -658,5 +658,49 @@ class FeatureTest {
         jobs.consume(deviceId, "job_2")
         assertTrue(jobs.jobs.value.isEmpty())
     }
+
+    // MARK: final review
+
+    @Test
+    fun aJobOfAnotherPairingIsNeitherPolledNorCancelled() = runBlocking {
+        var current: Any? = "pin-1"
+        val jobs = JobTracker({ current }) { client() }
+        jobs.track(deviceId, "job_old", "Moss", JobKinds.PATCH)
+        // Paired again: the job of the old pairing never goes through the new client.
+        current = "pin-2"
+        jobs.refresh(deviceId)
+        assertEquals(0, server.requestCount)
+        val e = runCatching { jobs.cancel(deviceId, "job_old") }.exceptionOrNull()
+        assertTrue(e is ConsoleForgottenException)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun aJobWhoseScreenLeftGoesWhenCleared() = runBlocking {
+        server.enqueue(job("job_l", "succeeded"))
+        val jobs = JobTracker { client() }
+        jobs.track(deviceId, "job_l", "Moss", JobKinds.PATCH)
+        // The Patch screen closed while the job ran; Transfers shows its end, then the user clears it.
+        jobs.disown(deviceId, "job_l")
+        jobs.refresh(deviceId)
+        assertTrue(jobs.get(deviceId, "job_l")!!.isFinished)
+        jobs.clearFinished(deviceId)
+        assertTrue(jobs.jobs.value.isEmpty())
+    }
+
+    @Test
+    fun aLate202IsRegisteredOnlyUnderTheCurrentPairing() = withScope { scope ->
+        server.enqueue(json("""{"jobId":"job_g"}""", 202))
+        val jobs = JobTracker { client() }
+        // The guard says the pairing changed at the very moment of the check.
+        val run = PatchRun(
+            deviceId, scope, jobs, { client() }, RetryPolicy.immediate,
+            pairing = { "pin-1" }, ifPairing = { _, _ -> false },
+        )
+        run.start("g", PatchInput.SdCard("sd_1"), PatchOutputMode.NEW_FILE, "x.gba", "Moss")
+        val failed = run.waitFor { it is PatchStep.Failed } as PatchStep.Failed
+        assertTrue(failed.error is ConsoleForgottenException)
+        assertTrue(jobs.jobs.value.isEmpty())
+    }
 }
 

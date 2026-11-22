@@ -158,7 +158,8 @@ class PatchViewModel(
             onLocalCopyDone = { input -> container.backgroundScope.launch(Dispatchers.IO) { input.file.parentFile?.deleteRecursively() } },
             // The answer of POST /patch, its job and a cancellation outlive this screen.
             durableScope = container.scope,
-            pairing = { container.consoles.get(deviceId)?.let { it.pin to it.pairedAt } },
+            pairing = { container.pairingIdentity(deviceId) },
+            ifPairing = { identity, block -> container.ifPairing(deviceId, identity, block) },
         )
     }
 

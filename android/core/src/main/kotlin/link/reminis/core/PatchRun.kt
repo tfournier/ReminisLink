@@ -100,6 +100,19 @@ class PatchRun(
      * tracked, no cancel sent through another pairing).
      */
     private val pairing: () -> Any? = { Unit },
+    /**
+     * Runs [block] only if [identity] is still the console's pairing,
+     * atomically with forgetting or replacing it (the app holds its pairing
+     * lock); null otherwise.
+     */
+    private val ifPairing: (identity: Any?, block: () -> Unit) -> Boolean = { identity, block ->
+        if (identity != null && pairing() == identity) {
+            block()
+            true
+        } else {
+            false
+        }
+    },
 ) {
     private val _step = MutableStateFlow<PatchStep>(PatchStep.Idle)
     val step: StateFlow<PatchStep> = _step.asStateFlow()
@@ -174,15 +187,18 @@ class PatchRun(
             fail(e)
             return
         }
-        if (identity == null || pairing() != identity) {
+        // Checked and registered in one step with forgetting or replacing the pairing.
+        val registered = ifPairing(identity) {
+            jobId = accepted.jobId
+            jobPairing = identity
+            jobs.track(deviceId, accepted.jobId, title, JobKinds.PATCH, identity)
+        }
+        if (!registered) {
             // The console was forgotten (or paired again) meanwhile: nothing more is sent for this pairing.
             _cancelling.value = false
             _step.value = PatchStep.Failed(ConsoleForgottenException())
             return
         }
-        jobId = accepted.jobId
-        jobPairing = identity
-        jobs.track(deviceId, accepted.jobId, title, JobKinds.PATCH)
         _step.value = PatchStep.Patching
         if (cancelRequested) cancelJob(accepted.jobId)
     }
@@ -354,6 +370,8 @@ class PatchRun(
      * [cleanupScope] (the screen's scope is gone).
      */
     fun discard(cleanupScope: CoroutineScope) {
+        // Nobody waits for the job on this screen any more (Transfers still shows it).
+        jobId?.let { jobs.disown(deviceId, it) }
         if (_step.value.holdsTheScreen) return
         val current = upload?.second ?: return
         val input = uploadInput

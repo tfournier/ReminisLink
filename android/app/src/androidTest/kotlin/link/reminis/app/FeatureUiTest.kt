@@ -70,7 +70,6 @@ class FeatureUiTest {
     private val falsePreviews = AtomicInteger()
     private val falseGate = java.util.concurrent.CountDownLatch(1)
     private val trueGate = java.util.concurrent.CountDownLatch(1)
-    private val trueAnswered = java.util.concurrent.CountDownLatch(1)
 
     @Before
     fun setUp() {
@@ -162,7 +161,7 @@ class FeatureUiTest {
                 json(
                     """{"moved":[{"name":"Roms/Pocket Advance (GBA)/Moss Lantern/track1.bin","role":"rom","size":1}],
                     "kept":[{"name":"Saves/GBA/Moss Lantern.gba.sav","role":"save","size":1}],"movedBytes":1}""",
-                ).also { trueAnswered.countDown() }
+                )
             }
             path == "/api/v1/games/$gameId?keepSave=false" && method == "DELETE" ->
                 json("""{"trashEntryId":"tr_9","moved":["Saves/GBA/Moss Lantern.gba.sav"],"movedBytes":12}""")
@@ -364,32 +363,45 @@ class FeatureUiTest {
     }
 
     @Test
-    fun aDeletionPreviewOfTheOtherOptionNeverStandsForTheOptionShown() {
+    fun aLateDeletionPreviewOfTheOtherOptionChangesNothing() = deletionPreviewScenario(keepAnswersFirst = false)
+
+    @Test
+    fun aDeletionPreviewOfTheOtherOptionWhileTheShownOneIsHeldChangesNothing() = deletionPreviewScenario(keepAnswersFirst = true)
+
+    /**
+     * On then off before the answers, both held by the test; the answers
+     * are released in the given order. Only the preview of the option
+     * shown ("delete everything") is applied; the confirmation waits for it.
+     */
+    private fun deletionPreviewScenario(keepAnswersFirst: Boolean) {
+        val answers = context.container.deletionAnswersForTests
         ActivityScenario.launch(MainActivity::class.java).use {
             openGame()
             compose.onNodeWithTag("gameMenu").performClick()
             compose.onNodeWithTag("deleteGame").performClick()
             waitForText("Saves/GBA/Moss Lantern.gba.sav")
-            // On: its preview is held by the test; the confirmation waits for it.
             compose.onNodeWithTag("deleteKeepSave").performScrollTo().performClick()
             waitFor("the keep-save request") { requests.any { r -> r.path == "/api/v1/games/$gameId/deletion?keepSave=true" } }
             compose.onNodeWithTag("deleteGameConfirm").assertIsNotEnabled()
-            // Off again: its preview is held too, the confirmation still waits.
             compose.onNodeWithTag("deleteKeepSave").performScrollTo().performClick()
             waitFor("the second preview request") { falsePreviews.get() >= 2 }
             compose.onNodeWithTag("deleteGameConfirm").assertIsNotEnabled()
-            // The preview of the option shown answers first...
-            falseGate.countDown()
-            waitFor("the preview shown") {
-                compose.onAllNodesWithTag("deleteGameConfirm").fetchSemanticsNodes().any {
-                    !it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
-                }
+            val before = answers.get()
+            if (keepAnswersFirst) {
+                // "Keep" answers while the preview of the option shown is still held: nothing changes.
+                trueGate.countDown()
+                waitFor("the keep answer read by the app") { answers.get() >= before + 1 }
+                compose.waitForIdle()
+                compose.onNodeWithTag("deleteGameConfirm").assertIsNotEnabled()
+                assertTrue(compose.onAllNodesWithText(context.getString(R.string.game_delete_kept)).fetchSemanticsNodes().isEmpty())
+                falseGate.countDown()
+            } else {
+                falseGate.countDown()
+                waitFor("the shown preview read by the app") { answers.get() >= before + 1 }
+                trueGate.countDown()
             }
-            // ...then the late answer for "keep": it changes nothing.
-            trueGate.countDown()
-            assertTrue(trueAnswered.await(20, java.util.concurrent.TimeUnit.SECONDS))
-            waitFor("the late answer read") { requests.count { r -> r.path?.contains("/deletion?") == true } >= 3 }
-            Thread.sleep(500)
+            // Both answers read by the app (client-side signal), then the state checked.
+            waitFor("both answers read by the app") { answers.get() >= before + 2 }
             compose.waitForIdle()
             assertTrue(compose.onAllNodesWithText(context.getString(R.string.game_delete_kept)).fetchSemanticsNodes().isEmpty())
             // The exact list, with relative paths: 12 files, the two data.bin told apart.
@@ -398,7 +410,6 @@ class FeatureUiTest {
             compose.onNodeWithTag("deleteGameConfirm").assertIsEnabled().performClick()
             waitForTag("search")
         }
-        assertTrue(requests.any { it.method == "GET" && it.path == "/api/v1/games/$gameId/deletion?keepSave=true" })
         assertTrue(requests.any { it.method == "DELETE" && it.path == "/api/v1/games/$gameId?keepSave=false" })
         assertTrue(requests.none { it.method == "DELETE" && it.path == "/api/v1/games/$gameId?keepSave=true" })
     }

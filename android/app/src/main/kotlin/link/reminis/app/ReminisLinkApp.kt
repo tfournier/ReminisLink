@@ -114,7 +114,20 @@ class AppContainer(context: Context) {
     ) { deviceId, refresh -> client(deviceId, refresh) }
 
     /** Jobs of the consoles (patches, pak installations), polled by the screens that show them. */
-    val jobs = JobTracker { deviceId -> client(deviceId) }
+    val jobs = JobTracker({ deviceId -> pairingIdentity(deviceId) }) { deviceId -> client(deviceId) }
+
+    /** The identity of the current pairing of a console (pin and pairing date), null when forgotten. */
+    fun pairingIdentity(deviceId: String): Any? = consoles.get(deviceId)?.let { it.pin to it.pairedAt }
+
+    /**
+     * Runs [block] only if [identity] is still the pairing of [deviceId],
+     * under the lock that forgetting and replacing a pairing hold.
+     */
+    fun ifPairing(deviceId: String, identity: Any?, block: () -> Unit): Boolean = synchronized(pairingLock) {
+        if (identity == null || pairingIdentity(deviceId) != identity) return@synchronized false
+        block()
+        true
+    }
 
     /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
     val pakInstaller = PakInstaller(transferScope, transfers, jobs) { file -> file.parentFile?.deleteRecursively() }
@@ -240,7 +253,14 @@ class AppContainer(context: Context) {
     fun replacePairing(console: PairedConsole) = synchronized(pairingLock) {
         consoles.put(console)
         clients.remove(console.deviceId)
+        // The jobs of the previous pairing are never asked through the new one.
+        jobs.dropConsole(console.deviceId)
+        pakInstaller.dropConsole(console.deviceId)
     }
+
+    /** Tests only: deletion previews answered (applied or not), a client-side signal. */
+    @androidx.annotation.VisibleForTesting
+    val deletionAnswersForTests = java.util.concurrent.atomic.AtomicInteger()
 
     /**
      * Forgets a console on this phone. Its transfers stop and never start
@@ -251,9 +271,9 @@ class AppContainer(context: Context) {
         synchronized(pairingLock) {
             consoles.remove(deviceId)
             clients.remove(deviceId)
+            jobs.dropConsole(deviceId)
         }
         transfers.dropConsole(deviceId)
-        jobs.dropConsole(deviceId)
         pakInstaller.dropConsole(deviceId)
     }
 

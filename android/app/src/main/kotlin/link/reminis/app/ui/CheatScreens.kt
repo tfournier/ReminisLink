@@ -172,6 +172,18 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
 
     fun setEnabled(id: String, enabled: Boolean) = edit { it.setEnabled(id, enabled) }
 
+    /**
+     * Opens the edit sheet on a cheat, synchronously from the tap (before a
+     * read can answer): the entry is the one shown now, by its id, else by
+     * its place (a read replaced it since the last frame). Reads then hold
+     * back until the sheet closes, so its id stays valid.
+     */
+    fun openEdit(entry: CheatEditor.Entry, index: Int): CheatEditor.Entry? {
+        val e = editor ?: return null
+        e.sheetOpen = true
+        return e.entries.firstOrNull { it.id == entry.id } ?: e.entries.getOrNull(index)
+    }
+
     /** A sheet edits or adds a cheat: reads hold back until it closes, then a list held only by it is shown. */
     fun setSheetOpen(open: Boolean) {
         val e = editor ?: return
@@ -247,7 +259,10 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
     }
 
     fun setImportFrom(from: CheatImportFrom) {
-        _import.update { it?.copy(from = from, error = null) }
+        // The copy of a file chosen before is never left behind.
+        val previous = _import.value?.file?.takeIf { from != CheatImportFrom.FILES }
+        _import.update { it?.copy(from = from, error = null, file = if (previous != null) null else it.file) }
+        previous?.let { f -> viewModelScope.launch(Dispatchers.IO) { f.remove() } }
         if (from == CheatImportFrom.SD_CARD && _import.value?.sdFiles == null) loadSdFiles()
     }
 
@@ -303,6 +318,8 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
                     CheatImportFrom.SD_CARD -> CheatImportSource.Sd(state.sdFileId!!)
                 }
                 val result = container.client(deviceId).importCheats(gameId, CheatImportRequest(source, state.mode))
+                // Any copy still held (an SD import after a file was chosen) goes with the sheet.
+                _import.value?.file?.let { f -> withContext(Dispatchers.IO) { f.remove() } }
                 _import.value = null
                 showNotice(Notice(R.string.cheats_imported, listOf(result.imported, result.total)))
                 load()
@@ -354,8 +371,7 @@ fun CheatsScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
     val hasChanges = (ui as? Load.Loaded)?.value?.hasChanges == true
     var editing by remember { mutableStateOf<CheatEditor.Entry?>(null) }
     var adding by remember { mutableStateOf(false) }
-    val sheetOpen = editing != null || adding
-    androidx.compose.runtime.LaunchedEffect(sheetOpen) { vm.setSheetOpen(sheetOpen) }
+
     var menu by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var confirmEmpty by remember { mutableStateOf(false) }
@@ -386,7 +402,7 @@ fun CheatsScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.cheats_add)) },
-                        onClick = { menu = false; adding = true },
+                        onClick = { menu = false; vm.setSheetOpen(true); adding = true },
                         modifier = Modifier.testTag("cheatsAddCheat"),
                     )
                     DropdownMenuItem(
@@ -412,7 +428,8 @@ fun CheatsScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
                 itemsIndexed(cheats.entries, key = { _, e -> e.id }) { index, entry ->
                     CheatRow(
                         entry, index, cheats.entries.size, enabled = !working,
-                        onToggle = { vm.setEnabled(entry.id, it) }, onEdit = { editing = entry },
+                        onToggle = { vm.setEnabled(entry.id, it) },
+                        onEdit = { editing = vm.openEdit(entry, index).also { if (it == null) vm.setSheetOpen(false) } },
                         onMove = { vm.move(entry.id, it) }, onDelete = { vm.remove(entry.id) },
                     )
                     HorizontalDivider()
@@ -427,9 +444,9 @@ fun CheatsScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
         }
     }
     editing?.let { entry ->
-        CheatEditDialog(entry, onSave = { d, c, e -> vm.update(entry.id, d, c, e) }, onDismiss = { editing = null })
+        CheatEditDialog(entry, onSave = { d, c, e -> vm.update(entry.id, d, c, e) }, onDismiss = { editing = null; vm.setSheetOpen(false) })
     }
-    if (adding) CheatEditDialog(null, onSave = vm::add, onDismiss = { adding = false })
+    if (adding) CheatEditDialog(null, onSave = vm::add, onDismiss = { adding = false; vm.setSheetOpen(false) })
     import?.let { CheatImportDialog(vm, it) }
     if (confirmDiscard) {
         ConfirmDialog(

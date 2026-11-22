@@ -459,8 +459,9 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
             } catch (e: Exception) {
                 Load.Failed(e)
             }
-            val current = _deletion.value ?: return@launch
-            if (generation == deletionGeneration && current.keepSave == keepSave) _deletion.value = current.copy(preview = result)
+            val current = _deletion.value
+            if (current != null && generation == deletionGeneration && current.keepSave == keepSave) _deletion.value = current.copy(preview = result)
+            container.deletionAnswersForTests.incrementAndGet()
         }
     }
 

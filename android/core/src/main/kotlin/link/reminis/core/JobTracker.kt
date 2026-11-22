@@ -26,6 +26,10 @@ data class TrackedJob(
     val hidden: Boolean = false,
     /** Its owner (the Patch screen, the pak installer) read its outcome. */
     val consumed: Boolean = false,
+    /** An owner waits for its outcome; false once it left (a Patch screen closed). */
+    val owned: Boolean = true,
+    /** The pairing the job was started with: no request goes through another one. */
+    val pairing: Any? = null,
 ) {
     val isFinished: Boolean get() = lost || job?.isFinished == true
 
@@ -41,15 +45,32 @@ data class TrackedJob(
  * for every poll ([client]): a console forgotten or paired again never
  * gets a request from a stale client.
  */
-class JobTracker(private val client: suspend (deviceId: String) -> ApiClient) {
+class JobTracker(
+    /** The identity of the current pairing of a console (null when forgotten). */
+    private val pairing: (deviceId: String) -> Any? = { Unit },
+    private val client: suspend (deviceId: String) -> ApiClient,
+) {
     private val _jobs = MutableStateFlow<List<TrackedJob>>(emptyList())
     val jobs: StateFlow<List<TrackedJob>> = _jobs.asStateFlow()
     private val polling = Mutex()
 
-    /** Follows a job (idempotent). */
-    fun track(deviceId: String, jobId: String, title: String, kind: String) {
+    /** Follows a job (idempotent), started with [identity] (the current pairing by default). */
+    fun track(deviceId: String, jobId: String, title: String, kind: String, identity: Any? = pairing(deviceId)) {
         _jobs.update { list ->
-            if (list.any { it.deviceId == deviceId && it.jobId == jobId }) list else list + TrackedJob(deviceId, jobId, title, kind)
+            if (list.any { it.deviceId == deviceId && it.jobId == jobId }) list else list + TrackedJob(deviceId, jobId, title, kind, pairing = identity)
+        }
+    }
+
+    /** The job's pairing is still the console's: a request for it may go. */
+    private fun samePairing(job: TrackedJob) = job.pairing == null || pairing(job.deviceId) == job.pairing
+
+    /**
+     * The owner of a job left (its screen closed): once finished and
+     * cleared from the Transfers screen, nobody waits for it any more.
+     */
+    fun disown(deviceId: String, jobId: String) = _jobs.update { list ->
+        list.mapNotNull {
+            if (it.deviceId != deviceId || it.jobId != jobId) it else if (it.isFinished && it.hidden) null else it.copy(owned = false)
         }
     }
 
@@ -58,6 +79,8 @@ class JobTracker(private val client: suspend (deviceId: String) -> ApiClient) {
     /** Polls once every unfinished job of [deviceId] (one poll round at a time). */
     suspend fun refresh(deviceId: String) = polling.withLock {
         for (tracked in _jobs.value.filter { it.deviceId == deviceId && !it.isFinished }) {
+            // Another pairing now: its client never asks for this job.
+            if (!samePairing(tracked)) continue
             val result = pollJob({ client(deviceId) }, tracked.jobId)
             change(deviceId, tracked.jobId) { current ->
                 result.fold(
@@ -74,6 +97,8 @@ class JobTracker(private val client: suspend (deviceId: String) -> ApiClient) {
      * Throws when the cancellation could not be sent: the job goes on.
      */
     suspend fun cancel(deviceId: String, jobId: String) {
+        val tracked = get(deviceId, jobId)
+        if (tracked != null && !samePairing(tracked)) throw ConsoleForgottenException()
         val job = try {
             client(deviceId).cancelJob(jobId)
         } catch (e: ApiException.Server) {
@@ -96,7 +121,7 @@ class JobTracker(private val client: suspend (deviceId: String) -> ApiClient) {
             when {
                 !it.isFinished || (deviceId != null && it.deviceId != deviceId) -> it
                 // Nobody waits for it any more: gone.
-                it.consumed -> null
+                it.consumed || !it.owned -> null
                 else -> it.copy(hidden = true)
             }
         }
