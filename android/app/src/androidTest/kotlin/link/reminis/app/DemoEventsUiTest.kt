@@ -15,6 +15,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import link.reminis.core.CheatsUpdate
 import org.junit.After
@@ -228,6 +231,46 @@ class DemoIsolationUiTest {
     }
 
     @Test
+    fun aResolutionInFlightStopsWhenTheDemoStarts() {
+        // A transfer reconnecting to the real console: mDNS for 3 s, then its last address.
+        val before = context.container.consoles.get(realId)!!.lastEndpoint
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        val result = scope.async { runCatching { context.container.client(realId, refresh = true) } }
+        Thread.sleep(1_000)
+        InstrumentationHelper.onMain { context.container.startDemo() }
+        val outcome = runBlocking { kotlinx.coroutines.withTimeout(10_000) { result.await() } }
+        assertTrue("got ${outcome.exceptionOrNull()}", outcome.exceptionOrNull() is link.reminis.core.ApiException.Network)
+        Thread.sleep(3_000)
+        assertEquals("the real console was contacted after the demo started", 0, accepted.get())
+        assertEquals(before, context.container.consoles.get(realId)!!.lastEndpoint)
+        scope.cancel()
+    }
+
+    @Test
+    fun aShareDuringTheDemoEndsItAndOpensAdd() {
+        InstrumentationHelper.onMain { context.container.startDemo() }
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "Fern Share ${System.currentTimeMillis()}.gba")
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
+        try {
+            resolver.openOutputStream(uri, "wt")!!.use { it.write(ByteArray(64) { 7 }) }
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).setClass(context, MainActivity::class.java)
+                .setType("application/octet-stream").putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            ActivityScenario.launch<MainActivity>(intent).use {
+                // As on iOS: the demo ends first, then the share goes to the real consoles' Add screen.
+                compose.waitUntil(10_000) { hasText("Fern Share") }
+                assertNull(context.container.demo.value)
+                assertTrue(!hasTag("demoBanner"))
+            }
+        } finally {
+            resolver.delete(uri, null, null)
+        }
+    }
+
+    @Test
     fun aPairingLinkFromAnotherAppNeverPairsDuringTheDemo() {
         InstrumentationHelper.onMain { context.container.startDemo() }
         val link = link.reminis.core.PairingLink(
@@ -253,6 +296,40 @@ class DemoIsolationUiTest {
             compose.onNodeWithTag("cancelPair").performClick()
             compose.waitForIdle()
             assertNull(context.container.consoles.get("7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10"))
+        }
+    }
+}
+
+/** A copy cancelled after it finished (quitting the demo during Send) leaves no file behind. */
+@RunWith(AndroidJUnit4::class)
+class CopyCancellationTest {
+    private val context: Context get() = ApplicationProvider.getApplicationContext()
+
+    @Test
+    fun aCancelledCopyLeavesNothing() {
+        val root = java.io.File(context.cacheDir, "copy-test-${System.nanoTime()}").apply { mkdirs() }
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "Fern Big ${System.currentTimeMillis()}.bin")
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
+        try {
+            resolver.openOutputStream(uri, "wt")!!.use { out -> val block = ByteArray(1 shl 20); repeat(24) { out.write(block) } }
+            repeat(5) { attempt ->
+                runBlocking {
+                    val job = launch(kotlinx.coroutines.Dispatchers.Default) {
+                        // A copy handed back belongs to the caller (it queues it): removed here as a caller would.
+                        runCatching { LocalFiles.copyIn(context, uri, root) }.getOrNull()?.file?.parentFile?.deleteRecursively()
+                    }
+                    kotlinx.coroutines.delay(5L + attempt * 20)
+                    job.cancel()
+                    job.join()
+                }
+                assertTrue("a copy nobody received was left: ${root.list()?.toList()}", root.list().isNullOrEmpty())
+            }
+        } finally {
+            resolver.delete(uri, null, null)
+            root.deleteRecursively()
         }
     }
 }

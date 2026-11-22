@@ -96,6 +96,8 @@ android {
             }
             // Reproducible builds (F-Droid): no VCS information in the APK.
             vcsInfo.include = false
+            // scripts/release-smoke.sh only: installed beside the user's app, never over it.
+            if (findProperty("reminislink.smokeSuffix") == "true") applicationIdSuffix = ".smoke"
         }
         // The release build (R8, same rules) signed with the debug key, for the
         // instrumented smoke test of the minified app (ReleaseSmokeTest):

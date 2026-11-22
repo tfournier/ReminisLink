@@ -212,6 +212,13 @@ class TransferQueue(
         /** Paused because the demo mode started ([holdForDemo]): resumed when it ends, whatever its phase then. */
         var heldByDemo = false
 
+        /**
+         * Paused for another reason than the demo (the system stopped the service,
+         * the console closed ReminisLink): only a resume by the user or by its
+         * console answering again lifts it; the end of the demo never does.
+         */
+        var pausedElsewhere = false
+
         /** The open document of a running download (closed by a cancel: it unblocks a stuck write). */
         var stream: OutputStream? = null
 
@@ -428,6 +435,9 @@ class TransferQueue(
 
     private fun resumeLocked(entry: Entry) {
         if (entry.reserved || entry.dropped) return
+        // A resume by the user or by its console: the other pause reasons go; the demo's stays while it runs.
+        if (entry.heldByDemo && demoHolds != null) return
+        entry.pausedElsewhere = false
         val resumable = entry.phase == TransferPhase.PAUSED ||
             (entry.phase == TransferPhase.FAILED && entry.direction == TransferDirection.UPLOAD)
         if (!resumable) return
@@ -496,7 +506,7 @@ class TransferQueue(
      * upload after its current chunk, the running download at once (it
      * starts again on resume); waiting transfers are paused.
      */
-    fun pauseAll() = pauseWhere { true }
+    fun pauseAll() = pauseWhere(elsewhere = true) { true }
 
     /** While the demo runs: which consoles it holds (every real one), null otherwise. */
     private var demoHolds: ((String) -> Boolean)? = null
@@ -513,7 +523,7 @@ class TransferQueue(
             entries.filter { holds(it.deviceId) && !it.phase.isFinished && it.phase != TransferPhase.PAUSED && it.phase != TransferPhase.FAILED }
                 .forEach { it.heldByDemo = true }
         }
-        pauseWhere { it.heldByDemo }
+        pauseWhere(elsewhere = false) { it.heldByDemo }
     }
 
     /**
@@ -526,6 +536,11 @@ class TransferQueue(
             demoHolds = null
             var any = false
             for (entry in entries.filter { it.heldByDemo }) {
+                if (entry.pausedElsewhere) {
+                    // The system or its console paused it too: that reason stays, it waits for its own resume.
+                    entry.heldByDemo = false
+                    continue
+                }
                 entry.pauseRequested = false
                 entry.pauseFlag.set(false)
                 if (entry.phase == TransferPhase.PAUSED) {
@@ -545,7 +560,7 @@ class TransferQueue(
 
     /** A transfer just landed paused: one the demo held, and the demo is over, goes on at once. */
     private fun settledLocked(entry: Entry) {
-        if (entry.phase != TransferPhase.PAUSED || !entry.heldByDemo || demoHolds != null) return
+        if (entry.phase != TransferPhase.PAUSED || !entry.heldByDemo || demoHolds != null || entry.pausedElsewhere) return
         entry.heldByDemo = false
         resumeLocked(entry)
     }
@@ -555,10 +570,11 @@ class TransferQueue(
      * its transfers pause like [pauseAll]; they go on when the user opens
      * the console again ([resumePaused]).
      */
-    fun pauseConsole(deviceId: String) = pauseWhere { it.deviceId == deviceId }
+    fun pauseConsole(deviceId: String) = pauseWhere(elsewhere = true) { it.deviceId == deviceId }
 
-    private fun pauseWhere(matches: (Entry) -> Boolean) = synchronized(lock) {
+    private fun pauseWhere(elsewhere: Boolean, matches: (Entry) -> Boolean) = synchronized(lock) {
         for (entry in entries.filter(matches)) {
+            if (elsewhere && !entry.phase.isFinished) entry.pausedElsewhere = true
             // A new conflict rule being applied: it lands paused instead of starting.
             if (entry.reserved) {
                 entry.pauseRequested = true

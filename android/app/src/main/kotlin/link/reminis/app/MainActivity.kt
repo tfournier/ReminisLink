@@ -253,14 +253,24 @@ fun AppNavigation(
             },
         )
     }
+    // Files shared by another app are for the real consoles: during the demo, it ends first
+    // (as on iOS, DemoMode.swift handle(url:)), then the Add (or Patch) screen opens.
+    fun leaveDemoForShare() {
+        if (appContainer.demo.value != null) {
+            appContainer.quitDemo()
+            nav.popBackStack(Routes.CONSOLES, inclusive = false)
+        }
+    }
     LaunchedEffect(incomingShare) {
         if (incomingShare != null) {
+            leaveDemoForShare()
             nav.navigate(Routes.addFiles(share = incomingShare))
             onShareHandled()
         }
     }
     LaunchedEffect(incomingPatch) {
         if (incomingPatch != null) {
+            leaveDemoForShare()
             nav.navigate(Routes.patch(share = incomingPatch))
             onPatchHandled()
         }

@@ -12,6 +12,7 @@ import java.text.Normalizer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import link.reminis.core.DownloadSink
 
@@ -51,22 +52,35 @@ object LocalFiles {
      * an upload can be resumed after the picker's access ends. The local
      * name never comes from the document.
      */
-    suspend fun copyIn(context: Context, uri: Uri, root: File): PickedFile = withContext(Dispatchers.IO) {
-        val resolver = context.contentResolver
-        val name = displayName(resolver, uri)
+    suspend fun copyIn(context: Context, uri: Uri, root: File): PickedFile {
+        // The directory is known before the copy starts: whatever ends this call (a failure, or a
+        // cancellation even after the copy finished, which drops withContext's result), it is
+        // deleted unless the copy is handed back to a caller still running.
         val directory = File(root, UUID.randomUUID().toString())
-        if (!directory.mkdirs()) throw LocalFileException(FileNotFoundException("transfer directory"))
-        val destination = File(directory, "file")
+        var handed = false
         try {
-            val input = resolver.openInputStream(uri) ?: throw FileNotFoundException("document")
-            input.use { inp -> destination.outputStream().use { out -> inp.copyTo(out, 256 * 1024) } }
-            PickedFile(destination, name, destination.length())
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            directory.deleteRecursively()
-            throw e
-        } catch (e: Exception) {
-            directory.deleteRecursively()
-            throw LocalFileException(e)
+            val picked = withContext(Dispatchers.IO) {
+                val resolver = context.contentResolver
+                val name = displayName(resolver, uri)
+                if (!directory.mkdirs()) throw LocalFileException(FileNotFoundException("transfer directory"))
+                val destination = File(directory, "file")
+                try {
+                    val input = resolver.openInputStream(uri) ?: throw FileNotFoundException("document")
+                    input.use { inp -> destination.outputStream().use { out -> inp.copyTo(out, 256 * 1024) } }
+                    PickedFile(destination, name, destination.length())
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: LocalFileException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw LocalFileException(e)
+                }
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            handed = true
+            return picked
+        } finally {
+            if (!handed) withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { directory.deleteRecursively() }
         }
     }
 }
