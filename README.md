@@ -57,18 +57,19 @@ The screenshots come from the desktop mode (`make screenshots`); on the console 
 
 The experimental handhelds come with the next release of the pak (1.1). The app runs on iPhone, iPad and Macs with Apple silicon (iOS 18 or later).
 
-### Other handhelds (experimental, looking for testers)
+### Call for testers
 
-Not supported yet: the pak is built and tested for these handhelds without the devices themselves (card layouts rebuilt from the firmware source code, the server run in each system under emulation), but the screen, the buttons and the Wi-Fi have never been tried on them. If you own one, your help is welcome: see the [call for testers](docs/appel-testeurs.md) (in French) or open an issue.
+The experimental handhelds have never been tried on a real device. The pak is built for them and tested without them: the card layouts are rebuilt from the firmware source code, and the server runs in each system under emulation. The screen, the buttons and the Wi-Fi are untested. If you own one of these handhelds, please try ReminisLink and [open an issue](https://github.com/tfournier/ReminisLink/issues) with:
 
-| Firmware | Platform | Handhelds |
-|---|---|---|
-| NextUI | `tg5050` | TrimUI Smart Pro S |
-| NextUI | `h700` | Anbernic RG28XX, RG34XX, RG35XX Plus/H/Pro/SP, RG40XX H/V, RG CubeXX |
-| NextUI | `my355` | Miyoo Flip |
-| Knulli | — | Knulli handhelds (`ReminisLink.knulli.zip`, unzipped into `/userdata/roms/tools/`, then **Tools > ReminisLink**) |
+- your handheld, its firmware and the firmware version;
+- what works and what does not: the pak opens and shows the QR code, the app pairs, the library and the dashboard load, a game upload works, a save backup and restore work;
+- the logs of the pak, `ReminisLink.txt` and `ReminisLink.stderr.txt`, in `/.userdata/<platform>/logs/` (NextUI) or `/userdata/system/logs/` (Knulli). They contain neither the pairing secret nor a private key, but read them before attaching them: they may show the name of the handheld and of your Wi-Fi network.
 
-On NextUI, the same zip as the Brick is unzipped into `/Tools/<platform>/`. On Knulli, cheats and tool paks are not available, and the data of ReminisLink is in `/userdata/system/ReminisLink`.
+Back up your SD card first. ReminisLink keeps a copy of everything it replaces or deletes, but this is a test version. Step-by-step instructions, in French, are in [docs/appel-testeurs.md](docs/appel-testeurs.md).
+
+**Install:**
+- **NextUI** (`tg5050`, `h700`, `my355`): unzip the same `ReminisLink.pak.zip` as for the Brick into `/Tools/<platform>/`, so that you get `/Tools/<platform>/ReminisLink.pak/launch.sh`.
+- **Knulli**: unzip `ReminisLink.knulli.zip` into `/userdata/roms/tools/`, then open **Tools > ReminisLink**. On Knulli, cheats and tool paks are not available, and the data of ReminisLink is in `/userdata/system/ReminisLink`.
 
 ### From the Pak Store
 
