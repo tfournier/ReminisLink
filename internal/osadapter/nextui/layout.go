@@ -2,6 +2,7 @@ package nextui
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 )
@@ -60,6 +61,10 @@ type Layout struct {
 	// write (NextUI: the format settings of minuisettings.txt).
 	CheckSaveFormat  func(g osadapter.Game) error
 	CheckStateFormat func(g osadapter.Game) error
+
+	// ScreenshotName reads the file name of a screenshot (M22; NextUI:
+	// "<display name>.<YYYY-MM-DD-HH-MM-SS>.png").
+	ScreenshotName func(name string, loc *time.Location) osadapter.ScreenshotName
 
 	// DeviceInfo and Battery describe the console.
 	DeviceInfo func() (osadapter.DeviceInfo, error)
@@ -176,6 +181,15 @@ func (a *Adapter) artFileName(g osadapter.Game) string {
 		return a.layout.ArtName(g)
 	}
 	return artName(g) + ".png"
+}
+
+// ScreenshotName is the reading of a screenshot name of the layout
+// (osadapter.Adapter), in the time zone of the console.
+func (a *Adapter) ScreenshotName(name string) osadapter.ScreenshotName {
+	if a.layout.ScreenshotName != nil {
+		return a.layout.ScreenshotName(name, time.Local)
+	}
+	return ParseScreenshotName(name, time.Local)
 }
 
 // CaseFromFS reports whether names are compared as the file system of each

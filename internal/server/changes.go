@@ -33,6 +33,8 @@ const (
 	ChangeArtDeleted = "art-deleted"
 	// ChangePakDeleted: DELETE /paks/{pakId} (M12).
 	ChangePakDeleted = "pak-deleted"
+	// ChangeScreenshotsDeleted: POST /screenshots/trash (M22).
+	ChangeScreenshotsDeleted = "screenshots-deleted"
 )
 
 // notify calls OnChange with kind after a successful (2xx) response. name,

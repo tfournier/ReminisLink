@@ -17,6 +17,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/library"
 	"github.com/tfournier/ReminisLink/internal/osadapter"
 	"github.com/tfournier/ReminisLink/internal/saves"
+	"github.com/tfournier/ReminisLink/internal/screenshots"
 	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/transfer"
@@ -70,6 +71,8 @@ type Options struct {
 	Saves  *saves.Service
 	States *states.Service
 	Cheats *cheats.Service
+	// Screenshots serves the screenshots of the console (M22).
+	Screenshots *screenshots.Service
 	// Verifier checks the signed routes. Build it with auth.NewVerifier on
 	// the same clock as Now.
 	Verifier *auth.Verifier
@@ -166,7 +169,8 @@ type timeouts struct {
 func New(opts Options) (*Server, error) {
 	switch {
 	case opts.Adapter == nil, opts.Library == nil, opts.Clients == nil, opts.Pairing == nil, opts.Verifier == nil,
-		opts.Trash == nil, opts.Transfers == nil, opts.Saves == nil, opts.States == nil, opts.Cheats == nil:
+		opts.Trash == nil, opts.Transfers == nil, opts.Saves == nil, opts.States == nil, opts.Cheats == nil,
+		opts.Screenshots == nil:
 		return nil, errors.New("server: missing dependency")
 	case !auth.ValidID(opts.Identity.DeviceID):
 		return nil, errors.New("server: device id must be a lowercase UUID")
@@ -392,6 +396,14 @@ func (s *Server) routes() http.Handler {
 	// Read-only SD browser (M12): reads, never wait for a write.
 	signed("GET "+Prefix+"/sd/browse", auth.RouteJSON, s.handleBrowseSD)
 	signed("GET "+Prefix+"/sd/browse/{sdEntryId}/content", auth.RouteJSON, s.handleSDContent)
+
+	// Screenshots (M22): reads never wait for a write; moving them to the
+	// trash runs under the write lock and publishes a screenshots event,
+	// not a library one.
+	signed("GET "+Prefix+"/screenshots", auth.RouteJSON, s.handleListScreenshots)
+	signed("GET "+Prefix+"/screenshots/{screenshotId}", auth.RouteJSON, s.handleGetScreenshot)
+	signed("GET "+Prefix+"/screenshots/{screenshotId}/thumbnail", auth.RouteJSON, s.handleScreenshotThumbnail)
+	reg("POST "+Prefix+"/screenshots/trash", auth.RouteJSON, writeHandler, false, s.screenshotsChanged(s.notify(ChangeScreenshotsDeleted, nil, s.handleTrashScreenshots)))
 
 	// Every signed route besides PUT /save, PUT /art and the upload chunks
 	// uses auth.RouteJSON.

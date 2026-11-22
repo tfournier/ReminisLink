@@ -37,6 +37,20 @@ type Roots struct {
 	// SD browser hides it like Data.
 	Pak  string
 	Logs string // log folder
+	// Screenshots is the folder the OS writes its screenshots to (M22:
+	// NextUI <SD>/Screenshots, Knulli /userdata/screenshots).
+	Screenshots string
+}
+
+// ScreenshotName is what the file name of a screenshot written by the OS
+// says (M22).
+type ScreenshotName struct {
+	// Game is the game the name gives ("" when none): informative, the
+	// name does not say the system.
+	Game string
+	// TakenAt is the date written in the name, in the time zone of the
+	// console (zero when the name has none).
+	TakenAt time.Time
 }
 
 // System is a folder of Roms/ with a "(TAG)" suffix.
@@ -266,6 +280,10 @@ type Adapter interface {
 	GameExists(tag, romName string) bool
 	CheatPath(g Game) string
 	ArtPath(g Game) string
+
+	// ScreenshotName reads the file name of a screenshot of
+	// Roots().Screenshots as the OS writes it (M22).
+	ScreenshotName(name string) ScreenshotName
 
 	DeviceInfo() (DeviceInfo, error)
 }

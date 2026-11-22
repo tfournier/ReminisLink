@@ -212,6 +212,13 @@ func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 	if res.PakRestored {
 		s.events.Paks()
 	}
+	// M22: a screenshot back in the screenshots folder.
+	for _, it := range res.Plan.Items {
+		if !it.Dir && !it.Internal && s.opts.Screenshots.InFolder(it.Dst) {
+			s.events.Screenshots()
+			break
+		}
+	}
 }
 
 // trashLabel is the label of the {entryId} of the request ("" if none).

@@ -20,6 +20,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/saves"
+	"github.com/tfournier/ReminisLink/internal/screenshots"
 	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
 	"github.com/tfournier/ReminisLink/internal/testutil"
@@ -180,6 +181,10 @@ func newFixtureOn(t *testing.T, sd string, roots osadapter.Roots, adapter osadap
 		t.Fatal(err)
 	}
 	t.Cleanup(xfer.Close)
+	shots, err := screenshots.New(screenshots.Options{Adapter: adapter, Trash: trash, Lock: lock, Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
 	storage := &atomic.Int64{}
 	storage.Store(1 << 40)
 	opts := Options{
@@ -193,10 +198,12 @@ func newFixtureOn(t *testing.T, sd string, roots osadapter.Roots, adapter osadap
 		Saves:     sv,
 		States:    st,
 		Cheats:    ch,
-		Verifier:  auth.NewVerifier(clients, clk.Now, 0, logger),
-		Now:       clk.Now,
-		Logger:    logger,
-		IPv4:      func(string) (string, bool) { return "192.168.1.42", true },
+		// M22.
+		Screenshots: shots,
+		Verifier:    auth.NewVerifier(clients, clk.Now, 0, logger),
+		Now:         clk.Now,
+		Logger:      logger,
+		IPv4:        func(string) (string, bool) { return "192.168.1.42", true },
 		Storage: func(string) (device.Storage, error) {
 			return device.Storage{TotalBytes: 1 << 41, FreeBytes: storage.Load()}, nil
 		},

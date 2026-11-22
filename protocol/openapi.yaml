@@ -2894,9 +2894,10 @@ paths:
         parentheses; Knulli: the ROM name without its extension), null when
         the name gives none; it is informative: the name does not say the
         system, so it is never resolved to a `gameId`. `format` comes from
-        the content (signature), not from the extension; `hasThumbnail`
-        says whether `GET /screenshots/{screenshotId}/thumbnail` can make a
-        preview of it (PNG and JPEG). Sorted by `takenAt`, newest first,
+        the extension (no file is opened to list the folder);
+        `hasThumbnail` says whether `GET /screenshots/{screenshotId}/thumbnail`
+        may make a preview of it (PNG and JPEG of at most 32 MiB; a file
+        whose content cannot be decoded still gets `404` there). Sorted by `takenAt`, newest first,
         then by name. At most 5000 screenshots (`truncated: true` beyond:
         the newest are kept). Read route: never waits for a write.
       responses:
@@ -3736,7 +3737,7 @@ components:
         replaceUnavailable:
           type: [string, 'null']
           enum: [not-a-save, game-missing, save-format, place-blocked, backup-taken, null]
-          description: 'Why `replace` is not possible now (null when it is): not the save of a game (or its backup copy), the game is gone, a save format the pak does not write, a place of the save held by something `replace` does not move (a folder), or the backup copy cannot go back to the backups of its game (a file of its name is there).' 
+          description: 'Why `replace` is not possible now (null when it is): not the save of a game (or its backup copy), the game is gone, a save format the pak does not write, a place of the save held by something `replace` does not move (a folder), or the backup copy cannot go back to the backups of its game (a file of its name is there).'
     TrashRestoreResult:
       type: object
       required: [restored, restoredBytes, renamed, replacedEntryId, replaced, replacedKeptAs]
@@ -3759,7 +3760,7 @@ components:
         replacedKeptAs:
           type: [string, 'null']
           enum: [trash, backup, null]
-          description: 'With `replace`, where they are kept (see `TrashRestorePreview.replaceKeptAs`); null otherwise.' 
+          description: 'With `replace`, where they are kept (see `TrashRestorePreview.replaceKeptAs`); null otherwise.'
 
     Backup:
       type: object
@@ -4275,14 +4276,14 @@ components:
         sizeBytes: { $ref: '#/components/schemas/Bytes' }
         format:
           type: string
-          enum: [png, jpeg, bmp, other]
-          description: Read from the content (signature), not from the extension. Clients treat an unknown value as `other`.
+          enum: [png, jpeg, bmp]
+          description: 'From the extension: `.png`, `.jpg` or `.jpeg`, `.bmp` (ignoring case). Clients show an unknown value as a generic image.'
         gameName:
           type: [string, 'null']
           description: The game the file name gives (informative; never resolved to a `gameId`), null when none.
         hasThumbnail:
           type: boolean
-          description: '`GET /screenshots/{screenshotId}/thumbnail` can make a preview (PNG or JPEG within the limits).'
+          description: '`GET /screenshots/{screenshotId}/thumbnail` may make a preview (PNG or JPEG of at most 32 MiB).'
     ScreenshotList:
       type: object
       required: [screenshots, totalBytes, truncated]

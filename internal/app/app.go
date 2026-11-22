@@ -28,6 +28,7 @@ import (
 	"github.com/tfournier/ReminisLink/internal/osadapter/nextui"
 	"github.com/tfournier/ReminisLink/internal/paks"
 	"github.com/tfournier/ReminisLink/internal/saves"
+	"github.com/tfournier/ReminisLink/internal/screenshots"
 	"github.com/tfournier/ReminisLink/internal/server"
 	"github.com/tfournier/ReminisLink/internal/states"
 	"github.com/tfournier/ReminisLink/internal/store"
@@ -118,6 +119,7 @@ type App struct {
 	states  *states.Service
 	cheats  *cheats.Service
 	xfer    *transfer.Service
+	shots   *screenshots.Service
 
 	stopCredit  func()
 	notices     *notices
@@ -252,6 +254,9 @@ func Open(opts Options) (a *App, err error) {
 		return a, err
 	}
 	if a.cheats, err = cheats.New(cheats.Options{Adapter: a.adapter, Trash: a.trash, Lock: sdLock, Logger: logger}); err != nil {
+		return a, err
+	}
+	if a.shots, err = screenshots.New(screenshots.Options{Adapter: a.adapter, Trash: a.trash, Lock: sdLock, Logger: logger}); err != nil {
 		return a, err
 	}
 	if a.xfer, err = transfer.New(transfer.Options{
@@ -400,11 +405,13 @@ func (a *App) Start(ip string) error {
 		Saves:     a.saves,
 		States:    a.states,
 		Cheats:    a.cheats,
-		Verifier:  auth.NewVerifier(a.clients, nil, 0, a.log),
-		Logger:    a.log,
-		OnPaired:  a.paired,
-		OnChange:  a.notices.change,
-		LogFull:   a.logf.full,
+		// M22.
+		Screenshots: a.shots,
+		Verifier:    auth.NewVerifier(a.clients, nil, 0, a.log),
+		Logger:      a.log,
+		OnPaired:    a.paired,
+		OnChange:    a.notices.change,
+		LogFull:     a.logf.full,
 		// HTTPS only (M13).
 		TLS: a.tls.ServerConfig(),
 	})

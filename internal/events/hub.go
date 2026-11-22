@@ -11,8 +11,9 @@
 //   - library: at most one per LibraryInterval; the systemIds of the
 //     changes in between are merged (an empty list, "unknown", wins: the
 //     app refreshes everything);
-//   - paks (M12): at most one per LibraryInterval, the changes in
-//     between merged (the event carries no data);
+//   - paks (M12) and screenshots (M22): at most one per
+//     LibraryInterval each, the changes in between merged (the events
+//     carry no data);
 //   - job: at most one per JobInterval for each job, the latest state
 //     winning, except that a change of state (or of cancelRequested) is
 //     sent at once;
@@ -48,6 +49,8 @@ const (
 	TypeJob      = "job"
 	// TypePaks (M12): the installed paks changed (data: {}).
 	TypePaks = "paks"
+	// TypeScreenshots (M22): the screenshots changed (data: {}).
+	TypeScreenshots = "screenshots"
 )
 
 // Reasons of the shutdown event.
@@ -120,6 +123,7 @@ type Hub struct {
 	libAll  bool                // a pending library change of unknown systems
 	libIDs  map[string]struct{} // pending systemIds
 	paks    throttle            // paks events (M12)
+	shots   throttle            // screenshots events (M22)
 	jobs    map[string]*jobThrottle
 }
 
@@ -269,6 +273,7 @@ func (h *Hub) removeLocked(s *Subscription, reason CloseReason) {
 func (h *Hub) idleLocked() {
 	h.library.stop()
 	h.paks.stop()
+	h.shots.stop()
 	h.libAll = false
 	clear(h.libIDs)
 	for id, j := range h.jobs {
@@ -354,6 +359,7 @@ func (h *Hub) Shutdown(reason string) bool {
 	// waiting for it (documented in 04).
 	h.flushLibraryLocked()
 	h.flushPaksLocked()
+	h.flushShotsLocked()
 	for _, j := range h.jobs {
 		h.flushJobLocked(j)
 	}
@@ -481,6 +487,31 @@ func (h *Hub) flushPaksLocked() {
 
 func (h *Hub) sendPaksLocked() {
 	h.broadcastLocked(Event{Type: TypePaks, Data: []byte("{}")})
+}
+
+// Screenshots publishes a change of the screenshots (M22): moved to the
+// trash or restored from it.
+func (h *Hub) Screenshots() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed || len(h.subs) == 0 {
+		return
+	}
+	if h.ready(&h.shots, h.opts.LibraryInterval, h.flushShotsLocked) {
+		h.sendShotsLocked()
+	}
+}
+
+func (h *Hub) flushShotsLocked() {
+	if h.shots.pending {
+		h.shots.stop()
+		h.shots.last = time.Now()
+		h.sendShotsLocked()
+	}
+}
+
+func (h *Hub) sendShotsLocked() {
+	h.broadcastLocked(Event{Type: TypeScreenshots, Data: []byte("{}")})
 }
 
 // Job publishes the state of a job (a Job of the contract, marshalled

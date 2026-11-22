@@ -464,3 +464,31 @@ func TestPaksCoalescing(t *testing.T) {
 		t.Fatalf("flushed at shutdown: %s", ev.Type)
 	}
 }
+
+// Screenshots events (M22) are merged on their own (a paks event does not
+// absorb them) and carry {}.
+func TestScreenshotsCoalescing(t *testing.T) {
+	h := New(fast())
+	s := subscribe(t, h, "a")
+	h.Screenshots()
+	if ev := next(t, s); ev.Type != TypeScreenshots || string(ev.Data) != "{}" {
+		t.Fatalf("first: %s %s", ev.Type, ev.Data)
+	}
+	h.Screenshots()
+	h.Paks()
+	h.Screenshots()
+	got := map[string]int{}
+	got[next(t, s).Type]++
+	got[next(t, s).Type]++
+	if got[TypeScreenshots] != 1 || got[TypePaks] != 1 {
+		t.Fatalf("merged: %v", got)
+	}
+	none(t, s, 150*time.Millisecond)
+	h.Screenshots()
+	h.Screenshots()
+	next(t, s)
+	h.Shutdown(ReasonQuit)
+	if ev := next(t, s); ev.Type != TypeScreenshots {
+		t.Fatalf("flushed at shutdown: %s", ev.Type)
+	}
+}

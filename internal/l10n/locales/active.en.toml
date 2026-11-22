@@ -237,6 +237,9 @@ other = "Save replaced"
 [notice_save_restored]
 other = "Save restored"
 
+[notice_screenshots_deleted]
+other = "Screenshots moved to the trash"
+
 [notice_state_deleted]
 other = "State moved to the trash"
 

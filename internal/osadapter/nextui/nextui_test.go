@@ -183,6 +183,8 @@ func TestRootsFromEnv(t *testing.T) {
 		Shared:   "/mnt/SDCARD/.userdata/shared",
 		Data:     "/mnt/SDCARD/.userdata/shared/ReminisLink",
 		Logs:     "/mnt/SDCARD/.userdata/tg5040/logs",
+		// M22: not a path variable of NextUI (SDCARD_PATH "/Screenshots").
+		Screenshots: "/mnt/SDCARD/Screenshots",
 	}
 	if runtime.GOOS != "windows" && r != want {
 		t.Errorf("defaults:\n got %+v\nwant %+v", r, want)

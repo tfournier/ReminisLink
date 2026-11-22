@@ -12,6 +12,9 @@ const (
 	DefaultPlatform = "tg5040"
 	// DataDirName is the ReminisLink folder under the shared userdata.
 	DataDirName = "ReminisLink"
+	// ScreenshotsDirName is the screenshots folder at the root of the
+	// card (M22).
+	ScreenshotsDirName = "Screenshots"
 	// MinuiDirName is the folder of the OS data under the shared userdata
 	// (state thumbnails, recent games). The states themselves are in
 	// <shared userdata>/<TAG>-<core>/ (NextUI source, minarch ma_core.c).
@@ -56,6 +59,9 @@ func RootsFromEnv(env Env) osadapter.Roots {
 		Shared:   shared,
 		Data:     filepath.Join(shared, DataDirName),
 		Logs:     or("LOGS_PATH", filepath.Join(userdata, "logs")),
+		// minarch writes SDCARD_PATH "/Screenshots" (a constant of every
+		// platform: /mnt/SDCARD), ma_menu.c Menu_screenshot.
+		Screenshots: filepath.Join(sd, ScreenshotsDirName),
 	}
 }
 

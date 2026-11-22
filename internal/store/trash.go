@@ -58,12 +58,15 @@ const (
 	// ReasonImportArchive (M19): the files of a game replaced by the
 	// import of a game archive.
 	ReasonImportArchive = "import-archive"
+	// ReasonDeleteScreenshot (M22): screenshots moved to the trash.
+	ReasonDeleteScreenshot = "delete-screenshot"
 )
 
 var validReasons = map[string]bool{
 	ReasonDeleteGame: true, ReasonDeleteState: true, ReasonOverwrite: true,
 	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true, ReasonDeleteBackup: true,
 	ReasonDeletePak: true, ReasonReplacePak: true, ReasonImportArchive: true,
+	ReasonDeleteScreenshot: true,
 }
 
 // Errors of the trash.

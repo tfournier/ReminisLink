@@ -42,6 +42,8 @@ const (
 	DefaultUserdata = "/userdata"
 	// DataDirName is the ReminisLink folder under /userdata/system.
 	DataDirName = "ReminisLink"
+	// ScreenshotsDirName is the screenshots folder of /userdata (M22).
+	ScreenshotsDirName = "screenshots"
 	// DefaultBoardFile names the device (knulli.board: rg35xx-plus,
 	// trimui-brick...).
 	DefaultBoardFile = "/boot/boot/knulli.board"
@@ -129,6 +131,9 @@ func RootsFromEnv(env nextui.Env) osadapter.Roots {
 		Data:     filepath.Join(system, DataDirName),
 		Pak:      filepath.Join(or("ROMS_PATH", filepath.Join(sd, "roms")), "tools", "."+DataDirName),
 		Logs:     or("LOGS_PATH", filepath.Join(system, "logs")),
+		// batoceraPaths.py SCREENSHOTS, RetroArch screenshot_directory
+		// (libretroRetroarchCustom.py), knulli-screenshot.
+		Screenshots: filepath.Join(sd, ScreenshotsDirName),
 		// No paks on Knulli: Minui, System, Emus and Tools stay empty
 		// (GET /paks lists nothing, an installation is refused).
 	}
@@ -188,8 +193,9 @@ func New(roots osadapter.Roots, env nextui.Env) Adapter {
 		},
 		Skip: func(name string) bool { return mediaFolders[strings.ToLower(name)] },
 		// /userdata may be ext4 (case-sensitive) or exFAT.
-		CaseFromFS: true,
-		GameFile:   gameFile,
+		CaseFromFS:     true,
+		GameFile:       gameFile,
+		ScreenshotName: ParseScreenshotName,
 		// RetroArch names the save after the content without its last
 		// extension (savefile_directory = /userdata/saves/<system>).
 		SaveName: func(rom string) string { return stem(rom) + ".srm" },
