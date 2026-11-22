@@ -223,8 +223,8 @@ class TransferUiTest {
     private fun openGame() {
         compose.onNodeWithText("Fern Test Console").performClick()
         waitForTag("dashboard", 30_000)
-        compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-        compose.onNodeWithTag("openLibrary").performClick()
+        compose.onNodeWithTag("dashboard").assertExists()
+        compose.onNodeWithTag("tabLibrary").performClick()
         waitForTag("games")
         compose.onNodeWithText("Moss Lantern").performClick()
         waitForTag("game")

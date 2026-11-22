@@ -170,6 +170,33 @@ class ArchiveScreenshotUiTest {
         return uri
     }
 
+    /**
+     * Add, type App (pak) (06 §4.6): a zip shared to the app and sent as an
+     * app goes through the installation of the Apps screen (target `pak`,
+     * a job), never offered by default; the pak is installed.
+     */
+    @Test
+    fun sharedZipSentAsAnAppIsInstalled() {
+        val zip = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { z ->
+                z.putNextEntry(java.util.zip.ZipEntry("Juniper Tool.pak/launch.sh"))
+                z.write("#!/bin/sh\n".toByteArray())
+                z.closeEntry()
+            }
+        }.toByteArray()
+        val uri = document("Juniper Tool.pak.zip", zip)
+        ActivityScenario.launch<MainActivity>(share(uri)).use {
+            waitFor("Add") { hasTag("addFile") }
+            // A zip is a game by default.
+            compose.onNodeWithTag("addKindPak").performClick()
+            compose.onNodeWithTag("sendFiles").performClick()
+            waitFor("installed", timeout = 30_000) {
+                runBlocking { runCatching { context.container.jobs.refresh(pak.deviceId) } }
+                runBlocking { runCatching { context.container.client(pak.deviceId).paks() }.getOrNull() }?.any { it.name == "Juniper Tool" } == true
+            }
+        }
+    }
+
     private fun share(uri: Uri) = Intent(Intent.ACTION_SEND).setClass(context, MainActivity::class.java)
         .setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
@@ -177,8 +204,8 @@ class ArchiveScreenshotUiTest {
         waitFor("consoles") { hasText("Juniper Test Console") }
         compose.onNodeWithText("Juniper Test Console").performClick()
         waitFor("dashboard") { hasTag("dashboard") }
-        compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-        compose.onNodeWithTag("openLibrary").performClick()
+        compose.onNodeWithTag("dashboard").assertExists()
+        compose.onNodeWithTag("tabLibrary").performClick()
         waitFor("library") { hasText(name) }
         compose.onNodeWithText(name).performClick()
         waitFor("game") { hasTag("game") }
@@ -392,10 +419,13 @@ class ArchiveScreenshotUiTest {
             }
             rule.onNodeWithTag("tryDemo").performClick()
             waitFor("dashboard") { hasTag("dashboard") }
-            rule.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-            rule.onNodeWithTag("openLibrary").performClick()
+            rule.onNodeWithTag("dashboard").assertExists()
+            // Games between the first and the last, so the list scrolls on a phone and on a tablet alike.
+            val demo = context.container.demo.value!!
+            (1..8).forEach { demo.pak.addGameForTests("HA", "Meadow Filler $it.hab") }
+            rule.onNodeWithTag("tabLibrary").performClick()
             waitFor("library") { hasText("Brambleway Dash") }
-            assertTrue("placeholder of the detail pane", hasTag("gamePanePlaceholder"))
+            waitFor("placeholder of the detail pane") { hasTag("gamePanePlaceholder") }
             // The last game, scrolled to: the first one leaves the screen.
             rule.onNodeWithTag("games").performScrollToNode(androidx.compose.ui.test.hasText("Thistledown Isles"))
             rule.onNodeWithText("Thistledown Isles").performClick()

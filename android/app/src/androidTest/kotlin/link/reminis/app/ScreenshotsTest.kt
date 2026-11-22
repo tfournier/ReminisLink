@@ -59,8 +59,8 @@ class ScreenshotsTest {
             compose.onNodeWithTag("tryDemo").performClick()
             compose.waitUntil(10_000) { has("dashboard") }
             shot("1")
-            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-            compose.onNodeWithTag("openLibrary").performClick()
+            compose.onNodeWithTag("dashboard").assertExists()
+            compose.onNodeWithTag("tabLibrary").performClick()
             compose.waitUntil(10_000) { hasText("Thistledown Isles") }
             shot("2")
             compose.onNodeWithText("Thistledown Isles").performClick()
@@ -84,8 +84,8 @@ class ScreenshotsTest {
             back(scenario)
             back(scenario)
             compose.waitUntil(10_000) { has("dashboard") }
-            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openApps"))
-            compose.onNodeWithTag("openApps").performClick()
+            compose.onNodeWithTag("dashboard").assertExists()
+            compose.onNodeWithTag("tabApps").performClick()
             compose.waitUntil(10_000) { hasText("Clock") }
             shot("7")
             InstrumentationRegistry.getInstrumentation().runOnMainSync { context.container.quitDemo() }

@@ -81,6 +81,14 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
     val items = all.filter { it.deviceId == deviceId && !it.isHidden }
     val allJobs by container.jobs.jobs.collectAsState()
     val jobs = allJobs.filter { it.deviceId == deviceId && !it.hidden }
+    // A pak installation waiting for the user (a pak of the same name is installed), or whose
+    // replacement left something to say: its actions here too, as on iOS.
+    val allInstalls by container.pakInstaller.installs.collectAsState()
+    val installs = allInstalls.filter {
+        it.deviceId == deviceId &&
+            (it.phase is link.reminis.core.PakInstall.Phase.NeedsReplacement || it.mismatch != null || it.check == link.reminis.core.PakInstall.Check.UNVERIFIED || it.check == link.reminis.core.PakInstall.Check.CHECKING)
+    }
+    var toReplace by remember { mutableStateOf<link.reminis.core.PakInstall?>(null) }
     var confirmCancel by remember { mutableStateOf<TransferItem?>(null) }
     var cancelJob by remember { mutableStateOf<TrackedJob?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -95,10 +103,15 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
         actions = {
             val clearable = items.any {
                 it.phase.isFinished || (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD)
-            } || jobs.any { it.isFinished }
+            } || jobs.any { it.isFinished } || installs.any { it.isClearable }
             if (clearable) {
                 TextButton(
-                    onClick = { queue.clearFinished(deviceId); container.jobs.clearFinished(deviceId) },
+                    onClick = {
+                        queue.clearFinished(deviceId)
+                        container.jobs.clearFinished(deviceId)
+                        // The installations too, except one whose check still runs (Codex review 2).
+                        container.pakInstaller.clearFinished(deviceId)
+                    },
                     modifier = Modifier.testTag("clearFinished"),
                 ) {
                     Text(stringResource(R.string.transfers_clear))
@@ -113,13 +126,21 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
             )
         },
     ) { modifier ->
-        if (items.isEmpty() && jobs.isEmpty()) {
+        if (items.isEmpty() && jobs.isEmpty() && installs.isEmpty()) {
             Column(modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
                 Text(stringResource(R.string.transfers_empty), style = MaterialTheme.typography.bodyLarge)
             }
         } else {
             LazyColumn(modifier.fillMaxSize().testTag("transfers")) {
                 jobError?.let { e -> item { MessageCard(null, e) { jobError = null } } }
+                items(installs, key = { "install-" + it.id }) { install ->
+                    PakInstallRow(
+                        install,
+                        onReplace = { toReplace = install },
+                        onKeep = { container.pakInstaller.keepInstalled(install.id) },
+                    )
+                    HorizontalDivider()
+                }
                 items(jobs.reversed(), key = { "job-" + it.jobId }) { job ->
                     JobRow(job, onCancel = { cancelJob = job })
                     HorizontalDivider()
@@ -154,6 +175,14 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
                 }
             },
             onDismiss = { cancelJob = null },
+        )
+    }
+    toReplace?.let { install ->
+        PakReplaceDialog(
+            install,
+            onReplace = { toReplace = null; container.pakInstaller.replace(install.id) },
+            onKeep = { toReplace = null; container.pakInstaller.keepInstalled(install.id) },
+            onDismiss = { toReplace = null },
         )
     }
     confirmCancel?.let { item ->
@@ -200,9 +229,21 @@ private fun TransferRow(item: TransferItem, onCancel: () -> Unit, onResume: () -
         }
         Text(status(context, item), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("transferStatus"))
         item.failure?.let { failure ->
-            Text(errorMessage(context, failure), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            // M23: a file of the Files tab says a protected folder or a taken name as such.
+            val shown = if (item.target is link.reminis.core.UploadTarget.SdFile) sdWriteError(failure) else failure
+            Text(errorMessage(context, shown), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
         when {
+            // No Keep Both: another name does not lift the protection.
+            item.isProtectedFolder && item.phase == TransferPhase.FAILED ->
+                Text(stringResource(R.string.transfer_sd_protected), style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("transferProtected"))
+            // M23: a file of the SD browser is never replaced.
+            item.isNameConflict && item.target is link.reminis.core.UploadTarget.SdFile -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(onClick = { onRetry(OnConflict.RENAME) }, modifier = Modifier.testTag("keepBoth")) {
+                    Text(stringResource(R.string.transfer_keep_both))
+                }
+                Text(stringResource(R.string.transfer_sd_conflict), style = MaterialTheme.typography.bodySmall)
+            }
             item.isNameConflict -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { onRetry(OnConflict.RENAME) }) { Text(stringResource(R.string.transfer_keep_both)) }
                 OutlinedButton(onClick = { onRetry(OnConflict.OVERWRITE) }) { Text(stringResource(R.string.transfer_replace)) }
@@ -345,6 +386,13 @@ private fun AddFileRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = file.kind == AddKind.ROM, onClick = { onKind(AddKind.ROM) }, label = { Text(stringResource(R.string.add_kind_game)) })
             FilterChip(selected = file.kind == AddKind.SAVE, onClick = { onKind(AddKind.SAVE) }, label = { Text(stringResource(R.string.add_kind_save)) })
+            // M12: a zip can be sent as an app; never offered by default (most zips are games).
+            if (AddKind.canBePak(file.name)) {
+                FilterChip(
+                    selected = file.kind == AddKind.PAK, onClick = { onKind(AddKind.PAK) },
+                    label = { Text(stringResource(R.string.add_kind_pak)) }, modifier = Modifier.testTag("addKindPak"),
+                )
+            }
         }
         when (file.kind) {
             AddKind.ROM -> {
@@ -366,6 +414,10 @@ private fun AddFileRow(
                     Text(file.game?.name ?: stringResource(R.string.add_choose_game))
                 }
                 Footnote(stringResource(R.string.add_save_help))
+            }
+            AddKind.PAK -> {
+                Footnote(stringResource(R.string.pak_install_file_help))
+                Footnote(stringResource(R.string.pak_install_trust))
             }
         }
     }

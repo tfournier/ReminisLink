@@ -101,6 +101,8 @@ class FakePak(
         var cheats: MutableList<JsonObject> = mutableListOf(),
         var cheatsRevision: Int = 1,
         var art: Blob?,
+        /** The archived versions of the resume state, newest first (M5 resume history). */
+        val resume: MutableList<ResumeEntry> = mutableListOf(),
     ) {
         val fileName: String get() = path.substringAfterLast('/')
         val name: String
@@ -112,6 +114,8 @@ class FakePak(
         val parent: String get() = if ('/' in path) path.substringBeforeLast('/') else ""
         val extension: String get() = if (kind.startsWith("folder")) "" else fileName.substring(name.length)
     }
+
+    private class ResumeEntry(val id: String, val capturedAt: Long, val blob: Blob)
 
     private class SystemState(val def: DemoLibrary.System, val games: MutableList<GameState>)
 
@@ -127,7 +131,19 @@ class FakePak(
         class State(val game: GameState, val slot: Int, val state: SlotState) : Payload
         class Art(val game: GameState, val art: Blob) : Payload
         class Screenshots(val shots: List<ShotState>) : Payload
+
+        /** M23: entries of the SD browser moved to the trash in one entry (reason `delete-file`). */
+        class SdEntries(
+            val paths: List<String>,
+            val games: List<Pair<SystemState, GameState>>,
+            val paks: List<PakState>,
+            val extras: Map<String, SdExtra>,
+            val removed: List<String>,
+        ) : Payload
     }
+
+    /** M23: a file (size) or a folder (null) added through the SD browser, outside the library. */
+    private class SdExtra(val size: Long?, val modifiedAt: Long)
 
     /** A screenshot of the fake console (M22). */
     private class ShotState(val name: String, val takenAt: Long, val gameName: String?, val sizeBytes: Long) {
@@ -234,6 +250,11 @@ class FakePak(
         if (game.stateSlots.isNotEmpty()) {
             state.slots[RESUME_SLOT] = SlotState(Blob(401_408, null, 30), base, false, null)
             state.resumeSlot = RESUME_SLOT
+            // Three versions archived by the pak at its last launches (iOS FakePakGameData).
+            (0 until 3).forEach { i ->
+                val date = base - i * 86_400_000L
+                state.resume += ResumeEntry("rh_${stamp(date)}", date, Blob(401_408, null, 40 + i))
+            }
         }
         state.cheats = (0 until game.cheatCount).map { i ->
             buildJsonObject {
@@ -261,19 +282,23 @@ class FakePak(
 
     fun handle(request: Request): Response {
         requestsReceived.incrementAndGet()
-        if (closed) return error(request, 503, "shutting_down", "Shutting down")
+        if (closed || answerShuttingDown) return error(request, 503, "shutting_down", "Shutting down")
         val segments = request.url.pathSegments
         if (segments.size < 2 || segments[0] != "api" || segments[1] != "v1") return error(request, 404, "not_found", "No route")
         val s = segments.drop(2)
         val body = request.body?.let { b -> Buffer().also { b.writeTo(it) }.readByteArray() } ?: ByteArray(0)
         val method = request.method
         return try {
+            // Tests: a rename still in transit (not renamed yet on the console).
+            if (method == "POST" && s.size == 3 && s[0] == "games" && s[2] == "rename") holdRenameRequest?.await(20, TimeUnit.SECONDS)
             val response = synchronized(lock) { route(request, method, s, body) }
             // Tests: the console wrote the staging entry, its answer is held (outside the lock).
             if (method == "POST" && s.size == 3 && s[0] == "uploads" && s[2] == "complete") {
                 completesAnswered.incrementAndGet()
                 holdCompleteAnswer?.await(20, TimeUnit.SECONDS)
             }
+            if (method == "GET" && s == listOf("trash")) holdTrashAnswer?.await(20, TimeUnit.SECONDS)
+            if (method == "POST" && s.size == 3 && s[0] == "games" && s[2] == "rename") holdRenameAnswer?.await(20, TimeUnit.SECONDS)
             if (method == "POST" && s.size == 3 && s[0] == "archives" && s[2] == "import") {
                 importsAnswered.incrementAndGet()
                 holdImportAnswer?.await(20, TimeUnit.SECONDS)
@@ -301,6 +326,33 @@ class FakePak(
         streams.forEach { runCatching { it.sink.close() } }
         streams.clear()
     }
+
+    /** Tests: adds a made-up game to the system of [tag] (a longer library), with a `library` event. */
+    fun addGameForTests(tag: String, fileName: String) = synchronized(lock) {
+        val system = systems.first { it.def.tag == tag }
+        system.games += GameState(fileName, "file", Blob(1_024, null, fileName.hashCode()), nowMillis(), null, nowMillis(), art = null)
+        library(system)
+    }
+
+    /** Tests: while set, `POST /games/{gameId}/rename` waits for it before the game is renamed. */
+    @Volatile
+    var holdRenameRequest: java.util.concurrent.CountDownLatch? = null
+
+    /** Tests: while set, the answer of `POST /games/{gameId}/rename` waits for it (the game is renamed first). */
+    @Volatile
+    var holdRenameAnswer: java.util.concurrent.CountDownLatch? = null
+
+    /** Tests: `GET /trash` answers `500` (the check of a replaced pak cannot read it). */
+    @Volatile
+    var failTrashList = false
+
+    /** Tests: while set, the answer of `GET /trash` waits for it (outside the lock: the work is done first). */
+    @Volatile
+    var holdTrashAnswer: java.util.concurrent.CountDownLatch? = null
+
+    /** Tests: every request answers `503 shutting_down` (the streams stay open), as a pak closing. */
+    @Volatile
+    var answerShuttingDown = false
 
     /** Tests: `GET /events` requests received (accepted or refused). */
     val eventsRequests = java.util.concurrent.atomic.AtomicInteger()
@@ -343,7 +395,9 @@ class FakePak(
         m == "DELETE" && s == listOf("clients", "me") -> empty(r)
         m == "GET" && s == listOf("events") -> openStream(r)
         m == "GET" && s == listOf("systems") -> json(r, 200, systemsJson())
+        m == "GET" && s == listOf("games") && allGamesUnsupported -> error(r, 404, "not_found", "No route")
         m == "GET" && s == listOf("games") -> json(r, 200, allGames())
+        m == "GET" && s.size == 3 && s[0] == "systems" && s[2] == "games" -> systemGames(r, s[1])
         s.size >= 2 && s[0] == "games" -> gameRoute(r, m, s, body)
         m == "POST" && s == listOf("uploads") -> createUpload(r, body)
         s.size >= 2 && s[0] == "uploads" -> uploadRoute(r, m, s, body)
@@ -352,6 +406,12 @@ class FakePak(
         m == "GET" && s == listOf("paks") -> json(r, 200, buildJsonObject { put("paks", JsonArray(paks.map(::pakJson))) })
         m == "DELETE" && s.size == 2 && s[0] == "paks" -> deletePak(r, s[1])
         m == "GET" && s == listOf("sd", "files") -> sdFiles(r)
+        m == "GET" && s == listOf("sd", "browse") -> browse(r)
+        m == "GET" && s.size == 4 && s[0] == "sd" && s[1] == "browse" && s[3] == "content" -> sdContent(r, s[2])
+        m == "POST" && s == listOf("sd", "folders") -> createSdFolder(r, body)
+        m == "POST" && s == listOf("sd", "trash") -> trashSdEntries(r, body)
+        m == "POST" && s == listOf("paks", "install") -> installFromSd(r, body)
+        m == "GET" && s == listOf("trash") && failTrashList -> error(r, 500, "internal", "Trash unreadable")
         m == "GET" && s == listOf("trash") -> json(r, 200, trashJson())
         m == "DELETE" && s == listOf("trash") -> emptyTrash(r)
         s.size >= 2 && s[0] == "trash" -> trashRoute(r, m, s, body)
@@ -439,10 +499,41 @@ class FakePak(
         }
     }
 
+    /** Tests: `GET /games` answers `404 No route`, as a pak older than M11 (the app browses by system). */
+    @Volatile
+    var allGamesUnsupported = false
+
+    /** Tests: `GET /games` lists two games and says `truncated`, as a pak with more than 20 000 games. */
+    @Volatile
+    var libraryTruncated = false
+
     private fun allGames() = buildJsonObject {
-        put("games", JsonArray(systems.flatMap { s -> s.games.sortedBy { it.path.lowercase() }.map { summary(s, it) } }))
-        put("truncated", false)
+        val all = systems.flatMap { s -> s.games.sortedBy { it.path.lowercase() }.map { summary(s, it) } }
+        put("games", JsonArray(if (libraryTruncated) all.take(2) else all))
+        put("truncated", libraryTruncated)
         put("generatedAt", time(nowMillis()))
+    }
+
+    /** `GET /systems/{systemId}/games?folderId=`: the games of one folder of a system, and its subfolders. */
+    private fun systemGames(r: Request, systemId: String): Response {
+        val system = systems.firstOrNull { it.def.id == systemId } ?: return error(r, 404, "not_found", "System not found")
+        val folderId = r.url.queryParameter("folderId")
+        val folders = system.games.map { it.parent }.filter { it.isNotEmpty() }.flatMap { parent ->
+            parent.split('/').indices.map { i -> parent.split('/').take(i + 1).joinToString("/") }
+        }.toSet()
+        val folder = if (folderId == null) "" else folders.firstOrNull { DemoLibrary.id(system.def.folder + "/" + it) == folderId }
+            ?: return error(r, 404, "not_found", "Folder not found")
+        val children = folders.filter { sdParent(it) == folder }.sortedBy { it.lowercase() }
+        return json(r, 200, buildJsonObject {
+            put("folders", JsonArray(children.map { child ->
+                buildJsonObject {
+                    put("id", DemoLibrary.id(system.def.folder + "/" + child))
+                    put("name", child.substringAfterLast('/'))
+                    put("gameCount", system.games.count { it.parent == child || it.parent.startsWith("$child/") })
+                }
+            }))
+            put("games", JsonArray(system.games.filter { it.parent == folder }.sortedBy { it.path.lowercase() }.map { summary(system, it) }))
+        })
     }
 
     private fun fileId(role: String, slot: Int? = null) = Base64Url.encode((if (slot == null) role else "$role-$slot").toByteArray())
@@ -479,6 +570,7 @@ class FakePak(
             put("kind", game.kind)
             put("files", files)
             put("totalBytes", files.sumOf { (it.jsonObject["sizeBytes"] as JsonPrimitive).longOrNull ?: 0 })
+            put("cheatCount", game.cheats.size)
         }
     }
 
@@ -500,6 +592,9 @@ class FakePak(
             rest.firstOrNull() == "cheats" -> cheatRoute(r, m, system, game, rest.drop(1), body)
             m == "POST" && rest == listOf("patch") -> patch(r, system, game, body)
             m == "GET" && rest == listOf("archive") -> exportArchive(r, system, game)
+            m == "POST" && rest == listOf("rename") -> renameGame(r, system, game, body)
+            m == "GET" && rest == listOf("resume-history") -> json(r, 200, resumeJson(game))
+            m == "POST" && rest.size == 3 && rest[0] == "resume-history" && rest[2] == "restore" -> restoreResume(r, system, game, rest[1])
             else -> error(r, 404, "not_found", "No route")
         }
     }
@@ -888,10 +983,19 @@ class FakePak(
         val size = (request["sizeBytes"] as? JsonPrimitive)?.longOrNull ?: throw BadRequest("Missing sizeBytes")
         if (size < 0 || size > 4L shl 30) return error(r, 413, "too_large", "Too large")
         // A game archive sent to the staging area keeps its bytes (up to 64 MiB), so it can be imported.
+        val onConflict = (request["onConflict"] as? JsonPrimitive)?.contentOrNull ?: "fail"
+        if (target.str("kind") == "sd-file") {
+            // Never a replacement; the folder and the name are checked at creation too (and at the end).
+            if (onConflict == "overwrite") return error(r, 400, "invalid_request", "sd-file uploads never overwrite")
+            val (folder, refusal) = sdWritableFolder(r, target["folderId"])
+            if (refusal != null) return refusal
+            val name = cleanName(target.str("fileName"))?.takeIf { !it.startsWith(".") } ?: return error(r, 400, "invalid_name", "Invalid name")
+            if (onConflict != "rename") sdConflict(r, folder!!, name)?.let { return it }
+        }
         val archive = target.str("kind") == "staging" && link.reminis.core.GameArchiveManifest.isArchiveName(target.str("fileName"))
         val keep = size <= MAX_KEPT_BYTES || (archive && size <= MAX_KEPT_ARCHIVE_BYTES)
         val upload = Upload(
-            newId("up"), target, size, (request["onConflict"] as? JsonPrimitive)?.contentOrNull ?: "fail",
+            newId("up"), target, size, onConflict,
             if (keep) java.io.ByteArrayOutputStream(size.toInt()) else null,
         )
         uploads[upload.id] = upload
@@ -993,27 +1097,35 @@ class FakePak(
                 buildJsonObject { put("stagingId", id) }
             }
             "pak" -> {
-                val fileName = t.str("fileName")
-                val name = fileName.removeSuffix(".zip").removeSuffix(".ZIP").removeSuffix(".pak").ifBlank { "Demo Tool" }
-                if (name.equals("ReminisLink", ignoreCase = true)) {
-                    return error(r, 409, "conflict", "ReminisLink cannot delete or replace itself", buildJsonObject { put("self", true) })
-                }
-                val existing = paks.firstOrNull { it.name.equals(name, ignoreCase = true) }
-                if (existing != null && upload.onConflict != "overwrite") {
-                    return error(r, 409, "conflict", "Pak exists", buildJsonObject { put("existing", existing.path) })
-                }
                 val kind = if (t.str("pakKind") == "emu") "emu" else "tool"
-                val job = startJob("pak-install") {
-                    existing?.let {
-                        paks.remove(it)
-                        trash.add(0, TrashItem(newId("tr"), nowMillis(), "replace-pak", it.name, listOf(it.path), it.sizeBytes, Payload.Pak(it)))
-                    }
-                    val pak = PakState(name, kind, blob.size, nowMillis(), null)
-                    paks += pak
-                    emit("paks", JsonObject(emptyMap()))
-                    buildJsonObject { put("pakId", pak.id) }
-                }
+                // As the pak: the name is known once the archive is read, so the conflict is the job's.
+                val job = startPakJob(t.str("fileName"), kind, blob.size, replace = upload.onConflict == "overwrite")
                 buildJsonObject { put("jobId", job.id) }
+            }
+            "sd-file" -> {
+                val (folder, refusal) = sdWritableFolder(r, t["folderId"])
+                if (refusal != null) return refusal
+                val wanted = cleanName(t.str("fileName")) ?: return error(r, 400, "invalid_name", "Invalid name")
+                val name = if (sdNameTaken(folder!!, wanted)) {
+                    if (upload.onConflict != "rename") return sdConflict(r, folder, wanted)!!
+                    sdFreeName(folder, wanted) ?: return sdConflict(r, folder, wanted)!!
+                } else {
+                    wanted
+                }
+                val path = sdJoin(folder, name)
+                touchSdFolder(folder)
+                bumpSdRevision(path)
+                val place = systemPlace(path)
+                if (place != null) {
+                    // A game of the library once it lands in a system folder.
+                    place.first.games += GameState(place.second, "file", blob, nowMillis(), null, nowMillis(), art = null)
+                } else {
+                    sdRemoved.remove(path.lowercase())
+                    sdExtras[path] = SdExtra(blob.size, nowMillis())
+                    sdExtraBytes[path.lowercase()] = blob
+                }
+                library(place?.first)
+                buildJsonObject { put("sdEntryId", sdEntryId(path)) }
             }
             else -> throw BadRequest("Invalid target")
         }
@@ -1087,6 +1199,8 @@ class FakePak(
         is Payload.State -> suffix.isEmpty() && payload.game.slots.containsKey(payload.slot)
         is Payload.Art -> suffix.isEmpty() && payload.game.art != null
         is Payload.Screenshots -> payload.shots.any { shot -> screenshotTaken(renamed(shot.name, suffix)) }
+        // Never under a free name it could not show (as iOS): taken when any place is.
+        is Payload.SdEntries -> suffix.isNotEmpty() || payload.paths.any { sdNode(it) != null }
     }
 
     private fun freeNumber(payload: Payload?): Int? {
@@ -1190,6 +1304,17 @@ class FakePak(
                 screenshots += payload.shots.map { it.renamed(renamed(it.name, suffix)) }
                 emit("screenshots", JsonObject(emptyMap()))
             }
+            is Payload.SdEntries -> {
+                payload.paths.forEach { touchSdFolder(sdParent(it)) }
+                payload.removed.forEach { sdRemoved.remove(it) }
+                sdExtras.putAll(payload.extras)
+                payload.games.forEach { (system, game) -> system.games += game }
+                if (payload.paks.isNotEmpty()) {
+                    paks += payload.paks
+                    emit("paks", JsonObject(emptyMap()))
+                }
+                library(null)
+            }
             null -> Unit
         }
         trash.remove(entry)
@@ -1201,6 +1326,442 @@ class FakePak(
             put("replaced", JsonArray(emptyList()))
             put("replacedKeptAs", JsonNull)
         })
+    }
+
+    // MARK: SD card browser (M12, M23)
+
+    /** The opaque id of a path of the card (`se_` and base64url, like the iOS fake). */
+    private fun sdEntryId(path: String) = "se_" + Base64Url.encode(path.toByteArray(Charsets.UTF_8))
+
+    /** The path of an id, null when unreadable or not a clean relative path. */
+    private fun sdPath(id: String): String? {
+        if (!id.startsWith("se_")) return null
+        val path = Base64Url.decode(id.removePrefix("se_"))?.toString(Charsets.UTF_8) ?: return null
+        if (path.startsWith("/") || path.split('/').any { it.isEmpty() || it == "." || it == ".." }) return null
+        return path
+    }
+
+    private class SdNode(val name: String, val size: Long?, var modifiedAt: Long, val children: MutableList<SdNode> = mutableListOf()) {
+        val isFolder: Boolean get() = size == null
+        fun child(name: String) = children.firstOrNull { it.name == name }
+    }
+
+    private val sdExtras = mutableMapOf<String, SdExtra>()
+    private val sdRemoved = mutableSetOf<String>()
+    private val sdTouched = mutableMapOf<String, Long>()
+    private val sdRevisions = mutableMapOf<String, Int>()
+
+    /** The card as it is now: the made-up folders, the paks and the library, then the changes of the browser. */
+    private fun sdTree(): SdNode {
+        val date = BASE_MILLIS
+        fun folder(name: String, vararg children: SdNode) = SdNode(name, null, date, children.toMutableList())
+        fun file(name: String, size: Long) = SdNode(name, size, date)
+        fun pakFolders(kind: String) = paks.filter { it.kind == kind }.map { pak ->
+            SdNode("${pak.name}.pak", null, pak.modifiedAt, mutableListOf(file("launch.sh", 512), file("pak.json", 128)))
+        }.toMutableList()
+        val roms = folder("Roms")
+        for (system in systems) {
+            val sys = folder(system.def.folder)
+            for (game in system.games) {
+                var node = sys
+                val parts = game.path.split('/')
+                parts.dropLast(1).forEach { part -> node = node.child(part) ?: folder(part).also { node.children += it } }
+                val leaf = parts.last()
+                if (game.kind.startsWith("folder")) {
+                    if (node.child(leaf) == null) node.children += SdNode(leaf, null, game.modifiedAt, mutableListOf(file("${game.name}.m3u", 64)))
+                } else {
+                    node.children.removeAll { it.name == leaf }
+                    node.children += SdNode(leaf, game.rom.size, game.modifiedAt)
+                }
+            }
+            roms.children += sys
+        }
+        val root = folder(
+            "",
+            folder(".userdata", folder("shared", folder(".minui"), file("settings.txt", 64))),
+            folder("Bios"),
+            folder(
+                "Downloads",
+                file("Clock.pak.zip", 2_048), file("Weather.pak.zip", 3_072), file("broken.zip", 100), file("NoLaunch.zip", 1_024),
+                file("README.txt", 512), folder("Timer.pak", file("launch.sh", 512), file("pak.json", 128)),
+            ),
+            SdNode("Emus", null, date, mutableListOf(SdNode("tg5040", null, date, pakFolders("emu")))),
+            roms,
+            folder("Saves"),
+            SdNode("Tools", null, date, mutableListOf(SdNode("tg5040", null, date, pakFolders("tool")))),
+        )
+        fun remove(node: SdNode, prefix: String) {
+            node.children.removeAll { sdJoin(prefix, it.name).lowercase() in sdRemoved }
+            node.children.filter { it.isFolder }.forEach { remove(it, sdJoin(prefix, it.name)) }
+        }
+        remove(root, "")
+        for ((path, extra) in sdExtras.toSortedMap()) {
+            var node = root
+            val parts = path.split('/')
+            parts.dropLast(1).forEach { part ->
+                node = node.child(part)?.takeIf { it.isFolder } ?: SdNode(part, null, extra.modifiedAt).also { node.children += it }
+            }
+            node.children.removeAll { it.name == parts.last() }
+            node.children += SdNode(parts.last(), extra.size, extra.modifiedAt)
+        }
+        fun touch(node: SdNode, prefix: String) {
+            if (node.isFolder) sdTouched[prefix.lowercase()]?.let { node.modifiedAt = it }
+            node.children.filter { it.isFolder }.forEach { touch(it, sdJoin(prefix, it.name)) }
+        }
+        touch(root, "")
+        return root
+    }
+
+    private fun sdNode(path: String): SdNode? {
+        var node = sdTree()
+        if (path.isEmpty()) return node
+        for (part in path.split('/')) node = node.child(part) ?: return null
+        return node
+    }
+
+    private fun sdJoin(folder: String, name: String) = if (folder.isEmpty()) name else "$folder/$name"
+
+    private fun sdParent(path: String) = path.substringBeforeLast('/', "")
+
+    /** Why a place (and what is inside it) is read only, null when writable (NextUI rules, 05 §3.4). */
+    private fun sdReadOnly(path: String): String? {
+        val lower = path.lowercase()
+        if (lower == SD_OWN_PAK || lower.startsWith("$SD_OWN_PAK/")) return "data"
+        if (lower.startsWith(".")) return "system"
+        return null
+    }
+
+    /** Why an entry cannot go to the trash, null when it can. */
+    private fun sdDeleteProtection(path: String): String? {
+        if (path.isEmpty()) return "root"
+        sdReadOnly(path)?.let { return it }
+        val lower = path.lowercase()
+        if (lower in SD_ROOTS) return "root"
+        if (SD_OWN_PAK.startsWith("$lower/")) return "data"
+        if (SD_ROOTS.any { it.startsWith("$lower/") }) return "root"
+        return null
+    }
+
+    /** The opaque version of an entry (path, size, date and a revision standing for the nanoseconds of the card). */
+    private fun sdVersion(path: String, node: SdNode): String {
+        val text = "${path.lowercase()}|${node.size ?: "-"}|${node.modifiedAt / 1000}|${sdRevisions[path.lowercase()] ?: 0}"
+        var hash = -0x340d631b7bdddcdbL
+        for (b in text.toByteArray()) hash = (hash xor (b.toLong() and 0xff)) * 0x100000001b3L
+        return "v1-" + java.lang.Long.toUnsignedString(hash, 16)
+    }
+
+    private fun bumpSdRevision(path: String) {
+        sdRevisions.merge(path.lowercase(), 1, Int::plus)
+    }
+
+    /** A folder changed (an entry added or removed): its date and version change, as on the card. */
+    private fun touchSdFolder(path: String) {
+        sdTouched[path.lowercase()] = maxOf(nowMillis(), (sdTouched[path.lowercase()] ?: 0) + 1000)
+        bumpSdRevision(path)
+    }
+
+    private fun sdEntryJson(path: String, node: SdNode) = buildJsonObject {
+        val protection = sdDeleteProtection(path)
+        put("sdEntryId", sdEntryId(path))
+        put("name", node.name)
+        put("kind", if (node.isFolder) "folder" else "file")
+        put("sizeBytes", node.size?.let(::JsonPrimitive) ?: JsonNull)
+        put("modifiedAt", time(node.modifiedAt))
+        put("deletable", protection == null)
+        put("protection", protection?.let(::JsonPrimitive) ?: JsonNull)
+        put("version", sdVersion(path, node))
+    }
+
+    private fun browse(r: Request): Response {
+        val folderId = r.url.queryParameter("folderId")
+        val path = if (folderId == null) "" else sdPath(folderId) ?: return error(r, 400, "invalid_id", "Invalid id")
+        val node = sdNode(path)?.takeIf { it.isFolder } ?: return error(r, 404, "not_found", "Folder not found")
+        val sorted = node.children.sortedWith(compareBy<SdNode> { !it.isFolder }.thenBy { it.name.lowercase() })
+        val parent = sdParent(path)
+        return json(r, 200, buildJsonObject {
+            put("folderId", folderId?.let(::JsonPrimitive) ?: JsonNull)
+            put("path", path)
+            put("parentId", if (path.isEmpty() || parent.isEmpty()) JsonNull else JsonPrimitive(sdEntryId(parent)))
+            put("entries", JsonArray(sorted.take(MAX_SD_ENTRIES).map { sdEntryJson(sdJoin(path, it.name), it) }))
+            put("truncated", sorted.size > MAX_SD_ENTRIES)
+            put("writable", sdReadOnly(path) == null)
+        })
+    }
+
+    private fun sdContent(r: Request, id: String): Response {
+        val path = sdPath(id) ?: return error(r, 400, "invalid_id", "Invalid id")
+        val node = sdNode(path)?.takeIf { !it.isFolder } ?: return error(r, 404, "not_found", "File not found")
+        return stream(r, sdExtraBytes[path.lowercase()] ?: Blob(node.size ?: 0, null, path.hashCode()))
+    }
+
+    /** The bytes of the files added through the browser (kept like any upload, up to [MAX_KEPT_BYTES]). */
+    private val sdExtraBytes = mutableMapOf<String, Blob>()
+
+    /** The writable folder of a `folderId` (null or JSON null: the root), or the refusal to answer. */
+    private fun sdWritableFolder(r: Request, raw: JsonElement?): Pair<String?, Response?> {
+        val path = when {
+            raw == null || raw is JsonNull -> ""
+            raw is JsonPrimitive && raw.isString -> sdPath(raw.content) ?: return null to error(r, 400, "invalid_id", "Invalid identifier")
+            else -> return null to error(r, 400, "invalid_request", "Invalid folderId")
+        }
+        if (sdNode(path)?.isFolder != true) return null to error(r, 404, "not_found", "Folder not found")
+        sdReadOnly(path)?.let { why -> return null to error(r, 409, "conflict", "Protected place", buildJsonObject { put("protected", why) }) }
+        return path to null
+    }
+
+    private fun sdNameTaken(folder: String, name: String) = sdNode(folder)?.children?.any { it.name.equals(name, ignoreCase = true) } == true
+
+    /** The free name ` (N)` of [name] in [folder], null when none. */
+    private fun sdFreeName(folder: String, name: String): String? {
+        if (!sdNameTaken(folder, name)) return name
+        return (2..999).map { renamed(name, it) }.firstOrNull { !sdNameTaken(folder, it) }
+    }
+
+    /** `409 conflict` with `details.existing` and `details.freeName` when [name] is taken in [folder]. */
+    private fun sdConflict(r: Request, folder: String, name: String): Response? {
+        val existing = sdNode(folder)?.children?.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: return null
+        return error(r, 409, "conflict", "Target file exists", buildJsonObject {
+            put("existing", sdJoin(folder, existing.name))
+            put("freeName", sdFreeName(folder, name)?.let(::JsonPrimitive) ?: JsonNull)
+        })
+    }
+
+    /** The system and the path inside it of a path under `Roms/`, if any. */
+    private fun systemPlace(path: String): Pair<SystemState, String>? {
+        val parts = path.split('/', limit = 3)
+        if (parts.size < 3 || parts[0] != "Roms") return null
+        val system = systems.firstOrNull { it.def.folder == parts[1] } ?: return null
+        return system to parts[2]
+    }
+
+    private fun createSdFolder(r: Request, body: ByteArray): Response {
+        val request = parse(body) ?: throw BadRequest("Invalid JSON")
+        val name = cleanName(request.str("name"))?.takeIf { !it.startsWith(".") } ?: return error(r, 400, "invalid_name", "Invalid folder name")
+        val (folder, refusal) = sdWritableFolder(r, request["parentId"])
+        if (refusal != null) return refusal
+        sdNode(folder!!)?.children?.firstOrNull { it.name.equals(name, ignoreCase = true) }?.let {
+            return error(r, 409, "conflict", "Target file exists", buildJsonObject { put("existing", sdJoin(folder, it.name)) })
+        }
+        val path = sdJoin(folder, name)
+        touchSdFolder(folder)
+        bumpSdRevision(path)
+        sdRemoved.remove(path.lowercase())
+        sdExtras[path] = SdExtra(null, nowMillis())
+        library(null)
+        return json(r, 201, sdEntryJson(path, sdNode(path) ?: SdNode(name, null, nowMillis())))
+    }
+
+    /** The regular files under a node (paths) and their size. */
+    private fun sdFilesUnder(node: SdNode, path: String): Pair<List<String>, Long> {
+        node.size?.let { return listOf(path) to it }
+        val files = mutableListOf<String>()
+        var bytes = 0L
+        node.children.forEach { child -> sdFilesUnder(child, sdJoin(path, child.name)).let { (f, b) -> files += f; bytes += b } }
+        return files to bytes
+    }
+
+    /** `POST /sd/trash`: all or nothing, in one entry; each item with the version the app showed. */
+    private fun trashSdEntries(r: Request, body: ByteArray): Response {
+        val items = (parse(body)?.get("items") as? JsonArray)?.takeIf { it.size in 1..100 }
+            ?: return error(r, 400, "invalid_request", "items must hold 1 to 100 entries")
+        val seen = mutableSetOf<String>()
+        val paths = mutableListOf<String>()
+        val missing = mutableListOf<String>()
+        val refused = mutableListOf<String>()
+        val changed = mutableListOf<String>()
+        var reason: String? = null
+        for (raw in items) {
+            val item = raw as? JsonObject ?: throw BadRequest("Invalid item")
+            val id = item.str("sdEntryId")
+            val version = item.str("version")
+            val seenAt = link.reminis.core.ApiClient.parseRfc3339Seconds(item.str("modifiedAt"))
+            if (id.isEmpty() || version.isEmpty() || seenAt == null || !item.containsKey("sizeBytes")) {
+                return error(r, 400, "invalid_request", "Each item needs sdEntryId, sizeBytes, modifiedAt and version")
+            }
+            if (!seen.add(id)) continue
+            val path = sdPath(id) ?: return error(r, 400, "invalid_id", "Invalid identifier")
+            val node = sdNode(path)
+            if (node == null) {
+                missing += id
+                continue
+            }
+            val why = sdDeleteProtection(path)
+            if (why != null) {
+                reason = reason ?: why
+                refused += id
+                continue
+            }
+            val size = (item["sizeBytes"] as? JsonPrimitive)?.longOrNull
+            if (node.modifiedAt / 1000 != seenAt || size != node.size || version != sdVersion(path, node)) {
+                changed += id
+                continue
+            }
+            paths += path
+        }
+        if (missing.isNotEmpty()) {
+            return error(r, 404, "not_found", "Entry not found", buildJsonObject { put("missing", JsonArray(missing.map(::JsonPrimitive))) })
+        }
+        if (reason != null) {
+            return error(r, 409, "conflict", "Protected place", buildJsonObject {
+                put("protected", reason)
+                put("refused", JsonArray(refused.map(::JsonPrimitive)))
+            })
+        }
+        if (changed.isNotEmpty()) {
+            return error(r, 409, "conflict", "Entry changed since it was listed", buildJsonObject { put("changed", JsonArray(changed.map(::JsonPrimitive))) })
+        }
+        // An entry inside another of the list moves with it.
+        val top = paths.filter { p -> paths.none { it != p && p.lowercase().startsWith(it.lowercase() + "/") } }
+        val moved = mutableListOf<String>()
+        var bytes = 0L
+        top.forEach { path -> sdNode(path)?.let { sdFilesUnder(it, path) }?.let { (f, b) -> moved += f; bytes += b } }
+        val games = mutableListOf<Pair<SystemState, GameState>>()
+        val gonePaks = mutableListOf<PakState>()
+        val extras = mutableMapOf<String, SdExtra>()
+        for (path in top) {
+            val lower = path.lowercase()
+            fun under(p: String) = p.lowercase() == lower || p.lowercase().startsWith("$lower/")
+            for (system in systems) {
+                val gone = system.games.filter { under("Roms/${system.def.folder}/${it.path}") }
+                games += gone.map { system to it }
+                system.games.removeAll(gone)
+            }
+            val pakGone = paks.filter { !it.isSelf && under(it.path) }
+            gonePaks += pakGone
+            paks.removeAll(pakGone)
+            sdExtras.keys.filter(::under).forEach { extras[it] = sdExtras.remove(it)!! }
+            sdRemoved += lower
+            touchSdFolder(sdParent(path))
+            bumpSdRevision(path)
+        }
+        val label = if (top.size == 1) top[0].substringAfterLast('/') else "${top.size} items"
+        val payload = Payload.SdEntries(top, games, gonePaks, extras, top.map { it.lowercase() })
+        val item = TrashItem(newId("tr"), nowMillis(), "delete-file", label, moved, bytes, payload)
+        trash.add(0, item)
+        if (gonePaks.isNotEmpty()) emit("paks", JsonObject(emptyMap()))
+        library(null)
+        return json(r, 200, buildJsonObject {
+            put("trashEntryId", item.id)
+            put("moved", JsonArray(moved.map(::JsonPrimitive)))
+            put("movedBytes", bytes)
+        })
+    }
+
+    // MARK: paks installed from the SD card (M12)
+
+    /**
+     * A `pak-install` job, as the pak runs it: the name comes from the
+     * archive (here its file name), refusals are the job's (`broken`,
+     * `nolaunch`, `twopaks` in the name), and so is a conflict
+     * (`details.existing`, or `details.self` for ReminisLink).
+     */
+    private fun startPakJob(sourceName: String, kind: String, size: Long, replace: Boolean): JobState = startJob("pak-install") {
+        val lower = sourceName.lowercase()
+        when {
+            "broken" in lower -> throw JobFailed("unsupported_format", "Invalid pak: not a zip archive")
+            "nolaunch" in lower -> throw JobFailed("unsupported_format", "Invalid pak: no launch.sh in the pak folder")
+            "twopaks" in lower -> throw JobFailed("unsupported_format", "Invalid pak: more than one pak in the archive")
+        }
+        var name = sourceName
+        if (name.lowercase().endsWith(".zip")) name = name.dropLast(4)
+        if (name.lowercase().endsWith(".pak")) name = name.dropLast(4)
+        if (name.isBlank()) name = "Demo Tool"
+        val existing = paks.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        if (existing?.isSelf == true || name.equals("ReminisLink", ignoreCase = true)) {
+            throw JobFailed("conflict", "ReminisLink cannot delete or replace itself", buildJsonObject { put("self", true) })
+        }
+        if (existing != null && !replace) throw JobFailed("conflict", "Pak exists", buildJsonObject { put("existing", existing.path) })
+        existing?.let {
+            paks.remove(it)
+            trash.add(0, TrashItem(newId("tr"), nowMillis(), "replace-pak", it.name, listOf(it.path), it.sizeBytes, Payload.Pak(it)))
+        }
+        val pak = PakState(name, kind, size, nowMillis(), null)
+        paks += pak
+        emit("paks", JsonObject(emptyMap()))
+        buildJsonObject { put("pakId", pak.id) }
+    }
+
+    /** `POST /paks/install`: a zip or a `.pak` folder of the card. */
+    private fun installFromSd(r: Request, body: ByteArray): Response {
+        val request = parse(body) ?: throw BadRequest("Invalid JSON")
+        val kind = request.str("kind").ifEmpty { "auto" }
+        val onConflict = request.str("onConflict").ifEmpty { "fail" }
+        if (kind !in setOf("auto", "tool", "emu") || onConflict !in setOf("fail", "replace")) {
+            return error(r, 400, "invalid_request", "Invalid kind or onConflict")
+        }
+        val path = sdPath(request.str("sdEntryId")) ?: return error(r, 400, "invalid_id", "Invalid id")
+        val node = sdNode(path) ?: return error(r, 404, "not_found", "Entry not found")
+        if (node.isFolder && !node.name.lowercase().endsWith(".pak")) {
+            return error(r, 422, "unsupported_format", "Not a .pak folder nor an archive")
+        }
+        val resolved = when {
+            kind != "auto" -> kind
+            path.startsWith("Emus/") -> "emu"
+            else -> "tool"
+        }
+        val source = nextPakSourceName?.also { nextPakSourceName = null } ?: node.name
+        val job = startPakJob(source, resolved, node.size ?: 4_096, replace = onConflict == "replace")
+        return json(r, 202, buildJsonObject { put("jobId", job.id) })
+    }
+
+    /**
+     * Tests: the next installation finds another source than the one named
+     * (an SD file replaced between a conflict and its replacement): it
+     * installs the pak this name gives.
+     */
+    @Volatile
+    var nextPakSourceName: String? = null
+
+    // MARK: rename a game (M23)
+
+    private fun renameGame(r: Request, system: SystemState, game: GameState, body: ByteArray): Response {
+        val raw = parse(body)?.str("name") ?: throw BadRequest("Missing name")
+        val name = link.reminis.core.GameNameRule.normalized(raw)
+        if (link.reminis.core.GameNameRule.problem(name, game.extension) != null) return error(r, 400, "invalid_name", "Invalid game name")
+        val fileName = name + game.extension
+        val path = if (game.parent.isEmpty()) fileName else "${game.parent}/$fileName"
+        val renamed = mutableListOf<JsonObject>()
+        if (path != game.path) {
+            // Another game of the system with the same file name shares the save, states and cheats.
+            if (system.games.any { it !== game && it.fileName.equals(game.fileName, ignoreCase = true) }) {
+                return error(r, 409, "conflict", "Name already taken", buildJsonObject { put("conflicts", JsonArray(emptyList())); put("shared", true) })
+            }
+            if (system.games.any { it !== game && it.fileName.equals(fileName, ignoreCase = true) }) {
+                return error(r, 409, "conflict", "Name already taken", buildJsonObject {
+                    put("conflicts", JsonArray(listOf(JsonPrimitive("Roms/${system.def.folder}/$path"))))
+                })
+            }
+            renamed += buildJsonObject { put("from", "Roms/${system.def.folder}/${game.path}"); put("to", "Roms/${system.def.folder}/$path") }
+            game.path = path
+            library(system)
+        }
+        return json(r, 200, buildJsonObject {
+            put("game", summary(system, game))
+            put("renamed", JsonArray(renamed))
+        })
+    }
+
+    // MARK: resume history (M5)
+
+    private fun resumeJson(game: GameState) = buildJsonObject {
+        put("entries", JsonArray(game.resume.map { e ->
+            buildJsonObject { put("id", e.id); put("capturedAt", time(e.capturedAt)); put("sizeBytes", e.blob.size) }
+        }))
+    }
+
+    /** Replaces the resume state by an archived version; the current one is archived first (5 versions at most). */
+    private fun restoreResume(r: Request, system: SystemState, game: GameState, entryId: String): Response {
+        val entry = game.resume.firstOrNull { it.id == entryId } ?: return error(r, 404, "not_found", "Entry not found")
+        val now = nowMillis()
+        val current = game.slots[RESUME_SLOT]
+        if (current != null && game.resume.firstOrNull()?.blob !== current.state) {
+            game.resume.add(0, ResumeEntry("rh_${stamp(now)}_${"%04x".format(++counter)}", now, current.state))
+            while (game.resume.size > 5) game.resume.removeAt(game.resume.size - 1)
+        }
+        game.slots[RESUME_SLOT] = SlotState(entry.blob, now, false, null)
+        game.resumeSlot = RESUME_SLOT
+        library(system)
+        return json(r, 200, resumeJson(game))
     }
 
     // MARK: game archives (M19)
@@ -1869,6 +2430,13 @@ class FakePak(
         const val PAK_VERSION = "1.1.0"
         const val CHUNK_SIZE = 1L shl 20
         const val RESUME_SLOT = 9
+
+        /** The main folders of the made-up NextUI card (never moved to the trash), lowercased. */
+        private val SD_ROOTS = setOf("roms", "saves", "bios", "tools", "emus", "tools/tg5040", "emus/tg5040", "screenshots", "cheats")
+
+        /** The folder of the running pak (ReminisLink's), lowercased. */
+        private const val SD_OWN_PAK = "tools/tg5040/reminislink.pak"
+        const val MAX_SD_ENTRIES = 5000
 
         /** Larger files keep their size only (served as generated bytes). */
         const val MAX_KEPT_BYTES = 8 shl 20

@@ -23,6 +23,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -80,6 +84,27 @@ object Routes {
     const val ARCHIVE_IMPORT = "archive-import?deviceId={deviceId}&gameId={gameId}&share={share}"
     const val SCREENSHOTS = "console/{deviceId}/screenshots"
     const val SCREENSHOT = "console/{deviceId}/screenshots/{screenshotId}"
+
+    /** M23: the Files tab (the root of the SD card), or one of its folders. */
+    const val FILES = "console/{deviceId}/files?folderId={folderId}&title={title}"
+    const val SETTINGS = "settings"
+
+    /** Browse by Console (iOS 06 §4.4): the systems, then a folder of a system. */
+    const val SYSTEMS = "console/{deviceId}/systems"
+    const val FOLDER = "console/{deviceId}/systems/{systemId}?folderId={folderId}&title={title}"
+
+    fun systems(deviceId: String) = "console/$deviceId/systems"
+    fun folder(deviceId: String, systemId: String, folderId: String?, title: String) = buildString {
+        append("console/$deviceId/systems/$systemId?")
+        folderId?.let { append("folderId=$it&") }
+        append("title=${android.net.Uri.encode(title)}")
+    }
+
+    fun files(deviceId: String, folderId: String? = null, title: String? = null) = buildString {
+        append("console/$deviceId/files")
+        val query = listOfNotNull(folderId?.let { "folderId=$it" }, title?.let { "title=${android.net.Uri.encode(it)}" })
+        if (query.isNotEmpty()) append("?").append(query.joinToString("&"))
+    }
 
     fun screenshots(deviceId: String) = "console/$deviceId/screenshots"
     fun screenshot(deviceId: String, screenshotId: String) = "console/$deviceId/screenshots/$screenshotId"
@@ -335,11 +360,122 @@ fun AppNavigation(
         container.quitDemo()
         nav.popBackStack(Routes.CONSOLES, inclusive = false)
     }
+    // M23: a `401 disconnected` seen by any request of the console shown: back to its dashboard,
+    // which says it with Reconnect (iOS closes the connection the same way).
+    val disconnected by container.events.disconnected.collectAsState()
+    LaunchedEffect(disconnected, shownConsole) {
+        val id = shownConsole ?: return@LaunchedEffect
+        if (id in disconnected && entry?.destination?.route != Routes.DASHBOARD) {
+            if (!nav.popBackStack(Routes.DASHBOARD, inclusive = false)) nav.navigate(Routes.dashboard(id))
+        }
+    }
+    val tab = ConsoleTab.of(entry?.destination?.route)
+    val tabBarHidden by TabBar.hidden.collectAsState()
+    val openTab: (ConsoleTab) -> Unit = { target ->
+        shownConsole?.let { id -> nav.navigate(target.route(id)) { tabOptions() } }
+    }
     Column(Modifier.fillMaxSize()) {
         if (demo != null) DemoBanner(onQuit = { quitDemo() }, modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars))
         val insets = if (demo != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
+        // Not a BoxWithConstraints: the nav host must be composed with this screen (a subcomposition
+        // would set its graph after the effects above navigate to an incoming link or share).
+        // The window's width (multi-window, a resized window; in tests, a forced size changes the density).
+        val windowWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+            androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp()
+        }
         Box(Modifier.weight(1f).then(insets)) {
-            AppNavHost(nav, links)
+            val showTabs = tab != null && shownConsole != null && !tabBarHidden
+            // A wide window gets a rail on the side (iOS M15: a top bar or a sidebar), a narrow one a bottom bar.
+            val rail = showTabs && windowWidth >= 600.dp
+            androidx.compose.foundation.layout.Row(Modifier.fillMaxSize()) {
+                if (rail) ConsoleTabRail(tab!!, openTab)
+                Column(Modifier.weight(1f)) {
+                    val tabInsets = if (showTabs && !rail) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier
+                    Box(Modifier.weight(1f).then(tabInsets)) {
+                        AppNavHost(nav, links)
+                    }
+                    if (showTabs && !rail) ConsoleTabBar(tab!!, openTab)
+                }
+            }
+        }
+    }
+}
+
+/** The tabs of an open console (M11, M23): Console, Library, Apps, Files. */
+enum class ConsoleTab(@param:androidx.annotation.StringRes val label: Int, val tag: String) {
+    CONSOLE(R.string.tab_console, "tabConsole"),
+    LIBRARY(R.string.library, "tabLibrary"),
+    APPS(R.string.paks_title, "tabApps"),
+    FILES(R.string.tab_files, "tabFiles");
+
+    fun route(deviceId: String) = when (this) {
+        CONSOLE -> Routes.dashboard(deviceId)
+        LIBRARY -> Routes.library(deviceId)
+        APPS -> Routes.apps(deviceId)
+        FILES -> Routes.files(deviceId)
+    }
+
+    companion object {
+        /** The tab of a screen; null for the screens shown alone (Add, Patch, import, pairing, list). */
+        fun of(route: String?): ConsoleTab? = when (route) {
+            Routes.DASHBOARD, Routes.TRANSFERS, Routes.TRASH, Routes.TRASH_RESTORE, Routes.SCREENSHOTS, Routes.SCREENSHOT -> CONSOLE
+            Routes.LIBRARY, Routes.GAME, Routes.SAVE, Routes.STATES, Routes.CHEATS, Routes.SYSTEMS, Routes.FOLDER -> LIBRARY
+            Routes.APPS -> APPS
+            Routes.FILES -> FILES
+            else -> null
+        }
+    }
+}
+
+/**
+ * Each tab keeps its own stack: going to a tab saves the stack of the one
+ * left (above the dashboard) and restores its own.
+ */
+fun androidx.navigation.NavOptionsBuilder.tabOptions() {
+    popUpTo(Routes.DASHBOARD) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
+}
+
+/** Hides the tab bar while a screen shows its own bottom bar (a selection), as iOS does. */
+object TabBar {
+    val hidden = kotlinx.coroutines.flow.MutableStateFlow(false)
+}
+
+@Composable
+private fun tabIcon(tab: ConsoleTab) = when (tab) {
+    ConsoleTab.CONSOLE -> link.reminis.app.ui.AppIcons.Console
+    ConsoleTab.LIBRARY -> link.reminis.app.ui.AppIcons.Library
+    ConsoleTab.APPS -> androidx.compose.material.icons.Icons.Filled.Build
+    ConsoleTab.FILES -> link.reminis.app.ui.AppIcons.Folder
+}
+
+@Composable
+private fun ConsoleTabBar(selected: ConsoleTab, onSelect: (ConsoleTab) -> Unit) {
+    androidx.compose.material3.NavigationBar(Modifier.testTag("consoleTabs")) {
+        for (tab in ConsoleTab.entries) {
+            NavigationBarItem(
+                selected = tab == selected,
+                onClick = { onSelect(tab) },
+                icon = { androidx.compose.material3.Icon(tabIcon(tab), contentDescription = null) },
+                label = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(tab.label)) },
+                modifier = Modifier.testTag(tab.tag),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConsoleTabRail(selected: ConsoleTab, onSelect: (ConsoleTab) -> Unit) {
+    androidx.compose.material3.NavigationRail(Modifier.testTag("consoleTabs")) {
+        for (tab in ConsoleTab.entries) {
+            androidx.compose.material3.NavigationRailItem(
+                selected = tab == selected,
+                onClick = { onSelect(tab) },
+                icon = { androidx.compose.material3.Icon(tabIcon(tab), contentDescription = null) },
+                label = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(tab.label)) },
+                modifier = Modifier.testTag(tab.tag),
+            )
         }
     }
 }
@@ -361,7 +497,11 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
                     val demo = container.startDemo()
                     nav.navigate(Routes.dashboard(demo.deviceId))
                 },
+                onSettings = { nav.navigate(Routes.SETTINGS) },
             )
+        }
+        composable(Routes.SETTINGS) {
+            link.reminis.app.ui.SettingsScreen(onBack = { nav.popBackStack() })
         }
         composable(Routes.ADD) {
             AddConsoleScreen(
@@ -391,10 +531,9 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             DashboardScreen(
                 deviceId = deviceId,
-                onBack = { nav.popBackStack() },
-                onLibrary = { nav.navigate(Routes.library(deviceId)) },
+                onBack = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
                 onTransfers = { nav.navigate(Routes.transfers(deviceId)) },
-                onApps = { nav.navigate(Routes.apps(deviceId)) },
+                onFiles = { nav.navigate(Routes.files(deviceId)) { tabOptions() } },
                 onScreenshots = { nav.navigate(Routes.screenshots(deviceId)) },
                 onTrash = { nav.navigate(Routes.trash(deviceId)) },
                 onForgotten = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
@@ -405,22 +544,56 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             // M15 on Android: the list and the game side by side in a wide window, one at a time otherwise.
             LibraryPanes(
                 deviceId = deviceId,
-                onBack = { nav.popBackStack() },
+                onBack = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
                 onAdd = { nav.navigate(Routes.addFiles(deviceId = deviceId)) },
                 onImportArchive = { gameId -> nav.navigate(Routes.archiveImport(deviceId = deviceId, gameId = gameId)) },
                 onSave = { gameId -> nav.navigate(Routes.save(deviceId, gameId)) },
                 onStates = { gameId, name -> nav.navigate(Routes.states(deviceId, gameId, name)) },
                 onCheats = { gameId -> nav.navigate(Routes.cheats(deviceId, gameId)) },
                 onPatch = { gameId -> nav.navigate(Routes.patch(deviceId = deviceId, gameId = gameId)) },
+                onBrowse = { nav.navigate(Routes.systems(deviceId)) },
+                onSystem = { nav.navigate(Routes.folder(deviceId, it.id, null, it.label)) },
+            )
+        }
+        composable(Routes.SYSTEMS, arguments = listOf(id)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            link.reminis.app.ui.SystemsScreen(
+                deviceId = deviceId,
+                onBack = { nav.popBackStack() },
+                onOpen = { nav.navigate(Routes.folder(deviceId, it.id, null, it.label)) },
+            )
+        }
+        composable(
+            Routes.FOLDER,
+            arguments = listOf(
+                id,
+                navArgument("systemId") { type = NavType.StringType },
+                navArgument("folderId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            val systemId = entry.arguments?.getString("systemId").orEmpty()
+            link.reminis.app.ui.FolderScreen(
+                deviceId = deviceId,
+                systemId = systemId,
+                folderId = entry.arguments?.getString("folderId"),
+                title = entry.arguments?.getString("title").orEmpty(),
+                onBack = { nav.popBackStack() },
+                onFolder = { nav.navigate(Routes.folder(deviceId, systemId, it.id, it.name)) },
+                onGame = { nav.navigate(Routes.game(deviceId, it)) },
             )
         }
         val gameId = navArgument("gameId") { type = NavType.StringType }
         composable(Routes.GAME, arguments = listOf(id, gameId)) { entry ->
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
-            val game = entry.arguments?.getString("gameId").orEmpty()
+            // A rename made from this phone rewrites this route's game once (Codex review 3).
+            val opened = entry.arguments?.getString("gameId").orEmpty()
+            val game = link.reminis.app.ui.rememberGameRef(opened).orEmpty()
             GameScreen(
                 deviceId = deviceId,
                 gameId = game,
+                vmKey = opened,
                 onBack = { nav.popBackStack() },
                 onSave = { nav.navigate(Routes.save(deviceId, game)) },
                 onStates = { name -> nav.navigate(Routes.states(deviceId, game, name)) },
@@ -466,9 +639,11 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             )
         }
         composable(Routes.CHEATS, arguments = listOf(id, gameId)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             CheatsScreen(
-                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
-                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                deviceId = deviceId,
+                gameId = link.reminis.app.ui.rememberGameRef(entry.arguments?.getString("gameId")).orEmpty(),
+                vmKey = entry.arguments?.getString("gameId").orEmpty(),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -483,7 +658,8 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val fromGame = entry.arguments?.getString("gameId")
             PatchScreen(
                 deviceId = entry.arguments?.getString("deviceId"),
-                gameId = fromGame,
+                gameId = link.reminis.app.ui.rememberGameRef(fromGame),
+                vmKey = fromGame,
                 shareToken = entry.arguments?.getString("share"),
                 onBack = { nav.popBackStack() },
                 onFinished = { device, target ->
@@ -494,7 +670,26 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             )
         }
         composable(Routes.APPS, arguments = listOf(id)) { entry ->
-            PaksScreen(deviceId = entry.arguments?.getString("deviceId").orEmpty(), onBack = { nav.popBackStack() })
+            PaksScreen(deviceId = entry.arguments?.getString("deviceId").orEmpty(), onBack = { nav.popBackStack(Routes.CONSOLES, inclusive = false) })
+        }
+        composable(
+            Routes.FILES,
+            arguments = listOf(
+                id,
+                navArgument("folderId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("title") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            val folderId = entry.arguments?.getString("folderId")
+            link.reminis.app.ui.SdFolderScreen(
+                deviceId = deviceId,
+                folderId = folderId,
+                title = entry.arguments?.getString("title"),
+                // The root of the tab goes back to the list of consoles, as the other tabs.
+                onBack = if (folderId == null) ({ nav.popBackStack(Routes.CONSOLES, inclusive = false) }) else ({ nav.popBackStack() }),
+                onOpenFolder = { nav.navigate(Routes.files(deviceId, it.sdEntryId, it.name)) },
+            )
         }
         composable(Routes.TRASH, arguments = listOf(id)) { entry ->
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
@@ -520,9 +715,11 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             )
         }
         composable(Routes.SAVE, arguments = listOf(id, gameId)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             SaveScreen(
-                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
-                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                deviceId = deviceId,
+                gameId = link.reminis.app.ui.rememberGameRef(entry.arguments?.getString("gameId")).orEmpty(),
+                vmKey = entry.arguments?.getString("gameId").orEmpty(),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -530,9 +727,11 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             Routes.STATES,
             arguments = listOf(id, gameId, navArgument("name") { type = NavType.StringType; defaultValue = "" }),
         ) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             StatesScreen(
-                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
-                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                deviceId = deviceId,
+                gameId = link.reminis.app.ui.rememberGameRef(entry.arguments?.getString("gameId")).orEmpty(),
+                vmKey = entry.arguments?.getString("gameId").orEmpty(),
                 gameName = entry.arguments?.getString("name").orEmpty(),
                 onBack = { nav.popBackStack() },
             )
@@ -558,6 +757,10 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
                 onBack = { nav.popBackStack() },
                 onSent = { deviceId ->
                     nav.popBackStack()
+                    // The Transfers screen of the Console tab (M23).
+                    if (nav.currentBackStackEntry?.arguments?.getString("deviceId") == deviceId) {
+                        nav.navigate(Routes.dashboard(deviceId)) { tabOptions() }
+                    }
                     nav.navigate(Routes.transfers(deviceId)) { launchSingleTop = true }
                 },
             )

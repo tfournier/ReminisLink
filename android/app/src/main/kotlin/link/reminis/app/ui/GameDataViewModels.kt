@@ -44,14 +44,18 @@ data class SaveContent(val game: GameDetail, val backups: List<Backup>) {
  * download, delete to the trash of the console). The console copies the
  * current save before every replacement or restoration.
  */
-class SaveViewModel(app: Application, deviceId: String, private val gameId: String) : ActionViewModel(app, deviceId) {
+class SaveViewModel(app: Application, deviceId: String, gameId: String) : ActionViewModel(app, deviceId) {
+    /** A rename made from this phone moves the screen to the new id (Codex review 3). */
+    private var gameId: String = gameId
+
     private val _content = MutableStateFlow<Load<SaveContent>>(Load.Loading)
     val content: StateFlow<Load<SaveContent>> = _content.asStateFlow()
 
     init {
         load()
-        reloadAfterTransfers(gameId) { load(quiet = true) }
+        reloadAfterTransfers({ this.gameId }) { load(quiet = true) }
         reloadOnLibraryChanges { load(quiet = true) }
+        onGameRenamed({ this.gameId }) { this.gameId = it; load(quiet = true) }
     }
 
     fun load(quiet: Boolean = false) {
@@ -59,15 +63,21 @@ class SaveViewModel(app: Application, deviceId: String, private val gameId: Stri
         viewModelScope.launch {
             val result = try {
                 val client = container.client(deviceId)
-                val game = async { client.game(gameId) }
-                val backups = async { client.saveBackups(gameId) }
-                Load.Loaded(SaveContent(game.await(), backups.await()))
+                val id = gameId
+                // In their own scope: a failure of one (a 404 of a game renamed meanwhile) ends here and
+                // shows on the screen, never in the ViewModel's scope (Codex review 3).
+                kotlinx.coroutines.coroutineScope {
+                    val game = async { client.game(id) }
+                    val backups = async { client.saveBackups(id) }
+                    Load.Loaded(SaveContent(game.await(), backups.await()))
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Load.Failed(e)
             }
-            if (!quiet || result is Load.Loaded) _content.value = result
+            // A quiet read that replaced the first one still shows its failure when nothing is shown yet.
+            if (!quiet || result is Load.Loaded || _content.value !is Load.Loaded) _content.value = result
         }
     }
 
@@ -130,7 +140,10 @@ class SaveViewModel(app: Application, deviceId: String, private val gameId: Stri
  * The state slots of a game: lock, unlock, restore the locked copy,
  * download, delete (to the trash of the console).
  */
-class StatesViewModel(app: Application, deviceId: String, private val gameId: String) : ActionViewModel(app, deviceId) {
+class StatesViewModel(app: Application, deviceId: String, gameId: String) : ActionViewModel(app, deviceId) {
+    /** A rename made from this phone moves the screen to the new id (Codex review 3). */
+    private var gameId: String = gameId
+
     private val _slots = MutableStateFlow<Load<SlotList>>(Load.Loading)
     val slots: StateFlow<Load<SlotList>> = _slots.asStateFlow()
 
@@ -145,10 +158,28 @@ class StatesViewModel(app: Application, deviceId: String, private val gameId: St
     /** Only the last load shows its answer. */
     private var generation = 0
 
+    private val _history = MutableStateFlow<link.reminis.core.ResumeHistory?>(null)
+
+    /** The resume history of the game (null until read, or from a pak that does not answer it). */
+    val history: StateFlow<link.reminis.core.ResumeHistory?> = _history.asStateFlow()
+
     init {
         load()
-        reloadAfterTransfers(gameId) { load(quiet = true) }
+        reloadAfterTransfers({ this.gameId }) { load(quiet = true) }
         reloadOnLibraryChanges { load(quiet = true) }
+        onGameRenamed({ this.gameId }) { this.gameId = it; requested.clear(); load(quiet = true) }
+    }
+
+    /**
+     * `POST /games/{gameId}/resume-history/{entryId}/restore`: the current
+     * resume state is archived first, then replaced by this version.
+     */
+    fun restoreResume(entry: link.reminis.core.ResumeHistoryEntry) = perform(Notice(R.string.resume_restored)) {
+        val restored = container.client(deviceId).restoreResumeHistory(gameId, entry.id)
+        // Newer than any load in flight: those are dropped.
+        generation++
+        _history.value = restored
+        load(quiet = true)
     }
 
     fun load(quiet: Boolean = false) {
@@ -162,12 +193,25 @@ class StatesViewModel(app: Application, deviceId: String, private val gameId: St
             } catch (e: Exception) {
                 Load.Failed(e)
             }
+            val history = if (result is Load.Loaded) {
+                try {
+                    container.client(deviceId).resumeHistory(gameId)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
             if (current != generation) return@launch
+            if (result is Load.Loaded) _history.value = history
             if (result is Load.Loaded) {
                 _restored.update { it + result.value.slots.filter(Slot::wasRestored).map(Slot::slot) }
                 loadThumbnails(result.value)
             }
-            if (!quiet || result is Load.Loaded) _slots.value = result
+            // A quiet read that replaced the first one still shows its failure when nothing is shown yet.
+            if (!quiet || result is Load.Loaded || _slots.value !is Load.Loaded) _slots.value = result
         }
     }
 
@@ -241,6 +285,7 @@ data class AddFile(
     val isReady: Boolean get() = when (kind) {
         AddKind.ROM -> systemId != null
         AddKind.SAVE -> game != null
+        AddKind.PAK -> true
     }
 }
 
@@ -362,12 +407,17 @@ class AddFilesViewModel(app: Application, deviceId: String?, private val shareTo
             try {
                 for (file in s.files) {
                     val picked = LocalFiles.copyIn(getApplication(), file.uri, container.transferDirectory)
-                    val (target, destination) = when (file.kind) {
-                        AddKind.ROM -> UploadTarget.Rom(file.systemId!!, picked.name) to
-                            (systems.firstOrNull { it.id == file.systemId }?.label.orEmpty())
-                        AddKind.SAVE -> UploadTarget.Save(file.game!!.id) to file.game.name
+                    if (file.kind == AddKind.PAK) {
+                        // The installation of the Apps screen: automatic place, asked before replacing (06 §4.6).
+                        container.pakInstaller.install(deviceId, picked.file, picked.name, link.reminis.core.PakInstallKind.AUTO)
+                    } else {
+                        val (target, destination) = when (file.kind) {
+                            AddKind.SAVE -> UploadTarget.Save(file.game!!.id) to file.game.name
+                            else -> UploadTarget.Rom(file.systemId!!, picked.name) to
+                                (systems.firstOrNull { it.id == file.systemId }?.label.orEmpty())
+                        }
+                        container.transfers.enqueueUpload(deviceId, picked.file, picked.name, target, destination, ownsFile = true)
                     }
-                    container.transfers.enqueueUpload(deviceId, picked.file, picked.name, target, destination, ownsFile = true)
                     _state.update { st -> st.copy(files = st.files.filter { it.id != file.id }) }
                 }
                 shareToken?.let(container.shareInbox::remove)

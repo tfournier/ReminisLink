@@ -21,6 +21,11 @@ import link.reminis.core.isPakSelfConflict
 import link.reminis.core.pakRefusal
 import link.reminis.core.patchMismatchReason
 import link.reminis.core.trashReplaceRefusal
+import link.reminis.core.isMissingRoute
+import link.reminis.core.renameConflicts
+import link.reminis.core.renameSharesDiscs
+import link.reminis.core.sdChanged
+import link.reminis.core.sdProtection
 
 /** Pairing is closed on the console (`pairingOpen: false` in `/hello`). */
 class PairingClosedException : Exception("pairing closed")
@@ -106,6 +111,68 @@ fun archiveError(error: Throwable, routeMissing: Boolean = false): Throwable {
     }
 }
 
+/** The text of a protected place of the SD card (M23, `details.protected`). */
+fun sdProtectionMessage(protection: String, cause: Throwable? = null): UserMessage = UserMessage(
+    when (protection) {
+        link.reminis.core.SdProtection.SYSTEM -> R.string.sd_protected_system
+        link.reminis.core.SdProtection.DATA -> R.string.sd_protected_data
+        link.reminis.core.SdProtection.ROOT -> R.string.sd_protected_root
+        link.reminis.core.SdProtection.LINK -> R.string.sd_protected_link
+        else -> R.string.sd_protected_other
+    },
+    cause = cause,
+)
+
+/**
+ * The error of a write of the SD browser (M23): a protected place, a taken
+ * name, an item changed or gone, or an older pak (`405`, or the `404` "No
+ * route" of a route it does not have).
+ */
+fun sdWriteError(error: Throwable): Throwable {
+    if (error is UserMessage) return error
+    val server = error as? ApiException.Server
+    server?.sdProtection?.let { return sdProtectionMessage(it, error) }
+    if (server != null && server.sdChanged.isNotEmpty()) return UserMessage(R.string.sd_entry_changed, cause = error)
+    if (server?.code == ErrorCodes.CONFLICT) return UserMessage(R.string.sd_name_taken, cause = error)
+    val status = (error as? ApiException.UnexpectedStatus)?.status ?: server?.status
+    if (status == 405 || server?.isMissingRoute == true) return UserMessage(R.string.files_need_newer, cause = error)
+    if (status == 404) return UserMessage(R.string.sd_entry_gone, cause = error)
+    return error
+}
+
+/** The error of the rename of a game (M23). */
+fun renameError(error: Throwable): Throwable {
+    if (error is UserMessage) return error
+    val server = error as? ApiException.Server
+    if (server != null && server.renameSharesDiscs) return UserMessage(R.string.rename_shared, cause = error)
+    if (server?.code == ErrorCodes.CONFLICT) {
+        val places = server.renameConflicts
+        return if (places.isEmpty()) {
+            UserMessage(R.string.rename_taken, cause = error)
+        } else {
+            UserMessage(R.string.rename_taken_places, listOf(places.joinToString(", ")), cause = error)
+        }
+    }
+    if (server?.code == ErrorCodes.INVALID_NAME) return UserMessage(R.string.rename_invalid, cause = error)
+    if (server?.code == ErrorCodes.UNSUPPORTED_FORMAT) return server
+    if (server?.isMissingRoute == true) return UserMessage(R.string.files_need_newer, cause = error)
+    if (server?.code == ErrorCodes.NOT_FOUND) return UserMessage(R.string.error_item_not_found, cause = error)
+    val status = (error as? ApiException.UnexpectedStatus)?.status ?: server?.status
+    if (status == 404 || status == 405) return UserMessage(R.string.files_need_newer, cause = error)
+    return error
+}
+
+/** What is wrong with a new game name, said before sending (M23, `GameNameRule`). */
+fun nameProblemMessage(problem: link.reminis.core.GameNameRule.Problem): UserMessage = when (problem) {
+    link.reminis.core.GameNameRule.Problem.Empty -> UserMessage(R.string.name_empty)
+    is link.reminis.core.GameNameRule.Problem.ForbiddenCharacter -> UserMessage(R.string.name_forbidden, listOf(problem.character.toString()))
+    link.reminis.core.GameNameRule.Problem.InvisibleCharacter -> UserMessage(R.string.name_invisible)
+    link.reminis.core.GameNameRule.Problem.StartsWithDot -> UserMessage(R.string.name_dot)
+    link.reminis.core.GameNameRule.Problem.TrailingSpaceOrDot -> UserMessage(R.string.name_trailing)
+    link.reminis.core.GameNameRule.Problem.Reserved -> UserMessage(R.string.name_reserved)
+    link.reminis.core.GameNameRule.Problem.TooLong -> UserMessage(R.string.name_too_long)
+}
+
 /** A screenshot too large to show here (more than 64 MiB, or no room left on the phone): share it instead. */
 class ScreenshotTooLargeException(cause: Throwable? = null) : Exception("screenshot too large", cause)
 
@@ -176,7 +243,11 @@ fun errorMessage(context: Context, error: Throwable): String = when (error) {
         ErrorCodes.UNKNOWN_CLIENT -> context.getString(R.string.error_unknown_client)
         ErrorCodes.DISCONNECTED -> context.getString(R.string.error_disconnected)
         ErrorCodes.SHUTTING_DOWN -> context.getString(R.string.error_shutting_down)
-        ErrorCodes.CONFLICT -> context.getString(if (error.status == 412) R.string.cheats_conflict_short else R.string.error_conflict)
+        ErrorCodes.CONFLICT -> when {
+            error.status == 412 -> context.getString(R.string.cheats_conflict_short)
+            error.sdProtection != null -> errorMessage(context, sdProtectionMessage(error.sdProtection!!))
+            else -> context.getString(R.string.error_conflict)
+        }
         ErrorCodes.CHECKSUM_MISMATCH -> context.getString(R.string.error_checksum)
         ErrorCodes.STATE_LOCKED -> context.getString(R.string.error_state_locked)
         ErrorCodes.TOO_LARGE -> context.getString(R.string.error_too_large)

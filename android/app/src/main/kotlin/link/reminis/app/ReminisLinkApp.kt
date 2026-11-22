@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import link.reminis.core.ApiClient
 import link.reminis.core.ApiException
@@ -74,6 +75,9 @@ class PendingLinks {
     val size: Int get() = links.size
 }
 
+/** A game of [deviceId] renamed from this phone: [oldId] is now [newId]. */
+data class GameRename(val deviceId: String, val oldId: String, val newId: String)
+
 /** A notice shown once by the screen of a game ([gameId] of [deviceId]). */
 data class GameNotice(val deviceId: String, val gameId: String, val text: String)
 
@@ -83,6 +87,9 @@ class AppContainer(context: Context) {
     val consoles = ConsoleStore(File(context.filesDir, "consoles.json"))
     val discovery = Discovery(context)
     val pendingLinks = PendingLinks()
+
+    /** The box art of the games shown (the covers of the library and of the game screen). */
+    val artCache = GameArtCache()
 
     /** Work that must outlive a screen: a pairing exchange once `POST /pair` is sent. */
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -141,9 +148,13 @@ class AppContainer(context: Context) {
         // The real consoles are left alone while the demo runs (as on iOS): their transfers pause
         // and resume when the demo ends; discovery, probes and requests to them are off.
         transfers.holdForDemo { !isDemo(it) }
-        val console = link.reminis.core.demo.DemoConsole(appContext.getString(R.string.demo_console_name)) { n ->
-            appContext.getString(R.string.demo_cheat_name, n)
-        }
+        var started: link.reminis.core.demo.DemoConsole? = null
+        val console = link.reminis.core.demo.DemoConsole(
+            appContext.getString(R.string.demo_console_name),
+            // The demo's answers close its connection as a real console's do.
+            errorObserver = { error -> started?.let { serverError(it.deviceId, it.identity, error) } },
+        ) { n -> appContext.getString(R.string.demo_cheat_name, n) }
+        started = console
         // Under the pairing lock: no address of a real console is written once the demo has started.
         synchronized(pairingLock) { _demo.value = console }
         // Searches and probes of real consoles in flight stop now.
@@ -196,7 +207,20 @@ class AppContainer(context: Context) {
     }
 
     /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
-    val pakInstaller = PakInstaller(transferScope, transfers, jobs) { file -> file.parentFile?.deleteRecursively() }
+    val pakInstaller = PakInstaller(transferScope, transfers, jobs, client = { client(it) }) { file -> file.parentFile?.deleteRecursively() }
+
+    /**
+     * A game renamed from this phone (M23), told once when the answer
+     * arrives (Codex review 3): every screen of a game still alive (its
+     * route's [link.reminis.app.ui.GameRef], its ViewModel, the Library's
+     * choice), in the active tab or a saved one, that shows the old id moves
+     * to the new one, then nothing keeps the old id: a new ROM that takes it
+     * later opens its own screen, and a later rename does its own rewrite.
+     */
+    val gameRenamed = kotlinx.coroutines.flow.MutableSharedFlow<GameRename>(extraBufferCapacity = 64)
+
+    /** The last game deleted from this phone: the Library offers Empty Trash Now (iOS). */
+    val lastDeletedGame = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
 
     /** A notice for the game screen of a console (a patch applied, the screen closed by itself). */
     val gameNotice = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
@@ -218,6 +242,9 @@ class AppContainer(context: Context) {
     }
 
     init {
+        // Copies of QR pictures left by a process killed while reading one (they show the pairing
+        // secret): deleted now, before any screen opens (Codex review 2).
+        File(context.cacheDir, "qr").deleteRecursively()
         // Listed now, before any new copy can be made; deleted in the background.
         val leftovers = transferDirectory.listFiles().orEmpty()
         transferScope.launch(Dispatchers.IO) { leftovers.forEach { it.deleteRecursively() } }
@@ -230,8 +257,11 @@ class AppContainer(context: Context) {
         scope.launch {
             events.changes.collect { change ->
                 if (change is ConsoleChange.Screenshots || change is ConsoleChange.CatchUp) screenshotManagers[change.deviceId]?.changed()
+                // An art may have been set or removed by any client.
+                if (change is ConsoleChange.Library || change is ConsoleChange.CatchUp) artCache.invalidate(change.deviceId)
             }
         }
+        scope.launch { libraryChanged.collect { artCache.invalidate(it) } }
     }
 
     /** `clientName` of `POST /pair`: typed by the user, the device model by default. */
@@ -268,12 +298,47 @@ class AppContainer(context: Context) {
      */
     private val probes = Generations<String>()
 
-    fun newClient(endpoint: Endpoint, deviceId: String, pin: String, credentials: DeviceCredentials? = null) = ApiClient(
+    fun newClient(
+        endpoint: Endpoint,
+        deviceId: String,
+        pin: String,
+        credentials: DeviceCredentials? = null,
+        /** The pairing (pin and date) this client signs for: its error answers concern that pairing only. */
+        identity: Any? = null,
+    ) = ApiClient(
         endpoint = endpoint,
         expectedDeviceId = deviceId,
         credentials = credentials,
         pin = pin,
+        // Only a paired client's answers (not those of a pairing in progress) close the connection.
+        errorObserver = if (credentials != null && identity != null) ({ error -> serverError(deviceId, identity, error) }) else null,
     )
+
+    /**
+     * Every error answer of a console's client (a screen, a transfer, a job;
+     * M23 on Android, as iOS observes them): `503 shutting_down` means the
+     * console closed ReminisLink, `401 disconnected` that it disconnected
+     * this phone; either closes the connection (its transfers pause).
+     * Called on the thread that read the answer.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun serverError(deviceId: String, identity: Any, error: link.reminis.core.ApiException.Server) {
+        // An answer read by a client of a previous pairing (forgotten, paired again) concerns nothing now
+        // (Codex review 1): checked when it arrives and again on the main thread.
+        if (pairingIdentity(deviceId) != identity) return
+        when (error.code) {
+            link.reminis.core.ErrorCodes.DISCONNECTED -> {
+                val seen = events.reconnection(deviceId)
+                scope.launch {
+                    if (pairingIdentity(deviceId) != identity) return@launch
+                    if (events.disconnectedByRequest(deviceId, error, seen)) transfers.pauseConsole(deviceId)
+                }
+            }
+            link.reminis.core.ErrorCodes.SHUTTING_DOWN -> scope.launch {
+                if (pairingIdentity(deviceId) == identity) events.closedSeenByRequest(deviceId)
+            }
+        }
+    }
 
     /**
      * A signed client for a paired console, connected (`/hello` answered with
@@ -294,7 +359,7 @@ class AppContainer(context: Context) {
             val candidates = Locator.candidates(console.lastEndpoint) { discovery.find(deviceId).also { noDemo() } }
             val (endpoint, connected) = Locator.connectFirst(candidates) { ep ->
                 noDemo()
-                val client = newClient(ep, deviceId, console.pin, credentials)
+                val client = newClient(ep, deviceId, console.pin, credentials, identity = console.pin to console.pairedAt)
                 client to client.hello()
             }
             noDemo()
@@ -394,6 +459,12 @@ class AppContainer(context: Context) {
         scope.launch { events.dropConsole(console.deviceId) }
     }
 
+    /** Renames a console on this phone only (the console keeps its own name). */
+    fun renameConsole(deviceId: String, name: String) {
+        val clean = PairedConsole.cleanName(name) ?: return
+        synchronized(pairingLock) { consoles.update(deviceId) { it.copy(deviceName = clean) } }
+    }
+
     /** Tests only: deletion previews answered (applied or not), a client-side signal. */
     @androidx.annotation.VisibleForTesting
     val deletionAnswersForTests = java.util.concurrent.atomic.AtomicInteger()
@@ -427,7 +498,7 @@ class AppContainer(context: Context) {
     private fun remember(console: PairedConsole, endpoint: Endpoint, deviceName: String, model: String) {
         consoles.update(console.deviceId) {
             if (it.pin == console.pin && it.pairedAt == console.pairedAt) {
-                it.copy(deviceName = deviceName, model = model, lastEndpoint = endpoint)
+                it.reporting(deviceName).copy(model = model, lastEndpoint = endpoint)
             } else {
                 it
             }

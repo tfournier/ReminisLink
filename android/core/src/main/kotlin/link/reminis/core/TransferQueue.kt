@@ -118,7 +118,15 @@ data class TransferItem(
     /** The upload stopped on `409 conflict` at completion: retry with another rule. */
     val isNameConflict: Boolean
         get() = direction == TransferDirection.UPLOAD && phase == TransferPhase.FAILED && !isReserved && !isDropped &&
-            failure?.serverCode == ErrorCodes.CONFLICT && target is UploadTarget.Rom
+            failure?.serverCode == ErrorCodes.CONFLICT &&
+            (target is UploadTarget.Rom || (target is UploadTarget.SdFile && !isProtectedFolder))
+
+    /**
+     * M23: an `sd-file` upload refused because its folder became protected
+     * (`409 details.protected`): no other name helps (no Keep Both).
+     */
+    val isProtectedFolder: Boolean
+        get() = target is UploadTarget.SdFile && (failure as? ApiException.Server)?.sdProtection != null
 
     /**
      * Resume (paused) or try again (a failed upload). A failed download is
@@ -466,6 +474,8 @@ class TransferQueue(
     fun retry(id: String, onConflict: OnConflict) {
         val entry = synchronized(lock) {
             val e = entries.firstOrNull { it.id == id } ?: return
+            // M23: a file of the SD browser is never replaced.
+            if (e.target is UploadTarget.SdFile && onConflict == OnConflict.OVERWRITE) return
             if (e.direction != TransferDirection.UPLOAD || e.reserved || e.dropped) return
             if (e.phase != TransferPhase.FAILED && e.phase != TransferPhase.PAUSED) return
             e.reserved = true

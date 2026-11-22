@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import java.time.OffsetDateTime
@@ -35,6 +36,7 @@ fun MessageCard(notice: Notice?, error: Throwable?, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val text = when {
         error != null -> errorMessage(context, error)
+        notice?.plural != null -> pluralStringResource(notice.plural, notice.quantity, *notice.args.toTypedArray())
         notice != null -> context.getString(notice.id, *notice.args.toTypedArray())
         else -> return
     }

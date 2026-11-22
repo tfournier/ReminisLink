@@ -14,6 +14,7 @@ import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onChildren
 import androidx.test.core.app.ActivityScenario
@@ -208,13 +209,19 @@ class PakIntegrationTest {
 
             compose.onNodeWithTag("openConsole").performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("dashboard").fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openLibrary"))
-            compose.onNodeWithTag("openLibrary").performClick()
+            compose.onNodeWithTag("dashboard").assertExists()
+            compose.onNodeWithTag("tabLibrary").performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("games").fetchSemanticsNodes().isNotEmpty() }
-            val games = compose.onNodeWithTag("games").onChildren()
+            // The game rows (the list also holds the count of games above them).
+            val gameRow = androidx.compose.ui.test.SemanticsMatcher("a game row") {
+                androidx.compose.ui.semantics.SemanticsProperties.TestTag in it.config && it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag].startsWith("game-")
+            }
+            val games = compose.onAllNodes(gameRow)
             assertTrue("the library is empty", games.fetchSemanticsNodes().isNotEmpty())
             games.onFirst().performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("game").fetchSemanticsNodes().isNotEmpty() }
+            // The files come after the art and the rows: scrolled into view first.
+            compose.onNodeWithTag("game").performScrollToNode(androidx.compose.ui.test.hasText(context.getString(R.string.role_rom)))
             compose.onNodeWithText(context.getString(R.string.role_rom), useUnmergedTree = true).assertExists()
 
             transfersSavesAndStates(parsed.deviceId, it)
@@ -223,6 +230,66 @@ class PakIntegrationTest {
         sharedPatch(parsed.deviceId)
         archiveAsANewGame(parsed.deviceId)
         screenshotsTrashedAndRestored(parsed.deviceId)
+        filesAndRename(parsed.deviceId)
+    }
+
+    /**
+     * Increment 6 (M23) against the real pak: in the Files tab, a folder
+     * made at the root of the card, a file sent into it (`sd-file`, through
+     * the app's queue, as Add Files does) then moved to the trash from its
+     * menu (an entry `delete-file`); the test game renamed from its screen
+     * (new id, its save follows), with its cheat count shown.
+     */
+    private fun filesAndRename(deviceId: String) {
+        val client = kotlinx.coroutines.runBlocking { context.container.client(deviceId) }
+        val name = context.container.consoles.get(deviceId)!!.deviceName
+        val folderName = "Fern E2E ${System.currentTimeMillis() % 100_000}"
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            waitForText(name)
+            compose.onNodeWithText(name).performClick()
+            waitForTag("dashboard")
+            compose.onNodeWithTag("tabFiles").performClick()
+            waitForTag("sd-Roms")
+            compose.onNodeWithTag("sdAdd").performClick()
+            compose.onNodeWithTag("sdNewFolder").performClick()
+            compose.onNodeWithTag("sdNewFolderName").performTextInput(folderName)
+            compose.onNodeWithTag("sdNewFolderCreate").performClick()
+            waitForTag("sd-$folderName")
+            val folder = kotlinx.coroutines.runBlocking { client.browseSd(null) }.entries.first { it.name == folderName }
+            assertTrue("the new folder is not deletable", folder.deletable)
+
+            compose.onNodeWithTag("sd-$folderName").performClick()
+            waitForTag("sdEmpty")
+            send(deviceId, "fern-notes.txt", "FERN-NOTES".toByteArray(), link.reminis.core.UploadTarget.SdFile(folder.sdEntryId, "fern-notes.txt"))
+            waitForTag("sd-fern-notes.txt")
+            compose.onNodeWithTag("sdMenu-fern-notes.txt").performClick()
+            compose.onNodeWithTag("sdTrashOne").performClick()
+            compose.onNodeWithTag("sdTrashConfirm").performClick()
+            waitForTag("sdEmpty")
+            val entry = kotlinx.coroutines.runBlocking { client.trash() }.entries.firstOrNull { it.reason == "delete-file" && it.label == "fern-notes.txt" }
+            assertTrue("the file is not in the trash", entry != null)
+
+            // The test game, renamed from its screen.
+            val game = fernGame(client)!!
+            compose.onNodeWithTag("tabLibrary").performClick()
+            waitForTag("search")
+            compose.onNodeWithTag("search").performTextReplacement("Fern Courier")
+            waitForText(gameName)
+            compose.onNodeWithText(gameName).performClick()
+            waitForTag("cheatCount")
+            compose.onNodeWithTag("gameMenu").performClick()
+            compose.onNodeWithTag("renameGame").performClick()
+            compose.onNodeWithTag("renameName").performTextReplacement("Fern Courier Renamed")
+            compose.onNodeWithTag("renameConfirm").performClick()
+            waitFor("the renamed game") {
+                kotlinx.coroutines.runBlocking { client.allGames() }.games.any { it.name == "Fern Courier Renamed" }
+            }
+            waitForText("Fern Courier Renamed.gba")
+            val renamed = kotlinx.coroutines.runBlocking { client.allGames() }.games.first { it.name == "Fern Courier Renamed" }
+            assertTrue("the id did not change", renamed.id != game.id)
+            assertTrue("the save did not follow", kotlinx.coroutines.runBlocking { client.game(renamed.id) }.hasSave)
+            back(scenario)
+        }
     }
 
     /** Waits for a condition; on a timeout, the screen goes to the log (no secret is on it). */
@@ -406,8 +473,8 @@ class PakIntegrationTest {
         }
         val installer = context.container.pakInstaller
         val installId = installer.install(deviceId, zip, "Fern Tool.pak.zip", link.reminis.core.PakInstallKind.AUTO)
-        compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openApps"))
-        compose.onNodeWithTag("openApps").performClick()
+        compose.onNodeWithTag("dashboard").assertExists()
+        compose.onNodeWithTag("tabApps").performClick()
         waitFor("the pak installed") {
             installer.installs.value.first { it.id == installId }.phase.let {
                 it == link.reminis.core.PakInstall.Phase.Installed || it is link.reminis.core.PakInstall.Phase.Failed

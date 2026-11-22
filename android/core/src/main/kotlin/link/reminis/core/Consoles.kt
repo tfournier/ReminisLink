@@ -13,7 +13,11 @@ import kotlinx.serialization.builtins.ListSerializer
 @Serializable
 data class PairedConsole(
     val deviceId: String,
-    /** The console's own name (`deviceName` of `/hello`, `/device` or `/pair`). */
+    /**
+     * The name shown: the console's own name (`deviceName` of `/hello`,
+     * `/device` or `/pair`), or a name chosen in the app, kept until the
+     * console is renamed on the console itself ([consoleName] changes).
+     */
     val deviceName: String,
     val model: String? = null,
     /** b64u(SHA-256(SPKI)) of the console certificate, from the QR code. */
@@ -21,7 +25,24 @@ data class PairedConsole(
     /** The last address that answered with the pinned certificate. */
     val lastEndpoint: Endpoint? = null,
     val pairedAt: Long,
-)
+    /** The last name the console reported (null: paired before names were kept apart). */
+    val consoleName: String? = null,
+) {
+    /**
+     * The entry after a connection where the console reported [reported]:
+     * a name chosen in the app stays until the console is renamed on the
+     * console (as iOS, 06 §4.1); an entry without [consoleName] takes it.
+     */
+    fun reporting(reported: String): PairedConsole {
+        val name = reported.trim().ifEmpty { return this }
+        return if (consoleName == name) this else copy(deviceName = name, consoleName = name)
+    }
+
+    companion object {
+        /** A name chosen in the app: trimmed, 1 to 64 characters, null when empty. */
+        fun cleanName(name: String): String? = name.trim().take(64).ifEmpty { null }
+    }
+}
 
 /**
  * The list of paired consoles in one JSON file, written atomically (write to

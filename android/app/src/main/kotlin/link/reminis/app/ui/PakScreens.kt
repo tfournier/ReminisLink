@@ -137,14 +137,38 @@ class PaksViewModel(app: Application, deviceId: String) : ActionViewModel(app, d
         load()
     }
 
-    /** A zip chosen with the document picker, copied into the app; its options are asked next. */
+    /** A zip chosen with the document picker, copied into the app, waiting for its options. */
     fun pick(uri: Uri) = perform(null) {
         val name = LocalFiles.displayName(getApplication<Application>().contentResolver, uri)
-        if (!name.lowercase().endsWith(".zip")) throw UserMessage(R.string.pak_not_a_zip)
+        if (!name.lowercase().endsWith(".zip")) throw UserMessage(R.string.pak_not_a_zip_or_folder)
         _draft.value = LocalFiles.copyIn(getApplication(), uri, container.transferDirectory)
     }
 
+    /**
+     * A folder whose name ends with `.pak`, chosen on the phone
+     * (`ACTION_OPEN_DOCUMENT_TREE`): zipped into the app as `<Name>.pak.zip`
+     * (as iOS does with `NSFileCoordinator .forUploading`), then installed
+     * like a zip.
+     */
+    fun pickFolder(tree: Uri) = perform(null) {
+        _draft.value = try {
+            LocalFiles.zipPakFolder(getApplication(), tree, container.transferDirectory)
+        } catch (e: LocalFiles.NotAPakFolderException) {
+            throw UserMessage(R.string.pak_not_a_zip_or_folder, cause = e)
+        }
+    }
+
+    private val _sdDraft = MutableStateFlow<link.reminis.core.SdEntry?>(null)
+
+    /** M12: a zip or a `.pak` folder of the SD card, waiting for its options. */
+    val sdDraft: StateFlow<link.reminis.core.SdEntry?> = _sdDraft.asStateFlow()
+
+    fun pickFromSd(entry: link.reminis.core.SdEntry) {
+        _sdDraft.value = entry
+    }
+
     fun cancelDraft() {
+        _sdDraft.value = null
         val file = _draft.value ?: return
         _draft.value = null
         viewModelScope.launch(Dispatchers.IO) { file.remove() }
@@ -152,6 +176,11 @@ class PaksViewModel(app: Application, deviceId: String) : ActionViewModel(app, d
 
     /** Starts the installation (`onConflict: fail`); the copy is the installer's from now on. */
     fun install(kind: PakInstallKind) {
+        _sdDraft.value?.let { entry ->
+            _sdDraft.value = null
+            container.pakInstaller.installFromSd(deviceId, entry, kind)
+            return
+        }
         val file = _draft.value ?: return
         _draft.value = null
         container.pakInstaller.install(deviceId, file.file, file.name, kind)
@@ -180,6 +209,10 @@ fun PaksScreen(deviceId: String, onBack: () -> Unit) {
     val paks by vm.paks.collectAsState()
     val installs by vm.installs.collectAsState()
     val draft by vm.draft.collectAsState()
+    val sdDraft by vm.sdDraft.collectAsState()
+    var installMenu by remember { mutableStateOf(false) }
+    var pickingSd by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> uri?.let(vm::pickFolder) }
     val working by vm.working.collectAsState()
     val notice by vm.notice.collectAsState()
     val error by vm.error.collectAsState()
@@ -208,12 +241,35 @@ fun PaksScreen(deviceId: String, onBack: () -> Unit) {
         },
         floatingActionButton = {
             if (!vm.needsNewerPak) {
-                ExtendedFloatingActionButton(
-                    onClick = { picker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) },
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text(stringResource(R.string.paks_install)) },
-                    modifier = Modifier.testTag("paksInstall"),
-                )
+                androidx.compose.foundation.layout.Box {
+                    ExtendedFloatingActionButton(
+                        onClick = { installMenu = true },
+                        icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                        text = { Text(stringResource(R.string.paks_install)) },
+                        modifier = Modifier.testTag("paksInstall"),
+                    )
+                    // Files (a zip), a .pak folder of the phone, or the SD card (docs/specs/06-app-ios.md §11).
+                    androidx.compose.material3.DropdownMenu(expanded = installMenu, onDismissRequest = { installMenu = false }) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.paks_from_files)) },
+                            onClick = {
+                                installMenu = false
+                                picker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                            },
+                            modifier = Modifier.testTag("paksFromFiles"),
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.paks_from_folder)) },
+                            onClick = { installMenu = false; folderPicker.launch(null) },
+                            modifier = Modifier.testTag("paksFromFolder"),
+                        )
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.paks_from_sd)) },
+                            onClick = { installMenu = false; pickingSd = true },
+                            modifier = Modifier.testTag("paksFromSd"),
+                        )
+                    }
+                }
             }
         },
     ) { modifier ->
@@ -226,7 +282,7 @@ fun PaksScreen(deviceId: String, onBack: () -> Unit) {
                 item {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(R.string.paks_installations), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(16.dp).weight(1f))
-                        if (installs.any { it.phase.isFinished }) {
+                        if (installs.any { it.isClearable }) {
                             TextButton(onClick = vm::clearFinished) { Text(stringResource(R.string.transfers_clear)) }
                         }
                     }
@@ -287,26 +343,53 @@ fun PaksScreen(deviceId: String, onBack: () -> Unit) {
         )
     }
     toReplace?.let { install ->
-        val name = (install.phase as? PakInstall.Phase.NeedsReplacement)?.name ?: install.name
-        AlertDialog(
-            onDismissRequest = { toReplace = null },
-            title = { Text(stringResource(R.string.pak_replace_title, name)) },
-            text = { Text(stringResource(R.string.pak_replace_message)) },
-            confirmButton = {
-                TextButton(onClick = { toReplace = null; vm.replace(install) }, modifier = Modifier.testTag("pakReplaceConfirm")) {
-                    Text(stringResource(R.string.action_replace))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { toReplace = null; vm.keepInstalled(install) }) { Text(stringResource(R.string.pak_keep_installed)) }
-            },
+        PakReplaceDialog(
+            install,
+            onReplace = { toReplace = null; vm.replace(install) },
+            onKeep = { toReplace = null; vm.keepInstalled(install) },
+            onDismiss = { toReplace = null },
         )
     }
-    draft?.let { file -> PakInstallOptions(file, onInstall = vm::install, onCancel = vm::cancelDraft) }
+    draft?.let { file ->
+        PakInstallOptions(
+            "${file.name} · ${formatBytes(context, file.sizeBytes)}", stringResource(R.string.pak_install_file_help),
+            onInstall = vm::install, onCancel = vm::cancelDraft,
+        )
+    }
+    sdDraft?.let { entry ->
+        PakInstallOptions(
+            listOfNotNull(entry.name, entry.sizeBytes?.let { formatBytes(context, it) }).joinToString(" · "),
+            stringResource(R.string.pak_install_sd_help),
+            onInstall = vm::install, onCancel = vm::cancelDraft,
+        )
+    }
+    if (pickingSd) {
+        SdPickerDialog(deviceId, onPick = { pickingSd = false; vm.pickFromSd(it) }, onDismiss = { pickingSd = false })
+    }
 }
 
+/** "Replace <name>? The current version goes to the trash of the console." (Apps and Transfers). */
 @Composable
-private fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: () -> Unit) {
+fun PakReplaceDialog(install: PakInstall, onReplace: () -> Unit, onKeep: () -> Unit, onDismiss: () -> Unit) {
+    val name = (install.phase as? PakInstall.Phase.NeedsReplacement)?.name ?: install.name
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.pak_replace_title, name)) },
+        text = { Text(stringResource(R.string.pak_replace_message)) },
+        confirmButton = {
+            TextButton(onClick = onReplace, modifier = Modifier.testTag("pakReplaceConfirm")) {
+                Text(stringResource(R.string.action_replace))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onKeep, modifier = Modifier.testTag("pakKeepInstalled")) { Text(stringResource(R.string.pak_keep_installed)) }
+        },
+    )
+}
+
+/** One installation: its progress, its outcome, and Replace… / Keep the Installed One after a conflict (Apps and Transfers). */
+@Composable
+fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: () -> Unit) {
     val context = LocalContext.current
     val phase = install.phase
     Column(Modifier.fillMaxWidth().padding(16.dp).testTag("pakInstall"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -327,7 +410,12 @@ private fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: ()
                 }
                 is PakInstall.Phase.Installing -> stringResource(R.string.pak_installing)
                 is PakInstall.Phase.NeedsReplacement -> stringResource(R.string.pak_already_installed, phase.name)
-                PakInstall.Phase.Installed -> stringResource(R.string.pak_installed)
+                PakInstall.Phase.Installed -> when (install.check) {
+                    PakInstall.Check.CHECKING -> stringResource(R.string.pak_installed_checking)
+                    // The check could not say which pak was installed: never plain "Installed".
+                    PakInstall.Check.UNVERIFIED -> stringResource(R.string.pak_installed_unverified)
+                    else -> stringResource(R.string.pak_installed)
+                }
                 is PakInstall.Phase.Failed -> errorMessage(context, pakError(phase.error))
                 PakInstall.Phase.Cancelled -> stringResource(R.string.transfer_cancelled)
             },
@@ -335,6 +423,26 @@ private fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: ()
             color = if (failure) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.testTag("pakInstallStatus"),
         )
+        if (phase == PakInstall.Phase.Installed && install.check == PakInstall.Check.UNVERIFIED) {
+            Text(
+                stringResource(R.string.pak_installed_unverified_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("pakInstallUnverified"),
+            )
+        }
+        // A replacement installed another pak than the one confirmed (the SD file changed meanwhile).
+        val mismatch = install.mismatch
+        val confirmed = install.confirmedName
+        if (mismatch != null && confirmed != null) {
+            Text(
+                if (mismatch.replacedOne) stringResource(R.string.pak_mismatch_replaced, mismatch.installed, confirmed)
+                else stringResource(R.string.pak_mismatch_installed, mismatch.installed, confirmed),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("pakInstallMismatch"),
+            )
+        }
         if (phase is PakInstall.Phase.NeedsReplacement) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onReplace, modifier = Modifier.testTag("pakInstallReplace")) { Text(stringResource(R.string.pak_replace_ellipsis)) }
@@ -349,16 +457,15 @@ private fun PakInstallRow(install: PakInstall, onReplace: () -> Unit, onKeep: ()
  * by default: the console decides from the archive or its `pak.json`).
  */
 @Composable
-private fun PakInstallOptions(file: PickedFile, onInstall: (PakInstallKind) -> Unit, onCancel: () -> Unit) {
-    val context = LocalContext.current
+private fun PakInstallOptions(source: String, help: String, onInstall: (PakInstallKind) -> Unit, onCancel: () -> Unit) {
     var kind by remember { mutableStateOf(PakInstallKind.AUTO) }
     AlertDialog(
         onDismissRequest = onCancel,
         title = { Text(stringResource(R.string.pak_install_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("pakInstallOptions")) {
-                Text("${file.name} · ${formatBytes(context, file.sizeBytes)}")
-                Text(stringResource(R.string.pak_install_file_help), style = MaterialTheme.typography.bodySmall)
+                Text(source)
+                Text(help, style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(R.string.pak_install_as), style = MaterialTheme.typography.titleSmall)
                 for (k in PakInstallKind.entries) {
                     Row(

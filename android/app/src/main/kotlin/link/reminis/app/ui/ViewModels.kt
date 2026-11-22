@@ -243,14 +243,18 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
                             if (!attempts.commit(id)) throw PairingCancelledException()
                         }
                         withContext(Dispatchers.IO) {
+                            // A name chosen in the app stays, unless the console was renamed since (06 §4.1).
+                            val kept = container.consoles.get(response.deviceId)
+                                ?.takeIf { it.consoleName == response.deviceName }?.deviceName
                             container.replacePairing(
                                 PairedConsole(
                                     deviceId = response.deviceId,
-                                    deviceName = response.deviceName,
+                                    deviceName = kept ?: response.deviceName,
                                     model = hello.model,
                                     pin = link.pin,
                                     lastEndpoint = endpoint,
                                     pairedAt = System.currentTimeMillis(),
+                                    consoleName = response.deviceName,
                                 ),
                             )
                         }
@@ -310,7 +314,61 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
     /** Only the last read publishes. */
     private var generation = 0
 
+    private val _trash = MutableStateFlow<link.reminis.core.TrashList?>(null)
+
+    /** M23: the trash of the console, for the count of the Trash row and the part of the storage it takes. */
+    val trash: StateFlow<link.reminis.core.TrashList?> = _trash.asStateFlow()
+
+    /** M23: the uploads, downloads and jobs of this console still running (the badge of the Transfers row). */
+    val activeTransfers: StateFlow<Int> = kotlinx.coroutines.flow.combine(container.transfers.items, container.jobs.jobs) { items, jobs ->
+        items.count { it.deviceId == deviceId && !it.phase.isFinished && !it.isHidden } +
+            jobs.count { it.deviceId == deviceId && !it.lost && it.job?.isFinished != true }
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, 0)
+
+    private val _unpairError = MutableStateFlow<Throwable?>(null)
+    val unpairError: StateFlow<Throwable?> = _unpairError.asStateFlow()
+
+    private var trashGeneration = 0
+
+    /** Reads the trash quietly (a failure keeps the last count). */
+    private fun loadTrash() {
+        val current = ++trashGeneration
+        viewModelScope.launch {
+            val list = runCatching { container.client(deviceId).trash() }.getOrNull() ?: return@launch
+            if (current == trashGeneration) _trash.value = list
+        }
+    }
+
+    /**
+     * `DELETE /clients/me`, then the console is forgotten on this phone.
+     * A console that no longer knows this phone (`401 unknown_client`) is
+     * only forgotten here; any other failure is shown and nothing changes.
+     */
+    fun unpair(onDone: () -> Unit) {
+        _unpairError.value = null
+        viewModelScope.launch {
+            try {
+                if (!container.isDemo(deviceId)) {
+                    try {
+                        container.client(deviceId).unpair()
+                    } catch (e: ApiException.Server) {
+                        if (e.code != link.reminis.core.ErrorCodes.UNKNOWN_CLIENT) throw e
+                    }
+                }
+                container.forget(deviceId)
+                onDone()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _unpairError.value = e
+            }
+        }
+    }
+
     init {
+        // The trash changed from another screen, or on the console (M14).
+        viewModelScope.launch { container.trashChanged.collect { if (it == deviceId) loadTrash() } }
+        viewModelScope.launch { container.libraryChanged.collect { if (it == deviceId) loadTrash() } }
         // Opened from the list of consoles: an action of the user, which may lift a disconnection (M10).
         refresh(explicit = container.events.takeUserOpened(deviceId))
         // M14: the console's events (battery, connected devices, storage; a new stream; a lost connection).
@@ -323,6 +381,7 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
                     }
                     // No `device` event is sent at the start: the status is read once after each `hello`.
                     is link.reminis.app.ConsoleChange.CatchUp -> refresh(quiet = true)
+                    is link.reminis.app.ConsoleChange.Library, is link.reminis.app.ConsoleChange.Screenshots -> loadTrash()
                     is link.reminis.app.ConsoleChange.Lost -> {
                         generation++
                         _status.value = Load.Failed(change.error)
@@ -357,7 +416,9 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
             if (current != generation) return@launch
             // The console closed ReminisLink or disconnected this phone while this read was out:
             // its answer is stale, and the transfers paused since stay paused.
-            if (epoch != container.events.epoch(deviceId)) return@launch
+            // An explicit reconnection that the console accepted is the newest state, whatever its
+            // first `401 disconnected` (seen by the error observer meanwhile) did to the epoch.
+            if (!(explicit && result is Load.Loaded) && epoch != container.events.epoch(deviceId)) return@launch
             // Seen first, even by a quiet read: the console disconnected this phone, or closed ReminisLink.
             when ((result as? Load.Failed)?.error.let { it as? ApiException.Server }?.code) {
                 link.reminis.core.ErrorCodes.DISCONNECTED -> {
@@ -373,6 +434,7 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
             }
             if (quiet && result is Load.Failed && _status.value is Load.Loaded) return@launch
             _status.value = result
+            if (result is Load.Loaded) loadTrash()
             // The console answers again: the transfers paused by a lost connection (or by the console closing) go on.
             if (result is Load.Loaded) container.transfers.resumePaused(deviceId)
         }
@@ -405,19 +467,47 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
         refresh(reconnect = true, explicit = true)
     }
 
-    fun forget() = container.forget(deviceId)
 }
 
 // MARK: library
 
-data class LibraryContent(val games: List<LibraryGame>, val systems: Map<String, String>, val truncated: Boolean)
+data class LibraryContent(
+    val games: List<LibraryGame>,
+    val systems: Map<String, String>,
+    val truncated: Boolean,
+    val systemList: List<link.reminis.core.GameSystem> = emptyList(),
+    /** Browsed per system: more than 20 000 games (`truncated`), or a pak older than M11 (no `GET /games`). */
+    val bySystem: Boolean = false,
+)
 
-class LibraryViewModel(app: Application, private val deviceId: String) : AndroidViewModel(app) {
-    private val container = app.container
+class LibraryViewModel(app: Application, deviceId: String) : ActionViewModel(app, deviceId) {
     private val _content = MutableStateFlow<Load<LibraryContent>>(Load.Loading)
     val content: StateFlow<Load<LibraryContent>> = _content.asStateFlow()
-    private val _query = MutableStateFlow("")
-    val query: StateFlow<String> = _query.asStateFlow()
+    private val _query = MutableStateFlow(link.reminis.core.LibraryQuery())
+
+    /** The search text, the filters and the order of the flat list (iOS `LibraryQuery`). */
+    val libraryQuery: StateFlow<link.reminis.core.LibraryQuery> = _query.asStateFlow()
+
+    fun setLibraryQuery(query: link.reminis.core.LibraryQuery) {
+        _query.value = query
+    }
+
+    /** What the list shows for [query]: the consoles of the filter, the labels and the games in order. */
+    fun present(content: LibraryContent, query: link.reminis.core.LibraryQuery): LibraryPresentation {
+        val groups = link.reminis.core.LibraryFiltering.groups(content.systemList, content.games)
+        return LibraryPresentation(
+            groups,
+            link.reminis.core.LibraryFiltering.rowLabels(content.systemList, content.games),
+            link.reminis.core.LibraryFiltering.apply(query, content.games, groups),
+        )
+    }
+
+    /** "Empty Trash Now" after a deletion: everything in the trash of the console is deleted. */
+    fun emptyTrash() = perform(Notice(R.string.trash_emptied)) {
+        container.client(deviceId).emptyTrash()
+        container.lastDeletedGame.value = null
+        container.trashChanged.tryEmit(deviceId)
+    }
 
     /**
      * The position of the list, kept while the list leaves the composition
@@ -450,10 +540,8 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
     }
 
     fun setQuery(text: String) {
-        _query.value = text
+        _query.update { it.copy(text = text) }
     }
-
-    fun filtered(content: LibraryContent, query: String): List<LibraryGame> = LibrarySearch.filter(content.games, query)
 
     /** Only the last read publishes. */
     private var generation = 0
@@ -465,9 +553,23 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
         viewModelScope.launch {
             val result = try {
                 val client = container.client(deviceId)
-                val systems = client.systems().associate { it.id to it.label }
-                val all = client.allGames()
-                Load.Loaded(LibraryContent(all.games, systems, all.truncated))
+                val systemList = client.systems()
+                val systems = systemList.associate { it.id to it.label }
+                val all = try {
+                    client.allGames()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A pak older than M11 has no `GET /games`: browsed per system.
+                    if (!link.reminis.core.LibraryMode.meansUnsupported(e)) throw e
+                    null
+                }
+                Load.Loaded(
+                    LibraryContent(
+                        all?.games.orEmpty(), systems, all?.truncated == true, systemList,
+                        bySystem = all == null || all.truncated,
+                    ),
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -481,8 +583,12 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
 
 // MARK: game
 
-class GameViewModel(app: Application, deviceId: String, private val gameId: String) :
+class GameViewModel(app: Application, deviceId: String, gameId: String) :
     ActionViewModel(app, deviceId) {
+    /** The game shown; a rename made from this phone moves it to the new id (Codex review 3). */
+    var gameId: String = gameId
+        private set
+
     private val _game = MutableStateFlow<Load<GameDetail>>(Load.Loading)
     val game: StateFlow<Load<GameDetail>> = _game.asStateFlow()
 
@@ -491,7 +597,8 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
 
     init {
         refresh()
-        reloadAfterTransfers(gameId) { refresh(quiet = true) }
+        reloadAfterTransfers({ this.gameId }) { refresh(quiet = true) }
+        onGameRenamed({ this.gameId }) { this.gameId = it; refresh(quiet = true) }
         // M14: its system changed on the SD card, or a new event stream.
         onConsoleChanges { change ->
             val systemId = (_game.value as? Load.Loaded)?.value?.systemId
@@ -514,7 +621,7 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
                 Load.Failed(e)
             }
             // A quiet reload keeps the screen when it fails.
-            if (!quiet || result is Load.Loaded) _game.value = result
+            if (!quiet || result is Load.Loaded || _game.value !is Load.Loaded) _game.value = result
         }
     }
 
@@ -577,12 +684,38 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
             }
         }
         container.client(deviceId).setGameArt(gameId, png)
+        container.artCache.invalidate(deviceId)
         refresh(quiet = true)
     }
 
     fun removeArt() = perform(Notice(R.string.art_removed)) {
         container.client(deviceId).deleteGameArt(gameId)
+        container.artCache.invalidate(deviceId)
         refresh(quiet = true)
+    }
+
+    /**
+     * `POST /games/{gameId}/rename` (M23): [name] without the extension,
+     * checked first with the rules of the pak (nothing is sent when it
+     * breaks one); the game comes back under a new identifier.
+     */
+    fun rename(name: String, onRenamed: (String) -> Unit) = perform(null) {
+        val detail = (_game.value as? Load.Loaded)?.value ?: return@perform
+        val normalized = link.reminis.core.GameNameRule.normalized(name)
+        link.reminis.core.GameNameRule.problem(normalized, link.reminis.core.GameNameRule.keptExtension(detail.fileName, detail.isFolder))
+            ?.let { throw nameProblemMessage(it) }
+        val result = try {
+            container.client(deviceId).renameGame(gameId, normalized)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw renameError(e)
+        }
+        // Told once: every screen still on the old id moves to the new one (Codex review 3).
+        val old = gameId
+        if (result.game.id != old) container.gameRenamed.tryEmit(link.reminis.app.GameRename(deviceId, old, result.game.id))
+        container.libraryChanged.tryEmit(deviceId)
+        if (result.game.id != old) onRenamed(result.game.id) else refresh(quiet = true)
     }
 
     /** A notice left by another screen (a patch applied): shown once, and the game read again. */
@@ -639,17 +772,38 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
 
     private fun delete(keepSave: Boolean, onDeleted: () -> Unit) = perform(null) {
         closeDeletion()
+        val name = (_game.value as? Load.Loaded)?.value?.name
         container.client(deviceId).deleteGame(gameId, keepSave)
+        // The Library offers Empty Trash Now (iOS, after a deletion).
+        name?.let {
+            container.lastDeletedGame.value = link.reminis.app.GameNotice(
+                deviceId, gameId, getApplication<Application>().getString(R.string.game_deleted_notice, it),
+            )
+        }
         container.libraryChanged.tryEmit(deviceId)
+        container.trashChanged.tryEmit(deviceId)
         onDeleted()
     }
 }
 
+/** The flat library as shown: the consoles of the filter, the console under each game, the games in order. */
+data class LibraryPresentation(
+    val groups: List<link.reminis.core.SystemGroup>,
+    val rowLabels: Map<String, String>,
+    val games: List<LibraryGame>,
+)
+
 /** A deletion being confirmed: the option shown and its preview. */
 data class DeletionState(val keepSave: Boolean, val preview: Load<link.reminis.core.DeletionPreview>)
 
-/** A short message shown after an action (a string resource and its arguments). */
-data class Notice(@param:androidx.annotation.StringRes val id: Int, val args: List<Any> = emptyList())
+/** A short message shown after an action (a string resource, or a plural one with [quantity], and its arguments). */
+data class Notice(
+    @param:androidx.annotation.StringRes val id: Int,
+    val args: List<Any> = emptyList(),
+    /** A plural text instead of [id], for [quantity]. */
+    @param:androidx.annotation.PluralsRes val plural: Int? = null,
+    val quantity: Int = 0,
+)
 
 /**
  * A screen of one console whose actions show a working state, then a notice
@@ -671,6 +825,11 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
 
     protected fun showNotice(notice: Notice?) {
         _notice.value = notice
+    }
+
+    protected fun showFailure(error: Throwable?) {
+        _notice.value = null
+        _error.value = error
     }
 
     /** A text already translated (a notice from another screen). */
@@ -724,11 +883,19 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
     }
 
     /** Calls [reload] after an upload to [gameId] of this console finishes (a save or a state sent). */
-    protected fun reloadAfterTransfers(gameId: String?, reload: () -> Unit) {
+    /** Runs [move] with the new id when the game [current] shows is renamed from this phone. */
+    protected fun onGameRenamed(current: () -> String?, move: (String) -> Unit) {
+        viewModelScope.launch {
+            container.gameRenamed.collect { r -> if (r.deviceId == deviceId && r.oldId == current()) move(r.newId) }
+        }
+    }
+
+    protected fun reloadAfterTransfers(gameIdOf: () -> String?, reload: () -> Unit) {
         viewModelScope.launch {
             container.transfers.finished.collect { item ->
                 if (item.deviceId != deviceId || item.direction != TransferDirection.UPLOAD) return@collect
                 val target = item.target
+                val gameId = gameIdOf()
                 val concerned = gameId == null || when (target) {
                     is UploadTarget.Save -> target.gameId == gameId
                     is UploadTarget.State -> target.gameId == gameId

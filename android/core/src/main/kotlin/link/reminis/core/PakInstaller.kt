@@ -26,7 +26,42 @@ data class PakInstall(
     val jobId: String? = null,
     /** The current attempt replaces the installed pak (confirmed): a new conflict is an error, never asked again. */
     val replacing: Boolean = false,
+    /** M12: the zip or `.pak` folder of the SD card installed (`POST /paks/install`); null for a file of the phone. */
+    val sdEntryId: String? = null,
+    /** The installed pak the user agreed to replace. */
+    val confirmedName: String? = null,
+    /**
+     * A replacement installed another pak than the one confirmed (the SD
+     * file changed between the conflict and the replacement): what it
+     * installed, and whether a pak of that name went to the trash.
+     */
+    val mismatch: Mismatch? = null,
+    /**
+     * The check of what a confirmed replacement installed (null: none to
+     * make). Owned by the installation: clearing the finished ones keeps an
+     * installation whose check is still running.
+     */
+    val check: Check? = null,
 ) {
+    data class Mismatch(val installed: String, val replacedOne: Boolean)
+
+    enum class Check {
+        /** `GET /paks`, then `GET /trash` if needed, are being read. */
+        CHECKING,
+
+        /** The pak installed is known: the confirmed one, or [mismatch] says which. */
+        DONE,
+
+        /**
+         * The check could not be made (a list could not be read, the pak is
+         * not listed): shown "Installed, to check", never plain "Installed".
+         */
+        UNVERIFIED,
+    }
+
+    /** May leave the list ("Clear Finished"): finished, and no check still running. */
+    val isClearable: Boolean get() = phase.isFinished && check != Check.CHECKING
+
     sealed interface Phase {
         /** Uploading through the transfer queue; [fraction] of the file confirmed by the console. */
         data class Sending(val fraction: Float?, val paused: Boolean = false, val failure: Throwable? = null) : Phase
@@ -55,11 +90,15 @@ data class PakInstall(
  * ends ([onDone] deletes it), so that a replacement can send it again.
  */
 class PakInstaller(
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
     private val queue: TransferQueue,
     private val jobs: JobTracker,
+    /** The current client of a console: SD installations and the check of a replacement. */
+    private val client: (suspend (deviceId: String) -> ApiClient)? = null,
     private val onDone: (File) -> Unit = {},
 ) {
+    /** When the current attempt of an installation started (phone clock, ms). */
+    private val attemptStarts = mutableMapOf<String, Long>()
     private val files = mutableMapOf<String, File>()
     private val _installs = MutableStateFlow<List<PakInstall>>(emptyList())
     val installs: StateFlow<List<PakInstall>> = _installs.asStateFlow()
@@ -84,11 +123,98 @@ class PakInstaller(
         return id
     }
 
-    /** The user confirmed: the same file again, replacing the installed pak. */
+    /**
+     * M12: installs a zip or a `.pak` folder of the SD card
+     * (`POST /paks/install`, `onConflict: fail`): no upload, the console
+     * copies it in a `pak-install` job.
+     */
+    fun installFromSd(deviceId: String, entry: SdEntry, kind: PakInstallKind): String {
+        val id = UUID.randomUUID().toString()
+        synchronized(lock) {
+            _installs.value = _installs.value + PakInstall(id, deviceId, entry.name, kind, PakInstall.Phase.Installing(), sdEntryId = entry.sdEntryId)
+        }
+        startSd(id, replacing = false)
+        return id
+    }
+
+    /** The user confirmed: the same source again, replacing the installed pak. */
     fun replace(id: String) {
         val install = _installs.value.firstOrNull { it.id == id } ?: return
-        if (install.phase !is PakInstall.Phase.NeedsReplacement) return
-        send(id, replacing = true)
+        val phase = install.phase as? PakInstall.Phase.NeedsReplacement ?: return
+        synchronized(lock) {
+            _installs.value = _installs.value.map { if (it.id == id) it.copy(confirmedName = phase.name) else it }
+        }
+        if (install.sdEntryId != null) startSd(id, replacing = true) else send(id, replacing = true)
+    }
+
+    private fun startSd(id: String, replacing: Boolean) {
+        val install = _installs.value.firstOrNull { it.id == id } ?: return
+        val entryId = install.sdEntryId ?: return
+        val provider = client ?: return set(id, PakInstall.Phase.Failed(ApiException.NotPaired()))
+        synchronized(lock) {
+            attemptStarts[id] = System.currentTimeMillis()
+            _installs.value = _installs.value.map {
+                if (it.id == id) it.copy(phase = PakInstall.Phase.Installing(), jobId = null, replacing = replacing, mismatch = null) else it
+            }
+        }
+        scope.launch {
+            try {
+                val accepted = provider(install.deviceId).installPakFromSd(PakInstallRequest(entryId, install.kind, replacing))
+                jobs.track(install.deviceId, accepted.jobId, install.name, JobKinds.PAK_INSTALL)
+                synchronized(lock) {
+                    _installs.value = _installs.value.map { if (it.id == id && !it.phase.isFinished) it.copy(jobId = accepted.jobId) else it }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                set(id, PakInstall.Phase.Failed(e))
+            }
+        }
+    }
+
+    /**
+     * A replacement installs what the source holds when it runs: an SD file
+     * changed since the conflict may install (and replace) another pak than
+     * the one confirmed. The console keeps the replaced one in its trash;
+     * the app says which one it was (iOS `PakManager.checkReplacements`).
+     */
+    private fun checkReplacement(install: PakInstall, pakId: String) {
+        val confirmed = install.confirmedName ?: return
+        val provider = client
+        val since = synchronized(lock) { attemptStarts[install.id] }
+        fun finish(check: PakInstall.Check, mismatch: PakInstall.Mismatch? = null) = synchronized(lock) {
+            _installs.value = _installs.value.map {
+                if (it.id == install.id) it.copy(check = check, mismatch = mismatch ?: it.mismatch) else it
+            }
+        }
+        // Already CHECKING since the installation was published as Installed.
+        if (provider == null || since == null) return finish(PakInstall.Check.UNVERIFIED)
+        scope.launch {
+            try {
+                val api = provider(install.deviceId)
+                val installed = api.paks().firstOrNull { it.pakId == pakId }?.name
+                when {
+                    // Not listed: what was installed is unknown.
+                    installed == null -> finish(PakInstall.Check.UNVERIFIED)
+                    installed.equals(confirmed, ignoreCase = true) -> finish(PakInstall.Check.DONE)
+                    else -> {
+                        // Console clock, corrected by the measured offset, with 5 s of margin.
+                        val threshold = since / 1000 + api.clockOffsetSeconds - 5
+                        val replacedOne = api.trash().entries.any {
+                            it.reason == "replace-pak" && it.label.equals(installed, ignoreCase = true) &&
+                                (ApiClient.parseRfc3339Seconds(it.trashedAt) ?: 0) >= threshold
+                        }
+                        finish(PakInstall.Check.DONE, PakInstall.Mismatch(installed, replacedOne))
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                finish(PakInstall.Check.UNVERIFIED)
+                throw e
+            } catch (_: Exception) {
+                // Never plain "Installed" when the check could not say which pak was installed.
+                finish(PakInstall.Check.UNVERIFIED)
+            }
+        }
     }
 
     /** The user kept the installed pak. */
@@ -98,7 +224,7 @@ class PakInstaller(
 
     /** Removes the finished installations (of a console) from the list. */
     fun clearFinished(deviceId: String) = synchronized(lock) {
-        _installs.value = _installs.value.filterNot { it.deviceId == deviceId && it.phase.isFinished }
+        _installs.value = _installs.value.filterNot { it.deviceId == deviceId && it.isClearable }
     }
 
     /** A forgotten console: its installations end (copies deleted). */
@@ -110,6 +236,7 @@ class PakInstaller(
     }
 
     private fun send(id: String, replacing: Boolean) {
+        synchronized(lock) { attemptStarts[id] = System.currentTimeMillis() }
         val file = synchronized(lock) { files[id] } ?: return
         val install = _installs.value.firstOrNull { it.id == id } ?: return
         val uploadId = queue.enqueueUpload(
@@ -129,6 +256,8 @@ class PakInstaller(
         for (install in _installs.value) {
             if (install.phase.isFinished || install.phase is PakInstall.Phase.NeedsReplacement) continue
             val jobId = install.jobId
+            // An SD installation waits for the answer of `POST /paks/install`.
+            if (jobId == null && install.sdEntryId != null) continue
             if (jobId == null) {
                 val item = items.firstOrNull { it.id == install.uploadId } ?: continue
                 when (item.phase) {
@@ -167,7 +296,13 @@ class PakInstaller(
             val state = job.job ?: continue
             if (state.isFinished) jobs.consume(install.deviceId, jobId)
             when (state.state) {
-                JobStates.SUCCEEDED -> set(install.id, PakInstall.Phase.Installed)
+                JobStates.SUCCEEDED -> {
+                    // A confirmed replacement is checked: Installed and the pending check are published
+                    // together, never one without the other (Codex review 2).
+                    val pakId = state.resultPakId?.takeIf { install.replacing && install.confirmedName != null }
+                    set(install.id, PakInstall.Phase.Installed, check = pakId?.let { PakInstall.Check.CHECKING })
+                    pakId?.let { checkReplacement(install, it) }
+                }
                 JobStates.FAILED -> {
                     val server = state.serverError
                     val existing = server?.conflictingPakName
@@ -192,9 +327,9 @@ class PakInstaller(
     }
 
     /** A final phase: the local copy is deleted. */
-    private fun set(id: String, phase: PakInstall.Phase) {
+    private fun set(id: String, phase: PakInstall.Phase, check: PakInstall.Check? = null) {
         val file = synchronized(lock) {
-            _installs.value = _installs.value.map { if (it.id == id) it.copy(phase = phase) else it }
+            _installs.value = _installs.value.map { if (it.id == id) it.copy(phase = phase, check = check ?: it.check) else it }
             files.remove(id)
         }
         if (file != null) onDone(file)
