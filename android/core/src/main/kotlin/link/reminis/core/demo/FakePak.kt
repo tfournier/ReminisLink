@@ -296,6 +296,7 @@ class FakePak(
                 holdCompleteAnswer?.await(20, TimeUnit.SECONDS)
             }
             if (method == "GET" && s == listOf("trash")) holdTrashAnswer?.await(20, TimeUnit.SECONDS)
+            if (method == "POST" && s.size == 3 && s[0] == "games" && s[2] == "rename") holdRenameAnswer?.await(20, TimeUnit.SECONDS)
             if (method == "POST" && s.size == 3 && s[0] == "archives" && s[2] == "import") {
                 importsAnswered.incrementAndGet()
                 holdImportAnswer?.await(20, TimeUnit.SECONDS)
@@ -330,6 +331,10 @@ class FakePak(
         system.games += GameState(fileName, "file", Blob(1_024, null, fileName.hashCode()), nowMillis(), null, nowMillis(), art = null)
         library(system)
     }
+
+    /** Tests: while set, the answer of `POST /games/{gameId}/rename` waits for it (the game is renamed first). */
+    @Volatile
+    var holdRenameAnswer: java.util.concurrent.CountDownLatch? = null
 
     /** Tests: `GET /trash` answers `500` (the check of a replaced pak cannot read it). */
     @Volatile

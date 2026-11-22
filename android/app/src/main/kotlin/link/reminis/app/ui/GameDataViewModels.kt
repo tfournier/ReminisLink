@@ -67,7 +67,8 @@ class SaveViewModel(app: Application, deviceId: String, private val gameId: Stri
             } catch (e: Exception) {
                 Load.Failed(e)
             }
-            if (!quiet || result is Load.Loaded) _content.value = result
+            // A quiet read that replaced the first one still shows its failure when nothing is shown yet.
+            if (!quiet || result is Load.Loaded || _content.value !is Load.Loaded) _content.value = result
         }
     }
 
@@ -196,7 +197,8 @@ class StatesViewModel(app: Application, deviceId: String, private val gameId: St
                 _restored.update { it + result.value.slots.filter(Slot::wasRestored).map(Slot::slot) }
                 loadThumbnails(result.value)
             }
-            if (!quiet || result is Load.Loaded) _slots.value = result
+            // A quiet read that replaced the first one still shows its failure when nothing is shown yet.
+            if (!quiet || result is Load.Loaded || _slots.value !is Load.Loaded) _slots.value = result
         }
     }
 

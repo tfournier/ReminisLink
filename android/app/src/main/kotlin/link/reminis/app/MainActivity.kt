@@ -401,9 +401,6 @@ fun AppNavigation(
     }
 }
 
-/** The key of the saved state of a game screen that holds the new id of a game renamed there. */
-private const val RENAMED_GAME = "renamedGameId"
-
 /** The tabs of an open console (M11, M23): Console, Library, Apps, Files. */
 enum class ConsoleTab(@param:androidx.annotation.StringRes val label: Int, val tag: String) {
     CONSOLE(R.string.tab_console, "tabConsole"),
@@ -590,10 +587,8 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
         val gameId = navArgument("gameId") { type = NavType.StringType }
         composable(Routes.GAME, arguments = listOf(id, gameId)) { entry ->
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
-            // A rename replaces this game in place (Codex review 1): its entry, wherever it is in its
-            // tab's stack, shows the new id; the screens above it and the other tabs stay as they are.
-            val renamed by entry.savedStateHandle.getStateFlow<String?>(RENAMED_GAME, null).collectAsState()
-            val game = renamed ?: entry.arguments?.getString("gameId").orEmpty()
+            // A rename moves this screen to the new id, wherever it is (Codex reviews 1 and 2).
+            val game = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty()
             GameScreen(
                 deviceId = deviceId,
                 gameId = game,
@@ -604,7 +599,6 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
                 onPatch = { nav.navigate(Routes.patch(deviceId = deviceId, gameId = game)) },
                 onDeleted = { nav.popBackStack() },
                 onImportArchive = { nav.navigate(Routes.archiveImport(deviceId = deviceId, gameId = game)) },
-                onRenamed = { newId -> entry.savedStateHandle[RENAMED_GAME] = newId },
             )
         }
         composable(
@@ -618,7 +612,7 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val fromGame = entry.arguments?.getString("gameId")
             ArchiveImportScreen(
                 deviceId = entry.arguments?.getString("deviceId"),
-                gameId = fromGame,
+                gameId = entry.arguments?.getString("deviceId")?.let { d -> link.reminis.app.ui.rememberGameId(d, fromGame) } ?: fromGame,
                 shareToken = entry.arguments?.getString("share"),
                 onBack = { nav.popBackStack() },
                 onOpenGame = { device, target ->
@@ -643,9 +637,10 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             )
         }
         composable(Routes.CHEATS, arguments = listOf(id, gameId)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             CheatsScreen(
-                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
-                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                deviceId = deviceId,
+                gameId = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty(),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -660,7 +655,7 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val fromGame = entry.arguments?.getString("gameId")
             PatchScreen(
                 deviceId = entry.arguments?.getString("deviceId"),
-                gameId = fromGame,
+                gameId = entry.arguments?.getString("deviceId")?.let { d -> link.reminis.app.ui.rememberGameId(d, fromGame) } ?: fromGame,
                 shareToken = entry.arguments?.getString("share"),
                 onBack = { nav.popBackStack() },
                 onFinished = { device, target ->
@@ -716,9 +711,10 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             )
         }
         composable(Routes.SAVE, arguments = listOf(id, gameId)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             SaveScreen(
-                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
-                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                deviceId = deviceId,
+                gameId = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty(),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -726,9 +722,10 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             Routes.STATES,
             arguments = listOf(id, gameId, navArgument("name") { type = NavType.StringType; defaultValue = "" }),
         ) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             StatesScreen(
-                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
-                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                deviceId = deviceId,
+                gameId = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty(),
                 gameName = entry.arguments?.getString("name").orEmpty(),
                 onBack = { nav.popBackStack() },
             )

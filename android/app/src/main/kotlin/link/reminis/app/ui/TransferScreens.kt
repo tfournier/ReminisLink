@@ -103,10 +103,15 @@ fun TransfersScreen(deviceId: String, onBack: () -> Unit, onAdd: () -> Unit) {
         actions = {
             val clearable = items.any {
                 it.phase.isFinished || (it.phase == TransferPhase.FAILED && it.direction == TransferDirection.DOWNLOAD)
-            } || jobs.any { it.isFinished }
+            } || jobs.any { it.isFinished } || installs.any { it.isClearable }
             if (clearable) {
                 TextButton(
-                    onClick = { queue.clearFinished(deviceId); container.jobs.clearFinished(deviceId) },
+                    onClick = {
+                        queue.clearFinished(deviceId)
+                        container.jobs.clearFinished(deviceId)
+                        // The installations too, except one whose check still runs (Codex review 2).
+                        container.pakInstaller.clearFinished(deviceId)
+                    },
                     modifier = Modifier.testTag("clearFinished"),
                 ) {
                     Text(stringResource(R.string.transfers_clear))

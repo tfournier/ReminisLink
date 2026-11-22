@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import link.reminis.core.ApiClient
 import link.reminis.core.ApiException
@@ -205,6 +206,29 @@ class AppContainer(context: Context) {
     /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
     val pakInstaller = PakInstaller(transferScope, transfers, jobs, client = { client(it) }) { file -> file.parentFile?.deleteRecursively() }
 
+    private val _gameRenames = kotlinx.coroutines.flow.MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /**
+     * The games renamed from this phone (M23): "deviceId/old id" to the new
+     * id. Every screen of a game (the game, its save, states, cheats, patch,
+     * import, and the Library's choice) shows [resolveGame] of its id: a
+     * screen still on the old id, wherever it is (another tab, under or above
+     * the game screen), moves to the new one; a screen on another game does
+     * not change (Codex review 2).
+     */
+    val gameRenames: kotlinx.coroutines.flow.StateFlow<Map<String, String>> = _gameRenames
+
+    fun recordRename(deviceId: String, oldId: String, newId: String) {
+        if (oldId != newId) _gameRenames.update { it + ("$deviceId/$oldId" to newId) }
+    }
+
+    /** The current id of [gameId] after the renames of [renames] (a chain is followed). */
+    fun resolveGame(renames: Map<String, String>, deviceId: String, gameId: String): String {
+        var current = gameId
+        repeat(32) { current = renames["$deviceId/$current"] ?: return current }
+        return current
+    }
+
     /** The last game deleted from this phone: the Library offers Empty Trash Now (iOS). */
     val lastDeletedGame = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
 
@@ -228,6 +252,9 @@ class AppContainer(context: Context) {
     }
 
     init {
+        // Copies of QR pictures left by a process killed while reading one (they show the pairing
+        // secret): deleted now, before any screen opens (Codex review 2).
+        File(context.cacheDir, "qr").deleteRecursively()
         // Listed now, before any new copy can be made; deleted in the background.
         val leftovers = transferDirectory.listFiles().orEmpty()
         transferScope.launch(Dispatchers.IO) { leftovers.forEach { it.deleteRecursively() } }

@@ -616,7 +616,7 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
                 Load.Failed(e)
             }
             // A quiet reload keeps the screen when it fails.
-            if (!quiet || result is Load.Loaded) _game.value = result
+            if (!quiet || result is Load.Loaded || _game.value !is Load.Loaded) _game.value = result
         }
     }
 
@@ -706,6 +706,9 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
         } catch (e: Exception) {
             throw renameError(e)
         }
+        // Every screen still on the old id moves to the new one (the game, the screens above it,
+        // the Library's choice), wherever it is; a screen on another game does not change.
+        container.recordRename(deviceId, gameId, result.game.id)
         container.libraryChanged.tryEmit(deviceId)
         if (result.game.id != gameId) onRenamed(result.game.id) else refresh(quiet = true)
     }

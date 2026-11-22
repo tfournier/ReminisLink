@@ -380,6 +380,64 @@ class FilesRenameUiTest {
         }
     }
 
+    /**
+     * Codex review 2: a rename whose answer comes late. In the Library, the
+     * user went back to the list and opened another game: that game stays
+     * shown. From Browse by Console, the user opened the States of the game:
+     * they move to the new id (no "not found"), and back shows the renamed game.
+     */
+    @Test
+    fun aLateRenameMovesOnlyTheScreensOfThatGame() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val demo = openDemo()
+            tap("tabLibrary")
+            waitFor("library") { hasTag("game-Brambleway Dash") }
+            compose.onNodeWithTag("game-Brambleway Dash").performClick()
+            waitFor("game A") { hasTag("gameMenu") && hasText("Brambleway Dash.hab") }
+            val held = java.util.concurrent.CountDownLatch(1)
+            demo.pak.holdRenameAnswer = held
+            tap("gameMenu")
+            tap("renameGame")
+            compose.onNodeWithTag("renameName").performTextReplacement("Brambleway Dash Late")
+            tap("renameConfirm")
+            // Back to the list (one pane) or another game chosen (two panes) before the answer.
+            if (!hasTag("games")) it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+            waitFor("the list") { hasTag("game-Thistledown Isles") }
+            compose.onNodeWithTag("game-Thistledown Isles").performClick()
+            waitFor("game B") { hasText("Thistledown Isles.hab") }
+            held.countDown()
+            waitFor("renamed on the console") { runBlocking { demo.client.allGames() }.games.any { g -> g.name == "Brambleway Dash Late" } }
+            Thread.sleep(1_000)
+            assertTrue("game B stays shown", hasText("Thistledown Isles.hab"))
+            assertTrue("game A not reopened", !hasText("Brambleway Dash Late.hab"))
+
+            // From Browse by Console, the States opened before the answer follow the new id.
+            if (!hasTag("games")) it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+            tap("libraryMenu")
+            tap("libraryMenuBySystem")
+            tap("system-HA")
+            waitFor("folder") { hasText("Brambleway Dash Late") }
+            compose.onNodeWithText("Brambleway Dash Late").performClick()
+            waitFor("game") { hasTag("gameMenu") && hasText("Brambleway Dash Late.hab") }
+            val again = java.util.concurrent.CountDownLatch(1)
+            demo.pak.holdRenameAnswer = again
+            tap("gameMenu")
+            tap("renameGame")
+            compose.onNodeWithTag("renameName").performTextReplacement("Brambleway Dash Final")
+            tap("renameConfirm")
+            compose.onNodeWithTag("game").performScrollToNode(hasTestTag("openStates"))
+            tap("openStates")
+            // Before the answer, the old id is already gone on the console: the screen may say so.
+            waitFor("states screen") { hasTag("statesScreen") || hasTag("error") }
+            again.countDown()
+            waitFor("renamed again") { runBlocking { demo.client.allGames() }.games.any { g -> g.name == "Brambleway Dash Final" } }
+            // Then it moves to the new id and shows the slots.
+            waitFor("the slots of the renamed game") { hasTag("statesScreen") && !hasTag("error") }
+            it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+            waitFor("the renamed game under it") { hasText("Brambleway Dash Final.hab") }
+        }
+    }
+
     @Test
     fun largerLibraryIsBrowsedByConsole() {
         ActivityScenario.launch(MainActivity::class.java).use {

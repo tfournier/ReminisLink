@@ -88,4 +88,19 @@ class PakFolderZipTest {
         assertTrue("read row by row, stopped at the limit", tree.rowsRead <= PakFolderZip.MAX_ENTRIES + 1)
         assertEquals(0, tree.openCursors)
     }
+
+    /** Codex review 2: repeated rows and names to skip count too: the reading stops at the limit. */
+    @Test
+    fun repeatedAndSkippedRowsCountTowardsTheLimit() {
+        for (row in listOf(PakFolderZip.Child("same", "same.txt", false), PakFolderZip.Child("x", "..", false))) {
+            val tree = FakeTree(mapOf("root" to { generateSequence { row } }))
+            try {
+                PakFolderZip.zip(tree, "root", "Loop.pak", ByteArrayOutputStream())
+                fail("an endless folder of ${row.name} was read to its end")
+            } catch (e: PakFolderZip.LimitExceeded) {
+                assertEquals("too many entries", e.message)
+            }
+            assertTrue(tree.rowsRead <= PakFolderZip.MAX_ENTRIES)
+        }
+    }
 }

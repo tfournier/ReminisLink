@@ -213,6 +213,15 @@ Le faux pak (`FakePak`) modélise la carte SD comme celui d'iOS : dossiers inven
 - **Image du QR code** : copiée dans le cache (50 Mo au plus, que la taille soit déclarée ou non, copie supprimée ensuite), dimensions et pixels lus sur cette même copie ; la lecture appartient à un `ViewModel` et survit à une rotation.
 - **Fin d'un renommage** : la fiche est remplacée dans sa propre entrée (état sauvegardé de la route du jeu, ou du choix de la Bibliothèque), où qu'elle soit dans la pile de son onglet ; les écrans ouverts au-dessus et les autres onglets ne bougent pas.
 
+### Revue Codex 2 du sixième incrément
+
+- L'installation passe à « Installé » et à « vérification en cours » dans la même publication (même section critique) : il n'existe aucun instant où elle paraît terminée sans vérification en attente.
+- Zip d'un dossier `.pak` : chaque ligne du curseur compte, doublons et noms ignorés compris ; la lecture s'arrête à 10 000 lignes.
+- Renommage : l'app retient les renommages faits depuis ce téléphone (`AppContainer.gameRenames`, ancien identifiant → nouveau) et chaque écran d'un jeu (fiche, Sauvegarde, États, codes de triche, Patch, import, choix de la Bibliothèque) affiche l'identifiant résolu. Un écran encore sur l'ancien identifiant, où qu'il soit (sous ou au-dessus de la fiche, autre onglet), passe au nouveau ; un écran d'un autre jeu ne change pas (une réponse tardive ne change ni le jeu choisi ni la fiche ouverte depuis). Une lecture « discrète » qui remplace la première lecture d'un écran affiche son échec quand rien n'est encore affiché (avant : chargement sans fin).
+- Transferts : **Effacer les terminés** efface aussi les rangs d'installation terminés, sauf une vérification en cours, et reste visible tant qu'il y a quelque chose à effacer.
+- Les copies d'images de QR code laissées par un processus tué (`cache/qr`) sont supprimées au démarrage de l'app, avant tout écran.
+- Test : renommage dont la réponse est retenue par le faux pak ; pendant ce temps l'utilisateur ouvre un autre jeu (il reste affiché), puis les États du jeu renommé (ils passent au nouvel identifiant).
+
 ### Écarts restants avec iOS
 
 - **Synchronisation** des sauvegardes et des états (M9, M19) : incrément suivant, vers un dossier choisi par le sélecteur Android (SAF), décision de la personne.

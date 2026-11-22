@@ -94,7 +94,7 @@ class SystemsViewModel(app: Application, deviceId: String) : ActionViewModel(app
             } catch (e: Exception) {
                 Load.Failed(e)
             }
-            if (current == generation && (!quiet || result is Load.Loaded)) _systems.value = result
+            if (current == generation && (!quiet || result is Load.Loaded || _systems.value !is Load.Loaded)) _systems.value = result
         }
     }
 }
@@ -168,7 +168,7 @@ class FolderViewModel(app: Application, deviceId: String, private val systemId: 
             } catch (e: Exception) {
                 Load.Failed(e)
             }
-            if (current == generation && (!quiet || result is Load.Loaded)) _listing.value = result
+            if (current == generation && (!quiet || result is Load.Loaded || _listing.value !is Load.Loaded)) _listing.value = result
         }
     }
 

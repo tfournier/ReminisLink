@@ -12,8 +12,8 @@ import java.text.Normalizer
  * - at most [MAX_DEPTH] levels of folders;
  * - each document id is visited once (a cycle is cut);
  * - a folder's children are read one row at a time from the provider, and
- *   the reading stops as soon as [MAX_ENTRIES] entries are seen (a huge
- *   folder is never loaded whole);
+ *   the reading stops as soon as [MAX_ENTRIES] rows are read in all,
+ *   skipped rows included (a huge folder is never loaded whole);
  * - [MAX_BYTES] of file content in all.
  * Beyond a limit, the pak would refuse the archive anyway:
  * [LimitExceeded] is thrown and nothing is sent.
@@ -51,13 +51,15 @@ object PakFolderZip {
                 val (folderId, prefix, depth) = pending.removeFirst()
                 tree.children(folderId).use { children ->
                     while (children.hasNext()) {
+                        // Every row counts, skipped ones included (a provider repeating a row or giving
+                        // names to skip never reads past the limit; Codex review 2).
+                        if (++entries > MAX_ENTRIES) throw LimitExceeded("too many entries")
                         val child = children.next()
                         val name = Normalizer.normalize(child.name, Normalizer.Form.NFC)
                         // Never a path: a name with a separator, or a dot name, is skipped.
                         if (name.isEmpty() || name == "." || name == ".." || name.contains('/') || name.contains('\\')) continue
                         // A document met again (a cycle, or one listed twice) is not zipped twice.
                         if (!visited.add(child.documentId)) continue
-                        if (++entries > MAX_ENTRIES) throw LimitExceeded("too many entries")
                         if (child.isFolder) {
                             if (depth >= MAX_DEPTH) throw LimitExceeded("too deep")
                             zip.putNextEntry(java.util.zip.ZipEntry("$prefix$name/"))

@@ -187,8 +187,8 @@ class PakInstaller(
                 if (it.id == install.id) it.copy(check = check, mismatch = mismatch ?: it.mismatch) else it
             }
         }
+        // Already CHECKING since the installation was published as Installed.
         if (provider == null || since == null) return finish(PakInstall.Check.UNVERIFIED)
-        finish(PakInstall.Check.CHECKING)
         scope.launch {
             try {
                 val api = provider(install.deviceId)
@@ -297,8 +297,11 @@ class PakInstaller(
             if (state.isFinished) jobs.consume(install.deviceId, jobId)
             when (state.state) {
                 JobStates.SUCCEEDED -> {
-                    set(install.id, PakInstall.Phase.Installed)
-                    if (install.replacing) state.resultPakId?.let { checkReplacement(install, it) }
+                    // A confirmed replacement is checked: Installed and the pending check are published
+                    // together, never one without the other (Codex review 2).
+                    val pakId = state.resultPakId?.takeIf { install.replacing && install.confirmedName != null }
+                    set(install.id, PakInstall.Phase.Installed, check = pakId?.let { PakInstall.Check.CHECKING })
+                    pakId?.let { checkReplacement(install, it) }
                 }
                 JobStates.FAILED -> {
                     val server = state.serverError
@@ -324,9 +327,9 @@ class PakInstaller(
     }
 
     /** A final phase: the local copy is deleted. */
-    private fun set(id: String, phase: PakInstall.Phase) {
+    private fun set(id: String, phase: PakInstall.Phase, check: PakInstall.Check? = null) {
         val file = synchronized(lock) {
-            _installs.value = _installs.value.map { if (it.id == id) it.copy(phase = phase) else it }
+            _installs.value = _installs.value.map { if (it.id == id) it.copy(phase = phase, check = check ?: it.check) else it }
             files.remove(id)
         }
         if (file != null) onDone(file)

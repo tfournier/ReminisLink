@@ -227,6 +227,14 @@ private fun Info(label: String, value: String) {
 
 // MARK: library
 
+/** [gameId] after the renames made from this phone (null stays null). */
+@Composable
+fun rememberGameId(deviceId: String, gameId: String?): String? {
+    val container = LocalContext.current.container
+    val renames by container.gameRenames.collectAsState()
+    return gameId?.let { container.resolveGame(renames, deviceId, it) }
+}
+
 /** The game chosen in the Library (saved state of its entry). */
 class LibrarySelection(private val handle: androidx.lifecycle.SavedStateHandle) : androidx.lifecycle.ViewModel() {
     val selected: kotlinx.coroutines.flow.StateFlow<String?> = handle.getStateFlow("selected", null)
@@ -263,7 +271,9 @@ fun LibraryPanes(
     // In a ViewModel of the Library's entry (saved state): a rename that ends while another screen
     // or another tab is shown still replaces the game chosen (Codex review 1).
     val selection: LibrarySelection = viewModel()
-    val selected by selection.selected.collectAsState()
+    val chosen by selection.selected.collectAsState()
+    // A rename that ends later moves the choice only if it is still the renamed game (Codex review 2).
+    val selected = rememberGameId(deviceId, chosen)
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().testTag("libraryPanes")) {
         val twoPane = isTwoPane(maxWidth, maxHeight)
         val game = selected
@@ -300,8 +310,6 @@ fun LibraryPanes(
                             onPatch = { onPatch(game) },
                             onDeleted = { selection.select(null) },
                             onImportArchive = { onImportArchive(game) },
-                            // M23: the game under its new identifier.
-                            onRenamed = { selection.select(it) },
                         )
                     }
                 }
