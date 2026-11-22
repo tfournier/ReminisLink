@@ -134,7 +134,7 @@ fun TrashScreen(deviceId: String, onBack: () -> Unit, onRestore: (TrashEntry) ->
                 }
                 items(list.entries, key = { it.id }) { entry ->
                     ListItem(
-                        headlineContent = { Text(entry.label) },
+                        headlineContent = { Text(entry.label, modifier = Modifier.testTag("trashLabel-${entry.id}")) },
                         supportingContent = {
                             Column {
                                 Text(formatBytes(context, entry.sizeBytes))
