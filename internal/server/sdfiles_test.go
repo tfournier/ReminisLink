@@ -190,6 +190,15 @@ func TestSDTrashRefusesAChangedFile(t *testing.T) {
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{noVersion}}), http.StatusBadRequest)
 	delete(noVersion, "version")
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{noVersion}}), http.StatusBadRequest)
+	// sizeBytes is required, null for a folder: absent is refused (Codex
+	// review of M23, round 3).
+	f.do(http.MethodPost, "/api/v1/sd/folders", sdFoldersPath, mustJSON(t, map[string]any{"parentId": library.SDEntryID("Stuff"), "name": "Sub"}), http.StatusCreated)
+	sub := f.sdItem(library.SDEntryID("Stuff/Sub"))
+	delete(sub, "sizeBytes")
+	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{sub}}), http.StatusBadRequest)
+	if !f.exists("Stuff/Sub") {
+		t.Fatal("folder moved without sizeBytes")
+	}
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"sdEntryIds": []string{id}}), http.StatusBadRequest)
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{f.sdItem(id)}}), http.StatusOK)
 }

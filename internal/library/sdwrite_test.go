@@ -175,14 +175,31 @@ func TestSelectSDTrashRefusesAChangedEntry(t *testing.T) {
 	if _, err := l.SelectSDTrash(seen[1:]); !errors.As(err, &c) {
 		t.Fatalf("changed folder: %v", err)
 	}
-	// The same size and date but another inode: the version tells.
+	// The same size and second but another version (the date in
+	// nanoseconds differs): refused.
 	fresh := items(t, sd, SDEntryID("Stuff/notes.txt"))
-	if fresh[0].Version != "" {
-		stale := fresh[0]
-		stale.Version = "v1-0000000000000000"
-		if _, err := l.SelectSDTrash([]SDTrashItem{stale}); !errors.As(err, &c) {
-			t.Fatalf("other version: %v", err)
-		}
+	stale := fresh[0]
+	stale.Version = "v2-0000000000000000"
+	if _, err := l.SelectSDTrash([]SDTrashItem{stale}); !errors.As(err, &c) {
+		t.Fatalf("other version: %v", err)
+	}
+	// The version never depends on the inode (exFAT numbers them in
+	// memory): the same kind, size and date give the same version.
+	fi, err := os.Lstat(filepath.Join(sd, "Stuff/notes.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyPath := filepath.Join(t.TempDir(), "copy")
+	writeSD(t, filepath.Dir(copyPath), "copy", "a new file, longer")
+	if err := os.Chtimes(copyPath, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	other, err := os.Lstat(copyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sdVersion(other) != sdVersion(fi) {
+		t.Fatal("the version depends on the inode")
 	}
 	if sel, err := l.SelectSDTrash(fresh); err != nil || len(sel.Items) != 1 {
 		t.Fatalf("fresh: %+v %v", sel, err)

@@ -4666,7 +4666,7 @@ components:
           description: 'M23: `POST /sd/trash` accepts this entry (see `SdProtection`); a folder holding a link is only refused when moved. Absent (a pak before M23): false.'
         version:
           type: string
-          description: 'M23: opaque, changes when the entry is replaced (another file or folder at the same name) or modified; sent back in `POST /sd/trash`. Absent when the pak cannot tell.'
+          description: 'M23: opaque, made of the kind, size and modification time (nanoseconds) of the entry, never of its inode (the exFAT driver of Linux numbers inodes in memory): it changes when the entry is modified or replaced, not by a restart; sent back in `POST /sd/trash`.'
         protection:
           description: 'M23: why the entry is not deletable, null when it is (absent before M23). `link` is only found when the entry is moved.'
           oneOf:
@@ -4745,7 +4745,7 @@ components:
           type: [integer, 'null']
           format: int64
           minimum: 0
-          description: The `sizeBytes` of the entry as listed (null for a folder).
+          description: The `sizeBytes` of the entry as listed, always present (null for a folder); absent is `400 invalid_request`.
         modifiedAt: { $ref: '#/components/schemas/Timestamp' }
         version:
           type: string

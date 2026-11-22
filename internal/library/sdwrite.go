@@ -1,6 +1,7 @@
 package library
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -58,6 +59,26 @@ type SDTrashItem struct {
 	SizeBytes  *int64    `json:"sizeBytes"`
 	ModifiedAt time.Time `json:"modifiedAt"`
 	Version    string    `json:"version"`
+	// SizeGiven: the request carried sizeBytes (null for a folder): an
+	// item without it is refused (Codex review of M23, round 3).
+	SizeGiven bool `json:"-"`
+}
+
+// UnmarshalJSON tells an absent sizeBytes from a null one.
+func (it *SDTrashItem) UnmarshalJSON(b []byte) error {
+	type plain SDTrashItem
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil {
+		return err
+	}
+	_, given := keys["sizeBytes"]
+	*it = SDTrashItem(p)
+	it.SizeGiven = given
+	return nil
 }
 
 // matches reports whether the entry described by info is the version the
@@ -73,7 +94,7 @@ func (it SDTrashItem) matches(info fs.FileInfo) bool {
 	if !info.IsDir() && *it.SizeBytes != info.Size() {
 		return false
 	}
-	if v := sdVersion(info); it.Version != "" && v != "" && v != it.Version {
+	if sdVersion(info) != it.Version {
 		return false
 	}
 	return true
