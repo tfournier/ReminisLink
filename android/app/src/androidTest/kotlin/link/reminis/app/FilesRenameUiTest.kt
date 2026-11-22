@@ -66,6 +66,15 @@ class FilesRenameUiTest {
         }
     }
 
+    /** Waits without a screen (no compose hierarchy). */
+    private fun poll(what: String, condition: () -> Boolean) {
+        val end = System.currentTimeMillis() + 10_000
+        while (!condition()) {
+            if (System.currentTimeMillis() > end) throw AssertionError("timeout waiting for $what")
+            Thread.sleep(50)
+        }
+    }
+
     private fun hasTag(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
     private fun hasText(text: String) = compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
@@ -238,6 +247,50 @@ class FilesRenameUiTest {
         }
     }
 
+    /**
+     * Codex review 1: Weather already installed, the source of a confirmed
+     * replacement of Clock becomes Weather, and the trash cannot be read:
+     * the row says "Installed, to check", never plain "Installed"; the
+     * conflict is answered from Transfers.
+     */
+    @Test
+    fun replacementWhoseCheckFailsSaysToCheck() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val demo = openDemo()
+            runBlocking {
+                val downloads = demo.client.browseSd(demo.client.browseSd(null).entries.first { e -> e.name == "Downloads" }.sdEntryId)
+                val job = demo.client.installPakFromSd(link.reminis.core.PakInstallRequest(downloads.entries.first { e -> e.name == "Weather.pak.zip" }.sdEntryId, link.reminis.core.PakInstallKind.AUTO, false))
+                kotlinx.coroutines.withTimeout(10_000) { while (!demo.client.job(job.jobId).isFinished) kotlinx.coroutines.delay(100) }
+            }
+            tap("tabApps")
+            waitFor("Weather installed") { hasTag("pak-Weather") }
+            tap("paksInstall")
+            tap("paksFromSd")
+            tap("sd-Downloads")
+            tap("sd-Clock.pak.zip")
+            tap("pakInstallConfirm")
+            waitFor("replace?") { hasTag("pakReplaceConfirm") }
+            // Answered from Transfers instead (as iOS offers it there too).
+            tap("pakKeepInstalled")
+            tap("paksInstall")
+            tap("paksFromSd")
+            tap("sd-Downloads")
+            tap("sd-Clock.pak.zip")
+            tap("pakInstallConfirm")
+            waitFor("conflict again") { hasTag("pakReplaceConfirm") }
+            it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+            tap("tabConsole")
+            tap("openTransfers")
+            waitFor("the conflict in Transfers") { hasTag("pakInstallReplace") }
+            demo.pak.nextPakSourceName = "Weather.pak.zip"
+            demo.pak.failTrashList = true
+            tap("pakInstallReplace")
+            tap("pakReplaceConfirm")
+            waitFor("to check", timeout = 20_000) { hasTag("pakInstallUnverified") }
+            assertTrue(hasText(context.getString(R.string.pak_installed_unverified)))
+        }
+    }
+
     @Test
     fun errorAnswersCloseTheConnection() {
         ActivityScenario.launch(MainActivity::class.java).use {
@@ -299,6 +352,34 @@ class FilesRenameUiTest {
         }
     }
 
+    /**
+     * Codex review 1: a game opened from Browse by Console and renamed is
+     * replaced in place; back leads to its folder, never to the old id.
+     */
+    @Test
+    fun renameReplacesTheGameInPlace() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val demo = openDemo()
+            tap("tabLibrary")
+            waitFor("library") { hasTag("libraryFilterButton") }
+            tap("libraryMenu")
+            tap("libraryMenuBySystem")
+            tap("system-HA")
+            waitFor("folder") { hasText("Brambleway Dash") }
+            compose.onNodeWithText("Brambleway Dash").performClick()
+            waitFor("game") { hasTag("gameMenu") }
+            tap("gameMenu")
+            tap("renameGame")
+            compose.onNodeWithTag("renameName").performTextReplacement("Brambleway Dash II")
+            tap("renameConfirm")
+            waitFor("renamed in place") { hasText("Brambleway Dash II.hab") }
+            assertTrue(runBlocking { demo.client.allGames() }.games.any { g -> g.name == "Brambleway Dash II" })
+            it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+            waitFor("the folder") { hasTag("folder") && !hasTag("gameMenu") }
+            assertTrue(hasText("Brambleway Dash II"))
+        }
+    }
+
     @Test
     fun largerLibraryIsBrowsedByConsole() {
         ActivityScenario.launch(MainActivity::class.java).use {
@@ -333,6 +414,42 @@ class FilesRenameUiTest {
         }
     }
 
+    /**
+     * Codex review 1: an error answer read by a client of a previous pairing
+     * of the console (paired again since) closes nothing; the same answer
+     * for the current pairing closes the connection.
+     */
+    @Test
+    fun anAnswerOfAPreviousPairingClosesNothing() {
+        val id = "6e3d2c1b-4f5a-4b6c-9d8e-7f6a5b4c3d2e"
+        val pin = link.reminis.core.Base64Url.encode(ByteArray(32) { 4 })
+        val container = context.container
+        container.replacePairing(link.reminis.core.PairedConsole(id, "Fern Handheld", "brick", pin, pairedAt = 1L, consoleName = "Fern Handheld"))
+        val previous = pin to 1L
+        container.replacePairing(link.reminis.core.PairedConsole(id, "Fern Handheld", "brick", pin, pairedAt = 2L, consoleName = "Fern Handheld"))
+        val current = pin to 2L
+        fun error(status: Int, code: String) = link.reminis.core.ApiException.Server(status, code, "late")
+        try {
+            InstrumentationHelper.onMain {
+                container.events.dismissClosed()
+                container.serverError(id, previous, error(503, link.reminis.core.ErrorCodes.SHUTTING_DOWN))
+                container.serverError(id, previous, error(401, link.reminis.core.ErrorCodes.DISCONNECTED))
+            }
+            Thread.sleep(500)
+            InstrumentationHelper.onMain {
+                assertNull("closed by an old pairing", container.events.closed.value)
+                assertTrue("disconnected by an old pairing", id !in container.events.disconnected.value)
+                container.serverError(id, current, error(401, link.reminis.core.ErrorCodes.DISCONNECTED))
+            }
+            poll("disconnected by the current pairing") { id in container.events.disconnected.value }
+            InstrumentationHelper.onMain { container.serverError(id, current, error(503, link.reminis.core.ErrorCodes.SHUTTING_DOWN)) }
+            poll("closed by the current pairing") { container.events.closed.value?.deviceId == id }
+        } finally {
+            InstrumentationHelper.onMain { container.events.dismissClosed() }
+            container.forget(id)
+        }
+    }
+
     /** A picture of the QR code (iOS M15): the link it holds, read by ZXing; a picture without one gives none. */
     @Test
     fun pairingLinkReadFromAPicture() {
@@ -346,12 +463,13 @@ class FilesRenameUiTest {
         val blank = java.io.File(context.cacheDir, "blank-test.png")
         blank.outputStream().use { android.graphics.Bitmap.createBitmap(100, 100, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
         try {
-            assertEquals(link, QrImage.link(context.contentResolver, android.net.Uri.fromFile(file)))
-            assertNull(QrImage.link(context.contentResolver, android.net.Uri.fromFile(blank)))
+            assertEquals(link, QrImage.link(context.contentResolver, android.net.Uri.fromFile(file), java.io.File(context.cacheDir, "qr")))
+            assertNull(QrImage.link(context.contentResolver, android.net.Uri.fromFile(blank), java.io.File(context.cacheDir, "qr")))
         } finally {
             file.delete()
             blank.delete()
         }
+        assertTrue("the copies are deleted", java.io.File(context.cacheDir, "qr").listFiles().orEmpty().isEmpty())
     }
 
     @Test

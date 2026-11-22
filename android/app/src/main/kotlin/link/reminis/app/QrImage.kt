@@ -3,7 +3,6 @@ package link.reminis.app
 import android.content.ContentResolver
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.provider.OpenableColumns
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -26,23 +25,51 @@ object QrImage {
     const val MAX_PIXELS = 200L * 1000 * 1000
     const val MAX_SIDE = 3000
 
-    /** The first `reminislink:` text of the picture, null when there is none (or it cannot be read). */
-    fun link(resolver: ContentResolver, uri: Uri): String? {
-        val size = runCatching {
-            resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null }
-        }.getOrNull()
-        if (size != null && size > MAX_BYTES) return null
+    /**
+     * The first `reminislink:` text of the picture, null when there is none
+     * (or it cannot be read). The picture is first copied into [scratch]
+     * (a new file, deleted at the end), [MAX_BYTES] at most whatever the
+     * provider declares; its size and its pixels are then read from the
+     * same bytes (Codex review 1).
+     */
+    fun link(resolver: ContentResolver, uri: Uri, scratch: java.io.File): String? {
+        scratch.mkdirs()
+        val copy = java.io.File.createTempFile("rl-qr-", ".img", scratch)
+        try {
+            val input = resolver.openInputStream(uri) ?: return null
+            val complete = input.use { inp ->
+                copy.outputStream().use { out ->
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val n = inp.read(buffer)
+                        if (n < 0) break
+                        total += n
+                        // More than allowed: never read further.
+                        if (total > MAX_BYTES) return@use false
+                        out.write(buffer, 0, n)
+                    }
+                    true
+                }
+            }
+            if (!complete) return null
+            return linkInFile(copy)
+        } finally {
+            copy.delete()
+        }
+    }
+
+    /** The link of a picture file whose size is checked before it is decoded scaled down. */
+    fun linkInFile(file: java.io.File): String? {
+        if (file.length() > MAX_BYTES) return null
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        // With inJustDecodeBounds, decodeStream returns null by design: the size is in the options.
-        val input = resolver.openInputStream(uri) ?: return null
-        input.use { BitmapFactory.decodeStream(it, null, bounds) }
+        // With inJustDecodeBounds, decodeFile returns null by design: the size is in the options.
+        BitmapFactory.decodeFile(file.path, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         if (bounds.outWidth.toLong() * bounds.outHeight > MAX_PIXELS) return null
         var sample = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sample > MAX_SIDE) sample *= 2
-        val bitmap = resolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-        } ?: return null
+        val bitmap = BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
         val source = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)

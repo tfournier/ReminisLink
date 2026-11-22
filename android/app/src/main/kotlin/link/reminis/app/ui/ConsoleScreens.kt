@@ -48,6 +48,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import link.reminis.app.QrImage
@@ -221,6 +222,45 @@ private fun Welcome(onAdd: () -> Unit, onTryDemo: () -> Unit, modifier: Modifier
 
 // MARK: add a console
 
+/**
+ * Reads the pairing link of a picture of the QR code (iOS M15). The link
+ * stays in memory only (never in saved state, it holds the QR secret), and
+ * the reading belongs to this ViewModel, not to the composition: a
+ * rotation while it runs keeps its result.
+ */
+class QrImportViewModel(app: Application) : androidx.lifecycle.AndroidViewModel(app) {
+    val importing = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val found = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val error = kotlinx.coroutines.flow.MutableStateFlow<Throwable?>(null)
+
+    fun import(uri: android.net.Uri) {
+        if (importing.value) return
+        importing.value = true
+        error.value = null
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                runCatching { QrImage.link(app.contentResolver, uri, java.io.File(app.cacheDir, "qr")) }.getOrNull()
+            }
+            importing.value = false
+            if (text == null) {
+                error.value = UserMessage(R.string.scan_no_qr)
+                return@launch
+            }
+            try {
+                PairingLink.parse(text)
+                found.value = text
+            } catch (e: PairingLinkException) {
+                error.value = e
+            }
+        }
+    }
+
+    fun consume() {
+        found.value = null
+    }
+}
+
 @Composable
 fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) -> Unit) {
     val context = LocalContext.current
@@ -229,7 +269,6 @@ fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) ->
     // Not saveable: a pasted link holds the QR secret and must not reach saved state.
     var link by remember { mutableStateOf("") }
     var linkError by remember { mutableStateOf<String?>(null) }
-    var imageError by remember { mutableStateOf<String?>(null) }
 
     fun saveName() {
         container.clientName = name.trim().ifEmpty { container.defaultClientName }
@@ -253,33 +292,21 @@ fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) ->
                 Text(stringResource(R.string.scan_qr))
             }
             // iOS M15: a picture of the QR code (a photo taken with another device, a screenshot),
-            // chosen with the system photo picker: no permission.
-            val scope = androidx.compose.runtime.rememberCoroutineScope()
-            var importing by remember { mutableStateOf(false) }
+            // chosen with the system photo picker: no permission. Read by a ViewModel: a rotation
+            // during the reading keeps it (Codex review 1).
+            val qr: QrImportViewModel = viewModel()
+            val importing by qr.importing.collectAsState()
+            val found by qr.found.collectAsState()
+            val qrError by qr.error.collectAsState()
+            androidx.compose.runtime.LaunchedEffect(found) {
+                val text = found ?: return@LaunchedEffect
+                qr.consume()
+                saveName()
+                onLink(text)
+            }
             val photo = androidx.activity.compose.rememberLauncherForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
-            ) { uri ->
-                if (uri == null) return@rememberLauncherForActivityResult
-                importing = true
-                imageError = null
-                scope.launch {
-                    val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                        runCatching { QrImage.link(context.contentResolver, uri) }.getOrNull()
-                    }
-                    importing = false
-                    if (text == null) {
-                        imageError = context.getString(R.string.scan_no_qr)
-                        return@launch
-                    }
-                    try {
-                        PairingLink.parse(text)
-                        saveName()
-                        onLink(text)
-                    } catch (e: PairingLinkException) {
-                        imageError = errorMessage(context, e)
-                    }
-                }
-            }
+            ) { uri -> uri?.let(qr::import) }
             OutlinedButton(
                 onClick = {
                     photo.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -287,7 +314,7 @@ fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) ->
                 enabled = !importing,
                 modifier = Modifier.fillMaxWidth().testTag("importQr"),
             ) { Text(stringResource(R.string.scan_import_image)) }
-            imageError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("importQrError")) }
+            qrError?.let { Text(errorMessage(context, it), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("importQrError")) }
             HorizontalDivider()
             OutlinedTextField(
                 value = link,

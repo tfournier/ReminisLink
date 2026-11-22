@@ -227,6 +227,15 @@ private fun Info(label: String, value: String) {
 
 // MARK: library
 
+/** The game chosen in the Library (saved state of its entry). */
+class LibrarySelection(private val handle: androidx.lifecycle.SavedStateHandle) : androidx.lifecycle.ViewModel() {
+    val selected: kotlinx.coroutines.flow.StateFlow<String?> = handle.getStateFlow("selected", null)
+
+    fun select(gameId: String?) {
+        handle["selected"] = gameId
+    }
+}
+
 /** A window wide enough for the list and a game side by side (and tall enough: not a phone in landscape). */
 fun isTwoPane(width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp) = width >= 720.dp && height >= 480.dp
 
@@ -251,12 +260,15 @@ fun LibraryPanes(
     onBrowse: () -> Unit = {},
     onSystem: (link.reminis.core.GameSystem) -> Unit = {},
 ) {
-    var selected by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    // In a ViewModel of the Library's entry (saved state): a rename that ends while another screen
+    // or another tab is shown still replaces the game chosen (Codex review 1).
+    val selection: LibrarySelection = viewModel()
+    val selected by selection.selected.collectAsState()
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().testTag("libraryPanes")) {
         val twoPane = isTwoPane(maxWidth, maxHeight)
         val game = selected
         // Back from the game in a single pane shows the list again.
-        androidx.activity.compose.BackHandler(enabled = !twoPane && game != null) { selected = null }
+        androidx.activity.compose.BackHandler(enabled = !twoPane && game != null) { selection.select(null) }
         Row(Modifier.fillMaxSize()) {
             if (twoPane || game == null) {
                 key("list") {
@@ -264,7 +276,7 @@ fun LibraryPanes(
                         LibraryScreen(
                             deviceId = deviceId,
                             onBack = onBack,
-                            onGame = { selected = it },
+                            onGame = { selection.select(it) },
                             onAdd = onAdd,
                             onImportArchive = { onImportArchive(null) },
                             selectedGameId = if (twoPane) game else null,
@@ -281,15 +293,15 @@ fun LibraryPanes(
                         GameScreen(
                             deviceId = deviceId,
                             gameId = game,
-                            onBack = if (twoPane) null else ({ selected = null }),
+                            onBack = if (twoPane) null else ({ selection.select(null) }),
                             onSave = { onSave(game) },
                             onStates = { name -> onStates(game, name) },
                             onCheats = { onCheats(game) },
                             onPatch = { onPatch(game) },
-                            onDeleted = { selected = null },
+                            onDeleted = { selection.select(null) },
                             onImportArchive = { onImportArchive(game) },
                             // M23: the game under its new identifier.
-                            onRenamed = { selected = it },
+                            onRenamed = { selection.select(it) },
                         )
                     }
                 }

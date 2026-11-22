@@ -148,7 +148,7 @@ class AppContainer(context: Context) {
         val console = link.reminis.core.demo.DemoConsole(
             appContext.getString(R.string.demo_console_name),
             // The demo's answers close its connection as a real console's do.
-            errorObserver = { error -> started?.let { serverError(it.deviceId, error) } },
+            errorObserver = { error -> started?.let { serverError(it.deviceId, it.identity, error) } },
         ) { n -> appContext.getString(R.string.demo_cheat_name, n) }
         started = console
         // Under the pairing lock: no address of a real console is written once the demo has started.
@@ -281,13 +281,20 @@ class AppContainer(context: Context) {
      */
     private val probes = Generations<String>()
 
-    fun newClient(endpoint: Endpoint, deviceId: String, pin: String, credentials: DeviceCredentials? = null) = ApiClient(
+    fun newClient(
+        endpoint: Endpoint,
+        deviceId: String,
+        pin: String,
+        credentials: DeviceCredentials? = null,
+        /** The pairing (pin and date) this client signs for: its error answers concern that pairing only. */
+        identity: Any? = null,
+    ) = ApiClient(
         endpoint = endpoint,
         expectedDeviceId = deviceId,
         credentials = credentials,
         pin = pin,
         // Only a paired client's answers (not those of a pairing in progress) close the connection.
-        errorObserver = if (credentials != null) ({ error -> serverError(deviceId, error) }) else null,
+        errorObserver = if (credentials != null && identity != null) ({ error -> serverError(deviceId, identity, error) }) else null,
     )
 
     /**
@@ -297,16 +304,21 @@ class AppContainer(context: Context) {
      * this phone; either closes the connection (its transfers pause).
      * Called on the thread that read the answer.
      */
-    private fun serverError(deviceId: String, error: link.reminis.core.ApiException.Server) {
+    @androidx.annotation.VisibleForTesting
+    internal fun serverError(deviceId: String, identity: Any, error: link.reminis.core.ApiException.Server) {
+        // An answer read by a client of a previous pairing (forgotten, paired again) concerns nothing now
+        // (Codex review 1): checked when it arrives and again on the main thread.
+        if (pairingIdentity(deviceId) != identity) return
         when (error.code) {
             link.reminis.core.ErrorCodes.DISCONNECTED -> {
                 val seen = events.reconnection(deviceId)
                 scope.launch {
+                    if (pairingIdentity(deviceId) != identity) return@launch
                     if (events.disconnectedByRequest(deviceId, error, seen)) transfers.pauseConsole(deviceId)
                 }
             }
             link.reminis.core.ErrorCodes.SHUTTING_DOWN -> scope.launch {
-                if (pairingIdentity(deviceId) != null) events.closedSeenByRequest(deviceId)
+                if (pairingIdentity(deviceId) == identity) events.closedSeenByRequest(deviceId)
             }
         }
     }
@@ -330,7 +342,7 @@ class AppContainer(context: Context) {
             val candidates = Locator.candidates(console.lastEndpoint) { discovery.find(deviceId).also { noDemo() } }
             val (endpoint, connected) = Locator.connectFirst(candidates) { ep ->
                 noDemo()
-                val client = newClient(ep, deviceId, console.pin, credentials)
+                val client = newClient(ep, deviceId, console.pin, credentials, identity = console.pin to console.pairedAt)
                 client to client.hello()
             }
             noDemo()
