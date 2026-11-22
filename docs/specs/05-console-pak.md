@@ -152,6 +152,23 @@ Sources : `knulli-cfw/knulli-linux` au commit `57afa662` (`package/system/knulli
 
 **Liens symboliques (règle 2, toutes les dispositions).** Seule la racine de la carte peut être un lien (h700 : `/mnt/SDCARD` → `/mnt/sdcard`) ; les racines fonctionnelles qui sont dessous (`Saves`, `Roms`, le dossier de données de ReminisLink…) ne sont jamais suivies si elles sont des liens (fichiers ouverts sous la carte, `confine.Base`), le dossier de données atteint par un lien est refusé au démarrage, et aucune écriture dans la zone de données (verrous de states, historique de reprise, copies de save) ne passe par un lien (revue Codex 2). En dessous, aucun lien n'est suivi pour lire ou écrire une save, un state ou sa vignette : un dossier de states atteint par un lien n'a pas de state, une save n'est ni copiée, ni lue, ni écrite à travers un lien (`confine.CheckDir`, `confine.OpenUnder`), y compris sur ext4 où un lien peut pointer ailleurs sur le volume. Le dossier du pak sur Knulli (`roms/tools/.ReminisLink`, racine `Pak`) est caché du navigateur de la carte comme le dossier de données.
 
+### 3.4 Emplacements protégés du navigateur de la carte (M23)
+
+L'onglet **Fichiers** de l'app ajoute des fichiers, crée des dossiers et met des entrées à la corbeille ([04](04-api-v1.md#écritures-du-navigateur-m23)). L'adaptateur donne les règles de son OS (`osadapter.SDRules`) ; le pak y ajoute ses propres emplacements. Trois niveaux :
+
+| Niveau | Effet | NextUI | Knulli |
+|---|---|---|---|
+| `system` | lecture seule, avec tout son contenu (ni ajout, ni dossier, ni corbeille) | toute entrée dont le nom commence par `.` à la racine de la carte : `.system/` (« tout `/.system/` » à ne pas toucher, §3.1), `.userdata/` (réglages, states, `.minui`, données de ReminisLink : listé, lecture seule), `.tmp_update/`… | `system/` (`/userdata/system` : `batocera.conf`, configurations, journaux, données de ReminisLink) et toute entrée cachée à la racine de `/userdata` |
+| `data` | ReminisLink lui-même : lecture seule | dossier de données (déjà caché), dossier du pak en cours (`Tools/<plateforme>/ReminisLink.pak`, d'après l'exécutable) | dossier de données (sous `system/`), `roms/tools/.ReminisLink` (caché) et le lanceur `roms/tools/ReminisLink.sh` |
+| `root` | jamais à la corbeille, mais on peut y ajouter | racine de la carte, `Roms`, `Saves`, `Cheats`, `Bios`, `Tools`, `Emus`, `Tools/<plateforme>`, `Emus/<plateforme>`, `Screenshots` | racine, `roms`, `saves`, `bios`, `cheats`, `screenshots`, `roms/tools` |
+
+- Un dossier qui contient un emplacement protégé (à n'importe quelle profondeur) ne part pas à la corbeille (`root`, ou `data` pour le pak en cours) ; un dossier qui contient un lien symbolique ou un fichier spécial non plus (`link` : la restauration de M18 refuserait de le remettre).
+- Hors de la carte : impossible par construction (identifiants résolus sous la racine, aucun lien suivi, `confine`/`os.Root`). Les noms sont comparés sans tenir compte de la casse, y compris sur un Knulli en ext4 : une règle plus stricte, jamais plus permissive.
+- Tout le reste est modifiable (dossiers de systèmes, ROM, saves, `.media`, paks autres que ReminisLink…) : tout part à la corbeille (règle 1), rien n'est écrasé. Les écritures passent par le verrou d'écriture et le verrou d'installation, comme les envois.
+- Raccourcis du pak tiers Shortcuts (`Helaas/nextui-shortcuts-pak`, `src/device.c` `create_tool_shortcut`) : un raccourci d'outil est un dossier `Roms/<préfixe><nom> (SHORTCUT)/` qui contient `<dossier>.m3u` (chemin relatif du pak de `Tools/`), `target` et `.shortcut`, lancé par l'émulateur passerelle `Emus/<plateforme>/SHORTCUT.pak`. L'adaptateur NextUI ne le compte pas comme système (tag `SHORTCUT`) : c'est un lanceur, pas un jeu. Les raccourcis de jeux (`Roms/<nom> (<TAG>)/` avec un `.m3u` vers la ROM d'origine et un `.shortcut`) restent listés comme un système d'un jeu (TODO dans [09](09-feuille-de-route.md)).
+
+**Renommage d'un jeu (M23).** Journal dans `ReminisLink/renames/<id>/journal.json` (étapes `from`, `to`, `via`, relatives à la carte) écrit et synchronisé avant le premier renommage, effacé après le dernier ; au lancement, `store.Trash.Recover` défait d'abord tout renommage interrompu (dernière étape d'abord, sans jamais remplacer un fichier ; une étape est « faite » si son nouveau nom existe sous cette orthographe exacte et pas l'ancien, ou si son nom temporaire existe). Renommages sans remplacement (`renameat2(RENAME_NOREPLACE)`, sinon lien puis suppression, sinon vérification puis renommage, écritures sérialisées) ; une étape dont le nouveau nom atteint déjà le même fichier (casse sur exFAT, normalisation Unicode sur APFS) passe par un nom caché `.reminislink-rename-<id>-<n>` du même dossier.
+
 ## 4. Données de ReminisLink sur la carte SD
 
 Racine : `/.userdata/shared/ReminisLink/` (partagée entre plateformes, comme les saves).
@@ -171,6 +188,7 @@ ReminisLink/
 │   └── <trashEntryId>/
 │       ├── entry.json     # raison, libellé, date, liste des fichiers d'origine, taille
 │       └── <chemin d'origine relatif à la SD>
+├── renames/               # journaux des renommages de jeux en cours (M23), effacés une fois finis
 ├── uploads/               # fichiers temporaires des envois et des patchs
 ├── staging/               # patchs et .cht en attente d'utilisation ; paks en cours d'installation (pk_*, M12)
 └── patches/               # patchs déposés par l'utilisateur (listés par /sd/files)
