@@ -140,6 +140,32 @@ struct ScreenshotsAppTests {
         #expect(session.trash?.entries.contains { $0.screenshotCount == 500 } == true)
     }
 
+    /// Codex review round 2: a failure inside one batch, after which the
+    /// pak says which screenshots stayed in the trash (`details.kept`),
+    /// counts them as moved.
+    @Test func screenshotsKeptInTheTrashCountAsMoved() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let manager = app.session(for: pak.deviceId).screenshots
+        await manager.load()
+        let picked = Array(manager.screenshots.prefix(2))
+        pak.enqueue(.error(500, code: "internal", message: "Some screenshots could not be moved",
+                           details: ["kept": [picked[0].screenshotId]]))
+        await #expect { try await manager.trash(picked) } throws: { error in
+            (error as? AppError) == .screenshotsPartlyMoved(1)
+        }
+    }
+
+    /// Codex review round 2: a download stopped at its limit, or the iPhone
+    /// out of room, is the "too large, share it" message.
+    @Test func aDownloadOverTheLimitOrNoRoomIsTooLarge() {
+        #expect(ScreenshotManager.meansTooLarge(DownloadLimitExceeded()))
+        #expect(AppError(DownloadLimitExceeded()) == .screenshotTooLarge)
+        #expect(ScreenshotManager.meansTooLarge(AppError.api(.network(.cannotWriteToFile))))
+        #expect(ScreenshotManager.meansTooLarge(NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)))
+        #expect(!ScreenshotManager.meansTooLarge(AppError.api(.network(.timedOut))))
+    }
+
     @Test func freeNamesIgnoreCase() {
         var taken: Set<String> = ["shot.png"]
         #expect(ScreenshotManager.freeName("SHOT.png", taken: &taken) == "SHOT (2).png")

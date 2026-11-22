@@ -88,7 +88,13 @@ func (s *Server) screenshotsChanged(h http.HandlerFunc) http.HandlerFunc {
 // screenshotError answers an error of internal/screenshots.
 func (s *Server) screenshotError(w http.ResponseWriter, r *http.Request, err error) {
 	var missing *screenshots.MissingError
+	var partial *screenshots.PartialError
 	switch {
+	case errors.As(err, &partial):
+		// Codex review of M22: the clients learn what stayed in the trash.
+		s.log.Error("screenshots: move to the trash failed midway", "error", err)
+		auth.WriteError(w, http.StatusInternalServerError, auth.CodeInternal, "Some screenshots could not be moved",
+			map[string]any{"kept": nonNilStrings(partial.Kept)})
 	case errors.Is(err, screenshots.ErrInvalidID):
 		auth.WriteError(w, http.StatusBadRequest, CodeInvalidID, "Invalid identifier", nil)
 	case errors.As(err, &missing):
@@ -98,4 +104,11 @@ func (s *Server) screenshotError(w http.ResponseWriter, r *http.Request, err err
 	default:
 		s.internal(w, r, err)
 	}
+}
+
+func nonNilStrings(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
 }

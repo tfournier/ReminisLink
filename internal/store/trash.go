@@ -69,6 +69,21 @@ var validReasons = map[string]bool{
 	ReasonDeleteScreenshot: true,
 }
 
+// PartialMoveError: a move failed after some items moved, and some of
+// them could not go back (their place was taken meanwhile): they stay in
+// the entry EntryID (done, listed), relative to the SD card in Kept. It
+// wraps the cause.
+type PartialMoveError struct {
+	EntryID string
+	Kept    []string
+	Err     error
+}
+
+func (e *PartialMoveError) Error() string {
+	return e.Err.Error() + " (kept in the trash: " + strings.Join(e.Kept, ", ") + ")"
+}
+func (e *PartialMoveError) Unwrap() error { return e.Err }
+
 // Errors of the trash.
 var (
 	ErrTrashNotFound  = errors.New("trash entry not found")
@@ -479,6 +494,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 			e.Installs = nil
 			_ = t.saveEntry(entryDir, e)
 			t.log.Error("trash: files left in the trash after a failed move", "entry", id, "files", left)
+			return MoveResult{}, "", entryFile{}, &PartialMoveError{EntryID: id, Kept: left, Err: cause}
 		}
 		return MoveResult{}, "", entryFile{}, cause
 	}
@@ -498,6 +514,16 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 		}
 		if err == nil {
 			err = t.rename(p.abs, dst)
+			if err == nil && p.identity != nil {
+				// The rename resolves the path again: what moved must be
+				// the file the caller checked. A folder or another file put
+				// in its place since the last check goes back with the rest
+				// (Codex review of M22).
+				if fi, lerr := os.Lstat(dst); lerr != nil || !fi.Mode().IsRegular() || !os.SameFile(fi, p.identity) {
+					err = fmt.Errorf("%w: %s", ErrChanged, p.rel)
+					i++ // it moved: put back
+				}
+			}
 			if err == nil {
 				if err = t.syncDir(filepath.Dir(dst)); err == nil {
 					err = t.syncDir(filepath.Dir(p.abs))

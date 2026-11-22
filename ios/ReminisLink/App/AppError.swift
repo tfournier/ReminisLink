@@ -161,6 +161,8 @@ enum AppError: Error, Equatable {
         switch error {
         case let error as AppError: self = error
         case is CancellationError: self = .cancelled
+        // M22: a screenshot download stopped at its limit.
+        case is DownloadLimitExceeded: self = .screenshotTooLarge
         case let error as APIError: self = .api(error)
         case is ResolveError: self = .consoleNotFound
         case DeviceLookupError.localNetworkDenied: self = .localNetworkDenied

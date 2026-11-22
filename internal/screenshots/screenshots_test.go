@@ -397,13 +397,17 @@ func TestThumbnail(t *testing.T) {
 
 // pngHeader is a PNG signature and an IHDR announcing w x h (no pixel
 // data): a small file claiming a huge image.
-func pngHeader(w, h uint32) []byte {
+func pngHeader(w, h uint32) []byte { return pngHeaderOf(w, h, 8, 6) }
+
+// pngHeaderOf is pngHeader with a bit depth and a color type (0: gray,
+// 2: truecolor, 3: palette, 6: RGBA).
+func pngHeaderOf(w, h uint32, depth, colorType byte) []byte {
 	var b bytes.Buffer
 	b.WriteString("\x89PNG\r\n\x1a\n")
 	ihdr := make([]byte, 13)
 	binary.BigEndian.PutUint32(ihdr[0:], w)
 	binary.BigEndian.PutUint32(ihdr[4:], h)
-	ihdr[8], ihdr[9] = 8, 6 // 8-bit RGBA
+	ihdr[8], ihdr[9] = depth, colorType
 	chunk := append([]byte("IHDR"), ihdr...)
 	_ = binary.Write(&b, binary.BigEndian, uint32(13))
 	b.Write(chunk)
@@ -618,13 +622,29 @@ func TestThumbnailBoundsTheDecodeCost(t *testing.T) {
 	if _, ok := jpegFrameOf(jpegHeader(0xC0, 8, 8, 1, 65000)[:1000]); ok {
 		t.Error("frame read beyond the data")
 	}
-	// A 16-bit PNG of 2048 x 2048 (32 MiB of pixels) is refused, an
-	// 8-bit one of 2048 x 1024 passes.
-	if c := pngCost(pngHeader(2048, 2048), image.Config{Width: 2048, Height: 2048, ColorModel: color.NRGBA64Model}); c <= MaxDecodeBytes {
-		t.Errorf("16-bit PNG cost %d", c)
-	}
-	if c := pngCost(pngHeader(2048, 1024), image.Config{Width: 2048, Height: 1024, ColorModel: color.NRGBAModel}); c > MaxDecodeBytes {
-		t.Errorf("8-bit PNG cost %d", c)
+	// PNG, worst case from IHDR alone (Codex review round 2): a 16-bit
+	// gray image of 4096 x 4000 is announced Gray16 by DecodeConfig, but a
+	// tRNS chunk makes image/png decode it as NRGBA64 (125 MiB): refused.
+	// An 8-bit gray one counts 4 bytes per pixel too; a paletted one 1.
+	for _, c := range []struct {
+		w, h             uint32
+		depth, colorType byte
+		ok               bool
+	}{
+		{4096, 4000, 16, 0, false},
+		{2048, 2048, 16, 0, false},
+		{2048, 1024, 16, 2, true},
+		{2048, 2048, 16, 2, false},
+		{2048, 1024, 8, 6, true},
+		{2048, 2048, 8, 0, true},
+		{4096, 4000, 8, 3, true},
+		{4096, 2048, 8, 0, false},
+	} {
+		head := pngHeaderOf(c.w, c.h, c.depth, c.colorType)
+		cfg := image.Config{Width: int(c.w), Height: int(c.h), ColorModel: color.Gray16Model}
+		if ok := pngCost(head, cfg) <= MaxDecodeBytes; ok != c.ok {
+			t.Errorf("PNG %dx%d depth %d type %d: cost %d MiB", c.w, c.h, c.depth, c.colorType, pngCost(head, cfg)>>20)
+		}
 	}
 	// A real progressive-sized decode is never attempted: the service
 	// answers no preview for the crafted file.
@@ -759,5 +779,74 @@ func TestListKeepsTheNewest(t *testing.T) {
 	// The two of the test card (2026) first, then the newest files.
 	if l.Screenshots[2].Name != "s"+itoa(100000+2*MaxList+49)+".png" || l.Screenshots[MaxList-1].Name != "s"+itoa(100000+MaxList+52)+".png" {
 		t.Fatalf("kept %s ... %s", l.Screenshots[2].Name, l.Screenshots[MaxList-1].Name)
+	}
+}
+
+// Codex review round 2: a folder put in the place of a screenshot between
+// the last check and the rename is moved by the rename (it resolves the
+// path again), then found at the destination and put back: nothing of it
+// stays in the trash.
+func TestTrashPutsBackAFolderSwappedAtTheRename(t *testing.T) {
+	e := newEnv(t)
+	name := "Starlight Courier.2026-11-21-18-30-00.png"
+	p := filepath.Join(e.dir, name)
+	e.trash.SetRename(func(oldpath, newpath string) error {
+		if oldpath == p {
+			// Another process, right before the rename.
+			if err := os.Remove(p); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Join(p, "inner"), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(p, "inner", "data.bin"), []byte("keep"), 0o644); err != nil {
+				return err
+			}
+		}
+		return os.Rename(oldpath, newpath)
+	})
+	if _, err := e.svc.Trash([]string{ID(name)}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("swapped at the rename: %v", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(p, "inner", "data.bin")); err != nil || string(data) != "keep" {
+		t.Fatalf("the folder is not back: %v", err)
+	}
+	if l, _, _ := e.trash.List(); len(l) != 0 {
+		t.Fatalf("trash entries: %+v", l)
+	}
+}
+
+// Codex review round 2: A moves, then A is made again and B swapped for a
+// folder before its rename: B goes back, A cannot (its place is taken) and
+// stays in the trash; the error says which screenshot stayed.
+func TestTrashReportsWhatStayedInTheTrash(t *testing.T) {
+	e := newEnv(t)
+	a, b := "Starlight Courier.2026-11-21-18-30-00.png", "Café Rêverie.2026-11-20-09-15-42.png"
+	pa, pb := filepath.Join(e.dir, a), filepath.Join(e.dir, b)
+	e.trash.SetRename(func(oldpath, newpath string) error {
+		if oldpath == pb {
+			if err := os.WriteFile(pa, []byte("new"), 0o644); err != nil {
+				return err
+			}
+			if err := os.Remove(pb); err != nil {
+				return err
+			}
+			if err := os.Mkdir(pb, 0o755); err != nil {
+				return err
+			}
+		}
+		return os.Rename(oldpath, newpath)
+	})
+	_, err := e.svc.Trash([]string{ID(a), ID(b)})
+	var partial *PartialError
+	if !errors.As(err, &partial) || len(partial.Kept) != 1 || partial.Kept[0] != ID(a) {
+		t.Fatalf("partial: %v %+v", err, partial)
+	}
+	if fi, err := os.Stat(pb); err != nil || !fi.IsDir() {
+		t.Fatal("the folder is not back")
+	}
+	entries, _, _ := e.trash.List()
+	if len(entries) != 1 || len(entries[0].Files) != 1 || entries[0].Files[0] != "Screenshots/"+a {
+		t.Fatalf("trash: %+v", entries)
 	}
 }

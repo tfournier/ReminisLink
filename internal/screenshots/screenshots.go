@@ -476,6 +476,16 @@ func (s *Service) Trash(ids []string) (store.MoveResult, error) {
 	for _, name := range names {
 		s.thumbs.forget(name)
 	}
+	var partial *store.PartialMoveError
+	if errors.As(err, &partial) {
+		// Some screenshots stayed in the trash (their place was taken
+		// meanwhile), whatever the cause.
+		pe := &PartialError{Err: fmt.Errorf("screenshots: %w", err)}
+		for _, rel := range partial.Kept {
+			pe.Kept = append(pe.Kept, ID(filepath.Base(filepath.FromSlash(rel))))
+		}
+		return store.MoveResult{}, pe
+	}
 	if errors.Is(err, store.ErrChanged) {
 		// Swapped since it was checked: as if it had gone.
 		return store.MoveResult{}, ErrNotFound
@@ -491,7 +501,12 @@ func (s *Service) Trash(ids []string) (store.MoveResult, error) {
 // puts back what it moved; a file that cannot go back stays in a trash
 // entry (GET /trash lists it). The folder may have changed: a screenshots
 // event follows anyway.
-type PartialError struct{ Err error }
+type PartialError struct {
+	Err error
+	// Kept: the identifiers of the screenshots that stayed in the trash
+	// (empty when none is known to have).
+	Kept []string
+}
 
 func (e *PartialError) Error() string { return e.Err.Error() }
 func (e *PartialError) Unwrap() error { return e.Err }

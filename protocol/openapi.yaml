@@ -3022,12 +3022,17 @@ paths:
         screenshot that does not exist (anymore, or not under that exact
         name) `404 not_found` with `details.missing` (its identifiers), and
         nothing is moved. Each file is checked again right before it moves
-        (same file, a regular one: a file or folder put in its place since
-        is never moved; then `404`). A failure of the card during the moves
-        answers `500`: what moved goes back, but a file that cannot go back
-        stays in a trash entry (listed by `GET /trash`, restorable); a
-        `screenshots` event is sent in that case too, and the app reloads
-        the screenshots and the trash. Write route (see "Writes one at a
+        and once moved (same device and inode, a regular file): a file or
+        folder put in its place since is never kept in the trash, it goes
+        back with the rest (`404`). On ext4 this is enforced by the check at
+        the destination; on exFAT the pak's writes are serialized and a
+        change made by another process between the checks and the rename is
+        caught the same way. When a move fails after some screenshots moved
+        and one of them cannot go back (its place was taken meanwhile), it
+        stays in a trash entry (listed by `GET /trash`, restorable), the
+        answer is `500` with `details.kept` (the identifiers of those
+        screenshots), and a `screenshots` event is sent; the app reloads
+        the screenshots and the trash and says how many moved. Write route (see "Writes one at a
         time"). A `screenshots` event follows (M14), not a `library` one.
       requestBody:
         required: true
@@ -3049,6 +3054,16 @@ paths:
                 movedBytes: 183204
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '500':
+          description: The move failed; `details.kept` lists the screenshots that stayed in the trash (empty when none is known to have).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                error:
+                  code: internal
+                  message: Some screenshots could not be moved
+                  details: { kept: [sc_U2t5IEdhcmRlbiBRdWVzdC4yMDI2LTExLTIxLTE4LTMwLTAwLnBuZw] }
         '404':
           description: A screenshot does not exist; nothing was moved.
           content:
@@ -3061,7 +3076,6 @@ paths:
                   details: { missing: [sc_U2t5IEdhcmRlbiBRdWVzdC4yMDI2LTExLTIxLTE4LTMwLTAwLnBuZw] }
         '413': { $ref: '#/components/responses/TooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
-        '500': { $ref: '#/components/responses/Internal' }
         '503': { $ref: '#/components/responses/ShuttingDown' }
 
 components:

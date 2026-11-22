@@ -119,6 +119,23 @@ struct ScreenshotAPITests {
         #expect(try await client.screenshotThumbnail(id: FakePak.screenshotId("gone.png")) == nil)
     }
 
+    /// Codex review round 2: a download larger than its limit (a file
+    /// replaced by a larger one after it was listed) stops at the limit.
+    @Test func aDownloadStopsAtItsLimit() async throws {
+        let pak = makePak()
+        pak.drawsArtwork = true
+        let client = try await pairedClient(pak)
+        let first = try #require(try await client.screenshots().screenshots.first)
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(throws: DownloadLimitExceeded.self) {
+            _ = try await client.downloadScreenshot(id: first.screenshotId, into: directory, maxBytes: 1000)
+        }
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.isEmpty ?? true)
+        let file = try await client.downloadScreenshot(id: first.screenshotId, into: directory, maxBytes: 64 << 20)
+        #expect(FileManager.default.fileExists(atPath: file.url.path))
+    }
+
     @Test func trashesInOneEntryAndRestores() async throws {
         let pak = makePak()
         let client = try await pairedClient(pak)

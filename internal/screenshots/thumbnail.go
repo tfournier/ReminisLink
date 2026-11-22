@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -139,29 +138,31 @@ func MakeThumbnail(r io.Reader) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// pngCost is what image/png allocates for an image: its pixels (8 bytes
-// for 16-bit RGBA, 2 for 16-bit gray, 1 for gray or a palette, 4
-// otherwise), twice for an interlaced image (the passes are decoded into
-// images of their own before being merged), and two rows.
+// pngCost is the most image/png can allocate for an image, from its
+// IHDR alone (DecodeConfig stops there, before a tRNS chunk): a tRNS
+// chunk turns a gray or truecolor image into NRGBA, or NRGBA64 at 16
+// bits (Codex review of M22), so every image but a paletted one counts 4
+// bytes per pixel, 8 at 16 bits; a paletted one 1. Twice for an
+// interlaced image (the passes are decoded into images of their own), and
+// two rows.
 func pngCost(head []byte, cfg image.Config) int64 {
+	// IHDR: signature (8), length and type (8), then width, height (8),
+	// bit depth (24), color type (25), compression, filter and interlace
+	// (28).
+	if len(head) < 29 {
+		return 1 << 62
+	}
+	depth, colorType := head[24], head[25]
 	bpp := int64(4)
-	switch cfg.ColorModel {
-	case color.RGBA64Model, color.NRGBA64Model:
-		bpp = 8
-	case color.Gray16Model:
-		bpp = 2
-	case color.GrayModel:
+	switch {
+	case colorType == 3:
 		bpp = 1
-	default:
-		if _, ok := cfg.ColorModel.(color.Palette); ok {
-			bpp = 1
-		}
+	case depth == 16:
+		bpp = 8
 	}
 	px := int64(cfg.Width) * int64(cfg.Height)
 	cost := px*bpp + 2*int64(cfg.Width)*8
-	// IHDR: signature (8), length and type (8), then width, height, bit
-	// depth, color type, compression, filter and interlace (byte 28).
-	if len(head) > 28 && head[28] == 1 {
+	if head[28] == 1 {
 		cost *= 2
 	}
 	return cost

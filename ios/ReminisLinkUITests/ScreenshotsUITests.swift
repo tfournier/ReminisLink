@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Milestone M22: the screenshots of a console, against the demo console
@@ -130,6 +131,12 @@ final class ScreenshotsUITests: XCTestCase {
         // The count is never cut ("2 séle…").
         let count = app.staticTexts["screenshots.count"]
         XCTAssertEqual(count.label, "2 sélectionnée(s)")
+        // The visible text is whole: its frame is at least as wide as the
+        // text set in the same font (the label alone stays whole when the
+        // text shows "2 séle…"; Codex review round 2).
+        let font = UIFont.preferredFont(forTextStyle: .footnote)
+        let needed = ("2 sélectionnée(s)" as NSString).size(withAttributes: [.font: font]).width
+        XCTAssertGreaterThanOrEqual(count.frame.width + 1, needed, "the count is cut: \(count.frame.width) < \(needed)")
         // Select All (bottom bar) and Done (top) stay visible, iPad too.
         XCTAssertTrue(app.buttons["screenshots.select"].isHittable, "Done not reachable")
         let selectAll = app.buttons["screenshots.selectAll"].firstMatch

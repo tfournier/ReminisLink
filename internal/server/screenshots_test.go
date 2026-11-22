@@ -160,8 +160,12 @@ func TestTrashScreenshotsFailingMidwayPublishes(t *testing.T) {
 		}
 		return os.Rename(oldpath, newpath)
 	})
-	f.do(http.MethodPost, "/api/v1/screenshots/trash", shotTrashPath,
+	r := f.do(http.MethodPost, "/api/v1/screenshots/trash", shotTrashPath,
 		mustJSON(t, map[string]any{"screenshotIds": []string{screenshots.ID(shotStarlight), screenshots.ID(shotCafe)}}), http.StatusInternalServerError)
+	// The answer names what stayed in the trash.
+	if !bytes.Contains(r.Body, []byte(`"kept":["`+screenshots.ID(shotStarlight)+`"]`)) {
+		t.Fatalf("body %s", r.Body)
+	}
 	if ev := f.nextEvent(s); ev.Type != events.TypeScreenshots {
 		t.Fatalf("event %+v", ev)
 	}

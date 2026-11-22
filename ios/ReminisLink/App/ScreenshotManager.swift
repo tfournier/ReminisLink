@@ -125,15 +125,33 @@ final class ScreenshotManager {
         let file: DownloadedFile
         do {
             file = try await session.perform {
-                try await $0.downloadScreenshot(id: screenshot.screenshotId, fallbackName: screenshot.name, into: directory)
+                try await $0.downloadScreenshot(
+                    id: screenshot.screenshotId, fallbackName: screenshot.name, into: directory, maxBytes: Self.maxPreviewBytes
+                )
             }
         } catch {
+            // Larger than shown here (replaced since it was listed), or no
+            // room left on the iPhone: it can still be shared.
+            if Self.meansTooLarge(error) { throw AppError.screenshotTooLarge }
             throw failure(error)
         }
         let url = file.url
         return try await Task.detached(priority: .userInitiated) {
             try Self.downsampled(url, maxPixels: maxPixels)
         }.value
+    }
+
+    /// The download stopped at the limit, or the iPhone ran out of room.
+    nonisolated static func meansTooLarge(_ error: Error) -> Bool {
+        if error is DownloadLimitExceeded || (error as? AppError) == .screenshotTooLarge { return true }
+        let noRoom: Set<URLError.Code> = [.cannotWriteToFile, .cannotCreateFile]
+        if let url = error as? URLError, noRoom.contains(url.code) { return true }
+        if case .network(let code)? = error as? APIError, noRoom.contains(code) { return true }
+        if case .api(.network(let code))? = error as? AppError, noRoom.contains(code) { return true }
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain && ns.code == NSFileWriteOutOfSpaceError { return true }
+        if ns.domain == NSPOSIXErrorDomain && ns.code == Int(ENOSPC) { return true }
+        return false
     }
 
     /// Decodes an image file at most `maxPixels` on its longest side;
@@ -256,6 +274,12 @@ final class ScreenshotManager {
             // Codex review of M22: earlier batches may have moved, and a
             // failure of the card may leave a file in a trash entry: both
             // views are read again, and a partial move says so.
+            // The screenshots the pak says stayed in the trash count as
+            // moved (Codex review round 2: a failure inside one batch).
+            if case .api(.server(let server))? = AppError(error) as AppError?, server.status == 500,
+               case .array(let kept)? = server.details["kept"] {
+                moved += kept.count
+            }
             var error = AppError.screenshots(error)
             await load()
             await session.loadTrash()
