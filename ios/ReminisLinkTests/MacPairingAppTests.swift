@@ -95,6 +95,30 @@ struct MacPairingAppTests {
         pak.log.filter { $0.method == method && $0.path == "/api/v1" + path }.count
     }
 
+    /// Every request the connection sent is answered: the connection
+    /// itself (its trash load), the event stream and the catch-up of its
+    /// `hello`, and the save sync it started (`syncOnConnect`). A test that
+    /// counts the requests sent after a revocation waits for this first:
+    /// a request sent before it may reach the pak only after the count is
+    /// taken (slow CI runners), and would be taken for one sent after.
+    func settle(_ mac: AppModel, _ session: ConsoleSession) async {
+        // Joins the connection attempt still running, if any (no new one:
+        // the session is connected).
+        await session.connectIfNeeded()
+        let sync = mac.saveSync(for: session.deviceId)
+        let syncDone = { !mac.syncOnConnect || (!sync.isRunning && sync.phase != .idle) }
+        let settled = { session.eventsLive && session.catchUpsDone >= 1 && syncDone() }
+        await waitUntil { settled() }
+        #expect(settled(), "connection not settled")
+        #expect(session.state == .connected)
+    }
+
+    /// The requests the pak received after the first `count` (the message
+    /// of a failed count).
+    func sent(_ pak: FakePak, after count: Int) -> String {
+        pak.log.dropFirst(count).map { "\($0.method) \($0.path) \($0.status)" }.joined(separator: ", ")
+    }
+
     /// The reported case: the Mac app runs with a local identity (Add a
     /// Console opened before the sync) and opens the console as soon as its
     /// record arrives, before the key: "not arrived yet", never "Pair
@@ -193,6 +217,7 @@ struct MacPairingAppTests {
     @Test func aConsoleForgottenElsewhereIsRevoked() async throws {
         let pak = makePak()
         let (mac, _, session, _) = try await connectedMac(pak)
+        await settle(mac, session)
         let name = mac.store.device(id: pak.deviceId)?.name
         try macKeychain.remove(account: Account.console(pak.deviceId))
         mac.reloadPairings()
@@ -204,7 +229,7 @@ struct MacPairingAppTests {
         #expect(mac.store.devices.isEmpty)
         let requests = pak.log.count
         _ = try? await session.perform { try await $0.device() }
-        #expect(pak.log.count == requests)
+        #expect(pak.log.count == requests, "sent after: \(sent(pak, after: requests))")
     }
 
     /// Changed credentials for a console that is not shown, or while the
@@ -309,6 +334,7 @@ struct MacPairingAppTests {
         show(mac, pak.deviceId)
         let session = mac.session(for: pak.deviceId)
         await waitUntil { session.state == .connected }
+        await settle(mac, session)
         let gate = pak.holdNextAnswer(method: "GET", path: "/api/v1/saves")
         mac.startSaveSync(deviceId: pak.deviceId)
         await waitUntil { gate.reached }
@@ -319,7 +345,7 @@ struct MacPairingAppTests {
         let state = mac.saveSync(for: pak.deviceId)
         await waitUntil { !state.isRunning }
         #expect(!state.isRunning)
-        #expect(pak.log.count == requests)
+        #expect(pak.log.count == requests, "sent after: \(sent(pak, after: requests))")
     }
 
     /// A save sync keeps no client of its own: once the pairing is
@@ -335,6 +361,7 @@ struct MacPairingAppTests {
         show(mac, pak.deviceId)
         let session = mac.session(for: pak.deviceId)
         await waitUntil { session.state == .connected }
+        await settle(mac, session)
         let gate = pak.holdNextAnswer(method: "GET", path: "/api/v1/saves")
         mac.startSaveSync(deviceId: pak.deviceId)
         await waitUntil { gate.reached }
@@ -346,7 +373,7 @@ struct MacPairingAppTests {
         let state = mac.saveSync(for: pak.deviceId)
         await waitUntil { !state.isRunning }
         #expect(!state.isRunning)
-        #expect(pak.log.count == requests)
+        #expect(pak.log.count == requests, "sent after: \(sent(pak, after: requests))")
     }
 
     /// A refresh answered after the session paused (new record without its
