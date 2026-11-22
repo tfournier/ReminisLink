@@ -121,10 +121,16 @@ func TestRenameGroupRecoverAfterCut(t *testing.T) {
 			}
 			return tr.renameNoReplaceInSD(a, b)
 		}
+		cutDone := false
 		func() {
-			defer func() { _ = recover() }()
+			defer func() { cutDone = recover() != nil }()
 			_ = tr.RenameGroup("old", steps)
 		}()
+		if !cutDone {
+			// A case-sensitive folder (ext4): the case-only steps take one
+			// rename each, fewer calls than this cut.
+			continue
+		}
 		if renamesLeft(t, tr) != 1 {
 			t.Fatalf("cut %d: journal missing", cut)
 		}
