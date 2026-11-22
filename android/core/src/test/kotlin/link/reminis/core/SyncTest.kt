@@ -362,9 +362,14 @@ class SyncTest {
 
     /** A provider without rename that fails while writing the clock file in the final folder. */
     private class FailingRtcStore(root: File) : FileVaultStore(root) {
+        var reached = false
         override fun rename(entry: VaultEntry, name: String): VaultEntry? = null
         override fun createFile(parent: VaultEntry, name: String, write: (OutputStream) -> Unit): VaultEntry {
-            if (name.endsWith(".rtc") && !parent.name.startsWith(".rl-partial")) throw java.io.IOException("provider failed")
+            if (name.endsWith(".rtc") && !parent.name.startsWith(".rl-partial")) {
+                // Reached only in the final folder, after the save was written there.
+                reached = File(parent.ref, name.removeSuffix(".rtc") + ".sav").isFile
+                throw java.io.IOException("provider failed")
+            }
             return super.createFile(parent, name, write)
         }
     }
@@ -379,6 +384,7 @@ class SyncTest {
             fail("the failure was hidden")
         } catch (_: java.io.IOException) {
         }
+        assertTrue("the failure was not injected at the clock file of the final folder", store.reached)
         val gameFolder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail")
         // Only the first version and the identity file: no final folder with the save alone, no assembly folder.
         assertEquals(setOf(".game.json", "2026-11-19 15.42.10"), gameFolder.list()!!.toSet())
@@ -427,6 +433,88 @@ class SyncTest {
         try {
             sync(store = store).run()
             fail("an unavailable folder passed for an up-to-date sync")
+        } catch (_: VaultUnavailableException) {
+        }
+    }
+
+    // MARK: Codex review 2 of increment 7
+
+    @Test
+    fun namesEqualAsSwiftSeesThemGoOnToTheManifestKey() {
+        File(root, "Fern Handheld/.console.json").apply { parentFile.mkdirs() }.writeText("""{"deviceId":"device-fern","name":"Fern Handheld"}""")
+        val gameJson = """{"gameId":"game-1","systemId":"sys-1","systemName":"Pocket Classic (PCL)","name":"Juniper Trail"}"""
+        // Two folders of the same game (two devices), each with a version of the same sequence and date,
+        // in folders named "Café" in NFC and in NFD.
+        val nfc = "2026-11-19 12.00.00 Café"
+        val nfd = "2026-11-19 12.00.00 Café"
+        fun version(gameFolder: String, folder: String, text: String) {
+            val game = File(root, "Fern Handheld/Pocket Classic (PCL)/$gameFolder").apply { mkdirs() }
+            File(game, ".game.json").writeText(gameJson)
+            val bytes = text.toByteArray()
+            val dir = File(game, folder).apply { mkdirs() }
+            File(dir, "J.sav").writeBytes(bytes)
+            File(dir, ".version.json").writeText(
+                """{"gameId":"game-1","sequence":2,"syncedAt":"2026-11-19T12:00:00Z","save":{"name":"J.sav","sha256":"${sha(bytes)}","sizeBytes":${bytes.size}}}""",
+            )
+        }
+        version("Juniper Trail", nfc, "ALPHA")
+        version("Juniper Trail 2", nfd, "OMEGA")
+        val versions = vault().versions(console.deviceId, game.gameId)
+        assertEquals(2, versions.size)
+        // Equal names: the larger manifest key (code points of "sha/size/name|-|0.0") comes first, as on iOS.
+        val expectedFirst = listOf("ALPHA", "OMEGA").maxByOrNull { "${sha(it.toByteArray())}/5/J.sav|-|0.0" }!!
+        assertEquals(sha(expectedFirst.toByteArray()), versions.first().info.save.sha256)
+    }
+
+    @Test
+    fun aSameSizeReplacementIsCopiedAgainFromTheConsole() = runBlocking {
+        sync().run()
+        val save = demo.client.saves().saves.first()
+        val latest = vault().latestVersion(demo.deviceId, save.gameId)!!
+        val versionFolder = root.walkTopDown().first { it.isDirectory && it.name == latest.id && File(it, latest.info.save.name).isFile }
+        // Same size, other bytes: only the SHA-256 tells it.
+        val target = File(versionFolder, latest.info.save.name)
+        target.writeBytes(ByteArray(target.length().toInt()) { 0x5A })
+        val again = sync().run()
+        assertTrue("a damaged copy was said up to date", save.gameId in again.stored)
+        assertNotNull(vault().export(demo.deviceId, save.gameId, vault().latestVersion(demo.deviceId, save.gameId)!!, File(work, "out")))
+    }
+
+    /** A storage provider: folders are never deleted, only files. */
+    private class ProviderStore(root: File) : FileVaultStore(root) {
+        override val removesFolders: Boolean get() = false
+        override fun delete(entry: VaultEntry): Boolean = if (entry.isDirectory) false else super.delete(entry)
+    }
+
+    @Test
+    fun aProviderNeverHasAFolderDeleted() {
+        val store = ProviderStore(root)
+        val v = vault(store, max = 1)
+        val first = v.addVersion(console, game, file("Juniper Trail.pcr.sav", "ONE"), null, null)
+        v.addVersion(console, game, file("Juniper Trail.pcr.sav", "TWO"), null, null)
+        val folder = File(root, "Fern Handheld/Pocket Classic (PCL)/Juniper Trail/${first.id}")
+        // Emptied file by file, left in place, and no longer a version.
+        assertTrue(folder.isDirectory)
+        assertTrue(folder.list()!!.isEmpty())
+        assertEquals(listOf(2), vault(store).versions(console.deviceId, game.gameId).map { it.info.sequence })
+    }
+
+    @Test
+    fun aFolderLostDuringTheLastListingFailsTheSync() = runBlocking {
+        val store = RevocableStore(root)
+        sync(store = store).run()
+        // Everything is copied; the permission goes while `GET /states` answers (an empty list): nothing
+        // writes to the vault after that, and yet the sync says the folder is gone.
+        val real = ApiSyncSource { demo.client }
+        val source = object : SaveSyncSource by real {
+            override suspend fun allStates(): StateList {
+                store.armed = { true }
+                return StateList(emptyList())
+            }
+        }
+        try {
+            sync(source, store).run()
+            fail("a folder lost at the end passed for a sync")
         } catch (_: VaultUnavailableException) {
         }
     }

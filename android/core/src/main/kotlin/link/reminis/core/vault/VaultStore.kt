@@ -63,6 +63,13 @@ interface VaultStore {
      */
     fun delete(entry: VaultEntry): Boolean
 
+    /**
+     * Whether [delete] removes (empty) folders. False for a storage
+     * provider (SAF), which deletes a folder with whatever arrived in it:
+     * the vault then leaves an emptied folder in place.
+     */
+    val removesFolders: Boolean get() = true
+
     /** What the user sees of the root: a folder name, or null for the app's own storage. */
     val displayName: String? get() = null
 }

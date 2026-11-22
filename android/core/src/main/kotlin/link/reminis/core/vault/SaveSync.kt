@@ -197,6 +197,9 @@ class SaveSync(
                 StateSyncReport(listing.list.states.size, statesStored, statesUnchanged, stateFailures, listing.list.truncated, stopped)
             }
         }
+        // Checked again before the report: a folder lost meanwhile (during `GET /states`, with nothing
+        // left to write) is said as unavailable, never a sync that looks fine.
+        withContext(Dispatchers.IO) { vault.checkAccess() }
         return SaveSyncReport(vault.location, list.saves.size, stored, unchanged, failures, list.truncated, nowMillis(), statesReport)
     }
 

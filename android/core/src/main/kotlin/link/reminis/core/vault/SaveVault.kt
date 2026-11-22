@@ -465,7 +465,7 @@ class SaveVault(
     /** Deletes the items [written] by this vault in [folder], one by one, then the folder if it is left empty. */
     private fun removeWritten(folder: VaultEntry, written: List<VaultEntry>): Boolean = try {
         written.forEach { store.delete(it) }
-        store.children(folder).isEmpty() && store.delete(folder)
+        store.children(folder).isEmpty() && (!store.removesFolders || store.delete(folder))
     } catch (e: VaultUnavailableException) {
         throw e
     } catch (e: IOException) {
@@ -473,15 +473,15 @@ class SaveVault(
     }
 
     /**
-     * Removes a version folder (or a leftover assembly folder) without ever
-     * deleting a folder recursively: only when it holds nothing but regular
-     * files whose names are in [allowed] (any regular file when null), each
-     * deleted one by one; then the folder, only if it reads empty again.
-     * A sub-folder (even one named `.DS_Store`) or any other item keeps it.
+     * Removes a leftover assembly folder without ever deleting a folder
+     * recursively: only when it holds nothing but regular files, each
+     * deleted one by one; then the folder, only if it reads empty again and
+     * the store removes folders (never with SAF: an empty folder is left).
+     * A sub-folder or any other item keeps it.
      */
-    private fun removeFolder(folder: VaultEntry, allowed: Set<String>?): Boolean {
+    private fun removeFolder(folder: VaultEntry): Boolean {
         val children = store.children(folder)
-        if (children.any { it.isDirectory || (allowed != null && it.name !in allowed) }) {
+        if (children.any { it.isDirectory }) {
             log("vault: a folder was kept: it holds an unexpected item")
             return false
         }
@@ -491,6 +491,12 @@ class SaveVault(
                 return false
             }
         }
+        return removeIfEmpty(folder)
+    }
+
+    /** Deletes [folder] if it reads empty and the store removes folders (an empty folder is ignored by every read). */
+    private fun removeIfEmpty(folder: VaultEntry): Boolean {
+        if (!store.removesFolders) return true
         if (store.children(folder).isNotEmpty()) {
             log("vault: a folder was kept: something arrived in it meanwhile")
             return false
@@ -506,7 +512,7 @@ class SaveVault(
             val started = entry.name.removePrefix(PARTIAL_PREFIX).substringBefore('-').toLongOrNull() ?: continue
             if (started < limit) {
                 try {
-                    removeFolder(entry, null)
+                    removeFolder(entry)
                 } catch (e: VaultUnavailableException) {
                     throw e
                 } catch (e: IOException) {
@@ -535,12 +541,64 @@ class SaveVault(
         }
     }
 
+    /**
+     * Deletes a version beyond the limit file by file, never a folder
+     * recursively (a storage provider has no conditional atomic deletion,
+     * so the window is kept as short as possible):
+     * - only when its folder holds nothing but regular files: its listed
+     *   files, its manifest and known system files (a sub-folder, even one
+     *   named `.DS_Store`, keeps it);
+     * - each listed file is read again (size and SHA-256) right before its
+     *   own deletion, and kept if it no longer matches the manifest (a file
+     *   replaced meanwhile, by another device); the manifest goes last,
+     *   after being read again and found unchanged;
+     * - the folder itself is deleted only by a store that removes folders
+     *   (the app's storage), once it reads empty; with SAF it is left empty
+     *   (no manifest: ignored by every read).
+     */
+    private fun <I : VaultVersionRecord> purge(version: Stored<I>, serializer: KSerializer<I>, manifest: String) {
+        val folder = version.folder.entry
+        val children = store.children(folder)
+        val expected = setOf(manifest) + SYSTEM_FILES + version.info.files.map { it.name }
+        if (children.any { it.isDirectory || it.name !in expected }) {
+            log("vault: a version beyond the limit was kept: it holds an unexpected item")
+            return
+        }
+        val byName = version.info.files.associateBy { it.name }
+        for (child in children.filter { it.name != manifest }) {
+            val file = byName[child.name]
+            if (file != null) {
+                // Read again right before its deletion: a file replaced since the check stays.
+                val (size, sha) = store.openRead(child).use { measure(it) }
+                if (size != file.sizeBytes || sha != file.sha256) {
+                    log("vault: a version beyond the limit was kept: a file changed meanwhile")
+                    return
+                }
+            }
+            if (!store.delete(child)) {
+                log("vault: a version beyond the limit was kept: a file could not be deleted")
+                return
+            }
+        }
+        val manifestEntry = store.children(folder).firstOrNull { it.name == manifest && !it.isDirectory }
+        if (manifestEntry != null) {
+            if (readJson(version.folder, manifest, serializer) != version.info) {
+                log("vault: a version beyond the limit was kept: its manifest changed meanwhile")
+                return
+            }
+            if (!store.delete(manifestEntry)) {
+                log("vault: a version beyond the limit was kept: its manifest could not be deleted")
+                return
+            }
+        }
+        removeIfEmpty(folder)
+    }
+
     private fun <I : VaultVersionRecord> deleteVersion(version: Stored<I>, serializer: KSerializer<I>, manifest: String) {
         val info = readJson(version.folder, manifest, serializer) ?: return
         if (info != version.info || !check(version, manifest).second) return
         try {
-            // File by file: the manifest's files, the manifest, known system files; never recursive.
-            removeFolder(version.folder.entry, setOf(manifest) + SYSTEM_FILES + info.files.map { it.name })
+            purge(version, serializer, manifest)
         } catch (e: VaultUnavailableException) {
             throw e
         } catch (e: IOException) {
@@ -569,13 +627,23 @@ class SaveVault(
     }
 
     /**
-     * Whether the files of a version are all there with their size: a
-     * version whose file disappeared (from a folder of the picker, by hand)
-     * is not "up to date", the sync copies it again from the console.
+     * Whether the files of a version are all there with their size and
+     * SHA-256 (read again): a version whose file disappeared or changed
+     * (from a folder of the picker, by hand) is not "up to date", the sync
+     * copies it again from the console.
      */
     private fun <I : VaultVersionRecord> present(version: Stored<I>): Boolean {
         val children = store.children(version.folder.entry)
-        return version.info.files.all { file -> children.any { it.name == file.name && !it.isDirectory && it.sizeBytes == file.sizeBytes } }
+        return version.info.files.all { file ->
+            val entry = children.firstOrNull { it.name == file.name && !it.isDirectory } ?: return@all false
+            try {
+                store.openRead(entry).use { measure(it) } == (file.sizeBytes to file.sha256)
+            } catch (e: VaultUnavailableException) {
+                throw e
+            } catch (e: IOException) {
+                false
+            }
+        }
     }
 
     // MARK: folders
@@ -805,7 +873,9 @@ class SaveVault(
             val y = b.info
             if (x.sequence != y.sequence) return y.sequence.compareTo(x.sequence)
             if (x.syncedAtInstant != y.syncedAtInstant) return y.syncedAtInstant.compareTo(x.syncedAtInstant)
-            if (a.folder.name != b.folder.name) return compareNames(b.folder.name, a.folder.name)
+            // Names equal as Swift sees them (canonically equivalent, NFC and NFD alike) go on to the manifest key.
+            val names = compareNames(b.folder.name, a.folder.name)
+            if (names != 0) return names
             return compareNames(y.manifestKey, x.manifestKey)
         }
 
@@ -838,6 +908,20 @@ class SaveVault(
                 out.write(buffer, 0, n)
             }
             return out.toByteArray()
+        }
+
+        /** The size and the SHA-256 of what [input] holds. */
+        internal fun measure(input: InputStream): Pair<Long, String> {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val buffer = ByteArray(64 * 1024)
+            var size = 0L
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                digest.update(buffer, 0, n)
+                size += n
+            }
+            return size to digest.digest().joinToString("") { "%02x".format(it) }
         }
 
         internal fun sha256(input: InputStream): String {

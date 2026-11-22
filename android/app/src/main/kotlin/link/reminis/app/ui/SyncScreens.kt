@@ -188,13 +188,13 @@ fun SyncReportView(report: SaveSyncReport) {
     val context = LocalContext.current
     var showFailures by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).testTag("syncReport"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            if (report.stored.isEmpty()) {
-                stringResource(R.string.sync_up_to_date, report.total)
-            } else {
-                stringResource(R.string.sync_new_versions, report.stored.size, report.total)
-            },
-        )
+        // "Up to date" only for a sync without any error: otherwise the errors alone say what happened.
+        val failures = report.failures + report.states?.failures.orEmpty()
+        val clean = failures.isEmpty() && report.states?.listingError == null
+        when {
+            report.stored.isNotEmpty() -> Text(stringResource(R.string.sync_new_versions, report.stored.size, report.total))
+            clean -> Text(stringResource(R.string.sync_up_to_date, report.total), modifier = Modifier.testTag("syncUpToDate"))
+        }
         val small = MaterialTheme.typography.bodySmall
         Text(
             stringResource(R.string.sync_last, DateUtils.getRelativeTimeSpanString(report.finishedAtMillis, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()),
@@ -202,15 +202,14 @@ fun SyncReportView(report: SaveSyncReport) {
         )
         if (report.truncated) Text(stringResource(R.string.sync_truncated), style = small)
         report.states?.let { states ->
-            if (states.stored.isEmpty() && states.listingError == null) {
-                Text(stringResource(R.string.sync_states_up_to_date, states.total), style = small)
-            } else if (states.stored.isNotEmpty()) {
+            if (states.stored.isNotEmpty()) {
                 Text(stringResource(R.string.sync_states_new, states.stored.size, states.total), style = small)
+            } else if (clean) {
+                Text(stringResource(R.string.sync_states_up_to_date, states.total), style = small)
             }
             if (states.listingError != null) Text(stringResource(R.string.sync_states_incomplete), style = small)
             if (states.truncated) Text(stringResource(R.string.sync_states_truncated), style = small)
         }
-        val failures = report.failures + report.states?.failures.orEmpty()
         if (failures.isNotEmpty()) {
             TextButton(onClick = { showFailures = !showFailures }, modifier = Modifier.testTag("syncFailures")) {
                 Text(pluralStringResource(R.plurals.sync_failures, failures.size, failures.size), color = MaterialTheme.colorScheme.error)

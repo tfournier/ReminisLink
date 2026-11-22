@@ -82,7 +82,12 @@ class SafVaultStore(context: Context, val treeUri: Uri) : VaultStore {
     }
 
     override fun openRead(file: VaultEntry): InputStream = unavailableOnFailure {
-        resolver.openInputStream(uri(file.ref)) ?: throw IOException("file not opened")
+        try {
+            resolver.openInputStream(uri(file.ref)) ?: throw IOException("file not opened")
+        } catch (e: FileNotFoundException) {
+            // One file gone (deleted meanwhile) is not the folder gone: a revoked permission is a SecurityException.
+            throw IOException("file not found", e)
+        }
     }
 
     override fun rename(entry: VaultEntry, name: String): VaultEntry? = unavailableOnFailure {
@@ -99,9 +104,16 @@ class SafVaultStore(context: Context, val treeUri: Uri) : VaultStore {
         result
     }
 
-    /** A file, or a folder only once it lists empty: a provider deletes a folder with its content, never asked here. */
+    /**
+     * Never a folder: a provider deletes a folder with whatever is in it at
+     * that moment (a file arrived from another device included), and SAF has
+     * no conditional deletion. Folders are left (an empty one has no
+     * manifest: ignored by every read); only files are deleted.
+     */
+    override val removesFolders: Boolean get() = false
+
     override fun delete(entry: VaultEntry): Boolean = unavailableOnFailure {
-        if (entry.isDirectory && children(entry).isNotEmpty()) return@unavailableOnFailure false
+        if (entry.isDirectory) return@unavailableOnFailure false
         DocumentsContract.deleteDocument(resolver, uri(entry.ref))
     }
 

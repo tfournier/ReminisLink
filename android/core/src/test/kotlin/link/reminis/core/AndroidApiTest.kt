@@ -15,13 +15,18 @@ import org.junit.Test
  * compiled classes of `:core` (`javap -c`), takes every method, field and
  * class of `java.*` / `javax.*` they use, and checks it against the API
  * database of the installed Android SDK (`platforms/android-N/data/api-versions.xml`,
- * the one lint uses): its class present on Android, and the member added at API 26 or before
- * (Codex review of increment 7: `InputStream.readNBytes(int)` is API 33).
+ * the one lint uses): the class must be on Android, and the member listed
+ * there at API 26 or before. A member the database does not list fails too
+ * (`Thread.startVirtualThread` exists in the JDK, not on Android), except
+ * the members of [INHERITED_FROM_HIDDEN], checked one by one.
  *
  * Without an Android SDK the test is skipped locally; on CI it fails.
  */
 class AndroidApiTest {
     private class ApiClass(val since: Int, val supers: List<String>, val members: Map<String, Int>)
+
+    /** A use of the JDK found in a class file: `owner` and `member` (`name(descriptor)` or a field name), or a class alone. */
+    private data class Use(val owner: String, val member: String?)
 
     private fun database(file: File): Map<String, ApiClass> {
         val classes = mutableMapOf<String, ApiClass>()
@@ -56,7 +61,7 @@ class AndroidApiTest {
         return classes
     }
 
-    /** The API level of a member of [owner] (inherited members included), null when Android does not have it. */
+    /** The API level of a member of [owner] (inherited members included), null when the database does not list it. */
     private fun level(db: Map<String, ApiClass>, owner: String, member: String, seen: MutableSet<String> = mutableSetOf()): Int? {
         if (!seen.add(owner)) return null
         val api = db[owner] ?: return null
@@ -64,24 +69,13 @@ class AndroidApiTest {
         return api.supers.mapNotNull { level(db, it, member, seen) }.minOrNull()?.let { maxOf(it, api.since) }
     }
 
-    @Test
-    fun everyJdkApiOfCoreExistsOnAndroid8() {
-        val path = System.getProperty("reminislink.apiVersions")
-        val onCi = System.getenv("CI") != null
-        if (path == null || !File(path).isFile) {
-            assertTrue("no Android SDK API database (platforms/android-N/data/api-versions.xml) on CI", !onCi)
-            assumeTrue("no Android SDK installed", false)
-        }
-        val minSdk = System.getProperty("reminislink.minSdk", "26").toInt()
-        val db = database(File(path!!))
-        val classFiles = System.getProperty("reminislink.coreClasses").split(File.pathSeparator)
-            .map(::File).filter { it.isDirectory }.flatMap { dir -> dir.walkTopDown().filter { it.extension == "class" }.toList() }
-        assertTrue("no compiled class of :core found", classFiles.isNotEmpty())
+    /** Every `java.*` / `javax.*` class, method and field the class files use (`javap -c -p` of the JDK). */
+    private fun uses(classFiles: List<File>): Set<Use> {
         val javap = ToolProvider.findFirst("javap").orElseThrow()
         // `// Method java/io/InputStream.readNBytes:(I)[B`, `// Field ...`, `// class java/util/HexFormat`.
         val reference = Regex("""// (Method|InterfaceMethod|Field) (javax?/[\w/$]+)\.("?[^:"]+"?):(\S+)""")
         val classReference = Regex("""// class (javax?/[\w/$]+)""")
-        val problems = sortedSetOf<String>()
+        val uses = mutableSetOf<Use>()
         classFiles.chunked(200).forEach { chunk ->
             val out = StringWriter()
             val err = StringWriter()
@@ -91,23 +85,80 @@ class AndroidApiTest {
                 reference.find(line)?.let { m ->
                     val (kind, owner, rawName, descriptor) = m.destructured
                     val name = rawName.trim('"')
-                    val member = if (kind == "Field") name else "$name$descriptor"
-                    val api = level(db, owner, member)
-                    when {
-                        db[owner] == null -> problems += "$owner (class not on Android)"
-                        // A member the database does not list (inherited from a hidden class, as StringBuilder.setLength
-                        // from AbstractStringBuilder): unknown, not flagged, as lint does.
-                        api == null -> Unit
-                        api > minSdk -> problems += "$owner.$member (API $api)"
-                    }
+                    uses += Use(owner, if (kind == "Field") name else "$name$descriptor")
                 }
-                classReference.find(line)?.let { m ->
-                    val owner = m.groupValues[1]
-                    val api = db[owner]
-                    if (api == null) problems += "$owner (class not on Android)" else if (api.since > minSdk) problems += "$owner (API ${api.since})"
-                }
+                classReference.find(line)?.let { uses += Use(it.groupValues[1], null) }
             }
         }
+        return uses
+    }
+
+    /** The uses Android [minSdk] does not have, as readable lines. */
+    private fun problems(uses: Set<Use>, db: Map<String, ApiClass>, minSdk: Int): Set<String> = uses.mapNotNull { use ->
+        val api = db[use.owner] ?: return@mapNotNull "${use.owner} (class not on Android)"
+        if (use.member == null) return@mapNotNull if (api.since > minSdk) "${use.owner} (API ${api.since})" else null
+        if ("${use.owner}.${use.member}" in INHERITED_FROM_HIDDEN) return@mapNotNull null
+        val level = level(db, use.owner, use.member)
+        when {
+            level == null -> "${use.owner}.${use.member} (not listed for Android)"
+            level > minSdk -> "${use.owner}.${use.member} (API $level)"
+            else -> null
+        }
+    }.toSortedSet()
+
+    private fun databaseOrSkip(): Map<String, ApiClass> {
+        val path = System.getProperty("reminislink.apiVersions")
+        if (path == null || !File(path).isFile) {
+            assertTrue("no Android SDK API database (platforms/android-N/data/api-versions.xml) on CI", System.getenv("CI") == null)
+            assumeTrue("no Android SDK installed", false)
+        }
+        return database(File(path!!))
+    }
+
+    private val minSdk get() = System.getProperty("reminislink.minSdk", "26").toInt()
+
+    @Test
+    fun everyJdkApiOfCoreExistsOnAndroid8() {
+        val db = databaseOrSkip()
+        val classFiles = System.getProperty("reminislink.coreClasses").split(File.pathSeparator)
+            .map(::File).filter { it.isDirectory }.flatMap { dir -> dir.walkTopDown().filter { it.extension == "class" }.toList() }
+        assertTrue("no compiled class of :core found", classFiles.isNotEmpty())
+        val problems = problems(uses(classFiles), db, minSdk)
         assertTrue("JDK APIs used by :core that Android $minSdk does not have:\n" + problems.joinToString("\n"), problems.isEmpty())
     }
+
+    /** The check itself: a JDK-only call (compiled into [VirtualThreadProbe]) and an API newer than 26 are caught. */
+    @Test
+    fun aJdkOnlyCallIsCaught() {
+        val db = databaseOrSkip()
+        val probe = File(VirtualThreadProbe::class.java.getResource("VirtualThreadProbe.class")!!.toURI())
+        val problems = problems(uses(listOf(probe)), db, minSdk)
+        assertTrue(problems.toString(), problems.any { it.startsWith("java/lang/Thread.startVirtualThread") })
+        assertTrue(problems.toString(), problems.any { it.startsWith("java/io/InputStream.readNBytes") && it.endsWith("(API 33)") })
+        assertTrue("an allowed member was flagged: $problems", problems.none { it.contains("StringBuilder.setLength") })
+    }
+
+    companion object {
+        /**
+         * Members the API database does not list under the class the code
+         * names, because Android declares them in a hidden superclass
+         * (`AbstractStringBuilder`): present on Android since API 1, checked
+         * in the Android reference of the public class. Add an entry only
+         * after checking it the same way.
+         */
+        val INHERITED_FROM_HIDDEN = setOf(
+            // StringBuilder.setLength(int): Android reference, java.lang.StringBuilder, "Added in API level 1".
+            "java/lang/StringBuilder.setLength(I)V",
+        )
+    }
+}
+
+/** Compiled with the tests only: calls the AndroidApiTest must catch (never run). */
+@Suppress("unused")
+internal class VirtualThreadProbe {
+    fun virtualThread(): Thread = Thread.startVirtualThread {}
+
+    fun bounded(input: java.io.InputStream): ByteArray = input.readNBytes(1)
+
+    fun allowed(builder: StringBuilder) = builder.setLength(0)
 }
