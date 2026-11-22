@@ -46,7 +46,10 @@ import link.reminis.app.ui.AddFilesScreen
 import link.reminis.app.ui.ConsolesScreen
 import link.reminis.app.ui.DashboardScreen
 import link.reminis.app.ui.GameScreen
-import link.reminis.app.ui.LibraryScreen
+import link.reminis.app.ui.ArchiveImportScreen
+import link.reminis.app.ui.LibraryPanes
+import link.reminis.app.ui.ScreenshotScreen
+import link.reminis.app.ui.ScreenshotsScreen
 import link.reminis.app.ui.PairingScreen
 import link.reminis.app.ui.SaveScreen
 import link.reminis.app.ui.ScanScreen
@@ -74,6 +77,19 @@ object Routes {
     const val APPS = "console/{deviceId}/apps"
     const val TRASH = "console/{deviceId}/trash"
     const val TRASH_RESTORE = "console/{deviceId}/trash/{entryId}?label={label}"
+    const val ARCHIVE_IMPORT = "archive-import?deviceId={deviceId}&gameId={gameId}&share={share}"
+    const val SCREENSHOTS = "console/{deviceId}/screenshots"
+    const val SCREENSHOT = "console/{deviceId}/screenshots/{screenshotId}"
+
+    fun screenshots(deviceId: String) = "console/$deviceId/screenshots"
+    fun screenshot(deviceId: String, screenshotId: String) = "console/$deviceId/screenshots/$screenshotId"
+
+    /** M19: the import of a game archive, into a game, from the Library, or of a shared archive (an opaque token of [ShareInbox]). */
+    fun archiveImport(deviceId: String? = null, gameId: String? = null, share: String? = null) = buildString {
+        append("archive-import")
+        val query = listOfNotNull(deviceId?.let { "deviceId=$it" }, gameId?.let { "gameId=$it" }, share?.let { "share=$it" })
+        if (query.isNotEmpty()) append("?").append(query.joinToString("&"))
+    }
 
     fun cheats(deviceId: String, gameId: String) = "console/$deviceId/game/$gameId/cheats"
     fun apps(deviceId: String) = "console/$deviceId/apps"
@@ -115,6 +131,9 @@ class MainActivity : ComponentActivity() {
     /** One patch shared by another app (`.ips`, `.bps`, `.ups`): the Patch screen instead of Add. */
     private val incomingPatch = mutableStateOf<String?>(null)
 
+    /** M19: one game archive shared by another app (`.reminislink.zip`): the import screen instead of Add. */
+    private val incomingArchive = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -132,6 +151,8 @@ class MainActivity : ComponentActivity() {
                     onShareHandled = { incomingShare.value = null },
                     incomingPatch = incomingPatch.value,
                     onPatchHandled = { incomingPatch.value = null },
+                    incomingArchive = incomingArchive.value,
+                    onArchiveHandled = { incomingArchive.value = null },
                 )
             }
         }
@@ -171,8 +192,12 @@ class MainActivity : ComponentActivity() {
         val token = container.shareInbox.put(uris)
         // One patch file and nothing else opens the Patch screen (docs/specs/06-app-ios.md §4.8).
         val single = uris.singleOrNull()
-        if (single != null && link.reminis.core.PatchNaming.isPatchFileName(LocalFiles.displayName(contentResolver, single))) {
+        val singleName = single?.let { LocalFiles.displayName(contentResolver, it) }
+        if (singleName != null && link.reminis.core.PatchNaming.isPatchFileName(singleName)) {
             incomingPatch.value = token
+        } else if (singleName != null && link.reminis.core.GameArchiveManifest.isArchiveName(singleName)) {
+            // One game archive and nothing else opens the import screen (M19, docs/specs/06-app-ios.md §4.5).
+            incomingArchive.value = token
         } else {
             incomingShare.value = token
         }
@@ -212,6 +237,8 @@ fun AppNavigation(
     onShareHandled: () -> Unit = {},
     incomingPatch: String? = null,
     onPatchHandled: () -> Unit = {},
+    incomingArchive: String? = null,
+    onArchiveHandled: () -> Unit = {},
 ) {
     val nav = rememberNavController()
     val links = LocalContext.current.container.pendingLinks
@@ -273,6 +300,13 @@ fun AppNavigation(
             leaveDemoForShare()
             nav.navigate(Routes.patch(share = incomingPatch))
             onPatchHandled()
+        }
+    }
+    LaunchedEffect(incomingArchive) {
+        if (incomingArchive != null) {
+            leaveDemoForShare()
+            nav.navigate(Routes.archiveImport(share = incomingArchive))
+            onArchiveHandled()
         }
     }
     val container = LocalContext.current.container
@@ -361,17 +395,23 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
                 onLibrary = { nav.navigate(Routes.library(deviceId)) },
                 onTransfers = { nav.navigate(Routes.transfers(deviceId)) },
                 onApps = { nav.navigate(Routes.apps(deviceId)) },
+                onScreenshots = { nav.navigate(Routes.screenshots(deviceId)) },
                 onTrash = { nav.navigate(Routes.trash(deviceId)) },
                 onForgotten = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
             )
         }
         composable(Routes.LIBRARY, arguments = listOf(id)) { entry ->
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
-            LibraryScreen(
+            // M15 on Android: the list and the game side by side in a wide window, one at a time otherwise.
+            LibraryPanes(
                 deviceId = deviceId,
                 onBack = { nav.popBackStack() },
-                onGame = { nav.navigate(Routes.game(deviceId, it)) },
                 onAdd = { nav.navigate(Routes.addFiles(deviceId = deviceId)) },
+                onImportArchive = { gameId -> nav.navigate(Routes.archiveImport(deviceId = deviceId, gameId = gameId)) },
+                onSave = { gameId -> nav.navigate(Routes.save(deviceId, gameId)) },
+                onStates = { gameId, name -> nav.navigate(Routes.states(deviceId, gameId, name)) },
+                onCheats = { gameId -> nav.navigate(Routes.cheats(deviceId, gameId)) },
+                onPatch = { gameId -> nav.navigate(Routes.patch(deviceId = deviceId, gameId = gameId)) },
             )
         }
         val gameId = navArgument("gameId") { type = NavType.StringType }
@@ -387,6 +427,42 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
                 onCheats = { nav.navigate(Routes.cheats(deviceId, game)) },
                 onPatch = { nav.navigate(Routes.patch(deviceId = deviceId, gameId = game)) },
                 onDeleted = { nav.popBackStack() },
+                onImportArchive = { nav.navigate(Routes.archiveImport(deviceId = deviceId, gameId = game)) },
+            )
+        }
+        composable(
+            Routes.ARCHIVE_IMPORT,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("gameId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("share") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) { entry ->
+            val fromGame = entry.arguments?.getString("gameId")
+            ArchiveImportScreen(
+                deviceId = entry.arguments?.getString("deviceId"),
+                gameId = fromGame,
+                shareToken = entry.arguments?.getString("share"),
+                onBack = { nav.popBackStack() },
+                onOpenGame = { device, target ->
+                    nav.popBackStack()
+                    if (target != fromGame) nav.navigate(Routes.game(device, target))
+                },
+            )
+        }
+        composable(Routes.SCREENSHOTS, arguments = listOf(id)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            ScreenshotsScreen(
+                deviceId = deviceId,
+                onBack = { nav.popBackStack() },
+                onOpen = { nav.navigate(Routes.screenshot(deviceId, it)) },
+            )
+        }
+        composable(Routes.SCREENSHOT, arguments = listOf(id, navArgument("screenshotId") { type = NavType.StringType })) { entry ->
+            ScreenshotScreen(
+                deviceId = entry.arguments?.getString("deviceId").orEmpty(),
+                screenshotId = entry.arguments?.getString("screenshotId").orEmpty(),
+                onBack = { nav.popBackStack() },
             )
         }
         composable(Routes.CHEATS, arguments = listOf(id, gameId)) { entry ->

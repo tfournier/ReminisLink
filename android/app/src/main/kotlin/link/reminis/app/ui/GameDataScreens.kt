@@ -198,6 +198,7 @@ private fun backupTitle(backup: Backup): String = when (backup.reason) {
     BackupReasons.BEFORE_RESTORE -> stringResource(R.string.backup_before_restore)
     BackupReasons.BEFORE_DELETE -> stringResource(R.string.backup_before_delete)
     BackupReasons.BEFORE_PATCH -> stringResource(R.string.backup_before_patch)
+    BackupReasons.BEFORE_IMPORT -> stringResource(R.string.backup_before_import)
     else -> backup.label ?: stringResource(R.string.backup_automatic_title)
 }
 

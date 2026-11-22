@@ -25,6 +25,12 @@ ReminisLink liste les jeux présents sur la carte SD de ta console, mais ne four
 <p><b>Les apps de la console</b><br>
 Vois les outils et émulateurs installés sur la console, installe-en un depuis un zip de ton téléphone, ou supprime-le.</p>
 
+<p><b>Déplace un jeu, garde ses données</b><br>
+Exporte la sauvegarde, les états, les codes de triche et la jaquette d’un jeu (et le fichier du jeu, si tu veux) dans une seule archive sur ton téléphone, et importe-la sur la même console ou sur une autre. Tout ce que l’import remplace va d’abord dans la corbeille de la console.</p>
+
+<p><b>Captures d’écran</b><br>
+Parcours les captures d’écran prises sur la console, jour par jour ; partage-les, enregistre-les dans ta galerie ou mets-les à la corbeille.</p>
+
 <p><b>Rien ne se perd</b><br>
 Les jeux supprimés, les fichiers remplacés et les jeux patchés sur place vont dans la corbeille de la console pendant 30 jours ; une sauvegarde remplacée est d’abord gardée dans les copies de secours. Restaure n’importe quoi depuis la corbeille : un jeu revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette, et rien sur la carte SD n’est jamais écrasé.</p>
 
@@ -40,6 +46,9 @@ L’app se rafraîchit seule quand la carte SD change, affiche la batterie en di
 
 <p><b>Essaie d’abord</b><br>
 « Essayer sans console » ouvre une console de démo avec des jeux inventés, pour essayer chaque écran. Rien ne quitte le téléphone.</p>
+
+<p><b>Téléphones, tablettes et pliables</b><br>
+Dans une fenêtre large, la bibliothèque et le jeu choisi s’affichent côte à côte ; toutes les orientations et tailles de fenêtre fonctionnent.</p>
 
 <p><b>Consoles compatibles</b><br>
 TrimUI Brick sous NextUI. En test, avec appel aux testeurs : TrimUI Smart Pro S, consoles Anbernic H700 et Miyoo Flip sous NextUI, et les consoles sous Knulli.</p>

@@ -19,7 +19,24 @@ data class TrashEntry(
     val files: List<String> = emptyList(),
     val sizeBytes: Long,
     val expiresAt: String,
-)
+    /**
+     * M22: holds something moved by mistake that could not go back; never
+     * purged automatically (`expiresAt` is then an estimate only).
+     */
+    val held: Boolean = false,
+) {
+    /**
+     * How many screenshots the entry holds (null for another reason): the
+     * pak labels several in English (`3 screenshots`), the app says it in
+     * the user's language instead.
+     */
+    val screenshotCount: Int? get() = if (reason == SCREENSHOT_REASON) files.size else null
+
+    companion object {
+        /** The reason of screenshots moved to the trash (M22). */
+        const val SCREENSHOT_REASON = "delete-screenshot"
+    }
+}
 
 @Serializable
 data class TrashList(val entries: List<TrashEntry>, val totalBytes: Long)

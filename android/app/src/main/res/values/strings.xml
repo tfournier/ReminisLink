@@ -498,4 +498,138 @@
     <string name="demo_pair_title">Quit the demo to pair this console?</string>
     <string name="demo_pair_message">The demo mode never connects to a real console. Quit it to go on with this pairing link.</string>
     <string name="demo_pair_blocked">Quit the demo to pair a console.</string>
+
+    <!-- Game archives (M19): the same texts as the iOS app -->
+    <string name="archive_section">Archive</string>
+    <string name="archive_export">Export the Game Data…</string>
+    <string name="archive_import">Import an Archive…</string>
+    <string name="archive_footer">Move this game to another console, or keep its data: the save, the states, the cheats and the art in one file. On import, whatever is replaced goes to the console\'s trash first.</string>
+    <string name="archive_export_title">Export the data of %1$s</string>
+    <string name="archive_export_message">A zip with the save, its clock file, the states and their thumbnails, the cheats and the art, to keep on this device or import on another console.</string>
+    <string name="archive_without_rom">Without the Game File</string>
+    <string name="archive_with_rom">With the Game File</string>
+    <string name="archive_preparing">Preparing the archive… %1$s</string>
+    <string name="archive_cancel_export">Cancel the export</string>
+    <string name="archive_exported">Archive saved: %1$s.</string>
+    <string name="archive_export_help">The archive is written into the document you chose; the export also shows in Transfers.</string>
+    <string name="archive_empty">This game has no data to export.</string>
+    <string name="archive_needs_newer">Update ReminisLink on the console to export and import game archives.</string>
+    <string name="archive_invalid">This file is not a ReminisLink game archive, or it is damaged, or it was made by a newer version of ReminisLink.</string>
+    <string name="archive_game_exists">This game is already on the console. Import the archive into that game instead.</string>
+    <string name="library_import_archive">Import Game Data…</string>
+    <string name="archive_import_title">Import Game Data</string>
+    <string name="archive_choose">Choose an Archive…</string>
+    <string name="archive_choose_another">Choose Another Archive…</string>
+    <string name="archive_file_help">A .reminislink.zip archive exported from a game of this console or another one. The console checks it before anything is written.</string>
+    <string name="archive_sending">Sending the archive to the console…</string>
+    <string name="archive_inspecting">The console checks the archive…</string>
+    <string name="archive_starting">Starting the import…</string>
+    <string name="archive_importing">The console imports the archive…</string>
+    <string name="archive_can_close">You can leave this screen: the import goes on, and shows in Transfers.</string>
+    <string name="archive_game">Game</string>
+    <string name="archive_system">System</string>
+    <string name="archive_from">From</string>
+    <string name="archive_exported_on">Exported</string>
+    <string name="archive_target">Target</string>
+    <string name="archive_into">Into</string>
+    <string name="archive_new_game_in">A new game in %1$s</string>
+    <string name="archive_no_target">No game of this console matches the archive. Choose the game its data go to.</string>
+    <string name="archive_choose_game">Choose Another Game…</string>
+    <string name="archive_new_game">Import as a New Game…</string>
+    <string name="archive_new_game_system">Import as a new game in</string>
+    <string name="archive_suggested">Suggested by the console from the name of the game.</string>
+    <string name="archive_files">Files</string>
+    <string name="archive_added">Added</string>
+    <string name="archive_replaces">Replaces the current file</string>
+    <string name="archive_skipped">Skipped</string>
+    <string name="archive_skip_game_exists">Skipped: the game is already there</string>
+    <string name="archive_skip_locked">Skipped: the state is locked</string>
+    <string name="archive_skip_unsupported">Skipped: not supported by this console</string>
+    <string name="archive_skip_no_state_folder">Skipped: no emulator for this system</string>
+    <string name="archive_skip_no_state">Skipped: its state is not imported</string>
+    <string name="archive_skip_no_target">Skipped: no game chosen</string>
+    <string name="archive_files_footer">Files are matched by what they are, never by their path, and named as this console names them. A replaced file goes to the console\'s trash first; the save is also kept in its backup copies.</string>
+    <string name="archive_import_action">Import</string>
+    <string name="archive_replace_title">Replace the data of this game?</string>
+    <string name="archive_use_existing">Import into That Game</string>
+    <string name="archive_previous_save">The previous save is in the backup copies of the game on the console.</string>
+    <string name="archive_replaced_trash">The replaced files are in the console\'s trash.</string>
+    <string name="archive_job_title">Import: %1$s</string>
+    <string name="archive_imported_job">Imported</string>
+    <string name="archive_done">Done</string>
+    <string name="archive_open_game">Open the Game</string>
+    <string name="archive_role_thumbnail">Thumbnail of state %1$d</string>
+    <string name="archive_role_thumbnail_noslot">State thumbnail</string>
+    <string name="backup_before_import">Before import</string>
+    <plurals name="archive_replace_save">
+        <item quantity="one">%1$d file of %2$s will be replaced. The console first moves it to its trash, and keeps a copy of the save in its backup copies.</item>
+        <item quantity="other">%1$d files of %2$s will be replaced. The console first moves them to its trash, and keeps a copy of the save in its backup copies.</item>
+    </plurals>
+    <plurals name="archive_replace_rtc">
+        <item quantity="one">%1$d file of %2$s will be replaced. The console first moves it to its trash; if the game has a save, it also keeps a copy of it in its backup copies.</item>
+        <item quantity="other">%1$d files of %2$s will be replaced. The console first moves them to its trash; if the game has a save, it also keeps a copy of it in its backup copies.</item>
+    </plurals>
+    <plurals name="archive_replace_plain">
+        <item quantity="one">%1$d file of %2$s will be replaced. The console first moves it to its trash.</item>
+        <item quantity="other">%1$d files of %2$s will be replaced. The console first moves them to its trash.</item>
+    </plurals>
+    <plurals name="archive_imported">
+        <item quantity="one">Imported: %d file.</item>
+        <item quantity="other">Imported: %d files.</item>
+    </plurals>
+    <!-- Screenshots (M22): the same texts as the iOS app -->
+    <string name="screenshots_title">Screenshots</string>
+    <string name="screenshots_empty_title">No Screenshots</string>
+    <string name="screenshots_empty">Screenshots taken on the console appear here.</string>
+    <string name="screenshots_truncated">Only the 5,000 newest screenshots are shown.</string>
+    <string name="screenshots_needs_newer">Update ReminisLink on the console to see its screenshots.</string>
+    <string name="screenshot_gone">This screenshot is no longer on the console. The list was refreshed.</string>
+    <string name="screenshot_changed">This screenshot changed on the console: nothing was moved. The list was refreshed; check it and try again.</string>
+    <string name="screenshot_too_large">This screenshot is too large to show here. Share it to open it in another app.</string>
+    <string name="screenshots_select">Select</string>
+    <string name="screenshots_done">Done</string>
+    <string name="screenshots_select_all">Select All</string>
+    <string name="screenshots_deselect_all">Deselect All</string>
+    <string name="screenshots_select_prompt">Select Screenshots</string>
+    <string name="screenshots_share">Share</string>
+    <string name="screenshots_share_ellipsis">Share…</string>
+    <string name="screenshots_save_gallery">Save to Gallery</string>
+    <string name="screenshots_trash">Move to Trash</string>
+    <string name="screenshots_trash_ellipsis">Move to Trash…</string>
+    <string name="screenshot_trash_title">Move this screenshot to the trash of the console?</string>
+    <string name="screenshot_trash_message">It stays 30 days in the trash of the console, where you can restore it.</string>
+    <string name="screenshots_trash_message">They stay 30 days in the trash of the console, where you can restore them.</string>
+    <string name="screenshot_saved">The screenshot was saved to the gallery.</string>
+    <string name="screenshot_taken">Taken</string>
+    <string name="screenshot_size">Size</string>
+    <string name="screenshot_file">File</string>
+    <string name="screenshot_no_preview">No preview</string>
+    <string name="screenshots_share_chooser">Share the screenshots</string>
+    <string name="screenshots_demo_title">Demo mode</string>
+    <string name="screenshots_demo_message">Demo mode: with a real console, the screenshots are shared or saved to the gallery here; in the demo, nothing leaves the app.</string>
+    <string name="screenshots_folder_help">Choose the folder where the screenshots are saved.</string>
+    <string name="trash_held">Kept until you delete it: it holds an item moved by mistake.</string>
+    <plurals name="screenshots_trash_title">
+        <item quantity="one">Move %d screenshot to the trash of the console?</item>
+        <item quantity="other">Move %d screenshots to the trash of the console?</item>
+    </plurals>
+    <plurals name="screenshots_saved">
+        <item quantity="one">%d screenshot was saved to the gallery.</item>
+        <item quantity="other">%d screenshots were saved to the gallery.</item>
+    </plurals>
+    <plurals name="screenshots_selected">
+        <item quantity="one">%d Selected</item>
+        <item quantity="other">%d Selected</item>
+    </plurals>
+    <plurals name="screenshots_partly_moved">
+        <item quantity="one">Only %d screenshot went to the trash; the others did not. The screenshots and the trash were refreshed.</item>
+        <item quantity="other">Only %d screenshots went to the trash; the others did not. The screenshots and the trash were refreshed.</item>
+    </plurals>
+    <plurals name="trash_screenshots">
+        <item quantity="one">%d screenshot</item>
+        <item quantity="other">%d screenshots</item>
+    </plurals>
+    <!-- Large screens (M15 on Android) -->
+    <string name="library_select_game">Select a game</string>
+    <string name="library_select_game_help">Its save, states, cheats and files show here.</string>
 </resources>

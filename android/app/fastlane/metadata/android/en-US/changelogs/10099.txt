@@ -3,6 +3,7 @@ First version of ReminisLink for Android:
 • Uploads and downloads that resume, share menu
 • Saves and backups, save states and locks, box art
 • Cheats, IPS/BPS/UPS patches, apps of the handheld
-• Trash with restore
-• Live updates from the handheld
+• Game archives, screenshots of the handheld
+• Trash with restore, live updates
+• Tablet and foldable layouts
 • Demo mode: try it without a handheld

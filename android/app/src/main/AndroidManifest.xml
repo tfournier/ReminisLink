@@ -57,6 +57,17 @@
             </intent-filter>
         </activity>
 
+        <!-- M22: screenshots shared to another app (copies in cache/shared, read access granted per share). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_files" />
+        </provider>
+
         <service
             android:name=".TransferService"
             android:exported="false"

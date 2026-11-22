@@ -81,6 +81,48 @@ fun trashRestoreError(error: Throwable): Throwable {
     return error
 }
 
+/**
+ * The error of an archive action (M19): a refused archive, a ROM name
+ * already taken, or ([routeMissing], the export) a pak older than M19, a
+ * game gone or with nothing to export.
+ */
+fun archiveError(error: Throwable, routeMissing: Boolean = false): Throwable {
+    if (error is link.reminis.core.ArchivesNeedNewerPakException) return UserMessage(R.string.archive_needs_newer, cause = error)
+    val server = (error as? link.reminis.core.ArchiveJobFailure)?.server ?: error as? ApiException.Server
+    if (routeMissing) {
+        // A pak older than M19 has no such route (`404 No such route`, or `405`); a `404` of the
+        // route itself is the game, or a game with nothing to export.
+        val status = (error as? ApiException.UnexpectedStatus)?.status ?: server?.status
+        if (status == 405 || (status == 404 && server?.serverMessage?.contains("route", ignoreCase = true) != false)) {
+            return UserMessage(R.string.archive_needs_newer, cause = error)
+        }
+        if (status == 404) return UserMessage(if (server?.serverMessage == "Nothing to export") R.string.archive_empty else R.string.error_item_not_found, cause = error)
+    }
+    return when {
+        server?.code == ErrorCodes.UNSUPPORTED_FORMAT -> UserMessage(R.string.archive_invalid, cause = error)
+        server?.code == ErrorCodes.CONFLICT && server.status == 409 -> UserMessage(R.string.archive_game_exists, cause = error)
+        server != null && error is link.reminis.core.ArchiveJobFailure -> server
+        else -> error
+    }
+}
+
+/** A screenshot too large to show here (more than 64 MiB, or no room left on the phone): share it instead. */
+class ScreenshotTooLargeException(cause: Throwable? = null) : Exception("screenshot too large", cause)
+
+/**
+ * The error of a screenshot route (M22): a `404` on the list (or an older
+ * pak's `405`) means a pak older than M22, on one screenshot that it left
+ * the console meanwhile.
+ */
+fun screenshotsError(error: Throwable, list: Boolean = false): Throwable {
+    if (error is link.reminis.core.ScreenshotsPartlyMovedException) return error
+    val server = error as? ApiException.Server
+    val status = (error as? ApiException.UnexpectedStatus)?.status ?: server?.status
+    if (list && (status == 404 || status == 405)) return UserMessage(R.string.screenshots_needs_newer, cause = error)
+    if (!list && status == 404) return UserMessage(R.string.screenshot_gone, cause = error)
+    return error
+}
+
 private fun pakRefusalMessage(context: Context, refusal: PakRefusal): String = when (refusal) {
     PakRefusal.NotAnArchive -> context.getString(R.string.pak_refused_not_archive)
     PakRefusal.NoPak -> context.getString(R.string.pak_refused_no_pak)
@@ -96,6 +138,12 @@ private fun pakRefusalMessage(context: Context, refusal: PakRefusal): String = w
 /** A translated message for any failure; the English server message only goes to the logs. */
 fun errorMessage(context: Context, error: Throwable): String = when (error) {
     is UserMessage -> context.getString(error.id, *error.args.toTypedArray())
+    is link.reminis.core.ScreenshotsPartlyMovedException ->
+        context.resources.getQuantityString(R.plurals.screenshots_partly_moved, error.moved, error.moved)
+    is ScreenshotTooLargeException -> context.getString(R.string.screenshot_too_large)
+    is link.reminis.core.ScreenshotChangedException -> context.getString(R.string.screenshot_changed)
+    is link.reminis.core.ArchivesNeedNewerPakException -> context.getString(R.string.archive_needs_newer)
+    is link.reminis.core.ArchiveJobFailure -> errorMessage(context, archiveError(error))
     is PakRefusalException -> pakRefusalMessage(context, error.refusal)
     is PatchJobFailure -> errorMessage(context, patchError(error))
     is PakJobFailure -> errorMessage(context, pakError(error))

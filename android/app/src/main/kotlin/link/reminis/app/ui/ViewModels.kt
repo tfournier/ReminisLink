@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -418,6 +419,12 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
+    /**
+     * The position of the list, kept while the list leaves the composition
+     * (a narrow window shows the game alone; Codex review round 1).
+     */
+    val listState = androidx.compose.foundation.lazy.LazyListState()
+
     init {
         refresh()
         // A game sent from this phone: the list reloads.
@@ -479,6 +486,9 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
     private val _game = MutableStateFlow<Load<GameDetail>>(Load.Loading)
     val game: StateFlow<Load<GameDetail>> = _game.asStateFlow()
 
+    /** The position in the game screen, kept when it moves between one and two panes. */
+    val listState = androidx.compose.foundation.lazy.LazyListState()
+
     init {
         refresh()
         reloadAfterTransfers(gameId) { refresh(quiet = true) }
@@ -512,6 +522,43 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
     fun download(file: GameFile, gameName: String, destination: android.net.Uri) {
         val fileId = file.fileId ?: return
         enqueueDownload(DownloadSource.GameFile(gameId, fileId), file.name, gameName, destination, file.sizeBytes)
+    }
+
+    private val _archiveTransferId = MutableStateFlow<String?>(null)
+
+    /**
+     * M19: the export of the game's data as an archive, as the transfer
+     * queue shows it (bytes received, no total: the console builds the zip
+     * as it sends it); null when none was started from this screen.
+     */
+    val archiveExport: StateFlow<link.reminis.core.TransferItem?> =
+        kotlinx.coroutines.flow.combine(_archiveTransferId, container.transfers.items) { id, items ->
+            id?.let { wanted -> items.firstOrNull { it.id == wanted } }
+        }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+
+    /**
+     * `GET /games/{gameId}/archive` streamed into the document the user
+     * created (Storage Access Framework), through the transfer queue (it
+     * also shows in Transfers and goes on if the screen is left).
+     */
+    fun exportArchive(rom: Boolean, gameName: String, destination: android.net.Uri) {
+        val app = getApplication<Application>()
+        container.lastDownloadDocumentForTests = destination
+        _archiveTransferId.value = container.transfers.enqueueDownload(
+            deviceId, DownloadSource.GameArchive(gameId, rom), link.reminis.core.GameArchiveManifest.exportName(gameName), gameName,
+            DocumentSink(app, destination), sizeBytes = null,
+        )
+    }
+
+    /** Stops the export (its partial document is deleted). */
+    fun cancelArchiveExport() {
+        _archiveTransferId.value?.let { container.transfers.cancel(it) }
+    }
+
+    /** The outcome of the export was read (its notice or error dismissed). */
+    fun dismissArchiveExport() {
+        val item = archiveExport.value ?: return
+        if (item.phase.isFinished || item.phase == link.reminis.core.TransferPhase.FAILED) _archiveTransferId.value = null
     }
 
     /**

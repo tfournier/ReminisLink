@@ -46,6 +46,9 @@ sealed interface PakEvent {
     /** M12: the installed paks changed (installed, deleted or restored by any client): reload `GET /paks`. */
     data object Paks : PakEvent
 
+    /** M22: screenshots went to the trash or came back (any client): reload `GET /screenshots`. */
+    data object Screenshots : PakEvent
+
     /** A type this app does not know (a newer pak): ignored. */
     data class Unknown(val type: String) : PakEvent
 
@@ -62,6 +65,10 @@ sealed interface PakEvent {
                     // `{}` today; anything that is not a JSON object is unreadable.
                     ProtocolJson.decodeFromString<kotlinx.serialization.json.JsonObject>(event.data)
                     Paks
+                }
+                "screenshots" -> {
+                    ProtocolJson.decodeFromString<kotlinx.serialization.json.JsonObject>(event.data)
+                    Screenshots
                 }
                 else -> Unknown(event.type)
             }

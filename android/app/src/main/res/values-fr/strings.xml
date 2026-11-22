@@ -502,4 +502,147 @@
     <string name="demo_pair_title">Quitter la démo pour appairer cette console ?</string>
     <string name="demo_pair_message">Le mode démo ne se connecte jamais à une vraie console. Quitte-le pour continuer avec ce lien d’appairage.</string>
     <string name="demo_pair_blocked">Quitte la démo pour appairer une console.</string>
+
+    <!-- Game archives (M19): the same texts as the iOS app -->
+    <string name="archive_section">Archive</string>
+    <string name="archive_export">Exporter les données du jeu…</string>
+    <string name="archive_import">Importer une archive…</string>
+    <string name="archive_footer">Déplace ce jeu vers une autre console, ou garde ses données : la sauvegarde, les états, les codes de triche et la jaquette dans un seul fichier. À l’import, tout ce qui est remplacé va d’abord dans la corbeille de la console.</string>
+    <string name="archive_export_title">Exporter les données de %1$s</string>
+    <string name="archive_export_message">Un zip avec la sauvegarde, son fichier d’horloge, les états et leurs vignettes, les codes de triche et la jaquette, à garder sur cet appareil ou à importer sur une autre console.</string>
+    <string name="archive_without_rom">Sans le fichier du jeu</string>
+    <string name="archive_with_rom">Avec le fichier du jeu</string>
+    <string name="archive_preparing">Préparation de l’archive… %1$s</string>
+    <string name="archive_cancel_export">Annuler l’export</string>
+    <string name="archive_exported">Archive enregistrée : %1$s.</string>
+    <string name="archive_export_help">L’archive s’écrit dans le document que tu as choisi ; l’export apparaît aussi dans Transferts.</string>
+    <string name="archive_empty">Ce jeu n’a aucune donnée à exporter.</string>
+    <string name="archive_needs_newer">Mets à jour ReminisLink sur la console pour exporter et importer des archives de jeu.</string>
+    <string name="archive_invalid">Ce fichier n’est pas une archive de jeu ReminisLink, ou elle est abîmée, ou elle a été faite par une version plus récente de ReminisLink.</string>
+    <string name="archive_game_exists">Ce jeu est déjà sur la console. Importe plutôt l’archive dans ce jeu.</string>
+    <string name="library_import_archive">Importer des données de jeu…</string>
+    <string name="archive_import_title">Importer des données de jeu</string>
+    <string name="archive_choose">Choisir une archive…</string>
+    <string name="archive_choose_another">Choisir une autre archive…</string>
+    <string name="archive_file_help">Une archive .reminislink.zip exportée depuis un jeu de cette console ou d’une autre. La console la vérifie avant d’écrire quoi que ce soit.</string>
+    <string name="archive_sending">Envoi de l’archive à la console…</string>
+    <string name="archive_inspecting">La console vérifie l’archive…</string>
+    <string name="archive_starting">Lancement de l’import…</string>
+    <string name="archive_importing">La console importe l’archive…</string>
+    <string name="archive_can_close">Tu peux quitter cet écran : l’import continue, et apparaît dans Transferts.</string>
+    <string name="archive_game">Jeu</string>
+    <string name="archive_system">Système</string>
+    <string name="archive_from">Depuis</string>
+    <string name="archive_exported_on">Exportée le</string>
+    <string name="archive_target">Destination</string>
+    <string name="archive_into">Vers</string>
+    <string name="archive_new_game_in">Un nouveau jeu dans %1$s</string>
+    <string name="archive_no_target">Aucun jeu de cette console ne correspond à l’archive. Choisis le jeu qui recevra ses données.</string>
+    <string name="archive_choose_game">Choisir un autre jeu…</string>
+    <string name="archive_new_game">Importer comme nouveau jeu…</string>
+    <string name="archive_new_game_system">Importer comme nouveau jeu dans</string>
+    <string name="archive_suggested">Proposé par la console d’après le nom du jeu.</string>
+    <string name="archive_files">Fichiers</string>
+    <string name="archive_added">Ajouté</string>
+    <string name="archive_replaces">Remplace le fichier actuel</string>
+    <string name="archive_skipped">Ignoré</string>
+    <string name="archive_skip_game_exists">Ignoré : le jeu est déjà là</string>
+    <string name="archive_skip_locked">Ignoré : l’état est verrouillé</string>
+    <string name="archive_skip_unsupported">Ignoré : non pris en charge par cette console</string>
+    <string name="archive_skip_no_state_folder">Ignoré : aucun émulateur pour ce système</string>
+    <string name="archive_skip_no_state">Ignoré : son état n’est pas importé</string>
+    <string name="archive_skip_no_target">Ignoré : aucun jeu choisi</string>
+    <string name="archive_files_footer">Les fichiers sont associés selon ce qu’ils sont, jamais selon leur chemin, et nommés comme cette console les nomme. Un fichier remplacé va d’abord dans la corbeille de la console ; la sauvegarde est aussi gardée dans ses copies de secours.</string>
+    <string name="archive_import_action">Importer</string>
+    <string name="archive_replace_title">Remplacer les données de ce jeu ?</string>
+    <string name="archive_use_existing">Importer dans ce jeu</string>
+    <string name="archive_previous_save">La sauvegarde précédente est dans les copies de secours du jeu sur la console.</string>
+    <string name="archive_replaced_trash">Les fichiers remplacés sont dans la corbeille de la console.</string>
+    <string name="archive_job_title">Import : %1$s</string>
+    <string name="archive_imported_job">Importé</string>
+    <string name="archive_done">Terminé</string>
+    <string name="archive_open_game">Ouvrir le jeu</string>
+    <string name="archive_role_thumbnail">Vignette de l’état %1$d</string>
+    <string name="archive_role_thumbnail_noslot">Vignette d’état</string>
+    <string name="backup_before_import">Avant import</string>
+    <plurals name="archive_replace_save">
+        <item quantity="one">%1$d fichier de %2$s sera remplacé. La console le met d’abord dans sa corbeille et garde une copie de la sauvegarde dans ses copies de secours.</item>
+        <item quantity="many">%1$d fichiers de %2$s seront remplacés. La console les met d’abord dans sa corbeille et garde une copie de la sauvegarde dans ses copies de secours.</item>
+        <item quantity="other">%1$d fichiers de %2$s seront remplacés. La console les met d’abord dans sa corbeille et garde une copie de la sauvegarde dans ses copies de secours.</item>
+    </plurals>
+    <plurals name="archive_replace_rtc">
+        <item quantity="one">%1$d fichier de %2$s sera remplacé. La console le met d’abord dans sa corbeille ; si le jeu a une sauvegarde, elle en garde aussi une copie dans ses copies de secours.</item>
+        <item quantity="many">%1$d fichiers de %2$s seront remplacés. La console les met d’abord dans sa corbeille ; si le jeu a une sauvegarde, elle en garde aussi une copie dans ses copies de secours.</item>
+        <item quantity="other">%1$d fichiers de %2$s seront remplacés. La console les met d’abord dans sa corbeille ; si le jeu a une sauvegarde, elle en garde aussi une copie dans ses copies de secours.</item>
+    </plurals>
+    <plurals name="archive_replace_plain">
+        <item quantity="one">%1$d fichier de %2$s sera remplacé. La console le met d’abord dans sa corbeille.</item>
+        <item quantity="many">%1$d fichiers de %2$s seront remplacés. La console les met d’abord dans sa corbeille.</item>
+        <item quantity="other">%1$d fichiers de %2$s seront remplacés. La console les met d’abord dans sa corbeille.</item>
+    </plurals>
+    <plurals name="archive_imported">
+        <item quantity="one">Importé : %d fichier.</item>
+        <item quantity="many">Importés : %d fichiers.</item>
+        <item quantity="other">Importés : %d fichiers.</item>
+    </plurals>
+    <!-- Screenshots (M22): the same texts as the iOS app -->
+    <string name="screenshots_title">Captures d’écran</string>
+    <string name="screenshots_empty_title">Aucune capture d’écran</string>
+    <string name="screenshots_empty">Les captures d’écran prises sur la console s’affichent ici.</string>
+    <string name="screenshots_truncated">Seules les 5 000 captures les plus récentes sont affichées.</string>
+    <string name="screenshots_needs_newer">Mets à jour ReminisLink sur la console pour voir ses captures d’écran.</string>
+    <string name="screenshot_gone">Cette capture n’est plus sur la console. La liste a été actualisée.</string>
+    <string name="screenshot_changed">Cette capture a changé sur la console : rien n’a été déplacé. La liste a été actualisée ; vérifie-la et réessaie.</string>
+    <string name="screenshot_too_large">Cette capture est trop grande pour être affichée ici. Partage-la pour l’ouvrir dans une autre app.</string>
+    <string name="screenshots_select">Sélectionner</string>
+    <string name="screenshots_done">Terminé</string>
+    <string name="screenshots_select_all">Tout sélectionner</string>
+    <string name="screenshots_deselect_all">Tout désélectionner</string>
+    <string name="screenshots_select_prompt">Sélectionne des captures</string>
+    <string name="screenshots_share">Partager</string>
+    <string name="screenshots_share_ellipsis">Partager…</string>
+    <string name="screenshots_save_gallery">Enregistrer dans la galerie</string>
+    <string name="screenshots_trash">Mettre à la corbeille</string>
+    <string name="screenshots_trash_ellipsis">Mettre à la corbeille…</string>
+    <string name="screenshot_trash_title">Mettre cette capture à la corbeille de la console ?</string>
+    <string name="screenshot_trash_message">Elle reste 30 jours dans la corbeille de la console, où tu peux la restaurer.</string>
+    <string name="screenshots_trash_message">Elles restent 30 jours dans la corbeille de la console, où tu peux les restaurer.</string>
+    <string name="screenshot_saved">La capture a été enregistrée dans la galerie.</string>
+    <string name="screenshot_taken">Prise le</string>
+    <string name="screenshot_size">Taille</string>
+    <string name="screenshot_file">Fichier</string>
+    <string name="screenshot_no_preview">Pas d’aperçu</string>
+    <string name="screenshots_share_chooser">Partager les captures</string>
+    <string name="screenshots_demo_title">Mode démo</string>
+    <string name="screenshots_demo_message">Mode démo : avec une vraie console, les captures sont partagées ou enregistrées dans la galerie ici ; dans la démo, rien ne sort de l’app.</string>
+    <string name="screenshots_folder_help">Choisis le dossier où enregistrer les captures.</string>
+    <string name="trash_held">Gardée jusqu’à ce que tu la supprimes : elle contient un élément déplacé par erreur.</string>
+    <plurals name="screenshots_trash_title">
+        <item quantity="one">Mettre %d capture à la corbeille de la console ?</item>
+        <item quantity="many">Mettre %d captures à la corbeille de la console ?</item>
+        <item quantity="other">Mettre %d captures à la corbeille de la console ?</item>
+    </plurals>
+    <plurals name="screenshots_saved">
+        <item quantity="one">%d capture a été enregistrée dans la galerie.</item>
+        <item quantity="many">%d captures ont été enregistrées dans la galerie.</item>
+        <item quantity="other">%d captures ont été enregistrées dans la galerie.</item>
+    </plurals>
+    <plurals name="screenshots_selected">
+        <item quantity="one">%d sélectionnée</item>
+        <item quantity="many">%d sélectionnées</item>
+        <item quantity="other">%d sélectionnées</item>
+    </plurals>
+    <plurals name="screenshots_partly_moved">
+        <item quantity="one">Seule %d capture est allée à la corbeille ; les autres non. Les captures et la corbeille ont été actualisées.</item>
+        <item quantity="many">Seules %d captures sont allées à la corbeille ; les autres non. Les captures et la corbeille ont été actualisées.</item>
+        <item quantity="other">Seules %d captures sont allées à la corbeille ; les autres non. Les captures et la corbeille ont été actualisées.</item>
+    </plurals>
+    <plurals name="trash_screenshots">
+        <item quantity="one">%d capture d’écran</item>
+        <item quantity="many">%d captures d’écran</item>
+        <item quantity="other">%d captures d’écran</item>
+    </plurals>
+    <!-- Large screens (M15 on Android) -->
+    <string name="library_select_game">Choisis un jeu</string>
+    <string name="library_select_game_help">Sa sauvegarde, ses états, ses codes de triche et ses fichiers s’affichent ici.</string>
 </resources>
