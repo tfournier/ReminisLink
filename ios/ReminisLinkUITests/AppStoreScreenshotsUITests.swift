@@ -55,12 +55,13 @@ final class AppStoreScreenshotsUITests: XCTestCase {
 
         // 5. The apps of the console.
         app.consoleTabs["Apps"].tapWhenEnabled(timeout: 10)
-        XCTAssertTrue(app.navigationBars.element(boundBy: 0).waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Apps"].waitForExistence(timeout: 10))
         settle(3)
         shoot(app, "5-apps")
 
-        // 6. The list of consoles.
-        app.goBack()
+        // 6. The list of consoles: its button is on the first screen of
+        // the Console tab (M23: Apps is a tab, with no Back button).
+        app.consoleTabs["Console"].tapWhenEnabled(timeout: 10)
         app.buttons["tab.consoles"].tapAfterWaiting()
         XCTAssertTrue(app.buttons["console.\(PairingUITests.demoDeviceId)"].waitForExistence(timeout: 10)
             || app.staticTexts[language == "fr" ? "Console de démo" : "Demo Handheld"].waitForExistence(timeout: 10))
