@@ -202,10 +202,57 @@ func validTag(tag string) bool {
 // create_tool_shortcut): a folder "Roms/<name> (SHORTCUT)/" holding a
 // .m3u that points at a pak of Tools/, launched by its bridge emulator
 // Emus/<platform>/SHORTCUT.pak. Such a folder launches a tool, it holds
-// no game: it is not a system of the library (M23). Its ROM shortcuts
-// ("Roms/<name> (<TAG>)/" with a .shortcut file) are still listed (TODO
-// in docs/specs/09-feuille-de-route.md, M23).
+// no game: it is not a system of the library (M23). Its ROM shortcuts are
+// left out by romShortcutKey.
 const ShortcutTag = "SHORTCUT"
+
+// ShortcutMarker is the hidden file the Shortcuts pak writes in each
+// shortcut folder (src/shortcuts.h SHORTCUT_MARKER, written by
+// write_shortcut_marker; is_shortcut_folder looks for it).
+const ShortcutMarker = ".shortcut"
+
+// romShortcutKey returns the folded name of the ROM shortcut of the
+// Shortcuts pak held by the folder rel of Roms/ (entries: its listing),
+// or "" when it holds none. create_rom_shortcut (src/device.c) makes a
+// folder "Roms/<prefix><name> (<TAG>)/" right under Roms/, with the tag of
+// the real system, holding "<folder name>.m3u" (one line: the relative
+// path of the original ROM, "../<system folder>/...") and the marker
+// ShortcutMarker. That .m3u launches a game listed elsewhere: it is not a
+// game of the library (a duplicate of the original). Only that file is
+// left out, and only next to the marker: anything else in the folder
+// stays listed, and a system left with nothing else disappears. NextUI
+// layout only (the Shortcuts pak is a NextUI pak).
+func (a *Adapter) romShortcutKey(rel string, entries []fs.DirEntry) string {
+	if a.layout.System != nil || rel == "" || strings.Contains(rel, "/") {
+		return ""
+	}
+	if _, ok := namedIn(ShortcutMarker, entries); !ok {
+		return ""
+	}
+	if m3u, ok := m3uIn(rel, entries); ok {
+		return fold(m3u)
+	}
+	return ""
+}
+
+// leftOut returns the folded names of the files of the folder dir (rel
+// relative to Roms/, entries: its listing) that are not games of their
+// own: the discs of a loose multi-disc game (m3uSiblingsCtx) and the ROM
+// shortcut of the Shortcuts pak (romShortcutKey). It stops with
+// ctx.Err().
+func (a *Adapter) leftOut(ctx context.Context, dir, rel string, entries []fs.DirEntry) (map[string]bool, error) {
+	out, err := m3uSiblingsCtx(ctx, dir, entries)
+	if err != nil {
+		return nil, err
+	}
+	if k := a.romShortcutKey(rel, entries); k != "" {
+		if out == nil {
+			out = map[string]bool{}
+		}
+		out[k] = true
+	}
+	return out, nil
+}
 
 // parseSystem returns the system stored in a folder of Roms/.
 func parseSystem(folder string) (osadapter.System, bool) {
@@ -246,7 +293,7 @@ func (a *Adapter) systems(visible bool) ([]osadapter.System, error) {
 			continue
 		}
 		sys, ok := a.systemOf(de.Name())
-		if !ok || (visible && !hasVisible(filepath.Join(a.roots.Roms, de.Name()))) {
+		if !ok || (visible && !a.hasVisible(de.Name())) {
 			continue
 		}
 		out = append(out, sys)
@@ -268,7 +315,7 @@ func (a *Adapter) System(folder string) (osadapter.System, error) {
 	}
 	dir := filepath.Join(a.roots.Roms, folder)
 	fi, err := os.Lstat(dir)
-	if err != nil || !fi.IsDir() || !hasExactEntry(a.roots.Roms, folder) || !hasVisible(dir) {
+	if err != nil || !fi.IsDir() || !hasExactEntry(a.roots.Roms, folder) || !a.hasVisible(folder) {
 		return osadapter.System{}, osadapter.ErrNotFound
 	}
 	return sys, nil
@@ -298,23 +345,42 @@ func hasExactEntry(dir, name string) bool {
 	}
 }
 
-func hasVisible(dir string) bool {
+// hasVisible reports whether the system folder of Roms/ holds a visible
+// item, the ROM shortcut of the Shortcuts pak aside (romShortcutKey): a
+// folder that holds only a shortcut is not a system of the library. The
+// folder is read until a visible item other than a possible shortcut
+// shows up.
+func (a *Adapter) hasVisible(folder string) bool {
+	dir := filepath.Join(a.roots.Roms, folder)
 	f, err := openDir(dir)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
+	shortcut := a.layout.System == nil // NextUI: a ROM shortcut may be its only item
+	candidate := fold(folder + ".m3u")
+	sawCandidate := false
 	for {
 		names, err := f.Readdirnames(32)
 		for _, n := range names {
-			if !hidden(n) {
+			if hidden(n) {
+				continue
+			}
+			if !shortcut || fold(n) != candidate {
 				return true
 			}
+			sawCandidate = true
 		}
 		if err != nil {
-			return false
+			break
 		}
 	}
+	if !sawCandidate {
+		return false
+	}
+	// Only "<folder>.m3u" is visible: the folder is not a system when it
+	// is a ROM shortcut (one more read, of this rare folder only).
+	return a.romShortcutKey(folder, readNames(dir)) == ""
 }
 
 // m3uIn returns the name of the .m3u named after folder among its entries.
@@ -381,7 +447,11 @@ func (a *Adapter) CountGames(sys osadapter.System) (int, error) {
 
 func (a *Adapter) countGames(sys osadapter.System, dir string, entries []fs.DirEntry, depth int) int {
 	n := 0
-	discs := m3uSiblings(dir, entries)
+	rel := ""
+	if depth == 0 {
+		rel = sys.Folder
+	}
+	discs, _ := a.leftOut(context.Background(), dir, rel, entries)
 	for _, e := range entries {
 		name := e.Name()
 		if a.skip(name) || isSymlink(e) {
@@ -541,7 +611,7 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 		return osadapter.Listing{}, fmt.Errorf("list folder: %w", withoutPath(err))
 	}
 	idx := a.index(sys, dir)
-	discs := m3uSiblings(dir, entries)
+	discs, _ := a.leftOut(context.Background(), dir, rel, entries)
 	cache := dirCache{dir: {entries: entries}}
 	depth := strings.Count(rel, "/")
 	listing := osadapter.Listing{Folders: []osadapter.Folder{}, Games: []osadapter.GameSummary{}}
@@ -571,13 +641,13 @@ func (a *Adapter) ListFolder(sys osadapter.System, rel string) (osadapter.Listin
 type entryClass int
 
 const (
-	skipEntry   entryClass = iota // hidden, link, ignored file, disc of a .m3u, unreadable folder
+	skipEntry   entryClass = iota // hidden, link, ignored file, disc of a .m3u, ROM shortcut, unreadable folder
 	gameEntry                     // a game (file, .m3u, folder-m3u or folder-cue)
 	folderEntry                   // a plain subfolder
 )
 
 // classify tells what the entry e of dir (rel relative to Roms/, discs
-// from m3uSiblings) is, as ListFolder lists it. The game (or, for a
+// from leftOut) is, as ListFolder lists it. The game (or, for a
 // folder, its Path and FileName) and the listing of a subfolder come with
 // it.
 func (a *Adapter) classify(sys osadapter.System, dir, rel string, e fs.DirEntry, discs map[string]bool, cache dirCache) (osadapter.Game, []fs.DirEntry, entryClass) {
@@ -622,7 +692,7 @@ func (a *Adapter) WalkGames(ctx context.Context, sys osadapter.System, fn func(o
 }
 
 func (a *Adapter) walkGames(ctx context.Context, sys osadapter.System, dir, rel string, entries []fs.DirEntry, depth int, fn func(osadapter.Game) error) error {
-	discs, err := m3uSiblingsCtx(ctx, dir, entries)
+	discs, err := a.leftOut(ctx, dir, rel, entries)
 	if err != nil {
 		return err
 	}
@@ -710,7 +780,7 @@ func (a *Adapter) WalkSummaries(ctx context.Context, sys osadapter.System, fn fu
 
 func (a *Adapter) walkSummaries(ctx context.Context, sys osadapter.System, data systemIndex, cache dirCache, dir, rel string, entries []fs.DirEntry, depth int, fn func(string, osadapter.GameSummary) error) error {
 	idx := a.withMedia(data, a.mediaDir(sys, dir))
-	discs, err := m3uSiblingsCtx(ctx, dir, entries)
+	discs, err := a.leftOut(ctx, dir, rel, entries)
 	if err != nil {
 		return err
 	}
@@ -819,8 +889,9 @@ func (a *Adapter) Game(rel string) (osadapter.Game, error) {
 		if !slices.ContainsFunc(siblings, func(e fs.DirEntry) bool { return e.Name() == base }) {
 			return osadapter.Game{}, osadapter.ErrNotFound
 		}
-		if m3uSiblings(parent, siblings)[fold(base)] {
-			return osadapter.Game{}, osadapter.ErrNotFound // a disc of a .m3u game
+		left, _ := a.leftOut(context.Background(), parent, path.Dir(rel), siblings)
+		if left[fold(base)] {
+			return osadapter.Game{}, osadapter.ErrNotFound // a disc of a .m3u game, a ROM shortcut
 		}
 		return osadapter.Game{
 			System: sys, Path: rel, FileName: base, Name: displayName(base), Kind: fileKind(base), ROMName: base,
@@ -1323,7 +1394,7 @@ func (a *Adapter) GameFiles(g osadapter.Game) (osadapter.GameFiles, error) {
 // m3uDiscs returns the files listed by a .m3u that exist inside the system
 // folder. Entries that leave the system folder are ignored. Each entry is
 // matched against the listing of its folder with the case-insensitive
-// comparison m3uSiblings uses to hide the discs from the folder listing,
+// comparison m3uSiblingsCtx uses to hide the discs from the folder listing,
 // so a disc never vanishes from both the listing and the game. The folders
 // are read through cache (nil: a cache for this call only); size and date
 // come from the listing.
@@ -1611,16 +1682,10 @@ func readM3U(m3uPath string) []string {
 	return out
 }
 
-// m3uSiblings returns the folded names of the files of dir that a .m3u of
-// dir lists (the discs of a loose multi-disc game). They belong to that
-// game and are not games of their own. A .m3u is never hidden this way.
-func m3uSiblings(dir string, entries []fs.DirEntry) map[string]bool {
-	out, _ := m3uSiblingsCtx(context.Background(), dir, entries)
-	return out
-}
-
-// m3uSiblingsCtx is m3uSiblings for a walk: it stops with ctx.Err()
-// before reading each playlist.
+// m3uSiblingsCtx returns the folded names of the files of dir that a .m3u
+// of dir lists (the discs of a loose multi-disc game). They belong to that
+// game and are not games of their own. A .m3u is never hidden this way. It
+// stops with ctx.Err() before reading each playlist.
 func m3uSiblingsCtx(ctx context.Context, dir string, entries []fs.DirEntry) (map[string]bool, error) {
 	var out map[string]bool
 	for _, e := range entries {
