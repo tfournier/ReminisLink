@@ -1,12 +1,31 @@
 #!/bin/bash
 # A stand-in for the GitHub CLI in scripts/test-release-scripts.sh: logs every
 # call to $FAKE_LOG; "gh release view" succeeds when FAKE_RELEASE_EXISTS=1,
-# and with --json prints the asset names of FAKE_ASSETS (one per line).
+# and with --json prints the asset names of FAKE_ASSETS (one per line);
+# "gh api" prints FAKE_API_ASSETS ("<name><TAB><digest>" lines, as the --jq
+# filter of publish-pak-release.sh gives them); "gh release download
+# --pattern <name> --dir <dir>" copies <name> from the folder FAKE_DOWNLOADS.
 echo "gh $*" >>"$FAKE_LOG"
 case "$1 $2" in
 "release view")
 	[ "${FAKE_RELEASE_EXISTS:-0}" = 1 ] || exit 1
 	case " $* " in *" --json "*) [ -n "${FAKE_ASSETS:-}" ] && printf '%s\n' "$FAKE_ASSETS" ;; esac
+	exit 0
+	;;
+"release download")
+	pattern="" dir="."
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+		--pattern) pattern="$2"; shift ;;
+		--dir) dir="$2"; shift ;;
+		esac
+		shift
+	done
+	[ -n "$pattern" ] && [ -f "${FAKE_DOWNLOADS:-/nonexistent}/$pattern" ] || exit 1
+	cp "$FAKE_DOWNLOADS/$pattern" "$dir/$pattern"
+	;;
+"api "*)
+	if [ -n "${FAKE_API_ASSETS:-}" ]; then printf '%s\n' "$FAKE_API_ASSETS"; fi
 	exit 0
 	;;
 *) exit 0 ;;

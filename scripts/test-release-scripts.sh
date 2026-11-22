@@ -81,17 +81,37 @@ glob_matches() { [[ "$1" == v* ]]; }
 for tag in ios-v1.0.1 ios-beta-v1.1.0-beta.1; do expect "app tag $tag does not match the CI tag glob" 1 glob_matches "$tag"; done
 expect "pak tag v1.0.1 matches the CI tag glob" 0 glob_matches v1.0.1
 
-# publish <tag> [release exists: 0/1]: the release job's script with a fake gh.
+# publish <tag> [release exists: 0/1]: the release job's script with a fake
+# gh; FAKE_API_ASSETS (the published assets and their digests) and the
+# folder $tmp/published (their bytes) come from the caller.
 fakes="$root/scripts/release-tests"
 publish() {
 	: >"$tmp/fake.log"
 	env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" FAKE_RELEASE_EXISTS="${2:-0}" \
+		FAKE_API_ASSETS="${FAKE_API_ASSETS:-}" FAKE_DOWNLOADS="$tmp/published" \
 		"$root/scripts/publish-pak-release.sh" "$1" "$tmp/ReminisLink.pak.zip" "$tmp/ReminisLink.knulli.zip"
+}
+# publish_raw <args...>: the script with any arguments (fake gh).
+publish_raw() {
+	: >"$tmp/fake.log"
+	env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" "$root/scripts/publish-pak-release.sh" "$@"
 }
 logged() { grep -Fxq -- "$1" "$tmp/fake.log"; }
 not_logged() { ! grep -Fq -- "$1" "$tmp/fake.log"; }
-touch "$tmp/ReminisLink.pak.zip" "$tmp/ReminisLink.knulli.zip"
+sum() {
+	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+never_replaced() { ! grep -Eq -- '--clobber|delete-asset|release delete' "$tmp/fake.log"; }
+tab=$'\t'
+printf 'nextui zip' >"$tmp/ReminisLink.pak.zip"
+printf 'knulli zip' >"$tmp/ReminisLink.knulli.zip"
+printf 'other zip' >"$tmp/other.zip"
+mkdir -p "$tmp/published" "$tmp/empty"
+pak_digest="sha256:$(sum "$tmp/ReminisLink.pak.zip")"
+knulli_digest="sha256:$(sum "$tmp/ReminisLink.knulli.zip")"
+other_digest="sha256:$(sum "$tmp/other.zip")"
 if command -v jq >/dev/null 2>&1; then
+	FAKE_API_ASSETS=""
 	expect "publish v1.0.1: new release" 0 publish v1.0.1
 	expect "  created as Latest, not a pre-release" 0 grep -Eq '^gh release create v1.0.1 .* --prerelease=false --latest$' "$tmp/fake.log"
 	expect "  with both zips, NextUI first" 0 grep -Eq '^gh release create v1.0.1 [^ ]*/ReminisLink.pak.zip [^ ]*/ReminisLink.knulli.zip --verify-tag ' "$tmp/fake.log"
@@ -99,19 +119,64 @@ if command -v jq >/dev/null 2>&1; then
 	expect "  created as a pre-release, never Latest" 0 grep -Eq '^gh release create v1.1.0-beta.1 .* --prerelease --latest=false$' "$tmp/fake.log"
 	expect "  with both zips" 0 grep -Eq '^gh release create v1.1.0-beta.1 [^ ]*/ReminisLink.pak.zip [^ ]*/ReminisLink.knulli.zip ' "$tmp/fake.log"
 	expect "  never marked Latest" 1 grep -Eq -- '--latest( |$)' "$tmp/fake.log"
-	expect "publish v1.1.0-beta.1 again (release exists, maybe marked Latest)" 0 publish v1.1.0-beta.1 1
-	expect "  flags set again before the zip" 0 logged "gh release edit v1.1.0-beta.1 --prerelease --latest=false"
-	expect "  then both zips replaced" 0 grep -Eq '^gh release upload v1.1.0-beta.1 [^ ]*/ReminisLink.pak.zip [^ ]*/ReminisLink.knulli.zip --clobber$' "$tmp/fake.log"
+
+	expect "re-run v1.1.0-beta.1, no zip published yet" 0 publish v1.1.0-beta.1 1
+	expect "  flags set again first" 0 logged "gh release edit v1.1.0-beta.1 --prerelease --latest=false"
+	expect "  both zips uploaded" 0 grep -Eq '^gh release upload v1.1.0-beta.1 [^ ]*/ReminisLink.pak.zip [^ ]*/ReminisLink.knulli.zip$' "$tmp/fake.log"
 	expect "  edit comes before upload" 0 test "$(grep -n 'release edit' "$tmp/fake.log" | cut -d: -f1)" -lt "$(grep -n 'release upload' "$tmp/fake.log" | cut -d: -f1)"
 	expect "  nothing created" 0 not_logged "release create"
-	expect "publish v1.0.1 again: back to Latest" 0 publish v1.0.1 1
-	expect "  flags set again" 0 logged "gh release edit v1.0.1 --prerelease=false --latest"
+	expect "  never --clobber nor a deletion" 0 never_replaced
+	expect "  never marked Latest" 1 grep -Eq -- '--latest( |$)' "$tmp/fake.log"
+
+	FAKE_API_ASSETS="ReminisLink.pak.zip${tab}${pak_digest}
+ReminisLink.knulli.zip${tab}${knulli_digest}"
+	expect "re-run v1.0.1, both zips identical (digests of the API)" 0 publish v1.0.1 1
+	expect "  flags set again (back to Latest)" 0 logged "gh release edit v1.0.1 --prerelease=false --latest"
+	expect "  nothing uploaded" 0 not_logged "release upload"
+	expect "  nothing downloaded" 0 not_logged "release download"
+	expect "  never --clobber nor a deletion" 0 never_replaced
+
+	FAKE_API_ASSETS="ReminisLink.pak.zip${tab}${pak_digest}"
+	expect "re-run v1.1.0-beta.1, NextUI zip published, Knulli zip missing" 0 publish v1.1.0-beta.1 1
+	expect "  only the Knulli zip uploaded" 0 grep -Eq '^gh release upload v1.1.0-beta.1 [^ ]*/ReminisLink.knulli.zip$' "$tmp/fake.log"
+	expect "  never --clobber nor a deletion" 0 never_replaced
+
+	FAKE_API_ASSETS="ReminisLink.pak.zip${tab}${other_digest}"
+	expect "re-run v1.0.1, published NextUI zip differs: refused" 1 publish v1.0.1 1
+	expect "  nothing uploaded (not even the missing Knulli zip)" 0 not_logged "release upload"
+	expect "  never --clobber nor a deletion" 0 never_replaced
+	FAKE_API_ASSETS="ReminisLink.pak.zip${tab}${pak_digest}
+ReminisLink.knulli.zip${tab}${other_digest}"
+	expect "re-run v1.0.1, published Knulli zip differs: refused" 1 publish v1.0.1 1
+	expect "  nothing uploaded" 0 not_logged "release upload"
+
+	# No digest from the API: the published asset is downloaded and compared.
+	cp "$tmp/ReminisLink.pak.zip" "$tmp/published/ReminisLink.pak.zip"
+	cp "$tmp/ReminisLink.knulli.zip" "$tmp/published/ReminisLink.knulli.zip"
+	FAKE_API_ASSETS="ReminisLink.pak.zip${tab}
+ReminisLink.knulli.zip${tab}"
+	expect "re-run without digests, identical downloads" 0 publish v1.0.1 1
+	expect "  NextUI zip downloaded to compare" 0 grep -Eq '^gh release download v1.0.1 --pattern ReminisLink.pak.zip ' "$tmp/fake.log"
+	expect "  nothing uploaded" 0 not_logged "release upload"
+	cp "$tmp/other.zip" "$tmp/published/ReminisLink.knulli.zip"
+	expect "re-run without digests, different Knulli download: refused" 1 publish v1.0.1 1
+	expect "  nothing uploaded" 0 not_logged "release upload"
+	expect "  never --clobber nor a deletion" 0 never_replaced
+	rm -f "$tmp/published/ReminisLink.knulli.zip"
+	expect "re-run without digests, download fails: refused" 1 publish v1.0.1 1
+	expect "  nothing uploaded" 0 not_logged "release upload"
+	FAKE_API_ASSETS=""
+
 	expect "publish ios-v1.0.1: refused" 1 publish ios-v1.0.1
 	expect "  gh never called for an app tag" 0 test ! -s "$tmp/fake.log"
-	: >"$tmp/fake.log"
-	expect "publish without a zip: refused" 1 env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" "$root/scripts/publish-pak-release.sh" v1.1.0
-	expect "publish with a missing Knulli zip: refused" 1 env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" "$root/scripts/publish-pak-release.sh" v1.1.0 "$tmp/ReminisLink.pak.zip" "$tmp/missing.knulli.zip"
+	expect "publish without a zip: refused" 1 publish_raw v1.1.0
+	expect "publish with the NextUI zip only: refused" 1 publish_raw v1.1.0-beta.1 "$tmp/ReminisLink.pak.zip"
+	expect "  gh never called" 0 test ! -s "$tmp/fake.log"
+	expect "publish with the zips swapped: refused" 1 publish_raw v1.1.0 "$tmp/ReminisLink.knulli.zip" "$tmp/ReminisLink.pak.zip"
+	expect "publish with a third zip: refused" 1 publish_raw v1.1.0 "$tmp/ReminisLink.pak.zip" "$tmp/ReminisLink.knulli.zip" "$tmp/other.zip"
+	expect "publish with a missing Knulli zip: refused" 1 publish_raw v1.1.0 "$tmp/ReminisLink.pak.zip" "$tmp/empty/ReminisLink.knulli.zip"
 	expect "  gh never called without its zips" 0 test ! -s "$tmp/fake.log"
+	expect "publish script never uses --clobber" 1 grep -q -- '--clobber' "$root/scripts/publish-pak-release.sh"
 else
 	echo "skip  pak release publication (needs jq, as on the CI runner)"
 fi

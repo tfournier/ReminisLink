@@ -66,7 +66,7 @@ Checklist dans `docs/specs/checklists/` (à créer au jalon M2) :
 
 ## 6. CI (GitHub Actions)
 
-- Job Go : `make lint test` puis compilation ARM64 dans `debian:bullseye` (comme Cheat Manager), publication de `ReminisLink.pak.zip` et de `ReminisLink.knulli.zip` sur tag (`scripts/publish-pak-release.sh`, testé par `make release-checks` avec un faux `gh` : les deux zips joints, une pré-version jamais « Latest »).
+- Job Go : `make lint test` puis compilation ARM64 dans `debian:bullseye` (comme Cheat Manager), publication de `ReminisLink.pak.zip` et de `ReminisLink.knulli.zip` sur tag (`scripts/publish-pak-release.sh`, testé par `make release-checks` avec un faux `gh` : les deux zips exigés et joints, une pré-version jamais « Latest », et quand on relance la publication un zip publié jamais supprimé ni remplacé, ni `--clobber` : identique gardé, absent envoyé, différent refusé).
 - Job iOS (runner macOS) : `swift test` pour `ReminisLinkKit`, `xcodebuild test` pour l'app.
 - Job contrat : vérifie que `openapi.yaml` est valide et que les vecteurs sont lisibles.
 - Job émulation (M20, runner `ubuntu-24.04-arm`) : `make emulation` avec le binaire du zip construit par le job de compilation (sans la Brick, dont le rootfs n'est pas dans la CI). Le job de compilation construit aussi `ReminisLink.knulli.zip`, artefact de la CI, joint par le job de publication à chaque version et pré-version du pak à partir de `v1.1.0-beta.1`.

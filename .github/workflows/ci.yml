@@ -236,7 +236,9 @@ jobs:
         # latest (vX.Y.Z) or prerelease (vX.Y.Z-beta.N, -rc.N); any other
         # tag (an app tag above all) stops there: only a pak release can be
         # "Latest", the release the Pak Store reads. A re-run sets the flags
-        # of the existing release again before replacing its zips. The
+        # of the existing release again, then never deletes nor replaces a
+        # published zip: identical (SHA-256) kept, missing uploaded,
+        # different: the job fails and asks for a manual check. The
         # NextUI zip keeps its name: the Pak Store downloads the asset named
         # by release_filename in pak.json.
         run: scripts/publish-pak-release.sh "$TAG" dist/ReminisLink.pak.zip dist/ReminisLink.knulli.zip
