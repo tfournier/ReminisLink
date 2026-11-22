@@ -330,7 +330,7 @@ targets are in `Config/Config.xcconfig`.
 ## Demo mode (no console, no server)
 
 Milestone M16: *Try Without a Console* (welcome screen, or the last row of
-the list of consoles) opens a "Demo Brick" in every build, App Store
+the list of consoles) opens a "Demo Handheld" (« Console de démo ») in every build, App Store
 included (`App/DemoMode.swift`, docs/specs/06-app-ios.md §12). It talks to
 the fake pak of `ReminisLinkDemo` through `FakeURLProtocol`, and
 `OfflineURLProtocol` fails any other request without going out; its keys
@@ -342,18 +342,21 @@ work (`WorkTracker` counts file copies and downloads), erases its own
 folder and suite and is freed (a crashed session is erased at the next
 launch). While it runs, the real app pauses Bonjour, its uploads and its
 save syncs. The real list of consoles is never touched. Box arts and state
-thumbnails are drawn by `DemoArtwork` (no real art). `DemoModeAppTests`
+thumbnails are drawn by `DemoArtwork` (no real art). The console's name
+and its cheat names come from the app's String Catalog (passed to
+`FakePak`), so they follow the app language, and its model reads "Demo
+mode": no product name appears in the demo. `DemoModeAppTests`
 and `DemoModeUITests` cover it; the App Store screenshots are taken with
 `-RLScreenshots YES` (Debug only), which hides the banner.
 
 For UI tests, launch with the environment variable `RL_DEMO=1` (already in the scheme,
 disabled: tick it in *Edit Scheme > Run > Arguments*) or the argument
 `-RLDemo YES` (Debug builds only). The whole app then runs on the same
-demo, without the banner and not paired yet, and sees one "Demo Brick".
+demo, without the banner and not paired yet, and sees one "Demo Handheld".
 Pair it with *Add a Console > Pair with the Demo Console*, or open its link:
 
 ```sh
-xcrun simctl openurl booted 'reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1'
+xcrun simctl openurl booted 'reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Handheld&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1'
 ```
 
 The fake pak checks signatures like the real one; its game names, system
@@ -518,24 +521,35 @@ banner, `-RLScreenshots YES`) when `TEST_RUNNER_RL_SCREENSHOTS` is `en` or
 both languages (it sets the language of the simulator for the status bar
 date, 9:41 and a full battery), checks both series (the six names
 `1-library` to `6-consoles` exactly once, the given size, no alpha), and
-only then replaces `docs/screenshots/appstore/<locale>-<suffix>/`. The
+only then replaces `docs/screenshots/appstore/<locale>-<suffix>/`
+(`<locale>/` when the suffix is empty). The
 simulator must be shut down (simctl cannot read status bar overrides back,
 so a booted one is refused); at the end its language and region are put
 back (only those it could read), the overrides it set are cleared and it
-is shut down again. iPad 13" (2064 × 2752, iPad Pro 13-inch M5 simulator):
+is shut down again. The three App Store Connect slots (iOS 26 simulators;
+dedicated ones created for the run and deleted afterwards keep your own
+simulators untouched):
 
 ```sh
-xcrun simctl shutdown <iPad Pro 13-inch simulator id>
-ios/AppStore/make-screenshots.sh <iPad Pro 13-inch simulator id> ipad-13 2064 2752
+R=com.apple.CoreSimulator.SimRuntime.iOS-26-4
+P69=$(xcrun simctl create "RL Shots 6.9" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max $R)
+P63=$(xcrun simctl create "RL Shots 6.3" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro $R)
+PAD=$(xcrun simctl create "RL Shots iPad 13" com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB $R)
+ios/AppStore/make-screenshots.sh $P69 '' 1320 2868       # iPhone 6.9": en-US/, fr-FR/
+ios/AppStore/make-screenshots.sh $P63 6.3 1206 2622      # iPhone 6.3": en-US-6.3/, fr-FR-6.3/
+ios/AppStore/make-screenshots.sh $PAD ipad-13 2064 2752  # iPad 13": en-US-ipad-13/, fr-FR-ipad-13/
+xcrun simctl delete $P69 $P63 $PAD
 ```
+
+Run them one after the other (they build the same scheme).
 
 In the demo the texts that name NextUI say "the console" instead (state
 history, game image). Apple's own feature names are kept: the Files
 footer of a game says "Save to Files, AirDrop…" in the demo and in the
 screenshots (`1-library`, `2-game`). On an iPad the
-library screenshots show the list and the game side by side.
-The iPhone sets of M16 were taken by hand; this test should give the same
-screens on an iPhone 16 Pro Max (1320 × 2868), not tried yet.
+library screenshots show the list and the game side by side. Since
+version 1.1 the iPhone sets are made by the same script (the M16 ones were
+taken by hand).
 
 ## Against the pak on the Mac (`make headless`)
 

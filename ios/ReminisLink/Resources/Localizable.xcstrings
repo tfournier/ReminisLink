@@ -1803,17 +1803,7 @@
         }
       }
     },
-    "Demo Brick" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Brick de démo"
-          }
-        }
-      }
-    },
-    "Demo Console" : {
+    "Demo Handheld" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
@@ -1824,6 +1814,26 @@
       }
     },
     "Demo Mode" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode démo"
+          }
+        }
+      }
+    },
+    "Demo cheat %lld" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code de démo %lld"
+          }
+        }
+      }
+    },
+    "Demo mode" : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {

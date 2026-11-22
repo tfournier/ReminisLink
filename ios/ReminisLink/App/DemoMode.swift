@@ -4,7 +4,7 @@ import ReminisLinkDemo
 import ReminisLinkKit
 
 /// The demo mode (milestone M16, docs/specs/09-feuille-de-route.md): the
-/// whole app against the fake pak of `ReminisLinkDemo`, a "Demo Brick" with
+/// whole app against the fake pak of `ReminisLinkDemo`, a "Demo Handheld" with
 /// made-up games, to try every feature without a console (App Review, the
 /// curious, the App Store screenshots).
 ///
@@ -59,7 +59,7 @@ final class DemoMode {
     ///     starts (UI tests).
     init(
         name: String? = nil, host: String? = nil,
-        deviceName: String = String(localized: "Demo Brick"), model: DeviceModel = .demo, isDemo: Bool = true,
+        deviceName: String = String(localized: "Demo Handheld"), model: DeviceModel = .demo, isDemo: Bool = true,
         background: BackgroundActivity? = nil,
         hooks: (FakePak, UserDefaults) -> Void = { _, _ in }
     ) {
@@ -72,7 +72,10 @@ final class DemoMode {
         self.root = root
         self.suiteName = suiteName
         self.defaults = defaults
-        let pak = FakePak(deviceName: deviceName, model: model, host: host ?? "\(session).try.demo.reminislink.invalid")
+        let pak = FakePak(
+            deviceName: deviceName, model: model, host: host ?? "\(session).try.demo.reminislink.invalid",
+            cheatName: { String(localized: "Demo cheat \($0)") }
+        )
         // Original drawn box arts and state thumbnails; a short request log
         // (a long session does not grow in memory).
         pak.drawsArtwork = true

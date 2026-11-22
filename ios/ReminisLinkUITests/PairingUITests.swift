@@ -6,9 +6,9 @@ final class PairingUITests: XCTestCase {
     /// Pairing link v2 of the fake pak of the demo mode (ReminisLinkDemo's
     /// `FakePak`: device id `demoDeviceId`, secret bytes 0x00...0x1f, pin
     /// bytes 0xff...0xe0; no address: the demo discovery finds it).
-    static let demoLink = "reminislink://pair?v=2&id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&k=__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA"
+    static let demoLink = "reminislink://pair?v=2&id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Handheld&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&k=__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA"
     /// The same console's link before M13 (`v=1`, no pin).
-    static let rl1DemoLink = "reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1"
+    static let rl1DemoLink = "reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Handheld&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1"
     static let demoDeviceId = "5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"
 
     override func setUp() {

@@ -211,7 +211,7 @@ extension FakePak {
                     let key = Self.dataKey(system: _library.systems[index], game: back)
                     if let data, keptSave {
                         // The save and states stayed: only the cheats come back.
-                        var current = gameData[key] ?? Self.seed(game: back)
+                        var current = gameData[key] ?? seed(game: back)
                         current.cheats = data.cheats
                         gameData[key] = current
                     } else if let data {
@@ -250,7 +250,7 @@ extension FakePak {
             return .error(422, code: "unsupported_format", message: "Only the save of an existing game can replace the current one",
                           details: ["reason": plan.replaceUnavailable ?? "not-a-save"])
         }
-        var data = gameData[key] ?? Self.seed(game: game)
+        var data = gameData[key] ?? seed(game: game)
         if let current = data.save {
             let now = Date()
             data.backups.insert(FakeBackup(id: "bk_\(Self.stamp(now))_\(UUID().uuidString.prefix(4).lowercased())",

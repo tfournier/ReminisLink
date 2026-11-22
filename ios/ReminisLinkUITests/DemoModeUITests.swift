@@ -49,14 +49,14 @@ final class DemoModeUITests: XCTestCase {
         // The console list of the demo: the demo console, no Add a Console.
         app.consoleTabs["Console"].tap()
         app.buttons["tab.consoles"].tapAfterWaiting()
-        XCTAssertTrue(app.staticTexts["Demo Brick"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Demo Handheld"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["consoles.add"].exists, "Add a Console in the demo")
 
         // Quit: back to the empty list of real consoles.
         app.buttons["demo.quit"].tap()
         XCTAssertTrue(app.buttons["welcome.demo"].waitForExistence(timeout: 10), "not back on the first screen")
         XCTAssertFalse(app.buttons["demo.quit"].exists)
-        XCTAssertFalse(app.staticTexts["Demo Brick"].exists)
+        XCTAssertFalse(app.staticTexts["Demo Handheld"].exists)
 
         // A new launch does not resume the demo.
         app.terminate()
