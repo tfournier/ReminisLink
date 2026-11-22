@@ -135,13 +135,13 @@ extension FakePak {
         let id = Self.dataKey(system: system, game: game)
         return lock.withLock {
             if let data = gameData[id] { return data }
-            let data = Self.seed(game: game)
+            let data = seed(game: game)
             gameData[id] = data
             return data
         }
     }
 
-    static func seed(game: DemoLibrary.Game) -> FakeGameData {
+    func seed(game: DemoLibrary.Game) -> FakeGameData {
         let base = game.modifiedAt
         var data = FakeGameData(saveModifiedAt: base)
         if game.hasSave {
@@ -184,7 +184,7 @@ extension FakePak {
             let address: Int = 0x0200_0000 + i * 16
             let code = String(format: "%08X+%04X", address, i)
             let extra: [String: String] = i == 0 ? ["handler": "0"] : [:]
-            return FakeCheat(description: "Demo cheat \(i + 1)", code: code, enabled: i == 0, extra: extra)
+            return FakeCheat(description: cheatName(i + 1), code: code, enabled: i == 0, extra: extra)
         }
         return data
     }
@@ -370,7 +370,7 @@ extension FakePak {
         _ = currentData(system: system, game: game)
         let key = Self.dataKey(system: system, game: game)
         return lock.withLock {
-            var data = gameData[key] ?? Self.seed(game: game)
+            var data = gameData[key] ?? seed(game: game)
             let response = change(&data)
             gameData[key] = data
             return response

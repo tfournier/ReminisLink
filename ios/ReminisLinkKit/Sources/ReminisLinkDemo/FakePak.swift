@@ -74,6 +74,9 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
     }
     private var _pakVersion: String
     public let apiVersion: Int
+    /// The description of the n-th seeded cheat (from 1): the app's demo
+    /// mode passes a localized one, like the console name.
+    let cheatName: @Sendable (Int) -> String
 
     let lock = NSLock()
     private var _clockOffset: TimeInterval = 0
@@ -165,7 +168,7 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
 
     public init(
         deviceId: String = FakePak.demoDeviceId,
-        deviceName: String = "Demo Brick",
+        deviceName: String = "Demo Handheld",
         model: DeviceModel = .brick,
         secret: Data = FakePak.demoSecret,
         pin: String = FakePak.demoPin,
@@ -174,9 +177,11 @@ public final class FakePak: FakeLateArrivals, @unchecked Sendable {
         library: DemoLibrary = .sample,
         minClientVersion: String = "1.0.0",
         pakVersion: String = "1.0.0",
-        apiVersion: Int = APIClient.apiVersion
+        apiVersion: Int = APIClient.apiVersion,
+        cheatName: @escaping @Sendable (Int) -> String = { "Demo cheat \($0)" }
     ) {
         self.deviceId = deviceId
+        self.cheatName = cheatName
         self._deviceName = deviceName
         self.model = model
         self.secret = secret

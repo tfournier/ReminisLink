@@ -346,8 +346,8 @@ struct MacPairingTests {
 
     // MARK: - QR codes without VisionKit
 
-    static let link = "reminislink://pair?v=2&id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&k=__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA"
-    static let rl1Link = "reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1"
+    static let link = "reminislink://pair?v=2&id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Handheld&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&k=__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA"
+    static let rl1Link = "reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Handheld&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1"
 
     /// A QR code picture made with Core Image, with a white margin.
     static func qrImage(_ payload: String, scale: CGFloat = 8) throws -> CGImage {

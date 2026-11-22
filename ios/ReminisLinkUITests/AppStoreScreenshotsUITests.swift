@@ -66,7 +66,7 @@ final class AppStoreScreenshotsUITests: XCTestCase {
         app.goBack()
         app.buttons["tab.consoles"].tapAfterWaiting()
         XCTAssertTrue(app.buttons["console.\(PairingUITests.demoDeviceId)"].waitForExistence(timeout: 10)
-            || app.staticTexts["Demo Brick"].waitForExistence(timeout: 10))
+            || app.staticTexts[language == "fr" ? "Console de démo" : "Demo Handheld"].waitForExistence(timeout: 10))
         settle()
         shoot(app, "6-consoles")
     }

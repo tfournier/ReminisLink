@@ -330,7 +330,7 @@ targets are in `Config/Config.xcconfig`.
 ## Demo mode (no console, no server)
 
 Milestone M16: *Try Without a Console* (welcome screen, or the last row of
-the list of consoles) opens a "Demo Brick" in every build, App Store
+the list of consoles) opens a "Demo Handheld" (« Console de démo ») in every build, App Store
 included (`App/DemoMode.swift`, docs/specs/06-app-ios.md §12). It talks to
 the fake pak of `ReminisLinkDemo` through `FakeURLProtocol`, and
 `OfflineURLProtocol` fails any other request without going out; its keys
@@ -342,18 +342,21 @@ work (`WorkTracker` counts file copies and downloads), erases its own
 folder and suite and is freed (a crashed session is erased at the next
 launch). While it runs, the real app pauses Bonjour, its uploads and its
 save syncs. The real list of consoles is never touched. Box arts and state
-thumbnails are drawn by `DemoArtwork` (no real art). `DemoModeAppTests`
+thumbnails are drawn by `DemoArtwork` (no real art). The console's name
+and its cheat names come from the app's String Catalog (passed to
+`FakePak`), so they follow the app language, and its model reads "Demo
+mode": no product name appears in the demo. `DemoModeAppTests`
 and `DemoModeUITests` cover it; the App Store screenshots are taken with
 `-RLScreenshots YES` (Debug only), which hides the banner.
 
 For UI tests, launch with the environment variable `RL_DEMO=1` (already in the scheme,
 disabled: tick it in *Edit Scheme > Run > Arguments*) or the argument
 `-RLDemo YES` (Debug builds only). The whole app then runs on the same
-demo, without the banner and not paired yet, and sees one "Demo Brick".
+demo, without the banner and not paired yet, and sees one "Demo Handheld".
 Pair it with *Add a Console > Pair with the Demo Console*, or open its link:
 
 ```sh
-xcrun simctl openurl booted 'reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Brick&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1'
+xcrun simctl openurl booted 'reminislink://pair?id=5f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0&n=Demo%20Handheld&s=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&v=1'
 ```
 
 The fake pak checks signatures like the real one; its game names, system

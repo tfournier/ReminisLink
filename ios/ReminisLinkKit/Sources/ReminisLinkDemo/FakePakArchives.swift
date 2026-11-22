@@ -458,7 +458,7 @@ extension FakePak {
             switch file.role {
             case .save:
                 lock.withLock {
-                    var data = gameData[key] ?? Self.seed(game: game)
+                    var data = gameData[key] ?? seed(game: game)
                     if let old = data.save { backupId = Self.addBackup(&data, blob: old, label: nil, reason: BackupReason.beforeImport.rawValue).id }
                     data.save = .of(bytes)
                     data.saveModifiedAt = Date()

@@ -228,7 +228,7 @@ struct SaveSyncTests {
         let versions = try await sandbox.vault().versions(deviceId: pak.deviceId, gameId: skyGarden)
         #expect(versions.first?.info.save.name == "Thistledown Isles.hab.sav")
         #expect(versions.first?.info.rtc?.name == "Thistledown Isles.hab.rtc")
-        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Brick/Handheld Advance (HA)/Thistledown Isles").path))
+        #expect(FileManager.default.fileExists(atPath: sandbox.root.appending(path: "Demo Handheld/Handheld Advance (HA)/Thistledown Isles").path))
 
         pak.play(gameId: skyGarden, content: Data("played".utf8))
         let second = try await sync().run()
