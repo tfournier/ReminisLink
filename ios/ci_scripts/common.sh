@@ -156,7 +156,7 @@ RL_CI_WORKFLOW_FILE="${RL_CI_WORKFLOW_FILE:-ci.yml}"
 RL_CI_BRANCH="${RL_CI_BRANCH:-main}"
 RL_GITHUB_PER_PAGE="${RL_GITHUB_PER_PAGE:-100}"
 # The jobs an app build needs (CI_JOBS_IOS of the Makefile is the same list).
-RL_CI_JOBS_IOS="ios ios-ui contract"
+RL_CI_JOBS_IOS="ios ios-ui-1 ios-ui-2 contract"
 
 # rl_github_get <path>: prints the JSON answer of GET <path> of the GitHub
 # API, through gh (RL_GITHUB_CLIENT=gh) or curl without a token (default).

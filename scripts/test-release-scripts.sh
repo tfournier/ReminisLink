@@ -337,7 +337,7 @@ ci_jobs() {
 }
 sha_of() { printf '%040d' "$1"; }
 all_green=(go:completed:success contract:completed:success build:completed:success emulation:completed:success
-	ios:completed:success ios-ui:completed:success android:completed:success)
+	ios:completed:success ios-ui-1:completed:success ios-ui-2:completed:success android:completed:success)
 green_sha="$(sha_of 1)"
 ci_runs "$green_sha" 101:completed
 ci_jobs 101 "${all_green[@]}"
@@ -399,7 +399,7 @@ ci_jobs 300 "${all_green[@]}"
 for sha in "$notes_ok" "$notes_wrong_message" "$notes_with_code" "$notes_rename" "$notes_add" "$notes_delete" "$notes_root"; do
 	ci_runs "$sha" 301:in_progress
 done
-ci_jobs 301 ios:in_progress:null ios-ui:in_progress:null contract:in_progress:null
+ci_jobs 301 ios:in_progress:null ios-ui-1:in_progress:null ios-ui-2:in_progress:null contract:in_progress:null
 
 # run_ci <script> VAR=value...: one Xcode Cloud script with only these CI_*
 # variables (and no App Store Connect key), writing a temporary xcconfig.
@@ -474,43 +474,46 @@ expect "Beta post-xcodebuild: does nothing" 0 run_ci ci_post_xcodebuild.sh CI_WO
 gate() { run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.3.0-beta.1 CI_BUILD_NUMBER=30 "$@"; }
 asked() { grep -Fq "curl $1" "$tmp/fake.log"; }
 if [ "$have_jq" = 1 ]; then
-	expect "gate: ios, ios-ui and contract passed on main: build goes on" 0 gate
+	expect "gate: ios, ios-ui-1, ios-ui-2 and contract passed on main: build goes on" 0 gate
 	expect "  the run named in the log" 0 grep -q "https://github.test/runs/101" "$tmp/out"
 	expect "  asked the ci.yml runs of a push to main, without a token (curl)" 0 asked "https://api.github.com/$runs_api?head_sha=$green_sha&branch=main&event=push&per_page=$per_page&page=1"
 	expect "gate: Release workflow, green: build goes on" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=31
 
 	sha="$(sha_of 2)"
 	ci_runs "$sha" 102:completed
-	ci_jobs 102 go:completed:success contract:completed:success ios:completed:failure ios-ui:completed:success \
+	ci_jobs 102 go:completed:success contract:completed:success ios:completed:failure ios-ui-1:completed:success ios-ui-2:completed:success \
 		android:completed:success build:completed:success emulation:completed:success
 	expect "gate: ios failed: refused" 1 gate CI_COMMIT="$sha"
-	expect "  says it did not pass, names the jobs and the way around it" 0 grep -q "did not pass (ios ios-ui contract).*RL_SKIP_CI_CHECK=1" "$tmp/out"
+	expect "  says it did not pass, names the jobs and the way around it" 0 grep -q "did not pass (ios ios-ui-1 ios-ui-2 contract).*RL_SKIP_CI_CHECK=1" "$tmp/out"
 	expect "gate: ios failed, Release workflow: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=32 CI_COMMIT="$sha"
 
 	sha="$(sha_of 3)"
 	ci_runs "$sha" 103:completed
-	ci_jobs 103 ios:completed:success ios-ui:completed:success contract:completed:failure
+	ci_jobs 103 ios:completed:success ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:failure
 	expect "gate: contract failed: refused" 1 gate CI_COMMIT="$sha"
 
 	sha="$(sha_of 16)"
 	ci_runs "$sha" 161:completed
-	ci_jobs 161 ios:completed:success ios-ui:completed:failure contract:completed:success
-	expect "gate: ios-ui failed (UI tests): refused" 1 gate CI_COMMIT="$sha"
-	expect "  names ios-ui" 0 grep -q "ios-ui=failure" "$tmp/out"
+	ci_jobs 161 ios:completed:success ios-ui-1:completed:success ios-ui-2:completed:failure contract:completed:success
+	expect "gate: ios-ui-2 failed (second half of the UI tests): refused" 1 gate CI_COMMIT="$sha"
+	expect "  names ios-ui-2" 0 grep -q "ios-ui-2=failure" "$tmp/out"
+	ci_jobs 161 ios:completed:success ios-ui-1:completed:timed_out ios-ui-2:completed:success contract:completed:success
+	expect "gate: ios-ui-1 timed out (first half of the UI tests): refused" 1 gate CI_COMMIT="$sha"
+	expect "  names ios-ui-1" 0 grep -q "ios-ui-1=timed_out" "$tmp/out"
 
 	n=20
 	for conclusion in skipped neutral cancelled timed_out action_required stale; do
 		n=$((n + 1))
 		sha="$(sha_of "$n")"
 		ci_runs "$sha" "1$n:completed"
-		ci_jobs "1$n" "ios:completed:$conclusion" ios-ui:completed:success contract:completed:success
+		ci_jobs "1$n" "ios:completed:$conclusion" ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success
 		expect "gate: ios $conclusion: refused (only success counts)" 1 gate CI_COMMIT="$sha"
 		expect "  says it did not pass" 0 grep -q "did not pass" "$tmp/out"
 	done
 
 	sha="$(sha_of 4)"
 	ci_runs "$sha" 104:in_progress
-	ci_jobs 104 ios:in_progress:null ios-ui:completed:success contract:completed:success
+	ci_jobs 104 ios:in_progress:null ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success
 	expect "gate: ios still running: refused" 1 gate CI_COMMIT="$sha"
 	expect "  says it is running" 0 grep -q "still running" "$tmp/out"
 
@@ -522,7 +525,7 @@ if [ "$have_jq" = 1 ]; then
 
 	sha="$(sha_of 11)"
 	ci_runs "$sha" 111:in_progress
-	ci_jobs 111 ios:completed:failure ios-ui:in_progress:null contract:in_progress:null
+	ci_jobs 111 ios:completed:failure ios-ui-1:in_progress:null ios-ui-2:in_progress:null contract:in_progress:null
 	expect "gate: ios failed while contract still runs: refused as failed" 1 gate CI_COMMIT="$sha"
 	expect "  the failure wins over the running job" 0 grep -q "did not pass" "$tmp/out"
 
@@ -534,30 +537,30 @@ if [ "$have_jq" = 1 ]; then
 
 	sha="$(sha_of 17)"
 	ci_runs "$sha" 171:completed
-	ci_jobs 171 go:completed:success ios:completed:success contract:completed:success
-	expect "gate: finished run without an ios-ui job (CI before the split): refused" 1 gate CI_COMMIT="$sha"
-	expect "  says ios-ui is missing" 0 grep -q "ios-ui=missing" "$tmp/out"
+	ci_jobs 171 go:completed:success ios:completed:success ios-ui:completed:success contract:completed:success
+	expect "gate: finished run with the old single ios-ui job (before the halves): refused" 1 gate CI_COMMIT="$sha"
+	expect "  says ios-ui-1 and ios-ui-2 are missing" 0 grep -q "ios-ui-1=missing ios-ui-2=missing" "$tmp/out"
 
 	sha="$(sha_of 7)"
 	ci_runs "$sha" 108:in_progress 107:completed
-	ci_jobs 108 ios:completed:success ios-ui:completed:success contract:completed:success go:in_progress:null
-	ci_jobs 107 ios:completed:failure ios-ui:completed:success contract:completed:success
-	expect "gate: newer run passed ios, ios-ui and contract, older failed: build goes on" 0 gate CI_COMMIT="$sha"
-	ci_jobs 108 ios:completed:cancelled ios-ui:completed:success contract:completed:success
+	ci_jobs 108 ios:completed:success ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success go:in_progress:null
+	ci_jobs 107 ios:completed:failure ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success
+	expect "gate: newer run passed ios, ios-ui-1, ios-ui-2 and contract, older failed: build goes on" 0 gate CI_COMMIT="$sha"
+	ci_jobs 108 ios:completed:cancelled ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success
 	expect "gate: one run cancelled, one failed: refused" 1 gate CI_COMMIT="$sha"
 
 	# Five runs in pages of two: the green one on the third page.
 	sha="$(sha_of 12)"
 	ci_runs "$sha" 125:completed 124:completed 123:completed 122:completed 121:completed
-	for id in 125 124 123 122; do ci_jobs "$id" ios:completed:failure ios-ui:completed:success contract:completed:success; done
-	ci_jobs 121 ios:completed:success ios-ui:completed:success contract:completed:success
+	for id in 125 124 123 122; do ci_jobs "$id" ios:completed:failure ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success; done
+	ci_jobs 121 ios:completed:success ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success
 	expect "gate: green run on the third page of runs: build goes on" 0 gate CI_COMMIT="$sha"
 	expect "  the third page read" 0 asked "https://api.github.com/$runs_api?head_sha=$sha&branch=main&event=push&per_page=$per_page&page=3"
 	# Jobs in pages too: ios on the second page.
 	sha="$(sha_of 13)"
 	ci_runs "$sha" 131:completed
-	ci_jobs 131 go:completed:success build:completed:success contract:completed:success ios:completed:success ios-ui:completed:success
-	expect "gate: ios and ios-ui on the second and third pages of jobs: build goes on" 0 gate CI_COMMIT="$sha"
+	ci_jobs 131 go:completed:success build:completed:success contract:completed:success ios:completed:success ios-ui-1:completed:success ios-ui-2:completed:success
+	expect "gate: ios and the ios-ui halves on the second and third pages of jobs: build goes on" 0 gate CI_COMMIT="$sha"
 	# A list that announces more items than its pages hold.
 	sha="$(sha_of 14)"
 	api_answer "$runs_api?head_sha=$sha&branch=main&event=push&per_page=$per_page&page=1" \
@@ -586,9 +589,9 @@ if [ "$have_jq" = 1 ]; then
 	ci_runs "$notes_ok"
 	expect "gate: release-notes commit without a run yet, parent green: build goes on" 0 gate CI_COMMIT="$notes_ok"
 	ci_runs "$notes_ok" 302:in_progress
-	ci_jobs 302 ios:completed:failure ios-ui:in_progress:null contract:in_progress:null
+	ci_jobs 302 ios:completed:failure ios-ui-1:in_progress:null ios-ui-2:in_progress:null contract:in_progress:null
 	expect "gate: release-notes commit, ios failed while contract runs: refused (no exception)" 1 gate CI_COMMIT="$notes_ok"
-	ci_jobs 302 ios:completed:skipped ios-ui:completed:success contract:completed:success
+	ci_jobs 302 ios:completed:skipped ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success
 	expect "gate: release-notes commit, ios skipped: refused" 1 gate CI_COMMIT="$notes_ok"
 	ci_runs "$notes_ok" 301:in_progress
 	expect "gate: release-notes commit, wrong tag version: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.3.1-beta.1 CI_BUILD_NUMBER=35 CI_COMMIT="$notes_ok"
@@ -623,7 +626,7 @@ if [ "$have_jq" = 1 ]; then
 	expect "gate: shallow clone, notes and code changed: still refused after the fetch" 1 gate CI_COMMIT="$notes_with_code" RL_GIT_DIR="$tmp/shallow-code"
 	expect "  says why" 0 grep -q "changes more than the release notes" "$tmp/out"
 	ci_runs "$notes_ok" 301:in_progress
-	ci_jobs 300 ios:completed:failure ios-ui:completed:success contract:completed:success
+	ci_jobs 300 ios:completed:failure ios-ui-1:completed:success ios-ui-2:completed:success contract:completed:success
 	expect "gate: release-notes commit, parent red: refused" 1 gate CI_COMMIT="$notes_ok"
 	ci_runs "$notes_base" 300:completed:v1.2.9
 	ci_jobs 300 "${all_green[@]}"
@@ -661,7 +664,7 @@ if [ "$have_jq" = 1 ]; then
 	expect "  read through gh" 0 grep -Fq "gh api -H Accept: application/vnd.github+json $runs_api?head_sha=$green_sha&branch=main&event=push&per_page=$per_page&page=1" "$tmp/fake.log"
 	expect "require-ci: android passed" 0 require_ci "$green_sha" android
 	sha="$(sha_of 2)"
-	expect "require-ci: ios failed: refused" 1 require_ci "$sha" ios ios-ui contract
+	expect "require-ci: ios failed: refused" 1 require_ci "$sha" ios ios-ui-1 ios-ui-2 contract
 	expect "require-ci: same commit, pak jobs passed" 0 require_ci "$sha" go contract build emulation
 	expect "require-ci: same commit, android passed" 0 require_ci "$sha" android
 	expect "require-ci: green run started by a tag only: refused" 1 require_ci "$(sha_of 15)" go contract build emulation
@@ -719,6 +722,75 @@ release_without_ios() {
 }
 expect "the pak release job needs no macOS job (the app's tests)" 0 release_without_ios
 expect "ci.yml runs on pushes to main (the runs the gate counts)" 0 grep -Eq '^    branches: \[main\]$' "$workflow"
+
+# --- Halves of the UI tests (scripts/ios-ui-shard.sh, jobs ios-ui-N) --------
+
+shard="$root/scripts/ios-ui-shard.sh"
+expect "bash -n ios-ui-shard.sh" 0 bash -n "$shard"
+# ui_classes <dir>: the XCTestCase classes declared in <dir>, read here
+# independently of the script.
+ui_classes() { cat "$1"/*.swift | sed -n -E 's/^[[:space:]]*(@[A-Za-z]+[[:space:]]+)*((public|internal|open|final)[[:space:]]+)*class[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*:[[:space:]]*XCTestCase([^A-Za-z0-9_].*)?$/\4/p' | LC_ALL=C sort; }
+# Any line declaring a class of XCTestCase, however written: a form the
+# pattern above misses would leave its class out of every half.
+loose_classes() { cat "$1"/*.swift | grep -E '(^|[^A-Za-z0-9_])class[[:space:]].*:.*XCTestCase' | grep -cvE '^[[:space:]]*//'; }
+# shards_cover <dir> <total>: every class in exactly one shard, none empty.
+shards_cover() {
+	local dir="$1" total="$2" n all=""
+	for n in $(seq 1 "$total"); do
+		RL_UITESTS_DIR="$dir" "$shard" --classes "$n" "$total" >"$tmp/shard.$n" || return 1
+		[ -s "$tmp/shard.$n" ] || return 1
+		all="$all$(cat "$tmp/shard.$n")"$'\n'
+	done
+	[ -z "$(printf '%s' "$all" | LC_ALL=C sort | uniq -d)" ] || { echo "class in two halves"; return 1; }
+	[ "$(printf '%s' "$all" | LC_ALL=C sort)" = "$(ui_classes "$dir")" ] || { echo "class in no half"; return 1; }
+}
+uitests="$root/ios/ReminisLinkUITests"
+# The halves of ci.yml: jobs ios-ui-1..N, job N running "ios-ui-shard.sh N <N>"
+# on one simulator, with a time limit.
+ui_jobs() { grep -cE '^  ios-ui-[0-9]+:$' "$workflow"; }
+ui_jobs_call_their_half() {
+	local total n block
+	total="$(ui_jobs)"
+	[ "$total" -ge 2 ] || return 1
+	for n in $(seq 1 "$total"); do
+		block="$(sed -n "/^  ios-ui-$n:\$/,/^  [a-z]/p" "$workflow")"
+		grep -Fq "only=\$(../scripts/ios-ui-shard.sh $n $total)" <<<"$block" || return 1
+		grep -Fq '$only \' <<<"$block" || return 1
+		grep -Fq -- '-parallel-testing-enabled NO' <<<"$block" || return 1
+		grep -Fq -- '-retry-tests-on-failure -test-iterations 3' <<<"$block" || return 1
+		grep -Eq '^    timeout-minutes: [0-9]+$' <<<"$block" || return 1
+	done
+}
+expect "each ios-ui-N job of ci.yml runs its half, on one simulator, with a time limit" 0 ui_jobs_call_their_half
+expect "the UI test classes of the app are all in one half of ci.yml, none twice" 0 shards_cover "$uitests" "$(ui_jobs)"
+expect "  many classes found (the class pattern still matches)" 0 test "$(ui_classes "$uitests" | wc -l)" -ge 10
+expect "  every class declaration matched (none written in a form the split misses)" 0 test "$(ui_classes "$uitests" | wc -l | tr -d ' ')" = "$(loose_classes "$uitests")"
+expect "the split is the same every time" 0 test "$("$shard" 1 2)" = "$("$shard" 1 2)"
+expect "  given as -only-testing arguments" 0 test "$("$shard" 2 2 | head -n 1 | cut -d/ -f1)" = "-only-testing:ReminisLinkUITests"
+# A copy of the classes, a new class (no known duration) and a helper.
+fake_ui="$tmp/uitests"
+rm -rf "$fake_ui"
+mkdir -p "$fake_ui"
+cp "$uitests"/*.swift "$fake_ui/"
+printf 'import XCTest\n\nfinal class BrandNewUITests: XCTestCase {\n    @MainActor\n    func testOne() {}\n    func testTwo() throws {}\n}\n' >"$fake_ui/BrandNewUITests.swift"
+printf 'import XCTest\n\n@MainActor\npublic final class ModifiedUITests: XCTestCase, Sendable {\n    func testOne() {}\n}\n' >"$fake_ui/ModifiedUITests.swift"
+printf 'import XCTest\n\nextension XCUIElement {\n    func testLike() {}\n}\nclass NotATestCase: NSObject {}\n' >"$fake_ui/Helper.swift"
+expect "ios-ui-shard: new classes (one with modifiers) go to a half" 0 shards_cover "$fake_ui" 2
+expect "  the modified one included" 0 grep -qx ModifiedUITests "$tmp/shard.1" "$tmp/shard.2"
+expect "  as with three halves" 0 shards_cover "$fake_ui" 3
+expect "  never a helper that is not an XCTestCase" 1 grep -qx NotATestCase "$tmp/shard.1" "$tmp/shard.2" "$tmp/shard.3"
+printf 'import XCTest\nfinal class BrandNewUITests: XCTestCase {}\n' >"$fake_ui/Twice.swift"
+expect "ios-ui-shard: a class declared twice: refused" 1 env RL_UITESTS_DIR="$fake_ui" "$shard" 1 2
+rm -rf "$fake_ui"
+mkdir -p "$fake_ui"
+printf 'import XCTest\nfinal class OnlyUITests: XCTestCase {\n    func testA() {}\n}\n' >"$fake_ui/Only.swift"
+expect "ios-ui-shard: one class for two halves, the empty half: refused" 1 env RL_UITESTS_DIR="$fake_ui" "$shard" 2 2
+expect "  prints no -only-testing (xcodebuild would run every test)" 1 grep -q -- -only-testing "$tmp/out"
+rm -f "$fake_ui/Only.swift"
+expect "ios-ui-shard: no class: refused" 1 env RL_UITESTS_DIR="$fake_ui" "$shard" 1 2
+expect "ios-ui-shard: half 3 of 2: refused" 1 "$shard" 3 2
+expect "ios-ui-shard: half 0: refused" 1 "$shard" 0 2
+expect "ios-ui-shard: no argument: refused" 1 "$shard"
 
 # --- App changelog and App Store "What's New" --------------------------------
 
@@ -798,7 +870,7 @@ make_app_release_at() {
 no_git_write() { ! grep -Eq '^git (commit|tag|push)' "$tmp/fake.log"; }
 if [ "$have_jq" = 1 ]; then
 	expect "make ios-v9.8.7 at a HEAD whose ios job failed: refused" 1 make_app_release_at "$(sha_of 2)" ios-v9.8.7
-	expect "  says why" 0 grep -q "did not pass (ios ios-ui contract)" "$tmp/out"
+	expect "  says why" 0 grep -q "did not pass (ios ios-ui-1 ios-ui-2 contract)" "$tmp/out"
 	expect "  nothing committed, tagged nor pushed" 0 no_git_write
 	expect "make ios-v9.8.7-beta.1 while the CI runs: refused" 1 make_app_release_at "$(sha_of 4)" ios-v9.8.7-beta.1
 	expect "  nothing tagged nor pushed" 0 no_git_write
@@ -825,7 +897,7 @@ if [ "$have_jq" = 1 ]; then
 	expect "  tagged" 0 grep -q '^git tag -a v9.8.7-beta.1 ' "$tmp/fake.log"
 	android_v="android-v$(sed -n 's/^versionName=//p' "$root/android/version.properties")"
 	ci_runs "$(sha_of 23)" 1023:completed
-	ci_jobs 1023 go:completed:success contract:completed:success ios:completed:success ios-ui:completed:success android:completed:failure
+	ci_jobs 1023 go:completed:success contract:completed:success ios:completed:success ios-ui-1:completed:success ios-ui-2:completed:success android:completed:failure
 	expect "make $android_v at a HEAD whose android job failed: refused" 1 make_app_release_at "$(sha_of 23)" "$android_v"
 	expect "  says why" 0 grep -q "did not pass (android)" "$tmp/out"
 	expect "  nothing committed, tagged nor pushed" 0 no_git_write

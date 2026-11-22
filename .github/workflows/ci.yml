@@ -136,10 +136,12 @@ jobs:
       - name: Zips, case-sensitive unit tests and smoke tests in each userland
         run: make emulation REQUIRE_ZIPS=1
 
-  # The app's tests run in two jobs side by side (each builds the app: a
-  # build shared through an artifact would only add an upload, a download
-  # and a job start before the tests). The release gate of the app needs
-  # both (CI_JOBS_IOS in the Makefile, RL_CI_JOBS_IOS for Xcode Cloud).
+  # The app's tests run in three jobs side by side, each on its own Mac and
+  # building the app itself (a build shared through an artifact would only
+  # add an upload, a download and a job start before the tests): ios, then
+  # the UI tests split in two halves, ios-ui-1 and ios-ui-2. The release
+  # gate of the app needs all three (CI_JOBS_IOS in the Makefile,
+  # RL_CI_JOBS_IOS for Xcode Cloud).
   ios:
     # ReminisLinkKit, the release scripts and the app's unit tests.
     # Swift tools 6.2 and the iOS 18+ simulator: Xcode 26.
@@ -167,28 +169,71 @@ jobs:
             -retry-tests-on-failure -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO
 
-  ios-ui:
-    # The app's UI tests (demo mode: in-process fake pak, no network, no
-    # Keychain), on 2 clones of the simulator at once: each clone runs whole
-    # test classes, with its own app container, Keychain and UserDefaults.
-    # 2 workers for the 3 cores and 7 GB of the runner. The simulator is
-    # chosen as in the ios job.
+  ios-ui-1:
+    # Half 1 of the app's UI test classes (scripts/ios-ui-shard.sh 1 2:
+    # a fixed split balanced on their CI durations; no class left out nor
+    # run twice, checked by scripts/test-release-scripts.sh), on one
+    # simulator. Never 2 simulators on one runner (3 cores, 7 GB): tried on
+    # 2026-11-22, each UI test took 80 to 100 s instead of about 30, the app
+    # failed to launch now and then and the job ran 67 to 83 min, red.
     runs-on: macos-26
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-      - name: App UI tests
+      - name: App UI tests, half 1 of 2
         working-directory: ios
         run: |
+          # The runner image changes its simulators over time: take the
+          # first available iPhone instead of a fixed model name.
           udid=$(xcrun simctl list devices available -j |
             jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
           echo "Simulator: $udid"
+          # Fails (and stops the job) rather than give no -only-testing,
+          # which would run every test.
+          only=$(../scripts/ios-ui-shard.sh 1 2)
+          echo "$only"
           # UI tests time out now and then on the shared macOS runners (a
           # different test each run, all green locally): a failed test is
-          # run again, up to 3 times in all, before the job fails.
+          # run again, up to 3 times in all, before the job fails. $only
+          # splits on purpose: one -only-testing argument per line.
           xcodebuild test -scheme ReminisLink \
             -destination "id=$udid" \
-            -only-testing:ReminisLinkUITests \
-            -parallel-testing-enabled YES -parallel-testing-worker-count 2 \
+            $only \
+            -parallel-testing-enabled NO \
+            -retry-tests-on-failure -test-iterations 3 \
+            CODE_SIGNING_ALLOWED=NO
+
+  ios-ui-2:
+    # Half 2 of the app's UI test classes (scripts/ios-ui-shard.sh 2 2:
+    # a fixed split balanced on their CI durations; no class left out nor
+    # run twice, checked by scripts/test-release-scripts.sh), on one
+    # simulator. Never 2 simulators on one runner (3 cores, 7 GB): tried on
+    # 2026-11-22, each UI test took 80 to 100 s instead of about 30, the app
+    # failed to launch now and then and the job ran 67 to 83 min, red.
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: App UI tests, half 2 of 2
+        working-directory: ios
+        run: |
+          # The runner image changes its simulators over time: take the
+          # first available iPhone instead of a fixed model name.
+          udid=$(xcrun simctl list devices available -j |
+            jq -r '[.devices | to_entries[] | select(.key | test("iOS")) | .value[] | select(.name | startswith("iPhone"))][0].udid')
+          echo "Simulator: $udid"
+          # Fails (and stops the job) rather than give no -only-testing,
+          # which would run every test.
+          only=$(../scripts/ios-ui-shard.sh 2 2)
+          echo "$only"
+          # UI tests time out now and then on the shared macOS runners (a
+          # different test each run, all green locally): a failed test is
+          # run again, up to 3 times in all, before the job fails. $only
+          # splits on purpose: one -only-testing argument per line.
+          xcodebuild test -scheme ReminisLink \
+            -destination "id=$udid" \
+            $only \
+            -parallel-testing-enabled NO \
             -retry-tests-on-failure -test-iterations 3 \
             CODE_SIGNING_ALLOWED=NO
 
