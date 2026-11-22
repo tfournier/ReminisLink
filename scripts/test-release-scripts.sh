@@ -11,6 +11,9 @@
 #     on a re-run over a wrongly marked release;
 #   - "make ios-vX.Y.Z" and "make ios-vX.Y.Z-beta.N" (tag ios-beta-v...) on a copy of the files
 #     (fake git);
+#   - the release gate (no release unless the GitHub CI passed): Xcode Cloud's
+#     check of CI_COMMIT (fake curl), scripts/require-ci.sh and the make
+#     targets (fake gh), the Android workflow's tests and lint before the APK;
 #   - the App Store "What's New" files are in sync with ios/CHANGELOG.md;
 #   - on a Mac, the App Store Connect client: offline self-test, and whole
 #     submissions against a local mock of the API
@@ -220,6 +223,18 @@ android_workflow="$root/.github/workflows/android-release.yml"
 expect "Android workflow tag filter is exactly [\"android-v*\"]" 0 grep -Eq '^    tags: \["android-v\*"\]$' "$android_workflow"
 expect "Android workflow has no other trigger" 0 test "$(grep -c -E '^  (push|pull_request|workflow_dispatch|schedule):' "$android_workflow")" = 1
 expect "Android workflow publishes through scripts/publish-android-release.sh" 0 grep -Fq 'run: scripts/publish-android-release.sh "$TAG" "$APK" "$SIGNING"' "$android_workflow"
+line_of() { grep -n -F -- "$1" "$android_workflow" | head -n 1 | cut -d: -f1; }
+tests_before_apk() {
+	local tests lint key apk
+	tests="$(line_of 'run: make android-test')" lint="$(line_of 'run: make android-lint')"
+	key="$(line_of 'name: Release key')" apk="$(line_of 'name: Release APK')"
+	[ -n "$tests" ] && [ -n "$lint" ] && [ -n "$key" ] && [ -n "$apk" ] &&
+		[ "$tests" -lt "$key" ] && [ "$lint" -lt "$key" ] && [ "$key" -lt "$apk" ]
+}
+expect "Android workflow runs the unit tests and lint before the key and the APK" 0 tests_before_apk
+expect "Android workflow has a single job (a failed step stops the release)" 0 test "$(sed -n '/^jobs:/,$p' "$android_workflow" | grep -c -E '^  [a-z][a-z0-9_-]*:$')" = 1
+expect "make android-test runs :core:test and :app:testDebugUnitTest" 0 grep -Eq '^	\$\(GRADLEW\) :core:test :app:testDebugUnitTest$' "$root/Makefile"
+expect "make android-lint runs :app:lintRelease" 0 grep -Eq '^	\$\(GRADLEW\) :app:lintRelease$' "$root/Makefile"
 android_glob() { [[ "$1" == android-v* ]]; }
 for tag in v1.0.1 v1.1.0-beta.1 ios-v1.0.1; do expect "tag $tag does not start the Android workflow" 1 android_glob "$tag"; done
 
@@ -269,12 +284,67 @@ EOF
 
 # run_ci <script> VAR=value...: one Xcode Cloud script with only these CI_*
 # variables (and no App Store Connect key), writing a temporary xcconfig.
-run_ci() {
-	local script="$1"
+# The GitHub API seen by the release gate (rl_require_ci): answers written
+# to $tmp/github, served by the fake curl (Xcode Cloud) and the fake gh
+# (scripts/require-ci.sh). A commit hash is 40 hex digits: green_sha has a
+# CI run that passed everything.
+github="$tmp/github"
+mkdir -p "$github"
+repo_api="repos/tfournier/ReminisLink"
+# api_answer <path> <json>
+api_answer() { printf '%s\n' "$2" >"$github/$(printf '%s' "$1" | tr '/?&=' '____').json"; }
+# ci_runs <sha> [<run id>:<status>...]: the push runs of <sha>, newest
+# first, plus a green run of another workflow (never counted).
+ci_runs() {
+	local sha="$1" runs="" spec
 	shift
+	for spec in "$@"; do
+		runs="$runs{\"id\": ${spec%%:*}, \"path\": \".github/workflows/ci.yml\", \"status\": \"${spec#*:}\", \"html_url\": \"https://github.test/runs/${spec%%:*}\"},"
+	done
+	api_answer "$repo_api/actions/runs?head_sha=$sha&event=push&per_page=100" \
+		"{\"workflow_runs\": [$runs{\"id\": 9, \"path\": \".github/workflows/site.yml\", \"status\": \"completed\", \"html_url\": \"https://github.test/runs/9\"}]}"
+}
+# ci_jobs <run id> [<name>:<status>:<conclusion>...] (conclusion null while running)
+ci_jobs() {
+	local id="$1" jobs="" spec name status conclusion
+	shift
+	for spec in "$@"; do
+		IFS=: read -r name status conclusion <<<"$spec"
+		[ "$conclusion" = null ] || conclusion="\"$conclusion\""
+		jobs="$jobs${jobs:+,}{\"name\": \"$name\", \"status\": \"$status\", \"conclusion\": $conclusion}"
+	done
+	api_answer "$repo_api/actions/runs/$id/jobs?per_page=100" "{\"jobs\": [$jobs]}"
+}
+# ci_commit <sha> <parent> <file>...: the commit's parent and changed files.
+ci_commit() {
+	local sha="$1" parent="$2" files="" f
+	shift 2
+	for f in "$@"; do files="$files${files:+,}{\"filename\": \"$f\"}"; done
+	api_answer "$repo_api/commits/$sha" "{\"sha\": \"$sha\", \"parents\": [{\"sha\": \"$parent\"}], \"files\": [$files]}"
+}
+sha_of() { printf '%040d' "$1"; }
+all_green=(go:completed:success contract:completed:success build:completed:success emulation:completed:success
+	ios:completed:success android:completed:success)
+green_sha="$(sha_of 1)"
+ci_runs "$green_sha" 101:completed
+ci_jobs 101 "${all_green[@]}"
+if command -v jq >/dev/null 2>&1; then have_jq=1; else have_jq=0; fi
+
+# run_ci <script> VAR=value...: one Xcode Cloud script with only these CI_*
+# variables (and no App Store Connect key), writing a temporary xcconfig.
+# CI_COMMIT is green_sha unless given; GitHub is the fake one (without jq,
+# the release gate cannot run here and is skipped).
+run_ci() {
+	local script="$1" skip=""
+	shift
+	[ "$have_jq" = 1 ] || skip=1
+	: >"$tmp/fake.log"
 	env -u CI_TAG -u CI_WORKFLOW -u CI_BUILD_NUMBER -u CI_XCODEBUILD_ACTION -u CI_XCODEBUILD_EXIT_CODE \
 		-u ASC_KEY_ID -u ASC_ISSUER_ID -u ASC_PRIVATE_KEY -u ASC_PRIVATE_KEY_PATH -u ASC_BUILD_NUMBER \
-		-u ASC_API_BASE -u ASC_TEST_MODE \
+		-u ASC_API_BASE -u ASC_TEST_MODE -u RL_GITHUB_CLIENT -u RL_GITHUB_REPO -u RL_GITHUB_API \
+		-u FAKE_CURL_OFFLINE -u FAKE_CURL_RATELIMIT \
+		PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" FAKE_GITHUB="$github" \
+		CI_COMMIT="$green_sha" RL_SKIP_CI_CHECK="$skip" \
 		RL_CHANGELOG="$changelog" RL_CI_XCCONFIG="$tmp/CI.xcconfig" "$@" "$ci/$script"
 }
 xcconfig_has() { grep -Fxq "$1" "$tmp/CI.xcconfig"; }
@@ -328,6 +398,145 @@ expect "Release post-xcodebuild, no API key: instructions, success" 0 run_ci ci_
 expect "  the instructions name the build of the Release run" 0 grep -q "choose build 29 of version 1.2.0" "$tmp/out"
 expect "Beta post-xcodebuild: does nothing" 0 run_ci ci_post_xcodebuild.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.2.0-beta.1 CI_XCODEBUILD_ACTION=archive
 
+# --- Release gate: the GitHub CI of the commit built (Xcode Cloud) ----------
+
+gate() { run_ci ci_post_clone.sh CI_WORKFLOW=Beta CI_TAG=ios-beta-v1.3.0-beta.1 CI_BUILD_NUMBER=30 "$@"; }
+asked() { grep -Fq "curl $1" "$tmp/fake.log"; }
+if [ "$have_jq" = 1 ]; then
+	expect "gate: ios and contract passed: build goes on" 0 gate
+	expect "  the run named in the log" 0 grep -q "https://github.test/runs/101" "$tmp/out"
+	expect "  asked GitHub without a token (curl)" 0 asked "https://api.github.com/$repo_api/actions/runs?head_sha=$green_sha&event=push&per_page=100"
+	expect "gate: Release workflow, green: build goes on" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=31
+
+	sha="$(sha_of 2)"
+	ci_runs "$sha" 102:completed
+	ci_jobs 102 go:completed:success contract:completed:success ios:completed:failure
+	expect "gate: ios failed: refused" 1 gate CI_COMMIT="$sha"
+	expect "  says it did not pass, names the jobs and the way around it" 0 grep -q "did not pass (ios contract).*RL_SKIP_CI_CHECK=1" "$tmp/out"
+	expect "gate: ios failed, Release workflow: refused" 1 run_ci ci_post_clone.sh CI_WORKFLOW=Release CI_TAG=ios-v1.2.0 CI_BUILD_NUMBER=32 CI_COMMIT="$sha"
+
+	sha="$(sha_of 3)"
+	ci_runs "$sha" 103:completed
+	ci_jobs 103 ios:completed:success contract:completed:failure
+	expect "gate: contract failed: refused" 1 gate CI_COMMIT="$sha"
+
+	sha="$(sha_of 4)"
+	ci_runs "$sha" 104:in_progress
+	ci_jobs 104 ios:in_progress:null contract:completed:success
+	ci_commit "$sha" "$green_sha" ios/ReminisLink/App.swift
+	expect "gate: ios still running: refused" 1 gate CI_COMMIT="$sha"
+	expect "  says it is running" 0 grep -q "still running" "$tmp/out"
+
+	sha="$(sha_of 5)"
+	ci_runs "$sha" 105:queued
+	ci_jobs 105
+	ci_commit "$sha" "$green_sha" ios/ReminisLink/App.swift
+	expect "gate: run queued, no job yet: refused as running" 1 gate CI_COMMIT="$sha"
+	expect "  says it is running" 0 grep -q "still running" "$tmp/out"
+
+	sha="$(sha_of 6)"
+	ci_runs "$sha" 106:completed
+	ci_jobs 106 go:completed:success contract:completed:success
+	expect "gate: finished run without an ios job: refused" 1 gate CI_COMMIT="$sha"
+	expect "  says ios is missing" 0 grep -q "ios=missing" "$tmp/out"
+
+	sha="$(sha_of 7)"
+	ci_runs "$sha" 108:in_progress 107:completed
+	ci_jobs 108 ios:completed:success contract:completed:success go:in_progress:null
+	ci_jobs 107 ios:completed:failure contract:completed:success
+	expect "gate: newer run passed ios and contract, older failed: build goes on" 0 gate CI_COMMIT="$sha"
+	ci_jobs 108 ios:completed:cancelled contract:completed:success
+	expect "gate: one run cancelled, one failed: refused" 1 gate CI_COMMIT="$sha"
+
+	sha="$(sha_of 8)"
+	ci_runs "$sha"
+	ci_commit "$sha" "$green_sha" README.md
+	expect "gate: no CI run (only another workflow's): refused" 1 gate CI_COMMIT="$sha"
+	expect "  says there is none" 0 grep -q "no CI run" "$tmp/out"
+	expect "gate: no CI run, commit unknown to GitHub: refused" 1 gate CI_COMMIT="$(sha_of 9)"
+
+	# The commit "Release app X.Y.Z" of make ios-vX.Y.Z: only the release
+	# notes change, its CI starts with the build. Its parent's result counts.
+	sha="$(sha_of 10)"
+	ci_runs "$sha" 110:in_progress
+	ci_jobs 110 ios:in_progress:null contract:in_progress:null
+	ci_commit "$sha" "$green_sha" ios/CHANGELOG.md ios/AppStore/en-US/release_notes.txt ios/AppStore/fr-FR/release_notes.txt
+	expect "gate: release-notes commit running, parent green: build goes on" 0 gate CI_COMMIT="$sha"
+	expect "  says the parent stands for it" 0 grep -q "the CI of its parent $green_sha stands for it" "$tmp/out"
+	ci_commit "$sha" "$(sha_of 2)" ios/CHANGELOG.md
+	expect "gate: release-notes commit running, parent red: refused" 1 gate CI_COMMIT="$sha"
+	ci_commit "$sha" "$green_sha" ios/CHANGELOG.md ios/ReminisLink/App.swift
+	expect "gate: running commit changing code, parent green: refused" 1 gate CI_COMMIT="$sha"
+	ci_jobs 110 ios:completed:failure contract:completed:success
+	ci_commit "$sha" "$green_sha" ios/CHANGELOG.md
+	expect "gate: release-notes commit whose own CI failed: refused (no fallback)" 1 gate CI_COMMIT="$sha"
+
+	expect "gate: no network: refused" 1 gate FAKE_CURL_OFFLINE=1
+	expect "  says GitHub is unreachable" 0 grep -q "cannot reach https://api.github.com" "$tmp/out"
+	expect "gate: rate limit reached: refused" 1 gate FAKE_CURL_RATELIMIT=1
+	expect "  says so, with the time to try again" 0 grep -q "rate limit reached.*after 2023-11-14 22:13 UTC" "$tmp/out"
+	expect "gate: malformed CI_COMMIT: refused" 1 gate CI_COMMIT=main
+	expect "gate: no CI_COMMIT: refused" 1 gate CI_COMMIT=
+	expect "  says why" 0 grep -q "CI_COMMIT is not set" "$tmp/out"
+	expect "gate: RL_SKIP_CI_CHECK=1, offline: build goes on" 0 gate RL_SKIP_CI_CHECK=1 FAKE_CURL_OFFLINE=1
+	expect "  with a warning" 0 grep -q "WARNING: RL_SKIP_CI_CHECK=1" "$tmp/out"
+	expect "  GitHub never asked" 0 test ! -s "$tmp/fake.log"
+	expect "gate: RL_SKIP_CI_CHECK=yes is not the way around: refused" 1 gate RL_SKIP_CI_CHECK=yes CI_COMMIT="$(sha_of 2)"
+	expect "gate: other workflow, no tag: GitHub never asked" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Tests CI_BUILD_NUMBER=33 FAKE_CURL_OFFLINE=1
+	expect "gate: Submit workflow (the build is the Release run's): GitHub never asked" 0 run_ci ci_post_clone.sh CI_WORKFLOW=Submit CI_TAG=ios-beta-v1.2.0-beta.1 CI_BUILD_NUMBER=34 FAKE_CURL_OFFLINE=1
+else
+	echo "skip  Xcode Cloud release gate (needs jq, as on the CI runners and in Xcode Cloud)"
+fi
+
+# --- Release gate before a tag (scripts/require-ci.sh, gh) ------------------
+
+# require_ci <sha> <job>...: the script with the fake gh.
+require_ci() {
+	: >"$tmp/fake.log"
+	env -u RL_SKIP_CI_CHECK -u RL_GITHUB_CLIENT -u FAKE_GH_OFFLINE PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" \
+		FAKE_GITHUB="$github" "$root/scripts/require-ci.sh" "$@"
+}
+expect "bash -n require-ci.sh" 0 bash -n "$root/scripts/require-ci.sh"
+if [ "$have_jq" = 1 ]; then
+	expect "require-ci: pak jobs passed" 0 require_ci "$green_sha" go contract build emulation
+	expect "  read through gh" 0 grep -Fq "gh api -H Accept: application/vnd.github+json $repo_api/actions/runs?head_sha=$green_sha&event=push&per_page=100" "$tmp/fake.log"
+	expect "require-ci: android passed" 0 require_ci "$green_sha" android
+	sha="$(sha_of 2)"
+	expect "require-ci: ios failed: refused" 1 require_ci "$sha" ios contract
+	expect "require-ci: same commit, pak jobs passed" 0 require_ci "$sha" go contract
+	expect "require-ci: gh offline: refused" 1 env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" FAKE_GITHUB="$github" \
+		FAKE_GH_OFFLINE=1 "$root/scripts/require-ci.sh" "$green_sha" android
+	expect "  says the CI result is unknown" 0 grep -q "the CI result is unknown" "$tmp/out"
+	expect "require-ci: no job named: refused" 1 require_ci "$green_sha"
+fi
+expect "require-ci: RL_SKIP_CI_CHECK=1 skips it, with a warning" 0 env RL_SKIP_CI_CHECK=1 FAKE_GITHUB=/nonexistent PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" "$root/scripts/require-ci.sh" "$(sha_of 2)" ios
+expect "  warning printed" 0 grep -q "WARNING: RL_SKIP_CI_CHECK=1" "$tmp/out"
+
+# Each release target calls the gate with its jobs, before anything is
+# committed or tagged; the jobs exist in ci.yml.
+recipe() { sed -n "/^$1: FORCE/,/^\$/p" "$root/Makefile"; }
+gate_before_tag() {
+	local r
+	r="$(recipe "$1")"
+	grep -Fq "\$(REQUIRE_CI) \"\$\$(\$(GIT) rev-parse HEAD)\" \$($2)" <<<"$r" &&
+		[ "$(grep -n 'REQUIRE_CI' <<<"$r" | head -n 1 | cut -d: -f1)" -lt "$(grep -n -E 'commit -q|tag -a' <<<"$r" | head -n 1 | cut -d: -f1)" ]
+}
+expect "make vX.Y.Z checks CI_JOBS_PAK before tagging" 0 gate_before_tag 'v%' CI_JOBS_PAK
+expect "make ios-vX.Y.Z checks CI_JOBS_IOS before tagging" 0 gate_before_tag 'ios-v% ios-beta-v%' CI_JOBS_IOS
+expect "make android-vX.Y.Z checks CI_JOBS_ANDROID before tagging" 0 gate_before_tag 'android-v%' CI_JOBS_ANDROID
+make_var() { sed -n "s/^$1 *?= *//p" "$root/Makefile"; }
+expect "CI_JOBS_IOS of the Makefile is RL_CI_JOBS_IOS of Xcode Cloud" 0 test "$(make_var CI_JOBS_IOS)" = "$(bash -c '. "$0" && echo "$RL_CI_JOBS_IOS"' "$ci/common.sh")"
+expect "CI_JOBS_PAK is the needs of the pak release job" 0 test "needs: [$(make_var CI_JOBS_PAK | sed 's/ /, /g')]" = "$(sed -n '/^  release:/,$s/^    needs: //p' "$workflow" | sed 's/^/needs: /')"
+jobs_exist() {
+	local job
+	for job in $(make_var CI_JOBS_PAK) $(make_var CI_JOBS_IOS) $(make_var CI_JOBS_ANDROID); do
+		grep -q "^  $job:\$" "$workflow" || return 1
+		# A display name would change the job's name in the API.
+		[ -z "$(sed -n "/^  $job:\$/,/^  [a-z]/p" "$workflow" | grep -E '^    name:')" ] || return 1
+	done
+}
+expect "the gate's jobs are jobs of ci.yml, without a display name" 0 jobs_exist
+
 # --- App changelog and App Store "What's New" --------------------------------
 
 expect "release_notes.txt files match the first section of ios/CHANGELOG.md" 0 "$ci/release_notes.sh" check
@@ -355,8 +564,16 @@ make_app_release() {
 		mv "$copy/ios/CHANGELOG.md.tmp" "$copy/ios/CHANGELOG.md"
 	fi
 	cp "$copy/ios/CHANGELOG.md" "$tmp/CHANGELOG-copy.md"
+	mkdir -p "$copy/scripts"
+	cp "$root/scripts/require-ci.sh" "$copy/scripts/"
 	: >"$tmp/fake.log"
-	env FAKE_LOG="$tmp/fake.log" make -s -C "$copy" "$1" GIT="$fakes/fake-git"
+	# HEAD is green_sha unless FAKE_HEAD says otherwise; GitHub is the fake
+	# one (the gate is skipped without jq).
+	local skip=""
+	[ "$have_jq" = 1 ] || skip=1
+	env -u RL_GITHUB_CLIENT -u FAKE_GH_OFFLINE FAKE_LOG="$tmp/fake.log" PATH="$fakes:$PATH" FAKE_GITHUB="$github" \
+		FAKE_HEAD="${FAKE_HEAD:-$green_sha}" RL_SKIP_CI_CHECK="${RL_SKIP_CI_CHECK:-$skip}" \
+		make -s -C "$copy" "$1" GIT="$fakes/fake-git"
 }
 expect "make ios-v9.8.7: a release" 0 make_app_release ios-v9.8.7
 expect "  Unreleased renamed to 9.8.7" 0 grep -qx '## 9.8.7' "$tmp/repo/ios/CHANGELOG.md"
@@ -375,6 +592,24 @@ for name in ios-v9.8 ios-beta-v9.8.7 ios-v9.8.7-alpha.1; do
 	expect "make $name: refused" 1 make_app_release "$name"
 	expect "  git never called" 0 test ! -s "$tmp/fake.log"
 done
+# make_app_release_at <HEAD> <target> [RL_SKIP_CI_CHECK]
+make_app_release_at() {
+	local FAKE_HEAD="$1" RL_SKIP_CI_CHECK="${3:-}"
+	make_app_release "$2"
+}
+no_git_write() { ! grep -Eq '^git (commit|tag|push)' "$tmp/fake.log"; }
+if [ "$have_jq" = 1 ]; then
+	expect "make ios-v9.8.7 at a HEAD whose ios job failed: refused" 1 make_app_release_at "$(sha_of 2)" ios-v9.8.7
+	expect "  says why" 0 grep -q "did not pass (ios contract)" "$tmp/out"
+	expect "  nothing committed, tagged nor pushed" 0 no_git_write
+	expect "make ios-v9.8.7-beta.1 while the CI runs: refused" 1 make_app_release_at "$(sha_of 4)" ios-v9.8.7-beta.1
+	expect "  nothing tagged nor pushed" 0 no_git_write
+	expect "make ios-v9.8.7-beta.1 without a CI run: refused" 1 make_app_release_at "$(sha_of 8)" ios-v9.8.7-beta.1
+	expect "  nothing tagged nor pushed" 0 no_git_write
+	expect "make ios-v9.8.7-beta.1, CI red, RL_SKIP_CI_CHECK=1: tagged" 0 make_app_release_at "$(sha_of 2)" ios-v9.8.7-beta.1 1
+	expect "  with a warning" 0 grep -q "WARNING: RL_SKIP_CI_CHECK=1" "$tmp/out"
+	expect "  tagged" 0 grep -q '^git tag -a ios-beta-v9.8.7-beta.1 ' "$tmp/fake.log"
+fi
 
 # --- App Store Connect client (Mac only: Swift and CryptoKit) ---------------
 

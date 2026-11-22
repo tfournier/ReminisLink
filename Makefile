@@ -20,6 +20,7 @@
 #   make knulli-release  build the Knulli zip in dist/ (experimental, M20)
 #   make emulation       run the pak in the userland of each platform in Docker (M20; LAYOUTS="h700 knulli")
 #   make android-test    run the Android unit tests (:core with the shared vectors, :app) (JDK 17+, Android SDK)
+#   make android-lint    run Android lint on the release variant
 #   make android-build   build the Android debug APK (android/app/build/outputs/apk/debug)
 #   make docker-<target> run <target> inside the build image
 #   make vX.Y.Z          release a version: bump pak.json, commit, tag and push
@@ -27,6 +28,8 @@
 #   make ios-vX.Y.Z      release the iOS app (ios-vX.Y.Z-beta.N: TestFlight only, tag ios-beta-vX.Y.Z-beta.N); Xcode Cloud builds the tag
 #   make android-vX.Y.Z  release the Android app (android-vX.Y.Z-beta.N, -rc.N: pre-release); the CI builds the tag
 #   make release-checks  test the release scripts (pak tags, Xcode Cloud scripts, app release notes)
+#   The release targets tag only a HEAD whose GitHub CI passed (scripts/require-ci.sh;
+#   RL_SKIP_CI_CHECK=1 skips that check, for an exceptional release only)
 
 APP           := reminislink
 PAK_NAME      := ReminisLink
@@ -81,6 +84,14 @@ DESKTOP_ARGS  ?=
 RELEASE_BRANCH ?= main
 # Overridden by scripts/test-release-scripts.sh (a fake git).
 GIT ?= git
+# Release gate (scripts/require-ci.sh): make vX.Y.Z, ios-v... and android-v...
+# tag HEAD only once these jobs of .github/workflows/ci.yml passed on it (the
+# GitHub CI must be green). RL_SKIP_CI_CHECK=1 skips the check, for one
+# exceptional release only, never by default.
+CI_JOBS_PAK     ?= go contract build emulation
+CI_JOBS_IOS     ?= ios contract
+CI_JOBS_ANDROID ?= android
+REQUIRE_CI      ?= scripts/require-ci.sh
 
 DOCKER        ?= docker
 DOCKER_IMAGE  ?= reminislink-build
@@ -92,7 +103,7 @@ FUZZTIME      ?= 10s
 PATCH_FUZZERS := FuzzIPS FuzzIPSReference FuzzBPS FuzzUPS FuzzBPSNoChecksum FuzzUPSNoChecksum
 
 .DEFAULT_GOAL := help
-.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release knulli-pak knulli-release emulation check-version release-checks clean docker-image android-test android-build android-release-apk FORCE
+.PHONY: help test lint fuzz contract vectors headless desktop screenshots build pak release knulli-pak knulli-release emulation check-version release-checks clean docker-image android-test android-lint android-build android-release-apk FORCE
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  %-18s %s\n", $$1, $$2}'
@@ -215,7 +226,8 @@ v%: FORCE ## Release a version (make v1.2.3) or a pre-release (make v1.2.3-beta.
 	[ "$$(git rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
 	[ -z "$$(git status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
 	if git rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
-	grep -q "\"Unreleased\":" pak.json || grep -q "^    \"$$V\":" pak.json || { echo "Add a changelog entry (Unreleased or $$V) in pak.json first"; exit 1; }
+	grep -q "\"Unreleased\":" pak.json || grep -q "^    \"$$V\":" pak.json || { echo "Add a changelog entry (Unreleased or $$V) in pak.json first"; exit 1; }; \
+	$(REQUIRE_CI) "$$($(GIT) rev-parse HEAD)" $(CI_JOBS_PAK)
 	$(MAKE) lint test
 	@set -e; V="$@"; \
 	if [ "$$(scripts/pak-release-kind.sh "$$V")" = prerelease ]; then \
@@ -239,6 +251,7 @@ ios-v% ios-beta-v%: FORCE ## Release the iOS app (make ios-v1.2.3: App Review) o
 	[ "$$($(GIT) rev-parse --abbrev-ref HEAD)" = "$(RELEASE_BRANCH)" ] || { echo "Releases are made from $(RELEASE_BRANCH)"; exit 1; }; \
 	[ -z "$$($(GIT) status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
 	if $(GIT) rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
+	$(REQUIRE_CI) "$$($(GIT) rev-parse HEAD)" $(CI_JOBS_IOS); \
 	if [ "$$KIND" = beta ]; then \
 		$(GIT) tag -a "$$V" -m "App pre-release $$V (TestFlight)"; \
 		$(GIT) push origin "refs/tags/$$V"; \
@@ -262,6 +275,9 @@ GRADLEW       := cd android && ./gradlew --console=plain
 android-test: ## Run the Android unit tests (:core reads protocol/test-vectors in place)
 	$(GRADLEW) :core:test :app:testDebugUnitTest
 
+android-lint: ## Run Android lint on the release variant (fails on an error)
+	$(GRADLEW) :app:lintRelease
+
 android-build: ## Build the Android debug APK
 	$(GRADLEW) :app:assembleDebug
 
@@ -278,6 +294,7 @@ android-v%: FORCE ## Release the Android app (make android-v1.2.3, or -beta.N / 
 	for locale in en-US fr-FR; do \
 		[ -s "android/app/fastlane/metadata/android/$$locale/changelogs/$$code.txt" ] || { echo "Write android/app/fastlane/metadata/android/$$locale/changelogs/$$code.txt first (the notes of $$X)"; exit 1; }; \
 	done; \
+	$(REQUIRE_CI) "$$($(GIT) rev-parse HEAD)" $(CI_JOBS_ANDROID); \
 	sed -e "s/^versionName=.*/versionName=$$X/" -e "s/^versionCode=.*/versionCode=$$code/" android/version.properties > android/version.properties.tmp && mv android/version.properties.tmp android/version.properties; \
 	if ! $(GIT) diff --quiet -- android/version.properties; then $(GIT) commit -q -m "Release Android app $$X" -- android/version.properties; fi; \
 	$(GIT) tag -a "$$V" -m "Android app $$kind $$V"; \

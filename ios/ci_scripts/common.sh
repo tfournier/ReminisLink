@@ -131,3 +131,157 @@ rl_has_asc_key() {
 			{ [ "${ASC_TEST_MODE:-}" = 1 ] && [ -n "${ASC_API_BASE:-}" ]; }
 	}
 }
+
+# --- Release gate: the GitHub CI must be green ------------------------------
+#
+# A release (iOS app, Android app or pak) is built only from a commit whose
+# GitHub CI (.github/workflows/ci.yml, a "push" run) passed the jobs that
+# matter for it. Used by ci_post_clone.sh (Xcode Cloud: public API, curl, no
+# token) and by scripts/require-ci.sh (make vX.Y.Z, ios-v..., android-v...:
+# the gh CLI, RL_GITHUB_CLIENT=gh). Anything but a green result fails: CI
+# running, failed or absent, GitHub unreachable or rate limited. The only way
+# around it is RL_SKIP_CI_CHECK=1, set by hand for one exceptional release,
+# never by default (it prints a warning).
+
+RL_GITHUB_REPO="${RL_GITHUB_REPO:-tfournier/ReminisLink}"
+RL_GITHUB_API="${RL_GITHUB_API:-https://api.github.com}"
+RL_CI_WORKFLOW_PATH="${RL_CI_WORKFLOW_PATH:-.github/workflows/ci.yml}"
+# The jobs an app build needs (CI_JOBS_IOS of the Makefile is the same list).
+RL_CI_JOBS_IOS="ios contract"
+
+# rl_github_get <path>: prints the JSON answer of GET <path> of the GitHub
+# API, through gh (RL_GITHUB_CLIENT=gh) or curl without a token (default).
+# Exits 1 with the reason when GitHub does not answer 200.
+rl_github_get() {
+	local path="$1" dir code reset when
+	if [ "${RL_GITHUB_CLIENT:-curl}" = gh ]; then
+		command -v gh >/dev/null 2>&1 || rl_fail "the GitHub CLI (gh) is needed to read the CI result"
+		gh api -H "Accept: application/vnd.github+json" "$path" ||
+			rl_fail "gh api $path failed (network? 'gh auth status'?): the CI result is unknown"
+		return 0
+	fi
+	command -v curl >/dev/null 2>&1 || rl_fail "curl is needed to read the CI result"
+	dir="$(mktemp -d "${TMPDIR:-/tmp}/rl-github.XXXXXX")" || rl_fail "cannot create a temporary directory"
+	code="$(curl -sS --max-time 30 --retry 2 --retry-delay 5 \
+		-H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+		-H "User-Agent: ReminisLink-release-gate" \
+		-D "$dir/headers" -o "$dir/body" -w '%{http_code}' "$RL_GITHUB_API/$path")" || {
+		rm -r "$dir"
+		rl_fail "cannot reach $RL_GITHUB_API (no network?): the CI result is unknown, so nothing is built"
+	}
+	if [ "$code" = 200 ]; then
+		cat "$dir/body"
+		rm -r "$dir"
+		return 0
+	fi
+	if { [ "$code" = 403 ] || [ "$code" = 429 ]; } && grep -iq '^x-ratelimit-remaining: *0' "$dir/headers"; then
+		reset="$(tr -d '\r' <"$dir/headers" | sed -n 's/^[xX]-[rR]ate[lL]imit-[rR]eset: *\([0-9][0-9]*\)$/\1/p' | head -n 1)"
+		when="$(date -u -r "${reset:-0}" '+%Y-%m-%d %H:%M UTC' 2>/dev/null ||
+			date -u -d "@${reset:-0}" '+%Y-%m-%d %H:%M UTC' 2>/dev/null || echo "Unix time ${reset:-?}")"
+		rm -r "$dir"
+		rl_fail "GitHub API rate limit reached (60 requests an hour per address without a token): the CI result is unknown, so nothing is built. Start the build again after $when"
+	fi
+	rm -r "$dir"
+	rl_fail "the GitHub API answered HTTP $code for $path: the CI result is unknown, so nothing is built"
+}
+
+# rl_ci_state <sha> <job>...: reads the CI runs (event push) of <sha> and
+# sets RL_CI_STATE and RL_CI_DETAIL (one line per run: its address and
+# "<job>=<result>" for each job named). RL_CI_STATE is success (one run
+# passed every job named), pending (none did, one is still running), failure
+# or absent (no CI run for this commit).
+rl_ci_state() {
+	local sha="$1" runs jobs id status url verdict results
+	shift
+	RL_CI_STATE=absent
+	RL_CI_DETAIL=""
+	runs="$(rl_github_get "repos/$RL_GITHUB_REPO/actions/runs?head_sha=$sha&event=push&per_page=100")" || exit 1
+	runs="$(jq -r --arg path "$RL_CI_WORKFLOW_PATH" \
+		'.workflow_runs[] | select(.path == $path) | [.id, .status, .html_url] | @tsv' <<<"$runs")" ||
+		rl_fail "unexpected answer from the GitHub API (workflow runs of $sha)"
+	[ -n "$runs" ] || return 0
+	RL_CI_STATE=failure
+	while IFS=$'\t' read -r id status url; do
+		[[ "$id" =~ ^[0-9]+$ ]] || rl_fail "unexpected workflow run id '$id'"
+		jobs="$(rl_github_get "repos/$RL_GITHUB_REPO/actions/runs/$id/jobs?per_page=100")" || exit 1
+		# A job's result is its conclusion once completed, "running" before,
+		# "missing" when the run has no such job (yet, while it is queued).
+		IFS=$'\t' read -r verdict results < <(jq -r --arg status "$status" '. as $r |
+			[$ARGS.positional[] as $name | ([$r.jobs[] | select(.name == $name)] | last) as $job |
+				{name: $name, result: (if $job == null then "missing"
+					elif $job.status != "completed" then "running"
+					else ($job.conclusion // "unknown") end)}] as $res |
+			(if all($res[]; .result == "success") then "success"
+			elif any($res[]; .result == "running") or ($status != "completed" and any($res[]; .result == "missing")) then "pending"
+			else "failure" end) + "\t" + ([$res[] | "\(.name)=\(.result)"] | join(" "))' --args "$@" <<<"$jobs") ||
+			rl_fail "unexpected answer from the GitHub API (jobs of run $id)"
+		case "$verdict" in
+		success)
+			RL_CI_STATE=success
+			RL_CI_DETAIL="  $url  $results"
+			return 0
+			;;
+		pending) RL_CI_STATE=pending ;;
+		failure) ;;
+		*) rl_fail "unexpected answer from the GitHub API (jobs of run $id)" ;;
+		esac
+		RL_CI_DETAIL="$RL_CI_DETAIL${RL_CI_DETAIL:+$'\n'}  $url  $results"
+	done <<<"$runs"
+}
+
+# rl_notes_only_parent <sha>: prints the parent of <sha> when <sha> has one
+# parent and only changes the app's release notes (ios/CHANGELOG.md,
+# ios/AppStore/<locale>/release_notes.txt), as the commit "Release app X.Y.Z"
+# of make ios-vX.Y.Z does; prints nothing otherwise. That commit is pushed
+# with its tag, so its own CI starts with the Xcode Cloud build: the CI
+# result of its parent, the commit checked by make, stands for it.
+rl_notes_only_parent() {
+	local commit
+	commit="$(rl_github_get "repos/$RL_GITHUB_REPO/commits/$1")" || exit 1
+	jq -r 'if (.parents | length) == 1 and (.files | length) > 0 and
+		all(.files[].filename; . == "ios/CHANGELOG.md" or test("^ios/AppStore/[A-Za-z-]+/release_notes\\.txt$"))
+		then .parents[0].sha else empty end' <<<"$commit" ||
+		rl_fail "unexpected answer from the GitHub API (commit $1)"
+}
+
+# rl_require_ci <sha> <job>...: returns when the CI of <sha> passed every
+# job named; exits 1 with the reason otherwise (see above).
+rl_require_ci() {
+	local sha="$1" parent jobs
+	shift
+	jobs="$*"
+	if [ "${RL_SKIP_CI_CHECK:-}" = 1 ]; then
+		rl_log "WARNING: RL_SKIP_CI_CHECK=1: the CI result of ${sha:-this commit} ($jobs) is NOT checked"
+		return 0
+	fi
+	[[ "$sha" =~ ^[0-9a-f]{40}$ ]] || rl_fail "'$sha' is not a full commit hash: cannot read its CI result"
+	[ "$#" -gt 0 ] || rl_fail "rl_require_ci: no CI job named"
+	command -v jq >/dev/null 2>&1 || rl_fail "jq is needed to read the CI result"
+	rl_ci_state "$sha" "$@"
+	if [ "$RL_CI_STATE" = absent ] || [ "$RL_CI_STATE" = pending ]; then
+		parent="$(rl_notes_only_parent "$sha")" || exit 1
+		if [ -n "$parent" ]; then
+			rl_log "$sha only changes the app's release notes: the CI of its parent $parent stands for it"
+			sha="$parent"
+			rl_ci_state "$sha" "$@"
+		fi
+	fi
+	local skip="RL_SKIP_CI_CHECK=1 bypasses this check, for an exceptional release only."
+	case "$RL_CI_STATE" in
+	success)
+		rl_log "CI passed for $sha ($jobs):"
+		printf '%s\n' "$RL_CI_DETAIL"
+		;;
+	pending)
+		printf '%s\n' "$RL_CI_DETAIL" >&2
+		rl_fail "no CI run of $sha passed yet ($jobs) and one is still running: wait until it passes, then try again. $skip"
+		;;
+	failure)
+		printf '%s\n' "$RL_CI_DETAIL" >&2
+		rl_fail "the CI of $sha did not pass ($jobs): fix it (or run the failed jobs again) before releasing. $skip"
+		;;
+	*)
+		rl_fail "no CI run (push to $RL_GITHUB_REPO) for $sha: push the commit and wait for the CI to pass before releasing. $skip"
+		;;
+	esac
+}

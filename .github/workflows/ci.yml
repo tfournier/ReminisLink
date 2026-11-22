@@ -184,6 +184,8 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0" > /dev/null
       - name: Unit tests
         run: make android-test
+      - name: Android lint
+        run: make android-lint
       - name: Debug APK
         run: make android-build
       - uses: actions/upload-artifact@v7

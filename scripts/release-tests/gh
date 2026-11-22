@@ -2,7 +2,8 @@
 # A stand-in for the GitHub CLI in scripts/test-release-scripts.sh: logs every
 # call to $FAKE_LOG; "gh release view" succeeds when FAKE_RELEASE_EXISTS=1,
 # and with --json prints the asset names of FAKE_ASSETS (one per line);
-# "gh api" prints FAKE_API_ASSETS ("<name><TAB><digest>" lines, as the --jq
+# "gh api" answers from the folder FAKE_GITHUB when it is set (as the fake
+# curl does), otherwise prints FAKE_API_ASSETS ("<name><TAB><digest>" lines, as the --jq
 # filter of publish-pak-release.sh gives them); "gh release download
 # --pattern <name> --dir <dir>" copies <name> from the folder FAKE_DOWNLOADS.
 echo "gh $*" >>"$FAKE_LOG"
@@ -25,6 +26,20 @@ case "$1 $2" in
 	cp "$FAKE_DOWNLOADS/$pattern" "$dir/$pattern"
 	;;
 "api "*)
+	if [ -n "${FAKE_GITHUB:-}" ]; then
+		# The CI check (scripts/require-ci.sh): the answer for the path (last
+		# argument) from the folder FAKE_GITHUB, named as by the fake curl.
+		# FAKE_GH_OFFLINE=1 fails as gh does without network.
+		path="${*: -1}"
+		file="$FAKE_GITHUB/$(printf '%s' "$path" | tr '/?&=' '____').json"
+		if [ "${FAKE_GH_OFFLINE:-}" = 1 ]; then
+			echo "error connecting to api.github.com" >&2
+			exit 1
+		fi
+		[ -f "$file" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+		cat "$file"
+		exit 0
+	fi
 	if [ -n "${FAKE_API_ASSETS:-}" ]; then printf '%s\n' "$FAKE_API_ASSETS"; fi
 	exit 0
 	;;

@@ -1,9 +1,11 @@
 #!/bin/bash
 # A stand-in for git in scripts/test-release-scripts.sh: logs every call to
-# $FAKE_LOG and answers as a clean main branch without the tag. Never runs git.
+# $FAKE_LOG and answers as a clean main branch without the tag, at the commit
+# FAKE_HEAD. Never runs git.
 echo "git $*" >>"$FAKE_LOG"
 case "$*" in
 "rev-parse --abbrev-ref HEAD") echo main ;;
+"rev-parse HEAD") echo "${FAKE_HEAD:-1111111111111111111111111111111111111111}" ;;
 "status --porcelain") ;;
 "rev-parse -q --verify "*) exit 1 ;;
 "diff --quiet "*) exit 1 ;;

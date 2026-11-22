@@ -60,8 +60,15 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0" > /dev/null
 
+      # Release gate: the APK is built and signed only once the JVM unit
+      # tests (:core:test, :app:testDebugUnitTest) and Android lint passed
+      # on the tagged commit itself (the same steps as the android job of
+      # ci.yml; make android-v... already refused to tag a HEAD whose CI
+      # android job had not passed).
       - name: Unit tests
         run: make android-test
+      - name: Android lint
+        run: make android-lint
 
       - name: Release key
         id: key

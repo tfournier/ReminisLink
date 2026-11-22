@@ -1,0 +1,42 @@
+#!/bin/bash
+# A stand-in for curl in scripts/test-release-scripts.sh (the CI check of
+# the Xcode Cloud scripts, rl_github_get in ios/ci_scripts/common.sh). Never
+# opens a connection. Logs "curl <url>" to $FAKE_LOG, then answers from the
+# folder $FAKE_GITHUB: the API path with its query, "/", "?", "&" and "="
+# turned into "_", plus ".json" (missing file: HTTP 404). Honours -o, -D and
+# -w '%{http_code}' as rl_github_get uses them.
+#   FAKE_CURL_OFFLINE=1    fails as without network (exit 6)
+#   FAKE_CURL_RATELIMIT=1  answers 403 with x-ratelimit-remaining: 0
+out="" headers="" format="" url=""
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+	-o) out="$2"; shift ;;
+	-D) headers="$2"; shift ;;
+	-w) format="$2"; shift ;;
+	-H | --max-time | --retry | --retry-delay) shift ;;
+	http://* | https://*) url="$1" ;;
+	esac
+	shift
+done
+echo "curl $url" >>"${FAKE_LOG:-/dev/null}"
+if [ "${FAKE_CURL_OFFLINE:-}" = 1 ]; then
+	echo "curl: (6) Could not resolve host: api.github.com" >&2
+	exit 6
+fi
+path="${url#*://*/}"
+file="${FAKE_GITHUB:-/nonexistent}/$(printf '%s' "$path" | tr '/?&=' '____').json"
+if [ "${FAKE_CURL_RATELIMIT:-}" = 1 ]; then
+	code=403
+	printf 'HTTP/2 403\r\nx-ratelimit-limit: 60\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: 1700000000\r\n\r\n' >"${headers:-/dev/null}"
+	printf '{"message": "API rate limit exceeded"}' >"${out:-/dev/stdout}"
+elif [ -f "$file" ]; then
+	code=200
+	printf 'HTTP/2 200\r\nx-ratelimit-remaining: 59\r\n\r\n' >"${headers:-/dev/null}"
+	cat "$file" >"${out:-/dev/stdout}"
+else
+	code=404
+	printf 'HTTP/2 404\r\n\r\n' >"${headers:-/dev/null}"
+	printf '{"message": "Not Found"}' >"${out:-/dev/stdout}"
+fi
+[ "$format" != '%{http_code}' ] || printf '%s' "$code"
+exit 0
