@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    M22: copies of screenshots handed to the share sheet (cache/shared/<uuid>/),
+    served read-only by the FileProvider of the manifest. Nothing else is shared.
+-->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>

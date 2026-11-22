@@ -6,7 +6,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.key
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -65,6 +69,7 @@ import link.reminis.core.GameFileRoles
 fun DashboardScreen(
     onApps: () -> Unit = {},
     onTrash: () -> Unit = {},
+    onScreenshots: () -> Unit = {},
     deviceId: String,
     onBack: () -> Unit,
     onLibrary: () -> Unit,
@@ -95,7 +100,7 @@ fun DashboardScreen(
             )
         } else {
             LoadContent(status, onRetry = vm::retry, modifier = modifier) { device ->
-                Dashboard(device, modifier, onLibrary, onTransfers, onApps, onTrash, onForget = { forgetting = true })
+                Dashboard(device, modifier, onLibrary, onTransfers, onApps, onScreenshots, onTrash, onForget = { forgetting = true })
             }
         }
     }
@@ -111,6 +116,7 @@ private fun Dashboard(
     onLibrary: () -> Unit,
     onTransfers: () -> Unit,
     onApps: () -> Unit,
+    onScreenshots: () -> Unit,
     onTrash: () -> Unit,
     onForget: () -> Unit,
 ) {
@@ -164,6 +170,10 @@ private fun Dashboard(
                 OutlinedButton(onClick = onApps, modifier = Modifier.fillMaxWidth().testTag("openApps")) {
                     Text(stringResource(R.string.paks_title))
                 }
+                // M22: the screenshots taken on the console.
+                OutlinedButton(onClick = onScreenshots, modifier = Modifier.fillMaxWidth().testTag("openScreenshots")) {
+                    Text(stringResource(R.string.screenshots_title))
+                }
                 OutlinedButton(onClick = onTrash, modifier = Modifier.fillMaxWidth().testTag("openTrash")) {
                     Text(stringResource(R.string.trash_title))
                 }
@@ -180,18 +190,111 @@ private fun Info(label: String, value: String) {
 
 // MARK: library
 
+/** A window wide enough for the list and a game side by side (and tall enough: not a phone in landscape). */
+fun isTwoPane(width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp) = width >= 720.dp && height >= 480.dp
+
+/**
+ * The Library of a console (M15 on Android, like the iOS split view): in a
+ * wide window, the list and the game chosen side by side; otherwise one at
+ * a time (back from the game shows the list). The game chosen is saved
+ * state: a rotation, a window resize or a fold keeps it, and moves it from
+ * one layout to the other (its screen state lives in its ViewModel).
+ */
 @Composable
-fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit, onAdd: () -> Unit) {
+fun LibraryPanes(
+    deviceId: String,
+    onBack: () -> Unit,
+    onAdd: () -> Unit,
+    onImportArchive: (gameId: String?) -> Unit,
+    onSave: (gameId: String) -> Unit,
+    onStates: (gameId: String, name: String) -> Unit,
+    onCheats: (gameId: String) -> Unit,
+    onPatch: (gameId: String) -> Unit,
+) {
+    var selected by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().testTag("libraryPanes")) {
+        val twoPane = isTwoPane(maxWidth, maxHeight)
+        val game = selected
+        // Back from the game in a single pane shows the list again.
+        androidx.activity.compose.BackHandler(enabled = !twoPane && game != null) { selected = null }
+        Row(Modifier.fillMaxSize()) {
+            if (twoPane || game == null) {
+                key("list") {
+                    Box(if (twoPane) Modifier.width(380.dp).fillMaxHeight() else Modifier.fillMaxSize()) {
+                        LibraryScreen(
+                            deviceId = deviceId,
+                            onBack = onBack,
+                            onGame = { selected = it },
+                            onAdd = onAdd,
+                            onImportArchive = { onImportArchive(null) },
+                            selectedGameId = if (twoPane) game else null,
+                        )
+                    }
+                }
+            }
+            if (twoPane) androidx.compose.material3.VerticalDivider()
+            if (game != null) {
+                key("game") {
+                    Box(Modifier.weight(1f).fillMaxHeight().testTag("gamePane")) {
+                        GameScreen(
+                            deviceId = deviceId,
+                            gameId = game,
+                            onBack = if (twoPane) null else ({ selected = null }),
+                            onSave = { onSave(game) },
+                            onStates = { name -> onStates(game, name) },
+                            onCheats = { onCheats(game) },
+                            onPatch = { onPatch(game) },
+                            onDeleted = { selected = null },
+                            onImportArchive = { onImportArchive(game) },
+                        )
+                    }
+                }
+            } else if (twoPane) {
+                Box(Modifier.weight(1f).fillMaxHeight().testTag("gamePanePlaceholder"), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        Text(stringResource(R.string.library_select_game), style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.library_select_game_help), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LibraryScreen(
+    deviceId: String,
+    onBack: () -> Unit,
+    onGame: (String) -> Unit,
+    onAdd: () -> Unit,
+    onImportArchive: () -> Unit = {},
+    /** The game shown beside the list (a wide window): highlighted. */
+    selectedGameId: String? = null,
+) {
     val app = LocalContext.current.applicationContext as Application
     val vm: LibraryViewModel = viewModel(key = "library-$deviceId") { LibraryViewModel(app, deviceId) }
     val content by vm.content.collectAsState()
     val query by vm.query.collectAsState()
+    var menu by remember { mutableStateOf(false) }
 
     AppScaffold(
         title = stringResource(R.string.library),
         onBack = onBack,
         actions = {
             IconButton(onClick = vm::refresh) { Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.refresh)) }
+            Box {
+                IconButton(onClick = { menu = true }, modifier = Modifier.testTag("libraryMenu")) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.more_actions))
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    // M19: a game archive, whose target the console suggests.
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.library_import_archive)) },
+                        onClick = { menu = false; onImportArchive() },
+                        modifier = Modifier.testTag("libraryImportArchive"),
+                    )
+                }
+            }
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
@@ -238,6 +341,11 @@ fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit
                         ListItem(
                             headlineContent = { Text(game.name) },
                             supportingContent = { Text(badges.joinToString(" · ")) },
+                            colors = if (game.id == selectedGameId) {
+                                androidx.compose.material3.ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                            } else {
+                                androidx.compose.material3.ListItemDefaults.colors()
+                            },
                             modifier = Modifier.clickable { onGame(game.id) },
                         )
                         HorizontalDivider()
@@ -254,12 +362,14 @@ fun LibraryScreen(deviceId: String, onBack: () -> Unit, onGame: (String) -> Unit
 fun GameScreen(
     deviceId: String,
     gameId: String,
-    onBack: () -> Unit,
+    /** Null in the detail pane of a wide window (the list stays beside it). */
+    onBack: (() -> Unit)?,
     onSave: (String) -> Unit,
     onStates: (String) -> Unit,
     onCheats: () -> Unit = {},
     onPatch: () -> Unit = {},
     onDeleted: () -> Unit = {},
+    onImportArchive: () -> Unit = {},
 ) {
     val app = LocalContext.current.applicationContext as Application
     val vm: GameViewModel = viewModel(key = "game-$deviceId-$gameId") { GameViewModel(app, deviceId, gameId) }
@@ -267,6 +377,7 @@ fun GameScreen(
     val working by vm.working.collectAsState()
     val notice by vm.notice.collectAsState()
     val error by vm.error.collectAsState()
+    val archiveExport by vm.archiveExport.collectAsState()
     var menu by remember { mutableStateOf(false) }
     var removingArt by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
@@ -307,6 +418,13 @@ fun GameScreen(
                 detail, modifier, working, notice, error, vm::dismissMessages,
                 onSave = { onSave(detail.name) }, onStates = { onStates(detail.name) }, onCheats = onCheats, onPatch = onPatch,
                 onDownload = { file, uri -> vm.download(file, detail.name, uri) },
+                archive = ArchiveActions(
+                    export = archiveExport,
+                    onExport = { rom, uri -> vm.exportArchive(rom, detail.name, uri) },
+                    onCancel = vm::cancelArchiveExport,
+                    onDismiss = vm::dismissArchiveExport,
+                    onImport = onImportArchive,
+                ),
             )
         }
     }
@@ -337,9 +455,11 @@ private fun GameDetailView(
     onCheats: () -> Unit,
     onPatch: () -> Unit,
     onDownload: (GameFile, android.net.Uri) -> Unit,
+    archive: ArchiveActions,
 ) {
     val context = LocalContext.current
     val creator = rememberDocumentCreator()
+    var askExport by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     LazyColumn(modifier.fillMaxSize().testTag("game")) {
         item {
             if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -373,6 +493,8 @@ private fun GameDetailView(
                 modifier = Modifier.clickable(onClick = onPatch).testTag("openPatch"),
             )
             HorizontalDivider()
+            ArchiveSection(archive, onAskExport = { askExport = true })
+            HorizontalDivider()
             Text(
                 stringResource(R.string.game_files),
                 style = MaterialTheme.typography.titleMedium,
@@ -395,6 +517,96 @@ private fun GameDetailView(
             )
         }
     }
+    if (askExport) {
+        ExportArchiveDialog(
+            game,
+            onChoose = { rom -> creator.create(link.reminis.core.GameArchiveManifest.exportName(game.name)) { archive.onExport(rom, it) } },
+            onDismiss = { askExport = false },
+        )
+    }
+}
+
+/** M19: what the Archive section of a game shows and does. */
+class ArchiveActions(
+    /** The export started from this screen, as the transfer queue shows it. */
+    val export: link.reminis.core.TransferItem?,
+    val onExport: (rom: Boolean, android.net.Uri) -> Unit,
+    val onCancel: () -> Unit,
+    val onDismiss: () -> Unit,
+    val onImport: () -> Unit,
+)
+
+/**
+ * The Archive section of a game (M19, docs/specs/06-app-ios.md §4.5):
+ * export the game's data as a zip into a document the user creates, or
+ * import one into this game.
+ */
+@Composable
+private fun ArchiveSection(archive: ArchiveActions, onAskExport: () -> Unit) {
+    val context = LocalContext.current
+    Text(
+        stringResource(R.string.archive_section),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(start = 16.dp, top = 16.dp),
+    )
+    val export = archive.export
+    if (export != null && !export.phase.isFinished && export.phase != link.reminis.core.TransferPhase.FAILED) {
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.archive_preparing, formatBytes(context, export.doneBytes))) },
+            supportingContent = { LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 4.dp)) },
+            trailingContent = {
+                if (export.canCancel) {
+                    TextButton(onClick = archive.onCancel, modifier = Modifier.testTag("archiveCancelExport")) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                }
+            },
+            modifier = Modifier.testTag("archiveExporting"),
+        )
+    } else {
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.archive_export)) },
+            supportingContent = when {
+                export?.phase == link.reminis.core.TransferPhase.DONE -> {
+                    { Text(stringResource(R.string.archive_exported, export.fileName), modifier = Modifier.testTag("archiveExported")) }
+                }
+                export?.failure != null -> {
+                    { Text(errorMessage(context, archiveError(export.failure!!, routeMissing = true)), color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("archiveExportError")) }
+                }
+                else -> null
+            },
+            modifier = Modifier.clickable { archive.onDismiss(); onAskExport() }.testTag("archiveExport"),
+        )
+    }
+    ListItem(
+        headlineContent = { Text(stringResource(R.string.archive_import)) },
+        modifier = Modifier.clickable(onClick = archive.onImport).testTag("archiveImport"),
+    )
+    Footnote(stringResource(R.string.archive_footer))
+}
+
+/** "Export the data of <game>": without the game file, or with it (single-file games only). */
+@Composable
+private fun ExportArchiveDialog(game: GameDetail, onChoose: (rom: Boolean) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.archive_export_title, game.name)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.archive_export_message), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { onDismiss(); onChoose(false) }, modifier = Modifier.fillMaxWidth().testTag("archiveExportData")) {
+                    Text(stringResource(R.string.archive_without_rom))
+                }
+                if (game.kind == "file") {
+                    TextButton(onClick = { onDismiss(); onChoose(true) }, modifier = Modifier.fillMaxWidth().testTag("archiveExportRom")) {
+                        Text(stringResource(R.string.archive_with_rom))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    )
 }
 
 @Composable

@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.hasClickAction
@@ -219,6 +221,8 @@ class PakIntegrationTest {
             cheatsTrashAndApps(parsed.deviceId, it)
         }
         sharedPatch(parsed.deviceId)
+        archiveAsANewGame(parsed.deviceId)
+        screenshotsTrashedAndRestored(parsed.deviceId)
     }
 
     /** Waits for a condition; on a timeout, the screen goes to the log (no secret is on it). */
@@ -420,6 +424,99 @@ class PakIntegrationTest {
         assertTrue("the pak is still installed", paks.none { it.name == "Fern Tool" })
         val trash = kotlinx.coroutines.runBlocking { client.trash() }
         assertTrue("the pak is not in the trash", trash.entries.any { it.reason == "delete-pak" && it.label == "Fern Tool" })
+    }
+
+    /**
+     * Increment 5 (M19): the archive of the test game (with its ROM) is
+     * exported through the app's queue into a document, the game is
+     * deleted, then the archive is shared to the app: the console suggests
+     * a new game, the import makes it again with its save.
+     */
+    private fun archiveAsANewGame(deviceId: String) {
+        val client = kotlinx.coroutines.runBlocking { context.container.client(deviceId) }
+        val game = fernGame(client)!!
+        val save = java.io.ByteArrayOutputStream().also { out ->
+            kotlinx.coroutines.runBlocking { client.download(link.reminis.core.DownloadSource.Save(game.id), out) }
+        }.toByteArray()
+        val resolver = context.contentResolver
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "Fern Courier ${System.currentTimeMillis()}.reminislink.zip")
+        }
+        val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)!!
+        try {
+            val queue = context.container.transfers
+            val id = queue.enqueueDownload(
+                deviceId, link.reminis.core.DownloadSource.GameArchive(game.id, rom = true), "$gameName.reminislink.zip", gameName,
+                DocumentSink(context, uri),
+            )
+            val item = kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeout(60_000) {
+                    queue.items.first { list -> list.any { it.id == id && (it.phase == TransferPhase.DONE || it.phase == TransferPhase.FAILED) } }
+                }
+            }.first { it.id == id }
+            assertEquals("export: ${item.failure}", TransferPhase.DONE, item.phase)
+            kotlinx.coroutines.runBlocking { client.deleteGame(game.id, keepSave = false) }
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).setClass(context, MainActivity::class.java)
+                .setType("application/zip").putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            ActivityScenario.launch<MainActivity>(intent).use {
+                waitForTag("archiveTarget")
+                // The console suggests a new game made of the archive's ROM.
+                compose.onNodeWithText(context.getString(R.string.archive_new_game_in, ""), substring = true).assertExists()
+                compose.onNodeWithTag("archiveImportAction").performClick()
+                waitFor("the import") {
+                    compose.onAllNodesWithTag("archiveResult").fetchSemanticsNodes().isNotEmpty() ||
+                        compose.onAllNodesWithTag("archiveError", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithTag("archiveResult").assertExists()
+            }
+        } finally {
+            resolver.delete(uri, null, null)
+        }
+        val again = fernGame(client)
+        assertTrue("the game was not made again", again != null)
+        val restored = java.io.ByteArrayOutputStream().also { out ->
+            kotlinx.coroutines.runBlocking { client.download(link.reminis.core.DownloadSource.Save(again!!.id), out) }
+        }.toByteArray()
+        assertTrue("the save did not come with the archive", restored.contentEquals(save))
+    }
+
+    /**
+     * Increment 5 (M22): a screenshot of the test card (testdata/sdcard/Screenshots)
+     * listed on the Screenshots screen, moved to the trash from there (a long
+     * press selects it), then restored from the Trash screen.
+     */
+    private fun screenshotsTrashedAndRestored(deviceId: String) {
+        val client = kotlinx.coroutines.runBlocking { context.container.client(deviceId) }
+        val before = kotlinx.coroutines.runBlocking { client.screenshots() }.screenshots
+        assertTrue("no screenshot on the test card", before.isNotEmpty())
+        val name = context.container.consoles.get(deviceId)!!.deviceName
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            waitForText(name)
+            compose.onNodeWithText(name).performClick()
+            waitForTag("dashboard")
+            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openScreenshots"))
+            compose.onNodeWithTag("openScreenshots").performClick()
+            waitFor("the screenshots") {
+                compose.onAllNodesWithTag("screenshotCell", useUnmergedTree = true).fetchSemanticsNodes().size == before.size
+            }
+            compose.onAllNodesWithTag("screenshotCell")[0].performTouchInput { longClick() }
+            compose.onNodeWithTag("screenshotsTrash").performClick()
+            compose.onNodeWithTag("confirmOk").performClick()
+            waitFor("one screenshot gone") { kotlinx.coroutines.runBlocking { client.screenshots() }.screenshots.size == before.size - 1 }
+            val entry = kotlinx.coroutines.runBlocking { client.trash() }.entries.first { it.reason == "delete-screenshot" }
+            back(scenario)
+            waitForTag("dashboard")
+            compose.onNodeWithTag("dashboard").performScrollToNode(hasTestTag("openTrash"))
+            compose.onNodeWithTag("openTrash").performClick()
+            waitForTag("trashLabel-${entry.id}")
+            compose.onNodeWithTag("trashLabel-${entry.id}", useUnmergedTree = true).performClick()
+            waitForTag("trashRestoreConfirm")
+            compose.onNodeWithTag("trashRestoreConfirm").performClick()
+            waitForTag("trashRestoreDone")
+        }
+        val after = kotlinx.coroutines.runBlocking { client.screenshots() }.screenshots
+        assertEquals("the screenshot did not come back", before.map { it.name }.toSet(), after.map { it.name }.toSet())
     }
 
     /**

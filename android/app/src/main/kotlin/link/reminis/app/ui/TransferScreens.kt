@@ -429,14 +429,27 @@ private fun JobRow(job: TrackedJob, onCancel: () -> Unit) {
                     when {
                         job.lost -> stringResource(R.string.error_job_lost)
                         state == null -> stringResource(R.string.job_waiting)
-                        state.state == JobStates.SUCCEEDED ->
-                            stringResource(if (job.kind == JobKinds.PAK_INSTALL) R.string.pak_installed else R.string.job_done)
+                        state.state == JobStates.SUCCEEDED -> stringResource(
+                            when (job.kind) {
+                                JobKinds.PAK_INSTALL -> R.string.pak_installed
+                                JobKinds.ARCHIVE_IMPORT -> R.string.archive_imported_job
+                                else -> R.string.job_done
+                            },
+                        )
                         state.state == JobStates.FAILED -> state.serverError?.let {
-                            errorMessage(context, if (job.kind == JobKinds.PAK_INSTALL) pakError(PakJobFailure(it)) else patchError(PatchJobFailure(it)))
+                            errorMessage(
+                                context,
+                                when (job.kind) {
+                                    JobKinds.PAK_INSTALL -> pakError(PakJobFailure(it))
+                                    JobKinds.ARCHIVE_IMPORT -> archiveError(link.reminis.core.ArchiveJobFailure(it))
+                                    else -> patchError(PatchJobFailure(it))
+                                },
+                            )
                         } ?: stringResource(R.string.transfer_failed)
                         state.state == JobStates.CANCELLED -> stringResource(R.string.transfer_cancelled)
                         job.cancelRequested -> stringResource(R.string.patch_cancelling)
                         job.kind == JobKinds.PAK_INSTALL -> stringResource(R.string.pak_installing)
+                        job.kind == JobKinds.ARCHIVE_IMPORT -> stringResource(R.string.archive_importing)
                         else -> stringResource(R.string.patch_applying)
                     },
                     style = MaterialTheme.typography.bodySmall,

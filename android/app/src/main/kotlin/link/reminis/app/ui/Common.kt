@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -33,6 +34,13 @@ fun AppScaffold(
     onBack: (() -> Unit)?,
     actions: @Composable () -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
+    /**
+     * Lists and forms keep a readable width in a wide window (M15 on
+     * Android: tablets, foldables, desktop windows), centred; a grid
+     * (screenshots) or a two-pane layout takes the whole width.
+     */
+    readable: Boolean = true,
     content: @Composable (Modifier) -> Unit,
 ) {
     Scaffold(
@@ -50,8 +58,20 @@ fun AppScaffold(
             )
         },
         floatingActionButton = floatingActionButton,
-    ) { padding -> content(Modifier.padding(padding)) }
+        bottomBar = bottomBar,
+    ) { padding ->
+        if (readable) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+                content(Modifier.widthIn(max = READABLE_WIDTH))
+            }
+        } else {
+            content(Modifier.padding(padding))
+        }
+    }
 }
+
+/** The widest a list or a form gets (like iOS M15: 700 pt). */
+val READABLE_WIDTH = 720.dp
 
 @Composable
 fun LoadingView(modifier: Modifier = Modifier) {

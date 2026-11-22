@@ -342,6 +342,8 @@ class TransferUiTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { created += it }
                 openGame()
+                // Below the archive section (and the fold of a landscape tablet): scrolled to first.
+                compose.onNodeWithTag("game").performScrollToNode(androidx.compose.ui.test.hasText(context.getString(R.string.action_download)))
                 compose.onAllNodesWithText(context.getString(R.string.action_download))[0].performClick()
                 // The system picker is in front; a configuration change recreates the activity behind it.
                 Thread.sleep(3_000)

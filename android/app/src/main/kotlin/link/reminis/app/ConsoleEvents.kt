@@ -33,6 +33,9 @@ sealed interface ConsoleChange {
     /** The installed paks changed (`paks`). */
     data class Paks(override val deviceId: String) : ConsoleChange
 
+    /** M22: screenshots went to the trash or came back (`screenshots`, any client). */
+    data class Screenshots(override val deviceId: String) : ConsoleChange
+
     /**
      * A `hello`: the stream (re)opened. The pak replays nothing: whatever
      * happened before (background, another screen, a slow opening) is
@@ -298,6 +301,7 @@ class ConsoleEvents(
             is PakEvent.Library -> libraryChanged(s, event.library.affectedSystems)
             is PakEvent.JobChanged -> onJob(id, event.job, s.identity)
             PakEvent.Paks -> _changes.tryEmit(ConsoleChange.Paks(id))
+            PakEvent.Screenshots -> _changes.tryEmit(ConsoleChange.Screenshots(id))
             is PakEvent.Shutdown, is PakEvent.Unknown -> Unit
         }
     }

@@ -159,6 +159,7 @@ class AppContainer(context: Context) {
         transfers.dropConsole(console.deviceId)
         jobs.dropConsole(console.deviceId)
         pakInstaller.dropConsole(console.deviceId)
+        screenshotManagers.remove(console.deviceId)
         console.close()
         // Exactly the transfers the demo paused, whatever their phase now; never one paused before it.
         transfers.releaseDemoHold()
@@ -206,10 +207,29 @@ class AppContainer(context: Context) {
     /** The background scope of the app (cleanups that outlive a screen). */
     val backgroundScope: CoroutineScope get() = transferScope
 
+    /** The trash of a console changed from another screen (screenshots moved): its screen reloads. */
+    val trashChanged = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 16)
+
+    private val screenshotManagers = ConcurrentHashMap<String, ScreenshotManager>()
+
+    /** M22: the screenshots of a console (one manager per console, shared by its screens). */
+    fun screenshots(deviceId: String): ScreenshotManager = screenshotManagers.getOrPut(deviceId) {
+        ScreenshotManager(appContext, deviceId, scope, client = { client(deviceId) }, onTrashChanged = { trashChanged.tryEmit(deviceId) })
+    }
+
     init {
         // Listed now, before any new copy can be made; deleted in the background.
         val leftovers = transferDirectory.listFiles().orEmpty()
         transferScope.launch(Dispatchers.IO) { leftovers.forEach { it.deleteRecursively() } }
+        // Copies made for the share sheet by a previous process (M22).
+        val shared = ScreenshotManager.sharedDirectory(appContext).listFiles().orEmpty()
+        transferScope.launch(Dispatchers.IO) { shared.forEach { it.deleteRecursively() } }
+        // M22: a `screenshots` event (or a new stream) reloads the screenshots of that console.
+        scope.launch {
+            events.changes.collect { change ->
+                if (change is ConsoleChange.Screenshots || change is ConsoleChange.CatchUp) screenshotManagers[change.deviceId]?.changed()
+            }
+        }
     }
 
     /** `clientName` of `POST /pair`: typed by the user, the device model by default. */
@@ -367,6 +387,7 @@ class AppContainer(context: Context) {
         // The jobs of the previous pairing are never asked through the new one.
         jobs.dropConsole(console.deviceId)
         pakInstaller.dropConsole(console.deviceId)
+        screenshotManagers.remove(console.deviceId)
         // The event stream of the previous pairing stops (it also checks the identity itself).
         scope.launch { events.dropConsole(console.deviceId) }
     }
@@ -394,6 +415,7 @@ class AppContainer(context: Context) {
         scope.launch { events.dropConsole(deviceId) }
         transfers.dropConsole(deviceId)
         pakInstaller.dropConsole(deviceId)
+        screenshotManagers.remove(deviceId)
     }
 
     /**

@@ -112,9 +112,14 @@ class DemoEventsUiTest {
             waitFor("stream open again") { context.container.events.isLive(demo.deviceId) && demo.pak.openStreams == 1 }
 
             // Disconnected by the console: shown on the dashboard, never reconnected by itself.
-            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
-            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            // One back per frame, until the dashboard: in a narrow window the library shows the list
+            // again after the game (3 backs), in a wide one the game sits beside the list (2 backs).
+            repeat(3) {
+                if (!hasTag("dashboard")) {
+                    scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                    compose.waitForIdle()
+                }
+            }
             waitFor("dashboard again") { hasTag("dashboard") }
             waitFor("stream open on the dashboard") { context.container.events.isLive(demo.deviceId) }
             val beforeDisconnection = demo.pak.eventsRequests.get()

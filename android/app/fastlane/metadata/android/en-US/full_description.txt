@@ -25,6 +25,12 @@ ReminisLink lists the games found on the SD card of your handheld, but provides 
 <p><b>Apps on the handheld</b><br>
 See the tools and emulators installed on the handheld, install one from a zip on your phone, or remove one.</p>
 
+<p><b>Move a game, keep its data</b><br>
+Export the save, save states, cheats and box art of a game (and the game file, if you like) as one archive on your phone, and import it into the same handheld or another one. Whatever the import replaces goes to the trash of the handheld first.</p>
+
+<p><b>Screenshots</b><br>
+Browse the screenshots taken on the handheld, day by day; share them, save them to your gallery, or move them to the trash.</p>
+
 <p><b>Nothing is lost</b><br>
 Deleted games, replaced files and games patched in place go to the trash of the handheld for 30 days; a replaced save is first copied to the backups. Restore anything from the trash: a game comes back with its save, states, cheats and box art, and nothing on the SD card is ever overwritten.</p>
 
@@ -40,6 +46,9 @@ The app refreshes on its own when the SD card changes, shows the battery live, a
 
 <p><b>Try it first</b><br>
 "Try Without a Console" opens a demo console with made-up games, to try every screen. Nothing leaves the phone.</p>
+
+<p><b>Phones, tablets and foldables</b><br>
+In a wide window, the library and the game you chose sit side by side; every orientation and window size works.</p>
 
 <p><b>Compatible handhelds</b><br>
 TrimUI Brick with NextUI. Experimental, looking for testers: TrimUI Smart Pro S, Anbernic H700 handhelds and Miyoo Flip with NextUI, and handhelds running Knulli.</p>
