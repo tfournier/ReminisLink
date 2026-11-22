@@ -23,26 +23,42 @@ cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulat
 # the same tests on an iPad (milestone M15); a name-only destination may not
 # resolve: take the id from `xcodebuild -showdestinations -scheme ReminisLink`
 cd ios && xcodebuild test -scheme ReminisLink -destination 'id=<iPad simulator id>'
-# the UI tests alone, on 2 clones of the simulator at once (as the CI)
+# one half of the UI tests, as the CI job ios-ui-1 (ios-ui-2: "2 2")
 cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16' \
-  -only-testing:ReminisLinkUITests -parallel-testing-enabled YES -parallel-testing-worker-count 2
+  $(../scripts/ios-ui-shard.sh 1 2)
 ```
 
-The GitHub CI (`.github/workflows/ci.yml`) runs them in two jobs side by
-side, each on its own Mac: `ios` (`swift test`, `make release-checks`, then
-the app's unit tests, `-only-testing:ReminisLinkTests`) and `ios-ui` (the
-UI tests, on 2 clones of the simulator as above). A failed test is run
-again, up to 3 times in all (`-retry-tests-on-failure -test-iterations 3`).
-The app's release gate needs both jobs (`CI_JOBS_IOS` in the Makefile,
-`RL_CI_JOBS_IOS` in `ci_scripts/common.sh`).
+The GitHub CI (`.github/workflows/ci.yml`) runs them in three jobs side by
+side, each on its own Mac with one simulator and building the app itself:
+`ios` (`swift test`, `make release-checks`, then the app's unit tests,
+`-only-testing:ReminisLinkTests`), `ios-ui-1` and `ios-ui-2` (each half of
+the UI test classes, `-parallel-testing-enabled NO`, 60 minutes at most). A
+failed test is run again, up to 3 times in all
+(`-retry-tests-on-failure -test-iterations 3`). The app's release gate needs
+the three jobs (`CI_JOBS_IOS` in the Makefile, `RL_CI_JOBS_IOS` in
+`ci_scripts/common.sh`).
 
-In parallel, xcodebuild gives each clone whole test classes. The UI tests in
-demo mode share nothing between classes: the fake pak runs in the app's
-process (no port, no network), its Keychain is in memory, its
-`UserDefaults` suite and folder are its own, and each clone has its own app
-container. The tests against a real pak (`TEST_RUNNER_RL_UITEST_PAIR_URL_*`,
-one pak and single-use pairing links) run one at a time: leave parallel
-testing off for them (the scheme's default).
+`scripts/ios-ui-shard.sh <n> <total>` lists the `XCTestCase` classes of
+`ReminisLinkUITests` and prints the `-only-testing:` arguments of half `n`.
+The split is fixed: heaviest class first (its duration on the CI, from the
+table in the script; 30 s per test method for a class it does not know) to
+the lightest half so far, ties broken by name. A new class needs nothing:
+it lands in a half by itself; update the table when a class grows or
+shrinks a lot. `make release-checks` fails if a class is in no half or in
+both, or if a job does not run its half.
+
+Never 2 simulators on one CI runner (`macos-26`: 3 cores, 7 GB). Tried on
+2026-11-22 (`-parallel-testing-enabled YES -parallel-testing-worker-count 2`,
+runs 45067415723 and 45067415846): every UI test took 80 to 100 s instead of
+about 30, the app sometimes failed to launch ("Failed to send signal 19"),
+`ErgonomicsUITests.testDownloadAFileOfAGameInDemoMode` timed out in its 3
+tries, and the job ran 67 and 83 minutes, red (it took 13 minutes on a
+14-core Mac). The demo-mode UI tests can still run in parallel on a
+powerful Mac: they share nothing between classes (the fake pak runs in the
+app's process, its Keychain is in memory, its `UserDefaults` suite and
+folder are its own, each clone has its own container). The tests against a
+real pak (`TEST_RUNNER_RL_UITEST_PAIR_URL_*`, one pak and single-use
+pairing links) run one at a time.
 
 No Apple Developer account is needed for the simulator. To run on a device,
 set `DEVELOPMENT_TEAM` in `Config/Local.xcconfig` (see "Release" below).
@@ -217,7 +233,7 @@ set in Xcode):
 - **Release gate** (`ci_post_clone.sh`, Release and Beta workflows): the
   build stops before the archive unless the GitHub CI (`ci.yml`, a push to
   `main`; a run started by a tag never counts) passed the jobs `ios`,
-  `ios-ui` and `contract` on the commit built (`CI_COMMIT`), with the conclusion
+  `ios-ui-1`, `ios-ui-2` and `contract` on the commit built (`CI_COMMIT`), with the conclusion
   `success` (skipped, neutral, cancelled, timed out... are failures; a job
   that already failed outweighs one still running). It reads the public
   GitHub API without a token, every page
