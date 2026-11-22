@@ -12,6 +12,11 @@ import XCTest
 /// and declares that source. It goes into the share inbox exactly as the
 /// share extension leaves files.
 final class PatchUITests: XCTestCase {
+    /// The "Patch applied" notice stays 30 s instead of 5: a query takes
+    /// up to 4 s on a slow CI runner, and the notice was gone before the
+    /// test could read it.
+    static let longNotice = ["RL_UITEST_NOTICE_SECONDS": "30"]
+
     override func setUp() {
         continueAfterFailure = false
     }
@@ -19,7 +24,7 @@ final class PatchUITests: XCTestCase {
     /// Against the fake pak, from the game sheet: SD card patches.
     @MainActor
     func testPatchFromTheSDCardInDemoMode() throws {
-        let app = GameDataUITest.openDemoGame()
+        let app = GameDataUITest.openDemoGame(Self.longNotice)
         XCTAssertTrue(GameDataUITest.scrollTo(app.buttons["game.patch"], in: app), "no Patch button")
         app.buttons["game.patch"].tap()
         app.segmentedControls["patch.source"].buttons.element(boundBy: 1).tapAfterWaiting()
@@ -66,6 +71,7 @@ final class PatchUITests: XCTestCase {
         app.launchEnvironment["RL_DEMO"] = "1"
         // Thistledown Isles is 16 MiB in the demo; the fake pak checks the size.
         app.launchEnvironment["RL_UITEST_SHARE_PATCH"] = "UITest Hack.bps:16777216:00000000:UITest output"
+        for (key, value) in Self.longNotice { app.launchEnvironment[key] = value }
         app.launch()
         app.open(URL(string: PairingUITests.demoLink)!)
         let pairingDone = app.buttons["pairing.done"]
@@ -148,11 +154,11 @@ final class PatchUITests: XCTestCase {
                                     file: StaticString = #filePath, line: UInt = #line) {
         let title = app.staticTexts.matching(NSPredicate(format: "identifier == 'game.title' AND label == %@", name)).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: timeout), "not on the game \(name)", file: file, line: line)
-        // The notice shows for 5 s only: look for it first, as soon as the
-        // game is shown (a slow CI runner spent that long on the next check).
-        let notice = app.descendants(matching: .any)["notice"].firstMatch
-        XCTAssertTrue(notice.waitForExistence(timeout: 3), "no notice", file: file, line: line)
-        XCTAssertTrue(notice.label.contains("Patch applied"), notice.label, file: file, line: line)
+        // The notice (kept 30 s here, ``longNotice``), with its text, in one
+        // query.
+        let notice = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'notice' AND label CONTAINS 'Patch applied'")).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 10), "no Patch applied notice", file: file, line: line)
         XCTAssertTrue(app.buttons["patch.close"].waitForNonExistence(timeout: 10), "Patch screen still shown",
                       file: file, line: line)
     }
@@ -163,6 +169,7 @@ final class PatchUITests: XCTestCase {
         app.launchArguments += GameDataUITest.englishArguments
         if reset { app.launchEnvironment["RL_RESET_STORE"] = "1" }
         app.launchEnvironment["RL_UITEST_SHARE_PATCH"] = patch
+        for (key, value) in Self.longNotice { app.launchEnvironment[key] = value }
         app.launch()
         return app
     }

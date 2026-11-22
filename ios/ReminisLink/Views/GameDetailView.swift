@@ -201,7 +201,7 @@ struct GameDetailView: View {
         // Said for a few seconds, then gone.
         .task(id: patchNotice?.id) {
             guard let id = patchNotice?.id else { return }
-            try? await Task.sleep(for: .seconds(5))
+            try? await Task.sleep(for: app.patchNoticeDuration)
             guard !Task.isCancelled, app.patchNotice?.id == id else { return }
             withAnimation { app.patchNotice = nil }
         }
