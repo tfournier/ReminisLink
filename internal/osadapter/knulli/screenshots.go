@@ -20,10 +20,13 @@ import (
 //   - the scripts of knulli-resolution (other boards):
 //     "screenshot-<%Y-%m-%d>_<%H>h<%M%S>.png" or
 //     "screenshot-<%Y.%m.%d>-<%H>h<%M>.<%S>.png".
+//
+// A " (N)" before the extension is the free name of a restore from the
+// trash (M18): the name still gives the game and the date.
 var (
-	retroarchShot = regexp.MustCompile(`^(.+)-(\d{2})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.(?i:png)$`)
-	hotkeyShot    = regexp.MustCompile(`^knulli-screenshot_\d+x\d+_(\d{4})(\d{2})(\d{2})_(\d{2})h(\d{2})m(\d{2})s\.(?i:png)$`)
-	scriptShot    = regexp.MustCompile(`^screenshot-(?:all-)?(\d{4})[-.](\d{2})[-.](\d{2})[_-](\d{2})h(\d{2})\.?(\d{2})\.(?i:png|pbm)$`)
+	retroarchShot = regexp.MustCompile(`^(.+)-(\d{2})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})(?: \(\d+\))?\.(?i:png)$`)
+	hotkeyShot    = regexp.MustCompile(`^knulli-screenshot_\d+x\d+_(\d{4})(\d{2})(\d{2})_(\d{2})h(\d{2})m(\d{2})s(?: \(\d+\))?\.(?i:png)$`)
+	scriptShot    = regexp.MustCompile(`^screenshot-(?:all-)?(\d{4})[-.](\d{2})[-.](\d{2})[_-](\d{2})h(\d{2})\.?(\d{2})(?: \(\d+\))?\.(?i:png|pbm)$`)
 )
 
 // ParseScreenshotName reads a Knulli screenshot name in the time zone loc

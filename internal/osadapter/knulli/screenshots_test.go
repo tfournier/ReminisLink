@@ -17,6 +17,9 @@ func TestParseScreenshotName(t *testing.T) {
 		{"screenshot-2026-11-21_18h3005.png", "", time.Date(2026, 11, 21, 18, 30, 5, 0, loc)},
 		{"screenshot-2026.11.21-18h30.05.png", "", time.Date(2026, 11, 21, 18, 30, 5, 0, loc)},
 		{"screenshot-all-2026.11.21-18h30.05.png", "", time.Date(2026, 11, 21, 18, 30, 5, 0, loc)},
+		// Restored from the trash under a free name (M18).
+		{"Sky Garden Quest-261121-183000 (2).png", "Sky Garden Quest", time.Date(2026, 11, 21, 18, 30, 0, 0, loc)},
+		{"knulli-screenshot_1024x768_20261121_18h30m05s (3).png", "", time.Date(2026, 11, 21, 18, 30, 5, 0, loc)},
 		// A NextUI name, a date that does not exist, no date: nothing.
 		{"Game.2026-11-21-18-30-00.png", "", time.Time{}},
 		{"Game-261321-183000.png", "", time.Time{}},

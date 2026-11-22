@@ -209,40 +209,60 @@ func (s *Service) openFolder() (*folder, bool, error) {
 	return &folder{dir: dir, root: root, rel: rel}, true, nil
 }
 
-// entries reads the folder through its root: the regular files the list
-// shows, by exact name (never a link: the type comes from the directory,
-// not from the target).
-func (f *folder) entries() (map[string]fs.DirEntry, error) {
+// readBatch is how many entries of the folder are read at a time.
+const readBatch = 256
+
+// scan reads the folder through its root, readBatch entries at a time,
+// and calls fn with each regular file the list shows, by exact name (never
+// a link: the type comes from the directory, not from the target). fn
+// returns false to stop. ErrOutside: the folder was replaced by a link.
+func (f *folder) scan(ctx context.Context, fn func(de fs.DirEntry) bool) error {
 	d, err := f.root.Open(f.rel)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer d.Close()
 	// The folder opened is the one checked (no link put in its place).
 	fi, err := d.Stat()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	li, err := f.root.Lstat(f.rel)
 	if err != nil || !fi.IsDir() || (f.rel != "." && !os.SameFile(fi, li)) {
-		return nil, confine.ErrOutside
+		return confine.ErrOutside
 	}
-	des, err := d.ReadDir(-1)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]fs.DirEntry, len(des))
-	for _, de := range des {
-		if de.Type().IsRegular() && listable(de.Name()) {
-			out[de.Name()] = de
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		des, err := d.ReadDir(readBatch)
+		for _, de := range des {
+			if de.Type().IsRegular() && listable(de.Name()) && !fn(de) {
+				return nil
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
 		}
 	}
-	return out, nil
 }
 
 func (f *folder) fileRel(name string) string { return filepath.Join(f.rel, name) }
 
-// List lists the screenshots, newest first (GET /screenshots).
+// newer orders the list: takenAt, newest first, then name.
+func newer(a, b Screenshot) bool {
+	if !a.TakenAt.Equal(b.TakenAt) {
+		return a.TakenAt.After(b.TakenAt)
+	}
+	return a.Name < b.Name
+}
+
+// List lists the screenshots, newest first (GET /screenshots). The folder
+// is read in batches and only the MaxList newest are kept, so the memory
+// does not grow with the folder.
 func (s *Service) List(ctx context.Context) (List, error) {
 	out := List{Screenshots: []Screenshot{}}
 	f, ok, err := s.openFolder()
@@ -250,39 +270,42 @@ func (s *Service) List(ctx context.Context) (List, error) {
 		return out, err
 	}
 	defer f.Close()
-	des, err := f.entries()
-	if errors.Is(err, confine.ErrOutside) {
-		return out, nil
-	}
-	if err != nil {
-		return out, fmt.Errorf("screenshots: %w", err)
-	}
-	for name, de := range des {
-		if err := ctx.Err(); err != nil {
-			return List{}, err
+	keep := func() {
+		sort.Slice(out.Screenshots, func(i, j int) bool { return newer(out.Screenshots[i], out.Screenshots[j]) })
+		if len(out.Screenshots) > MaxList {
+			out.Screenshots, out.Truncated = out.Screenshots[:MaxList], true
 		}
+	}
+	var infoErr error
+	err = f.scan(ctx, func(de fs.DirEntry) bool {
 		info, err := de.Info()
 		if errors.Is(err, fs.ErrNotExist) {
-			continue // removed meanwhile
+			return true // removed meanwhile
 		}
 		if err != nil {
-			return List{}, fmt.Errorf("screenshots: %w", err)
+			infoErr = err
+			return false
 		}
 		if !info.Mode().IsRegular() {
-			continue
+			return true
 		}
-		out.Screenshots = append(out.Screenshots, s.describe(name, info))
-	}
-	sort.Slice(out.Screenshots, func(i, j int) bool {
-		a, b := out.Screenshots[i], out.Screenshots[j]
-		if !a.TakenAt.Equal(b.TakenAt) {
-			return a.TakenAt.After(b.TakenAt)
+		out.Screenshots = append(out.Screenshots, s.describe(de.Name(), info))
+		if len(out.Screenshots) >= 2*MaxList {
+			keep()
 		}
-		return a.Name < b.Name
+		return true
 	})
-	if len(out.Screenshots) > MaxList {
-		out.Screenshots, out.Truncated = out.Screenshots[:MaxList], true
+	switch {
+	case errors.Is(err, confine.ErrOutside):
+		return List{Screenshots: []Screenshot{}}, nil
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return List{}, err
+	case err != nil:
+		return List{}, fmt.Errorf("screenshots: %w", err)
+	case infoErr != nil:
+		return List{}, fmt.Errorf("screenshots: %w", infoErr)
 	}
+	keep()
 	for _, sc := range out.Screenshots {
 		out.TotalBytes += sc.SizeBytes
 	}
@@ -334,9 +357,11 @@ func (s *Service) Open(id string) (*os.File, fs.FileInfo, string, string, error)
 	return file, fi, name, contentType(head[:n]), nil
 }
 
-// open opens the screenshot name: it must be listed in the folder under
-// that exact name (on exFAT, another case would open the same file under
-// a name the list does not show; on ext4 it is another file).
+// open opens the screenshot name directly in the folder, through the
+// root of the card: no link at any component, a regular file (confine.Open).
+// No directory is read: on a card that ignores case (exFAT), a name that
+// differs only by case reaches the same file (the identifier is opaque:
+// the pak never produces such a name); on ext4 it is another file.
 func (s *Service) open(name string) (*os.File, fs.FileInfo, error) {
 	f, ok, err := s.openFolder()
 	if err != nil {
@@ -346,16 +371,6 @@ func (s *Service) open(name string) (*os.File, fs.FileInfo, error) {
 		return nil, nil, ErrNotFound
 	}
 	defer f.Close()
-	des, err := f.entries()
-	if errors.Is(err, confine.ErrOutside) {
-		return nil, nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("screenshots: %w", err)
-	}
-	if _, ok := des[name]; !ok {
-		return nil, nil, ErrNotFound
-	}
 	file, fi, err := confine.Open(f.root, f.fileRel(name))
 	switch {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, confine.ErrOutside):
@@ -387,6 +402,10 @@ func isJPEG(head []byte) bool {
 // Trash moves the screenshots of ids to the trash in one entry (POST
 // /screenshots/trash), all or nothing: an invalid identifier gives
 // ErrInvalidID, missing screenshots a *MissingError, and nothing moves.
+// Each screenshot must be listed under its exact name; its identity
+// (device and inode, through the root of the card) is checked again by
+// the trash right before it moves, so a folder or file swapped meanwhile
+// (another folder, a folder of the same name) is never moved in its place.
 func (s *Service) Trash(ids []string) (store.MoveResult, error) {
 	if len(ids) == 0 || len(ids) > MaxTrash {
 		return store.MoveResult{}, ErrInvalidID
@@ -409,21 +428,42 @@ func (s *Service) Trash(ids []string) (store.MoveResult, error) {
 	if err != nil {
 		return store.MoveResult{}, fmt.Errorf("screenshots: %w", err)
 	}
-	var des map[string]fs.DirEntry
+	listed := map[string]bool{}
 	if ok {
 		defer f.Close()
-		if des, err = f.entries(); err != nil && !errors.Is(err, confine.ErrOutside) {
+		// Exact names: the folder is read only until every name is found.
+		left := len(names)
+		err := f.scan(context.Background(), func(de fs.DirEntry) bool {
+			if seen[de.Name()] && !listed[de.Name()] {
+				listed[de.Name()] = true
+				left--
+			}
+			return left > 0
+		})
+		if err != nil && !errors.Is(err, confine.ErrOutside) {
 			return store.MoveResult{}, fmt.Errorf("screenshots: %w", err)
+		}
+		if errors.Is(err, confine.ErrOutside) {
+			listed = map[string]bool{}
 		}
 	}
 	var missing []string
 	var items []store.MoveItem
 	for _, name := range names {
-		if _, found := des[name]; !found {
+		if !listed[name] {
 			missing = append(missing, ID(name))
 			continue
 		}
-		items = append(items, store.MoveItem{Path: filepath.Join(f.dir, name)})
+		file, fi, err := confine.Open(f.root, f.fileRel(name))
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, confine.ErrOutside) {
+			missing = append(missing, ID(name))
+			continue
+		}
+		if err != nil {
+			return store.MoveResult{}, fmt.Errorf("screenshots: %w", err)
+		}
+		file.Close()
+		items = append(items, store.MoveItem{Path: filepath.Join(f.dir, name), Identity: fi})
 	}
 	if len(missing) > 0 {
 		return store.MoveResult{}, &MissingError{IDs: missing}
@@ -433,15 +473,28 @@ func (s *Service) Trash(ids []string) (store.MoveResult, error) {
 		label = fmt.Sprintf("%d screenshots", len(names))
 	}
 	res, err := s.o.Trash.Move(store.ReasonDeleteScreenshot, label, items)
-	if err != nil {
-		return store.MoveResult{}, fmt.Errorf("screenshots: %w", err)
-	}
 	for _, name := range names {
 		s.thumbs.forget(name)
+	}
+	if errors.Is(err, store.ErrChanged) {
+		// Swapped since it was checked: as if it had gone.
+		return store.MoveResult{}, ErrNotFound
+	}
+	if err != nil {
+		return store.MoveResult{}, &PartialError{Err: fmt.Errorf("screenshots: %w", err)}
 	}
 	s.o.Logger.Info("screenshots moved to the trash", "count", len(names), "trash", res.Entry.ID)
 	return res, nil
 }
+
+// PartialError: moving to the trash failed after the checks. The trash
+// puts back what it moved; a file that cannot go back stays in a trash
+// entry (GET /trash lists it). The folder may have changed: a screenshots
+// event follows anyway.
+type PartialError struct{ Err error }
+
+func (e *PartialError) Error() string { return e.Err.Error() }
+func (e *PartialError) Unwrap() error { return e.Err }
 
 // InFolder reports whether the absolute path p is a file directly in the
 // screenshots folder (a restore from the trash put a screenshot back).

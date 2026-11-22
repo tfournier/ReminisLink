@@ -18,6 +18,9 @@ func TestParseScreenshotName(t *testing.T) {
 		{"Pokémon Rouge.2026-01-02-03-04-05.PNG", "Pokémon Rouge", time.Date(2026, 1, 2, 3, 4, 5, 0, paris)},
 		// The display name keeps its inner dots.
 		{"Sky Garden Quest Vol. 3.2026-11-21-18-30-00.png", "Sky Garden Quest Vol. 3", time.Date(2026, 11, 21, 18, 30, 0, 0, paris)},
+		// Restored from the trash under a free name (M18).
+		{"Sky Garden Quest.2026-11-21-18-30-00 (2).png", "Sky Garden Quest", time.Date(2026, 11, 21, 18, 30, 0, 0, paris)},
+		{"Sky Garden Quest (Europe).2026-11-21-18-30-00 (12).png", "Sky Garden Quest (Europe)", time.Date(2026, 11, 21, 18, 30, 0, 0, paris)},
 		// A date that does not exist, or no date: nothing.
 		{"Game.2026-02-30-10-00-00.png", "", time.Time{}},
 		{"Game.2026-11-21-25-00-00.png", "", time.Time{}},

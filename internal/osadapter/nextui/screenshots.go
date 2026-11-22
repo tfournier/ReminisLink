@@ -13,8 +13,10 @@ import (
 // "<display name>.<%Y-%m-%d-%H-%M-%S>.png", the display name being the
 // alias of map.txt or the ROM name without its extensions nor its
 // trailing parentheses (utils.c getDisplayName). The extension is written
-// in lowercase; any case is read.
-var nextuiShot = regexp.MustCompile(`^(.+)\.(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})\.(?i:png)$`)
+// in lowercase; any case is read. A " (N)" before the extension is the
+// free name of a restore from the trash (M18): the name still gives the
+// game and the date (Codex review of M22).
+var nextuiShot = regexp.MustCompile(`^(.+)\.(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})(?: \(\d+\))?\.(?i:png)$`)
 
 // ParseScreenshotName reads a NextUI screenshot name in the time zone
 // loc. A name of another form gives nothing (zero ScreenshotName).

@@ -145,3 +145,28 @@ func TestKnulliScreenshots(t *testing.T) {
 	}
 	f.get("/api/v1/screenshots/"+l.Screenshots[1].ID+"/thumbnail", shotThumbPath, http.StatusOK)
 }
+
+// Codex review of M22: a move that fails midway may leave a screenshot in
+// a trash entry: the answer is 500 and a screenshots event still follows.
+func TestTrashScreenshotsFailingMidwayPublishes(t *testing.T) {
+	f := newFixture(t)
+	f.fastEvents(events.Options{})
+	s := f.openEvents(f.client)
+	calls := 0
+	f.trash.SetRename(func(oldpath, newpath string) error {
+		calls++
+		if calls >= 2 {
+			return os.ErrPermission
+		}
+		return os.Rename(oldpath, newpath)
+	})
+	f.do(http.MethodPost, "/api/v1/screenshots/trash", shotTrashPath,
+		mustJSON(t, map[string]any{"screenshotIds": []string{screenshots.ID(shotStarlight), screenshots.ID(shotCafe)}}), http.StatusInternalServerError)
+	if ev := f.nextEvent(s); ev.Type != events.TypeScreenshots {
+		t.Fatalf("event %+v", ev)
+	}
+	entries, _, _ := f.trash.List()
+	if len(entries) != 1 || len(entries[0].Files) != 1 {
+		t.Fatalf("left in the trash: %+v", entries)
+	}
+}

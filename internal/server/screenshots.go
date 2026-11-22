@@ -56,6 +56,12 @@ func (s *Server) handleTrashScreenshots(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	res, err := s.opts.Screenshots.Trash(req.ScreenshotIDs)
+	var partial *screenshots.PartialError
+	if errors.As(err, &partial) {
+		// The folder may have changed (a file that could not go back
+		// stays in a trash entry): the clients reload it.
+		s.events.Screenshots()
+	}
 	if err != nil {
 		s.screenshotError(w, r, err)
 		return

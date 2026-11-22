@@ -74,6 +74,9 @@ var (
 	ErrTrashNotFound  = errors.New("trash entry not found")
 	ErrInvalidTrashID = errors.New("invalid trash entry id")
 	ErrNothingToMove  = errors.New("nothing to move to the trash")
+	// ErrChanged: a move item is no longer the file its caller checked
+	// (MoveItem.Identity): nothing was moved for it.
+	ErrChanged = errors.New("trash: file changed since it was checked")
 )
 
 const (
@@ -177,6 +180,12 @@ func (e entryFile) public(now time.Time, credit *time.Duration) TrashEntry {
 type MoveItem struct {
 	Path     string // absolute path, inside the SD card
 	Internal bool   // a ReminisLink copy (lock, resume history), not a user file
+	// Identity, when set, is the regular file the caller checked (M22):
+	// the item moves only if Path is still that file (same device and
+	// inode, not a folder), checked when the move is planned and again
+	// right before its rename; otherwise nothing moves and the error
+	// wraps ErrChanged.
+	Identity fs.FileInfo
 }
 
 // MoveResult is the outcome of Trash.Move.
@@ -271,6 +280,7 @@ func (t *Trash) Dir() string { return t.dir }
 type plannedMove struct {
 	abs, rel string
 	internal bool
+	identity fs.FileInfo
 	files    []string // regular files (relative to the SD card)
 	size     int64
 }
@@ -305,7 +315,10 @@ func (t *Trash) plan(items []MoveItem) ([]plannedMove, error) {
 		if err != nil {
 			return nil, fmt.Errorf("trash: %w", err)
 		}
-		p := plannedMove{abs: abs, rel: filepath.ToSlash(rel), internal: it.Internal}
+		if it.Identity != nil && (!fi.Mode().IsRegular() || !os.SameFile(fi, it.Identity)) {
+			return nil, fmt.Errorf("%w: %s", ErrChanged, filepath.ToSlash(rel))
+		}
+		p := plannedMove{abs: abs, rel: filepath.ToSlash(rel), internal: it.Internal, identity: it.Identity}
 		switch {
 		case fi.Mode().IsRegular():
 			p.files, p.size = []string{p.rel}, fi.Size()
@@ -476,6 +489,12 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 			// Every folder from the entry down to the destination is
 			// durable before the original leaves its place.
 			err = t.syncChain(entryDir, filepath.Dir(dst))
+		}
+		if err == nil && p.identity != nil {
+			// Still the file the caller checked (M22).
+			if fi, lerr := os.Lstat(p.abs); lerr != nil || !fi.Mode().IsRegular() || !os.SameFile(fi, p.identity) {
+				err = fmt.Errorf("%w: %s", ErrChanged, p.rel)
+			}
 		}
 		if err == nil {
 			err = t.rename(p.abs, dst)

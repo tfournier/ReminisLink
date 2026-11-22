@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -19,13 +20,23 @@ const (
 	// ThumbSize: a preview fits in ThumbSize x ThumbSize pixels.
 	ThumbSize = 320
 	// MaxThumbSide and MaxThumbSourceBytes: a larger image gets no
-	// preview (memory of the console: 4096 x 4096 RGBA is 64 MiB).
+	// preview.
 	MaxThumbSide        = 4096
 	MaxThumbSourceBytes = 32 << 20
+	// MaxDecodeBytes bounds what decoding one image may allocate,
+	// estimated from its header before any pixel is (Codex review of
+	// M22: a Brick has about 1 GB shared with the OS): 1920 x 1080 fits
+	// in any format, a progressive JPEG included; a 4096 x 4096 PNG does
+	// not (64 MiB of pixels).
+	MaxDecodeBytes = 32 << 20
+	// headerWindow: the header of a JPEG (its frame, after the EXIF and
+	// other segments) must be in the first headerWindow bytes.
+	headerWindow = 256 << 10
 	// thumbQuality is the JPEG quality of a preview.
 	thumbQuality = 80
-	// maxDecodes previews are made at the same time at most.
-	maxDecodes = 2
+	// maxDecodes previews are made at the same time at most (one: the
+	// memory bound is per decode).
+	maxDecodes = 1
 	// The cache keeps the recent previews in memory.
 	thumbCacheEntries = 512
 	thumbCacheBytes   = 8 << 20
@@ -76,34 +87,48 @@ func (s *Service) Thumbnail(ctx context.Context, id string) ([]byte, error) {
 }
 
 // MakeThumbnail decodes a PNG or JPEG image (found by its signature) and
-// returns a JPEG that fits in ThumbSize x ThumbSize. An image of another
-// format, undecodable or larger than MaxThumbSide gives ErrNoThumbnail;
-// an error reading r is returned as it is.
+// returns a JPEG that fits in ThumbSize x ThumbSize. The memory the decode
+// would take is estimated from the header first (decodeCost); an image of
+// another format, undecodable, larger than MaxThumbSide or whose decode
+// would take more than MaxDecodeBytes gives ErrNoThumbnail; an error
+// reading r is returned as it is.
 func MakeThumbnail(r io.Reader) ([]byte, error) {
-	br := bufio.NewReader(r)
-	head, err := br.Peek(8)
-	if err != nil && !errors.Is(err, io.EOF) {
+	br := bufio.NewReaderSize(r, headerWindow)
+	head, err := br.Peek(headerWindow)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
 		return nil, err // the card, not the image
 	}
-	var decodeConfig func(io.Reader) (image.Config, error)
 	var decode func(io.Reader) (image.Image, error)
+	var w, h int
+	var cost int64
 	switch {
 	case isPNG(head):
-		decodeConfig, decode = png.DecodeConfig, png.Decode
+		cfg, err := png.DecodeConfig(bytes.NewReader(head))
+		if err != nil {
+			return nil, ErrNoThumbnail
+		}
+		w, h = cfg.Width, cfg.Height
+		cost = pngCost(head, cfg)
+		decode = png.Decode
 	case isJPEG(head):
-		decodeConfig, decode = jpeg.DecodeConfig, jpeg.Decode
+		frame, ok := jpegFrameOf(head)
+		if !ok {
+			return nil, ErrNoThumbnail
+		}
+		w, h = frame.width, frame.height
+		cost = frame.cost()
+		decode = jpeg.Decode
 	default:
 		return nil, ErrNoThumbnail
 	}
-	// The header first: the size is checked before any pixel is
-	// allocated (a small file can announce a huge image).
-	var buf bytes.Buffer
-	cfg, err := decodeConfig(io.TeeReader(br, &buf))
-	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > MaxThumbSide || cfg.Height > MaxThumbSide {
+	if w <= 0 || h <= 0 || w > MaxThumbSide || h > MaxThumbSide || cost > MaxDecodeBytes {
 		return nil, ErrNoThumbnail
 	}
-	img, err := decode(io.MultiReader(&buf, br))
+	img, err := decode(br)
 	if err != nil {
+		return nil, ErrNoThumbnail
+	}
+	if b := img.Bounds(); b.Dx() != w || b.Dy() != h {
 		return nil, ErrNoThumbnail
 	}
 	small := downscale(img, ThumbSize)
@@ -112,6 +137,108 @@ func MakeThumbnail(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// pngCost is what image/png allocates for an image: its pixels (8 bytes
+// for 16-bit RGBA, 2 for 16-bit gray, 1 for gray or a palette, 4
+// otherwise), twice for an interlaced image (the passes are decoded into
+// images of their own before being merged), and two rows.
+func pngCost(head []byte, cfg image.Config) int64 {
+	bpp := int64(4)
+	switch cfg.ColorModel {
+	case color.RGBA64Model, color.NRGBA64Model:
+		bpp = 8
+	case color.Gray16Model:
+		bpp = 2
+	case color.GrayModel:
+		bpp = 1
+	default:
+		if _, ok := cfg.ColorModel.(color.Palette); ok {
+			bpp = 1
+		}
+	}
+	px := int64(cfg.Width) * int64(cfg.Height)
+	cost := px*bpp + 2*int64(cfg.Width)*8
+	// IHDR: signature (8), length and type (8), then width, height, bit
+	// depth, color type, compression, filter and interlace (byte 28).
+	if len(head) > 28 && head[28] == 1 {
+		cost *= 2
+	}
+	return cost
+}
+
+// jpegFrame is the frame header (SOFn) of a JPEG.
+type jpegFrame struct {
+	width, height, components int
+	progressive               bool
+}
+
+// cost is what image/jpeg allocates: one byte per pixel and component for
+// the decoded image (CMYK and YCCK are converted to RGBA too), and for a
+// progressive image the coefficients of every block (64 int32 per 8 x 8
+// block and component: 4 bytes per pixel and component).
+func (f jpegFrame) cost() int64 {
+	px := int64(f.width) * int64(f.height)
+	comps := int64(f.components)
+	cost := px * comps
+	if comps == 4 {
+		cost += px * 4
+	}
+	if f.progressive {
+		cost += px * comps * 4
+	}
+	return cost
+}
+
+// jpegFrameOf reads the first frame header of a JPEG in head (the start
+// of the file), skipping the segments before it; ok is false when none is
+// found there, or it is malformed.
+func jpegFrameOf(head []byte) (jpegFrame, bool) {
+	i := 2 // after SOI
+	for i+4 <= len(head) {
+		if head[i] != 0xFF {
+			return jpegFrame{}, false
+		}
+		for i < len(head) && head[i] == 0xFF { // fill bytes
+			i++
+		}
+		if i >= len(head) {
+			return jpegFrame{}, false
+		}
+		marker := head[i]
+		i++
+		if marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7) {
+			continue // no length
+		}
+		if marker == 0xD9 || marker == 0xDA {
+			return jpegFrame{}, false // end, or scan data before any frame
+		}
+		if i+2 > len(head) {
+			return jpegFrame{}, false
+		}
+		length := int(head[i])<<8 | int(head[i+1])
+		if length < 2 {
+			return jpegFrame{}, false
+		}
+		isFrame := marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC
+		if isFrame {
+			if length < 8 || i+8 > len(head) {
+				return jpegFrame{}, false
+			}
+			f := jpegFrame{
+				height:      int(head[i+3])<<8 | int(head[i+4]),
+				width:       int(head[i+5])<<8 | int(head[i+6]),
+				components:  int(head[i+7]),
+				progressive: marker == 0xC2 || marker == 0xC6 || marker == 0xCA || marker == 0xCE,
+			}
+			if f.components < 1 || f.components > 4 {
+				return jpegFrame{}, false
+			}
+			return f, true
+		}
+		i += length
+	}
+	return jpegFrame{}, false
 }
 
 // fit returns the size of a w x h image scaled down to fit in max x max

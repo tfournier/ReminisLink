@@ -291,9 +291,10 @@ func TestHostileIDs(t *testing.T) {
 	}
 }
 
-// The identifier names the exact file name: another case is another name
-// (on exFAT it would open the same file under a name the list does not
-// show).
+// An identifier resolves to the file of its name, without reading the
+// folder (Codex review of M22): on a card that ignores case, another case
+// reaches the same file; on one that keeps it, another case is another
+// (missing) file.
 func TestOpenExactName(t *testing.T) {
 	e := newEnv(t)
 	name := "Starlight Courier.2026-11-21-18-30-00.png"
@@ -307,10 +308,22 @@ func TestOpenExactName(t *testing.T) {
 	if got != name || ct != "image/png" || !bytes.Equal(data, want) || fi.Size() != int64(len(want)) {
 		t.Fatalf("open: %q %q %d bytes", got, ct, len(data))
 	}
-	for _, other := range []string{strings.ToUpper(name), "starlight courier.2026-11-21-18-30-00.png", "Missing.png"} {
-		if _, _, _, _, err := e.svc.Open(ID(other)); !errors.Is(err, ErrNotFound) {
-			t.Errorf("open %q: %v", other, err)
+	_, foldErr := os.Lstat(filepath.Join(e.dir, strings.ToUpper(name)))
+	ignoresCase := foldErr == nil
+	for _, other := range []string{strings.ToUpper(name), "starlight courier.2026-11-21-18-30-00.png"} {
+		f, _, _, _, err := e.svc.Open(ID(other))
+		if ignoresCase {
+			if err != nil {
+				t.Errorf("open %q on a card that ignores case: %v", other, err)
+				continue
+			}
+			f.Close()
+		} else if !errors.Is(err, ErrNotFound) {
+			t.Errorf("open %q on a card that keeps case: %v", other, err)
 		}
+	}
+	if _, _, _, _, err := e.svc.Open(ID("Missing.png")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("open a missing screenshot: %v", err)
 	}
 	// The media type comes from the content.
 	e.write(t, "fake.png", []byte("not an image"))
@@ -551,5 +564,200 @@ func TestKnulliCaseSensitive(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(e.dir, "game-261121-183000.png")); err != nil {
 		t.Fatal("the other case moved too")
+	}
+}
+
+// jpegHeader is a JPEG start (SOI, an APP1 segment of n bytes) and a frame
+// header SOFn for a w x h image of comps components: a small file that
+// announces a large image.
+func jpegHeader(marker byte, w, h, comps, app int) []byte {
+	b := []byte{0xFF, 0xD8, 0xFF, 0xE1, byte((app + 2) >> 8), byte(app + 2)}
+	b = append(b, make([]byte, app)...)
+	b = append(b, 0xFF, marker, 0, byte(8+3*comps), 8, byte(h>>8), byte(h), byte(w>>8), byte(w), byte(comps))
+	for c := 1; c <= comps; c++ {
+		b = append(b, byte(c), 0x11, 0)
+	}
+	return append(b, 0xFF, 0xD9)
+}
+
+// Codex review of M22: the memory a decode would take is bounded from the
+// header, before any allocation: a progressive 4:4:4 JPEG of 4096 x 4096
+// under every other limit is refused (its coefficients alone would take
+// 192 MiB), so is a baseline one of that size; one of 1920 x 1080 passes.
+func TestThumbnailBoundsTheDecodeCost(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		marker   byte
+		w, h, cs int
+		ok       bool
+	}{
+		{"progressive 4096", 0xC2, 4096, 4096, 3, false},
+		{"progressive 4:4:4 1920x1080", 0xC2, 1920, 1080, 3, true},
+		{"baseline 4096", 0xC0, 4096, 4096, 3, false},
+		{"baseline 4096x2048", 0xC0, 4096, 2048, 3, true},
+		{"cmyk 2048", 0xC0, 2048, 2048, 4, true},
+		{"cmyk progressive 2048", 0xC2, 2048, 2048, 4, false},
+		{"too wide", 0xC0, 4097, 8, 1, false},
+	} {
+		head := jpegHeader(c.marker, c.w, c.h, c.cs, 40000)
+		f, ok := jpegFrameOf(head)
+		if !ok || f.width != c.w || f.height != c.h || f.components != c.cs || f.progressive != (c.marker == 0xC2) {
+			t.Fatalf("%s: frame %+v %v", c.name, f, ok)
+		}
+		within := f.cost() <= MaxDecodeBytes && c.w <= MaxThumbSide && c.h <= MaxThumbSide
+		if within != c.ok {
+			t.Errorf("%s: cost %d MiB, within %v", c.name, f.cost()>>20, within)
+		}
+		// The header alone never decodes (no scan), and a refused one is
+		// refused before decoding.
+		if _, err := MakeThumbnail(bytes.NewReader(head)); !errors.Is(err, ErrNoThumbnail) {
+			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+	// A frame beyond the header window, or none: no preview.
+	if _, ok := jpegFrameOf(jpegHeader(0xC0, 8, 8, 1, 65000)[:1000]); ok {
+		t.Error("frame read beyond the data")
+	}
+	// A 16-bit PNG of 2048 x 2048 (32 MiB of pixels) is refused, an
+	// 8-bit one of 2048 x 1024 passes.
+	if c := pngCost(pngHeader(2048, 2048), image.Config{Width: 2048, Height: 2048, ColorModel: color.NRGBA64Model}); c <= MaxDecodeBytes {
+		t.Errorf("16-bit PNG cost %d", c)
+	}
+	if c := pngCost(pngHeader(2048, 1024), image.Config{Width: 2048, Height: 1024, ColorModel: color.NRGBAModel}); c > MaxDecodeBytes {
+		t.Errorf("8-bit PNG cost %d", c)
+	}
+	// A real progressive-sized decode is never attempted: the service
+	// answers no preview for the crafted file.
+	e := newEnv(t)
+	e.write(t, "Prog.jpg", jpegHeader(0xC2, 4096, 4096, 3, 100))
+	if _, err := e.svc.Thumbnail(context.Background(), ID("Prog.jpg")); !errors.Is(err, ErrNoThumbnail) {
+		t.Errorf("crafted progressive JPEG: %v", err)
+	}
+}
+
+// Codex review of M22: a file swapped after the checks (another file of
+// the same name, a folder named like the screenshot) is never moved in
+// its place.
+func TestTrashRefusesASwappedFile(t *testing.T) {
+	e := newEnv(t)
+	name := "Starlight Courier.2026-11-21-18-30-00.png"
+	p := filepath.Join(e.dir, name)
+	fi, err := os.Lstat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same path, now another file.
+	if err := os.Rename(p, p+".old"); err != nil {
+		t.Fatal(err)
+	}
+	e.write(t, name, []byte("another"))
+	if _, err := e.trash.Move(store.ReasonDeleteScreenshot, name, []store.MoveItem{{Path: p, Identity: fi}}); !errors.Is(err, store.ErrChanged) {
+		t.Fatalf("swapped file: %v", err)
+	}
+	// A folder in its place.
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	e.write(t, name+"/inner.png", []byte("x"))
+	dfi, _ := os.Lstat(p)
+	if _, err := e.trash.Move(store.ReasonDeleteScreenshot, name, []store.MoveItem{{Path: p, Identity: dfi}}); !errors.Is(err, store.ErrChanged) {
+		t.Fatalf("folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p, "inner.png")); err != nil {
+		t.Fatal("the folder moved")
+	}
+	if l, _, _ := e.trash.List(); len(l) != 0 {
+		t.Fatalf("trash entries: %+v", l)
+	}
+	// Through the service: a folder named like a screenshot is no
+	// screenshot (not listed, not moved).
+	if _, err := e.svc.Trash([]string{ID(name)}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("trash of a folder: %v", err)
+	}
+}
+
+// Codex review of M22: the second move of a batch fails after the first
+// succeeded. Put back when possible (nothing moved, PartialError); when
+// the first cannot go back, it stays in a trash entry, listed.
+func TestTrashBatchFailsMidway(t *testing.T) {
+	a, b := "Starlight Courier.2026-11-21-18-30-00.png", "Café Rêverie.2026-11-20-09-15-42.png"
+	for _, putBackFails := range []bool{false, true} {
+		e := newEnv(t)
+		calls := 0
+		e.trash.SetRename(func(oldpath, newpath string) error {
+			calls++
+			if calls == 2 || (putBackFails && calls > 2) {
+				return errors.New("card error")
+			}
+			return os.Rename(oldpath, newpath)
+		})
+		_, err := e.svc.Trash([]string{ID(a), ID(b)})
+		var partial *PartialError
+		if !errors.As(err, &partial) {
+			t.Fatalf("put back fails %v: %v", putBackFails, err)
+		}
+		listed := len(e.list(t).Screenshots)
+		entries, _, _ := e.trash.List()
+		if !putBackFails && (listed != 2 || len(entries) != 0) {
+			t.Fatalf("put back: %d listed, %d entries", listed, len(entries))
+		}
+		if putBackFails && (listed != 1 || len(entries) != 1 || len(entries[0].Files) != 1) {
+			t.Fatalf("left in the trash: %d listed, entries %+v", listed, entries)
+		}
+	}
+}
+
+// Codex review of M22: a screenshot restored under a free name keeps its
+// date and game.
+func TestRestoredUnderAFreeNameKeepsItsDate(t *testing.T) {
+	e := newEnv(t)
+	name := "Starlight Courier.2026-11-21-18-30-00.png"
+	before := e.list(t).Screenshots[0]
+	res, err := e.svc.Trash([]string{ID(name)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.write(t, name, pngOf(t, 2, 2))
+	// The new file is dated today; the restored one must not be.
+	if _, err := e.trash.Restore(res.Entry.ID, store.RestoreRename, nil); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(e.dir, "Starlight Courier.2026-11-21-18-30-00 (2).png"), now, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range e.list(t).Screenshots {
+		if s.Name == "Starlight Courier.2026-11-21-18-30-00 (2).png" {
+			if !s.TakenAt.Equal(before.TakenAt) || s.GameName == nil || *s.GameName != "Starlight Courier" {
+				t.Fatalf("restored %+v, was %+v", s, before)
+			}
+			return
+		}
+	}
+	t.Fatal("restored screenshot not listed")
+}
+
+// The listing reads the folder in batches and keeps the newest MaxList
+// (no growth with the folder): the newest are the ones kept.
+func TestListKeepsTheNewest(t *testing.T) {
+	e := newEnv(t)
+	base := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 2*MaxList+50; i++ {
+		p := filepath.Join(e.dir, "s"+itoa(100000+i)+".png")
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := base.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := e.list(t)
+	if len(l.Screenshots) != MaxList || !l.Truncated {
+		t.Fatalf("%d listed", len(l.Screenshots))
+	}
+	// The two of the test card (2026) first, then the newest files.
+	if l.Screenshots[2].Name != "s"+itoa(100000+2*MaxList+49)+".png" || l.Screenshots[MaxList-1].Name != "s"+itoa(100000+MaxList+52)+".png" {
+		t.Fatalf("kept %s ... %s", l.Screenshots[2].Name, l.Screenshots[MaxList-1].Name)
 	}
 }
