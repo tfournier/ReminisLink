@@ -47,6 +47,45 @@ object LocalFiles {
         return Normalizer.normalize(last, Normalizer.Form.NFC)
     }
 
+    /**
+     * A tree of the Storage Access Framework for [PakFolderZip]: children
+     * read one row at a time from the provider's cursor (closed with the
+     * iterator), files opened by their document id.
+     */
+    private class SafTree(private val resolver: ContentResolver, private val tree: Uri) : PakFolderZip.Tree {
+        override fun children(folderId: String): PakFolderZip.CloseableIterator<PakFolderZip.Child> {
+            val columns = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+            )
+            val cursor = resolver.query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, folderId), columns, null, null, null)
+            return object : PakFolderZip.CloseableIterator<PakFolderZip.Child> {
+                private var ready = cursor?.moveToNext() == true
+
+                override fun hasNext() = ready
+
+                override fun next(): PakFolderZip.Child {
+                    val c = cursor ?: throw NoSuchElementException()
+                    if (!ready) throw NoSuchElementException()
+                    val child = PakFolderZip.Child(
+                        c.getString(0), c.getString(1).orEmpty(),
+                        c.getString(2) == DocumentsContract.Document.MIME_TYPE_DIR,
+                    )
+                    ready = c.moveToNext()
+                    return child
+                }
+
+                override fun close() {
+                    cursor?.close()
+                }
+            }
+        }
+
+        override fun open(documentId: String) =
+            resolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, documentId)) ?: throw FileNotFoundException("document")
+    }
+
     /** The tree chosen is not a folder whose name ends with `.pak`, or it is larger than a pak may be. */
     class NotAPakFolderException(message: String) : Exception(message)
 
@@ -68,54 +107,15 @@ object LocalFiles {
                 if (!folderName.lowercase().endsWith(".pak") || folderName.length <= 4) throw NotAPakFolderException("not a .pak folder")
                 if (!directory.mkdirs()) throw LocalFileException(FileNotFoundException("transfer directory"))
                 val destination = File(directory, "file")
-                var entries = 0
-                var bytes = 0L
                 try {
-                    java.util.zip.ZipOutputStream(destination.outputStream().buffered()).use { zip ->
-                        fun add(parentId: String, prefix: String) {
-                            val columns = arrayOf(
-                                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-                                DocumentsContract.Document.COLUMN_MIME_TYPE,
-                            )
-                            val rows = mutableListOf<Triple<String, String, String>>()
-                            resolver.query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId), columns, null, null, null)?.use { c ->
-                                while (c.moveToNext()) rows += Triple(c.getString(0), c.getString(1).orEmpty(), c.getString(2).orEmpty())
-                            }
-                            for ((id, rawName, mime) in rows.sortedBy { it.second.lowercase() }) {
-                                val name = Normalizer.normalize(rawName, Normalizer.Form.NFC)
-                                // Never a path: a name with a separator, or a dot name, is skipped.
-                                if (name.isEmpty() || name == "." || name == ".." || name.contains('/') || name.contains('\\')) continue
-                                if (++entries > PakFolderZip.MAX_ENTRIES) throw NotAPakFolderException("too many entries")
-                                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                                    zip.putNextEntry(java.util.zip.ZipEntry("$prefix$name/"))
-                                    zip.closeEntry()
-                                    add(id, "$prefix$name/")
-                                    continue
-                                }
-                                zip.putNextEntry(java.util.zip.ZipEntry("$prefix$name"))
-                                val input = resolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, id))
-                                    ?: throw FileNotFoundException("document")
-                                input.use { inp ->
-                                    val buffer = ByteArray(256 * 1024)
-                                    while (true) {
-                                        val n = inp.read(buffer)
-                                        if (n < 0) break
-                                        bytes += n
-                                        if (bytes > PakFolderZip.MAX_BYTES) throw NotAPakFolderException("too large")
-                                        zip.write(buffer, 0, n)
-                                    }
-                                }
-                                zip.closeEntry()
-                            }
-                        }
-                        add(rootId, "$folderName/")
-                    }
+                    destination.outputStream().buffered().use { out -> PakFolderZip.zip(SafTree(resolver, tree), rootId, folderName, out) }
                     PickedFile(destination, "$folderName.zip", destination.length())
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: NotAPakFolderException) {
                     throw e
+                } catch (e: PakFolderZip.LimitExceeded) {
+                    throw NotAPakFolderException(e.message ?: "limit")
                 } catch (e: LocalFileException) {
                     throw e
                 } catch (e: Exception) {
@@ -166,12 +166,6 @@ object LocalFiles {
             if (!handed) withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { directory.deleteRecursively() }
         }
     }
-}
-
-/** The pak's own limits (1 GiB, 10 000 entries) for a zipped `.pak` folder: beyond, the console refuses it anyway. */
-internal object PakFolderZip {
-    const val MAX_BYTES = 1L shl 30
-    const val MAX_ENTRIES = 10_000
 }
 
 /** A download written into a document created by the user (`ACTION_CREATE_DOCUMENT`). */
