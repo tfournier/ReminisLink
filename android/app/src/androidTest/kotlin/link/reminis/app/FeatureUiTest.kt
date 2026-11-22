@@ -15,6 +15,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
@@ -65,6 +66,11 @@ class FeatureUiTest {
     @Volatile private var cheatEnabled = false
 
     @Volatile private var trashPreview = ""
+
+    private val falsePreviews = AtomicInteger()
+    private val falseGate = java.util.concurrent.CountDownLatch(1)
+    private val trueGate = java.util.concurrent.CountDownLatch(1)
+    private val trueAnswered = java.util.concurrent.CountDownLatch(1)
 
     @Before
     fun setUp() {
@@ -138,18 +144,26 @@ class FeatureUiTest {
             )
             path == "/api/v1/games/$gameId" -> json(game(gameId, "Moss Lantern", "Moss Lantern.gba"))
             path == "/api/v1/games/$patchedId" -> json(game(patchedId, "Moss Lantern (patched)", "Moss Lantern (patched).gba"))
-            path == "/api/v1/games/$gameId/deletion?keepSave=false" -> json(
+            path == "/api/v1/games/$gameId/deletion?keepSave=false" -> {
+                // Barriers driven by the test: every answer after the first waits for its gate.
+                val n = falsePreviews.incrementAndGet()
+                if (n > 1) falseGate.await(20, java.util.concurrent.TimeUnit.SECONDS)
+                json(
                 // A folder game: more than 8 files, two of them with the same name in different folders.
                 """{"moved":[${(1..9).joinToString(",") { "{\"name\":\"Roms/Pocket Advance (GBA)/Moss Lantern/track$it.bin\",\"role\":\"rom\",\"size\":1}" }},
                 {"name":"Roms/Pocket Advance (GBA)/Moss Lantern/disc1/data.bin","role":"other","size":1},
                 {"name":"Roms/Pocket Advance (GBA)/Moss Lantern/disc2/data.bin","role":"other","size":1},
                 {"name":"Saves/GBA/Moss Lantern.gba.sav","role":"save","size":1}],"kept":[],"movedBytes":12}""",
-            )
+                )
+            }
             // Answered late: it must never stand for the option shown after it.
-            path == "/api/v1/games/$gameId/deletion?keepSave=true" -> json(
-                """{"moved":[{"name":"Roms/Pocket Advance (GBA)/Moss Lantern/track1.bin","role":"rom","size":1}],
-                "kept":[{"name":"Saves/GBA/Moss Lantern.gba.sav","role":"save","size":1}],"movedBytes":1}""",
-            ).setHeadersDelay(2, java.util.concurrent.TimeUnit.SECONDS)
+            path == "/api/v1/games/$gameId/deletion?keepSave=true" -> {
+                trueGate.await(20, java.util.concurrent.TimeUnit.SECONDS)
+                json(
+                    """{"moved":[{"name":"Roms/Pocket Advance (GBA)/Moss Lantern/track1.bin","role":"rom","size":1}],
+                    "kept":[{"name":"Saves/GBA/Moss Lantern.gba.sav","role":"save","size":1}],"movedBytes":1}""",
+                ).also { trueAnswered.countDown() }
+            }
             path == "/api/v1/games/$gameId?keepSave=false" && method == "DELETE" ->
                 json("""{"trashEntryId":"tr_9","moved":["Saves/GBA/Moss Lantern.gba.sav"],"movedBytes":12}""")
             path == "/api/v1/games/$gameId/cheats" && method == "GET" -> json(cheats)
@@ -356,12 +370,26 @@ class FeatureUiTest {
             compose.onNodeWithTag("gameMenu").performClick()
             compose.onNodeWithTag("deleteGame").performClick()
             waitForText("Saves/GBA/Moss Lantern.gba.sav")
-            // On (its preview answers late), then off again at once.
+            // On: its preview is held by the test; the confirmation waits for it.
             compose.onNodeWithTag("deleteKeepSave").performScrollTo().performClick()
+            waitFor("the keep-save request") { requests.any { r -> r.path == "/api/v1/games/$gameId/deletion?keepSave=true" } }
+            compose.onNodeWithTag("deleteGameConfirm").assertIsNotEnabled()
+            // Off again: its preview is held too, the confirmation still waits.
             compose.onNodeWithTag("deleteKeepSave").performScrollTo().performClick()
-            waitForText("Saves/GBA/Moss Lantern.gba.sav")
-            // The late answer for "keep" arrives: it changes nothing.
-            Thread.sleep(3_000)
+            waitFor("the second preview request") { falsePreviews.get() >= 2 }
+            compose.onNodeWithTag("deleteGameConfirm").assertIsNotEnabled()
+            // The preview of the option shown answers first...
+            falseGate.countDown()
+            waitFor("the preview shown") {
+                compose.onAllNodesWithTag("deleteGameConfirm").fetchSemanticsNodes().any {
+                    !it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled)
+                }
+            }
+            // ...then the late answer for "keep": it changes nothing.
+            trueGate.countDown()
+            assertTrue(trueAnswered.await(20, java.util.concurrent.TimeUnit.SECONDS))
+            waitFor("the late answer read") { requests.count { r -> r.path?.contains("/deletion?") == true } >= 3 }
+            Thread.sleep(500)
             compose.waitForIdle()
             assertTrue(compose.onAllNodesWithText(context.getString(R.string.game_delete_kept)).fetchSemanticsNodes().isEmpty())
             // The exact list, with relative paths: 12 files, the two data.bin told apart.

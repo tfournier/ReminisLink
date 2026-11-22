@@ -24,6 +24,8 @@ data class TrackedJob(
     val cancelSent: Boolean = false,
     /** Cleared from the Transfers screen: still followed for the screens that wait for its outcome. */
     val hidden: Boolean = false,
+    /** Its owner (the Patch screen, the pak installer) read its outcome. */
+    val consumed: Boolean = false,
 ) {
     val isFinished: Boolean get() = lost || job?.isFinished == true
 
@@ -90,7 +92,25 @@ class JobTracker(private val client: suspend (deviceId: String) -> ApiClient) {
      * has not read an outcome yet still finds it.
      */
     fun clearFinished(deviceId: String? = null) = _jobs.update { list ->
-        list.map { if (it.isFinished && (deviceId == null || it.deviceId == deviceId)) it.copy(hidden = true) else it }
+        list.mapNotNull {
+            when {
+                !it.isFinished || (deviceId != null && it.deviceId != deviceId) -> it
+                // Nobody waits for it any more: gone.
+                it.consumed -> null
+                else -> it.copy(hidden = true)
+            }
+        }
+    }
+
+    /**
+     * The owner of a finished job read its outcome: a row already cleared
+     * from the Transfers screen goes (the list never grows for the life of
+     * the process, like `TransferQueue.swift`).
+     */
+    fun consume(deviceId: String, jobId: String) = _jobs.update { list ->
+        list.mapNotNull {
+            if (it.deviceId != deviceId || it.jobId != jobId || !it.isFinished) it else if (it.hidden) null else it.copy(consumed = true)
+        }
     }
 
     /** A forgotten console: its jobs are no longer followed. */

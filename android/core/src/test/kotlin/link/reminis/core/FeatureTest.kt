@@ -460,7 +460,7 @@ class FeatureTest {
         val first = CheatList(listOf(Cheat(0, "A", "1", false)), "e1")
         val editor = CheatEditor(first)
         // A read starts, then the user turns the cheat on before it answers.
-        val since = editor.revision
+        val since = editor.readToken()
         editor.setEnabled(editor.entries[0].id, true)
         // Same list on the console: the edit stays and can still be saved over it.
         assertEquals(CheatEditor.ReadOutcome.UNCHANGED, editor.applyRead(first, since))
@@ -477,7 +477,7 @@ class FeatureTest {
         assertEquals(listOf("A", "B"), editor.cheats.map { it.description })
         assertEquals("e2", editor.etag)
         // No edit since the request: the read replaces the list (Reload after a 412).
-        val again = editor.revision
+        val again = editor.readToken()
         assertEquals(CheatEditor.ReadOutcome.APPLIED, editor.applyRead(first, again))
         assertEquals("e1", editor.etag)
     }
@@ -553,7 +553,8 @@ class FeatureTest {
             jobs.clearFinished(deviceId)
             gate.release()
             withTimeout(10_000) { installer.installs.first { it.single { i -> i.id == id }.phase == PakInstall.Phase.Installed } }
-            assertTrue(jobs.jobs.value.single().hidden)
+            withTimeout(10_000) { jobs.jobs.first { it.isEmpty() } }
+            Unit
         } finally {
             installerScope.cancel()
             executor.shutdownNow()
@@ -562,5 +563,100 @@ class FeatureTest {
 
     private fun java.util.concurrent.ExecutorService.asCoroutineDispatcherForTest(): kotlinx.coroutines.CoroutineDispatcher =
         asCoroutineDispatcher()
+
+    // MARK: Codex round 2
+
+    @Test
+    fun anOpenEditSheetHoldsAReadBackAndKeepsItsCheat() {
+        val first = CheatList(listOf(Cheat(0, "A", "1", false), Cheat(1, "B", "2", false)), "e1")
+        val editor = CheatEditor(first)
+        val idOfB = editor.entries[1].id
+        // A read starts; a sheet opens on B and its draft changes (not in the editor yet).
+        val token = editor.readToken()
+        editor.sheetOpen = true
+        val changed = CheatList(first.cheats + Cheat(2, "C", "3", true), "e2")
+        assertEquals(CheatEditor.ReadOutcome.HELD, editor.applyRead(changed, token))
+        assertEquals(listOf("A", "B"), editor.cheats.map { it.description })
+        // "Done" still finds the cheat it edits.
+        assertTrue(editor.update(idOfB, "B2", "22", true))
+        // Closed with edits: the newer list stays held back (never over the edits).
+        assertFalse(editor.sheetClosed())
+        assertEquals("B2", editor.cheats[1].description)
+        // A sheet closed without edits shows a list held back only by it, keeping the ids of unchanged cheats.
+        editor.discardChanges()
+        val again = CheatEditor(first)
+        val idOfA = again.entries[0].id
+        val t2 = again.readToken()
+        again.sheetOpen = true
+        assertEquals(CheatEditor.ReadOutcome.HELD, again.applyRead(changed, t2))
+        assertTrue(again.sheetClosed())
+        assertEquals(listOf("A", "B", "C"), again.cheats.map { it.description })
+        assertEquals("an unchanged cheat keeps its local id", idOfA, again.entries[0].id)
+    }
+
+    @Test
+    fun aReadStartedBeforeASaveNeverRevertsIt() {
+        val first = CheatList(listOf(Cheat(0, "A", "1", false)), "e1")
+        val editor = CheatEditor(first)
+        val token = editor.readToken()
+        editor.setEnabled(editor.entries[0].id, true)
+        editor.saveStarted()
+        editor.load(CheatList(listOf(Cheat(0, "A", "1", true)), "e2"))
+        // The old read answers after the save: ignored, the saved list and its etag stay.
+        assertEquals(CheatEditor.ReadOutcome.STALE, editor.applyRead(first, token))
+        assertTrue(editor.cheats[0].enabled)
+        assertEquals("e2", editor.etag)
+    }
+
+    @Test
+    fun aLate202AfterTheConsoleWasForgottenTracksNothingAndSendsNoCancel() = runBlocking {
+        val held = java.util.concurrent.CountDownLatch(1)
+        val posted = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/api/v1/games/g/patch" -> {
+                    posted.countDown()
+                    held.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                    json("""{"jobId":"job_f"}""", 202)
+                }
+                else -> job("job_f", "cancelled")
+            }
+        }
+        val app = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val jobs = JobTracker { client() }
+            val paired = java.util.concurrent.atomic.AtomicReference<Any?>("pin-1")
+            val run = PatchRun(deviceId, app, jobs, { client() }, RetryPolicy.immediate, cancelPollMillis = 1, durableScope = app, pairing = { paired.get() })
+            run.start("g", PatchInput.SdCard("sd_1"), PatchOutputMode.REPLACE, null, "Moss")
+            assertTrue(posted.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            run.cancel()
+            // The console is forgotten (then paired again) before the answer.
+            paired.set("pin-2")
+            held.countDown()
+            val failed = withTimeout(10_000) { run.step.first { it is PatchStep.Failed } } as PatchStep.Failed
+            assertTrue(failed.error is ConsoleForgottenException)
+            assertTrue("no job is tracked for the old pairing", jobs.jobs.value.isEmpty())
+            assertEquals("no DELETE through the new pairing", 1, server.requestCount)
+        } finally {
+            app.cancel()
+        }
+    }
+
+    @Test
+    fun clearedJobsGoOnceTheirOwnerReadThem() = runBlocking {
+        server.enqueue(job("job_1", "succeeded"))
+        server.enqueue(job("job_2", "succeeded"))
+        val jobs = JobTracker { client() }
+        jobs.track(deviceId, "job_1", "A", JobKinds.PATCH)
+        jobs.track(deviceId, "job_2", "B", JobKinds.PATCH)
+        jobs.refresh(deviceId)
+        // job_1 read by its owner, then cleared: gone. job_2 cleared first: hidden until read, then gone.
+        jobs.consume(deviceId, "job_1")
+        jobs.clearFinished(deviceId)
+        assertEquals(listOf("job_2"), jobs.jobs.value.map { it.jobId })
+        assertTrue(jobs.jobs.value.single().hidden)
+        jobs.consume(deviceId, "job_2")
+        assertTrue(jobs.jobs.value.isEmpty())
+    }
 }
 

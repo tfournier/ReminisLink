@@ -93,6 +93,13 @@ class PatchRun(
      * even if the screen closed in between.
      */
     private val durableScope: CoroutineScope = scope,
+    /**
+     * The identity of the current pairing of the console (null when it is
+     * forgotten). Taken when `POST /patch` is sent: a late `202` whose
+     * pairing was forgotten or replaced meanwhile is dropped (no job
+     * tracked, no cancel sent through another pairing).
+     */
+    private val pairing: () -> Any? = { Unit },
 ) {
     private val _step = MutableStateFlow<PatchStep>(PatchStep.Idle)
     val step: StateFlow<PatchStep> = _step.asStateFlow()
@@ -116,6 +123,9 @@ class PatchRun(
     private var upload: Pair<String, ResumableUpload>? = null
     private var uploadInput: PatchInput.LocalFile? = null
     @Volatile private var cancelRequested = false
+
+    /** The pairing the job was started with: no cancel is sent through another one. */
+    @Volatile private var jobPairing: Any? = null
 
     /** `POST /patch` was sent: its outcome belongs to [durableScope], not to the screen. */
     @Volatile private var posted = false
@@ -155,6 +165,7 @@ class PatchRun(
 
     /** `POST /games/{gameId}/patch`, then its job followed; cancelled at once if asked meanwhile. */
     private suspend fun postAndFollow(gameId: String, request: PatchRequest, title: String) {
+        val identity = pairing()
         val accepted = try {
             client().patchGame(gameId, request)
         } catch (e: CancellationException) {
@@ -163,7 +174,14 @@ class PatchRun(
             fail(e)
             return
         }
+        if (identity == null || pairing() != identity) {
+            // The console was forgotten (or paired again) meanwhile: nothing more is sent for this pairing.
+            _cancelling.value = false
+            _step.value = PatchStep.Failed(ConsoleForgottenException())
+            return
+        }
         jobId = accepted.jobId
+        jobPairing = identity
         jobs.track(deviceId, accepted.jobId, title, JobKinds.PATCH)
         _step.value = PatchStep.Patching
         if (cancelRequested) cancelJob(accepted.jobId)
@@ -211,6 +229,7 @@ class PatchRun(
         val tracked = jobs.get(deviceId, id) ?: return
         if (!tracked.isFinished || _step.value != PatchStep.Patching) return
         _cancelling.value = false
+        jobs.consume(deviceId, id)
         if (tracked.lost) {
             _step.value = PatchStep.Failed(JobLostException())
             return
@@ -288,6 +307,11 @@ class PatchRun(
     private suspend fun cancelJob(id: String) {
         _cancelling.value = true
         cancelledJobs += id
+        if (pairing() != jobPairing) {
+            _cancelling.value = false
+            _cancelError.value = ConsoleForgottenException()
+            return
+        }
         try {
             jobs.cancel(deviceId, id)
         } catch (e: CancellationException) {

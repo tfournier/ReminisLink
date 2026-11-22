@@ -136,7 +136,7 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
     fun load() {
         if (_ui.value !is Load.Loaded) _ui.value = Load.Loading
         _conflict.value = false
-        val since = editor?.revision
+        val token = editor?.readToken()
         viewModelScope.launch {
             try {
                 val client = container.client(deviceId)
@@ -145,7 +145,10 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
                 val current = editor
                 if (current == null) {
                     editor = CheatEditor(list)
-                } else if (current.applyRead(list, since ?: -1) == CheatEditor.ReadOutcome.HELD) {
+                } else if (
+                    current.applyRead(list, token ?: CheatEditor.ReadToken(-1, current.saveGeneration)) == CheatEditor.ReadOutcome.HELD &&
+                    current.hasChanges
+                ) {
                     showNotice(Notice(R.string.cheats_console_changed))
                 }
                 publish()
@@ -168,6 +171,17 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
     }
 
     fun setEnabled(id: String, enabled: Boolean) = edit { it.setEnabled(id, enabled) }
+
+    /** A sheet edits or adds a cheat: reads hold back until it closes, then a list held only by it is shown. */
+    fun setSheetOpen(open: Boolean) {
+        val e = editor ?: return
+        if (open) {
+            e.sheetOpen = true
+        } else if (e.sheetOpen) {
+            e.sheetClosed()
+            publish()
+        }
+    }
 
     fun add(description: String, code: String, enabled: Boolean): Boolean {
         val ok = editor?.add(description, code, enabled) == true
@@ -195,6 +209,8 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
         val e = editor ?: return
         val update = e.update()
         val etag = e.etag
+        // Reads started before the save may answer with the list before it: ignored.
+        e.saveStarted()
         perform(Notice(R.string.cheats_saved)) {
             try {
                 val saved = container.client(deviceId).replaceCheats(gameId, update, etag)
@@ -338,6 +354,8 @@ fun CheatsScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
     val hasChanges = (ui as? Load.Loaded)?.value?.hasChanges == true
     var editing by remember { mutableStateOf<CheatEditor.Entry?>(null) }
     var adding by remember { mutableStateOf(false) }
+    val sheetOpen = editing != null || adding
+    androidx.compose.runtime.LaunchedEffect(sheetOpen) { vm.setSheetOpen(sheetOpen) }
     var menu by remember { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var confirmEmpty by remember { mutableStateOf(false) }

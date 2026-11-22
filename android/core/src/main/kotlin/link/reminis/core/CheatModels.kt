@@ -113,8 +113,32 @@ class CheatEditor(list: CheatList) {
     var consoleList: CheatList? = null
         private set
 
+    /** Bumped when a save starts: every read started before it is stale (its answer may predate the save). */
+    var saveGeneration: Int = 0
+        private set
+
+    /**
+     * A sheet edits a cheat of the shown list (its draft lives in the
+     * sheet): a read holds back like local edits, and the list it brings
+     * is shown when the sheet closes ([sheetClosed]).
+     */
+    var sheetOpen: Boolean = false
+
+    /** Taken when a read starts, given back with its answer to [applyRead]. */
+    data class ReadToken(val revision: Int, val saveGeneration: Int)
+
+    fun readToken() = ReadToken(revision, saveGeneration)
+
+    /** A save starts: the reads in flight will be ignored. */
+    fun saveStarted() {
+        saveGeneration++
+    }
+
     /** What a list read from the pak did ([applyRead]). */
     enum class ReadOutcome {
+        /** Started before a save: ignored. */
+        STALE,
+
         /** Shown (no edit since the request, or no edit at all). */
         APPLIED,
 
@@ -131,8 +155,9 @@ class CheatEditor(list: CheatList) {
      * edited since the request (or nothing is edited at all): edits made
      * while the read was in flight are never lost (mirror of `CheatsLoader.swift`).
      */
-    fun applyRead(list: CheatList, since: Int): ReadOutcome {
-        if (revision == since || !hasChanges) {
+    fun applyRead(list: CheatList, token: ReadToken): ReadOutcome {
+        if (token.saveGeneration != saveGeneration) return ReadOutcome.STALE
+        if (!sheetOpen && (revision == token.revision || !hasChanges)) {
             load(list)
             return ReadOutcome.APPLIED
         }
@@ -147,11 +172,24 @@ class CheatEditor(list: CheatList) {
     /** Edits not saved yet (order, content, additions, deletions). */
     val hasChanges: Boolean get() = cheats != original
 
+    /** The sheet closed: a list held back only by it (no local edits) is shown now. Returns whether it was. */
+    fun sheetClosed(): Boolean {
+        sheetOpen = false
+        val held = consoleList ?: return false
+        if (hasChanges) return false
+        load(held)
+        return true
+    }
+
     /** Replaces everything with a list read from the pak: local edits are dropped. */
     fun load(list: CheatList) {
         original = list.cheats
         etag = list.etag
-        entries = list.cheats.map(::entry)
+        // A cheat unchanged at the same place keeps its local id (an action on it stays valid).
+        val previous = entries
+        entries = list.cheats.mapIndexed { i, cheat ->
+            previous.getOrNull(i)?.takeIf { it.cheat == cheat }?.let { Entry(it.id, cheat) } ?: entry(cheat)
+        }
         consoleList = null
         revision++
     }

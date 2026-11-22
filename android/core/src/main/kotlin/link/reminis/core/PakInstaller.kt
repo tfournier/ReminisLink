@@ -160,10 +160,12 @@ class PakInstaller(
             }
             val job = tracked.firstOrNull { it.deviceId == install.deviceId && it.jobId == jobId } ?: continue
             if (job.lost) {
+                jobs.consume(install.deviceId, jobId)
                 set(install.id, PakInstall.Phase.Failed(JobLostException()))
                 continue
             }
             val state = job.job ?: continue
+            if (state.isFinished) jobs.consume(install.deviceId, jobId)
             when (state.state) {
                 JobStates.SUCCEEDED -> set(install.id, PakInstall.Phase.Installed)
                 JobStates.FAILED -> {
