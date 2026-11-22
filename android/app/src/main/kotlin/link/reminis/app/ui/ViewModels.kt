@@ -583,8 +583,12 @@ class LibraryViewModel(app: Application, deviceId: String) : ActionViewModel(app
 
 // MARK: game
 
-class GameViewModel(app: Application, deviceId: String, private val gameId: String) :
+class GameViewModel(app: Application, deviceId: String, gameId: String) :
     ActionViewModel(app, deviceId) {
+    /** The game shown; a rename made from this phone moves it to the new id (Codex review 3). */
+    var gameId: String = gameId
+        private set
+
     private val _game = MutableStateFlow<Load<GameDetail>>(Load.Loading)
     val game: StateFlow<Load<GameDetail>> = _game.asStateFlow()
 
@@ -593,7 +597,8 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
 
     init {
         refresh()
-        reloadAfterTransfers(gameId) { refresh(quiet = true) }
+        reloadAfterTransfers({ this.gameId }) { refresh(quiet = true) }
+        onGameRenamed({ this.gameId }) { this.gameId = it; refresh(quiet = true) }
         // M14: its system changed on the SD card, or a new event stream.
         onConsoleChanges { change ->
             val systemId = (_game.value as? Load.Loaded)?.value?.systemId
@@ -706,11 +711,11 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
         } catch (e: Exception) {
             throw renameError(e)
         }
-        // Every screen still on the old id moves to the new one (the game, the screens above it,
-        // the Library's choice), wherever it is; a screen on another game does not change.
-        container.recordRename(deviceId, gameId, result.game.id)
+        // Told once: every screen still on the old id moves to the new one (Codex review 3).
+        val old = gameId
+        if (result.game.id != old) container.gameRenamed.tryEmit(link.reminis.app.GameRename(deviceId, old, result.game.id))
         container.libraryChanged.tryEmit(deviceId)
-        if (result.game.id != gameId) onRenamed(result.game.id) else refresh(quiet = true)
+        if (result.game.id != old) onRenamed(result.game.id) else refresh(quiet = true)
     }
 
     /** A notice left by another screen (a patch applied): shown once, and the game read again. */
@@ -878,11 +883,19 @@ open class ActionViewModel(app: Application, protected val deviceId: String) : A
     }
 
     /** Calls [reload] after an upload to [gameId] of this console finishes (a save or a state sent). */
-    protected fun reloadAfterTransfers(gameId: String?, reload: () -> Unit) {
+    /** Runs [move] with the new id when the game [current] shows is renamed from this phone. */
+    protected fun onGameRenamed(current: () -> String?, move: (String) -> Unit) {
+        viewModelScope.launch {
+            container.gameRenamed.collect { r -> if (r.deviceId == deviceId && r.oldId == current()) move(r.newId) }
+        }
+    }
+
+    protected fun reloadAfterTransfers(gameIdOf: () -> String?, reload: () -> Unit) {
         viewModelScope.launch {
             container.transfers.finished.collect { item ->
                 if (item.deviceId != deviceId || item.direction != TransferDirection.UPLOAD) return@collect
                 val target = item.target
+                val gameId = gameIdOf()
                 val concerned = gameId == null || when (target) {
                     is UploadTarget.Save -> target.gameId == gameId
                     is UploadTarget.State -> target.gameId == gameId

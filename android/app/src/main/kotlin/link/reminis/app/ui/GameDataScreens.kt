@@ -55,9 +55,9 @@ import link.reminis.core.Slot
 // MARK: save
 
 @Composable
-fun SaveScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
+fun SaveScreen(deviceId: String, gameId: String, onBack: () -> Unit, vmKey: String = gameId) {
     val app = LocalContext.current.applicationContext as Application
-    val vm: SaveViewModel = viewModel(key = "save-$deviceId-$gameId") { SaveViewModel(app, deviceId, gameId) }
+    val vm: SaveViewModel = viewModel(key = "save-$deviceId-$vmKey") { SaveViewModel(app, deviceId, gameId) }
     val content by vm.content.collectAsState()
     val working by vm.working.collectAsState()
     val notice by vm.notice.collectAsState()
@@ -254,9 +254,9 @@ private sealed interface StateConfirmation {
 }
 
 @Composable
-fun StatesScreen(deviceId: String, gameId: String, gameName: String, onBack: () -> Unit) {
+fun StatesScreen(deviceId: String, gameId: String, gameName: String, onBack: () -> Unit, vmKey: String = gameId) {
     val app = LocalContext.current.applicationContext as Application
-    val vm: StatesViewModel = viewModel(key = "states-$deviceId-$gameId") { StatesViewModel(app, deviceId, gameId) }
+    val vm: StatesViewModel = viewModel(key = "states-$deviceId-$vmKey") { StatesViewModel(app, deviceId, gameId) }
     val slots by vm.slots.collectAsState()
     val restored by vm.restored.collectAsState()
     val thumbnails by vm.thumbnails.collectAsState()

@@ -148,6 +148,12 @@ class PatchViewModel(
         makeRun()
         shareToken?.let { token -> container.shareInbox.get(token)?.firstOrNull()?.let(::pickFile) }
         if (fixedGameId != null) loadGame(fixedGameId)
+        // The game chosen renamed from this phone: the same form (the file chosen stays), the new id (Codex review 3).
+        viewModelScope.launch {
+            container.gameRenamed.collect { r ->
+                if (r.deviceId == _form.value.deviceId && r.oldId == _form.value.game?.id && _run.value?.isBoundToConsole != true) renamed(r.newId)
+            }
+        }
     }
 
     private fun makeRun() {
@@ -181,6 +187,25 @@ class PatchViewModel(
                 throw e
             } catch (e: Exception) {
                 _form.update { it.copy(loadError = e) }
+            }
+        }
+    }
+
+    /**
+     * The game of the form renamed from this phone: its new id and names,
+     * the rest of the form as it was (the patch chosen, a name typed).
+     */
+    private fun renamed(newId: String) {
+        val deviceId = _form.value.deviceId ?: return
+        viewModelScope.launch {
+            val detail = runCatching { container.client(deviceId).game(newId) }.getOrNull() ?: return@launch
+            _form.update { f ->
+                val old = f.game ?: return@update f
+                val typed = f.fileName != PatchNaming.suggestedFileName(old.fileName)
+                f.copy(
+                    game = PatchGame(detail.id, detail.name, detail.fileName, detail.kind),
+                    fileName = if (typed) f.fileName else PatchNaming.suggestedFileName(detail.fileName),
+                )
             }
         }
     }
@@ -331,11 +356,13 @@ fun PatchScreen(
     deviceId: String?,
     gameId: String?,
     shareToken: String?,
+    /** The key of the ViewModel: the id the route opened with (a rename keeps the screen's state). */
+    vmKey: String? = gameId,
     onBack: () -> Unit,
     onFinished: (deviceId: String, gameId: String) -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as Application
-    val vm: PatchViewModel = viewModel(key = "patch-$deviceId-$gameId-$shareToken") { PatchViewModel(app, deviceId, gameId, shareToken) }
+    val vm: PatchViewModel = viewModel(key = "patch-$deviceId-$vmKey-$shareToken") { PatchViewModel(app, deviceId, gameId, shareToken) }
     val form by vm.form.collectAsState()
     val step by vm.step.collectAsState()
     val cancelling by vm.cancelling.collectAsState()

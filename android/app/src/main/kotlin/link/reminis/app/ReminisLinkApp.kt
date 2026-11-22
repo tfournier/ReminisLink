@@ -75,6 +75,9 @@ class PendingLinks {
     val size: Int get() = links.size
 }
 
+/** A game of [deviceId] renamed from this phone: [oldId] is now [newId]. */
+data class GameRename(val deviceId: String, val oldId: String, val newId: String)
+
 /** A notice shown once by the screen of a game ([gameId] of [deviceId]). */
 data class GameNotice(val deviceId: String, val gameId: String, val text: String)
 
@@ -206,28 +209,15 @@ class AppContainer(context: Context) {
     /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
     val pakInstaller = PakInstaller(transferScope, transfers, jobs, client = { client(it) }) { file -> file.parentFile?.deleteRecursively() }
 
-    private val _gameRenames = kotlinx.coroutines.flow.MutableStateFlow<Map<String, String>>(emptyMap())
-
     /**
-     * The games renamed from this phone (M23): "deviceId/old id" to the new
-     * id. Every screen of a game (the game, its save, states, cheats, patch,
-     * import, and the Library's choice) shows [resolveGame] of its id: a
-     * screen still on the old id, wherever it is (another tab, under or above
-     * the game screen), moves to the new one; a screen on another game does
-     * not change (Codex review 2).
+     * A game renamed from this phone (M23), told once when the answer
+     * arrives (Codex review 3): every screen of a game still alive (its
+     * route's [link.reminis.app.ui.GameRef], its ViewModel, the Library's
+     * choice), in the active tab or a saved one, that shows the old id moves
+     * to the new one, then nothing keeps the old id: a new ROM that takes it
+     * later opens its own screen, and a later rename does its own rewrite.
      */
-    val gameRenames: kotlinx.coroutines.flow.StateFlow<Map<String, String>> = _gameRenames
-
-    fun recordRename(deviceId: String, oldId: String, newId: String) {
-        if (oldId != newId) _gameRenames.update { it + ("$deviceId/$oldId" to newId) }
-    }
-
-    /** The current id of [gameId] after the renames of [renames] (a chain is followed). */
-    fun resolveGame(renames: Map<String, String>, deviceId: String, gameId: String): String {
-        var current = gameId
-        repeat(32) { current = renames["$deviceId/$current"] ?: return current }
-        return current
-    }
+    val gameRenamed = kotlinx.coroutines.flow.MutableSharedFlow<GameRename>(extraBufferCapacity = 64)
 
     /** The last game deleted from this phone: the Library offers Empty Trash Now (iOS). */
     val lastDeletedGame = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)

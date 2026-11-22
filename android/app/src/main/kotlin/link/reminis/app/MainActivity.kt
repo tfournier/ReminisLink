@@ -587,11 +587,13 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
         val gameId = navArgument("gameId") { type = NavType.StringType }
         composable(Routes.GAME, arguments = listOf(id, gameId)) { entry ->
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
-            // A rename moves this screen to the new id, wherever it is (Codex reviews 1 and 2).
-            val game = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty()
+            // A rename made from this phone rewrites this route's game once (Codex review 3).
+            val opened = entry.arguments?.getString("gameId").orEmpty()
+            val game = link.reminis.app.ui.rememberGameRef(opened).orEmpty()
             GameScreen(
                 deviceId = deviceId,
                 gameId = game,
+                vmKey = opened,
                 onBack = { nav.popBackStack() },
                 onSave = { nav.navigate(Routes.save(deviceId, game)) },
                 onStates = { name -> nav.navigate(Routes.states(deviceId, game, name)) },
@@ -612,7 +614,7 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val fromGame = entry.arguments?.getString("gameId")
             ArchiveImportScreen(
                 deviceId = entry.arguments?.getString("deviceId"),
-                gameId = entry.arguments?.getString("deviceId")?.let { d -> link.reminis.app.ui.rememberGameId(d, fromGame) } ?: fromGame,
+                gameId = fromGame,
                 shareToken = entry.arguments?.getString("share"),
                 onBack = { nav.popBackStack() },
                 onOpenGame = { device, target ->
@@ -640,7 +642,8 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             CheatsScreen(
                 deviceId = deviceId,
-                gameId = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty(),
+                gameId = link.reminis.app.ui.rememberGameRef(entry.arguments?.getString("gameId")).orEmpty(),
+                vmKey = entry.arguments?.getString("gameId").orEmpty(),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -655,7 +658,8 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val fromGame = entry.arguments?.getString("gameId")
             PatchScreen(
                 deviceId = entry.arguments?.getString("deviceId"),
-                gameId = entry.arguments?.getString("deviceId")?.let { d -> link.reminis.app.ui.rememberGameId(d, fromGame) } ?: fromGame,
+                gameId = link.reminis.app.ui.rememberGameRef(fromGame),
+                vmKey = fromGame,
                 shareToken = entry.arguments?.getString("share"),
                 onBack = { nav.popBackStack() },
                 onFinished = { device, target ->
@@ -714,7 +718,8 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             SaveScreen(
                 deviceId = deviceId,
-                gameId = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty(),
+                gameId = link.reminis.app.ui.rememberGameRef(entry.arguments?.getString("gameId")).orEmpty(),
+                vmKey = entry.arguments?.getString("gameId").orEmpty(),
                 onBack = { nav.popBackStack() },
             )
         }
@@ -725,7 +730,8 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             val deviceId = entry.arguments?.getString("deviceId").orEmpty()
             StatesScreen(
                 deviceId = deviceId,
-                gameId = link.reminis.app.ui.rememberGameId(deviceId, entry.arguments?.getString("gameId")).orEmpty(),
+                gameId = link.reminis.app.ui.rememberGameRef(entry.arguments?.getString("gameId")).orEmpty(),
+                vmKey = entry.arguments?.getString("gameId").orEmpty(),
                 gameName = entry.arguments?.getString("name").orEmpty(),
                 onBack = { nav.popBackStack() },
             )

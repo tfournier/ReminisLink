@@ -44,14 +44,18 @@ data class SaveContent(val game: GameDetail, val backups: List<Backup>) {
  * download, delete to the trash of the console). The console copies the
  * current save before every replacement or restoration.
  */
-class SaveViewModel(app: Application, deviceId: String, private val gameId: String) : ActionViewModel(app, deviceId) {
+class SaveViewModel(app: Application, deviceId: String, gameId: String) : ActionViewModel(app, deviceId) {
+    /** A rename made from this phone moves the screen to the new id (Codex review 3). */
+    private var gameId: String = gameId
+
     private val _content = MutableStateFlow<Load<SaveContent>>(Load.Loading)
     val content: StateFlow<Load<SaveContent>> = _content.asStateFlow()
 
     init {
         load()
-        reloadAfterTransfers(gameId) { load(quiet = true) }
+        reloadAfterTransfers({ this.gameId }) { load(quiet = true) }
         reloadOnLibraryChanges { load(quiet = true) }
+        onGameRenamed({ this.gameId }) { this.gameId = it; load(quiet = true) }
     }
 
     fun load(quiet: Boolean = false) {
@@ -59,9 +63,14 @@ class SaveViewModel(app: Application, deviceId: String, private val gameId: Stri
         viewModelScope.launch {
             val result = try {
                 val client = container.client(deviceId)
-                val game = async { client.game(gameId) }
-                val backups = async { client.saveBackups(gameId) }
-                Load.Loaded(SaveContent(game.await(), backups.await()))
+                val id = gameId
+                // In their own scope: a failure of one (a 404 of a game renamed meanwhile) ends here and
+                // shows on the screen, never in the ViewModel's scope (Codex review 3).
+                kotlinx.coroutines.coroutineScope {
+                    val game = async { client.game(id) }
+                    val backups = async { client.saveBackups(id) }
+                    Load.Loaded(SaveContent(game.await(), backups.await()))
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -131,7 +140,10 @@ class SaveViewModel(app: Application, deviceId: String, private val gameId: Stri
  * The state slots of a game: lock, unlock, restore the locked copy,
  * download, delete (to the trash of the console).
  */
-class StatesViewModel(app: Application, deviceId: String, private val gameId: String) : ActionViewModel(app, deviceId) {
+class StatesViewModel(app: Application, deviceId: String, gameId: String) : ActionViewModel(app, deviceId) {
+    /** A rename made from this phone moves the screen to the new id (Codex review 3). */
+    private var gameId: String = gameId
+
     private val _slots = MutableStateFlow<Load<SlotList>>(Load.Loading)
     val slots: StateFlow<Load<SlotList>> = _slots.asStateFlow()
 
@@ -153,8 +165,9 @@ class StatesViewModel(app: Application, deviceId: String, private val gameId: St
 
     init {
         load()
-        reloadAfterTransfers(gameId) { load(quiet = true) }
+        reloadAfterTransfers({ this.gameId }) { load(quiet = true) }
         reloadOnLibraryChanges { load(quiet = true) }
+        onGameRenamed({ this.gameId }) { this.gameId = it; requested.clear(); load(quiet = true) }
     }
 
     /**

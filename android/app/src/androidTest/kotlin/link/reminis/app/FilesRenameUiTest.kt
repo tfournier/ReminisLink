@@ -380,61 +380,117 @@ class FilesRenameUiTest {
         }
     }
 
+    /** Renames the game shown, its answer held by the fake pak until [release]. */
+    private fun startHeldRename(demo: link.reminis.core.demo.DemoConsole, newName: String): java.util.concurrent.CountDownLatch {
+        val held = java.util.concurrent.CountDownLatch(1)
+        demo.pak.holdRenameAnswer = held
+        tap("gameMenu")
+        tap("renameGame")
+        compose.onNodeWithTag("renameName").performTextReplacement(newName)
+        tap("renameConfirm")
+        return held
+    }
+
+    private fun back(scenario: ActivityScenario<MainActivity>) {
+        scenario.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+    }
+
     /**
-     * Codex review 2: a rename whose answer comes late. In the Library, the
-     * user went back to the list and opened another game: that game stays
-     * shown. From Browse by Console, the user opened the States of the game:
-     * they move to the new id (no "not found"), and back shows the renamed game.
+     * Codex reviews 2 and 3: a rename whose answer comes late. Each wait is
+     * on what the app shows once it handled the answer, never on the fake
+     * pak. In the Library, another game opened meanwhile stays shown; a game
+     * of Browse by Console whose tab was left meanwhile (a saved stack) shows
+     * the new name when the tab comes back; a new ROM that takes the old name
+     * opens its own screen; renaming back (A → B → A) with the States open
+     * moves them to A; a Patch form open meanwhile keeps its file; a Save
+     * screen opened meanwhile shows the console's 404, never a crash.
      */
     @Test
     fun aLateRenameMovesOnlyTheScreensOfThatGame() {
-        ActivityScenario.launch(MainActivity::class.java).use {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             val demo = openDemo()
             tap("tabLibrary")
             waitFor("library") { hasTag("game-Brambleway Dash") }
             compose.onNodeWithTag("game-Brambleway Dash").performClick()
             waitFor("game A") { hasTag("gameMenu") && hasText("Brambleway Dash.hab") }
-            val held = java.util.concurrent.CountDownLatch(1)
-            demo.pak.holdRenameAnswer = held
-            tap("gameMenu")
-            tap("renameGame")
-            compose.onNodeWithTag("renameName").performTextReplacement("Brambleway Dash Late")
-            tap("renameConfirm")
-            // Back to the list (one pane) or another game chosen (two panes) before the answer.
-            if (!hasTag("games")) it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+            val first = startHeldRename(demo, "Brambleway Dash Late")
+            // Back to the list (one pane), then another game, before the answer.
+            if (!hasTag("games")) back(scenario)
             waitFor("the list") { hasTag("game-Thistledown Isles") }
             compose.onNodeWithTag("game-Thistledown Isles").performClick()
             waitFor("game B") { hasText("Thistledown Isles.hab") }
-            held.countDown()
-            waitFor("renamed on the console") { runBlocking { demo.client.allGames() }.games.any { g -> g.name == "Brambleway Dash Late" } }
-            Thread.sleep(1_000)
-            assertTrue("game B stays shown", hasText("Thistledown Isles.hab"))
+            first.countDown()
+            // Handled by the app: the list shows the new name.
+            if (!hasTag("games")) back(scenario)
+            waitFor("the list renamed") { hasTag("game-Brambleway Dash Late") }
             assertTrue("game A not reopened", !hasText("Brambleway Dash Late.hab"))
 
-            // From Browse by Console, the States opened before the answer follow the new id.
-            if (!hasTag("games")) it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
+            // Browse by Console: the tab left while the answer is held (its stack saved).
             tap("libraryMenu")
             tap("libraryMenuBySystem")
             tap("system-HA")
             waitFor("folder") { hasText("Brambleway Dash Late") }
             compose.onNodeWithText("Brambleway Dash Late").performClick()
-            waitFor("game") { hasTag("gameMenu") && hasText("Brambleway Dash Late.hab") }
-            val again = java.util.concurrent.CountDownLatch(1)
-            demo.pak.holdRenameAnswer = again
-            tap("gameMenu")
-            tap("renameGame")
-            compose.onNodeWithTag("renameName").performTextReplacement("Brambleway Dash Final")
-            tap("renameConfirm")
+            waitFor("game") { hasText("Brambleway Dash Late.hab") }
+            val second = startHeldRename(demo, "Brambleway Dash Final")
+            tap("tabFiles")
+            waitFor("files") { hasTag("sd-Downloads") }
+            second.countDown()
+            tap("tabLibrary")
+            waitFor("the saved stack rewritten") { hasText("Brambleway Dash Final.hab") }
+
+            // A new ROM under the old name: its own screen, never the renamed game's.
+            demo.pak.addGameForTests("HA", "Brambleway Dash Late.hab")
+            back(scenario)
+            waitFor("both in the folder") { hasText("Brambleway Dash Late") && hasText("Brambleway Dash Final") }
+            compose.onNodeWithText("Brambleway Dash Late").performClick()
+            waitFor("the new ROM's own screen") { hasText("Brambleway Dash Late.hab") && hasTag("gameMenu") }
+            back(scenario)
+
+            // Final → Late Again → back to Final... A → B → A with the States open meanwhile.
+            compose.onNodeWithText("Brambleway Dash Final").performClick()
+            waitFor("game Final") { hasText("Brambleway Dash Final.hab") }
+            val third = startHeldRename(demo, "Brambleway Dash Interim")
+            third.countDown()
+            waitFor("renamed to Interim") { hasText("Brambleway Dash Interim.hab") }
+            val fourth = startHeldRename(demo, "Brambleway Dash Final")
             compose.onNodeWithTag("game").performScrollToNode(hasTestTag("openStates"))
             tap("openStates")
-            // Before the answer, the old id is already gone on the console: the screen may say so.
             waitFor("states screen") { hasTag("statesScreen") || hasTag("error") }
-            again.countDown()
-            waitFor("renamed again") { runBlocking { demo.client.allGames() }.games.any { g -> g.name == "Brambleway Dash Final" } }
-            // Then it moves to the new id and shows the slots.
-            waitFor("the slots of the renamed game") { hasTag("statesScreen") && !hasTag("error") }
-            it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
-            waitFor("the renamed game under it") { hasText("Brambleway Dash Final.hab") }
+            fourth.countDown()
+            waitFor("the States back on Final") { hasTag("statesScreen") && !hasTag("error") }
+            back(scenario)
+            waitFor("the game back on Final") { hasText("Brambleway Dash Final.hab") }
+
+            // Save opened meanwhile: the console's 404 shows, the app goes on.
+            val fifth = startHeldRename(demo, "Brambleway Dash Saved")
+            compose.onNodeWithTag("game").performScrollToNode(hasTestTag("openSave"))
+            tap("openSave")
+            waitFor("save screen or its error") { hasTag("saveScreen") || hasTag("error") }
+            fifth.countDown()
+            waitFor("the Save screen on the new id") { hasTag("saveScreen") && !hasTag("error") }
+            back(scenario)
+            waitFor("the game renamed") { hasText("Brambleway Dash Saved.hab") }
+
+            // A Patch form open while the rename is in transit keeps its patch and its name.
+            demo.pak.holdRenameAnswer = null
+            val sixth = java.util.concurrent.CountDownLatch(1)
+            demo.pak.holdRenameRequest = sixth
+            tap("gameMenu")
+            tap("renameGame")
+            compose.onNodeWithTag("renameName").performTextReplacement("Brambleway Dash Patched")
+            tap("renameConfirm")
+            compose.onNodeWithTag("game").performScrollToNode(hasTestTag("openPatch"))
+            tap("openPatch")
+            tap("patchFromSd")
+            waitFor("patches of the card") { hasTag("sdFile") }
+            compose.onAllNodesWithTag("sdFile")[0].performClick()
+            compose.onNodeWithTag("patchFileName").performTextReplacement("Kept Name")
+            sixth.countDown()
+            waitFor("the form on the new game") { hasText("Brambleway Dash Patched") }
+            assertTrue("the name typed is kept", hasText("Kept Name"))
+            assertTrue("the patch chosen is kept", compose.onAllNodesWithTag("sdFile").fetchSemanticsNodes().isNotEmpty())
         }
     }
 

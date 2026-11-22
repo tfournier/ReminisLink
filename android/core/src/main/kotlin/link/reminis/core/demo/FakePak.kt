@@ -289,6 +289,8 @@ class FakePak(
         val body = request.body?.let { b -> Buffer().also { b.writeTo(it) }.readByteArray() } ?: ByteArray(0)
         val method = request.method
         return try {
+            // Tests: a rename still in transit (not renamed yet on the console).
+            if (method == "POST" && s.size == 3 && s[0] == "games" && s[2] == "rename") holdRenameRequest?.await(20, TimeUnit.SECONDS)
             val response = synchronized(lock) { route(request, method, s, body) }
             // Tests: the console wrote the staging entry, its answer is held (outside the lock).
             if (method == "POST" && s.size == 3 && s[0] == "uploads" && s[2] == "complete") {
@@ -331,6 +333,10 @@ class FakePak(
         system.games += GameState(fileName, "file", Blob(1_024, null, fileName.hashCode()), nowMillis(), null, nowMillis(), art = null)
         library(system)
     }
+
+    /** Tests: while set, `POST /games/{gameId}/rename` waits for it before the game is renamed. */
+    @Volatile
+    var holdRenameRequest: java.util.concurrent.CountDownLatch? = null
 
     /** Tests: while set, the answer of `POST /games/{gameId}/rename` waits for it (the game is renamed first). */
     @Volatile

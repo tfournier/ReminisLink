@@ -217,10 +217,27 @@ Le faux pak (`FakePak`) modélise la carte SD comme celui d'iOS : dossiers inven
 
 - L'installation passe à « Installé » et à « vérification en cours » dans la même publication (même section critique) : il n'existe aucun instant où elle paraît terminée sans vérification en attente.
 - Zip d'un dossier `.pak` : chaque ligne du curseur compte, doublons et noms ignorés compris ; la lecture s'arrête à 10 000 lignes.
-- Renommage : l'app retient les renommages faits depuis ce téléphone (`AppContainer.gameRenames`, ancien identifiant → nouveau) et chaque écran d'un jeu (fiche, Sauvegarde, États, codes de triche, Patch, import, choix de la Bibliothèque) affiche l'identifiant résolu. Un écran encore sur l'ancien identifiant, où qu'il soit (sous ou au-dessus de la fiche, autre onglet), passe au nouveau ; un écran d'un autre jeu ne change pas (une réponse tardive ne change ni le jeu choisi ni la fiche ouverte depuis). Une lecture « discrète » qui remplace la première lecture d'un écran affiche son échec quand rien n'est encore affiché (avant : chargement sans fin).
+- Renommage : voir la revue 3 (la table des renommages de ce tour est retirée). Une lecture « discrète » qui remplace la première lecture d'un écran affiche son échec quand rien n'est encore affiché (avant : chargement sans fin).
 - Transferts : **Effacer les terminés** efface aussi les rangs d'installation terminés, sauf une vérification en cours, et reste visible tant qu'il y a quelque chose à effacer.
 - Les copies d'images de QR code laissées par un processus tué (`cache/qr`) sont supprimées au démarrage de l'app, avant tout écran.
 - Test : renommage dont la réponse est retenue par le faux pak ; pendant ce temps l'utilisateur ouvre un autre jeu (il reste affiché), puis les États du jeu renommé (ils passent au nouvel identifiant).
+
+### Revue Codex 3 du sixième incrément
+
+- **Renommage, réécriture ponctuelle** : quand la réponse du renommage arrive, l'app l'annonce une seule fois (`AppContainer.gameRenamed`, ancien identifiant → nouveau). Chaque écran de jeu encore vivant qui montre l'ancien identifiant passe au nouveau, dans l'onglet affiché comme dans une pile d'onglet sauvegardée :
+  - la route du jeu, de sa Sauvegarde, de ses États, de ses codes de triche et du Patch, par son `GameRef`, gardé dans l'état sauvegardé de l'entrée ;
+  - le `ViewModel` de l'écran, rattaché à l'entrée et non à l'identifiant : il est gardé avec son état (formulaire de patch, fichier choisi, nom saisi ; modifications de codes de triche) ;
+  - le choix de la Bibliothèque, s'il vaut encore l'ancien identifiant.
+
+  Ensuite plus rien ne retient l'ancien identifiant : une nouvelle ROM qui le reprend ouvre sa propre fiche, et un renommage suivant (A → B → A) fait sa propre réécriture. Limite : une pile d'onglet sauvegardée garde l'état capturé à son départ ; si le processus meurt après une réécriture faite pendant que la pile était sauvegardée, cette pile revient sur l'ancien identifiant (« Ce jeu n'est plus sur la console »). L'onglet affiché, lui, garde la réécriture (état sauvegardé de l'entrée).
+- **Sauvegarde** : les deux lectures parallèles (`async`) sont dans un `coroutineScope` entouré du `try/catch` : un `404`, ou toute autre erreur, s'affiche dans l'écran et ne fait jamais tomber l'app (aucun autre `ViewModel` ne lance plusieurs `async`).
+- **Tests** : le faux pak retient la réponse du renommage (`holdRenameAnswer`) ou la requête elle-même (`holdRenameRequest`), et chaque attente porte sur ce que l'app affiche une fois la réponse traitée. Cas couverts :
+  - un autre jeu ouvert entre-temps reste affiché ;
+  - une pile sauvegardée (onglet quitté) est réécrite ;
+  - une nouvelle ROM sous l'ancien nom ouvre sa propre fiche ;
+  - A → B → A avec les États ouverts ;
+  - le `404` de Sauvegarde s'affiche, puis l'écran passe au nouvel identifiant ;
+  - le formulaire de patch garde son patch et le nom saisi.
 
 ### Écarts restants avec iOS
 

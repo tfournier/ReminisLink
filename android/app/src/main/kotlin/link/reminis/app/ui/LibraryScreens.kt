@@ -55,7 +55,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import link.reminis.app.R
 import link.reminis.core.DeviceModels
 import link.reminis.core.DeviceStatus
@@ -227,21 +229,53 @@ private fun Info(label: String, value: String) {
 
 // MARK: library
 
-/** [gameId] after the renames made from this phone (null stays null). */
-@Composable
-fun rememberGameId(deviceId: String, gameId: String?): String? {
-    val container = LocalContext.current.container
-    val renames by container.gameRenames.collectAsState()
-    return gameId?.let { container.resolveGame(renames, deviceId, it) }
-}
-
-/** The game chosen in the Library (saved state of its entry). */
-class LibrarySelection(private val handle: androidx.lifecycle.SavedStateHandle) : androidx.lifecycle.ViewModel() {
+/**
+ * The game chosen in the Library (saved state of its entry). A rename of
+ * that game made from this phone rewrites it once to the new id; the key
+ * of its screen's ViewModel stays (Codex review 3). Another game chosen
+ * meanwhile does not change.
+ */
+class LibrarySelection(app: Application, private val handle: androidx.lifecycle.SavedStateHandle) : androidx.lifecycle.AndroidViewModel(app) {
     val selected: kotlinx.coroutines.flow.StateFlow<String?> = handle.getStateFlow("selected", null)
+    val key: kotlinx.coroutines.flow.StateFlow<String?> = handle.getStateFlow("selectedKey", null)
+
+    init {
+        viewModelScope.launch {
+            app.container.gameRenamed.collect { r -> if (r.oldId == selected.value) handle["selected"] = r.newId }
+        }
+    }
 
     fun select(gameId: String?) {
+        handle["selectedKey"] = gameId
         handle["selected"] = gameId
     }
+}
+
+/**
+ * The game of a route (game, save, states, cheats, patch): its id, saved
+ * with the route's state, rewritten once when a rename of that game made
+ * from this phone answers, wherever the route is (active or saved tab).
+ */
+class GameRef(app: Application, private val handle: androidx.lifecycle.SavedStateHandle) : androidx.lifecycle.AndroidViewModel(app) {
+    fun current(initial: String): kotlinx.coroutines.flow.StateFlow<String> = handle.getStateFlow("currentGameId", initial)
+
+    init {
+        viewModelScope.launch {
+            app.container.gameRenamed.collect { r ->
+                val now = handle.get<String>("currentGameId") ?: handle.get<String>("gameId")
+                if (now == r.oldId) handle["currentGameId"] = r.newId
+            }
+        }
+    }
+}
+
+/** The current id of the game of this route (its argument `gameId`, rewritten by a rename). */
+@Composable
+fun rememberGameRef(argument: String?): String? {
+    if (argument == null) return null
+    val ref: GameRef = viewModel(key = "gameRef")
+    val current by ref.current(argument).collectAsState()
+    return current
 }
 
 /** A window wide enough for the list and a game side by side (and tall enough: not a phone in landscape). */
@@ -271,9 +305,8 @@ fun LibraryPanes(
     // In a ViewModel of the Library's entry (saved state): a rename that ends while another screen
     // or another tab is shown still replaces the game chosen (Codex review 1).
     val selection: LibrarySelection = viewModel()
-    val chosen by selection.selected.collectAsState()
-    // A rename that ends later moves the choice only if it is still the renamed game (Codex review 2).
-    val selected = rememberGameId(deviceId, chosen)
+    val selected by selection.selected.collectAsState()
+    val selectedKey by selection.key.collectAsState()
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().testTag("libraryPanes")) {
         val twoPane = isTwoPane(maxWidth, maxHeight)
         val game = selected
@@ -303,6 +336,7 @@ fun LibraryPanes(
                         GameScreen(
                             deviceId = deviceId,
                             gameId = game,
+                            vmKey = selectedKey ?: game,
                             onBack = if (twoPane) null else ({ selection.select(null) }),
                             onSave = { onSave(game) },
                             onStates = { name -> onStates(game, name) },
@@ -546,11 +580,13 @@ fun GameScreen(
     onPatch: () -> Unit = {},
     onDeleted: () -> Unit = {},
     onImportArchive: () -> Unit = {},
-    /** M23: renamed, the game has a new identifier (the screens above it close). */
+    /** M23: renamed, the game has a new identifier. */
     onRenamed: (String) -> Unit = {},
+    /** The key of the ViewModel: the id the screen opened with (a rename keeps the screen's state). */
+    vmKey: String = gameId,
 ) {
     val app = LocalContext.current.applicationContext as Application
-    val vm: GameViewModel = viewModel(key = "game-$deviceId-$gameId") { GameViewModel(app, deviceId, gameId) }
+    val vm: GameViewModel = viewModel(key = "game-$deviceId-$vmKey") { GameViewModel(app, deviceId, gameId) }
     var renaming by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     val game by vm.game.collectAsState()
     val working by vm.working.collectAsState()

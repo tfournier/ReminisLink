@@ -109,7 +109,10 @@ data class CheatImportUi(
  * console meanwhile (`412`), nothing is overwritten: the user can only
  * reload, which discards the changes.
  */
-class CheatsViewModel(app: Application, deviceId: String, private val gameId: String) : ActionViewModel(app, deviceId) {
+class CheatsViewModel(app: Application, deviceId: String, gameId: String) : ActionViewModel(app, deviceId) {
+    /** A rename made from this phone moves the screen to the new id, keeping the edits (Codex review 3). */
+    private var gameId: String = gameId
+
     private var editor: CheatEditor? = null
     private val _ui = MutableStateFlow<Load<CheatsUi>>(Load.Loading)
     val ui: StateFlow<Load<CheatsUi>> = _ui.asStateFlow()
@@ -127,6 +130,7 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
         load()
         // M14: the list changed on the console (another client): read again; local edits always win.
         reloadOnLibraryChanges { load() }
+        onGameRenamed({ this.gameId }) { this.gameId = it; load() }
     }
 
     /**
@@ -361,9 +365,9 @@ class CheatsViewModel(app: Application, deviceId: String, private val gameId: St
 }
 
 @Composable
-fun CheatsScreen(deviceId: String, gameId: String, onBack: () -> Unit) {
+fun CheatsScreen(deviceId: String, gameId: String, onBack: () -> Unit, vmKey: String = gameId) {
     val app = LocalContext.current.applicationContext as Application
-    val vm: CheatsViewModel = viewModel(key = "cheats-$deviceId-$gameId") { CheatsViewModel(app, deviceId, gameId) }
+    val vm: CheatsViewModel = viewModel(key = "cheats-$deviceId-$vmKey") { CheatsViewModel(app, deviceId, gameId) }
     val ui by vm.ui.collectAsState()
     val working by vm.working.collectAsState()
     val notice by vm.notice.collectAsState()
