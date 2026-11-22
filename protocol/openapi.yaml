@@ -3041,8 +3041,8 @@ paths:
         and `details.refused` (their identifiers). Nothing is moved then.
 
         Each item carries the version of the entry the client showed
-        (`SdTrashItem`: its `modifiedAt`, its `sizeBytes`, and its `version`
-        when the listing gave one): the pak compares them with the entry on
+        (`SdTrashItem`: its `modifiedAt`, its `sizeBytes` and its `version`,
+        all required, `400 invalid_request` otherwise): the pak compares them with the entry on
         the card right before moving anything, so a file replaced since it
         was listed (by another client) is never moved in its place (Codex
         review of M23). For a folder, its `modifiedAt` (and `version`) is
@@ -4737,8 +4737,8 @@ components:
           items: { $ref: '#/components/schemas/SdTrashItem' }
     SdTrashItem:
       type: object
-      required: [sdEntryId, sizeBytes, modifiedAt]
-      description: 'An entry to move, with the version the client showed (the fields of its `SdEntry`).'
+      required: [sdEntryId, sizeBytes, modifiedAt, version]
+      description: 'An entry to move, with the version the client showed (the fields of its `SdEntry`). A missing or empty `version` is `400 invalid_request` (Codex review of M23): an entry listed without one cannot be moved.'
       properties:
         sdEntryId: { $ref: '#/components/schemas/OpaqueId' }
         sizeBytes:
@@ -4749,7 +4749,8 @@ components:
         modifiedAt: { $ref: '#/components/schemas/Timestamp' }
         version:
           type: string
-          description: The `version` of the entry as listed, when the listing gave one.
+          minLength: 1
+          description: The `version` of the entry as listed.
     GameRenameRequest:
       type: object
       required: [name]

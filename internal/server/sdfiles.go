@@ -54,8 +54,8 @@ func (s *Server) handleTrashSD(w http.ResponseWriter, r *http.Request) {
 	items := make([]library.SDTrashItem, 0, len(req.Items))
 	for _, it := range req.Items {
 		// The version the client showed is required (Codex review of M23).
-		if it == nil || it.ID == "" || it.ModifiedAt.IsZero() {
-			auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Each item needs sdEntryId, sizeBytes and modifiedAt", nil)
+		if it == nil || it.ID == "" || it.ModifiedAt.IsZero() || it.Version == "" {
+			auth.WriteError(w, http.StatusBadRequest, auth.CodeInvalidRequest, "Each item needs sdEntryId, sizeBytes, modifiedAt and version", nil)
 			return
 		}
 		items = append(items, *it)

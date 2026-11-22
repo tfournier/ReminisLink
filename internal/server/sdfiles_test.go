@@ -146,7 +146,7 @@ func TestSDFoldersAndTrash(t *testing.T) {
 // its folder (a zero version when it is not listed).
 func (f *fixture) sdItem(id string) map[string]any {
 	f.t.Helper()
-	item := map[string]any{"sdEntryId": id, "sizeBytes": nil, "modifiedAt": "2000-01-01T00:00:00Z"}
+	item := map[string]any{"sdEntryId": id, "sizeBytes": nil, "modifiedAt": "2000-01-01T00:00:00Z", "version": "v1-unlisted"}
 	rel, err := library.DecodeID(strings.TrimPrefix(id, "se_"))
 	if err != nil {
 		return item
@@ -183,6 +183,13 @@ func TestSDTrashRefusesAChangedFile(t *testing.T) {
 		t.Fatalf("changed: %s", r.Body)
 	}
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{map[string]any{"sdEntryId": id}}}), http.StatusBadRequest)
+	// The version is required and never empty: the same date and size
+	// without it would move a replaced file (Codex review of M23, round 2).
+	noVersion := f.sdItem(id)
+	noVersion["version"] = ""
+	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{noVersion}}), http.StatusBadRequest)
+	delete(noVersion, "version")
+	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{noVersion}}), http.StatusBadRequest)
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"sdEntryIds": []string{id}}), http.StatusBadRequest)
 	f.do(http.MethodPost, "/api/v1/sd/trash", sdTrashPath, mustJSON(t, map[string]any{"items": []any{f.sdItem(id)}}), http.StatusOK)
 }

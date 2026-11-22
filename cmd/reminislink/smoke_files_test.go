@@ -89,10 +89,15 @@ func smokeFiles(t *testing.T, c *testutil.Client, roots osadapter.Roots, system,
 			call(t, c, http.MethodPost, "/api/v1/sd/trash", trashBody(e), http.StatusConflict, nil)
 		}
 	}
+	romsFound := false
 	for _, e := range root.Entries {
 		if e.ID == library.SDEntryID(sdRel(t, roots, roots.Roms)) {
+			romsFound = true
 			call(t, c, http.MethodPost, "/api/v1/sd/trash", trashBody(e), http.StatusConflict, nil)
 		}
+	}
+	if !romsFound {
+		t.Fatalf("the ROM folder %s is not listed at the root of the card", sdRel(t, roots, roots.Roms))
 	}
 	// To the trash and back.
 	var moved struct {
