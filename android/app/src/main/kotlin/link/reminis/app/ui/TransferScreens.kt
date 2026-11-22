@@ -357,6 +357,13 @@ private fun AddFileRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = file.kind == AddKind.ROM, onClick = { onKind(AddKind.ROM) }, label = { Text(stringResource(R.string.add_kind_game)) })
             FilterChip(selected = file.kind == AddKind.SAVE, onClick = { onKind(AddKind.SAVE) }, label = { Text(stringResource(R.string.add_kind_save)) })
+            // M12: a zip can be sent as an app; never offered by default (most zips are games).
+            if (AddKind.canBePak(file.name)) {
+                FilterChip(
+                    selected = file.kind == AddKind.PAK, onClick = { onKind(AddKind.PAK) },
+                    label = { Text(stringResource(R.string.add_kind_pak)) }, modifier = Modifier.testTag("addKindPak"),
+                )
+            }
         }
         when (file.kind) {
             AddKind.ROM -> {
@@ -378,6 +385,10 @@ private fun AddFileRow(
                     Text(file.game?.name ?: stringResource(R.string.add_choose_game))
                 }
                 Footnote(stringResource(R.string.add_save_help))
+            }
+            AddKind.PAK -> {
+                Footnote(stringResource(R.string.pak_install_file_help))
+                Footnote(stringResource(R.string.pak_install_trust))
             }
         }
     }

@@ -205,6 +205,9 @@ class AppContainer(context: Context) {
     /** Pak installations from a zip of the phone (M12); a local copy is deleted once its installation ends. */
     val pakInstaller = PakInstaller(transferScope, transfers, jobs, client = { client(it) }) { file -> file.parentFile?.deleteRecursively() }
 
+    /** The last game deleted from this phone: the Library offers Empty Trash Now (iOS). */
+    val lastDeletedGame = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
+
     /** A notice for the game screen of a console (a patch applied, the screen closed by itself). */
     val gameNotice = kotlinx.coroutines.flow.MutableStateFlow<GameNotice?>(null)
 
@@ -427,6 +430,12 @@ class AppContainer(context: Context) {
         scope.launch { events.dropConsole(console.deviceId) }
     }
 
+    /** Renames a console on this phone only (the console keeps its own name). */
+    fun renameConsole(deviceId: String, name: String) {
+        val clean = PairedConsole.cleanName(name) ?: return
+        synchronized(pairingLock) { consoles.update(deviceId) { it.copy(deviceName = clean) } }
+    }
+
     /** Tests only: deletion previews answered (applied or not), a client-side signal. */
     @androidx.annotation.VisibleForTesting
     val deletionAnswersForTests = java.util.concurrent.atomic.AtomicInteger()
@@ -460,7 +469,7 @@ class AppContainer(context: Context) {
     private fun remember(console: PairedConsole, endpoint: Endpoint, deviceName: String, model: String) {
         consoles.update(console.deviceId) {
             if (it.pin == console.pin && it.pairedAt == console.pairedAt) {
-                it.copy(deviceName = deviceName, model = model, lastEndpoint = endpoint)
+                it.reporting(deviceName).copy(model = model, lastEndpoint = endpoint)
             } else {
                 it
             }

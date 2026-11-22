@@ -49,6 +49,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
+import link.reminis.app.QrImage
 import link.reminis.app.R
 import link.reminis.app.container
 import link.reminis.core.DeviceModels
@@ -63,6 +65,7 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () ->
     val consoles by vm.consoles.collectAsState()
     val online by vm.online.collectAsState()
     var forgetting by remember { mutableStateOf<String?>(null) }
+    var renaming by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val container = context.container
     val demo by container.demo.collectAsState()
@@ -125,7 +128,13 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () ->
                             Text(listOf(model, status).filter { it.isNotEmpty() }.joinToString(" · "))
                         },
                         trailingContent = {
-                            TextButton(onClick = { forgetting = console.deviceId }) { Text(stringResource(R.string.forget)) }
+                            Row {
+                                // A name of this phone only (iOS: the name chosen at pairing, kept until the console is renamed).
+                                TextButton(onClick = { renaming = console.deviceId }, modifier = Modifier.testTag("renameConsole")) {
+                                    Text(stringResource(R.string.console_rename))
+                                }
+                                TextButton(onClick = { forgetting = console.deviceId }) { Text(stringResource(R.string.forget)) }
+                            }
                         },
                         modifier = Modifier.clickable { onOpen(console.deviceId) },
                     )
@@ -147,6 +156,30 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () ->
     forgetting?.let { id ->
         val name = consoles.firstOrNull { it.deviceId == id }?.deviceName.orEmpty()
         ForgetDialog(name, onConfirm = { vm.forget(id); forgetting = null }, onDismiss = { forgetting = null })
+    }
+    renaming?.let { id ->
+        var name by rememberSaveable(id) { mutableStateOf(consoles.firstOrNull { it.deviceId == id }?.deviceName.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { renaming = null },
+            title = { Text(stringResource(R.string.console_name_header)) },
+            text = {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.console_name_label)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("consoleNameField"),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { container.renameConsole(id, name); renaming = null; vm.reload() },
+                    enabled = link.reminis.core.PairedConsole.cleanName(name) != null,
+                    modifier = Modifier.testTag("consoleNameSave"),
+                ) { Text(stringResource(R.string.game_rename_action)) }
+            },
+            dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.action_cancel)) } },
+        )
     }
 }
 
@@ -196,6 +229,7 @@ fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) ->
     // Not saveable: a pasted link holds the QR secret and must not reach saved state.
     var link by remember { mutableStateOf("") }
     var linkError by remember { mutableStateOf<String?>(null) }
+    var imageError by remember { mutableStateOf<String?>(null) }
 
     fun saveName() {
         container.clientName = name.trim().ifEmpty { container.defaultClientName }
@@ -218,6 +252,42 @@ fun AddConsoleScreen(onBack: () -> Unit, onScan: () -> Unit, onLink: (String) ->
             Button(onClick = { saveName(); onScan() }, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.scan_qr))
             }
+            // iOS M15: a picture of the QR code (a photo taken with another device, a screenshot),
+            // chosen with the system photo picker: no permission.
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            var importing by remember { mutableStateOf(false) }
+            val photo = androidx.activity.compose.rememberLauncherForActivityResult(
+                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+            ) { uri ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                importing = true
+                imageError = null
+                scope.launch {
+                    val text = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        runCatching { QrImage.link(context.contentResolver, uri) }.getOrNull()
+                    }
+                    importing = false
+                    if (text == null) {
+                        imageError = context.getString(R.string.scan_no_qr)
+                        return@launch
+                    }
+                    try {
+                        PairingLink.parse(text)
+                        saveName()
+                        onLink(text)
+                    } catch (e: PairingLinkException) {
+                        imageError = errorMessage(context, e)
+                    }
+                }
+            }
+            OutlinedButton(
+                onClick = {
+                    photo.launch(androidx.activity.result.PickVisualMediaRequest(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                enabled = !importing,
+                modifier = Modifier.fillMaxWidth().testTag("importQr"),
+            ) { Text(stringResource(R.string.scan_import_image)) }
+            imageError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("importQrError")) }
             HorizontalDivider()
             OutlinedTextField(
                 value = link,
@@ -333,7 +403,25 @@ private fun PairingProgress(
         }
         if (state.step == PairingStep.DONE && state.deviceId != null) {
             Text(stringResource(R.string.pairing_done, state.deviceName.orEmpty()), modifier = Modifier.testTag("paired"))
-            Button(onClick = { onOpenConsole(state.deviceId) }, modifier = Modifier.fillMaxWidth().testTag("openConsole")) {
+            // The name shown on this phone (iOS: "Name on this iPhone"); the console keeps its own.
+            val container = LocalContext.current.container
+            var name by rememberSaveable(state.deviceId) { mutableStateOf(container.consoles.get(state.deviceId)?.deviceName ?: state.deviceName.orEmpty()) }
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text(stringResource(R.string.console_name_label)) },
+                supportingText = { Text(stringResource(R.string.console_name_header)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("pairingName"),
+            )
+            Button(
+                onClick = {
+                    container.renameConsole(state.deviceId, name)
+                    onOpenConsole(state.deviceId)
+                },
+                enabled = link.reminis.core.PairedConsole.cleanName(name) != null,
+                modifier = Modifier.fillMaxWidth().testTag("openConsole"),
+            ) {
                 Text(stringResource(R.string.pairing_open_console))
             }
         }

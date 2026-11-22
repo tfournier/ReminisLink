@@ -89,6 +89,17 @@ object Routes {
     const val FILES = "console/{deviceId}/files?folderId={folderId}&title={title}"
     const val SETTINGS = "settings"
 
+    /** Browse by Console (iOS 06 §4.4): the systems, then a folder of a system. */
+    const val SYSTEMS = "console/{deviceId}/systems"
+    const val FOLDER = "console/{deviceId}/systems/{systemId}?folderId={folderId}&title={title}"
+
+    fun systems(deviceId: String) = "console/$deviceId/systems"
+    fun folder(deviceId: String, systemId: String, folderId: String?, title: String) = buildString {
+        append("console/$deviceId/systems/$systemId?")
+        folderId?.let { append("folderId=$it&") }
+        append("title=${android.net.Uri.encode(title)}")
+    }
+
     fun files(deviceId: String, folderId: String? = null, title: String? = null) = buildString {
         append("console/$deviceId/files")
         val query = listOfNotNull(folderId?.let { "folderId=$it" }, title?.let { "title=${android.net.Uri.encode(it)}" })
@@ -407,7 +418,7 @@ enum class ConsoleTab(@param:androidx.annotation.StringRes val label: Int, val t
         /** The tab of a screen; null for the screens shown alone (Add, Patch, import, pairing, list). */
         fun of(route: String?): ConsoleTab? = when (route) {
             Routes.DASHBOARD, Routes.TRANSFERS, Routes.TRASH, Routes.TRASH_RESTORE, Routes.SCREENSHOTS, Routes.SCREENSHOT -> CONSOLE
-            Routes.LIBRARY, Routes.GAME, Routes.SAVE, Routes.STATES, Routes.CHEATS -> LIBRARY
+            Routes.LIBRARY, Routes.GAME, Routes.SAVE, Routes.STATES, Routes.CHEATS, Routes.SYSTEMS, Routes.FOLDER -> LIBRARY
             Routes.APPS -> APPS
             Routes.FILES -> FILES
             else -> null
@@ -539,6 +550,37 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
                 onStates = { gameId, name -> nav.navigate(Routes.states(deviceId, gameId, name)) },
                 onCheats = { gameId -> nav.navigate(Routes.cheats(deviceId, gameId)) },
                 onPatch = { gameId -> nav.navigate(Routes.patch(deviceId = deviceId, gameId = gameId)) },
+                onBrowse = { nav.navigate(Routes.systems(deviceId)) },
+                onSystem = { nav.navigate(Routes.folder(deviceId, it.id, null, it.label)) },
+            )
+        }
+        composable(Routes.SYSTEMS, arguments = listOf(id)) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            link.reminis.app.ui.SystemsScreen(
+                deviceId = deviceId,
+                onBack = { nav.popBackStack() },
+                onOpen = { nav.navigate(Routes.folder(deviceId, it.id, null, it.label)) },
+            )
+        }
+        composable(
+            Routes.FOLDER,
+            arguments = listOf(
+                id,
+                navArgument("systemId") { type = NavType.StringType },
+                navArgument("folderId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            val deviceId = entry.arguments?.getString("deviceId").orEmpty()
+            val systemId = entry.arguments?.getString("systemId").orEmpty()
+            link.reminis.app.ui.FolderScreen(
+                deviceId = deviceId,
+                systemId = systemId,
+                folderId = entry.arguments?.getString("folderId"),
+                title = entry.arguments?.getString("title").orEmpty(),
+                onBack = { nav.popBackStack() },
+                onFolder = { nav.navigate(Routes.folder(deviceId, systemId, it.id, it.name)) },
+                onGame = { nav.navigate(Routes.game(deviceId, it)) },
             )
         }
         val gameId = navArgument("gameId") { type = NavType.StringType }

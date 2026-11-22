@@ -11,6 +11,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.printToLog
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -257,6 +259,98 @@ class FilesRenameUiTest {
             demo.pak.answerShuttingDown = true
             compose.onNodeWithText("Thistledown Isles").performClick()
             waitFor("back on the list") { hasTag("demoConsole") && !hasTag("dashboard") }
+        }
+    }
+
+    @Test
+    fun libraryFiltersBrowseSwipeAndEmptyTrash() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val demo = openDemo()
+            tap("tabLibrary")
+            waitFor("library") { hasTag("game-Brambleway Dash") }
+            // Filter and Sort: with a save only.
+            tap("libraryFilterButton")
+            tap("filterSave")
+            tap("filterDone")
+            waitFor("filtered") { hasTag("filterSummary") && !hasTag("game-Brambleway Dash") }
+            assertTrue(hasTag("game-Thistledown Isles"))
+            tap("libraryClearFilters")
+            waitFor("all again") { hasTag("game-Brambleway Dash") }
+
+            // Browse by Console: a system, a folder, its games.
+            tap("libraryFilterButton")
+            tap("libraryBySystem")
+            waitFor("systems") { hasTag("system-HA") }
+            tap("system-HA")
+            waitFor("folder") { hasTag("folder-Homebrew") }
+            tap("folder-Homebrew")
+            waitFor("games of the folder") { hasText("Quillwork Tactics") }
+            repeat(3) { _ -> it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }; compose.waitForIdle() }
+            waitFor("library again") { hasTag("game-Brambleway Dash") }
+
+            // Swipe to delete, then Empty Trash Now.
+            compose.onNodeWithTag("game-Brambleway Dash").performTouchInput { swipeLeft() }
+            waitFor("confirmation") { hasTag("deleteGameConfirm") && hasTag("deleteMoved") }
+            tap("deleteGameConfirm")
+            waitFor("deleted") { !hasTag("game-Brambleway Dash") && hasTag("emptyTrashNow") }
+            tap("emptyTrashNow")
+            tap("confirmOk")
+            waitFor("trash emptied") { runBlocking { demo.client.trash() }.entries.isEmpty() }
+        }
+    }
+
+    @Test
+    fun largerLibraryIsBrowsedByConsole() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val demo = openDemo()
+            demo.pak.libraryTruncated = true
+            tap("tabLibrary")
+            waitFor("systems instead of the list") { hasTag("libraryTruncated") && hasTag("system-HA") }
+            assertTrue(!hasTag("libraryFilterButton"))
+        }
+    }
+
+    @Test
+    fun aConsoleRenamedOnThisPhone() {
+        val id = "5d2c1b0a-3e4f-4a5b-8c7d-6e5f4a3b2c1d"
+        context.container.replacePairing(
+            link.reminis.core.PairedConsole(
+                deviceId = id, deviceName = "Fern Handheld", model = "brick",
+                pin = link.reminis.core.Base64Url.encode(ByteArray(32) { 3 }), pairedAt = 2L, consoleName = "Fern Handheld",
+            ),
+        )
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                waitFor("list") { hasText("Fern Handheld") }
+                tap("renameConsole")
+                compose.onNodeWithTag("consoleNameField").performTextReplacement("Living Room")
+                tap("consoleNameSave")
+                waitFor("renamed") { hasText("Living Room") }
+                assertEquals("Living Room", context.container.consoles.get(id)!!.deviceName)
+            }
+        } finally {
+            context.container.forget(id)
+        }
+    }
+
+    /** A picture of the QR code (iOS M15): the link it holds, read by ZXing; a picture without one gives none. */
+    @Test
+    fun pairingLinkReadFromAPicture() {
+        val link = "reminislink://pair?v=2&id=5d2c1b0a-3e4f-4a5b-8c7d-6e5f4a3b2c1d&n=Fern&h=192.168.1.2&p=48100&k=abc&s=def"
+        val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(link, com.google.zxing.BarcodeFormat.QR_CODE, 600, 600)
+        val bitmap = android.graphics.Bitmap.createBitmap(800, 800, android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.WHITE)
+        for (x in 0 until 600) for (y in 0 until 600) if (matrix[x, y]) bitmap.setPixel(x + 100, y + 100, android.graphics.Color.BLACK)
+        val file = java.io.File(context.cacheDir, "qr-test.png")
+        file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        val blank = java.io.File(context.cacheDir, "blank-test.png")
+        blank.outputStream().use { android.graphics.Bitmap.createBitmap(100, 100, android.graphics.Bitmap.Config.ARGB_8888).compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        try {
+            assertEquals(link, QrImage.link(context.contentResolver, android.net.Uri.fromFile(file)))
+            assertNull(QrImage.link(context.contentResolver, android.net.Uri.fromFile(blank)))
+        } finally {
+            file.delete()
+            blank.delete()
         }
     }
 

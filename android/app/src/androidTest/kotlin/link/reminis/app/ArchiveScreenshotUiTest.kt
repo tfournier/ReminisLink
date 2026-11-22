@@ -170,6 +170,33 @@ class ArchiveScreenshotUiTest {
         return uri
     }
 
+    /**
+     * Add, type App (pak) (06 §4.6): a zip shared to the app and sent as an
+     * app goes through the installation of the Apps screen (target `pak`,
+     * a job), never offered by default; the pak is installed.
+     */
+    @Test
+    fun sharedZipSentAsAnAppIsInstalled() {
+        val zip = java.io.ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { z ->
+                z.putNextEntry(java.util.zip.ZipEntry("Juniper Tool.pak/launch.sh"))
+                z.write("#!/bin/sh\n".toByteArray())
+                z.closeEntry()
+            }
+        }.toByteArray()
+        val uri = document("Juniper Tool.pak.zip", zip)
+        ActivityScenario.launch<MainActivity>(share(uri)).use {
+            waitFor("Add") { hasTag("addFile") }
+            // A zip is a game by default.
+            compose.onNodeWithTag("addKindPak").performClick()
+            compose.onNodeWithTag("sendFiles").performClick()
+            waitFor("installed", timeout = 30_000) {
+                runBlocking { runCatching { context.container.jobs.refresh(pak.deviceId) } }
+                runBlocking { runCatching { context.container.client(pak.deviceId).paks() }.getOrNull() }?.any { it.name == "Juniper Tool" } == true
+            }
+        }
+    }
+
     private fun share(uri: Uri) = Intent(Intent.ACTION_SEND).setClass(context, MainActivity::class.java)
         .setType("application/zip").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 

@@ -723,4 +723,37 @@
         <item quantity="one">%d file is being sent. Follow it in Transfers, on the Console tab.</item>
         <item quantity="other">%d files are being sent. Follow them in Transfers, on the Console tab.</item>
     </plurals>
+    <!-- Sixth increment, second part: library filters, browse by console, empty trash now, App (pak), console names, QR picture -->
+    <string name="library_filter">Filter and Sort</string>
+    <string name="library_filter_console">Filter by Console</string>
+    <string name="library_all_consoles">All Consoles</string>
+    <string name="library_has_save">Has a Save</string>
+    <string name="library_has_states">Has States</string>
+    <string name="library_has_cheats">Has Cheats</string>
+    <string name="library_sort_by">Sort by</string>
+    <string name="library_sort_name">Name</string>
+    <string name="library_sort_date">Date</string>
+    <string name="library_sort_size">Size</string>
+    <string name="library_clear_filters">Clear Filters</string>
+    <string name="library_by_console">Browse by Console</string>
+    <string name="library_no_match_filters">No games match the filters</string>
+    <string name="library_truncated_browse">The console has too many games to list them at once: browse them by console.</string>
+    <string name="library_folders">Folders</string>
+    <string name="library_folder_empty">No games in this folder</string>
+    <string name="library_emulator_missing">Emulator not installed on the console</string>
+    <string name="library_search_folder">Search</string>
+    <string name="game_deleted_notice">%1$s was moved to the trash of the console.</string>
+    <string name="trash_empty_now">Empty Trash Now</string>
+    <string name="trash_empty_now_help">Frees the space now. Everything in the trash of the console is permanently deleted.</string>
+    <string name="trash_empty_all_message">Everything in the trash of the console will be permanently deleted. This cannot be undone.</string>
+    <string name="add_kind_pak">App (pak)</string>
+    <string name="console_name_label">Console name</string>
+    <string name="console_name_header">Name on this phone</string>
+    <string name="console_rename">Rename…</string>
+    <string name="scan_import_image">Import a Picture</string>
+    <string name="scan_no_qr">No ReminisLink QR code was found in this picture. Use a sharp picture where the whole QR code shown by the console is visible.</string>
+    <plurals name="library_game_count">
+        <item quantity="one">%d game</item>
+        <item quantity="other">%d games</item>
+    </plurals>
 </resources>

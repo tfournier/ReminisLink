@@ -270,6 +270,7 @@ data class AddFile(
     val isReady: Boolean get() = when (kind) {
         AddKind.ROM -> systemId != null
         AddKind.SAVE -> game != null
+        AddKind.PAK -> true
     }
 }
 
@@ -391,12 +392,17 @@ class AddFilesViewModel(app: Application, deviceId: String?, private val shareTo
             try {
                 for (file in s.files) {
                     val picked = LocalFiles.copyIn(getApplication(), file.uri, container.transferDirectory)
-                    val (target, destination) = when (file.kind) {
-                        AddKind.ROM -> UploadTarget.Rom(file.systemId!!, picked.name) to
-                            (systems.firstOrNull { it.id == file.systemId }?.label.orEmpty())
-                        AddKind.SAVE -> UploadTarget.Save(file.game!!.id) to file.game.name
+                    if (file.kind == AddKind.PAK) {
+                        // The installation of the Apps screen: automatic place, asked before replacing (06 §4.6).
+                        container.pakInstaller.install(deviceId, picked.file, picked.name, link.reminis.core.PakInstallKind.AUTO)
+                    } else {
+                        val (target, destination) = when (file.kind) {
+                            AddKind.SAVE -> UploadTarget.Save(file.game!!.id) to file.game.name
+                            else -> UploadTarget.Rom(file.systemId!!, picked.name) to
+                                (systems.firstOrNull { it.id == file.systemId }?.label.orEmpty())
+                        }
+                        container.transfers.enqueueUpload(deviceId, picked.file, picked.name, target, destination, ownsFile = true)
                     }
-                    container.transfers.enqueueUpload(deviceId, picked.file, picked.name, target, destination, ownsFile = true)
                     _state.update { st -> st.copy(files = st.files.filter { it.id != file.id }) }
                 }
                 shareToken?.let(container.shareInbox::remove)

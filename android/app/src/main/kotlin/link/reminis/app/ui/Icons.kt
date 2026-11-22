@@ -31,6 +31,9 @@ object AppIcons {
         )
     }
 
+    /** Filter and Sort of the Library. */
+    val FilterList: ImageVector by lazy { icon("FilterList", "M10,18h4v-2h-4v2zM3,6v2h18L21,6L3,6zM6,13h12v-2L6,11v2z") }
+
     /** The Library tab (a stack of cards). */
     val Library: ImageVector by lazy {
         icon(

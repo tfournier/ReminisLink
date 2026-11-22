@@ -247,6 +247,9 @@ fun LibraryPanes(
     onStates: (gameId: String, name: String) -> Unit,
     onCheats: (gameId: String) -> Unit,
     onPatch: (gameId: String) -> Unit,
+    /** Browse by Console (the systems), or a system opened from the systems shown in place of the list. */
+    onBrowse: () -> Unit = {},
+    onSystem: (link.reminis.core.GameSystem) -> Unit = {},
 ) {
     var selected by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().testTag("libraryPanes")) {
@@ -265,6 +268,8 @@ fun LibraryPanes(
                             onAdd = onAdd,
                             onImportArchive = { onImportArchive(null) },
                             selectedGameId = if (twoPane) game else null,
+                            onBrowse = onBrowse,
+                            onSystem = onSystem,
                         )
                     }
                 }
@@ -309,18 +314,38 @@ fun LibraryScreen(
     onImportArchive: () -> Unit = {},
     /** The game shown beside the list (a wide window): highlighted. */
     selectedGameId: String? = null,
+    onBrowse: () -> Unit = {},
+    onSystem: (link.reminis.core.GameSystem) -> Unit = {},
 ) {
     val app = LocalContext.current.applicationContext as Application
     val vm: LibraryViewModel = viewModel(key = "library-$deviceId") { LibraryViewModel(app, deviceId) }
     val content by vm.content.collectAsState()
-    val query by vm.query.collectAsState()
+    val libraryQuery by vm.libraryQuery.collectAsState()
+    val query = libraryQuery.text
+    val deleted by LocalContext.current.container.lastDeletedGame.collectAsState()
+    val working by vm.working.collectAsState()
+    val notice by vm.notice.collectAsState()
+    val error by vm.error.collectAsState()
     var menu by remember { mutableStateOf(false) }
+    var filtering by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var emptying by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var deleting by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var deletingName by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
 
     AppScaffold(
         title = stringResource(R.string.library),
         onBack = onBack,
         actions = {
-            IconButton(onClick = vm::refresh) { Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.refresh)) }
+            IconButton(onClick = { vm.refresh() }) { Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.refresh)) }
+            if ((content as? Load.Loaded)?.value?.bySystem == false) {
+                IconButton(onClick = { filtering = true }, modifier = Modifier.testTag("libraryFilterButton")) {
+                    Icon(
+                        AppIcons.FilterList,
+                        contentDescription = stringResource(R.string.library_filter),
+                        tint = if (libraryQuery.isFiltered) MaterialTheme.colorScheme.primary else androidx.compose.material3.LocalContentColor.current,
+                    )
+                }
+            }
             Box {
                 IconButton(onClick = { menu = true }, modifier = Modifier.testTag("libraryMenu")) {
                     Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.more_actions))
@@ -331,6 +356,11 @@ fun LibraryScreen(
                         text = { Text(stringResource(R.string.library_import_archive)) },
                         onClick = { menu = false; onImportArchive() },
                         modifier = Modifier.testTag("libraryImportArchive"),
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.library_by_console)) },
+                        onClick = { menu = false; onBrowse() },
+                        modifier = Modifier.testTag("libraryMenuBySystem"),
                     )
                 }
             }
@@ -344,56 +374,142 @@ fun LibraryScreen(
             )
         },
     ) { modifier ->
-        LoadContent(content, onRetry = vm::refresh, modifier = modifier) { library ->
-            val games = remember(library, query) { vm.filtered(library, query) }
-            Column(modifier.fillMaxSize()) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = vm::setQuery,
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    placeholder = { Text(stringResource(R.string.search_games)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("search"),
-                )
-                if (library.truncated) {
-                    Text(
-                        stringResource(R.string.library_truncated),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
+        Column(modifier.fillMaxSize()) {
+            if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
+            MessageCard(notice, error, vm::dismissMessages)
+            // After a deletion (iOS DeleteGameView): the space is freed only when the trash is emptied.
+            deleted?.takeIf { it.deviceId == deviceId }?.let { gone ->
+                DeletedGameCard(gone.text, onEmpty = { emptying = true }, onDismiss = { LocalContextHolder.dismissDeleted(app, gone) })
+            }
+            LoadContent(content, onRetry = { vm.refresh() }) { library ->
+                if (library.bySystem) {
+                    // More than 20 000 games, or a pak older than M11: browse per system (iOS LibraryMode).
+                    SystemsList(deviceId, onSystem, footer = if (library.truncated) stringResource(R.string.library_truncated_browse) else null)
+                    return@LoadContent
                 }
-                if (games.isEmpty()) {
-                    Text(
-                        stringResource(if (library.games.isEmpty()) R.string.library_empty else R.string.library_no_match),
-                        modifier = Modifier.padding(24.dp),
+                val presentation = remember(library, libraryQuery) { vm.present(library, libraryQuery) }
+                val games = presentation.games
+                Column(Modifier.fillMaxSize()) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = vm::setQuery,
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        placeholder = { Text(stringResource(R.string.search_games)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("search"),
                     )
-                }
-                LazyColumn(Modifier.fillMaxSize().testTag("games"), state = vm.listState) {
-                    items(games, key = { it.id }) { game ->
-                        val badges = buildList {
-                            library.systems[game.systemId]?.let(::add)
-                            game.folderPath?.let(::add)
-                            if (game.hasSave) add(stringResource(R.string.has_save))
-                            if (game.stateCount > 0) add(pluralStringResource(R.plurals.state_count, game.stateCount, game.stateCount))
-                            if (game.cheatCount > 0) add(pluralStringResource(R.plurals.cheat_count, game.cheatCount, game.cheatCount))
+                    if (libraryQuery.isFiltered) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(filterSummary(libraryQuery), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f).testTag("filterSummary"))
+                            TextButton(onClick = { vm.setLibraryQuery(libraryQuery.clearedFilters()) }, modifier = Modifier.testTag("libraryClearFilters")) {
+                                Text(stringResource(R.string.library_clear_filters))
+                            }
                         }
-                        ListItem(
-                            leadingContent = { link.reminis.app.GameArt(deviceId, game.id, game.hasArt, 44.dp) },
-                            headlineContent = { Text(game.name) },
-                            supportingContent = { Text(badges.joinToString(" · ")) },
-                            colors = if (game.id == selectedGameId) {
-                                androidx.compose.material3.ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                            } else {
-                                androidx.compose.material3.ListItemDefaults.colors()
-                            },
-                            modifier = Modifier.clickable { onGame(game.id) },
-                        )
-                        HorizontalDivider()
                     }
+                    if (games.isEmpty()) {
+                        Text(
+                            stringResource(
+                                when {
+                                    library.games.isEmpty() -> R.string.library_empty
+                                    query.isNotBlank() -> R.string.library_no_match
+                                    else -> R.string.library_no_match_filters
+                                },
+                            ),
+                            modifier = Modifier.padding(24.dp),
+                        )
+                    }
+                    LazyColumn(Modifier.fillMaxSize().testTag("games"), state = vm.listState) {
+                        if (games.isNotEmpty()) {
+                            item(key = "count") {
+                                Text(
+                                    pluralStringResource(R.plurals.library_game_count, games.size, games.size),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("gameCount"),
+                                )
+                            }
+                        }
+                        items(games, key = { it.id }) { game ->
+                            val context = LocalContext.current
+                            SwipeToDelete(onDelete = { deletingName = game.name; deleting = game.id }) {
+                                ListItem(
+                                    leadingContent = { link.reminis.app.GameArt(deviceId, game.id, game.hasArt, 44.dp) },
+                                    headlineContent = { Text(game.name) },
+                                    supportingContent = {
+                                        Text(gameBadges(game.hasSave, game.stateCount, game.cheatCount, presentation.rowLabels[game.systemId], game.folderPath, formatBytes(context, game.sizeBytes)))
+                                    },
+                                    colors = if (game.id == selectedGameId) {
+                                        androidx.compose.material3.ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                                    } else {
+                                        androidx.compose.material3.ListItemDefaults.colors()
+                                    },
+                                    modifier = Modifier.clickable { onGame(game.id) }.testTag("game-${game.name}"),
+                                )
+                            }
+                            HorizontalDivider()
+                        }
+                    }
+                }
+                if (filtering) {
+                    LibraryFilterDialog(
+                        libraryQuery, presentation.groups, onChange = vm::setLibraryQuery, onBrowse = onBrowse, onDismiss = { filtering = false },
+                    )
                 }
             }
         }
     }
+    deleting?.let { id -> DeleteGameFromList(deviceId, id, deletingName, onDone = { deleting = null }) }
+    if (emptying) {
+        ConfirmDialog(
+            title = stringResource(R.string.trash_empty_title),
+            message = stringResource(R.string.trash_empty_all_message),
+            confirm = stringResource(R.string.trash_empty_action),
+            onConfirm = { vm.emptyTrash() },
+            onDismiss = { emptying = false },
+        )
+    }
+}
+
+/** The filters set, as iOS sums them up above the list. */
+@Composable
+private fun filterSummary(query: link.reminis.core.LibraryQuery): String = listOfNotNull(
+    query.systemLabel,
+    if (query.hasSave) stringResource(R.string.library_has_save) else null,
+    if (query.hasStates) stringResource(R.string.library_has_states) else null,
+    if (query.hasCheats) stringResource(R.string.library_has_cheats) else null,
+).joinToString(" · ")
+
+/** "<game> was moved to the trash of the console", with Empty Trash Now (iOS, after a deletion). */
+@Composable
+private fun DeletedGameCard(text: String, onEmpty: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("deletedGame")) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onEmpty, modifier = Modifier.testTag("emptyTrashNow")) { Text(stringResource(R.string.trash_empty_now)) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.sd_done)) }
+            }
+            Text(stringResource(R.string.trash_empty_now_help), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+/** Clears the notice of the last deletion. */
+private object LocalContextHolder {
+    fun dismissDeleted(app: Application, notice: link.reminis.app.GameNotice) {
+        app.container.lastDeletedGame.compareAndSet(notice, null)
+    }
+}
+
+/**
+ * The deletion of a game swiped in a list (iOS: swipe, Delete): the same
+ * confirmation as on its screen, with the exact list of what moves.
+ */
+@Composable
+fun DeleteGameFromList(deviceId: String, gameId: String, name: String, onDone: () -> Unit) {
+    val app = LocalContext.current.applicationContext as Application
+    val vm: GameViewModel = viewModel(key = "game-$deviceId-$gameId") { GameViewModel(app, deviceId, gameId) }
+    androidx.compose.runtime.LaunchedEffect(gameId) { if (vm.deletion.value == null) vm.previewDeletion(keepSave = false) }
+    DeleteGameDialog(vm, name, onDeleted = {}, onDismiss = { vm.closeDeletion(); onDone() })
 }
 
 // MARK: game

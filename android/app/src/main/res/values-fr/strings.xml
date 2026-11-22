@@ -739,4 +739,38 @@
         <item quantity="many">Envoi de %d fichiers. Suis-les dans Transferts, dans l’onglet Console.</item>
         <item quantity="other">Envoi de %d fichiers. Suis-les dans Transferts, dans l’onglet Console.</item>
     </plurals>
+    <!-- Sixth increment, second part: library filters, browse by console, empty trash now, App (pak), console names, QR picture -->
+    <string name="library_filter">Filtrer et trier</string>
+    <string name="library_filter_console">Filtrer par console</string>
+    <string name="library_all_consoles">Toutes les consoles</string>
+    <string name="library_has_save">Avec une sauvegarde</string>
+    <string name="library_has_states">Avec des états</string>
+    <string name="library_has_cheats">Avec des codes de triche</string>
+    <string name="library_sort_by">Trier par</string>
+    <string name="library_sort_name">Nom</string>
+    <string name="library_sort_date">Date</string>
+    <string name="library_sort_size">Taille</string>
+    <string name="library_clear_filters">Effacer les filtres</string>
+    <string name="library_by_console">Parcourir par console</string>
+    <string name="library_no_match_filters">Aucun jeu ne correspond aux filtres</string>
+    <string name="library_truncated_browse">La console a trop de jeux pour les lister d’un coup : parcours-les par console.</string>
+    <string name="library_folders">Dossiers</string>
+    <string name="library_folder_empty">Aucun jeu dans ce dossier</string>
+    <string name="library_emulator_missing">Émulateur non installé sur la console</string>
+    <string name="library_search_folder">Rechercher</string>
+    <string name="game_deleted_notice">%1$s a été mis dans la corbeille de la console.</string>
+    <string name="trash_empty_now">Vider la corbeille maintenant</string>
+    <string name="trash_empty_now_help">Libère l’espace tout de suite. Tout le contenu de la corbeille de la console est supprimé définitivement.</string>
+    <string name="trash_empty_all_message">Tout le contenu de la corbeille de la console sera supprimé définitivement. C’est irréversible.</string>
+    <string name="add_kind_pak">App (pak)</string>
+    <string name="console_name_label">Nom de la console</string>
+    <string name="console_name_header">Nom sur cet appareil</string>
+    <string name="console_rename">Renommer…</string>
+    <string name="scan_import_image">Importer une image</string>
+    <string name="scan_no_qr">Aucun QR code ReminisLink n’a été trouvé dans cette image. Utilise une image nette où l’on voit tout le QR code affiché par la console.</string>
+    <plurals name="library_game_count">
+        <item quantity="one">%d jeu</item>
+        <item quantity="many">%d jeux</item>
+        <item quantity="other">%d jeux</item>
+    </plurals>
 </resources>

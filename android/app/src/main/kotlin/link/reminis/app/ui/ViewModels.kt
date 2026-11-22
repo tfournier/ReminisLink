@@ -243,14 +243,18 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
                             if (!attempts.commit(id)) throw PairingCancelledException()
                         }
                         withContext(Dispatchers.IO) {
+                            // A name chosen in the app stays, unless the console was renamed since (06 §4.1).
+                            val kept = container.consoles.get(response.deviceId)
+                                ?.takeIf { it.consoleName == response.deviceName }?.deviceName
                             container.replacePairing(
                                 PairedConsole(
                                     deviceId = response.deviceId,
-                                    deviceName = response.deviceName,
+                                    deviceName = kept ?: response.deviceName,
                                     model = hello.model,
                                     pin = link.pin,
                                     lastEndpoint = endpoint,
                                     pairedAt = System.currentTimeMillis(),
+                                    consoleName = response.deviceName,
                                 ),
                             )
                         }
@@ -467,14 +471,43 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
 
 // MARK: library
 
-data class LibraryContent(val games: List<LibraryGame>, val systems: Map<String, String>, val truncated: Boolean)
+data class LibraryContent(
+    val games: List<LibraryGame>,
+    val systems: Map<String, String>,
+    val truncated: Boolean,
+    val systemList: List<link.reminis.core.GameSystem> = emptyList(),
+    /** Browsed per system: more than 20 000 games (`truncated`), or a pak older than M11 (no `GET /games`). */
+    val bySystem: Boolean = false,
+)
 
-class LibraryViewModel(app: Application, private val deviceId: String) : AndroidViewModel(app) {
-    private val container = app.container
+class LibraryViewModel(app: Application, deviceId: String) : ActionViewModel(app, deviceId) {
     private val _content = MutableStateFlow<Load<LibraryContent>>(Load.Loading)
     val content: StateFlow<Load<LibraryContent>> = _content.asStateFlow()
-    private val _query = MutableStateFlow("")
-    val query: StateFlow<String> = _query.asStateFlow()
+    private val _query = MutableStateFlow(link.reminis.core.LibraryQuery())
+
+    /** The search text, the filters and the order of the flat list (iOS `LibraryQuery`). */
+    val libraryQuery: StateFlow<link.reminis.core.LibraryQuery> = _query.asStateFlow()
+
+    fun setLibraryQuery(query: link.reminis.core.LibraryQuery) {
+        _query.value = query
+    }
+
+    /** What the list shows for [query]: the consoles of the filter, the labels and the games in order. */
+    fun present(content: LibraryContent, query: link.reminis.core.LibraryQuery): LibraryPresentation {
+        val groups = link.reminis.core.LibraryFiltering.groups(content.systemList, content.games)
+        return LibraryPresentation(
+            groups,
+            link.reminis.core.LibraryFiltering.rowLabels(content.systemList, content.games),
+            link.reminis.core.LibraryFiltering.apply(query, content.games, groups),
+        )
+    }
+
+    /** "Empty Trash Now" after a deletion: everything in the trash of the console is deleted. */
+    fun emptyTrash() = perform(Notice(R.string.trash_emptied)) {
+        container.client(deviceId).emptyTrash()
+        container.lastDeletedGame.value = null
+        container.trashChanged.tryEmit(deviceId)
+    }
 
     /**
      * The position of the list, kept while the list leaves the composition
@@ -507,10 +540,8 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
     }
 
     fun setQuery(text: String) {
-        _query.value = text
+        _query.update { it.copy(text = text) }
     }
-
-    fun filtered(content: LibraryContent, query: String): List<LibraryGame> = LibrarySearch.filter(content.games, query)
 
     /** Only the last read publishes. */
     private var generation = 0
@@ -522,9 +553,23 @@ class LibraryViewModel(app: Application, private val deviceId: String) : Android
         viewModelScope.launch {
             val result = try {
                 val client = container.client(deviceId)
-                val systems = client.systems().associate { it.id to it.label }
-                val all = client.allGames()
-                Load.Loaded(LibraryContent(all.games, systems, all.truncated))
+                val systemList = client.systems()
+                val systems = systemList.associate { it.id to it.label }
+                val all = try {
+                    client.allGames()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A pak older than M11 has no `GET /games`: browsed per system.
+                    if (!link.reminis.core.LibraryMode.meansUnsupported(e)) throw e
+                    null
+                }
+                Load.Loaded(
+                    LibraryContent(
+                        all?.games.orEmpty(), systems, all?.truncated == true, systemList,
+                        bySystem = all == null || all.truncated,
+                    ),
+                )
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -719,11 +764,26 @@ class GameViewModel(app: Application, deviceId: String, private val gameId: Stri
 
     private fun delete(keepSave: Boolean, onDeleted: () -> Unit) = perform(null) {
         closeDeletion()
+        val name = (_game.value as? Load.Loaded)?.value?.name
         container.client(deviceId).deleteGame(gameId, keepSave)
+        // The Library offers Empty Trash Now (iOS, after a deletion).
+        name?.let {
+            container.lastDeletedGame.value = link.reminis.app.GameNotice(
+                deviceId, gameId, getApplication<Application>().getString(R.string.game_deleted_notice, it),
+            )
+        }
         container.libraryChanged.tryEmit(deviceId)
+        container.trashChanged.tryEmit(deviceId)
         onDeleted()
     }
 }
+
+/** The flat library as shown: the consoles of the filter, the console under each game, the games in order. */
+data class LibraryPresentation(
+    val groups: List<link.reminis.core.SystemGroup>,
+    val rowLabels: Map<String, String>,
+    val games: List<LibraryGame>,
+)
 
 /** A deletion being confirmed: the option shown and its preview. */
 data class DeletionState(val keepSave: Boolean, val preview: Load<link.reminis.core.DeletionPreview>)
