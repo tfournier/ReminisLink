@@ -195,6 +195,24 @@ set in Xcode):
   `CHANGELOG.md` has no `## X.Y.Z` section for a release. A tag
   `ios-beta-v…` starts the Beta workflow only (the prefix `ios-v` of Release
   cannot match it); these checks are a second guard.
+- **Release gate** (`ci_post_clone.sh`, Release and Beta workflows): the
+  build stops before the archive unless the GitHub CI (`ci.yml`, a push run)
+  passed the jobs `ios` and `contract` on the commit built (`CI_COMMIT`). It
+  reads the public GitHub API without a token
+  (`api.github.com/repos/tfournier/ReminisLink/actions/runs?head_sha=…`, then
+  the jobs of each run: `rl_require_ci` in `common.sh`, `curl` and `jq`, both
+  part of macOS 15 and later, hence of the Xcode Cloud image; without `jq`
+  the build fails). CI still running, failed or absent, GitHub
+  unreachable, or its rate limit reached (60 requests an hour per address):
+  the build fails with the reason, never passes silently; start it again
+  once the CI is green. The commit `Release app X.Y.Z` of `make ios-vX.Y.Z`
+  only changes the release notes and is pushed with its tag, so its own CI
+  starts with the build: when such a commit (one parent, only
+  `CHANGELOG.md` and `AppStore/*/release_notes.txt`) has no finished CI
+  run, the result of its parent counts, the commit `make` checked. To build
+  once without the check (exceptional), add the environment variable
+  `RL_SKIP_CI_CHECK` = `1` to the workflow, then remove it. `make ios-v…`
+  already refuses to tag a `HEAD` whose CI did not pass (`scripts/require-ci.sh`).
 - `ci_post_xcodebuild.sh` (Release workflow, after the archive): creates the
   App Store version `X.Y.Z` if needed, sets its "What's New" (English and
   French, from `CHANGELOG.md`) and "Automatically release this version",

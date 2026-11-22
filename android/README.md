@@ -52,10 +52,14 @@ from that file.
    `app/fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` and
    `fr-FR/changelogs/<versionCode>.txt` (500 characters at most), and commit them.
 3. On `main`, clean tree: `make android-vX.Y.Z` (or `make android-vX.Y.Z-beta.N`).
-   It writes `version.properties`, commits, tags and pushes.
+   It refuses to go on unless the `android` job of the GitHub CI passed on
+   `HEAD` (`scripts/require-ci.sh`, through `gh`; `RL_SKIP_CI_CHECK=1` skips
+   that check, for an exceptional release only), then writes
+   `version.properties`, commits, tags and pushes.
 4. The workflow `.github/workflows/android-release.yml` checks the tag
-   against `version.properties` and the changelogs, runs the unit tests,
-   builds the release APK and attaches it to a GitHub release that is never
+   against `version.properties` and the changelogs, runs the unit tests
+   (`make android-test`) and lint (`make android-lint`), and only then
+   builds and signs the release APK and attaches it to a GitHub release that is never
    marked "Latest" (the NextUI Pak Store reads the latest release, which
    stays the pak's); a `-beta.N` / `-rc.N` tag makes a pre-release. Android
    tags never start the pak's workflow (`ci.yml`, tags `v*`) and pak tags
