@@ -30,8 +30,7 @@ final class ErgonomicsUITests: XCTestCase {
             XCTAssertTrue(tabs[name].exists, "no \(name) tab")
         }
         // The Console tab: the dashboard, without adding (M11).
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
-            .waitForExistence(timeout: 10))
+        XCTAssertTrue(app.waitForDemoAddress(timeout: 10))
         XCTAssertFalse(app.buttons["console.add"].exists, "adding from the Console tab")
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS 'Add Files'")).firstMatch.isHittable)
         attachScreenshot(of: app, named: "tab-console")
@@ -122,8 +121,7 @@ final class ErgonomicsUITests: XCTestCase {
         let app = launchPaired(["RL_UITEST_PAK_CLOSES_ON": "GET /games"])
         XCTAssertTrue(app.consoleTabs.waitForExistence(timeout: 15))
         // The tabs have slid in (a tap during the transition is lost).
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
-            .waitForExistence(timeout: 15), "the console is not shown")
+        XCTAssertTrue(app.waitForDemoAddress(timeout: 15), "the console is not shown")
         app.consoleTabs["Library"].tap()
         let notice = app.descendants(matching: .any)["consoles.closedNotice"].firstMatch
         XCTAssertTrue(notice.waitForExistence(timeout: 15), "not back to the list")
@@ -135,8 +133,7 @@ final class ErgonomicsUITests: XCTestCase {
         // ReminisLink is open again on the console: the user opens it here.
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "pak reopens")], timeout: 6)
         app.buttons["console.\(PairingUITests.demoDeviceId)"].tapAfterWaiting()
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
-            .waitForExistence(timeout: 15), "not connected again")
+        XCTAssertTrue(app.waitForDemoAddress(timeout: 15), "not connected again")
         XCTAssertFalse(notice.exists)
         app.consoleTabs["Library"].tap()
         XCTAssertTrue(app.buttons["game.Thistledown Isles"].waitForExistence(timeout: 10))
