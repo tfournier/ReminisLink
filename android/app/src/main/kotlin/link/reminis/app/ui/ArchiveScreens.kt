@@ -137,9 +137,10 @@ class ArchiveImportViewModel(
             onLocalCopyDone = { file -> container.backgroundScope.launch(Dispatchers.IO) { file.parentFile?.deleteRecursively() } },
             // The answer of POST /import, its job and the cleanups outlive this screen.
             durableScope = container.scope,
-            // A real console is never contacted while the demo runs (Codex review round 2): an upload
-            // left in the application's scope stops at its next request.
-            pairing = { if (container.demo.value != null && !container.isDemo(id)) null else container.pairingIdentity(id) },
+            pairing = { container.pairingIdentity(id) },
+            // A real console is never contacted while the demo runs (Codex reviews rounds 2 and 3): every
+            // request of the run is guarded, and a watch waits for the end of the demo.
+            suspended = { container.demo.value != null && !container.isDemo(id) },
             ifPairing = { identity, block -> container.ifPairing(id, identity, block) },
         )
     }

@@ -55,8 +55,14 @@ class ArchiveScreenshotTest {
     private fun copy(bytes: ByteArray, name: String = "archive"): File =
         File(temp, "$name-${System.nanoTime()}").apply { writeBytes(bytes) }
 
+    /** As if the demo mode ran (the console may not be contacted). */
+    private val demoRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+
     private fun run(target: ArchiveTarget?, deleted: MutableList<File> = mutableListOf()) =
-        ArchiveImportRun(demo.deviceId, scope, jobs, { client }, target, onLocalCopyDone = { deleted += it; it.delete() })
+        ArchiveImportRun(
+            demo.deviceId, scope, jobs, { client }, target, onLocalCopyDone = { deleted += it; it.delete() },
+            suspended = { demoRunning.get() },
+        )
 
     private suspend fun ArchiveImportRun.awaitStep(predicate: (ArchiveStep) -> Boolean): ArchiveStep =
         withTimeout(10_000) { step.first(predicate) }
@@ -247,6 +253,9 @@ class ArchiveScreenshotTest {
         demo.pak.failNextArchiveImport = "internal" to null
         run.confirm("Import")
         run.awaitStep { it == ArchiveStep.Importing }
+        // The demo starts, then the screen closes: the watch waits, polls nothing, reads nothing
+        // (Codex review round 3), which is also the barrier of this test.
+        demoRunning.set(true)
         run.abandon()
         // "Clear finished" in Transfers as soon as the failure shows: the watcher still owns the job
         // and reads its outcome (Codex review round 2).
@@ -254,8 +263,37 @@ class ArchiveScreenshotTest {
         waitUntil("the failure known") { kotlinx.coroutines.runBlocking { jobs.refresh(demo.deviceId) }; jobs.get(demo.deviceId, id)?.isFinished == true }
         jobs.clearFinished(demo.deviceId)
         assertNotNull("kept for its owner", jobs.get(demo.deviceId, id))
+        val requests = demo.pak.requestsReceived.get()
+        delay(3_000)
+        assertEquals("nothing sent during the demo", requests, demo.pak.requestsReceived.get())
+        assertEquals("not deleted during the demo", 1, demo.pak.stagedCount)
+        assertNotNull("still owned", jobs.get(demo.deviceId, id))
+        // The demo ends: the watch (within its 10 minutes) reads the failure and cleans up.
+        demoRunning.set(false)
         waitUntil("deleted once the job failed") { demo.pak.stagedCount == 0 }
         waitUntil("the row goes once read") { jobs.get(demo.deviceId, id) == null }
+    }
+
+    @Test
+    fun demoStartedDuringAHeldClockSkewSendsNothingMore() = runBlocking {
+        val hold = java.util.concurrent.CountDownLatch(1)
+        demo.pak.clockSkewNextComplete = true
+        demo.pak.holdCompleteAnswer = hold
+        val run = run(null)
+        run.start(copy(export(game("Thistledown Isles").id, false)), "a.reminislink.zip")
+        // `complete` answered `401 clock_skew`, the answer held; the screen closes, the demo starts.
+        waitUntil("complete refused, answer held") { demo.pak.completesAnswered.get() == 1 }
+        run.abandon()
+        demoRunning.set(true)
+        demo.pak.holdCompleteAnswer = null
+        val requests = demo.pak.requestsReceived.get()
+        hold.countDown()
+        // Neither the client's `/hello` nor its retry of `complete` (nor any cleanup) goes out.
+        val failed = run.awaitStep { it is ArchiveStep.Failed } as ArchiveStep.Failed
+        assertTrue("${failed.error}", (failed.error as? UploadFailure)?.reason == UploadFailure.Reason.PAUSED)
+        delay(2_000)
+        assertEquals("a request reached the console during the demo", requests, demo.pak.requestsReceived.get())
+        assertEquals(0, demo.pak.stagedCount)
     }
 
     @Test

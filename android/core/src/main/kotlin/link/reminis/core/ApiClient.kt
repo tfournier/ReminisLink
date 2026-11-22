@@ -45,8 +45,15 @@ class ApiClient(
     pin: String? = credentials?.pin,
     /** Compared with `minClientVersion` of `/hello` (M17: a client protocol version, not the app version). */
     private val clientProtocolVersion: String = CLIENT_PROTOCOL_VERSION,
-    baseClient: OkHttpClient = defaultBaseClient,
+    private val baseClient: OkHttpClient = defaultBaseClient,
     private val nowMillis: () -> Long = System::currentTimeMillis,
+    /**
+     * Checked before every HTTP request this client sends, its own retries
+     * and the `/hello` of the clock-skew correction included: false stops
+     * the request before it is written ([RequestGuardException], surfaced
+     * as a paused upload). Null: no guard. See [guarded].
+     */
+    private val requestGuard: (() -> Boolean)? = null,
 ) {
     /** Console time minus local time, in seconds, measured on the last `/hello`. */
     @Volatile
@@ -54,6 +61,7 @@ class ApiClient(
         private set
 
     private val signer = credentials?.let { Signer(it.clientId, it.key) }
+    private val pinValue = pin
     private val trust = PinnedTrustManager(pin)
 
     internal val http: OkHttpClient = baseClient.newBuilder()
@@ -63,12 +71,30 @@ class ApiClient(
         // HTTP with the X-RL-* headers, or reuse a signature for another path.
         .followRedirects(false)
         .followSslRedirects(false)
+        // The guard comes first, before any interceptor of the base client.
+        .apply {
+            interceptors().add(0, Interceptor { chain ->
+                if (requestGuard?.invoke() == false) throw IOException(RequestGuardException())
+                chain.proceed(chain.request())
+            })
+        }
         .addInterceptor(SigningInterceptor({ signer }, { nowMillis() / 1000 + clockOffsetSeconds }))
         .addNetworkInterceptor { chain ->
             chain.request().tag(BeforeSend::class.java)?.action?.invoke()
             chain.proceed(chain.request())
         }
         .build()
+
+    /**
+     * The same console, identity and pin, with [guard] checked before every
+     * HTTP request (Codex review round 3 of the Android increment 5: a long
+     * operation such as an archive upload never sends anything, not even a
+     * retry or a `/hello`, once its pairing changed or the demo started).
+     * Shares the connection pool; the clock offset is carried over.
+     */
+    fun guarded(guard: () -> Boolean): ApiClient = ApiClient(
+        endpoint, expectedDeviceId, credentials, pinValue, clientProtocolVersion, baseClient, nowMillis, guard,
+    ).also { it.clockOffsetSeconds = clockOffsetSeconds }
 
     // MARK: unsigned routes
 
@@ -587,6 +613,8 @@ class ApiClient(
     private suspend fun execute(request: Request, onCall: ((Call) -> Unit)? = null, client: OkHttpClient = http): Response = try {
         client.newCall(request).also { onCall?.invoke(it) }.await()
     } catch (e: IOException) {
+        // A request stopped by the guard was never written: the operation pauses (never a retry).
+        if (e.causeChain().any { it is RequestGuardException }) throw UploadFailure(UploadFailure.Reason.PAUSED)
         throw if (e.causeChain().any { it is PinMismatchException }) ApiException.IdentityChanged() else ApiException.Network(e)
     }
 
@@ -708,6 +736,9 @@ class ApiClient(
         }
     }
 }
+
+/** The guard of a [ApiClient.guarded] client refused a request: it was not sent. */
+class RequestGuardException : Exception("request stopped by its guard")
 
 /** The bytes of an open event stream, pulled by the reader (nothing is read ahead of the parser). */
 interface EventByteSource {

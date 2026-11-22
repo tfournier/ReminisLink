@@ -81,6 +81,12 @@ class ArchiveImportRun(
     private val durableScope: CoroutineScope = scope,
     /** The identity of the console's current pairing (null when forgotten). */
     private val pairing: () -> Any? = { Unit },
+    /**
+     * The console may not be contacted for now (the demo mode runs): nothing
+     * is sent meanwhile, and it is not taken as a change of pairing (Codex
+     * review round 3); a watch waits for its end.
+     */
+    private val suspended: () -> Boolean = { false },
     /** Runs [block] only if [identity] is still the console's pairing (atomically with forgetting it). */
     private val ifPairing: (identity: Any?, block: () -> Unit) -> Boolean = { identity, block ->
         if (identity != null && pairing() == identity) {
@@ -169,10 +175,12 @@ class ArchiveImportRun(
                 checkPairing()
                 val result = try {
                     current.run(
-                        client(),
+                        // Guarded before every HTTP request, the client's own clock-skew `/hello` and
+                        // retry included (Codex review round 3): same pairing, and no demo running.
+                        client().guarded { allowed(started) },
                         // Checked before every request (creation, status, each chunk, complete): a
                         // pairing replaced meanwhile never gets one of them (Codex review round 1).
-                        shouldPause = { pairing() != started },
+                        shouldPause = { !allowed(started) },
                         progress = { offset ->
                             if (_step.value is ArchiveStep.Sending) {
                                 _step.value = ArchiveStep.Sending(if (size > 0) (offset.toFloat() / size).coerceIn(0f, 1f) else 1f)
@@ -268,11 +276,18 @@ class ArchiveImportRun(
         durableScope.launch {
             // Bounded as a whole (Codex review round 2): polls that time out cannot stretch it.
             withTimeoutOrNull(WATCH_MILLIS) {
-                while (jobs.get(deviceId, id)?.isFinished != true && pairing() == started) {
+                while (true) {
+                    // The demo runs: no poll, no reading of the outcome, until it ends (Codex review round 3).
+                    if (suspended()) {
+                        delay(WATCH_INTERVAL_MILLIS)
+                        continue
+                    }
+                    if (pairing() != started || jobs.get(deviceId, id)?.isFinished == true) break
                     delay(WATCH_INTERVAL_MILLIS)
-                    runCatching { jobs.refresh(deviceId) }
+                    if (!suspended()) runCatching { jobs.refresh(deviceId) }
                 }
             }
+            if (suspended()) return@launch jobs.disown(deviceId, id)
             val tracked = jobs.get(deviceId, id)
             if (tracked != null && tracked.isFinished && tracked.job?.state != JobStates.SUCCEEDED) dropStaging()
             // The watcher was the job's owner until now: the Transfers row may go once cleared.
@@ -328,6 +343,16 @@ class ArchiveImportRun(
 
     private fun checkPairing() {
         if (identity == null || pairing() != identity) throw ConsoleForgottenException()
+        if (suspended()) throw UploadFailure(UploadFailure.Reason.PAUSED)
+    }
+
+    /** A request for the run that started with [started] may go now. */
+    private fun allowed(started: Any?): Boolean = started != null && pairing() == started && !suspended()
+
+    /** Waits for the end of a suspension (10 minutes at most); true when the pairing is still [started]. */
+    private suspend fun awaitAllowed(started: Any?): Boolean {
+        withTimeoutOrNull(WATCH_MILLIS) { while (suspended()) delay(WATCH_INTERVAL_MILLIS) }
+        return allowed(started)
     }
 
     private fun releaseLocalCopy() {
@@ -342,8 +367,8 @@ class ArchiveImportRun(
         upload = null
         val started = identity
         durableScope.launch {
-            if (started == null || pairing() != started) return@launch
-            runCatching { current.cancel(client()) }
+            if (!awaitAllowed(started)) return@launch
+            runCatching { current.cancel(client().guarded { allowed(started) }) }
         }
     }
 
@@ -353,8 +378,8 @@ class ArchiveImportRun(
         stagingId = null
         val started = identity
         durableScope.launch {
-            if (started == null || pairing() != started) return@launch
-            runCatching { client().deleteStagedArchive(id) }
+            if (!awaitAllowed(started)) return@launch
+            runCatching { client().guarded { allowed(started) }.deleteStagedArchive(id) }
         }
     }
 

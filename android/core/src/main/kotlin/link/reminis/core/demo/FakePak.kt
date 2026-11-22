@@ -260,6 +260,7 @@ class FakePak(
     // MARK: routing
 
     fun handle(request: Request): Response {
+        requestsReceived.incrementAndGet()
         if (closed) return error(request, 503, "shutting_down", "Shutting down")
         val segments = request.url.pathSegments
         if (segments.size < 2 || segments[0] != "api" || segments[1] != "v1") return error(request, 404, "not_found", "No route")
@@ -926,6 +927,10 @@ class FakePak(
     }
 
     private fun complete(r: Request, upload: Upload): Response {
+        if (clockSkewNextComplete) {
+            clockSkewNextComplete = false
+            return error(r, 401, "clock_skew", "Clock skew")
+        }
         if (upload.offset != upload.sizeBytes) return error(r, 409, "conflict", "Upload incomplete", buildJsonObject { put("offset", upload.offset) })
         val blob = upload.data?.toByteArray()?.let { Blob.of(it) } ?: Blob(upload.sizeBytes, null, upload.id.hashCode())
         val t = upload.target
@@ -1217,6 +1222,13 @@ class FakePak(
 
     /** Tests: `POST /archives/{id}/import` requests handled (their answer may be held). */
     val importsAnswered = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Tests: every request received. */
+    val requestsReceived = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Tests: the next `POST /uploads/{id}/complete` answers `401 clock_skew` (nothing done). */
+    @Volatile
+    var clockSkewNextComplete = false
 
     /** Tests: `complete` requests whose work is done (their answer may be held). */
     val completesAnswered = java.util.concurrent.atomic.AtomicInteger()

@@ -182,7 +182,9 @@ class ScreenshotManager(
         // One folder per export, kept for an hour: an app that reads a share later still finds it
         // (Codex review round 1); older ones go.
         purgeShared(context)
-        val directory = File(root, UUID.randomUUID().toString()).apply { mkdirs() }
+        val name = UUID.randomUUID().toString()
+        activeShares += name
+        val directory = File(root, name).apply { mkdirs() }
         val taken = mutableSetOf<String>()
         try {
             shots.map { shot ->
@@ -199,6 +201,8 @@ class ScreenshotManager(
         } catch (e: Throwable) {
             directory.deleteRecursively()
             throw e
+        } finally {
+            activeShares -= name
         }
     }
 
@@ -341,8 +345,14 @@ class ScreenshotManager(
                 if (ready.exists()) now - ready.lastModified() > SHARE_KEPT_MILLIS else now - dir.lastModified() > UNFINISHED_KEPT_MILLIS
             }
 
-        /** Deletes the stale share folders (at each share). */
-        fun purgeShared(context: Context) = staleShares(context).forEach { it.deleteRecursively() }
+        /** The share folders whose export is still being written in this process (never purged by a share). */
+        private val activeShares: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+        /**
+         * Deletes the stale share folders (at each share), never one still
+         * being written, whatever its date (Codex review round 3).
+         */
+        fun purgeShared(context: Context) = staleShares(context).filter { it.name !in activeShares }.forEach { it.deleteRecursively() }
 
         /** The temporary files of a screenshot being shown, left by a process that died (listed at start). */
         fun leftoverPreviews(context: Context): List<File> =
