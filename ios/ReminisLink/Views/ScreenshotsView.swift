@@ -165,22 +165,28 @@ struct ScreenshotsView: View {
             .accessibilityIdentifier("screenshots.select")
         }
         if isSelecting {
-            ToolbarItem(placement: .topBarLeading) {
-                Button(selection.count == shots.count && !shots.isEmpty ? "Deselect All" : "Select All") {
-                    selection.toggleAll(shots)
-                }
-                .accessibilityIdentifier("screenshots.selectAll")
-            }
             ToolbarItemGroup(placement: .bottomBar) {
                 Button { share(picked) } label: { Label("Share", systemImage: "square.and.arrow.up") }
                     .disabled(picked.isEmpty || isWorking)
                     .accessibilityIdentifier("screenshots.share")
+                // In the bottom bar, as an icon: on iPad (iOS 26) the top
+                // row holds the tab bar, and a text item there went to the
+                // overflow menu with Done (Codex review of M22).
+                let allSelected = selection.count == shots.count && !shots.isEmpty
+                Button { selection.toggleAll(shots) } label: {
+                    Label(allSelected ? "Deselect All" : "Select All", systemImage: allSelected ? "checkmark.circle.fill" : "checkmark.circle")
+                }
+                .accessibilityIdentifier("screenshots.selectAll")
                 Spacer()
                 if isWorking {
                     ProgressView()
                 } else {
                     (picked.isEmpty ? Text("Select Screenshots") : Text("\(picked.count) Selected"))
                         .font(.footnote)
+                        // Never cut (iPad, iOS 26: the bar sizes its items
+                        // tightly; "2 séle…" in French, Codex review).
+                        .lineLimit(1)
+                        .fixedSize()
                         .accessibilityIdentifier("screenshots.count")
                 }
                 Spacer()

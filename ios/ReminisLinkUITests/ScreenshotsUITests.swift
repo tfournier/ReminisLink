@@ -123,9 +123,20 @@ final class ScreenshotsUITests: XCTestCase {
         tapCell(cells.element(boundBy: 0))
         tapCell(cells.element(boundBy: 1))
         XCTAssertTrue(app.staticTexts["2 sélectionnée(s)"].waitForExistence(timeout: 5), "no French count")
-        for id in ["screenshots.share", "screenshots.photos", "screenshots.trash", "screenshots.selectAll"] {
+        attachScreenshot(of: app, named: "screenshots-selection-fr")
+        for id in ["screenshots.share", "screenshots.photos", "screenshots.trash"] {
             XCTAssertTrue(app.buttons[id].isHittable, "\(id) not reachable")
         }
-        attachScreenshot(of: app, named: "screenshots-selection-fr")
+        // The count is never cut ("2 séle…").
+        let count = app.staticTexts["screenshots.count"]
+        XCTAssertEqual(count.label, "2 sélectionnée(s)")
+        // Select All (bottom bar) and Done (top) stay visible, iPad too.
+        XCTAssertTrue(app.buttons["screenshots.select"].isHittable, "Done not reachable")
+        let selectAll = app.buttons["screenshots.selectAll"].firstMatch
+        XCTAssertTrue(selectAll.isHittable, "Select All not reachable")
+        selectAll.tap()
+        let all = NSPredicate(format: "label == %@", "\(cells.count) sélectionnée(s)")
+        XCTAssertTrue(app.staticTexts.matching(all).firstMatch.waitForExistence(timeout: 5), "Select All did not select all")
+        attachScreenshot(of: app, named: "screenshots-all-selected-fr")
     }
 }
