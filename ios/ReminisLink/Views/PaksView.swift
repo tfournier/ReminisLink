@@ -46,9 +46,27 @@ struct PaksView: View {
                 Section {
                     ForEach(manager.installs) { install in
                         PakInstallRow(install: install, manager: manager)
+                            .swipeActions {
+                                // A finished installation (installed, failed,
+                                // cancelled) leaves the list; one in progress
+                                // stays until it ends.
+                                if install.isFinished {
+                                    Button("Clear") { manager.remove(install) }
+                                        .accessibilityIdentifier("pakInstall.clear")
+                                }
+                            }
                     }
                 } header: {
-                    Text("Installations")
+                    HStack {
+                        Text("Installations")
+                        Spacer()
+                        if manager.installs.contains(where: \.isFinished) {
+                            Button("Clear Finished Installations") { manager.clearFinished() }
+                                .font(.footnote)
+                                .textCase(nil)
+                                .accessibilityIdentifier("pakInstalls.clearFinished")
+                        }
+                    }
                 }
             }
             if let error = manager.loadError {

@@ -1469,6 +1469,16 @@
         }
       }
     },
+    "Clear Finished Installations" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effacer les terminées"
+          }
+        }
+      }
+    },
     "Clock of the save" : {
       "localizations" : {
         "fr" : {
