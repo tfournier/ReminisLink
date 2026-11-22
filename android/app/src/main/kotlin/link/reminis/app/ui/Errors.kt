@@ -205,6 +205,8 @@ private fun pakRefusalMessage(context: Context, refusal: PakRefusal): String = w
 /** A translated message for any failure; the English server message only goes to the logs. */
 fun errorMessage(context: Context, error: Throwable): String = when (error) {
     is UserMessage -> context.getString(error.id, *error.args.toTypedArray())
+    is link.reminis.core.vault.SyncChecksumException, is link.reminis.core.vault.VaultUnavailableException,
+    is link.reminis.core.vault.SaveVaultException -> syncErrorMessage(context, error)!!
     is link.reminis.core.ScreenshotsPartlyMovedException ->
         context.resources.getQuantityString(R.plurals.screenshots_partly_moved, error.moved, error.moved)
     is ScreenshotTooLargeException -> context.getString(R.string.screenshot_too_large)

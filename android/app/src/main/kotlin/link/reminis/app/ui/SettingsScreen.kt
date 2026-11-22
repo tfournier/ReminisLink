@@ -15,16 +15,18 @@ import link.reminis.app.R
 
 /**
  * The settings of the app (docs/specs/06-app-ios.md §4.9), opened from the
- * list of consoles. For now the About section: the version of the app
+ * list of consoles. The Save Sync section (increment 7), then About: the version of the app
  * (`versionName`), so that a bug report can say it ("Settings > About" on
  * iOS and Android alike).
  */
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onSyncedSaves: () -> Unit = {}) {
     val context = LocalContext.current
     val version = remember { appVersion(context) }
     AppScaffold(title = stringResource(R.string.settings_title), onBack = onBack) { modifier ->
         LazyColumn(modifier.fillMaxSize().testTag("settings")) {
+            // Increment 7: the sync of saves and states (iOS §4.9).
+            item { SyncSettings(onSyncedSaves) }
             item { SectionTitle(stringResource(R.string.settings_about)) }
             item {
                 ListItem(

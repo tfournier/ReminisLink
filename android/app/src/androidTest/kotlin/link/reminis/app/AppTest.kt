@@ -231,6 +231,65 @@ class PakIntegrationTest {
         archiveAsANewGame(parsed.deviceId)
         screenshotsTrashedAndRestored(parsed.deviceId)
         filesAndRename(parsed.deviceId)
+        syncedVersionRestored(parsed.deviceId)
+    }
+
+    /**
+     * Increment 7 against the real pak: the saves synced to the app's
+     * internal storage (Sync Saves on the dashboard), a second version of
+     * the test game's save after it changed on the console, then the first
+     * version restored from the synced copies (checked by download).
+     */
+    private fun syncedVersionRestored(deviceId: String) {
+        val container = context.container
+        val vaultRoot = java.io.File(context.filesDir, "SyncedSaves")
+        vaultRoot.deleteRecursively()
+        container.sync.useInternalStorage()
+        container.sync.setSyncOnConnect(false)
+        val client = kotlinx.coroutines.runBlocking { container.client(deviceId) }
+        val name = container.consoles.get(deviceId)!!.deviceName
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                waitForText(name)
+                compose.onNodeWithText(name).performClick()
+                waitForTag("dashboard")
+                waitFor("no sync running") { !container.sync.state(deviceId).isRunning }
+                val before = container.sync.state(deviceId).lastReport
+                compose.onNodeWithTag("dashboard").performScrollToNode(androidx.compose.ui.test.hasTestTag("syncNow"))
+                compose.onNodeWithTag("syncNow").performClick()
+                waitFor("first sync") {
+                    container.sync.state(deviceId).let { it.phase is SyncPhase.Finished && it.lastReport !== before }
+                }
+                val game = kotlinx.coroutines.runBlocking { client.allGames() }.games.first { it.name == "Fern Courier Renamed" }
+                val first = kotlinx.coroutines.runBlocking { client.saves() }.saves.first { it.gameId == game.id }
+                assertEquals(1, container.sync.vault(deviceId).versions(deviceId, game.id).size)
+
+                send(deviceId, "Fern Courier Renamed.sav", "FERN-SAVE-THREE".toByteArray(), link.reminis.core.UploadTarget.Save(game.id))
+                compose.onNodeWithTag("dashboard").performScrollToNode(androidx.compose.ui.test.hasTestTag("syncNow"))
+                compose.onNodeWithTag("syncNow").performClick()
+                waitFor("second version") { container.sync.vault(deviceId).versions(deviceId, game.id).size == 2 }
+                waitFor("second sync") { !container.sync.state(deviceId).isRunning }
+
+                compose.onNodeWithTag("dashboard").performScrollToNode(androidx.compose.ui.test.hasTestTag("openSyncedSaves"))
+                compose.onNodeWithTag("openSyncedSaves").performClick()
+                waitForTag("syncedGames")
+                compose.onNodeWithTag("syncedGames").performScrollToNode(androidx.compose.ui.test.hasText("Fern Courier Renamed"))
+                compose.onNodeWithText("Fern Courier Renamed").performClick()
+                waitForTag("syncedVersion1")
+                compose.onNodeWithTag("syncedVersion1").performClick()
+                compose.onNodeWithTag("action0").performClick()
+                compose.onNodeWithTag("confirmOk").performClick()
+                waitForText(context.getString(R.string.synced_restored))
+                val restored = java.io.ByteArrayOutputStream()
+                kotlinx.coroutines.runBlocking { client.download(link.reminis.core.DownloadSource.Save(game.id), restored) }
+                val sha = java.security.MessageDigest.getInstance("SHA-256").digest(restored.toByteArray()).joinToString("") { "%02x".format(it) }
+                assertEquals("the first version was not restored", first.sha256.lowercase(), sha)
+                back(scenario)
+            }
+        } finally {
+            container.sync.setSyncOnConnect(true)
+            vaultRoot.deleteRecursively()
+        }
     }
 
     /**

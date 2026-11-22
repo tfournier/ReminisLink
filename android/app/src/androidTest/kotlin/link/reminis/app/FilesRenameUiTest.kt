@@ -598,9 +598,11 @@ class FilesRenameUiTest {
             waitFor("welcome") { hasTag("addConsole") && !hasTag("demoBanner") }
             assertNull(context.container.demo.value)
             tap("openSettings")
-            waitFor("settings") { hasTag("appVersion") }
+            waitFor("settings") { hasTag("settings") }
             val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName!!
             assertTrue(version.isNotEmpty())
+            // Below the Save Sync section (increment 7).
+            compose.onNodeWithTag("settings").performScrollToNode(androidx.compose.ui.test.hasText(version))
             compose.onNodeWithText(version).assertExists()
         }
     }

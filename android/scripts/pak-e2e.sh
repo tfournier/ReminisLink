@@ -6,7 +6,9 @@
 # emulator: mDNS does not cross the emulator's network), installs the debug
 # and test APKs on the running emulator or device, and runs the
 # instrumented tests (PakIntegrationTest pairs, opens the dashboard, the
-# library and a game). The pak is stopped by PID.
+# library and a game, then every scenario of PakIntegrationTest down to the
+# sync of saves: a save copied, a second version after a change, a version
+# restored). The pak is stopped by PID.
 #
 # The pairing link and the QR code hold the pairing secret:
 # - the pak's output goes to a private file (0600, in a 0700 temporary
