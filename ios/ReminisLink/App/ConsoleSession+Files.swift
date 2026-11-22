@@ -27,6 +27,8 @@ extension ConsoleSession {
         let request = SdTrashRequest(entries: entries)
         guard !request.items.isEmpty else { return 0 }
         guard request.items.count <= SdTrashRequest.maxIds else { throw AppError.sdTooManySelected }
+        // A listing without versions comes from a pak that cannot check them.
+        guard request.isComplete else { throw AppError.filesNeedNewerPak }
         defer { contentChanged() }
         do {
             return try await perform { try await $0.trashSdEntries(request) }.moved.count

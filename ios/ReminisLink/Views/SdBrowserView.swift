@@ -108,6 +108,9 @@ struct SdFolderView: View {
         .navigationTitle(route.folderId == nil ? String(localized: "SD Card") : route.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { if !isPicking { writeToolbar } }
+        // The selection bar replaces the tab bar while selecting (iOS 26:
+        // the floating tab bar of an iPhone covers the bottom bar).
+        .toolbar(isSelecting ? .hidden : .automatic, for: .tabBar)
         .onDisappear { cancelDownload() }
         .exportSheet($exported)
         .task { if folder == nil { await load() } }
@@ -173,7 +176,7 @@ struct SdFolderView: View {
                 }
             }
             if !deletableEntries.isEmpty {
-                ToolbarItem(placement: .secondaryAction) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Select", systemImage: "checkmark.circle") { isSelecting = true }
                         .accessibilityIdentifier("sd.select")
                 }

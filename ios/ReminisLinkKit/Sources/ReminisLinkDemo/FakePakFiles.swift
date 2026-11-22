@@ -62,9 +62,30 @@ extension FakePak {
         return nil
     }
 
+    /// The opaque version of an entry, as the pak gives one (its path,
+    /// size and date): it changes when the entry is replaced or modified.
+    func sdVersion(path: String, node: FakeSdNode) -> String {
+        // The revision of a folder stands for the nanoseconds of the card:
+        // two changes within a second give two versions.
+        let revision = lock.withLock { paksState.sdRevisions[path.lowercased()] ?? 0 }
+        let text = "\(path.lowercased())|\(node.size.map(String.init) ?? "-")|\(Int64(node.modifiedAt.timeIntervalSince1970))|\(revision)"
+        var hash: UInt64 = 1469598103934665603
+        for byte in text.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        return "v1-" + String(hash, radix: 16)
+    }
+
+    /// A folder changed (an entry added to or removed from it): its date
+    /// changes, as on the card.
+    func touchSdFolder(_ path: String) {
+        lock.withLock {
+            paksState.sdTouched[path.lowercased()] = Date()
+            paksState.sdRevisions[path.lowercased(), default: 0] += 1
+        }
+    }
+
     /// The extras and removals on top of the made-up card.
     func applySdChanges(to root: inout FakeSdNode) {
-        let (extras, removed) = lock.withLock { (paksState.sdExtras, paksState.sdRemoved) }
+        let (extras, removed, touched) = lock.withLock { (paksState.sdExtras, paksState.sdRemoved, paksState.sdTouched) }
         func remove(_ node: inout FakeSdNode, prefix: String) {
             node.children.removeAll { child in
                 let path = prefix.isEmpty ? child.name : prefix + "/" + child.name
@@ -79,6 +100,14 @@ extension FakePak {
         for (path, extra) in extras.sorted(by: { $0.key < $1.key }) {
             insert(&root, parts: path.split(separator: "/").map(String.init), extra: extra)
         }
+        func touch(_ node: inout FakeSdNode, prefix: String) {
+            if node.isFolder, let date = touched[prefix.lowercased()] { node.modifiedAt = date }
+            for i in node.children.indices where node.children[i].isFolder {
+                let name = node.children[i].name
+                touch(&node.children[i], prefix: prefix.isEmpty ? name : prefix + "/" + name)
+            }
+        }
+        touch(&root, prefix: "")
     }
 
     private func insert(_ node: inout FakeSdNode, parts: [String], extra: FakeSdExtra) {
@@ -161,6 +190,7 @@ extension FakePak {
             target = free
         }
         let path = Self.join(folder, target)
+        touchSdFolder(folder)
         if let (system, inside) = systemPlace(of: path) {
             // A game of the library once it lands in a system folder.
             let game = DemoLibrary.Game(path: inside, sizeBytes: sizeBytes, modifiedAt: Date())
@@ -196,13 +226,16 @@ extension FakePak {
         }
         let path = Self.join(folder, name)
         let now = Date()
+        touchSdFolder(folder)
         lock.withLock {
             paksState.sdRemoved.remove(path.lowercased())
             paksState.sdExtras[path] = FakeSdExtra(size: nil, modifiedAt: now)
         }
+        let made = node(at: path) ?? FakeSdNode(name: name, size: nil, modifiedAt: now)
         return .json(201, [
             "sdEntryId": Self.sdEntryId(path), "name": name, "kind": "folder", "sizeBytes": NSNull(),
-            "modifiedAt": ProtocolJSON.formatDate(now), "deletable": true, "protection": NSNull(),
+            "modifiedAt": ProtocolJSON.formatDate(made.modifiedAt), "deletable": true, "protection": NSNull(),
+            "version": sdVersion(path: path, node: made),
         ])
     }
 
@@ -232,8 +265,9 @@ extension FakePak {
         var reason: String?
         for item in items {
             guard let id = item["sdEntryId"] as? String, let stamp = item["modifiedAt"] as? String,
-                  let seenAt = ProtocolJSON.parseDate(stamp), item.keys.contains("sizeBytes")
-            else { return .error(400, code: "invalid_request", message: "Each item needs sdEntryId, sizeBytes and modifiedAt") }
+                  let seenAt = ProtocolJSON.parseDate(stamp), item.keys.contains("sizeBytes"),
+                  let version = item["version"] as? String, !version.isEmpty
+            else { return .error(400, code: "invalid_request", message: "Each item needs sdEntryId, sizeBytes, modifiedAt and version") }
             guard seen.insert(id).inserted else { continue }
             guard let path = Self.sdPath(of: id) else { return .error(400, code: "invalid_id", message: "Invalid identifier") }
             guard node(at: path) != nil else {
@@ -248,7 +282,8 @@ extension FakePak {
             // The version the app showed (Codex review of M23).
             if let node = node(at: path) {
                 let size = (item["sizeBytes"] as? NSNumber)?.int64Value
-                if Int64(node.modifiedAt.timeIntervalSince1970) != Int64(seenAt.timeIntervalSince1970) || size != node.size {
+                if Int64(node.modifiedAt.timeIntervalSince1970) != Int64(seenAt.timeIntervalSince1970) || size != node.size
+                    || version != sdVersion(path: path, node: node) {
                     changed.append(id)
                     continue
                 }
@@ -276,6 +311,7 @@ extension FakePak {
             }
         }
         var paksChanged = false
+        for path in paths { touchSdFolder(Self.parentOf(path)) }
         let response = lock.withLock { () -> FakeResponse in
             var trash = FakeSdTrash(paths: paths)
             for path in paths {
@@ -330,9 +366,18 @@ extension FakePak {
         }
     }
 
+    static func parentOf(_ path: String) -> String {
+        guard let slash = path.lastIndex(of: "/") else { return "" }
+        return String(path[..<slash])
+    }
+
     /// Puts a `delete-file` entry back (lock held); true when a pak came
     /// back.
     func restoreSdEntries(_ trash: FakeSdTrash) -> Bool {
+        for path in trash.paths {
+            paksState.sdTouched[Self.parentOf(path).lowercased()] = Date()
+            paksState.sdRevisions[Self.parentOf(path).lowercased(), default: 0] += 1
+        }
         for path in trash.removed { paksState.sdRemoved.remove(path) }
         for (path, extra) in trash.extras { paksState.sdExtras[path] = extra }
         for entry in trash.games {
@@ -367,6 +412,12 @@ extension FakePak {
         }
         let fileName = name + ext
         let path = game.parent.isEmpty ? fileName : game.parent + "/" + fileName
+        // Another game of the system with the same ROM file name shares the
+        // save, states and cheats (FakePak.dataKey): as the pak, 409 shared.
+        if path != game.path,
+           system.games.contains(where: { $0.path != game.path && $0.fileName.lowercased() == game.fileName.lowercased() }) {
+            return .error(409, code: "conflict", message: "Name already taken", details: ["conflicts": [String](), "shared": true])
+        }
         if path != game.path,
            system.games.contains(where: { $0.path != game.path && $0.fileName.lowercased() == fileName.lowercased() }) {
             return .error(409, code: "conflict", message: "Name already taken",

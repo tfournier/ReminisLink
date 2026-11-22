@@ -32,7 +32,8 @@ struct SdWriteTests {
         let items = try #require(json?["items"] as? [[String: Any]])
         #expect(items.count == 2)
         #expect(items[0]["sizeBytes"] as? Int == 5 && items[0]["version"] as? String == "v1-x" && items[0]["modifiedAt"] as? String == "2026-11-22T10:00:00Z")
-        #expect(items[1]["sizeBytes"] is NSNull && items[1]["version"] == nil)
+        #expect(items[1]["sizeBytes"] is NSNull && items[1]["version"] as? String == "")
+        #expect(!SdTrashRequest(entries: [folder]).isComplete && SdTrashRequest(entries: [file]).isComplete)
         let decoded = try ProtocolJSON.decoder().decode(SdEntry.self, from: Data(#"{"sdEntryId":"se_a","name":"a","kind":"file","sizeBytes":1,"modifiedAt":"2026-11-22T10:00:00Z","version":"v1-y"}"#.utf8))
         #expect(decoded.version == "v1-y")
     }
@@ -132,10 +133,15 @@ struct SdWriteTests {
         // To the trash, and back.
         let protectedTrash = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(entries: [roms])) }
         // A version the card no longer has: refused, nothing moves.
-        let stale = SdEntry(sdEntryId: folder.sdEntryId, name: folder.name, kind: .folder, sizeBytes: nil,
-                            modifiedAt: folder.modifiedAt.addingTimeInterval(-60))
-        let changed = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(entries: [stale])) }
+        // The folder changed when the files were added: its first listing is
+        // stale (as on the pak, Codex review of M23, round 2).
+        let changed = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(entries: [folder])) }
         #expect(changed?.sdChanged == [folder.sdEntryId])
+        // Without a version: 400.
+        let bare = SdEntry(sdEntryId: folder.sdEntryId, name: folder.name, kind: .folder, sizeBytes: nil, modifiedAt: folder.modifiedAt)
+        #expect(!SdTrashRequest(entries: [bare]).isComplete)
+        let refusedBare = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(entries: [bare])) }
+        #expect(refusedBare?.code == .invalidRequest)
         #expect(protectedTrash?.sdProtection == .root)
         let listed = try #require(try await client.browseSd(folderId: downloads.sdEntryId).entries.first { $0.name == "Notes" })
         let moved = try await client.trashSdEntries(SdTrashRequest(entries: [listed]))
@@ -178,6 +184,13 @@ struct SdWriteTests {
         #expect(invalid?.code == .invalidName)
         let gone = await serverError { _ = try await client.renameGame(id: id, name: "X") }
         #expect(gone?.code == .notFound)
+        // Two games of one ROM file name share their data: 409 shared, as
+        // on the pak (Codex review of M23, round 2).
+        pak.addGameFromAnotherClient(systemFolder: system.folder, path: "Copies/Brambleway Dash.hab")
+        let shared = await serverError {
+            _ = try await client.renameGame(id: DemoLibrary.id(system.folder + "/Brambleway Dash.hab"), name: "Bramble")
+        }
+        #expect(shared?.renameSharesDiscs == true)
         #expect(before.files.isEmpty == false)
     }
 }

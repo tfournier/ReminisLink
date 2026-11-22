@@ -61,6 +61,10 @@ struct FakePaksState {
     /// library), by path, and the paths moved to the trash (lowercased).
     var sdExtras: [String: FakeSdExtra] = [:]
     var sdRemoved: Set<String> = []
+    /// Folders changed since (lowercased path → new date).
+    var sdTouched: [String: Date] = [:]
+    /// Changes of each folder (lowercased path), part of its version.
+    var sdRevisions: [String: Int] = [:]
 
     static let sample: [FakeInstalledPak] = {
         let date = ProtocolJSON.parseDate("2026-11-18T17:00:00Z") ?? Date(timeIntervalSince1970: 1_795_000_000)
@@ -79,7 +83,7 @@ struct FakeSdNode {
     let name: String
     /// Nil for a folder.
     let size: Int64?
-    let modifiedAt: Date
+    var modifiedAt: Date
     var children: [FakeSdNode] = []
 
     var isFolder: Bool { size == nil }
@@ -442,6 +446,7 @@ extension FakePak {
                 "sdEntryId": Self.sdEntryId(childPath), "name": child.name, "kind": child.isFolder ? "folder" : "file",
                 "sizeBytes": child.size.map { $0 as Any } ?? NSNull(), "modifiedAt": ProtocolJSON.formatDate(child.modifiedAt),
                 "deletable": protection == nil, "protection": protection.map { $0 as Any } ?? NSNull(),
+                "version": sdVersion(path: childPath, node: child),
             ]
         }
         let parent = path.split(separator: "/").dropLast().joined(separator: "/")

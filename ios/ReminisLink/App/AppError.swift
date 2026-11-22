@@ -636,6 +636,8 @@ enum AppError: Error, Equatable {
                 return String(localized: "The request is too large for the console.")
             case .conflict where server.status == 412:
                 return String(localized: "The list changed on the console. Reload it.")
+            case .conflict where server.sdProtection != nil:
+                return AppError.sdProtected(server.sdProtection!).message
             case .conflict:
                 if case .string(let existing)? = server.details["existing"] {
                     return String(localized: "A file with this name already exists on the console: \(existing)")

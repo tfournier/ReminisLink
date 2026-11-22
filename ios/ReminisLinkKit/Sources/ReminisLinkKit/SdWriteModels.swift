@@ -58,13 +58,15 @@ public struct SdTrashItem: Encodable, Sendable, Equatable {
     public let sdEntryId: String
     public let sizeBytes: Int64?
     public let modifiedAt: Date
-    public let version: String?
+    /// Required and never empty: an entry listed without a version (an
+    /// older pak) cannot be moved (``SdTrashRequest/isComplete``).
+    public let version: String
 
     public init(entry: SdEntry) {
         sdEntryId = entry.sdEntryId
         sizeBytes = entry.sizeBytes
         modifiedAt = entry.modifiedAt
-        version = entry.version
+        version = entry.version ?? ""
     }
 
     private enum CodingKeys: String, CodingKey { case sdEntryId, sizeBytes, modifiedAt, version }
@@ -75,7 +77,7 @@ public struct SdTrashItem: Encodable, Sendable, Equatable {
         // Required, null for a folder.
         if let sizeBytes { try c.encode(sizeBytes, forKey: .sizeBytes) } else { try c.encodeNil(forKey: .sizeBytes) }
         try c.encode(modifiedAt, forKey: .modifiedAt)
-        try c.encodeIfPresent(version, forKey: .version)
+        try c.encode(version, forKey: .version)
     }
 }
 
@@ -91,6 +93,9 @@ public struct SdTrashRequest: Encodable, Sendable, Equatable {
     /// The most entries of one request: the app never splits a selection
     /// (one request stays all or nothing).
     public static let maxIds = 100
+
+    /// Every item carries a version (the pak answers `400` otherwise).
+    public var isComplete: Bool { items.allSatisfy { !$0.version.isEmpty } }
 }
 
 /// `POST /games/{gameId}/rename`.

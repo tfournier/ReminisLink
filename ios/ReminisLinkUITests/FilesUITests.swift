@@ -39,8 +39,13 @@ final class FilesUITests: XCTestCase {
         XCTAssertTrue(folder.waitForExistence(timeout: 10), "folder not listed")
         attachScreenshot(of: app, named: "new-folder")
 
-        folder.swipeLeft()
-        app.buttons["Move to Trash"].firstMatch.tapAfterWaiting()
+        // Selection mode: its bar must be reachable above (or instead of)
+        // the tab bar, on iOS 18 and 26 alike.
+        app.buttons["sd.select"].tapAfterWaiting()
+        folder.tapAfterWaiting()
+        let trash = app.buttons["sd.select.trash"]
+        XCTAssertTrue(trash.waitForExistence(timeout: 5) && trash.isHittable, "selection bar not reachable")
+        trash.tap()
         // The confirmation names what goes to the trash.
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'UITest Folder'")).firstMatch.waitForExistence(timeout: 5))
         attachScreenshot(of: app, named: "trash-confirmation")

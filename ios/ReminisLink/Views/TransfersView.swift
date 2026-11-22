@@ -201,9 +201,11 @@ struct UploadRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failed where protection != nil:
+            // No Keep Both: another name does not lift the protection.
             Text("The console protects this folder: the file cannot be added there. Choose another folder in Files.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier("upload.protected")
         case .failed where isConflict:
             if case .sdFile = item.target {
                 // M23: a file of the SD browser is never replaced.
@@ -274,6 +276,8 @@ struct UploadRow: View {
         return switch target {
         case .save, .state: AppError.gameData(failure).message
         case .pak: AppError.pak(failure).message
+        // M23: a protected folder is said as such, never as a taken name.
+        case .sdFile: AppError.sdWrite(failure).message
         default: AppError(failure).message
         }
     }
