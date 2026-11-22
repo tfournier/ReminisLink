@@ -29,6 +29,9 @@ var ErrNotFound = errors.New("not found")
 type Library struct {
 	adapter osadapter.Adapter
 	layout  store.Layout
+	// protected are places of ReminisLink the SD browser never changes
+	// (ProtectPaths, M23).
+	protected []string
 }
 
 // New returns a library reading the SD card through a, with the

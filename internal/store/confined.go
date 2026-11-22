@@ -188,7 +188,13 @@ func (t *Trash) readEntry(dir string) (entryFile, error) {
 // link), a stale one is removed first, no component is a link; then the
 // folder is synced with syncDir (its error is returned).
 func (t *Trash) writeEntryConfined(dir string, e entryFile, syncDir func(string) error) error {
-	data, err := json.MarshalIndent(e, "", "  ")
+	return t.writeJSONConfined(dir, trashEntryFile, e, syncDir)
+}
+
+// writeJSONConfined is writeEntryConfined for any journal file name of dir
+// (the rename journals of M23 too).
+func (t *Trash) writeJSONConfined(dir, name string, v any, syncDir func(string) error) error {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return fmt.Errorf("trash: encode entry: %w", err)
 	}
@@ -198,7 +204,7 @@ func (t *Trash) writeEntryConfined(dir string, e entryFile, syncDir func(string)
 		return fmt.Errorf("trash: %w", err)
 	}
 	defer root.Close()
-	rel, err := t.confinedRel(root, filepath.Join(dir, trashEntryFile))
+	rel, err := t.confinedRel(root, filepath.Join(dir, name))
 	if err != nil {
 		return fmt.Errorf("trash: %w", err)
 	}

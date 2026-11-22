@@ -45,10 +45,16 @@ type SDEntry struct {
 	Kind       string    `json:"kind"`
 	SizeBytes  *int64    `json:"sizeBytes"`
 	ModifiedAt time.Time `json:"modifiedAt"`
+	// Deletable and Protection (M23): POST /sd/trash accepts the entry,
+	// or why not (SdProtection).
+	Deletable  bool    `json:"deletable"`
+	Protection *string `json:"protection"`
 }
 
 // SDFolder is the answer of GET /sd/browse.
 type SDFolder struct {
+	// Writable (M23): files can be added and folders made here.
+	Writable  bool      `json:"writable"`
 	FolderID  *string   `json:"folderId"`
 	Path      string    `json:"path"`
 	ParentID  *string   `json:"parentId"`
@@ -260,6 +266,8 @@ func (l *Library) Browse(folderID string) (SDFolder, error) {
 	defer dir.Close()
 	hidden := l.hiddenSet(sd)
 	base := splitRel(rel)
+	rules := l.rules(sd)
+	out.Writable = rules.readOnly(base) == ""
 	h := &entryHeap{}
 	for {
 		des, rerr := dir.ReadDir(browseBatch)
@@ -280,15 +288,7 @@ func (l *Library) Browse(folderID string) (SDFolder, error) {
 			if checkRelPath(childRel) != nil {
 				continue // a name the API cannot carry (control character...)
 			}
-			e := SDEntry{ID: SDEntryID(childRel), Name: d.Name(), ModifiedAt: info.ModTime().UTC().Truncate(time.Second)}
-			if t.IsDir() {
-				e.Kind = SDEntryFolder
-			} else {
-				e.Kind = SDEntryFile
-				size := info.Size()
-				e.SizeBytes = &size
-			}
-			heap.Push(h, e)
+			heap.Push(h, l.describe(rules, comps, d.Name(), info))
 			if h.Len() > MaxBrowseEntries {
 				heap.Pop(h) // the last in the sort order
 				out.Truncated = true

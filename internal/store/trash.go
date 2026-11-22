@@ -60,13 +60,15 @@ const (
 	ReasonImportArchive = "import-archive"
 	// ReasonDeleteScreenshot (M22): screenshots moved to the trash.
 	ReasonDeleteScreenshot = "delete-screenshot"
+	// ReasonDeleteFile (M23): files and folders of the SD card browser.
+	ReasonDeleteFile = "delete-file"
 )
 
 var validReasons = map[string]bool{
 	ReasonDeleteGame: true, ReasonDeleteState: true, ReasonOverwrite: true,
 	ReasonReplaceROM: true, ReasonLockRestore: true, ReasonRestore: true, ReasonDeleteBackup: true,
 	ReasonDeletePak: true, ReasonReplacePak: true, ReasonImportArchive: true,
-	ReasonDeleteScreenshot: true,
+	ReasonDeleteScreenshot: true, ReasonDeleteFile: true,
 }
 
 // PartialMoveError: a move failed after some items moved, and some of
@@ -225,11 +227,13 @@ type MoveResult struct {
 
 // Trash moves files to the trash and erases trash entries.
 type Trash struct {
-	dir  string
-	sd   string
-	now  func() time.Time
-	log  *slog.Logger
-	rand io.Reader
+	dir string
+	sd  string
+	// renames is the folder of the rename journals (M23).
+	renames string
+	now     func() time.Time
+	log     *slog.Logger
+	rand    io.Reader
 	// credit ages the entries (nil: no automatic purge).
 	credit *CreditClock
 	// rename is os.Rename, syncDir is SyncDirChecked and saveEntry is
@@ -263,7 +267,7 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 		log = slog.Default()
 	}
 	t := &Trash{dir: layout.TrashDir(), sd: sdRoot, now: now, log: log, rand: rand.Reader,
-		syncDir: SyncDirChecked}
+		syncDir: SyncDirChecked, renames: layout.RenamesDir()}
 	// Every rename of the trash stays inside the SD card, through no link
 	// (M12 review).
 	t.rename = t.renameInSD
@@ -932,6 +936,8 @@ func (t *Trash) Recover() error {
 		t.log.Error("trash: recovery skipped, the trash folder is reached through a link", "error", err)
 		return nil
 	}
+	// Interrupted renames of a game (M23) go back first.
+	t.recoverRenamesLocked()
 	names, err := t.entryDirs()
 	if err != nil {
 		return err

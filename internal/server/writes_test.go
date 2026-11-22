@@ -52,6 +52,10 @@ var formerLeaseRoutes = map[string]writeMode{
 	"POST /trash/{entryId}/restore": writeHandler,
 	// M22: screenshots moved to the trash.
 	"POST /screenshots/trash": writeHandler,
+	// M23: the rename of a game and the writes of the SD card browser.
+	"POST /games/{gameId}/rename": writeHandler,
+	"POST /sd/folders":            writeHandler,
+	"POST /sd/trash":              writeHandler,
 }
 
 // TestWriteRoutesTakeTheWriteLock walks the route table: every signed
@@ -84,7 +88,7 @@ func TestWriteRoutesTakeTheWriteLock(t *testing.T) {
 		}
 	}
 	sort.Strings(seen)
-	if len(seen) != len(formerLeaseRoutes) || len(seen) != 28 { // 24, the archives (M19), the restore (M18) and the screenshots (M22)
+	if len(seen) != len(formerLeaseRoutes) || len(seen) != 31 { // 24, the archives (M19), the restore (M18), the screenshots (M22) and M23
 		t.Errorf("%d write routes registered, want 28: %v", len(seen), seen)
 	}
 	if ops := contract(t).OperationsWithStatus("423"); len(ops) != 0 {

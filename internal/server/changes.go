@@ -35,6 +35,12 @@ const (
 	ChangePakDeleted = "pak-deleted"
 	// ChangeScreenshotsDeleted: POST /screenshots/trash (M22).
 	ChangeScreenshotsDeleted = "screenshots-deleted"
+	// M23: a game renamed, a file added to the SD card browser, a folder
+	// created in it, entries of it moved to the trash.
+	ChangeGameRenamed   = "game-renamed"
+	ChangeFileAdded     = "file-added"
+	ChangeFolderCreated = "folder-created"
+	ChangeFilesDeleted  = "files-deleted"
 )
 
 // notify calls OnChange with kind after a successful (2xx) response. name,
@@ -79,6 +85,11 @@ func (s *Server) notifyUpload(h http.HandlerFunc) http.HandlerFunc {
 				kind, subject = ChangeSaveReplaced, s.gameNameOf(target.GameID)
 			case transfer.KindState:
 				kind, subject = ChangeStateReplaced, s.gameNameOf(target.GameID)
+			case transfer.KindSDFile:
+				kind = ChangeFileAdded
+				if target.FileName != nil {
+					subject = *target.FileName
+				}
 			}
 		}
 		rec := &statusRecorder{ResponseWriter: w}

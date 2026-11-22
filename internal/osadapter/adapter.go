@@ -53,6 +53,23 @@ type ScreenshotName struct {
 	TakenAt time.Time
 }
 
+// SDRules are the places of the SD card the browser never changes (M23,
+// docs/specs/05-console-pak.md §3.4), as absolute paths. Library adds
+// the ReminisLink data folder and the running pak.
+type SDRules struct {
+	// System are read only with everything in them (folders the OS needs).
+	System []string
+	// HiddenRootSystem: every entry whose name starts with "." at the root
+	// of the card is System too.
+	HiddenRootSystem bool
+	// Roots are the main folders of the OS: never moved to the trash,
+	// files and folders can be added in them.
+	Roots []string
+	// Data are places of ReminisLink itself (besides Roots.Data and
+	// Roots.Pak): never changed.
+	Data []string
+}
+
 // System is a folder of Roms/ with a "(TAG)" suffix.
 type System struct {
 	Folder string // folder name under Roms/ (source of the systemId)
@@ -284,6 +301,9 @@ type Adapter interface {
 	// ScreenshotName reads the file name of a screenshot of
 	// Roots().Screenshots as the OS writes it (M22).
 	ScreenshotName(name string) ScreenshotName
+
+	// SDRules are the protected places of the SD card browser (M23).
+	SDRules() SDRules
 
 	DeviceInfo() (DeviceInfo, error)
 }

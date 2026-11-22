@@ -409,6 +409,9 @@ func runLayoutSmoke(t *testing.T, bin, zipFile string, l smokeLayout) {
 	// to the trash and restored.
 	smokeScreenshots(t, c, roots)
 
+	// M23: the writes of the SD card browser and the renaming of a game.
+	smokeFiles(t, c, roots, system, gameName, filepath.Join(roots.Saves, sysTag(l, system)), saveName)
+
 	call(t, c, http.MethodDelete, "/api/v1/clients/me", nil, http.StatusNoContent, nil)
 	p.stop()
 	if _, err := os.Stat(filepath.Join(roots.Logs, app.LogFileName)); err != nil {

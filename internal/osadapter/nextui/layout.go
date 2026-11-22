@@ -66,6 +66,10 @@ type Layout struct {
 	// "<display name>.<YYYY-MM-DD-HH-MM-SS>.png").
 	ScreenshotName func(name string, loc *time.Location) osadapter.ScreenshotName
 
+	// SDRules gives the protected places of the SD card browser (M23;
+	// nil: the NextUI rules of DefaultSDRules).
+	SDRules func(roots osadapter.Roots) osadapter.SDRules
+
 	// DeviceInfo and Battery describe the console.
 	DeviceInfo func() (osadapter.DeviceInfo, error)
 	Battery    func() *osadapter.Battery

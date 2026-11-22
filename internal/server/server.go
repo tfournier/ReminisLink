@@ -320,6 +320,8 @@ func (s *Server) routes() http.Handler {
 
 	signed("GET "+Prefix+"/games/{gameId}/deletion", auth.RouteJSON, s.handleDeletionPreview)
 	changing("DELETE "+Prefix+"/games/{gameId}", auth.RouteJSON, s.notify(ChangeGameDeleted, s.gameName, s.handleDeleteGame))
+	// Rename (M23): one journaled group of renames.
+	changing("POST "+Prefix+"/games/{gameId}/rename", auth.RouteJSON, s.notify(ChangeGameRenamed, s.gameName, s.handleRenameGame))
 
 	// Trash.
 	signed("GET "+Prefix+"/trash", auth.RouteJSON, s.handleTrash)
@@ -393,9 +395,12 @@ func (s *Server) routes() http.Handler {
 	reg("DELETE "+Prefix+"/paks/{pakId}", auth.RouteJSON, writeHandler, false, s.paksChanged(s.notify(ChangePakDeleted, s.pakName, s.handleDeletePak)))
 	reg("POST "+Prefix+"/paks/install", auth.RouteJSON, writeInstall, false, s.handleInstallPak)
 
-	// Read-only SD browser (M12): reads, never wait for a write.
+	// SD browser (M12): reads, never wait for a write. Its writes (M23)
+	// run under the write lock and publish a library event.
 	signed("GET "+Prefix+"/sd/browse", auth.RouteJSON, s.handleBrowseSD)
 	signed("GET "+Prefix+"/sd/browse/{sdEntryId}/content", auth.RouteJSON, s.handleSDContent)
+	changing("POST "+Prefix+"/sd/folders", auth.RouteJSON, s.notify(ChangeFolderCreated, nil, s.handleCreateSDFolder))
+	changing("POST "+Prefix+"/sd/trash", auth.RouteJSON, s.notify(ChangeFilesDeleted, nil, s.handleTrashSD))
 
 	// Screenshots (M22): reads never wait for a write; moving them to the
 	// trash runs under the write lock and publishes a screenshots event,

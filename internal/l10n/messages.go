@@ -90,6 +90,11 @@ var (
 	NoticeImportFailed      = &msg{ID: "notice_import_failed", Other: "Import failed"}
 	// NoticeScreenshotsDeleted (M22): POST /screenshots/trash.
 	NoticeScreenshotsDeleted = &msg{ID: "notice_screenshots_deleted", Other: "Screenshots moved to the trash"}
+	// M23: a game renamed, the SD card browser changed.
+	NoticeGameRenamed   = &msg{ID: "notice_game_renamed", Other: "Game renamed"}
+	NoticeFileAdded     = &msg{ID: "notice_file_added", Other: "File added"}
+	NoticeFolderCreated = &msg{ID: "notice_folder_created", Other: "Folder created"}
+	NoticeFilesDeleted  = &msg{ID: "notice_files_deleted", Other: "Files moved to the trash"}
 )
 
 // Other screens
@@ -157,4 +162,5 @@ var All = []*msg{
 	ActPak, ActPakFile, NoticePakInstalled, NoticePakInstallFailed, NoticePakDeleted,
 	ActImport, ActImportFile, NoticeImported, NoticeImportFailed,
 	NoticeTrashRestored, NoticeScreenshotsDeleted,
+	NoticeGameRenamed, NoticeFileAdded, NoticeFolderCreated, NoticeFilesDeleted,
 }
