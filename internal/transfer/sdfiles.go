@@ -238,11 +238,19 @@ func (s *Service) RenameGame(gameID, name string) (RenameResult, *Error, error) 
 		}
 		return RenameResult{}, nil, err
 	}
-	if err := s.opts.Trash.RenameGroup(plan.Old.Name, plan.Steps); err != nil {
+	// The OS must list the game under its new name before the rename is
+	// committed (Codex review of M23): otherwise it is rolled back.
+	verify := func() error { return s.opts.Library.VerifyRenamed(plan) }
+	if err := s.opts.Trash.RenameGroup(plan.Old.Name, plan.Steps, verify); err != nil {
 		var taken *store.RenameConflictError
-		if errors.As(err, &taken) {
+		var unlisted *library.RenameConflictError
+		switch {
+		case errors.As(err, &taken):
 			return RenameResult{}, &Error{Status: http.StatusConflict, Code: CodeConflict, Message: "Name already taken",
 				Details: map[string]any{"conflicts": nonNil(taken.Conflicts)}}, nil
+		case errors.As(err, &unlisted):
+			return RenameResult{}, &Error{Status: http.StatusConflict, Code: CodeConflict, Message: "The new name would not be listed as this game",
+				Details: map[string]any{"conflicts": nonNil(unlisted.Conflicts)}}, nil
 		}
 		return RenameResult{}, nil, err
 	}

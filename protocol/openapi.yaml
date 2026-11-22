@@ -1013,9 +1013,17 @@ paths:
         `422 unsupported_format`: their files would keep the old name.
 
         The renames are journaled in the ReminisLink data folder (one
-        journal per rename): after a power cut the next start puts every
-        renamed file back under its old name, so the game is either fully
-        renamed or not at all. Write route (see "Writes one at a time"); a
+        journal per rename, recording the identity of each entry that
+        moves): after a power cut the next start puts every renamed file
+        back under its old name (never another entry found at a new name),
+        so the game is either fully renamed or not at all. Once every file
+        is renamed, the game must be listed under its new name (a playlist
+        that already names the new file would make it one of its discs):
+        otherwise `409 conflict` with `details.conflicts` and everything is
+        put back. The answer is `200` only once the journal is removed for
+        good; when that fails, the rename is put back and the answer is
+        `500`. Data keys and tags are compared ignoring case (NextUI: two
+        system folders `(GBA)` and `(gba)` share `Saves/GBA` on exFAT). Write route (see "Writes one at a time"); a
         `library` event follows (M14). The gameId changes: the answer
         gives the new one.
       parameters:

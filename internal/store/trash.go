@@ -231,9 +231,12 @@ type Trash struct {
 	sd  string
 	// renames is the folder of the rename journals (M23).
 	renames string
-	now     func() time.Time
-	log     *slog.Logger
-	rand    io.Reader
+	// removeJournalFile, when set, replaces the removal of a rename
+	// journal (tests).
+	removeJournalFile func(rel string) error
+	now               func() time.Time
+	log               *slog.Logger
+	rand              io.Reader
 	// credit ages the entries (nil: no automatic purge).
 	credit *CreditClock
 	// rename is os.Rename, syncDir is SyncDirChecked and saveEntry is

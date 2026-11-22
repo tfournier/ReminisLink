@@ -22,7 +22,7 @@ func renameGame(t *testing.T, l *Library, sd, gameID, name string) (RenamePlan, 
 		return plan, err
 	}
 	trash := store.NewTrash(l.layout, sd, time.Now, nil)
-	return plan, trash.RenameGroup(plan.Old.Name, plan.Steps)
+	return plan, trash.RenameGroup(plan.Old.Name, plan.Steps, func() error { return l.VerifyRenamed(plan) })
 }
 
 func mustExist(t *testing.T, sd string, rels ...string) {
@@ -331,13 +331,60 @@ func TestRenameGameReservedNames(t *testing.T) {
 	}
 }
 
+// Codex review of M23 (round 2): a tag spelled in another case shares
+// Saves/<TAG> on exFAT: Portable (GBA)/Ridge.gba and Hacks (gba)/Ridge.gba
+// share their save.
+func TestRenameGameSharedKeyAcrossTagCase(t *testing.T) {
+	l, sd := newLibrary(t)
+	writeSD(t, sd, "Roms/Portable (GBA)/Ridge.gba", "rom")
+	writeSD(t, sd, "Roms/Hacks (gba)/Ridge.gba", "rom")
+	writeSD(t, sd, "Saves/GBA/Ridge.gba.sav", "progress")
+	_, err := l.PlanRename(EncodeID("Portable (GBA)/Ridge.gba"), "Ridge DX")
+	var conflict *RenameConflictError
+	if !errors.As(err, &conflict) || !conflict.Shared {
+		t.Fatalf("shared across tag case: %v", err)
+	}
+	// And a new name whose key belongs to a game of the other spelling.
+	writeSD(t, sd, "Roms/Portable (GBA)/Other.gba", "rom")
+	if _, err := l.PlanRename(EncodeID("Portable (GBA)/Other.gba"), "Ridge"); !errors.As(err, &conflict) || len(conflict.Conflicts) == 0 {
+		t.Fatalf("taken across tag case: %v", err)
+	}
+}
+
+// Codex review of M23 (round 2): a playlist that already names the new file
+// would make the renamed game one of its discs: refused, rolled back.
+func TestRenameGameNameListedByAPlaylist(t *testing.T) {
+	l, sd := newLibrary(t)
+	writeSD(t, sd, "Roms/Sony PlayStation (PS)/Collection.m3u", "Fresh.cue\n")
+	writeSD(t, sd, "Roms/Sony PlayStation (PS)/Old.cue", "FILE x")
+	before := tree(t, sd)
+	_, err := renameGame(t, l, sd, EncodeID("Sony PlayStation (PS)/Old.cue"), "Fresh")
+	var conflict *RenameConflictError
+	if !errors.As(err, &conflict) || len(conflict.Conflicts) != 1 {
+		t.Fatalf("listed by a playlist: %v", err)
+	}
+	// The ReminisLink data folder keeps its (empty) journal folder.
+	strip := func(s string) string {
+		var out []string
+		for _, l := range strings.Split(s, "\n") {
+			if !strings.Contains(l, "ReminisLink") {
+				out = append(out, l)
+			}
+		}
+		return strings.Join(out, "\n")
+	}
+	if strip(tree(t, sd)) != strip(before) {
+		t.Fatal("not rolled back")
+	}
+}
+
 func TestRenameGameKnulli(t *testing.T) {
 	l, trash, sd := knulliLibrary(t, t.TempDir())
 	plan, err := l.PlanRename(EncodeID("gba/Starlight Courier.gba"), "Star Courier")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := trash.RenameGroup(plan.Old.Name, plan.Steps); err != nil {
+	if err := trash.RenameGroup(plan.Old.Name, plan.Steps, func() error { return l.VerifyRenamed(plan) }); err != nil {
 		t.Fatal(err)
 	}
 	mustExist(t, sd, "roms/gba/Star Courier.gba", "saves/gba/Star Courier.srm", "saves/gba/Star Courier.rtc",

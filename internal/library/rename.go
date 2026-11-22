@@ -225,7 +225,16 @@ func (l *Library) PlanRename(gameID, name string) (RenamePlan, error) {
 		return RenamePlan{}, &RenameConflictError{Conflicts: conflicts}
 	}
 	for _, s := range steps {
-		plan.Steps = append(plan.Steps, s.step)
+		step := s.step
+		// The entry that moves, read now (the playlist of a folder game is
+		// still in the old folder): the journal records it, so a roll back
+		// never touches another one (Codex review of M23).
+		fi, err := os.Lstat(s.checkFrom)
+		if err != nil {
+			return RenamePlan{}, notFound(err, "game file")
+		}
+		step.Identity = fi
+		plan.Steps = append(plan.Steps, step)
 		plan.Renamed = append(plan.Renamed, Renamed{From: l.sdDisplay(s.checkFrom), To: l.sdDisplay(s.step.To)})
 	}
 	return plan, nil
@@ -253,7 +262,9 @@ func (l *Library) gamesWithKey(g osadapter.Game, key string) ([]osadapter.Game, 
 	}
 	var out []osadapter.Game
 	for _, sys := range systems {
-		if sys.Tag != g.System.Tag {
+		// NextUI: two system folders whose tags differ only by case share
+		// Saves/<TAG> on exFAT (Codex review of M23).
+		if !strings.EqualFold(sys.Tag, g.System.Tag) {
 			continue
 		}
 		err := l.adapter.WalkGames(context.Background(), sys, func(o osadapter.Game) error {
@@ -267,4 +278,23 @@ func (l *Library) gamesWithKey(g osadapter.Game, key string) ([]osadapter.Game, 
 		}
 	}
 	return out, nil
+}
+
+// VerifyRenamed checks, once the renames of plan are done and before they
+// are committed, that the OS lists the game under its new name (a
+// playlist that already names it would make it one of its discs, Codex
+// review of M23): a *RenameConflictError naming the new place otherwise,
+// and the rename is rolled back.
+func (l *Library) VerifyRenamed(plan RenamePlan) error {
+	if len(plan.Steps) == 0 {
+		return nil
+	}
+	if _, err := l.GameSummary(EncodeID(plan.New.Path)); err != nil {
+		place := plan.New.Path
+		if p, perr := resolveUnder(l.romsRoot(), plan.New.Path); perr == nil {
+			place = l.sdDisplay(p)
+		}
+		return &RenameConflictError{Conflicts: []string{place}}
+	}
+	return nil
 }

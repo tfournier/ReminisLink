@@ -43,9 +43,9 @@ func TestRenameGroupFolderGame(t *testing.T) {
 	ps := filepath.Join(sd, "Roms", "PS (PS)")
 	err := tr.RenameGroup("Old", []RenameStep{
 		{From: filepath.Join(ps, "Old"), To: filepath.Join(ps, "New")},
-		{From: filepath.Join(ps, "New", "Old.m3u"), To: filepath.Join(ps, "New", "New.m3u")},
+		{From: filepath.Join(ps, "New", "Old.m3u"), To: filepath.Join(ps, "New", "New.m3u"), Identity: lstat(t, filepath.Join(ps, "Old", "Old.m3u"))},
 		{From: filepath.Join(sd, "Saves/PS/Old.m3u.sav"), To: filepath.Join(sd, "Saves/PS/New.m3u.sav")},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestRenameGroupConflictRollsBack(t *testing.T) {
 	err := tr.RenameGroup("Old", []RenameStep{
 		{From: rom, To: filepath.Join(filepath.Dir(rom), "New.gba")},
 		{From: sav, To: taken},
-	})
+	}, nil)
 	var conflict *RenameConflictError
 	if !errors.As(err, &conflict) || len(conflict.Conflicts) != 1 || conflict.Conflicts[0] != "Saves/GBA/New.gba.sav" {
 		t.Fatalf("err %v", err)
@@ -89,7 +89,7 @@ func TestRenameGroupConflictRollsBack(t *testing.T) {
 func TestRenameGroupCaseOnly(t *testing.T) {
 	tr, sd, _, _ := newTestTrash(t)
 	rom := write(t, sd, "Roms/GBA (GBA)/zelda.gba", "rom")
-	err := tr.RenameGroup("zelda", []RenameStep{{From: rom, To: filepath.Join(filepath.Dir(rom), "Zelda.gba")}})
+	err := tr.RenameGroup("zelda", []RenameStep{{From: rom, To: filepath.Join(filepath.Dir(rom), "Zelda.gba")}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestRenameGroupRecoverAfterCut(t *testing.T) {
 		ps := filepath.Join(sd, "Roms", "PS (PS)")
 		steps := []RenameStep{
 			{From: filepath.Join(ps, "old"), To: filepath.Join(ps, "Old")}, // case only: two renames
-			{From: filepath.Join(ps, "Old", "old.m3u"), To: filepath.Join(ps, "Old", "Old.m3u")},
+			{From: filepath.Join(ps, "Old", "old.m3u"), To: filepath.Join(ps, "Old", "Old.m3u"), Identity: lstat(t, filepath.Join(ps, "old", "old.m3u"))},
 			{From: filepath.Join(sd, "Saves/PS/old.m3u.sav"), To: filepath.Join(sd, "Saves/PS/Old.m3u.sav")},
 		}
 		calls := 0
@@ -124,7 +124,7 @@ func TestRenameGroupRecoverAfterCut(t *testing.T) {
 		cutDone := false
 		func() {
 			defer func() { cutDone = recover() != nil }()
-			_ = tr.RenameGroup("old", steps)
+			_ = tr.RenameGroup("old", steps, nil)
 		}()
 		if !cutDone {
 			// A case-sensitive folder (ext4): the case-only steps take one
@@ -174,7 +174,7 @@ func TestRenameGroupSyncFailure(t *testing.T) {
 		return nil
 	}
 	tr.SetSyncDir(failSaves)
-	if err := tr.RenameGroup("Old", steps); err == nil {
+	if err := tr.RenameGroup("Old", steps, nil); err == nil {
 		t.Fatal("a rename that was not synced succeeded")
 	}
 	// The roll back of the save folder could not be synced: journal kept.
@@ -213,7 +213,7 @@ func TestRenameGroupSyncFailure(t *testing.T) {
 		}
 		return nil
 	})
-	if err := tr4.RenameGroup("Old", steps); err == nil {
+	if err := tr4.RenameGroup("Old", steps, nil); err == nil {
 		t.Fatal("success after a failed sync")
 	}
 	if renamesLeft(t, tr4) != 0 || !exists(rom) || !exists(sav) {
@@ -221,20 +221,154 @@ func TestRenameGroupSyncFailure(t *testing.T) {
 	}
 }
 
+func lstat(t *testing.T, p string) os.FileInfo {
+	t.Helper()
+	fi, err := os.Lstat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi
+}
+
+// Codex review of M23 (round 2): a power cut between the rename of the
+// folder and of its playlist; the first recovery puts the folder back but
+// cannot make it durable (journal kept), then the user makes a new game
+// New/New.m3u: the second recovery never touches it (another inode), and
+// never syncs a folder that no longer exists.
+func TestRenameGroupRecoveryNeverTouchesAnotherEntry(t *testing.T) {
+	tr, sd, clk, _ := newTestTrash(t)
+	write(t, sd, "Roms/PS (PS)/Old/Old.m3u", "d.bin\n")
+	write(t, sd, "Roms/PS (PS)/Old/d.bin", "disc")
+	ps := filepath.Join(sd, "Roms", "PS (PS)")
+	steps := []RenameStep{
+		{From: filepath.Join(ps, "Old"), To: filepath.Join(ps, "New")},
+		{From: filepath.Join(ps, "New", "Old.m3u"), To: filepath.Join(ps, "New", "New.m3u"), Identity: lstat(t, filepath.Join(ps, "Old", "Old.m3u"))},
+	}
+	calls := 0
+	tr.renameExcl = func(a, b string) error {
+		calls++
+		if calls == 2 {
+			panic("power cut")
+		}
+		return tr.renameNoReplaceInSD(a, b)
+	}
+	func() {
+		defer func() { _ = recover() }()
+		_ = tr.RenameGroup("Old", steps, nil)
+	}()
+	layout := Layout{Root: filepath.Join(sd, ".userdata", "shared", "ReminisLink")}
+	// First start: the folder goes back, the sync of the system folder fails.
+	var synced []string
+	tr2 := NewTrash(layout, sd, clk.Now, nil)
+	tr2.SetSyncDir(func(dir string) error {
+		synced = append(synced, dir)
+		if _, err := os.Lstat(dir); err != nil {
+			t.Errorf("synced a folder that does not exist: %s", dir)
+		}
+		if dir == ps {
+			return errors.New("sync failed")
+		}
+		return nil
+	})
+	if err := tr2.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if renamesLeft(t, tr2) != 1 || listNames(t, ps) != "Old" {
+		t.Fatalf("first recovery: %s, %d journals", listNames(t, ps), renamesLeft(t, tr2))
+	}
+	// The user makes a new game New/New.m3u.
+	write(t, sd, "Roms/PS (PS)/New/New.m3u", "other.bin\n")
+	tr3 := NewTrash(layout, sd, clk.Now, nil)
+	tr3.SetSyncDir(func(dir string) error {
+		if _, err := os.Lstat(dir); err != nil {
+			t.Errorf("synced a folder that does not exist: %s", dir)
+		}
+		return nil
+	})
+	if err := tr3.Recover(); err != nil {
+		t.Fatal(err)
+	}
+	if got := listNames(t, filepath.Join(ps, "New")); got != "New.m3u" {
+		t.Fatalf("the new game was touched: %s", got)
+	}
+	if got := listNames(t, filepath.Join(ps, "Old")); got != "Old.m3u,d.bin" {
+		t.Fatalf("old game: %s", got)
+	}
+	if renamesLeft(t, tr3) != 0 {
+		t.Fatal("journal left")
+	}
+}
+
+// Codex review of M23 (round 2): when the journal cannot be removed once
+// every step is done, the rename is never a success: it is rolled back.
+func TestRenameGroupJournalNotRemoved(t *testing.T) {
+	tr, sd, _, _ := newTestTrash(t)
+	rom := write(t, sd, "Roms/GBA (GBA)/Old.gba", "rom")
+	sav := write(t, sd, "Saves/GBA/Old.gba.sav", "save")
+	steps := []RenameStep{
+		{From: rom, To: filepath.Join(filepath.Dir(rom), "New.gba")},
+		{From: sav, To: filepath.Join(filepath.Dir(sav), "New.gba.sav")},
+	}
+	failures := 1
+	tr.removeJournalFile = func(rel string) error {
+		if failures > 0 {
+			failures--
+			return errors.New("remove failed")
+		}
+		root, err := os.OpenRoot(sd)
+		if err != nil {
+			return err
+		}
+		defer root.Close()
+		return root.Remove(rel)
+	}
+	err := tr.RenameGroup("Old", steps, nil)
+	if !errors.Is(err, ErrRenameCommit) {
+		t.Fatalf("err %v", err)
+	}
+	if !exists(rom) || !exists(sav) || renamesLeft(t, tr) != 0 {
+		t.Fatal("not rolled back")
+	}
+	// The removal made durable fails (the sync of its folder): the same.
+	tr.removeJournalFile = nil
+	tr.SetSyncDir(func(dir string) error {
+		if filepath.Dir(dir) == tr.renames {
+			return errors.New("sync failed")
+		}
+		return nil
+	})
+	if err := tr.RenameGroup("Old", steps, nil); err == nil {
+		t.Fatal("success although the journal removal is not durable")
+	}
+	if !exists(rom) {
+		t.Fatal("not rolled back")
+	}
+	// The journal kept by that failure goes at the next start.
+	tr.SetSyncDir(func(string) error { return nil })
+	if err := tr.Recover(); err != nil || renamesLeft(t, tr) != 0 || !exists(rom) {
+		t.Fatalf("recovery: %v", err)
+	}
+	// A verify that fails rolls back too.
+	refused := errors.New("not listed")
+	if err := tr.RenameGroup("Old", steps, func() error { return refused }); !errors.Is(err, refused) || !exists(rom) || renamesLeft(t, tr) != 0 {
+		t.Fatalf("verify: %v", err)
+	}
+}
+
 func TestRenameGroupRefusesLinksAndOtherFolders(t *testing.T) {
 	tr, sd, _, _ := newTestTrash(t)
 	rom := write(t, sd, "Roms/GBA (GBA)/Old.gba", "rom")
-	if err := tr.RenameGroup("x", []RenameStep{{From: rom, To: filepath.Join(sd, "Saves", "Old.gba")}}); err == nil {
+	if err := tr.RenameGroup("x", []RenameStep{{From: rom, To: filepath.Join(sd, "Saves", "Old.gba")}}, nil); err == nil {
 		t.Fatal("moved to another folder")
 	}
 	outside := t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(sd, "Link")); err != nil {
 		t.Skip("no links")
 	}
-	if err := tr.RenameGroup("x", []RenameStep{{From: filepath.Join(sd, "Link", "a"), To: filepath.Join(sd, "Link", "b")}}); err == nil {
+	if err := tr.RenameGroup("x", []RenameStep{{From: filepath.Join(sd, "Link", "a"), To: filepath.Join(sd, "Link", "b")}}, nil); err == nil {
 		t.Fatal("renamed through a link")
 	}
-	if err := tr.RenameGroup("x", []RenameStep{{From: rom, To: filepath.Join(outside, "x")}}); err == nil {
+	if err := tr.RenameGroup("x", []RenameStep{{From: rom, To: filepath.Join(outside, "x")}}, nil); err == nil {
 		t.Fatal("renamed outside the card")
 	}
 	if !exists(rom) {

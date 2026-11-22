@@ -36,7 +36,18 @@ const (
 // earlier ones (the playlist inside a renamed folder).
 type RenameStep struct {
 	From, To string
+	// Identity is the file or folder that moves, when From does not exist
+	// yet when the journal is written (the playlist inside a folder renamed
+	// by an earlier step); nil: From is read. Recorded in the journal: a
+	// roll back never touches another entry.
+	Identity fs.FileInfo
 }
+
+// ErrRenameCommit: the journal of a rename could not be removed (or that
+// removal made durable) once every step was done; the rename was rolled
+// back, or, when even that failed, the journal stays valid for the next
+// start. Never a success (Codex review of M23).
+var ErrRenameCommit = errors.New("rename: journal could not be removed")
 
 // RenameConflictError: the new name of a step is taken (Conflicts relative
 // to the SD card, "/" separator); nothing was renamed.
@@ -53,6 +64,9 @@ type renameRecord struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Via  string `json:"via"`
+	// ID is the identity (device and inode) of the entry that moves:
+	// a roll back only renames that entry back (Codex review of M23).
+	ID string `json:"id,omitempty"`
 }
 
 type renameJournal struct {
@@ -66,7 +80,10 @@ type renameJournal struct {
 // the steps done are put back (in reverse order) and the error is
 // returned: a *RenameConflictError when a new name is taken. If a put back
 // fails too, the journal stays and the next start finishes the roll back.
-func (t *Trash) RenameGroup(label string, steps []RenameStep) error {
+// verify (may be nil) runs once every step is done and synced, before the
+// journal is removed: its error rolls the group back and is returned
+// (the renamed game must be listed again by the OS).
+func (t *Trash) RenameGroup(label string, steps []RenameStep, verify func() error) error {
 	if len(steps) == 0 {
 		return nil
 	}
@@ -102,7 +119,15 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep) error {
 			return fmt.Errorf("rename: step %d leaves its folder", i)
 		}
 		via := filepath.Join(filepath.Dir(rf), renameTempPrefix+id+"-"+strconv.Itoa(i))
-		j.Steps = append(j.Steps, renameRecord{From: filepath.ToSlash(rf), To: filepath.ToSlash(rt), Via: filepath.ToSlash(via)})
+		info := s.Identity
+		if info == nil {
+			if info, err = root.Lstat(rf); err != nil {
+				root.Close()
+				return fmt.Errorf("rename: step %d: %w", i, withoutPathErr(err))
+			}
+		}
+		ident := identityOf(info)
+		j.Steps = append(j.Steps, renameRecord{From: filepath.ToSlash(rf), To: filepath.ToSlash(rt), Via: filepath.ToSlash(via), ID: ident})
 	}
 	root.Close()
 	dir := filepath.Join(t.renames, id)
@@ -110,7 +135,7 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep) error {
 		return fmt.Errorf("rename: journal folder: %w", err)
 	}
 	if err := t.writeJSONConfined(dir, renameJournalFile, j, func(d string) error { return t.syncDir(d) }); err != nil {
-		t.removeJournal(dir)
+		_ = t.removeJournal(dir)
 		return fmt.Errorf("rename: %w", err)
 	}
 	sd, err := filepath.Abs(t.sd)
@@ -120,11 +145,10 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep) error {
 	abs := func(rel string) string { return filepath.Join(sd, filepath.FromSlash(rel)) }
 	for i, s := range j.Steps {
 		if err := t.renameStep(abs(s.From), abs(s.To), abs(s.Via)); err != nil {
-			if !t.rollbackRenames(sd, j.Steps[:i+1]) {
+			if !t.rollbackRenames(sd, j.Steps[:i+1]) || t.removeJournal(dir) != nil {
 				t.log.Error("rename: roll back failed, left for the next start", "journal", id, "error", err)
 				return fmt.Errorf("rename: %w", err)
 			}
-			t.removeJournal(dir)
 			if errors.Is(err, fs.ErrExist) {
 				return &RenameConflictError{Conflicts: []string{s.To}}
 			}
@@ -134,15 +158,34 @@ func (t *Trash) RenameGroup(label string, steps []RenameStep) error {
 		// a power cut could keep some new names and lose others. The group
 		// goes back, and the journal stays until that is durable too.
 		if err := t.syncDir(filepath.Dir(abs(s.To))); err != nil {
-			if t.rollbackRenames(sd, j.Steps[:i+1]) {
-				t.removeJournal(dir)
-			} else {
+			if !t.rollbackRenames(sd, j.Steps[:i+1]) || t.removeJournal(dir) != nil {
 				t.log.Error("rename: roll back failed, left for the next start", "journal", id, "error", err)
 			}
 			return fmt.Errorf("rename: sync: %w", err)
 		}
 	}
-	t.removeJournal(dir)
+	if verify != nil {
+		if err := verify(); err != nil {
+			if !t.rollbackRenames(sd, j.Steps) || t.removeJournal(dir) != nil {
+				t.log.Error("rename: roll back failed, left for the next start", "journal", id, "error", err)
+			}
+			return err
+		}
+	}
+	// The commit: the journal goes. If that fails (or is not durable), the
+	// next start would undo the rename: so it is undone now, never
+	// answered as a success (Codex review of M23).
+	if err := t.removeJournal(dir); err != nil {
+		t.log.Error("rename: journal not removed, rolling back", "journal", id, "error", err)
+		if werr := t.writeJSONConfined(dir, renameJournalFile, j, func(d string) error { return t.syncDir(d) }); werr != nil {
+			t.log.Error("rename: journal cannot be written again", "journal", id, "error", werr)
+			return fmt.Errorf("%w: %w", ErrRenameCommit, err)
+		}
+		if t.rollbackRenames(sd, j.Steps) {
+			_ = t.removeJournal(dir)
+		}
+		return fmt.Errorf("%w: %w", ErrRenameCommit, err)
+	}
 	return nil
 }
 
@@ -192,13 +235,12 @@ func (t *Trash) rollbackRenames(sd string, steps []renameRecord) (ok bool) {
 	ok = true
 	abs := func(rel string) string { return filepath.Join(sd, filepath.FromSlash(rel)) }
 	// The folders of every step (put back now, or by an earlier roll back
-	// whose sync failed): synced before the journal can go.
-	touched := map[string]bool{}
-	for _, s := range steps {
-		touched[filepath.Dir(abs(s.From))] = true
-	}
+	// whose sync failed), as they exist once the steps are back: synced
+	// before the journal can go. A folder renamed back by an earlier step
+	// is synced under its old name; a path that no longer exists is never
+	// synced (Codex review of M23).
 	defer func() {
-		for d := range touched {
+		for d := range t.rollbackFolders(sd, steps) {
 			if err := t.syncDir(d); err != nil {
 				t.log.Error("rename: roll back: sync failed, journal kept", "error", err)
 				ok = false
@@ -208,8 +250,24 @@ func (t *Trash) rollbackRenames(sd string, steps []renameRecord) (ok bool) {
 	for i := len(steps) - 1; i >= 0; i-- {
 		s := steps[i]
 		fromThere := exactExists(root, s.From)
+		// Only the entry the step moved goes back: another one now at its
+		// new or temporary name (made after a power cut) is never touched.
+		ours := func(rel string) bool {
+			if s.ID == "" {
+				return true
+			}
+			fi, err := root.Lstat(filepath.FromSlash(rel))
+			if err != nil {
+				return false
+			}
+			if id := identityOf(fi); id != "" && id != s.ID {
+				t.log.Warn("rename: roll back: another entry at the new name, left as it is", "file", rel)
+				return false
+			}
+			return true
+		}
 		switch {
-		case exactExists(root, s.Via):
+		case exactExists(root, s.Via) && ours(s.Via):
 			if fromThere {
 				t.log.Error("rename: roll back: old name taken", "file", s.From)
 				ok = false
@@ -218,19 +276,55 @@ func (t *Trash) rollbackRenames(sd string, steps []renameRecord) (ok bool) {
 			if err := t.renameBack(abs(s.Via), abs(s.From)); err != nil {
 				t.log.Error("rename: roll back failed", "file", s.From, "error", err)
 				ok = false
-			} else {
-				touched[filepath.Dir(abs(s.From))] = true
 			}
-		case exactExists(root, s.To) && !fromThere:
+		case exactExists(root, s.To) && !fromThere && ours(s.To):
 			if err := t.renameStepBack(abs(s.To), abs(s.From), abs(s.Via)); err != nil {
 				t.log.Error("rename: roll back failed", "file", s.From, "error", err)
 				ok = false
-			} else {
-				touched[filepath.Dir(abs(s.From))] = true
 			}
 		}
 	}
 	return ok
+}
+
+// removeFile removes a file through root (tests replace it with
+// removeJournalFile to simulate a failure).
+func (t *Trash) removeFile(root *os.Root, rel string) error {
+	if t.removeJournalFile != nil {
+		return t.removeJournalFile(rel)
+	}
+	return root.Remove(rel)
+}
+
+// rollbackFolders are the folders to sync once steps are back: the parent
+// of each step's old name, translated through the folders renamed back by
+// the steps (a parent named after a step's new name, which no longer
+// exists, is found under that step's old name), only when it exists.
+func (t *Trash) rollbackFolders(sd string, steps []renameRecord) map[string]bool {
+	out := map[string]bool{}
+	abs := func(rel string) string { return filepath.Join(sd, filepath.FromSlash(rel)) }
+	exists := func(p string) bool {
+		fi, err := os.Lstat(p)
+		return err == nil && fi.IsDir()
+	}
+	for _, s := range steps {
+		d := filepath.Dir(abs(s.From))
+		if !exists(d) {
+			for _, o := range steps {
+				to, from := abs(o.To), abs(o.From)
+				if d == to || strings.HasPrefix(d, to+string(filepath.Separator)) {
+					if cand := from + strings.TrimPrefix(d, to); exists(cand) {
+						d = cand
+						break
+					}
+				}
+			}
+		}
+		if exists(d) {
+			out[d] = true
+		}
+	}
+	return out
 }
 
 // renameStepBack is renameStep for a roll back (renameBack, never
@@ -270,21 +364,29 @@ func exactExists(root *os.Root, rel string) bool {
 	return false
 }
 
-// removeJournal deletes a rename journal and its folder.
-func (t *Trash) removeJournal(dir string) {
+// removeJournal deletes a rename journal and its folder. The removal of
+// the journal file must be durable (its folder synced): otherwise it is an
+// error, and the journal may still be on the card after a power cut.
+func (t *Trash) removeJournal(dir string) error {
 	root, err := t.openSD()
 	if err != nil {
-		return
+		return err
 	}
 	defer root.Close()
 	rel, err := t.confinedRel(root, dir)
 	if err != nil {
-		return
+		return err
 	}
-	_ = root.Remove(filepath.Join(rel, renameJournalFile))
+	if err := t.removeFile(root, filepath.Join(rel, renameJournalFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return withoutPathErr(err)
+	}
+	if err := t.syncDir(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	_ = root.Remove(filepath.Join(rel, renameJournalFile+".tmp"))
 	_ = root.Remove(rel)
 	_ = t.syncDir(filepath.Dir(dir))
+	return nil
 }
 
 // recoverRenamesLocked rolls back the rename groups a power cut
@@ -320,7 +422,7 @@ func (t *Trash) recoverRenamesLocked() {
 		j, err := t.readRenameJournal(dir)
 		if errors.Is(err, fs.ErrNotExist) {
 			// The journal was never written (or removed): nothing moved.
-			t.removeJournal(dir)
+			_ = t.removeJournal(dir)
 			continue
 		}
 		if err != nil {
@@ -332,8 +434,11 @@ func (t *Trash) recoverRenamesLocked() {
 			continue
 		}
 		if t.rollbackRenames(sd, j.Steps) {
+			if err := t.removeJournal(dir); err != nil {
+				t.log.Error("rename: journal kept", "journal", d.Name(), "error", err)
+				continue
+			}
 			t.log.Info("rename: interrupted rename put back", "journal", d.Name(), "label", j.Label)
-			t.removeJournal(dir)
 		}
 	}
 }
