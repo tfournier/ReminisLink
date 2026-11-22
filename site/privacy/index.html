@@ -35,60 +35,96 @@
     <div class="page-title">
       <div class="wrap">
         <h1>Privacy Policy</h1>
-        <p>Last updated: <time datetime="2026-11-20">20 November 2026</time></p>
+        <p>Last updated: <time datetime="2026-11-22">22 November 2026</time></p>
       </div>
     </div>
 
     <div class="wrap">
       <article class="prose">
-        <p>ReminisLink is an iPhone app that manages the games of your retro handheld over your local Wi-Fi network. Your data stays on your iPhone, on your handheld and in your own iCloud account (copies of your saves in iCloud Drive, pairing in iCloud Keychain). ReminisLink on the handheld never connects to the internet: it only answers your devices on your local network.</p>
+        <p>ReminisLink is an app for iPhone, iPad, Mac (with Apple silicon) and Android that manages the games of your retro handheld over your local Wi-Fi network. Your data stays on your devices, on your handheld and, with the Apple app, in your own iCloud account (copies of your saves and save states in iCloud Drive, pairing in iCloud Keychain). ReminisLink on the handheld never connects to the internet: it only answers your devices on your local network.</p>
 
         <h2>What we collect</h2>
-        <p><strong>Nothing.</strong> ReminisLink has no account, no server, no analytics, no advertising, no tracking and no third-party SDK. The developer receives no data about you or about how you use the app.</p>
+        <p><strong>Nothing.</strong> ReminisLink has no account, no server, no analytics, no advertising and no tracking. The Apple app uses no third-party SDK; the Android app uses no Google Play Services and only open-source libraries that work on the device (AndroidX, CameraX, OkHttp, ZXing, Tink). The developer receives no data about you or about how you use the app.</p>
 
-        <h2>On your iPhone</h2>
+        <h2>On your iPhone, iPad or Mac</h2>
         <ul>
-          <li><strong>The preferences of the app</strong>, and the list of handhelds paired with an older version that must be paired again.</li>
+          <li><strong>The preferences of the app</strong>, the list of handhelds paired with an older version that must be paired again, the last address on your local network where each handheld answered (kept on this device only), and, when the identity of your Apple devices has not arrived on this one, since when it is missing.</li>
           <li><strong>A cache of box art</strong> shown in the library, which iOS may clear at any time.</li>
           <li><strong>Files you share to ReminisLink</strong> from another app: the share extension copies them into storage shared with the app until you send them. The app deletes them once they are used; unused ones are deleted the next time the app checks its inbox (when it becomes active) once they are older than 7 days.</li>
-          <li><strong>Temporary copies of the files you send</strong>, kept until the transfer ends. The app does not keep its transfer queue across launches: they are deleted at the next launch at the latest.</li>
-          <li><strong>Files you download</strong> from your handheld (a file of a game, a file of the SD card) or from your save copies: written to a temporary folder of the app, then saved only where you choose (Files, AirDrop, another app). The temporary folder is emptied at each launch of the app.</li>
-          <li><strong>The demo mode</strong> (Try Without a Console) works with a made-up handheld inside the app: it never talks to a handheld or to any server, and puts nothing in the Keychain or iCloud Drive. Files downloaded from the made-up handheld stay in the app (the share sheet is not offered). Files or pictures you choose in Files or Photos to try a feature are copied to a temporary folder of the demo (iOS may first download the original you chose, for example from iCloud); like everything the demo writes, they are erased when you quit it, or at the next launch.</li>
+          <li><strong>Temporary copies of the files you send</strong> (game archives you import included), kept until the transfer ends. The app does not keep its transfer queue across launches: they are deleted at the next launch at the latest.</li>
+          <li><strong>Files you download</strong> from your handheld (a file of a game, a file of the SD card, a game archive, screenshots) or from your copies of saves and save states: written to a temporary folder of the app, then saved only where you choose (Files, AirDrop, another app, Photos). The temporary folder is emptied at each launch of the app.</li>
+          <li><strong>Game archives.</strong> When you export a game, the handheld makes a zip file with its save and clock file, its save states and their thumbnails, its cheats and its picture, and the game itself if you ask for it, plus a <code>manifest.json</code> that lists the name of the handheld, its system, platform and version of ReminisLink, the system and name of the game, the name, size and checksum of each file, and the date of the export. The archive goes only where you choose with the share sheet. An archive you import is chosen in Files and sent to your handheld (see below).</li>
+          <li><strong>Screenshots of your handheld</strong>: their thumbnails are kept in memory only, while the app runs. A screenshot you open is downloaded to a temporary file, deleted once it is shown. Sharing or saving screenshots downloads them to the temporary folder above; <strong>Save to Photos</strong> adds them to your photo library.</li>
+          <li><strong>A picture of the QR code</strong> you import from Photos or Files (for example on a Mac without a camera) is read on the device to find the QR code, and never kept: a picture from Photos is copied to a temporary file, deleted once read. Pictures larger than 50 MB or 200 megapixels are refused.</li>
+          <li><strong>The demo mode</strong> (Try Without a Console) works with a made-up handheld inside the app: it never talks to a handheld or to any server, and puts nothing in the Keychain, iCloud Drive or Photos. Files downloaded from the made-up handheld stay in the app (the share sheet is not offered). Files or pictures you choose in Files or Photos to try a feature are copied to a temporary folder of the demo (iOS may first download the original you chose, for example from iCloud); like everything the demo writes, they are erased when you quit it, or at the next launch.</li>
         </ul>
-        <p>Deleting the app removes all of this. It does not remove the copies of your saves in iCloud Drive (see below), and iOS may keep the pairing in the Keychain after the app is deleted: unpair your handhelds in the app first if you want it removed.</p>
+        <p>Deleting the app removes all of this. It does not remove the copies of your saves and save states in iCloud Drive (see below) nor the screenshots you added to Photos, and iOS may keep the pairing in the Keychain after the app is deleted: unpair your handhelds in the app first if you want it removed.</p>
 
         <h2>Pairing of your handhelds (iCloud Keychain)</h2>
-        <p>To pair, the app creates its own identity: an identifier and a private signing key. For each paired handheld, it keeps the identifier, name and model of the handheld, the name you gave it, the fingerprint of its certificate’s public key and its last address on your local network and the pairing date, and the name you chose to show on your handhelds.</p>
-        <p>All of this is kept in the iOS Keychain, readable only by ReminisLink and its share extension, and synced by <strong>iCloud Keychain</strong> to your other Apple devices signed in with the same Apple Account, so that they share one pairing. iCloud Keychain is Apple’s service, end-to-end encrypted, under your Apple account and Apple’s privacy policy. If iCloud Keychain is off, these items stay on this device. The developer never receives them.</p>
+        <p>To pair, the app creates its own identity: an identifier and a private signing key. It also keeps which identity new pairings use, and the name you chose to show on your handhelds. For each paired handheld, it keeps the identifier, name and model of the handheld, the name you gave it, the identity it was paired with, the fingerprint of its certificate’s public key, the address on your local network where it was reached when you paired, and the pairing date.</p>
+        <p>All of this is kept in the iOS Keychain, readable only by ReminisLink and its share extension, and synced by <strong>iCloud Keychain</strong> to your other Apple devices (iPhone, iPad, Mac) signed in with the same Apple Account, so that they share one pairing. iCloud Keychain is Apple’s service, end-to-end encrypted, under your Apple account and Apple’s privacy policy. If iCloud Keychain is off, these items stay on this device. The developer never receives them.</p>
         <p>Unpairing a handheld in the app removes the pairing from the handheld and from all these devices. The identity itself is kept, so that your other pairings keep working.</p>
+        <p>If the identity that new pairings use has still not arrived on a device 10 minutes after it was first missed there (its key may no longer exist anywhere), the app offers to reset the identity of this device: a new identity is created and used for new pairings. No identity is deleted, and the handhelds already paired keep working.</p>
 
-        <h2>Copies of your saves (iCloud Drive)</h2>
-        <p>ReminisLink can copy the saves of your handhelds (with their clock files) to your iPhone: with the <strong>Sync Saves</strong> button of a handheld, and automatically when it connects (you can turn this off in the settings of the app). Up to 10 versions of each save are kept. Next to the copies, small files record the identifier and name of the handheld, the identifier, name and system of the game, and for each version its number, the names, sizes and checksums of its files, the date of the copy and, when known, the date the save last changed on the handheld.</p>
-        <p>The copies go to <strong>your own iCloud Drive</strong>, in the ReminisLink folder of the Files app, where you can see, move or delete them. iCloud is Apple’s service, under your Apple account and Apple’s privacy policy: the developer has no server and never receives these copies. When iCloud Drive is not available to the app (not signed in, or iCloud Drive turned off for ReminisLink), the copies stay on your iPhone (Files &gt; On My iPhone &gt; ReminisLink), are not moved to iCloud Drive later, and are deleted with the app.</p>
+        <h2>Pairing refresh (iCloud key-value store)</h2>
+        <p>iCloud Keychain does not tell the app when another of your Apple devices changes a pairing. So when a device pairs, forgets or renames a handheld, creates or chooses an identity, or changes the name shown on your handhelds, it writes one value, <code>pairingsChanged</code>, to the iCloud key-value store of the app: a counter and a random token, with nothing about you, your devices or your handhelds, and no date. iCloud syncs it to your other Apple devices, which then read the Keychain again. The iCloud key-value store is Apple’s service, under your Apple account and Apple’s privacy policy: the developer never receives it.</p>
+
+        <h2>Copies of your saves and save states (iCloud Drive)</h2>
+        <p>ReminisLink can copy the saves (with their clock files) and the save states (with their thumbnails) of your handhelds to your device: with the <strong>Sync Saves</strong> button of a handheld, and automatically when it connects (you can turn this off in the settings of the app). Up to 10 versions of each save, and of each save state slot, are kept. Next to the copies, small files record the identifier and name of the handheld, the identifier, name and system of the game, and for each version its number (and the slot, for a save state), the names, sizes and checksums of its files, the date of the copy and, when known, the date the save or save state last changed on the handheld.</p>
+        <p>The copies go to <strong>your own iCloud Drive</strong>, in the ReminisLink folder of the Files app, where you can see, move or delete them. iCloud is Apple’s service, under your Apple account and Apple’s privacy policy: the developer has no server and never receives these copies. When iCloud Drive is not available to the app (not signed in, or iCloud Drive turned off for ReminisLink), the copies stay on this device (on an iPhone: Files &gt; On My iPhone &gt; ReminisLink), are not moved to iCloud Drive later, and are deleted with the app.</p>
+
+        <h2>On your Android device</h2>
+        <p>The Android app keeps everything in its private storage, which other apps cannot read:</p>
+        <ul>
+          <li><strong>Its identity</strong>: an identifier and a private signing key. The key is created in the Android Keystore, which never lets it out; where the Keystore cannot make this kind of key (Ed25519), the key is a random value kept encrypted (AES-256-GCM) by a key of the Android Keystore that cannot be exported.</li>
+          <li><strong>The paired handhelds</strong> (<code>consoles.json</code>): for each one, its identifier, name and model, the fingerprint of its certificate’s public key, the last address on your local network where it answered, and the pairing date; and the name you chose to show on your handhelds (by default the model of your device).</li>
+          <li><strong>Copies of the files you send</strong>, picked with the system file picker or shared from another app (games, saves, save states, patches, cheat files, apps for the handheld): copied into the app so that the transfer can resume, and deleted when the transfer or the installation ends or is abandoned. The app does not keep its transfer queue when the system closes it: copies left behind are deleted at the next launch at the latest.</li>
+          <li><strong>Files you download</strong> are written only into the document you create with the system’s save dialog. A download that fails or is cancelled deletes that document.</li>
+          <li><strong>A picture you choose for a game</strong> is reduced on the device, sent to the handheld, and not kept. Box art is not stored on the device.</li>
+          <li>A pairing link you scan, paste or open from another app, and the list of files shared from another app, are kept in memory only.</li>
+          <li><strong>The demo mode</strong> (Try Without a Console) works with a made-up handheld kept in memory: it never uses the network, puts nothing in the Keystore or in the list of handhelds, and keeps nothing once you quit it. Files you pick to try a feature are copied and deleted like for a real transfer; a download is written to the document you choose.</li>
+        </ul>
+        <p>The app opts out of Android backup and of device-to-device transfer: none of this goes to your Google account or to a new device. Each Android device therefore has its own identity and pairs with each handheld on its own. The Android app makes no copies of your saves and has no cloud sync. Uninstalling the app removes all of this, its Keystore keys included.</p>
 
         <h2>Between the app and your handheld</h2>
-        <p>ReminisLink talks only to handhelds on your local network, found with Bonjour, over HTTPS (encrypted). The app accepts only the certificate whose public-key fingerprint is in the QR code you scanned.</p>
+        <p>ReminisLink talks only to handhelds on your local network, found with Bonjour (mDNS), over HTTPS (encrypted). The app accepts only the certificate whose public-key fingerprint is in the QR code you scanned.</p>
         <ul>
-          <li><strong>Pairing.</strong> The QR code holds the identifier and name of the handheld, a one-time secret, its local address and port, and that fingerprint. The app looks for the handheld with Bonjour, or else connects to the address in the QR code. Two requests are not signed: the one that checks that the handheld is there and open for pairing, and the pairing request, which instead proves that the app scanned the QR code. The app then sends the name you chose (by default the model of the device, such as “iPhone”), the identifier and public key of the app, and the platform (Apple).</li>
-          <li><strong>After pairing</strong>, every other request is signed with the private key of the app, and carries the type of device (iPhone, iPad or Mac).</li>
-          <li><strong>The files you choose to send</strong>: games, saves, save states, patches, cheat files, game images and apps for the handheld.</li>
+          <li><strong>Pairing.</strong> The QR code holds the identifier and name of the handheld, a one-time secret, its local address and port, and that fingerprint. The app looks for the handheld with Bonjour, or else connects to the address in the QR code. Two requests are not signed: the one that checks that the handheld is there and open for pairing, and the pairing request, which instead proves that the app scanned the QR code. The app then sends the name you chose (by default the model of the device, such as “iPhone”), the identifier and public key of the app, and the platform (Apple or Android).</li>
+          <li><strong>After pairing</strong>, every other request is signed with the private key of the app. Requests carry the type of device (iPhone, iPad, Mac or Android).</li>
+          <li><strong>The files you choose to send</strong>: games, saves, save states, patches, cheat files, game images, game archives and apps for the handheld.</li>
         </ul>
 
         <h2>On the SD card of your handheld</h2>
+        <p>ReminisLink runs on NextUI (platforms <code>tg5040</code>, <code>tg5050</code>, <code>h700</code> and <code>my355</code>) and on Knulli (experimental).</p>
         <ul>
           <li><strong>The paired devices</strong> (<code>clients.json</code>): for each one, its identifier, name, platform, the types of device seen, its public key (which cannot be used to sign) and the date of pairing. You can remove a device in Settings &gt; Devices on the handheld.</li>
-          <li><strong>The log of ReminisLink</strong> (<code>/.userdata/tg5040/logs/</code>): what the handheld did, with for each request the time, the action, the result, the identifier of the device and its address on your local network, plus the names of devices when they pair and file names. Requests that are not signed or are rejected are only logged in samples. Never a key, a secret or a signature. At launch, a log larger than 5 MB is renamed, replacing the previous old log.</li>
-          <li><strong>Your files</strong>, where NextUI keeps them, and in the ReminisLink folder (<code>/.userdata/shared/ReminisLink/</code>): backup copies of saves, locked copies of save states, the trash (deleted or replaced files, purged at launch once they reach 30 days of counted age, or when you empty it), and temporary files of transfers (an upload left idle for 24 hours is deleted when the handheld next notices that it expired, or at the next launch of ReminisLink).</li>
+          <li><strong>The log of ReminisLink</strong> (<code>ReminisLink.txt</code>, in <code>/.userdata/&lt;platform&gt;/logs/</code> on NextUI, such as <code>/.userdata/tg5040/logs/</code>, and in <code>/userdata/system/logs/</code> on Knulli): what the handheld did, with for each request the time, the action, the result, the identifier of the device and its address on your local network, plus the names of devices when they pair and file names. Requests that are not signed or are rejected are only logged in samples. Never a key, a secret or a signature. At launch, a log larger than 5 MB is renamed <code>ReminisLink.old.txt</code>, replacing the previous old log. Next to it, <code>ReminisLink.stderr.txt</code> receives the error output of the program, if any.</li>
+          <li><strong>Your files</strong>, where the system of the handheld keeps them (screenshots included), and in the ReminisLink folder (<code>/.userdata/shared/ReminisLink/</code> on NextUI, <code>/userdata/system/ReminisLink/</code> on Knulli): backup copies of saves (including the save a restore or an archive import replaces), locked copies of save states, the trash, the staging area and temporary files of transfers.
+            <ul>
+              <li>The trash holds deleted or replaced files (games, saves, save states, screenshots, apps…), including the files an archive import replaces. You can restore them from the app; a file a restore would replace is first kept as a backup copy or moved to the trash. The trash is purged at launch once files reach 30 days of counted age, or when you empty it.</li>
+              <li>The staging area holds the files sent for a patch, a cheat import, an app installation or an archive import. An archive is deleted once it is imported or when you abandon the import; anything left is deleted at the next launch of ReminisLink once older than 24 hours.</li>
+              <li>An upload left idle for 24 hours is deleted when the handheld next notices that it expired, or at the next launch of ReminisLink.</li>
+            </ul>
+          </li>
           <li><strong>The certificate of the handheld</strong> and its private key.</li>
         </ul>
         <p>The SD card has no protection of its own: anyone holding it can read these files.</p>
 
         <h2>Permissions</h2>
+        <p>On iPhone, iPad and Mac:</p>
         <ul>
           <li><strong>Local network</strong>: to find your handheld and talk to it.</li>
-          <li><strong>Camera</strong>: only to scan the QR code shown by your handheld. No picture is taken or saved.</li>
+          <li><strong>Camera</strong>: only to scan the QR code shown by your handheld (on a Mac, its camera or Continuity Camera). No picture is taken or saved.</li>
+          <li><strong>Photos, add only</strong>: asked the first time you choose <strong>Save to Photos</strong> for screenshots of your handheld. It lets the app add pictures to your photo library, never read it.</li>
         </ul>
-        <p>The app does not ask for access to your photo library: when you choose a picture for a game, the iOS picker gives it only the picture you pick.</p>
+        <p>The app never reads your photo library: when you choose a picture for a game or a picture of the QR code, the iOS picker gives it only the picture you pick.</p>
+        <p>On Android:</p>
+        <ul>
+          <li><strong>Network access</strong> (granted at installation): to find your handheld with the system’s service discovery (NSD) and talk to it on your local network.</li>
+          <li><strong>Camera</strong>: only to scan the QR code shown by your handheld, decoded on the device. No picture is taken or saved. You can paste the pairing link instead.</li>
+          <li><strong>Notifications</strong> (Android 13 and later, asked when you send files): to show the progress of transfers, with the name of the file, while they run in the background. If you refuse, transfers still run.</li>
+          <li><strong>No storage permission</strong>: the app only reads the files you pick and writes the documents you create with the system dialogs.</li>
+        </ul>
 
         <h2>Children</h2>
         <p>ReminisLink collects no data from anyone, children included.</p>
