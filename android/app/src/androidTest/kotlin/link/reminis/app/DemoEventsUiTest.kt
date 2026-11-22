@@ -114,12 +114,16 @@ class DemoEventsUiTest {
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             waitFor("dashboard again") { hasTag("dashboard") }
             waitFor("stream open on the dashboard") { context.container.events.isLive(demo.deviceId) }
+            val beforeDisconnection = demo.pak.eventsRequests.get()
+            val disconnectedAt = System.nanoTime()
             demo.pak.disconnectClient()
             waitFor("disconnected shown") { hasText(context.getString(R.string.dashboard_disconnected)) }
-            // The stream ended, its probe answered, one reconnection got `401 disconnected`: then nothing.
-            val attempts = demo.pak.eventsRequests.get()
+            // Counted from the disconnection: the stream ended, its probe answered, exactly one
+            // reconnection (after the 1 s backoff of a live stream) got `401 disconnected`; then nothing.
             Thread.sleep(4_000)
-            assertEquals("GET /events sent again without the user", attempts, demo.pak.eventsRequests.get())
+            assertEquals("GET /events attempts since the disconnection", beforeDisconnection + 1, demo.pak.eventsRequests.get())
+            val delayMillis = (demo.pak.lastEventsRequestNanos.get() - disconnectedAt) / 1_000_000
+            assertTrue("reconnected after $delayMillis ms (backoff of 1 s expected)", delayMillis >= 900)
             assertEquals("POST /clients/me/connect sent without the user", 0, demo.pak.connectRequests.get())
             assertEquals(0, demo.pak.openStreams)
             assertTrue(demo.pak.isClientDisconnected)
@@ -220,6 +224,35 @@ class DemoIsolationUiTest {
 
             compose.onNodeWithTag("demoQuit").performClick()
             compose.waitUntil(10_000) { hasText("Fern Handheld") && !hasTag("demoBanner") }
+        }
+    }
+
+    @Test
+    fun aPairingLinkFromAnotherAppNeverPairsDuringTheDemo() {
+        InstrumentationHelper.onMain { context.container.startDemo() }
+        val link = link.reminis.core.PairingLink(
+            deviceId = "7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10",
+            deviceName = "Brick de test",
+            secret = ByteArray(32) { 1 },
+            endpoint = link.reminis.core.Endpoint("127.0.0.1", socket.localPort),
+            pin = link.reminis.core.Base64Url.encode(ByteArray(32) { 2 }),
+        ).toUri()
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link))
+            .setClass(context, MainActivity::class.java)
+        ActivityScenario.launch<MainActivity>(intent).use {
+            compose.waitUntil(10_000) { hasTag("demoPairCancel") }
+            // No pairing screen, no connection while the demo runs.
+            assertTrue(!hasTag("externalConfirm"))
+            Thread.sleep(4_000)
+            assertEquals(0, accepted.get())
+            // Quit the demo: the usual confirmation of a link from another app, still nothing sent.
+            compose.onNodeWithTag("demoPairQuit").performClick()
+            compose.waitUntil(10_000) { hasTag("externalConfirm") }
+            assertNull(context.container.demo.value)
+            assertEquals(0, accepted.get())
+            compose.onNodeWithTag("cancelPair").performClick()
+            compose.waitForIdle()
+            assertNull(context.container.consoles.get("7f3a9c2e-1b4d-4c55-9a51-2f0f9e7d3a10"))
         }
     }
 }

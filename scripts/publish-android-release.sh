@@ -61,13 +61,18 @@ if gh release view "$tag" >/dev/null 2>&1; then
 		echo "Release $tag already has a signed APK: refusing to replace it with a debug-signed one (configure the release key secrets and run again)." >&2
 		exit 1
 	fi
-	gh release edit "$tag" --notes-file "$notes" "${flags[@]}"
+	# In this order, so that an interruption never leaves notes that do not match the
+	# assets: the flags (never "Latest"), the new APK, the debug-signed one removed after a
+	# signed upload, and only then the notes (an interrupted run keeps the old notes, and the
+	# debug warning while the debug-signed APK is still there).
+	gh release edit "$tag" "${flags[@]}"
 	gh release upload "$tag" "$apk" --clobber
 	if [ "$signing" = signed ]; then
 		{ printf '%s\n' "$assets" | grep -- '-debug-signed\.apk$' || true; } | while IFS= read -r old; do
 			gh release delete-asset "$tag" "$old" --yes
 		done
 	fi
+	gh release edit "$tag" --notes-file "$notes"
 else
 	gh release create "$tag" "$apk" --verify-tag --title "ReminisLink for Android ${tag#android-v}" --notes-file "$notes" "${flags[@]}"
 fi

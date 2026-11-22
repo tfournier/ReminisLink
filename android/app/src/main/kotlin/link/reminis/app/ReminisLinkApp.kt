@@ -140,7 +140,7 @@ class AppContainer(context: Context) {
         quitDemo()
         // The real consoles are left alone while the demo runs (as on iOS): their transfers pause
         // and resume when the demo ends; discovery, probes and requests to them are off.
-        transfers.pauseAll()
+        transfers.holdForDemo { !isDemo(it) }
         val console = link.reminis.core.demo.DemoConsole(appContext.getString(R.string.demo_console_name)) { n ->
             appContext.getString(R.string.demo_cheat_name, n)
         }
@@ -157,7 +157,8 @@ class AppContainer(context: Context) {
         jobs.dropConsole(console.deviceId)
         pakInstaller.dropConsole(console.deviceId)
         console.close()
-        consoles.all().forEach { transfers.resumePaused(it.deviceId) }
+        // Exactly the transfers the demo paused, whatever their phase now; never one paused before it.
+        transfers.releaseDemoHold()
     }
 
     /** The name shown for a console: the demo's, or the stored one. */

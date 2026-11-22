@@ -617,6 +617,43 @@ class TransferTest {
     // MARK: review round 2
 
     @Test
+    fun demoReleasedBeforeTheChunkEndsLetsTheUploadGoOn() = withScope { scope ->
+        server.enqueue(created(chunk = 4))
+        server.enqueue(chunkStored(4).setHeadersDelay(800, java.util.concurrent.TimeUnit.MILLISECONDS))
+        server.enqueue(json("""{"gameId":"g"}"""))
+        val q = queue(scope)
+        val id = q.enqueueUpload(deviceId, file("abcd".toByteArray()), "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = false)
+        server.takeRequest()
+        server.takeRequest() // the chunk is out, its answer delayed
+        q.holdForDemo { true }
+        q.releaseDemoHold()
+        assertEquals("g", q.waitFor(id) { it.phase == TransferPhase.DONE || it.phase == TransferPhase.PAUSED }.result?.gameId)
+    }
+
+    @Test
+    fun theDemoResumesOnlyWhatItPaused() = withScope { scope ->
+        server.enqueue(created(chunk = 4))
+        repeat(5) { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)) }
+        val q = queue(scope)
+        // Paused before the demo (lost connection, or a console that closed ReminisLink).
+        val before = q.enqueueUpload(deviceId, file("abcd".toByteArray()), "a.gba", UploadTarget.Rom("s", "a.gba"), "P", ownsFile = false)
+        q.waitFor(before) { it.phase == TransferPhase.PAUSED }
+        val requests = server.requestCount
+        q.holdForDemo { true }
+        // Added during the demo: waits, nothing sent.
+        val during = q.enqueueUpload(deviceId, file("efgh".toByteArray()), "b.gba", UploadTarget.Rom("s", "b.gba"), "P", ownsFile = false)
+        kotlinx.coroutines.delay(300)
+        assertEquals(TransferPhase.PAUSED, q.item(during).phase)
+        assertEquals(requests, server.requestCount)
+        server.enqueue(created(id = "up_2", chunk = 4))
+        server.enqueue(chunkStored(4))
+        server.enqueue(json("""{"gameId":"g2"}"""))
+        q.releaseDemoHold()
+        assertEquals("g2", q.waitFor(during) { it.phase == TransferPhase.DONE }.result?.gameId)
+        assertEquals(TransferPhase.PAUSED, q.item(before).phase)
+    }
+
+    @Test
     fun pauseRightBeforeCompleteStopsIt() = withScope { scope ->
         val bytes = "abcd".toByteArray()
         server.enqueue(created(chunk = 4))

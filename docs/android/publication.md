@@ -172,8 +172,12 @@ Checklist:
      Collected, **not shared**: *Files and docs* (the files the user sends
      to the handheld) and *Device or other IDs* (the pairing identifier and
      client name). For each: processed ephemerally: No (stored on the
-     handheld); required (the app's only purpose is to manage the
-     handheld); purpose: *App functionality*. *Is all of the user data
+     handheld); purpose: *App functionality*. *Files and docs* is
+     **optional**: a user can pair, browse the library and download saves
+     without ever sending a file, and a file is sent only when the user
+     picks or shares it (Play's "users can choose whether this data is
+     collected"). *Device or other IDs* is **required**: pairing sends the
+     identifier and name, and nothing works without a pairing. *Is all of the user data
      collected by your app encrypted in transit?* Yes. *Do you provide a
      way for users to request that their data be deleted?* The data is on
      the user's own handheld, not with the developer: deleting files and

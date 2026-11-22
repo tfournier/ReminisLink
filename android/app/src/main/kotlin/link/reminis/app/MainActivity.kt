@@ -25,6 +25,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.navigation.compose.currentBackStackEntryAsState
 import link.reminis.app.ui.DemoBanner
 import androidx.compose.ui.platform.LocalContext
@@ -212,12 +215,43 @@ fun AppNavigation(
 ) {
     val nav = rememberNavController()
     val links = LocalContext.current.container.pendingLinks
+    val appContainer = LocalContext.current.container
+    // A link opened during the demo (M16): never paired from the demo; kept in memory only
+    // until the user quits the demo or declines.
+    var linkDuringDemo by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(incomingLink) {
         if (incomingLink != null) {
-            // From another app: the pairing screen asks before any network access.
-            nav.navigate(Routes.pair(links.put(incomingLink, external = true)))
+            if (appContainer.demo.value != null) {
+                linkDuringDemo = incomingLink
+            } else {
+                // From another app: the pairing screen asks before any network access.
+                nav.navigate(Routes.pair(links.put(incomingLink, external = true)))
+            }
             onLinkHandled()
         }
+    }
+    linkDuringDemo?.let { link ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { linkDuringDemo = null },
+            title = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.demo_pair_title)) },
+            text = { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.demo_pair_message)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        linkDuringDemo = null
+                        appContainer.quitDemo()
+                        nav.popBackStack(Routes.CONSOLES, inclusive = false)
+                        nav.navigate(Routes.pair(links.put(link, external = true)))
+                    },
+                    modifier = Modifier.testTag("demoPairQuit"),
+                ) { androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.demo_quit_description)) }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { linkDuringDemo = null }, modifier = Modifier.testTag("demoPairCancel")) {
+                    androidx.compose.material3.Text(androidx.compose.ui.res.stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
     LaunchedEffect(incomingShare) {
         if (incomingShare != null) {

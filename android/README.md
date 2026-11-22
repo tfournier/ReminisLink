@@ -29,6 +29,7 @@ android/scripts/pak-e2e.sh                          # against the real headless 
 cd android && ./gradlew connectedMinifiedAndroidTest -Preminislink.testBuildType=minified \
   -Pandroid.testInstrumentationRunnerArguments.class=link.reminis.app.ReleaseSmokeTest   # smoke test of the R8 build
 android/scripts/make-screenshots.sh                 # store screenshots, en-US and fr-FR (emulator running)
+android/scripts/release-smoke.sh                    # the release APK itself (R8 release rules), driven by adb (emulator running)
 ```
 
 The demo mode ("Try Without a Console") runs the whole app against a fake

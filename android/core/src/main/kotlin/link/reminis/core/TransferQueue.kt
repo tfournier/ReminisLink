@@ -209,6 +209,9 @@ class TransferQueue(
         /** pauseAll() came while a new conflict rule was being applied: it lands paused. */
         var pauseRequested = false
 
+        /** Paused because the demo mode started ([holdForDemo]): resumed when it ends, whatever its phase then. */
+        var heldByDemo = false
+
         /** The open document of a running download (closed by a cancel: it unblocks a stuck write). */
         var stream: OutputStream? = null
 
@@ -297,6 +300,11 @@ class TransferQueue(
 
     private fun add(entry: Entry): String {
         synchronized(lock) {
+            // Added for a real console while the demo runs (a file shared from another app): it waits for the end of the demo.
+            if (demoHolds?.invoke(entry.deviceId) == true) {
+                entry.heldByDemo = true
+                entry.phase = TransferPhase.PAUSED
+            }
             entries += entry
             publish()
             pump(entry.direction)
@@ -490,6 +498,58 @@ class TransferQueue(
      */
     fun pauseAll() = pauseWhere { true }
 
+    /** While the demo runs: which consoles it holds (every real one), null otherwise. */
+    private var demoHolds: ((String) -> Boolean)? = null
+
+    /**
+     * The demo mode starts (M16): the transfers of the consoles [holds]
+     * accepts pause (as [pauseAll]) and are marked, and the ones added for
+     * them meanwhile wait too. [releaseDemoHold] resumes exactly these,
+     * never a transfer paused for another reason before the demo.
+     */
+    fun holdForDemo(holds: (String) -> Boolean) {
+        synchronized(lock) {
+            demoHolds = holds
+            entries.filter { holds(it.deviceId) && !it.phase.isFinished && it.phase != TransferPhase.PAUSED && it.phase != TransferPhase.FAILED }
+                .forEach { it.heldByDemo = true }
+        }
+        pauseWhere { it.heldByDemo }
+    }
+
+    /**
+     * The demo mode ends: every transfer it paused goes on, whatever its
+     * phase now (still finishing its chunk, already paused, or a download
+     * still stopping: it resumes once it settles).
+     */
+    fun releaseDemoHold() {
+        val resumed = synchronized(lock) {
+            demoHolds = null
+            var any = false
+            for (entry in entries.filter { it.heldByDemo }) {
+                entry.pauseRequested = false
+                entry.pauseFlag.set(false)
+                if (entry.phase == TransferPhase.PAUSED) {
+                    entry.heldByDemo = false
+                    resumeLocked(entry)
+                    any = true
+                } else if (!entry.phase.isActive) {
+                    entry.heldByDemo = false
+                }
+                // Still running: [settledLocked] resumes it when it lands paused.
+            }
+            publish()
+            any
+        }
+        if (resumed) onActive()
+    }
+
+    /** A transfer just landed paused: one the demo held, and the demo is over, goes on at once. */
+    private fun settledLocked(entry: Entry) {
+        if (entry.phase != TransferPhase.PAUSED || !entry.heldByDemo || demoHolds != null) return
+        entry.heldByDemo = false
+        resumeLocked(entry)
+    }
+
     /**
      * The console closed ReminisLink (M11, `shutdown` on its event stream):
      * its transfers pause like [pauseAll]; they go on when the user opens
@@ -608,6 +668,7 @@ class TransferQueue(
                         entry.phase = TransferPhase.PAUSED
                         entry.isCompleting = false
                         entry.inFlightBytes = 0
+                        settledLocked(entry)
                         publish()
                     }
                 }
@@ -789,6 +850,7 @@ class TransferQueue(
             // (forgotten console, error), the file may be on the console.
             entry.failure = UploadFailure(UploadFailure.Reason.OUTCOME_UNKNOWN)
         }
+        settledLocked(entry)
     }
 
     private fun isBusyLocked(): Boolean = entries.any { it.phase.isActive || it.cleaning }

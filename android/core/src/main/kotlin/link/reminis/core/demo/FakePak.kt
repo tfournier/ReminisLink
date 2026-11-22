@@ -274,6 +274,14 @@ class FakePak(
     /** Tests: `GET /events` requests received (accepted or refused). */
     val eventsRequests = java.util.concurrent.atomic.AtomicInteger()
 
+    /** Tests: when the last `GET /events` arrived (System.nanoTime). */
+    val lastEventsRequestNanos = java.util.concurrent.atomic.AtomicLong()
+
+    private fun countEvents(): Int {
+        lastEventsRequestNanos.set(System.nanoTime())
+        return eventsRequests.incrementAndGet()
+    }
+
     /** Tests: `POST /clients/me/connect` requests received. */
     val connectRequests = java.util.concurrent.atomic.AtomicInteger()
 
@@ -294,7 +302,7 @@ class FakePak(
             isClientDisconnected = false
             empty(r)
         }
-        m == "GET" && s == listOf("events") && eventsRequests.incrementAndGet() < 0 -> error(r, 500, "internal", "unreachable")
+        m == "GET" && s == listOf("events") && countEvents() < 0 -> error(r, 500, "internal", "unreachable")
         isClientDisconnected -> error(r, 401, "disconnected", "Disconnected by the console")
         m == "GET" && s == listOf("device") && failNextDeviceWithDisconnected -> {
             failNextDeviceWithDisconnected = false

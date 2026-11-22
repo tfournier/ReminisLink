@@ -207,6 +207,11 @@ class PairingViewModel(app: Application, private val token: String) : AndroidVie
     /** The user confirmed (external link, or replacing an existing pairing), or retries after an error. */
     fun start() {
         val link = link ?: return
+        // The demo mode (M16) never reaches a real console: quit it first.
+        if (container.demo.value != null) {
+            _state.value = _state.value.copy(error = UserMessage(R.string.demo_pair_blocked))
+            return
+        }
         val id = attempts.begin() ?: return
         _state.value = _state.value.copy(step = PairingStep.SEARCHING, error = null)
         job = viewModelScope.launch {

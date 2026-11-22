@@ -499,4 +499,7 @@
     <string name="demo_quit_description">Quitter la démo</string>
     <string name="demo_try">Essayer sans console</string>
     <string name="demo_try_footer">Une console de démo avec des jeux inventés, pour essayer chaque fonction. Rien ne quitte ce téléphone ; seuls les fichiers que tu télécharges sont gardés.</string>
+    <string name="demo_pair_title">Quitter la démo pour appairer cette console ?</string>
+    <string name="demo_pair_message">Le mode démo ne se connecte jamais à une vraie console. Quitte-le pour continuer avec ce lien d’appairage.</string>
+    <string name="demo_pair_blocked">Quitte la démo pour appairer une console.</string>
 </resources>

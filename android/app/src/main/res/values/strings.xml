@@ -495,4 +495,7 @@
     <string name="demo_quit_description">Quit the Demo</string>
     <string name="demo_try">Try Without a Console</string>
     <string name="demo_try_footer">A demo console with made-up games, to try every feature. Nothing leaves this phone; only the files you download are kept.</string>
+    <string name="demo_pair_title">Quit the demo to pair this console?</string>
+    <string name="demo_pair_message">The demo mode never connects to a real console. Quit it to go on with this pairing link.</string>
+    <string name="demo_pair_blocked">Quit the demo to pair a console.</string>
 </resources>

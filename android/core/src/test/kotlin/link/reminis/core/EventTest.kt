@@ -368,9 +368,23 @@ class EventTest {
     }
 
     /** An error answer whose body stalls (headers sent, then a byte now and then). */
-    private fun stalledError() = MockResponse().setResponseCode(429).setHeader("Retry-After", "5")
-        .setBody("{\"error\":{\"code\":\"too_many_attempts\",\"message\":\"" + "x".repeat(200) + "\"}}")
+    private fun stalledError(status: Int = 429, code: String = "too_many_attempts") = MockResponse().setResponseCode(status).setHeader("Retry-After", "5")
+        .setBody("{\"error\":{\"code\":\"$code\",\"message\":\"" + "x".repeat(200) + "\"}}")
         .throttleBody(1, 1, java.util.concurrent.TimeUnit.SECONDS)
+
+    @Test
+    fun aStalled401IsBoundedInTimeToo() = runBlocking {
+        // The 401 body is read by the clock-skew check of signedResponse, before openEvents sees it.
+        server.enqueue(stalledError(401, "disconnected"))
+        val started = System.nanoTime()
+        try {
+            client().openEvents()
+            fail("stalled 401 accepted")
+        } catch (_: ApiException.Network) {
+        }
+        val seconds = (System.nanoTime() - started) / 1e9
+        assertTrue("took $seconds s", seconds < ApiClient.ERROR_BODY_TIMEOUT_MILLIS / 1000.0 + 3)
+    }
 
     @Test
     fun aStalledErrorBodyIsBoundedInTime() = runBlocking {

@@ -146,26 +146,12 @@ class ApiClient(
             }
         }
         try {
-            val response = signedResponse(onCall = { call.set(it) }, client = eventsHttp) {
+            // The error bodies have no read timeout on this client: every read of one (the 401 of
+            // signedResponse included) is bounded in time, and in size by serverError.
+            val response = signedResponse(onCall = { call.set(it) }, client = eventsHttp, errorTimeoutMillis = ERROR_BODY_TIMEOUT_MILLIS) {
                 request("GET", listOf("events"), signed = true, headers = mapOf("Accept" to "text/event-stream"))
             }
-            if (response.code != 200) {
-                // The error body has no read timeout on this client: a blocked read is ended by
-                // cancelling the call after ERROR_BODY_TIMEOUT_MILLIS (its size is bounded by serverError).
-                val late = java.util.concurrent.atomic.AtomicBoolean(false)
-                val timer = launch {
-                    delay(ERROR_BODY_TIMEOUT_MILLIS)
-                    late.set(true)
-                    call.get()?.cancel()
-                }
-                val error = try {
-                    serverError(response)
-                } finally {
-                    timer.cancel()
-                }
-                if (late.get()) throw ApiException.Network(IOException("error answer of GET /events not read in time"))
-                throw error
-            }
+            if (response.code != 200) throw boundedServerError(response, call.get(), ERROR_BODY_TIMEOUT_MILLIS)
             val body = response.body ?: run {
                 response.close()
                 throw ApiException.InvalidResponse("empty body")
@@ -446,14 +432,17 @@ class ApiClient(
     private suspend fun signedResponse(
         onCall: ((Call) -> Unit)? = null,
         client: OkHttpClient = http,
+        /** Bounds the read of an error body in time (a client without read timeout, `GET /events`). */
+        errorTimeoutMillis: Long? = null,
         build: () -> Request,
     ): Response {
         if (signer == null) throw ApiException.NotPaired()
         var retried = false
         while (true) {
-            val response = execute(build(), onCall, client)
+            var call: Call? = null
+            val response = execute(build(), { call = it; onCall?.invoke(it) }, client)
             if (response.code == 401 && !retried) {
-                val error = serverError(response)
+                val error = if (errorTimeoutMillis == null) serverError(response) else boundedServerError(response, call, errorTimeoutMillis)
                 if (error is ApiException.Server && error.code == ErrorCodes.CLOCK_SKEW) {
                     retried = true
                     hello()
@@ -545,6 +534,25 @@ class ApiClient(
         }
     }
 
+    /**
+     * [serverError] read within [timeoutMillis]: a blocked read is ended by
+     * cancelling [call]; then a network failure.
+     */
+    private suspend fun boundedServerError(response: Response, call: Call?, timeoutMillis: Long): ApiException = coroutineScope {
+        val late = java.util.concurrent.atomic.AtomicBoolean(false)
+        val timer = launch {
+            delay(timeoutMillis)
+            late.set(true)
+            call?.cancel()
+        }
+        val error = try {
+            serverError(response)
+        } finally {
+            timer.cancel()
+        }
+        if (late.get()) ApiException.Network(IOException("error answer not read in time")) else error
+    }
+
     private suspend fun serverError(response: Response): ApiException = response.use {
         val text = try {
             errorText(it).orEmpty()
@@ -634,7 +642,7 @@ private class ResponseEventSource(
     override fun cancel() {
         if (!cancelled.compareAndSet(false, true)) return
         call?.cancel()
-        runCatching { response.close() }
+        closeInBackground(response)
     }
 }
 
@@ -735,11 +743,19 @@ class FileRegionBody(
 
 private fun Throwable.causeChain(): Sequence<Throwable> = generateSequence(this) { it.cause }
 
+private val closer = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "okhttp-close").apply { isDaemon = true } }
+
+private fun closeInBackground(response: Response) {
+    closer.execute { runCatching { response.close() } }
+}
+
 /** Runs a call on OkHttp's dispatcher; cancelling the coroutine cancels the call. */
 internal suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     enqueue(object : Callback {
         override fun onResponse(call: Call, response: Response) {
-            continuation.resume(response) { _, value, _ -> value.close() }
+            // Cancelled meanwhile: the answer is closed off the caller's thread (closing a TLS
+            // socket writes to it, which Android forbids on the main thread).
+            continuation.resume(response) { _, value, _ -> closeInBackground(value) }
         }
 
         override fun onFailure(call: Call, e: IOException) {
