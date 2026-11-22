@@ -27,8 +27,7 @@ final class PairingUITests: XCTestCase {
         app.open(URL(string: Self.demoLink)!)
         try pairAndOpenConsole(app, deviceId: Self.demoDeviceId)
 
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
-            .waitForExistence(timeout: 10))
+        XCTAssertTrue(app.waitForDemoAddress(timeout: 10))
         attachScreenshot(app, "dashboard")
         GameDataUITest.openLibraryTab(app, timeout: 10)
         XCTAssertTrue(app.buttons["game.Thistledown Isles"].waitForExistence(timeout: 10))

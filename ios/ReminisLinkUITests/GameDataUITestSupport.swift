@@ -235,7 +235,8 @@ extension XCUIApplication {
 
     /// M23: opens a row of the dashboard (`console.trash`,
     /// `console.transfers`, `console.screenshots`): the Console tab, back
-    /// to its first screen, then the row (scrolled to).
+    /// to its first screen, then the row (scrolled to, either way: the
+    /// dashboard may have been scrolled down to its Console section).
     func openConsoleRow(_ identifier: String, file: StaticString = #filePath, line: UInt = #line) {
         consoleTabs["Console"].tapWhenEnabled(timeout: 10, file: file, line: line)
         let row = buttons[identifier].firstMatch
@@ -244,8 +245,36 @@ extension XCUIApplication {
             goBack()
             backs += 1
         }
+        // These rows are shown even offline: on the first screen, a missing
+        // one is above the part of the list shown.
+        var downs = 0
+        while !row.waitForExistence(timeout: 1) && downs < 4 {
+            swipeDown()
+            downs += 1
+        }
         XCTAssertTrue(GameDataUITest.scrollTo(row, in: self), "no \(identifier) row", file: file, line: line)
         row.tap()
+    }
+
+    /// The IP address of the demo console on its dashboard (the Console
+    /// tab): the console is connected and shown. M23: the Transfers, Trash
+    /// and Screenshots rows put the Console section below the fold on an
+    /// iPhone, where a row not shown yet does not exist: once the console
+    /// answered (its ReminisLink version is listed), the list is scrolled
+    /// up to the address.
+    func waitForDemoAddress(timeout: TimeInterval) -> Bool {
+        let address = descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS '192.168.1.42'")).firstMatch
+        let answered = staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'ReminisLink version'")).firstMatch
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if address.exists { return true }
+            if answered.exists {
+                swipeUp()
+            } else {
+                _ = answered.waitForExistence(timeout: 0.5)
+            }
+        }
+        return address.exists
     }
 
     /// M23: the Trash screen, from the Console tab.
