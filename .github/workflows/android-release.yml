@@ -1,0 +1,116 @@
+# Android app release (milestone M21): on a tag android-vX.Y.Z (or the
+# pre-release android-vX.Y.Z-beta.N / -rc.N), builds the release APK and
+# attaches it to a GitHub release that is never "Latest" (the NextUI Pak
+# Store reads the latest release, which stays the pak's; a suffix tag is a
+# pre-release). The tag filter "android-v*" is a glob anchored at the start:
+# pak tags (v*) and iOS tags (ios-*) never start this workflow, and android-v*
+# tags never start ci.yml (its filter is "v*"); checked by
+# scripts/test-release-scripts.sh.
+#
+# Signing (android/README.md, "Release"): with the four repository secrets
+# ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
+# ANDROID_KEY_PASSWORD, the APK is signed with the release key; without them
+# it is signed with a throwaway debug key and named and described as such.
+name: Android release
+
+on:
+  push:
+    tags: ["android-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tag and version
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          kind="$(scripts/android-release-kind.sh "$TAG")"
+          name="$(sed -n 's/^versionName=//p' android/version.properties)"
+          code="$(sed -n 's/^versionCode=//p' android/version.properties)"
+          [ "android-v$name" = "$TAG" ] || { echo "Tag $TAG does not match android/version.properties ($name): run make $TAG"; exit 1; }
+          [ "$(scripts/android-version-code.sh "$TAG")" = "$code" ] || { echo "versionCode $code is not the one of $TAG"; exit 1; }
+          for locale in en-US fr-FR; do
+            [ -s "android/fastlane/metadata/android/$locale/changelogs/$code.txt" ] || { echo "Missing changelog $locale/changelogs/$code.txt"; exit 1; }
+          done
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Android SDK platform 36
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0" > /dev/null
+
+      - name: Unit tests
+        run: make android-test
+
+      - name: Release key
+        id: key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            umask 077
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "signing=signed" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No release key in the repository secrets: the APK is signed with a debug key and labelled as such."
+            echo "signing=debug-signed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Release APK
+        env:
+          RL_ANDROID_KEYSTORE: ${{ steps.key.outputs.signing == 'signed' && format('{0}/upload.jks', runner.temp) || '' }}
+          RL_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RL_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          RL_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SIGNING: ${{ steps.key.outputs.signing }}
+          NAME: ${{ steps.version.outputs.name }}
+        run: |
+          if [ "$SIGNING" = signed ]; then
+            (cd android && ./gradlew --console=plain :app:assembleRelease)
+            out="dist/ReminisLink-android-$NAME.apk"
+          else
+            (cd android && ./gradlew --console=plain :app:assembleRelease -Preminislink.signWithDebugKey=true)
+            out="dist/ReminisLink-android-$NAME-debug-signed.apk"
+          fi
+          mkdir -p dist
+          cp android/app/build/outputs/apk/release/app-release.apk "$out"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$out" | grep -v -i "sha-1"
+          echo "APK=$out" >> "$GITHUB_ENV"
+          rm -f "$RUNNER_TEMP/upload.jks"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: reminislink-android-release
+          path: |
+            ${{ env.APK }}
+            android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          SIGNING: ${{ steps.key.outputs.signing }}
+        run: scripts/publish-android-release.sh "$TAG" "$APK" "$SIGNING"

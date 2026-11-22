@@ -1,9 +1,53 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Version (SemVer, CLAUDE.md rule 6): android/version.properties, written by
+// "make android-vX.Y.Z"; the release tag is android-v<versionName>. The
+// versionCode is derived from the versionName (same formula as
+// scripts/android-version-code.sh): a mismatch fails the build.
+val appVersion = Properties().apply {
+    rootProject.file("version.properties").inputStream().use { load(it) }
+}
+val appVersionName: String = appVersion.getProperty("versionName")
+val appVersionCode: Int = appVersion.getProperty("versionCode").toInt()
+
+fun versionCodeOf(name: String): Int {
+    val match = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?$""").matchEntire(name)
+        ?: throw GradleException("versionName $name is not X.Y.Z, X.Y.Z-beta.N or X.Y.Z-rc.N")
+    val (x, y, z, stage, n) = match.destructured
+    if (y.toInt() > 99 || z.toInt() > 99) throw GradleException("versionName $name: minor and patch go up to 99")
+    val suffix = when (stage) {
+        "" -> 99
+        "beta" -> n.toInt().takeIf { it in 1..49 } ?: throw GradleException("beta.N goes from 1 to 49")
+        else -> n.toInt().takeIf { it in 1..48 }?.let { 50 + it } ?: throw GradleException("rc.N goes from 1 to 48")
+    }
+    return x.toInt() * 1_000_000 + y.toInt() * 10_000 + z.toInt() * 100 + suffix
+}
+
+if (versionCodeOf(appVersionName) != appVersionCode) {
+    throw GradleException("version.properties: versionCode $appVersionCode does not match versionName $appVersionName (${versionCodeOf(appVersionName)})")
+}
+
+// Release signing (docs: android/README.md, "Release"): read from environment
+// variables or Gradle properties (~/.gradle/gradle.properties), never from
+// the repository. Without them the release APK is unsigned (F-Droid signs its
+// own build); -Preminislink.signWithDebugKey=true signs it with the debug key
+// for local tests and the CI artifact without secrets (labelled as such).
+fun secret(env: String, property: String): String? =
+    System.getenv(env)?.takeIf { it.isNotBlank() } ?: (findProperty(property) as String?)?.takeIf { it.isNotBlank() }
+
+val releaseKeystore = secret("RL_ANDROID_KEYSTORE", "reminislink.keystore")
+val releaseKeystorePassword = secret("RL_ANDROID_KEYSTORE_PASSWORD", "reminislink.keystorePassword")
+val releaseKeyAlias = secret("RL_ANDROID_KEY_ALIAS", "reminislink.keyAlias")
+val releaseKeyPassword = secret("RL_ANDROID_KEY_PASSWORD", "reminislink.keyPassword")
+val hasReleaseKey = listOf(releaseKeystore, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all { it != null }
+val signWithDebugKey = findProperty("reminislink.signWithDebugKey") == "true"
 
 android {
     namespace = "link.reminis.app"
@@ -15,16 +59,42 @@ android {
         applicationId = "link.reminis.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Integration test against a real pak (see docs/specs/10-app-android.md):
         // -Pandroid.testInstrumentationRunnerArguments.pairingLink=reminislink://pair?...
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = file(releaseKeystore!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8: shrinking and optimization; the libraries ship their own
+            // rules (kotlinx.serialization, OkHttp, coroutines), the app's
+            // are in proguard-rules.pro.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = when {
+                hasReleaseKey -> signingConfigs.getByName("release")
+                signWithDebugKey -> signingConfigs.getByName("debug")
+                else -> null
+            }
+            // Reproducible builds (F-Droid): no VCS information in the APK.
+            vcsInfo.include = false
         }
     }
 
