@@ -156,9 +156,13 @@ data class PakInstallRequest(val sdEntryId: String, val kind: PakInstallKind, va
 @Serializable
 data class RenamedFile(val from: String, val to: String)
 
-/** The game of a rename (`Game` of the contract: no system nor folder, unlike a game of `GET /games`). */
+/**
+ * `Game` of the contract: a game of a folder listing (`GET
+ * /systems/{systemId}/games`) or of a rename; no system nor folder, unlike
+ * a game of `GET /games`.
+ */
 @Serializable
-data class RenamedGame(
+data class GameSummary(
     val id: String,
     val name: String,
     val fileName: String,
@@ -167,13 +171,14 @@ data class RenamedGame(
     val modifiedAt: String = "",
     val hasSave: Boolean = false,
     val stateCount: Int = 0,
+    val lockedStateCount: Int = 0,
     val cheatCount: Int = 0,
     val hasArt: Boolean = false,
 )
 
 /** `200` of `POST /games/{gameId}/rename`: the game under its new identifier, and what was renamed. */
 @Serializable
-data class GameRenameResult(val game: RenamedGame, val renamed: List<RenamedFile> = emptyList())
+data class GameRenameResult(val game: GameSummary, val renamed: List<RenamedFile> = emptyList())
 
 /** One archived version of the resume state (`GET /games/{gameId}/resume-history`). */
 @Serializable

@@ -188,6 +188,7 @@ class FilesRenameTest {
                 """"hasSave":true,"stateCount":0,"lockedStateCount":0,"cheatCount":0,"hasArt":false},"renamed":[{"from":"a","to":"b"}]}""",
         )
         assertEquals("g2", result.game.id)
+        assertEquals(0, result.game.lockedStateCount)
         assertEquals(listOf(RenamedFile("a", "b")), result.renamed)
     }
 

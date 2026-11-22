@@ -368,7 +368,9 @@ class FakePak(
         m == "DELETE" && s == listOf("clients", "me") -> empty(r)
         m == "GET" && s == listOf("events") -> openStream(r)
         m == "GET" && s == listOf("systems") -> json(r, 200, systemsJson())
+        m == "GET" && s == listOf("games") && allGamesUnsupported -> error(r, 404, "not_found", "No route")
         m == "GET" && s == listOf("games") -> json(r, 200, allGames())
+        m == "GET" && s.size == 3 && s[0] == "systems" && s[2] == "games" -> systemGames(r, s[1])
         s.size >= 2 && s[0] == "games" -> gameRoute(r, m, s, body)
         m == "POST" && s == listOf("uploads") -> createUpload(r, body)
         s.size >= 2 && s[0] == "uploads" -> uploadRoute(r, m, s, body)
@@ -469,10 +471,41 @@ class FakePak(
         }
     }
 
+    /** Tests: `GET /games` answers `404 No route`, as a pak older than M11 (the app browses by system). */
+    @Volatile
+    var allGamesUnsupported = false
+
+    /** Tests: `GET /games` lists two games and says `truncated`, as a pak with more than 20 000 games. */
+    @Volatile
+    var libraryTruncated = false
+
     private fun allGames() = buildJsonObject {
-        put("games", JsonArray(systems.flatMap { s -> s.games.sortedBy { it.path.lowercase() }.map { summary(s, it) } }))
-        put("truncated", false)
+        val all = systems.flatMap { s -> s.games.sortedBy { it.path.lowercase() }.map { summary(s, it) } }
+        put("games", JsonArray(if (libraryTruncated) all.take(2) else all))
+        put("truncated", libraryTruncated)
         put("generatedAt", time(nowMillis()))
+    }
+
+    /** `GET /systems/{systemId}/games?folderId=`: the games of one folder of a system, and its subfolders. */
+    private fun systemGames(r: Request, systemId: String): Response {
+        val system = systems.firstOrNull { it.def.id == systemId } ?: return error(r, 404, "not_found", "System not found")
+        val folderId = r.url.queryParameter("folderId")
+        val folders = system.games.map { it.parent }.filter { it.isNotEmpty() }.flatMap { parent ->
+            parent.split('/').indices.map { i -> parent.split('/').take(i + 1).joinToString("/") }
+        }.toSet()
+        val folder = if (folderId == null) "" else folders.firstOrNull { DemoLibrary.id(system.def.folder + "/" + it) == folderId }
+            ?: return error(r, 404, "not_found", "Folder not found")
+        val children = folders.filter { sdParent(it) == folder }.sortedBy { it.lowercase() }
+        return json(r, 200, buildJsonObject {
+            put("folders", JsonArray(children.map { child ->
+                buildJsonObject {
+                    put("id", DemoLibrary.id(system.def.folder + "/" + child))
+                    put("name", child.substringAfterLast('/'))
+                    put("gameCount", system.games.count { it.parent == child || it.parent.startsWith("$child/") })
+                }
+            }))
+            put("games", JsonArray(system.games.filter { it.parent == folder }.sortedBy { it.path.lowercase() }.map { summary(system, it) }))
+        })
     }
 
     private fun fileId(role: String, slot: Int? = null) = Base64Url.encode((if (slot == null) role else "$role-$slot").toByteArray())

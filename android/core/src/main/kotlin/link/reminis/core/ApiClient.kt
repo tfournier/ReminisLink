@@ -204,6 +204,10 @@ class ApiClient(
     /** `GET /games` (M11): every game, in one flat list. */
     suspend fun allGames(): AllGames = signedJson("GET", listOf("games"))
 
+    /** `GET /systems/{systemId}/games`: the root of a system ([folderId] null), or one of its folders. */
+    suspend fun systemGames(systemId: String, folderId: String? = null): FolderListing =
+        signedJson("GET", listOf("systems", systemId, "games"), query = folderId?.let { listOf("folderId" to it) }.orEmpty())
+
     suspend fun game(id: String): GameDetail = signedJson("GET", listOf("games", id))
 
     // MARK: box art (M8)

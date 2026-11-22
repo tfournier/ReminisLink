@@ -307,10 +307,20 @@ enum class AddKind {
 
     /** `.sav`, `.srm`: replaces the save of a game. */
     SAVE,
+
+    /**
+     * M12: a zip installed as an app (pak), never suggested (most zips are
+     * games): the installation of the Apps screen (target `pak`, a job,
+     * asked before replacing a pak of the same name).
+     */
+    PAK,
     ;
 
     companion object {
         val saveExtensions = setOf("sav", "srm")
+
+        /** Only a zip may be sent as an app. */
+        fun canBePak(fileName: String): Boolean = fileExtension(fileName) == "zip"
 
         fun suggested(fileName: String): AddKind = if (fileExtension(fileName) in saveExtensions) SAVE else ROM
 
