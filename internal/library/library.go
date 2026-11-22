@@ -103,6 +103,8 @@ type GameDetail struct {
 	Kind       string     `json:"kind"`
 	Files      []GameFile `json:"files"`
 	TotalBytes int64      `json:"totalBytes"`
+	// CheatCount (M23): the cheats of its .cht file, as Game.CheatCount.
+	CheatCount int `json:"cheatCount"`
 }
 
 // timestamp is the API form of a date: UTC, whole seconds (RFC 3339).
@@ -332,6 +334,9 @@ func (l *Library) Game(gameID string) (GameDetail, error) {
 	for _, f := range files {
 		d.Files = append(d.Files, f.GameFile)
 		d.TotalBytes += f.SizeBytes
+		if f.Role == "cheats" {
+			d.CheatCount = countCheats(f.path)
+		}
 	}
 	return d, nil
 }

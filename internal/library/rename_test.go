@@ -98,6 +98,10 @@ func TestRenameGameNextUIFile(t *testing.T) {
 	if err != nil || !g.HasSave || g.StateCount == 0 || g.CheatCount == 0 || !g.HasArt {
 		t.Fatalf("summary %+v %v", g, err)
 	}
+	// M23: the game sheet gives the number of cheats too.
+	if d, err := l.Game(EncodeID(plan.New.Path)); err != nil || d.CheatCount != g.CheatCount {
+		t.Fatalf("detail cheatCount %d, summary %d (%v)", d.CheatCount, g.CheatCount, err)
+	}
 }
 
 func mustRel(t *testing.T, sd, p string) string {

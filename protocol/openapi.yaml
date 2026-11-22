@@ -3837,6 +3837,10 @@ components:
           type: array
           items: { $ref: '#/components/schemas/GameFile' }
         totalBytes: { $ref: '#/components/schemas/Bytes' }
+        cheatCount:
+          type: integer
+          minimum: 0
+          description: 'M23: the number of cheats of its `.cht` file (0 without one), as `Game.cheatCount`. Absent from an older pak.'
 
     DeletionItem:
       type: object
