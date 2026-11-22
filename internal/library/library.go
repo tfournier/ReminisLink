@@ -192,16 +192,16 @@ func (l *Library) ListGames(systemID, folderID string) (Listing, error) {
 		out.Folders = append(out.Folders, Folder{ID: EncodeID(f.Path), Name: f.Name, GameCount: f.GameCount})
 	}
 	for _, g := range listing.Games {
-		out.Games = append(out.Games, apiGame(g, locks))
+		out.Games = append(out.Games, l.apiGame(g, locks))
 	}
 	return out, nil
 }
 
 // apiGame is the API form of a listed game; locks come from lockedSlots.
-func apiGame(g osadapter.GameSummary, locks map[string]int) Game {
+func (l *Library) apiGame(g osadapter.GameSummary, locks map[string]int) Game {
 	cheatCount := 0
 	if g.CheatFile != "" {
-		cheatCount = countCheats(g.CheatFile)
+		cheatCount = l.cheatCount(g.System.Tag, g.CheatFile)
 	}
 	return Game{
 		ID:               EncodeID(g.Path),
@@ -335,7 +335,7 @@ func (l *Library) Game(gameID string) (GameDetail, error) {
 		d.Files = append(d.Files, f.GameFile)
 		d.TotalBytes += f.SizeBytes
 		if f.Role == "cheats" {
-			d.CheatCount = countCheatsConfined(f)
+			d.CheatCount = l.cheatCount(g.System.Tag, f.path)
 		}
 	}
 	return d, nil
@@ -503,7 +503,7 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 			if err := ctx.Err(); err != nil {
 				return AllGames{}, err
 			}
-			lg := LibraryGame{Game: apiGame(f.g, locks), SystemID: systemID}
+			lg := LibraryGame{Game: l.apiGame(f.g, locks), SystemID: systemID}
 			if sub, ok := strings.CutPrefix(f.folder, sys.Folder+"/"); ok {
 				id := EncodeID(f.folder)
 				lg.FolderID, lg.FolderPath = &id, &sub
@@ -517,25 +517,27 @@ func (l *Library) AllGames(ctx context.Context, limit int) (AllGames, error) {
 	return out, nil
 }
 
-// countCheatsConfined counts the cheats of the .cht of a game opened like
-// GET /games/{gameId}/files/{fileId}: under Cheats/ through os.Root, no
-// link at any component, inside Cheats/<TAG> (Codex review of M23). A
+// cheatCount is the one way the library counts the cheats of a game (the
+// listings, the game detail, the answer of a rename): the .cht is opened
+// like GET /games/{gameId}/files/{fileId}, under Cheats/ through os.Root,
+// no link at any component, inside Cheats/<TAG> (Codex review of M23). A
 // refused or unreadable file counts 0.
-func countCheatsConfined(f gameFile) int {
-	if _, err := confine.RelToRoot(f.within, f.path); err != nil {
+func (l *Library) cheatCount(tag, path string) int {
+	roots := l.adapter.Roots()
+	if _, err := confine.RelToRoot(filepath.Join(roots.Cheats, tag), path); err != nil {
 		return 0
 	}
-	file, _, err := confine.OpenUnder(f.root, f.path)
+	file, _, err := confine.OpenUnder(confine.Base(roots.SD, roots.Cheats), path)
 	if err != nil {
 		return 0
 	}
 	defer file.Close()
-	return cheats.CountReader(file)
+	return countCheats(file)
 }
 
-// countCheats counts the cheats of a .cht file (cheats.CountFile; counted
-// by tests).
-var countCheats = cheats.CountFile
+// countCheats counts the cheats of an opened .cht file
+// (cheats.CountReader; counted by tests).
+var countCheats = cheats.CountReader
 
 // errEnough stops a walk that found all it needs.
 var errEnough = errors.New("enough games")

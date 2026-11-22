@@ -144,6 +144,11 @@ func TestGameDetailCheatCountRefusesLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The listing and the summary of a rename count the same way (Codex
+	// review of M23, round 2).
+	if g, err := l.GameSummary(EncodeID("Game Boy Advance (GBA)/Starlight Courier.gba")); err != nil || g.CheatCount != 0 {
+		t.Fatalf("summary counted %d cheats through a link (%v)", g.CheatCount, err)
+	}
 	listed := false
 	for _, f := range d.Files {
 		listed = listed || f.Role == "cheats"

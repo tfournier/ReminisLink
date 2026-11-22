@@ -180,10 +180,10 @@ func TestAllGamesCancelledDuringCheatCounts(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
 	orig := countCheats
-	countCheats = func(p string) int {
+	countCheats = func(r io.Reader) int {
 		calls++
 		cancel()
-		return orig(p)
+		return orig(r)
 	}
 	t.Cleanup(func() { countCheats = orig })
 	if _, err := l.AllGames(ctx, MaxAllGames); !errors.Is(err, context.Canceled) || calls != 1 {
