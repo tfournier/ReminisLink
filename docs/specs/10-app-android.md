@@ -94,6 +94,7 @@ Pas encore : codes de triche, patchs, apps (paks), corbeille, mode démo, évén
 
 À FAIRE (M19, côté Android) : export et import des archives d'un jeu (`GET /games/{gameId}/archive`, `GET /archives/{stagingId}`, `POST /archives/{stagingId}/import`, tâche `archive-import`) et synchronisation des états (`GET /states`) avec celle des sauvegardes, comme l'app iOS (04, 06 §4.5 et §8).
 TODO(M18) : restauration depuis la corbeille (`GET`/`POST /trash/{entryId}/restore`, aperçu, conflit et nom libre, comme iOS 06) à ajouter avec l'écran Corbeille.
+TODO(M22) : écran Captures d'écran (`GET /screenshots`, aperçus `GET /screenshots/{screenshotId}/thumbnail`, téléchargement, partage et enregistrement dans la galerie ou un document choisi, sélection multiple, `POST /screenshots/trash`, événement `screenshots`), comme iOS 06 §11 bis.
 
 ## 7. Tests
 
