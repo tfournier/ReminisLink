@@ -126,7 +126,24 @@ class FakePak(
         class Backup(val game: GameState, val backup: BackupState) : Payload
         class State(val game: GameState, val slot: Int, val state: SlotState) : Payload
         class Art(val game: GameState, val art: Blob) : Payload
+        class Screenshots(val shots: List<ShotState>) : Payload
     }
+
+    /** A screenshot of the fake console (M22). */
+    private class ShotState(val name: String, val takenAt: Long, val gameName: String?, val sizeBytes: Long) {
+        val id: String get() = "sc_" + Base64Url.encode(name.toByteArray(Charsets.UTF_8))
+        val format: String
+            get() = when (name.substringAfterLast('.', "").lowercase()) {
+                "jpg", "jpeg" -> "jpeg"
+                "bmp" -> "bmp"
+                else -> "png"
+            }
+
+        fun renamed(name: String) = ShotState(name, takenAt, gameName, sizeBytes)
+    }
+
+    /** A job failed with this error (the `error` of the job). */
+    private class JobFailed(val code: String, message: String, val details: JsonObject? = null) : Exception(message)
 
     private class TrashItem(
         val id: String,
@@ -136,6 +153,7 @@ class FakePak(
         val files: List<String>,
         val sizeBytes: Long,
         val payload: Payload?,
+        val held: Boolean = false,
     )
 
     private class Upload(
@@ -157,6 +175,7 @@ class FakePak(
         var updatedAt: Long = createdAt,
         var result: JsonObject? = null,
         var cancelRequested: Boolean = false,
+        var error: JsonObject? = null,
         val finish: () -> JsonObject,
     )
 
@@ -173,6 +192,7 @@ class FakePak(
     private val trash = mutableListOf<TrashItem>()
     private val uploads = mutableMapOf<String, Upload>()
     private val staging = mutableMapOf<String, Pair<String, Blob>>()
+    private val screenshots = mutableListOf<ShotState>().apply { addAll(sampleScreenshots()) }
     private val jobs = mutableMapOf<String, JobState>()
     private val streams = mutableListOf<Pipe>()
     private var nextEventId = 1L
@@ -324,6 +344,8 @@ class FakePak(
         m == "GET" && s == listOf("trash") -> json(r, 200, trashJson())
         m == "DELETE" && s == listOf("trash") -> emptyTrash(r)
         s.size >= 2 && s[0] == "trash" -> trashRoute(r, m, s, body)
+        s.size >= 2 && s[0] == "archives" -> archiveRoute(r, m, s, body)
+        s.isNotEmpty() && s[0] == "screenshots" -> screenshotRoute(r, m, s, body)
         else -> error(r, 404, "not_found", "No route")
     }
 
@@ -466,6 +488,7 @@ class FakePak(
             rest.firstOrNull() == "states" -> stateRoute(r, m, system, game, rest.drop(1))
             rest.firstOrNull() == "cheats" -> cheatRoute(r, m, system, game, rest.drop(1), body)
             m == "POST" && rest == listOf("patch") -> patch(r, system, game, body)
+            m == "GET" && rest == listOf("archive") -> exportArchive(r, system, game)
             else -> error(r, 404, "not_found", "No route")
         }
     }
@@ -802,7 +825,7 @@ class FakePak(
         put("createdAt", time(job.createdAt))
         put("updatedAt", time(job.updatedAt))
         put("result", job.result ?: JsonNull)
-        put("error", JsonNull)
+        put("error", job.error ?: JsonNull)
         put("cancelRequested", job.cancelRequested)
     }
 
@@ -815,10 +838,17 @@ class FakePak(
                 job.cancelRequested -> job.state = "cancelled"
                 job.state == "queued" -> job.state = "running"
                 job.done + 1 < job.total -> job.done++
-                else -> {
-                    job.done = job.total
+                else -> try {
                     job.result = job.finish()
+                    job.done = job.total
                     job.state = "succeeded"
+                } catch (e: JobFailed) {
+                    job.state = "failed"
+                    job.error = buildJsonObject {
+                        put("code", e.code)
+                        put("message", e.message ?: "")
+                        e.details?.let { put("details", it) }
+                    }
                 }
             }
             emit("job", jobJson(job))
@@ -846,9 +876,12 @@ class FakePak(
         val target = request["target"] as? JsonObject ?: throw BadRequest("Missing target")
         val size = (request["sizeBytes"] as? JsonPrimitive)?.longOrNull ?: throw BadRequest("Missing sizeBytes")
         if (size < 0 || size > 4L shl 30) return error(r, 413, "too_large", "Too large")
+        // A game archive sent to the staging area keeps its bytes (up to 64 MiB), so it can be imported.
+        val archive = target.str("kind") == "staging" && link.reminis.core.GameArchiveManifest.isArchiveName(target.str("fileName"))
+        val keep = size <= MAX_KEPT_BYTES || (archive && size <= MAX_KEPT_ARCHIVE_BYTES)
         val upload = Upload(
             newId("up"), target, size, (request["onConflict"] as? JsonPrimitive)?.contentOrNull ?: "fail",
-            if (size <= MAX_KEPT_BYTES) java.io.ByteArrayOutputStream(size.toInt()) else null,
+            if (keep) java.io.ByteArrayOutputStream(size.toInt()) else null,
         )
         uploads[upload.id] = upload
         return json(r, 201, buildJsonObject {
@@ -940,7 +973,8 @@ class FakePak(
             }
             "staging" -> {
                 val id = newId("st")
-                staging[id] = t.str("fileName") to blob
+                val bytes = upload.data?.toByteArray()
+                staging[id] = t.str("fileName") to (if (bytes != null) Blob(bytes.size.toLong(), bytes, 0) else blob)
                 buildJsonObject { put("stagingId", id) }
             }
             "pak" -> {
@@ -1012,6 +1046,7 @@ class FakePak(
                 put("label", e.label)
                 put("files", JsonArray(e.files.map(::JsonPrimitive)))
                 put("sizeBytes", e.sizeBytes)
+                if (e.held) put("held", true)
                 put("expiresAt", time(e.trashedAt + 30L * 86_400_000))
             }
         }))
@@ -1036,11 +1071,19 @@ class FakePak(
         is Payload.Backup -> suffix.isEmpty() && payload.game.backups.any { it.id == payload.backup.id }
         is Payload.State -> suffix.isEmpty() && payload.game.slots.containsKey(payload.slot)
         is Payload.Art -> suffix.isEmpty() && payload.game.art != null
+        is Payload.Screenshots -> payload.shots.any { shot -> screenshotTaken(renamed(shot.name, suffix)) }
     }
 
     private fun freeNumber(payload: Payload?): Int? {
-        if (payload !is Payload.Game && payload !is Payload.Pak) return null
+        if (payload !is Payload.Game && payload !is Payload.Pak && payload !is Payload.Screenshots) return null
         return (2..99).firstOrNull { !taken(payload, " ($it)") }
+    }
+
+    /** [name] with [suffix] (` (n)`) before its extension. */
+    private fun renamed(name: String, suffix: String): String {
+        if (suffix.isEmpty()) return name
+        val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
+        return name.substring(0, dot) + suffix + name.substring(dot)
     }
 
     private fun renamed(name: String, number: Int?): String {
@@ -1128,6 +1171,10 @@ class FakePak(
                 payload.game.art = payload.art
                 library(null)
             }
+            is Payload.Screenshots -> {
+                screenshots += payload.shots.map { it.renamed(renamed(it.name, suffix)) }
+                emit("screenshots", JsonObject(emptyMap()))
+            }
             null -> Unit
         }
         trash.remove(entry)
@@ -1140,6 +1187,493 @@ class FakePak(
             put("replacedKeptAs", JsonNull)
         })
     }
+
+    // MARK: game archives (M19)
+
+    /** Whether the archive routes exist (false: a pak older than M19, `404 No route`). Tests. */
+    @Volatile
+    var archivesSupported = true
+
+    /** Staging entries held now (tests: an abandoned archive leaves the staging area). */
+    val stagedCount: Int get() = synchronized(lock) { staging.size }
+
+    /** Staging entries an import job uses: `DELETE` answers `409`. */
+    private val importing = mutableSetOf<String>()
+
+    private fun sha256(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    /** The bytes of a blob, at most [max] (a file whose content is not kept gives its generated bytes). */
+    private fun bytesOf(blob: Blob, max: Long = blob.size): ByteArray {
+        blob.bytes?.let { return if (it.size <= max) it else it.copyOf(max.toInt()) }
+        val buffer = Buffer()
+        val source = blob.source()
+        var left = minOf(max, blob.size)
+        while (left > 0) {
+            val n = source.read(buffer, left)
+            if (n < 0) break
+            left -= n
+        }
+        return buffer.readByteArray()
+    }
+
+    private fun thumbnailBytes(game: GameState, slot: Int) = DemoArtwork.png(160, 120, slot * 5 + game.name.length)
+
+    /** `GET /games/{gameId}/archive`: a real zip with the manifest of the contract (stored entries, manifest last). */
+    private fun exportArchive(r: Request, system: SystemState, game: GameState): Response {
+        val rom = when (r.url.queryParameter("rom")) {
+            null, "false" -> false
+            "true" -> true
+            else -> throw BadRequest("Invalid rom")
+        }
+        if (rom && game.kind != "file") return error(r, 422, "unsupported_format", "Only the ROM of a single-file game can be exported")
+        class Item(val role: String, val slot: Int?, val name: String, val data: ByteArray)
+        val items = mutableListOf<Item>()
+        if (rom) items += Item("rom", null, game.fileName, bytesOf(game.rom, MAX_ARCHIVE_ROM_BYTES.toLong()))
+        game.save?.let { items += Item("save", null, "${game.fileName}.sav", bytesOf(it)) }
+        for ((slot, state) in game.slots.toSortedMap()) {
+            items += Item("state", slot, "${game.fileName}.st$slot", bytesOf(state.state))
+            if (state.hasThumbnail) items += Item("state-thumbnail", slot, "thumbnail.png", thumbnailBytes(game, slot))
+        }
+        if (game.cheats.isNotEmpty()) items += Item("cheats", null, "${game.fileName}.cht", cheatFile(game))
+        game.art?.let { items += Item("art", null, "${game.name}.png", bytesOf(it)) }
+        if (items.isEmpty()) return error(r, 404, "not_found", "Nothing to export")
+        val entries = mutableListOf<Pair<String, ByteArray>>()
+        val files = items.map { item ->
+            val path = "${item.slot?.let { "states/$it" } ?: item.role}/${item.name}"
+            entries += path to item.data
+            link.reminis.core.GameArchiveFile(path, item.role, item.slot, item.data.size.toLong(), sha256(item.data))
+        }
+        val manifest = link.reminis.core.GameArchiveManifest(
+            createdAt = time(nowMillis()),
+            source = link.reminis.core.GameArchiveSource(
+                deviceName = deviceName, os = "nextui", platform = "tg5040", pakVersion = PAK_VERSION,
+                systemTag = system.def.tag, systemLabel = system.def.label, gameName = game.name,
+                fileName = game.fileName, romName = game.fileName, kind = game.kind,
+            ),
+            files = files,
+        )
+        entries += "manifest.json" to ProtocolJson.encodeToString(link.reminis.core.GameArchiveManifest.serializer(), manifest).toByteArray()
+        val zip = DemoZip.write(entries)
+        val name = link.reminis.core.GameArchiveManifest.exportName(game.name).replace("\"", "\\\"")
+        // Built as it is sent on the real pak: no Content-Length.
+        val body = object : ResponseBody() {
+            private val source = Buffer().write(zip)
+            override fun contentType() = "application/zip".toMediaType()
+            override fun contentLength() = -1L
+            override fun source() = source
+        }
+        return response(r, 200, body).newBuilder().header("Content-Disposition", "attachment; filename=\"$name\"").build()
+    }
+
+    private class StagedArchive(val manifest: link.reminis.core.GameArchiveManifest, val files: Map<String, ByteArray>)
+
+    /** The checked archive of a staging entry (manifest and files), null when it is not a valid game archive. */
+    private fun stagedArchive(stagingId: String): StagedArchive? {
+        val bytes = staging[stagingId]?.second?.bytes ?: return null
+        val entries = DemoZip.read(bytes) ?: return null
+        val json = entries["manifest.json"] ?: return null
+        val manifest = runCatching {
+            ProtocolJson.decodeFromString(link.reminis.core.GameArchiveManifest.serializer(), json.toString(Charsets.UTF_8))
+        }.getOrNull() ?: return null
+        if (manifest.format != link.reminis.core.GameArchiveManifest.FORMAT || manifest.version != 1) return null
+        val listed = entries.keys.filter { it != "manifest.json" && !it.startsWith("__MACOSX/") }.toSet()
+        if (listed != manifest.files.map { it.path }.toSet() || manifest.files.size != listed.size) return null
+        if (!manifest.files.all { f -> entries[f.path]?.let { sha256(it) == f.sha256 && it.size.toLong() == f.sizeBytes } == true }) return null
+        return StagedArchive(manifest, entries)
+    }
+
+    private sealed interface Resolved {
+        class Existing(val system: SystemState, val game: GameState) : Resolved
+        class NewGame(val system: SystemState, val fileName: String) : Resolved
+    }
+
+    /** Where [target] goes, or the error the pak answers. */
+    private fun resolve(target: link.reminis.core.ArchiveTarget, manifest: link.reminis.core.GameArchiveManifest): Pair<Resolved?, JobFailed?> =
+        when (target) {
+            is link.reminis.core.ArchiveTarget.Game -> {
+                val found = find(target.gameId)
+                if (found == null) null to JobFailed("not_found", "Game not found") else Resolved.Existing(found.first, found.second) to null
+            }
+            is link.reminis.core.ArchiveTarget.NewGame -> {
+                val system = systems.firstOrNull { it.def.id == target.systemId }
+                when {
+                    system == null -> null to JobFailed("not_found", "System not found")
+                    !manifest.hasRom -> null to JobFailed("unsupported_format", "The archive holds no ROM: choose a game as the target")
+                    else -> {
+                        val name = manifest.source.fileName
+                        val existing = system.games.firstOrNull { it.parent.isEmpty() && it.fileName.equals(name, ignoreCase = true) }
+                        if (existing != null) {
+                            null to JobFailed("conflict", "Target exists", buildJsonObject {
+                                put("existing", "Roms/${system.def.folder}/${existing.path}")
+                                put("gameId", gameId(system, existing))
+                            })
+                        } else {
+                            Resolved.NewGame(system, name) to null
+                        }
+                    }
+                }
+            }
+        }
+
+    private fun statusOf(code: String) = when (code) {
+        "not_found" -> 404
+        "conflict" -> 409
+        "unsupported_format" -> 422
+        else -> 500
+    }
+
+    private fun failure(r: Request, f: JobFailed) = error(r, statusOf(f.code), f.code, f.message ?: "", f.details)
+
+    private fun suggest(manifest: link.reminis.core.GameArchiveManifest): link.reminis.core.ArchiveTarget? {
+        val tagged = systems.filter { it.def.tag.equals(manifest.source.systemTag, ignoreCase = true) }
+        for (system in tagged) {
+            val game = system.games.firstOrNull { it.fileName.equals(manifest.source.romName, ignoreCase = true) }
+            if (game != null) return link.reminis.core.ArchiveTarget.Game(gameId(system, game))
+        }
+        return if (manifest.hasRom && tagged.isNotEmpty()) link.reminis.core.ArchiveTarget.NewGame(tagged.first().def.id) else null
+    }
+
+    /** What the import does with each file of the manifest (same order). */
+    private fun plan(manifest: link.reminis.core.GameArchiveManifest, resolved: Resolved): List<link.reminis.core.ArchivePlanEntry> {
+        val game = (resolved as? Resolved.Existing)?.game
+        fun entry(f: link.reminis.core.GameArchiveFile, exists: Boolean) =
+            link.reminis.core.ArchivePlanEntry(f.role, f.slot, f.sizeBytes, if (exists) "replace" else "create", null)
+        fun skip(f: link.reminis.core.GameArchiveFile, reason: String) =
+            link.reminis.core.ArchivePlanEntry(f.role, f.slot, f.sizeBytes, "skip", reason)
+        val stateOk = manifest.files.filter { it.role == "state" }.mapNotNull { it.slot }
+            .filter { game?.slots?.get(it)?.lockCopy == null }.toSet()
+        return manifest.files.map { f ->
+            when (f.role) {
+                "rom" -> if (game == null) entry(f, false) else skip(f, "game-exists")
+                "save" -> entry(f, game?.save != null)
+                "state" -> if ((f.slot ?: 0) in stateOk) entry(f, game?.slots?.containsKey(f.slot ?: 0) == true) else skip(f, "locked")
+                "state-thumbnail" -> if ((f.slot ?: 0) in stateOk) entry(f, game?.slots?.get(f.slot ?: 0)?.hasThumbnail == true) else skip(f, "no-state")
+                "cheats" -> entry(f, game?.cheats?.isNotEmpty() == true)
+                "art" -> entry(f, game?.art != null)
+                // No clock file on the demo console.
+                else -> skip(f, "unsupported-format")
+            }
+        }
+    }
+
+    private fun targetQuery(r: Request): link.reminis.core.ArchiveTarget? {
+        val gameId = r.url.queryParameter("gameId")
+        val systemId = r.url.queryParameter("systemId")
+        return when {
+            gameId != null && systemId != null -> throw BadRequest("Give either gameId or systemId")
+            gameId != null -> link.reminis.core.ArchiveTarget.Game(gameId)
+            systemId != null -> link.reminis.core.ArchiveTarget.NewGame(systemId, r.url.queryParameter("folderId"))
+            r.url.queryParameter("folderId") != null -> throw BadRequest("folderId needs systemId")
+            else -> null
+        }
+    }
+
+    private fun archiveRoute(r: Request, m: String, s: List<String>, body: ByteArray): Response {
+        if (!archivesSupported) return error(r, 404, "not_found", "No route")
+        val stagingId = s[1]
+        return when {
+            m == "GET" && s.size == 2 -> inspectArchive(r, stagingId)
+            m == "DELETE" && s.size == 2 -> when {
+                stagingId in importing -> error(r, 409, "conflict", "An import uses this archive")
+                staging.remove(stagingId) != null -> empty(r)
+                else -> error(r, 404, "not_found", "Staging file not found")
+            }
+            m == "POST" && s.size == 3 && s[2] == "import" -> importArchive(r, stagingId, body)
+            else -> error(r, 404, "not_found", "No route")
+        }
+    }
+
+    private fun inspectArchive(r: Request, stagingId: String): Response {
+        if (!staging.containsKey(stagingId)) return error(r, 404, "not_found", "Staging file not found")
+        val archive = stagedArchive(stagingId) ?: return error(r, 422, "unsupported_format", "Invalid game archive")
+        val given = targetQuery(r)
+        val target = given ?: suggest(archive.manifest)
+        var targetJson: JsonElement = JsonNull
+        var targetName: JsonElement = JsonNull
+        var entries = archive.manifest.files.map { link.reminis.core.ArchivePlanEntry(it.role, it.slot, it.sizeBytes, "skip", "no-target") }
+        if (target != null) {
+            val (resolved, failed) = resolve(target, archive.manifest)
+            if (failed != null && given != null) return failure(r, failed)
+            if (resolved != null) {
+                entries = plan(archive.manifest, resolved)
+                targetJson = ProtocolJson.encodeToJsonElement(link.reminis.core.ArchiveTargetJson.serializer(), target.toJson())
+                targetName = JsonPrimitive(
+                    when (resolved) {
+                        is Resolved.Existing -> resolved.game.name
+                        is Resolved.NewGame -> resolved.system.def.label
+                    },
+                )
+            }
+        }
+        return json(r, 200, buildJsonObject {
+            put("manifest", ProtocolJson.encodeToJsonElement(link.reminis.core.GameArchiveManifest.serializer(), archive.manifest))
+            put("target", targetJson)
+            put("targetName", targetName)
+            put("suggested", given == null)
+            put("entries", JsonArray(entries.map { e ->
+                buildJsonObject {
+                    put("role", e.role)
+                    put("slot", e.slot?.let(::JsonPrimitive) ?: JsonNull)
+                    put("sizeBytes", e.sizeBytes)
+                    put("action", e.action)
+                    put("reason", e.reason?.let(::JsonPrimitive) ?: JsonNull)
+                }
+            }))
+            put("importBytes", entries.filter { it.action != "skip" }.sumOf { it.sizeBytes })
+        })
+    }
+
+    private fun importArchive(r: Request, stagingId: String, body: ByteArray): Response {
+        val request = parse(body) ?: throw BadRequest("Invalid JSON")
+        val t = request["target"] as? JsonObject ?: throw BadRequest("Missing target")
+        val target = link.reminis.core.ArchiveTarget.from(
+            link.reminis.core.ArchiveTargetJson(
+                (t["gameId"] as? JsonPrimitive)?.contentOrNull,
+                (t["systemId"] as? JsonPrimitive)?.contentOrNull,
+                (t["folderId"] as? JsonPrimitive)?.contentOrNull,
+            ),
+        ) ?: throw BadRequest("Missing target")
+        if (!staging.containsKey(stagingId)) return error(r, 404, "not_found", "Staging file not found")
+        val archive = stagedArchive(stagingId) ?: return error(r, 422, "unsupported_format", "Invalid game archive")
+        resolve(target, archive.manifest).second?.let { return failure(r, it) }
+        importing += stagingId
+        val job = startJob("archive-import") {
+            try {
+                applyImport(stagingId, archive, target)
+            } finally {
+                importing -= stagingId
+            }
+        }
+        return json(r, 202, buildJsonObject { put("jobId", job.id) })
+    }
+
+    /** Imports the files of [archive] (under the lock, from the job's last step). */
+    private fun applyImport(stagingId: String, archive: StagedArchive, target: link.reminis.core.ArchiveTarget): JsonObject {
+        val (resolved, failed) = resolve(target, archive.manifest)
+        if (failed != null) throw failed
+        val (system, game) = when (resolved!!) {
+            is Resolved.Existing -> (resolved as Resolved.Existing).system to resolved.game
+            is Resolved.NewGame -> {
+                val created = resolved as Resolved.NewGame
+                val romFile = archive.manifest.files.first { it.role == "rom" }
+                val rom = Blob.of(archive.files.getValue(romFile.path))
+                val game = GameState(created.fileName, "file", rom, nowMillis(), null, nowMillis(), art = null)
+                created.system.games += game
+                created.system to game
+            }
+        }
+        val entries = plan(archive.manifest, resolved)
+        val thumbnails = archive.manifest.files.filter { it.role == "state-thumbnail" }.mapNotNull { it.slot }.toSet()
+        val replaced = mutableListOf<String>()
+        var replacedBytes = 0L
+        var backupId: JsonElement = JsonNull
+        var imported = 0
+        val skipped = mutableListOf<JsonObject>()
+        archive.manifest.files.zip(entries).forEach { (file, entry) ->
+            val bytes = archive.files[file.path]
+            if (entry.action == "skip" || bytes == null) {
+                skipped += buildJsonObject {
+                    put("role", file.role)
+                    file.slot?.let { put("slot", it) }
+                    put("reason", entry.reason ?: "unsupported-format")
+                }
+                return@forEach
+            }
+            imported++
+            if (entry.action == "replace") {
+                replaced += file.path.substringAfterLast('/')
+                replacedBytes += file.sizeBytes
+            }
+            when (file.role) {
+                "save" -> {
+                    game.save?.let { backupId = JsonPrimitive(addBackup(game, it, null, link.reminis.core.BackupReasons.BEFORE_IMPORT).id) }
+                    game.save = Blob.of(bytes)
+                    game.saveModifiedAt = nowMillis()
+                }
+                "state" -> {
+                    val slot = file.slot ?: 0
+                    game.slots[slot] = SlotState(Blob.of(bytes), nowMillis(), slot in thumbnails, null)
+                }
+                "cheats" -> {
+                    game.cheats = parseCheats(bytes.toString(Charsets.UTF_8)).toMutableList()
+                    game.cheatsRevision++
+                }
+                "art" -> game.art = Blob.of(bytes)
+                else -> Unit
+            }
+        }
+        var trashId: JsonElement = JsonNull
+        if (replaced.isNotEmpty()) {
+            val item = TrashItem(newId("tr"), nowMillis(), "import-archive", game.name, replaced, replacedBytes, null)
+            trash.add(0, item)
+            trashId = JsonPrimitive(item.id)
+        }
+        staging.remove(stagingId)
+        library(system)
+        return buildJsonObject {
+            put("gameId", gameId(system, game))
+            put("imported", imported)
+            put("skipped", JsonArray(skipped))
+            put("trashEntryId", trashId)
+            put("saveBackupId", backupId)
+        }
+    }
+
+    /** The cheats of a `.cht` file as the demo writes it (`cheatN_desc`, `cheatN_code`, `cheatN_enable`). */
+    private fun parseCheats(text: String): List<JsonObject> {
+        val values = mutableMapOf<Int, MutableMap<String, String>>()
+        val line = Regex("""^cheat(\d+)_(desc|code|enable)\s*=\s*"?(.*?)"?\s*$""")
+        for (raw in text.lines()) {
+            val match = line.matchEntire(raw.trim()) ?: continue
+            val (index, key, value) = match.destructured
+            values.getOrPut(index.toInt()) { mutableMapOf() }[key] = value
+        }
+        return values.toSortedMap().values.mapIndexed { i, v ->
+            buildJsonObject {
+                put("index", i)
+                put("description", v["desc"].orEmpty())
+                put("code", v["code"].orEmpty())
+                put("enabled", v["enable"] == "true")
+                put("extra", JsonObject(emptyMap()))
+            }
+        }
+    }
+
+    // MARK: screenshots (M22)
+
+    /** Whether `/screenshots` exists (false: a pak older than M22, `404`). Tests. */
+    @Volatile
+    var screenshotsSupported = true
+
+    /** The next `POST /screenshots/trash` moves its batch but answers `500` with `details.kept` (tests: a partial move). */
+    @Volatile
+    var failNextScreenshotTrash = false
+
+    /** The file names of the screenshots, newest first. Tests. */
+    val screenshotNames: List<String> get() = synchronized(lock) { sortedScreenshots().map { it.name } }
+
+    /** As if the console took a screenshot meanwhile (tests). */
+    fun addScreenshot(name: String, gameName: String? = null, takenAtMillis: Long = nowMillis()) = synchronized(lock) {
+        screenshots += ShotState(name, takenAtMillis, gameName, 1024)
+    }
+
+    /** As if another client moved screenshots to the trash (a `screenshots` event follows). Tests. */
+    fun trashScreenshotsFromAnotherClient(names: List<String>) = synchronized(lock) {
+        moveScreenshots(names.map { "sc_" + Base64Url.encode(it.toByteArray(Charsets.UTF_8)) })
+    }
+
+    /** NextUI names of the made-up games of the demo library, over three days, and one BMP (the same as iOS). */
+    private fun sampleScreenshots(): List<ShotState> {
+        fun shot(game: String?, name: String, minutesBefore: Double, size: Long = 182_000) =
+            ShotState(name, SCREENSHOT_BASE_MILLIS - (minutesBefore * 60_000).toLong(), game, size)
+        return listOf(
+            shot("Thistledown Isles", "Thistledown Isles.2026-11-21-18-30-00.png", 0.0),
+            shot("Thistledown Isles", "Thistledown Isles.2026-11-21-18-12-41.png", 17.3),
+            shot("Mosslight Maze 🌙", "Mosslight Maze 🌙.2026-11-21-09-05-12.png", 565.0),
+            shot("Quillwork Tactics", "Quillwork Tactics.2026-11-20-21-44-03.png", 1246.0),
+            shot("Orrery of Nine Tides", "Orrery of Nine Tides.2026-11-20-20-10-30.png", 1340.0),
+            shot("Cartographe Égaré", "Cartographe Égaré.2026-11-19-16-02-58.png", 3027.0),
+            shot("Brambleway Dash", "Brambleway Dash.2026-11-19-15-58-20.png", 3032.0),
+            shot(null, "capture-0042.bmp", 3100.0, 2_359_350),
+        )
+    }
+
+    private fun sortedScreenshots() = screenshots.sortedWith(compareByDescending<ShotState> { it.takenAt }.thenBy { it.name })
+
+    private fun screenshotTaken(name: String) = screenshots.any { it.name.equals(name, ignoreCase = true) }
+
+    /** Pictures drawn for the screenshots, by name and size (a few, small). */
+    private val drawnScreens = object : LinkedHashMap<String, ByteArray>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?) = size > 24
+    }
+
+    private fun screenshotRoute(r: Request, m: String, s: List<String>, body: ByteArray): Response {
+        if (!screenshotsSupported) return error(r, 404, "not_found", "No route")
+        return when {
+            m == "GET" && s.size == 1 -> json(r, 200, screenshotList())
+            m == "POST" && s == listOf("screenshots", "trash") -> {
+                val ids = (parse(body)?.get("screenshotIds") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                if (ids == null || ids.size !in 1..500) return error(r, 400, "invalid_request", "screenshotIds must hold 1 to 500 identifiers")
+                if (ids.any { !it.startsWith("sc_") || Base64Url.decode(it.removePrefix("sc_")) == null }) {
+                    return error(r, 400, "invalid_id", "Invalid identifier")
+                }
+                val unique = ids.distinct()
+                val missing = unique.filter { id -> screenshots.none { it.id == id } }
+                if (missing.isNotEmpty()) {
+                    return error(r, 404, "not_found", "Screenshot not found", buildJsonObject { put("missing", JsonArray(missing.map(::JsonPrimitive))) })
+                }
+                val moved = moveScreenshots(unique)
+                if (failNextScreenshotTrash) {
+                    failNextScreenshotTrash = false
+                    return error(r, 500, "internal", "Internal error", buildJsonObject {
+                        put("kept", JsonArray(unique.map(::JsonPrimitive)))
+                        put("held", 0)
+                        put("trashEntryId", moved.str("trashEntryId"))
+                    })
+                }
+                json(r, 200, moved)
+            }
+            m == "GET" && s.size == 2 -> screenshotContent(r, s[1], thumbnail = false)
+            m == "GET" && s.size == 3 && s[2] == "thumbnail" -> screenshotContent(r, s[1], thumbnail = true)
+            else -> error(r, 404, "not_found", "No route")
+        }
+    }
+
+    private fun screenshotList() = buildJsonObject {
+        val shots = sortedScreenshots()
+        put("screenshots", JsonArray(shots.map { shot ->
+            buildJsonObject {
+                put("screenshotId", shot.id)
+                put("name", shot.name)
+                put("takenAt", time(shot.takenAt))
+                put("sizeBytes", shot.sizeBytes)
+                put("format", shot.format)
+                put("gameName", shot.gameName?.let(::JsonPrimitive) ?: JsonNull)
+                put("hasThumbnail", shot.format != "bmp")
+                put("futureField", "ignored by the app")
+            }
+        }))
+        put("totalBytes", shots.sumOf { it.sizeBytes })
+        put("truncated", false)
+    }
+
+    private fun screenshotContent(r: Request, id: String, thumbnail: Boolean): Response {
+        val shot = screenshots.firstOrNull { it.id == id } ?: return if (!id.startsWith("sc_") || Base64Url.decode(id.removePrefix("sc_")) == null) {
+            error(r, 400, "invalid_id", "Invalid identifier")
+        } else {
+            error(r, 404, "not_found", "Screenshot not found")
+        }
+        if (thumbnail && shot.format == "bmp") return error(r, 404, "not_found", "Screenshot not found")
+        val seed = (shot.gameName ?: shot.name).hashCode() + (shot.takenAt / 1000 % 997).toInt()
+        val key = "${shot.name}#$thumbnail"
+        val png = drawnScreens.getOrPut(key) { if (thumbnail) DemoArtwork.png(320, 240, seed) else DemoArtwork.png(640, 480, seed) }
+        val response = stream(r, Blob.of(png), "image/png")
+        if (thumbnail) return response
+        val name = shot.name.replace("\"", "\\\"")
+        return response.newBuilder().header("Content-Disposition", "attachment; filename=\"$name\"").build()
+    }
+
+    /** Moves screenshots to the trash in one entry (lock held); the `screenshots` event follows. */
+    private fun moveScreenshots(ids: List<String>): JsonObject {
+        val moved = ids.mapNotNull { id -> screenshots.firstOrNull { it.id == id } }
+        if (moved.isEmpty()) return buildJsonObject { put("trashEntryId", ""); put("moved", JsonArray(emptyList())); put("movedBytes", 0) }
+        screenshots.removeAll(moved.toSet())
+        val files = moved.map { "Screenshots/${it.name}" }
+        val bytes = moved.sumOf { it.sizeBytes }
+        val item = TrashItem(
+            newId("tr"), nowMillis(), "delete-screenshot", if (moved.size == 1) moved[0].name else "${moved.size} screenshots",
+            files, bytes, Payload.Screenshots(moved),
+        )
+        trash.add(0, item)
+        emit("screenshots", JsonObject(emptyMap()))
+        return buildJsonObject {
+            put("trashEntryId", item.id)
+            put("moved", JsonArray(files.map(::JsonPrimitive)))
+            put("movedBytes", bytes)
+        }
+    }
+
 
     // MARK: events
 
@@ -1280,6 +1814,15 @@ class FakePak(
 
         /** Larger files keep their size only (served as generated bytes). */
         const val MAX_KEPT_BYTES = 8 shl 20
+
+        /** Largest game archive sent to the staging area whose bytes are kept (so it can be imported). */
+        const val MAX_KEPT_ARCHIVE_BYTES = 64L shl 20
+
+        /** The made-up ROM content an archive carries at most (a larger ROM is cut: it is invented anyway). */
+        const val MAX_ARCHIVE_ROM_BYTES = 1 shl 20
+
+        /** NextUI's name of a screenshot: `<game>.<YYYY-MM-DD-HH-MM-SS>.png`. */
+        private val SCREENSHOT_BASE_MILLIS = Instant.parse("2026-11-21T18:30:00Z").toEpochMilli()
         private const val BASE_MILLIS = 1_790_000_000_000L
         private val JSON = "application/json".toMediaType()
         private val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)

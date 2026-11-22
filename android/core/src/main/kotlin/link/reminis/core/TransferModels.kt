@@ -122,6 +122,9 @@ object BackupReasons {
     const val BEFORE_RESTORE = "before-restore"
     const val BEFORE_DELETE = "before-delete"
     const val BEFORE_PATCH = "before-patch"
+
+    /** M19: the save before the import of a game archive. */
+    const val BEFORE_IMPORT = "before-import"
 }
 
 /** A backup copy of a save, on the console. */
@@ -238,6 +241,9 @@ data class ArtGame(val id: String, val name: String, val hasArt: Boolean = false
 sealed interface DownloadSource {
     val segments: List<String>
 
+    /** The query of the request (canonical form, signed as sent). */
+    val query: List<Pair<String, String>> get() = emptyList()
+
     /** `GET /games/{gameId}/files/{fileId}` (M11). */
     data class GameFile(val gameId: String, val fileId: String) : DownloadSource {
         override val segments get() = listOf("games", gameId, "files", fileId)
@@ -257,7 +263,25 @@ sealed interface DownloadSource {
     data class State(val gameId: String, val slot: Int) : DownloadSource {
         override val segments get() = listOf("games", gameId, "states", slot.toString())
     }
+
+    /**
+     * M19: `GET /games/{gameId}/archive`, the game's data as a zip built as
+     * it is sent (no `Content-Length`); [rom]: the ROM too (single-file
+     * games only, else `422 unsupported_format`).
+     */
+    data class GameArchive(val gameId: String, val rom: Boolean) : DownloadSource {
+        override val segments get() = listOf("games", gameId, "archive")
+        override val query get() = if (rom) listOf("rom" to "true") else emptyList()
+    }
+
+    /** M22: `GET /screenshots/{screenshotId}`, the whole image. */
+    data class Screenshot(val screenshotId: String) : DownloadSource {
+        override val segments get() = listOf("screenshots", screenshotId)
+    }
 }
+
+/** A download stopped at its size limit (announced by `Content-Length`, or reached while reading). */
+class DownloadLimitExceededException(val limit: Long) : java.io.IOException("download larger than $limit bytes")
 
 /** What a file added from the app is (docs/specs/06-app-ios.md §4.6), for this increment. */
 enum class AddKind {

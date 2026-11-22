@@ -17,6 +17,9 @@ data class JobAccepted(val jobId: String)
 object JobKinds {
     const val PATCH = "patch"
     const val PAK_INSTALL = "pak-install"
+
+    /** M19: `POST /archives/{stagingId}/import`. */
+    const val ARCHIVE_IMPORT = "archive-import"
 }
 
 /** States of a job (`Job.state`). */

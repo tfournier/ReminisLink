@@ -352,6 +352,89 @@ class ApiClient(
     suspend fun deleteGame(gameId: String, keepSave: Boolean): TrashMoveResult =
         signedJson("DELETE", listOf("games", gameId), query = listOf("keepSave" to keepSave.toString()))
 
+    // MARK: game archives (M19)
+
+    /**
+     * `GET /archives/{stagingId}`: checks an uploaded archive and says what
+     * its import into [target] would do (null: the pak suggests a target).
+     */
+    suspend fun inspectArchive(stagingId: String, target: ArchiveTarget?): ArchivePlan =
+        signedJson("GET", listOf("archives", stagingId), query = target?.query.orEmpty())
+
+    /** `DELETE /archives/{stagingId}`: the app abandons an import; the archive leaves the staging area at once. */
+    suspend fun deleteStagedArchive(stagingId: String) = signedEmpty("DELETE", listOf("archives", stagingId))
+
+    /** `POST /archives/{stagingId}/import`: queues an `archive-import` job. */
+    suspend fun importArchive(stagingId: String, target: ArchiveTarget): JobAccepted = signedJson(
+        "POST", listOf("archives", stagingId, "import"),
+        body = ProtocolJson.encodeToString(ArchiveImportRequest(target.toJson())).toRequestBody(JSON), accept = 202,
+    )
+
+    /**
+     * Whether the pak has the archive routes (M19), asked before an archive
+     * is sent: a well-formed staging id that does not exist gets `404
+     * not_found` from an M19 pak, and `404 No such route` or `405` from an
+     * older one (as iOS `supportsGameArchives`).
+     */
+    suspend fun supportsGameArchives(): Boolean {
+        val response = signedResponse { request("GET", listOf("archives", PROBE_STAGING_ID), signed = true) }
+        return when (response.code) {
+            200 -> {
+                response.close()
+                true
+            }
+            405 -> {
+                response.close()
+                false
+            }
+            404 -> when (val error = serverError(response)) {
+                is ApiException.Server -> !error.serverMessage.contains("route", ignoreCase = true)
+                else -> true
+            }
+            else -> throw serverError(response)
+        }
+    }
+
+    // MARK: screenshots (M22)
+
+    /** `GET /screenshots`: the screenshots of the console, newest first; `404` on a pak older than M22. */
+    suspend fun screenshots(): ScreenshotList = signedJson("GET", listOf("screenshots"))
+
+    /**
+     * `GET /screenshots/{id}/thumbnail`: the JPEG preview, null when the pak
+     * makes none (`404`: a BMP, too large, unreadable, or gone meanwhile).
+     * A preview larger than [maxBytes] is not read (an invalid response).
+     */
+    suspend fun screenshotThumbnail(id: String, maxBytes: Long = MAX_SCREENSHOT_THUMBNAIL_BYTES): ByteArray? {
+        val response = signedResponse { request("GET", listOf("screenshots", id, "thumbnail"), signed = true) }
+        return response.use {
+            if (it.code == 404) return null
+            if (it.code != 200) throw serverError(it)
+            val body = it.body ?: return null
+            if (body.contentLength() > maxBytes) throw ApiException.InvalidResponse("screenshot preview too large")
+            withContext(Dispatchers.IO) {
+                val source = body.source()
+                try {
+                    if (source.request(maxBytes + 1)) throw ApiException.InvalidResponse("screenshot preview too large")
+                    source.readByteArray()
+                } catch (e: IOException) {
+                    throw ApiException.Network(e)
+                }
+            }
+        }
+    }
+
+    /**
+     * `POST /screenshots/trash`: 1 to 500 screenshots go to the trash in one
+     * entry (reason `delete-screenshot`), all or nothing (`404` with
+     * `details.missing`); a failure after some moves is `500` with
+     * `details.kept`, `details.held` and `details.trashEntryId`.
+     */
+    suspend fun trashScreenshots(ids: List<String>): TrashMoveResult = signedJson(
+        "POST", listOf("screenshots", "trash"),
+        body = ProtocolJson.encodeToString(ScreenshotTrashRequest(ids)).toRequestBody(JSON),
+    )
+
     // MARK: downloads
 
     /**
@@ -364,14 +447,18 @@ class ApiClient(
     suspend fun download(
         source: DownloadSource,
         out: java.io.OutputStream,
+        /** At most this many bytes are written ([DownloadLimitExceededException]: more announced or received). */
+        maxBytes: Long? = null,
         onProgress: (Long, Long?) -> Unit = { _, _ -> },
     ): Long {
         var call: Call? = null
-        val response = signedResponse(onCall = { call = it }) { request("GET", source.segments, signed = true) }
+        val response = signedResponse(onCall = { call = it }) { request("GET", source.segments, source.query, signed = true) }
         return response.use {
             if (it.code != 200) throw serverError(it)
             val body = it.body ?: throw ApiException.InvalidResponse("empty body")
             val total = body.contentLength().takeIf { n -> n >= 0 }
+            // Larger than allowed: refused before any byte of the body is read.
+            if (maxBytes != null && total != null && total > maxBytes) throw DownloadLimitExceededException(maxBytes)
             coroutineScope {
                 // A read blocked on a stalled connection must end as soon as the
                 // coroutine is cancelled: this child is cancelled at once with its
@@ -385,7 +472,7 @@ class ApiClient(
                     }
                 }
                 try {
-                    readBody(body, out, total, onProgress)
+                    readBody(body, out, total, maxBytes, onProgress)
                 } finally {
                     finished.set(true)
                     watcher.cancel()
@@ -398,6 +485,7 @@ class ApiClient(
         body: okhttp3.ResponseBody,
         out: java.io.OutputStream,
         total: Long?,
+        maxBytes: Long?,
         onProgress: (Long, Long?) -> Unit,
     ): Long = withContext(Dispatchers.IO) {
         val input = body.byteStream()
@@ -413,6 +501,8 @@ class ApiClient(
                 throw ApiException.Network(e)
             }
             if (n < 0) break
+            // A chunk that would pass the limit is never written.
+            if (maxBytes != null && written + n > maxBytes) throw DownloadLimitExceededException(maxBytes)
             out.write(buffer, 0, n)
             written += n
             onProgress(written, total)
@@ -583,6 +673,12 @@ class ApiClient(
 
         /** Larger saves go through `POST /uploads` (target `save`). */
         const val MAX_SAVE_BODY_BYTES = 64L shl 20
+
+        /** M19: a well-formed staging id that no pak holds, asked to tell an M19 pak from an older one. */
+        const val PROBE_STAGING_ID = "st_19700101T000000Z_00000000"
+
+        /** M22: the largest screenshot preview read (the pak makes JPEGs of 320 × 320 px at most). */
+        const val MAX_SCREENSHOT_THUMBNAIL_BYTES = 2L shl 20
 
         /** An error answer is a small JSON envelope: a larger body is not read. */
         const val MAX_ERROR_BODY_BYTES = 64L * 1024
