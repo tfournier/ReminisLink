@@ -217,7 +217,7 @@ But : une seule app, un seul binaire, sur iPhone, iPad et Mac à puce Apple (mê
 
 ## Plan après la v1.0.0 (décidé le 21/11/2026)
 
-Ordre : M17, M15, M18, M19, M20, M21. M22 (captures d'écran) proposé le 21/11/2026, après M18 à M20. Puis v1.5 (interface web), puis v2.0.
+Ordre : M17, M15, M18, M19, M20, M21. M22 (captures d'écran) proposé le 21/11/2026, après M18 à M20 ; M23 (navigation, fichiers de la carte, renommage d'un jeu) proposé le 22/11/2026, après M22. Puis v1.5 (interface web), puis v2.0.
 
 ## M18 — Restaurer depuis la corbeille
 
@@ -261,6 +261,16 @@ Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{e
 - App : un écran « Captures d'écran » (grille de vignettes, partage et enregistrement dans Photos ou Fichiers, sélection multiple pour télécharger ou supprimer), mode démo compris ; plus tard sur Android.
 
 **Fait quand** : les captures prises sur la console s'affichent dans l'app, se téléchargent et se suppriment (vers la corbeille), tests et smoke compris. Ordre : après M18 à M20, qui touchent les mêmes couches (contrat, serveur, app).
+
+## M23 — Navigation et fichiers de la carte SD (proposé par la personne le 22/11/2026)
+
+- **Barre d'onglets** : retirer Transferts et Corbeille de la barre d'onglets (accessibles depuis l'onglet Console, par exemple), et y mettre **Apps** et **Fichiers** (navigateur de la carte SD). Mise en page universelle (barre du haut ou barre latérale sur iPad et Mac).
+- **Fichiers** : le navigateur de la carte SD (aujourd'hui en lecture seule) permet d'**ajouter** un fichier dans un dossier et de **supprimer** un fichier ou un dossier (vers la corbeille, règle 1). Contrat d'abord ; dossiers protégés (`.userdata`, dossier de ReminisLink, système) refusés ; chemins par identifiants opaques uniquement (règle 2).
+- **Renommer un jeu** : renomme la ROM et tous ses fichiers liés (save, `.rtc`, états et vignettes, codes de triche, jaquette, playlist d'un jeu dossier) en une opération journalisée, sans jamais écraser un fichier existant ; règles de nommage de chaque OS (NextUI, Knulli).
+- **Fiche d'un jeu** : le nombre de codes de triche au lieu de « Oui ».
+- Android suit.
+
+**Fait quand** : la nouvelle navigation, l'ajout et la suppression de fichiers et le renommage d'un jeu fonctionnent depuis l'app, tests et smoke compris. Ordre : après M22.
 
 ## v1.5 — Interface web
 
