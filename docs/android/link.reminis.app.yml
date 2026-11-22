@@ -24,6 +24,8 @@ Builds:
   - versionName: 0.1.0
     versionCode: 10099
     commit: android-v0.1.0
+    # The store listing is android/app/fastlane: fdroidserver only reads a
+    # nested fastlane folder whose parent is this subdir.
     subdir: android/app
     gradle:
       - yes

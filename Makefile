@@ -276,7 +276,7 @@ android-v%: FORCE ## Release the Android app (make android-v1.2.3, or -beta.N / 
 	[ -z "$$($(GIT) status --porcelain)" ] || { echo "The working tree has uncommitted changes"; exit 1; }; \
 	if $(GIT) rev-parse -q --verify "refs/tags/$$V" >/dev/null; then echo "Tag $$V already exists"; exit 1; fi; \
 	for locale in en-US fr-FR; do \
-		[ -s "android/fastlane/metadata/android/$$locale/changelogs/$$code.txt" ] || { echo "Write android/fastlane/metadata/android/$$locale/changelogs/$$code.txt first (the notes of $$X)"; exit 1; }; \
+		[ -s "android/app/fastlane/metadata/android/$$locale/changelogs/$$code.txt" ] || { echo "Write android/app/fastlane/metadata/android/$$locale/changelogs/$$code.txt first (the notes of $$X)"; exit 1; }; \
 	done; \
 	sed -e "s/^versionName=.*/versionName=$$X/" -e "s/^versionCode=.*/versionCode=$$code/" android/version.properties > android/version.properties.tmp && mv android/version.properties.tmp android/version.properties; \
 	if ! $(GIT) diff --quiet -- android/version.properties; then $(GIT) commit -q -m "Release Android app $$X" -- android/version.properties; fi; \

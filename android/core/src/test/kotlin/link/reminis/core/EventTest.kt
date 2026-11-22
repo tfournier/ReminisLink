@@ -7,6 +7,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
@@ -364,6 +365,37 @@ class EventTest {
         } catch (_: ApiException.IdentityChanged) {
         }
         assertEquals(before, server.requestCount)
+    }
+
+    /** An error answer whose body stalls (headers sent, then a byte now and then). */
+    private fun stalledError() = MockResponse().setResponseCode(429).setHeader("Retry-After", "5")
+        .setBody("{\"error\":{\"code\":\"too_many_attempts\",\"message\":\"" + "x".repeat(200) + "\"}}")
+        .throttleBody(1, 1, java.util.concurrent.TimeUnit.SECONDS)
+
+    @Test
+    fun aStalledErrorBodyIsBoundedInTime() = runBlocking {
+        server.enqueue(stalledError())
+        val started = System.nanoTime()
+        try {
+            client().openEvents()
+            fail("stalled error accepted")
+        } catch (_: ApiException.Network) {
+        }
+        val seconds = (System.nanoTime() - started) / 1e9
+        assertTrue("took $seconds s", seconds < ApiClient.ERROR_BODY_TIMEOUT_MILLIS / 1000.0 + 3)
+    }
+
+    @Test
+    fun cancellingTheOpeningClosesAStalledErrorAtOnce() = runBlocking {
+        server.enqueue(stalledError())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val job = scope.launch { runCatching { client().openEvents() } }
+        delay(800)
+        val started = System.nanoTime()
+        job.cancel()
+        withTimeout(2_000) { job.join() }
+        assertTrue((System.nanoTime() - started) / 1e9 < 2)
+        scope.cancel()
     }
 
     @Test

@@ -25,7 +25,7 @@ import org.junit.runner.RunWith
  * android/scripts/make-screenshots.sh (instrumentation argument
  * `screenshots=true`), once per locale. The PNG files go to the app's
  * private files (`files/screenshots/`), from where the script copies them
- * into android/fastlane/metadata/android/<locale>/images/phoneScreenshots/.
+ * into android/app/fastlane/metadata/android/<locale>/images/phoneScreenshots/.
  */
 @RunWith(AndroidJUnit4::class)
 class ScreenshotsTest {

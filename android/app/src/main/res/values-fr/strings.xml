@@ -494,9 +494,9 @@
     <string name="demo_cheat_name">Code de démo %1$d</string>
     <string name="demo_mode">Mode démo</string>
     <string name="demo_banner_title">Mode démo</string>
-    <string name="demo_banner_message">Console et jeux inventés. Rien n’est envoyé ni gardé.</string>
+    <string name="demo_banner_message">Console et jeux inventés : rien ne quitte ce téléphone, seuls les fichiers que tu télécharges sont gardés.</string>
     <string name="demo_quit">Quitter</string>
     <string name="demo_quit_description">Quitter la démo</string>
     <string name="demo_try">Essayer sans console</string>
-    <string name="demo_try_footer">Une console de démo avec des jeux inventés, pour essayer chaque fonction. Rien n’est envoyé ni gardé.</string>
+    <string name="demo_try_footer">Une console de démo avec des jeux inventés, pour essayer chaque fonction. Rien ne quitte ce téléphone ; seuls les fichiers que tu télécharges sont gardés.</string>
 </resources>

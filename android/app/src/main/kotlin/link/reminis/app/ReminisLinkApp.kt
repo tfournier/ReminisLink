@@ -138,6 +138,9 @@ class AppContainer(context: Context) {
     /** Starts a new demo session (a previous one ends first) and returns its console. */
     fun startDemo(): link.reminis.core.demo.DemoConsole {
         quitDemo()
+        // The real consoles are left alone while the demo runs (as on iOS): their transfers pause
+        // and resume when the demo ends; discovery, probes and requests to them are off.
+        transfers.pauseAll()
         val console = link.reminis.core.demo.DemoConsole(appContext.getString(R.string.demo_console_name)) { n ->
             appContext.getString(R.string.demo_cheat_name, n)
         }
@@ -154,6 +157,7 @@ class AppContainer(context: Context) {
         jobs.dropConsole(console.deviceId)
         pakInstaller.dropConsole(console.deviceId)
         console.close()
+        consoles.all().forEach { transfers.resumePaused(it.deviceId) }
     }
 
     /** The name shown for a console: the demo's, or the stored one. */
@@ -251,7 +255,11 @@ class AppContainer(context: Context) {
      * each candidate is tried with the same pin.
      */
     suspend fun client(deviceId: String, refresh: Boolean = false): ApiClient = lock.withLock {
-        _demo.value?.let { if (it.deviceId == deviceId) return it.client }
+        _demo.value?.let {
+            if (it.deviceId == deviceId) return it.client
+            // The demo mode never reaches a real console (its paused transfers wait for the end of the demo).
+            throw ApiException.Network(java.io.IOException("demo mode: real consoles are not contacted"))
+        }
         if (!refresh) clients[deviceId]?.let { return it }
         val console = consoles.get(deviceId) ?: throw ApiException.NotPaired()
         val identity = withContext(Dispatchers.IO) { identityStore.identity() }
@@ -286,6 +294,8 @@ class AppContainer(context: Context) {
      * address finishing late never overwrites the newer one.
      */
     suspend fun validates(deviceId: String, endpoint: Endpoint): Boolean {
+        // No probe of a real console during the demo, and no address written.
+        if (_demo.value != null) return false
         val console = consoles.get(deviceId) ?: return false
         val probe = probes.next(deviceId)
         return try {
@@ -332,12 +342,13 @@ class AppContainer(context: Context) {
             quitDemo()
             return
         }
-        scope.launch { events.dropConsole(deviceId) }
         synchronized(pairingLock) {
             consoles.remove(deviceId)
             clients.remove(deviceId)
             jobs.dropConsole(deviceId)
         }
+        // Only now: the stream is re-evaluated without a pairing, so none can start again.
+        scope.launch { events.dropConsole(deviceId) }
         transfers.dropConsole(deviceId)
         pakInstaller.dropConsole(deviceId)
     }

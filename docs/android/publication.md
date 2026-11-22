@@ -63,7 +63,7 @@ strong passwords, kept in a password manager). Then:
 ## 2. GitHub release
 
 1. Write the notes of the version, English and French:
-   `android/fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`
+   `android/app/fastlane/metadata/android/en-US/changelogs/<versionCode>.txt`
    and `fr-FR/...` (500 characters at most; `scripts/android-version-code.sh X.Y.Z`
    prints the versionCode).
 2. `make android-vX.Y.Z` (or `android-vX.Y.Z-beta.N`) on `main`: writes
@@ -83,7 +83,10 @@ the developer-signed APK when its build is identical (reproducible builds).
    merge request ("New app: ReminisLink"). The F-Droid CI runs `fdroid lint`
    and a test build.
 2. The listing (title, descriptions, changelogs, icon, screenshots) is read
-   from `android/fastlane/metadata/android/` at each tag: nothing to copy.
+   from `android/app/fastlane/metadata/android/` at each tag: nothing to copy.
+   fdroidserver takes a fastlane folder outside the repository root only
+   when its parent is the recipe's `subdir` (`android/app`): keep both in
+   step if the module moves.
 3. New versions are found by the tag pattern `android-vX.Y.Z` (pre-release
    tags are ignored) and `android/version.properties`.
 
@@ -129,7 +132,7 @@ Checklist:
    `android/app/build/outputs/bundle/release/app-release.aab`. Start with the
    internal testing track.
 3. **Store listing**: title, short and full description from
-   `android/fastlane/metadata/android/<locale>/` (English and French; Play
+   `android/app/fastlane/metadata/android/<locale>/` (English and French; Play
    shows `<b>`, `<i>` and line breaks, not `<p>`/`<ul>`: paste the text and
    replace the list items with "• " lines), icon `images/icon.png` (512 x
    512), screenshots `images/phoneScreenshots/` (made from the demo mode by
@@ -141,13 +144,52 @@ Checklist:
    today describe the iPhone app only): the key in the Android Keystore,
    the pairings and transfers kept on the phone, no backup (`allowBackup`
    off), camera for the QR code, the notification of transfers.
-5. **Data safety**: *Does your app collect or share any of the required user
-   data types?* **No**. Data is not collected (nothing leaves the device but
-   to the user's own handheld on the local network, which Play does not
-   count as collection: "data transferred to ... a device the user controls"
-   is not collection) and not shared. *Is all data encrypted in transit?*
-   Yes (TLS pinned to the handheld's certificate). *Can users request
-   deletion?* Not applicable (no data collected); say so.
+5. **Data safety**. Read the current definitions first: *Provide information
+   for Google Play's Data safety section*,
+   <https://support.google.com/googleplay/android-developer/answer/10787469>
+   (sections "Data collection" and "Data sharing", with their lists of
+   exceptions). There is **no general exemption** for data sent to a device
+   the user owns: Google defines *collection* as transmitting data from the
+   app off the user's device, and then lists narrow cases that need not be
+   disclosed (for example data processed only ephemerally); check whether
+   one of them, as worded on the day of the submission, really applies.
+
+   What leaves the phone, and where it goes:
+
+   | Data | Where | Kept there | Developer or third party? |
+   |---|---|---|---|
+   | Files the user picks or shares (games, saves, states, cheats, patches, box art, pak archives) | the user's own handheld, on the local network, TLS pinned to its certificate | yes, on its SD card (that is the point) | never |
+   | Pairing: a random client id (UUID), the public key, the client name (device model by default, editable), the platform (`android`) | the handheld | yes, in its list of devices | never |
+   | Signed requests (time, nonce) | the handheld | the nonce for a few minutes (replay protection) | never |
+
+   Nothing goes to the developer, to Google or to any other service, and the
+   app has no analytics, crash reporting or advertising SDK.
+
+   Two honest answer sets:
+
+   - **Cautious (recommended unless an exception clearly applies)**: *Does
+     your app collect or share any of the required user data types?* Yes.
+     Collected, **not shared**: *Files and docs* (the files the user sends
+     to the handheld) and *Device or other IDs* (the pairing identifier and
+     client name). For each: processed ephemerally: No (stored on the
+     handheld); required (the app's only purpose is to manage the
+     handheld); purpose: *App functionality*. *Is all of the user data
+     collected by your app encrypted in transit?* Yes. *Do you provide a
+     way for users to request that their data be deleted?* The data is on
+     the user's own handheld, not with the developer: deleting files and
+     forgetting the phone are done on the handheld or from the app (trash,
+     Forget, Settings > Devices on the handheld); answer according to the
+     form's wording and explain this in the privacy policy.
+   - **"No data collected"**: only if, after reading the page above, the
+     owner concludes that transfers to a device the user controls, never
+     reaching the developer or a third party, fall outside Google's
+     definition or one of its listed exceptions. Say so in the privacy
+     policy in the same words. If in doubt, take the cautious set:
+     declaring more than needed is not a policy violation, declaring less is.
+
+   Either way, *shared*: No (no data goes to a third party; a transfer the
+   user starts to their own device is not sharing by Google's definition of
+   a third party, but check the "Data sharing" exceptions too).
 6. **Content rating** (IARC questionnaire): category "Utility, productivity,
    communication or other"; no violence, sexuality, gambling, user-generated
    content shared with others, location sharing or purchases: rating
@@ -162,7 +204,7 @@ Checklist:
    > ReminisLink tool. To review without the hardware, tap "Try Without a
    > Console" on the first screen: a simulated console lets you try every
    > screen (library, saves, states, cheats, patches, apps, transfers, trash)
-   > with made-up games. Nothing is sent or kept; "Quit" in its banner
+   > with made-up games. Nothing leaves the phone; "Quit" in its banner
    > returns to the first screen. Pairing with a real handheld (QR code)
    > needs the device. No account or login is needed.
 

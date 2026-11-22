@@ -39,7 +39,7 @@ L’app se rafraîchit seule quand la carte SD change, affiche la batterie en di
 </ul>
 
 <p><b>Essaie d’abord</b><br>
-« Essayer sans console » ouvre une console de démo avec des jeux inventés, pour essayer chaque écran. Rien n’est envoyé ni gardé.</p>
+« Essayer sans console » ouvre une console de démo avec des jeux inventés, pour essayer chaque écran. Rien ne quitte le téléphone.</p>
 
 <p><b>Consoles compatibles</b><br>
 TrimUI Brick sous NextUI. En test, avec appel aux testeurs : TrimUI Smart Pro S, consoles Anbernic H700 et Miyoo Flip sous NextUI, et les consoles sous Knulli.</p>

@@ -145,6 +145,31 @@ class ConsoleEvents(
 
     fun isLive(deviceId: String): Boolean = deviceId in _live.value
 
+    /** Bumped when a console closes ReminisLink or disconnects this phone (main thread). */
+    private val epochs = mutableMapOf<String, Int>()
+
+    /**
+     * The connection epoch of [deviceId]: a read started in one epoch must
+     * not publish nor resume transfers in another (the console closed
+     * ReminisLink or disconnected this phone meanwhile), like the catch-up
+     * generation of `ConsoleSession+Events.swift`.
+     */
+    fun epoch(deviceId: String): Int = epochs[deviceId] ?: 0
+
+    private fun nextEpoch(deviceId: String) {
+        epochs[deviceId] = epoch(deviceId) + 1
+    }
+
+    /**
+     * A request of a screen got `503 shutting_down`: the console closed
+     * ReminisLink, as `shutdown` on the stream would say.
+     */
+    fun closedSeenByRequest(deviceId: String) {
+        if (deviceId in closedConsoles) return
+        session?.takeIf { it.deviceId == deviceId }?.let { stopSession() }
+        markClosed(deviceId)
+    }
+
     /** Tests only: the stream of the console shown, if any. */
     @androidx.annotation.VisibleForTesting
     val streamForTests: EventStream? get() = session?.stream
@@ -192,6 +217,7 @@ class ConsoleEvents(
 
     /** A request of a screen got `401 disconnected`: the console disconnected this phone. */
     fun disconnectedByConsole(deviceId: String) {
+        if (deviceId !in _disconnected.value) nextEpoch(deviceId)
         _disconnected.update { it + deviceId }
         update()
     }
@@ -341,6 +367,7 @@ class ConsoleEvents(
                 EventStream.Decision.STOP
             }
             server?.code == ErrorCodes.DISCONNECTED -> {
+                nextEpoch(s.deviceId)
                 _disconnected.update { it + s.deviceId }
                 _changes.tryEmit(ConsoleChange.Lost(s.deviceId, error))
                 stopLater(s)
@@ -375,9 +402,14 @@ class ConsoleEvents(
     }
 
     private fun consoleClosed(s: Session) {
-        val id = s.deviceId
-        closedConsoles += id
         stopLater(s)
+        markClosed(s.deviceId)
+    }
+
+    private fun markClosed(id: String) {
+        closedConsoles += id
+        // Reads in flight (the catch-up after `hello`) publish nothing and resume nothing.
+        nextEpoch(id)
         onClosed(id)
         _closed.value = ClosedNotice(id, consoleName(id))
     }

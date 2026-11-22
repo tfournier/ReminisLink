@@ -75,6 +75,8 @@ class ConsolesViewModel(app: Application) : AndroidViewModel(app) {
      * pinned certificate, and goes Offline when its service disappears.
      */
     fun startBrowsing() {
+        // The demo mode (M16) never looks for nor probes the real consoles.
+        if (container.demo.value != null) return
         if (browsing?.isActive == true) return
         browsing = viewModelScope.launch {
             runCatching {
@@ -333,6 +335,7 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
      */
     fun refresh(reconnect: Boolean = false, explicit: Boolean = false, quiet: Boolean = false) {
         val current = ++generation
+        val epoch = container.events.epoch(deviceId)
         if (!quiet || _status.value !is Load.Loaded) _status.value = Load.Loading
         viewModelScope.launch {
             val result = try {
@@ -346,11 +349,24 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
                 Load.Failed(e)
             }
             if (current != generation) return@launch
+            // The console closed ReminisLink or disconnected this phone while this read was out:
+            // its answer is stale, and the transfers paused since stay paused.
+            if (epoch != container.events.epoch(deviceId)) return@launch
+            // Seen first, even by a quiet read: the console disconnected this phone, or closed ReminisLink.
+            when ((result as? Load.Failed)?.error.let { it as? ApiException.Server }?.code) {
+                link.reminis.core.ErrorCodes.DISCONNECTED -> {
+                    _status.value = result
+                    container.events.disconnectedByConsole(deviceId)
+                    return@launch
+                }
+                link.reminis.core.ErrorCodes.SHUTTING_DOWN -> {
+                    _status.value = result
+                    container.events.closedSeenByRequest(deviceId)
+                    return@launch
+                }
+            }
             if (quiet && result is Load.Failed && _status.value is Load.Loaded) return@launch
             _status.value = result
-            if (result is Load.Failed && (result.error as? ApiException.Server)?.code == link.reminis.core.ErrorCodes.DISCONNECTED) {
-                container.events.disconnectedByConsole(deviceId)
-            }
             // The console answers again: the transfers paused by a lost connection (or by the console closing) go on.
             if (result is Load.Loaded) container.transfers.resumePaused(deviceId)
         }
@@ -359,7 +375,9 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
     private suspend fun read(refresh: Boolean, explicit: Boolean): DeviceStatus {
         val client = container.client(deviceId, refresh = refresh)
         return try {
-            client.device()
+            // An action of the user that the console answers: no longer disconnected (the console may
+            // have lifted it itself, or the 401 was a single answer), the stream may open again.
+            client.device().also { if (explicit) container.events.reconnected(deviceId) }
         } catch (e: ApiException.Server) {
             if (e.code != link.reminis.core.ErrorCodes.DISCONNECTED || !explicit) throw e
             client.connectClient()

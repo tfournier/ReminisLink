@@ -271,13 +271,35 @@ class FakePak(
         streams.clear()
     }
 
+    /** Tests: `GET /events` requests received (accepted or refused). */
+    val eventsRequests = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Tests: `POST /clients/me/connect` requests received. */
+    val connectRequests = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Tests: the next `GET /device` answers `401 disconnected` (the client is not disconnected otherwise). */
+    @Volatile
+    var failNextDeviceWithDisconnected = false
+
+    /** Tests: ends the open streams without `shutdown` (the app probes, then reconnects). */
+    fun dropStreams() = synchronized(lock) {
+        streams.forEach { runCatching { it.sink.close() } }
+        streams.clear()
+    }
+
     private fun route(r: Request, m: String, s: List<String>, body: ByteArray): Response = when {
         m == "GET" && s == listOf("hello") -> json(r, 200, hello())
         m == "POST" && s == listOf("clients", "me", "connect") -> {
+            connectRequests.incrementAndGet()
             isClientDisconnected = false
             empty(r)
         }
+        m == "GET" && s == listOf("events") && eventsRequests.incrementAndGet() < 0 -> error(r, 500, "internal", "unreachable")
         isClientDisconnected -> error(r, 401, "disconnected", "Disconnected by the console")
+        m == "GET" && s == listOf("device") && failNextDeviceWithDisconnected -> {
+            failNextDeviceWithDisconnected = false
+            error(r, 401, "disconnected", "Disconnected by the console")
+        }
         m == "GET" && s == listOf("device") -> json(r, 200, device())
         m == "DELETE" && s == listOf("clients", "me") -> empty(r)
         m == "GET" && s == listOf("events") -> openStream(r)

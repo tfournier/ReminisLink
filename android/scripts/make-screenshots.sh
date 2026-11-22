@@ -3,7 +3,7 @@
 # taken from the demo mode (made-up console and games) on the running
 # emulator or device: ScreenshotsTest navigates the screens once per locale,
 # and the PNG files are copied into
-# android/fastlane/metadata/android/<locale>/images/phoneScreenshots/.
+# android/app/fastlane/metadata/android/<locale>/images/phoneScreenshots/.
 #
 #   android/scripts/make-screenshots.sh     (an emulator must be running: adb devices)
 #
@@ -41,7 +41,7 @@ for locale in en-US fr-FR; do
 	"$ADB" shell cmd locale set-app-locales "$APP" --locales "$locale"
 	out=$("$ADB" shell am instrument -w -e screenshots true -e class link.reminis.app.ScreenshotsTest "$TEST/androidx.test.runner.AndroidJUnitRunner" 2>&1)
 	printf '%s\n' "$out" | grep -q '^OK (1 test)' || { printf '%s\n' "$out" >&2; exit 1; }
-	dest="$ANDROID/fastlane/metadata/android/$locale/images/phoneScreenshots"
+	dest="$ANDROID/app/fastlane/metadata/android/$locale/images/phoneScreenshots"
 	rm -rf "$dest"
 	mkdir -p "$dest"
 	for n in 1 2 3 4 5 6 7; do

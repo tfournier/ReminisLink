@@ -67,9 +67,10 @@ fun ConsolesScreen(onAdd: () -> Unit, onOpen: (String) -> Unit, onTryDemo: () ->
     val demo by container.demo.collectAsState()
     val closed by container.events.closed.collectAsState()
 
-    LifecycleResumeEffect(Unit) {
+    // No mDNS browsing nor /hello probe of the real consoles while the demo runs (M16).
+    LifecycleResumeEffect(demo) {
         vm.reload()
-        vm.startBrowsing()
+        if (demo == null) vm.startBrowsing() else vm.stopBrowsing()
         onPauseOrDispose { vm.stopBrowsing() }
     }
 

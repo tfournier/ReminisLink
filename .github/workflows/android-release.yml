@@ -26,7 +26,9 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # Pinned image, JDK patch and SDK packages (as the android job of ci.yml):
+    # the same commit builds the same unsigned APK (reproducible builds, F-Droid).
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
@@ -43,7 +45,7 @@ jobs:
           [ "android-v$name" = "$TAG" ] || { echo "Tag $TAG does not match android/version.properties ($name): run make $TAG"; exit 1; }
           [ "$(scripts/android-version-code.sh "$TAG")" = "$code" ] || { echo "versionCode $code is not the one of $TAG"; exit 1; }
           for locale in en-US fr-FR; do
-            [ -s "android/fastlane/metadata/android/$locale/changelogs/$code.txt" ] || { echo "Missing changelog $locale/changelogs/$code.txt"; exit 1; }
+            [ -s "android/app/fastlane/metadata/android/$locale/changelogs/$code.txt" ] || { echo "Missing changelog $locale/changelogs/$code.txt"; exit 1; }
           done
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"
@@ -51,7 +53,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: "21.0.13"
       - uses: gradle/actions/setup-gradle@v6
       - name: Android SDK platform 36
         run: |

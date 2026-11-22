@@ -8,9 +8,10 @@
 # "Latest" belongs to the pak's release: the NextUI Pak Store reads it. Any
 # other tag stops here. The notes are the English and French changelogs of
 # the F-Droid metadata for the tag's versionCode
-# (android/fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt),
+# (android/app/fastlane/metadata/android/<locale>/changelogs/<versionCode>.txt),
 # and say whether the APK is signed with the release key. On a re-run the
-# release exists: its flags are set again before its APK is replaced.
+# release exists: its flags and notes are set again before its APK is
+# replaced; a signed APK replaces a debug-signed one, never the reverse.
 #
 # Usage: scripts/publish-android-release.sh <tag> <apk> [signed|debug-signed]
 #        (needs gh, GH_TOKEN)
@@ -25,7 +26,7 @@ trap 'rm -f "$notes"' EXIT
 
 kind="$("$root/scripts/android-release-kind.sh" "$tag")"
 code="$("$root/scripts/android-version-code.sh" "$tag")"
-metadata="$root/android/fastlane/metadata/android"
+metadata="$root/android/app/fastlane/metadata/android"
 {
 	if [ "$kind" = prerelease ]; then
 		echo "Pre-release of the Android app for testers."
@@ -52,8 +53,21 @@ else
 fi
 
 if gh release view "$tag" >/dev/null 2>&1; then
-	gh release edit "$tag" "${flags[@]}"
+	# A re-run. Never degrade a release that has a signed APK with a debug-signed one;
+	# the notes are written again (signed or not), and a signed upload removes the
+	# debug-signed APK of an earlier run without the key.
+	assets="$(gh release view "$tag" --json assets -q '.assets[].name')"
+	if [ "$signing" = debug-signed ] && printf '%s\n' "$assets" | grep -v -- '-debug-signed\.apk$' | grep -q '\.apk$'; then
+		echo "Release $tag already has a signed APK: refusing to replace it with a debug-signed one (configure the release key secrets and run again)." >&2
+		exit 1
+	fi
+	gh release edit "$tag" --notes-file "$notes" "${flags[@]}"
 	gh release upload "$tag" "$apk" --clobber
+	if [ "$signing" = signed ]; then
+		{ printf '%s\n' "$assets" | grep -- '-debug-signed\.apk$' || true; } | while IFS= read -r old; do
+			gh release delete-asset "$tag" "$old" --yes
+		done
+	fi
 else
 	gh release create "$tag" "$apk" --verify-tag --title "ReminisLink for Android ${tag#android-v}" --notes-file "$notes" "${flags[@]}"
 fi

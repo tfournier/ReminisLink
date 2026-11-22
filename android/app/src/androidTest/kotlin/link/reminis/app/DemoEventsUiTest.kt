@@ -113,14 +113,33 @@ class DemoEventsUiTest {
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
             waitFor("dashboard again") { hasTag("dashboard") }
+            waitFor("stream open on the dashboard") { context.container.events.isLive(demo.deviceId) }
             demo.pak.disconnectClient()
             waitFor("disconnected shown") { hasText(context.getString(R.string.dashboard_disconnected)) }
-            Thread.sleep(3_000)
-            assertEquals("the app reconnected by itself", 0, demo.pak.openStreams)
+            // The stream ended, its probe answered, one reconnection got `401 disconnected`: then nothing.
+            val attempts = demo.pak.eventsRequests.get()
+            Thread.sleep(4_000)
+            assertEquals("GET /events sent again without the user", attempts, demo.pak.eventsRequests.get())
+            assertEquals("POST /clients/me/connect sent without the user", 0, demo.pak.connectRequests.get())
+            assertEquals(0, demo.pak.openStreams)
             assertTrue(demo.pak.isClientDisconnected)
             compose.onNodeWithText(context.getString(R.string.reconnect)).performClick()
-            waitFor("reconnected") { hasTag("dashboard") && demo.pak.openStreams == 1 }
+            waitFor("reconnected") { hasTag("dashboard") && demo.pak.openStreams == 1 && context.container.events.isLive(demo.deviceId) }
+            assertEquals(1, demo.pak.connectRequests.get())
             assertTrue(!demo.pak.isClientDisconnected)
+
+            // A disconnection seen by the quiet GET /device after a new `hello` is not hidden.
+            demo.pak.failNextDeviceWithDisconnected = true
+            demo.pak.dropStreams()
+            waitFor("disconnected shown after the quiet refresh") { hasText(context.getString(R.string.dashboard_disconnected)) }
+            waitFor("stream stopped") { demo.pak.openStreams == 0 && !context.container.events.isLive(demo.deviceId) }
+            val afterQuiet = demo.pak.eventsRequests.get()
+            Thread.sleep(3_000)
+            assertEquals("GET /events sent again without the user", afterQuiet, demo.pak.eventsRequests.get())
+            compose.onNodeWithText(context.getString(R.string.reconnect)).performClick()
+            waitFor("reconnected again") { demo.pak.openStreams == 1 }
+            // GET /device answered: POST /clients/me/connect is only sent after a 401.
+            assertEquals(1, demo.pak.connectRequests.get())
 
             // The console closes ReminisLink: back to the list.
             demo.pak.sendShutdown()
@@ -131,6 +150,76 @@ class DemoEventsUiTest {
             compose.onNodeWithTag("demoQuit").performClick()
             waitFor("welcome") { hasTag("addConsole") && !hasTag("demoBanner") }
             assertNull(context.container.demo.value)
+        }
+    }
+}
+
+/**
+ * M16 with a real console registered: the demo never contacts it (no probe,
+ * no request, no address written) and the list shows the demo console only.
+ */
+@RunWith(AndroidJUnit4::class)
+class DemoIsolationUiTest {
+    @get:Rule
+    val compose = createEmptyComposeRule()
+
+    private val context: Context get() = ApplicationProvider.getApplicationContext()
+    private val realId = "0c5b1e7a-2d3f-4a6b-9c8d-7e6f5a4b3c2d"
+    private lateinit var socket: java.net.ServerSocket
+    private val accepted = java.util.concurrent.atomic.AtomicInteger()
+
+    @Before
+    fun setUp() {
+        val container = context.container
+        InstrumentationHelper.onMain { container.quitDemo() }
+        container.consoles.all().forEach { container.forget(it.deviceId) }
+        // Stands for the real console: counts every connection it gets.
+        socket = java.net.ServerSocket(0, 8, java.net.InetAddress.getByName("127.0.0.1"))
+        Thread {
+            while (!socket.isClosed) runCatching { socket.accept().use { accepted.incrementAndGet() } }
+        }.apply { isDaemon = true }.start()
+        container.replacePairing(
+            link.reminis.core.PairedConsole(
+                deviceId = realId, deviceName = "Fern Handheld", model = "brick",
+                pin = link.reminis.core.Base64Url.encode(ByteArray(32) { 5 }),
+                lastEndpoint = link.reminis.core.Endpoint("127.0.0.1", socket.localPort), pairedAt = 1L,
+            ),
+        )
+    }
+
+    @After
+    fun tearDown() {
+        InstrumentationHelper.onMain { context.container.quitDemo() }
+        context.container.forget(realId)
+        socket.close()
+    }
+
+    private fun hasTag(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    private fun hasText(text: String) = compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty()
+
+    @Test
+    fun theDemoNeverContactsARealConsole() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitUntil(10_000) { hasText("Fern Handheld") }
+            compose.onNodeWithTag("consoles").performScrollToNode(hasTestTag("tryDemo"))
+            compose.onNodeWithTag("tryDemo").performClick()
+            compose.waitUntil(10_000) { hasTag("dashboard") }
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            compose.waitUntil(10_000) { hasTag("demoConsole") }
+            // The list of the demo shows its console only.
+            assertTrue(!hasText("Fern Handheld"))
+            // Neither a probe nor a request reaches the real console, and its address stays.
+            val endpoint = context.container.consoles.get(realId)!!.lastEndpoint
+            assertTrue(!runBlocking { context.container.validates(realId, endpoint!!) })
+            val refused = runCatching { runBlocking { context.container.client(realId, refresh = true) } }
+            assertTrue(refused.exceptionOrNull() is link.reminis.core.ApiException.Network)
+            Thread.sleep(2_000)
+            assertEquals("a real console was contacted during the demo", 0, accepted.get())
+            assertEquals(endpoint, context.container.consoles.get(realId)!!.lastEndpoint)
+
+            compose.onNodeWithTag("demoQuit").performClick()
+            compose.waitUntil(10_000) { hasText("Fern Handheld") && !hasTag("demoBanner") }
         }
     }
 }

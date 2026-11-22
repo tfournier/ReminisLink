@@ -151,7 +151,7 @@ for tag in v1.0.1 v1.1.0-beta.1 ios-v1.0.1; do expect "tag $tag does not start t
 
 publish_android() {
 	: >"$tmp/fake.log"
-	env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" FAKE_RELEASE_EXISTS="${2:-0}" \
+	env PATH="$fakes:$PATH" FAKE_LOG="$tmp/fake.log" FAKE_RELEASE_EXISTS="${2:-0}" FAKE_ASSETS="${4:-}" \
 		"$root/scripts/publish-android-release.sh" "$1" "$tmp/app.apk" "${3:-signed}"
 }
 touch "$tmp/app.apk"
@@ -160,8 +160,16 @@ expect "  never Latest, not a pre-release" 0 grep -Eq '^gh release create androi
 expect "publish android-v1.1.0-beta.1: new pre-release" 0 publish_android android-v1.1.0-beta.1
 expect "  a pre-release, never Latest" 0 grep -Eq '^gh release create android-v1.1.0-beta.1 .* --prerelease --latest=false$' "$tmp/fake.log"
 expect "publish android-v1.0.0 again: flags set again" 0 publish_android android-v1.0.0 1
-expect "  never Latest" 0 logged "gh release edit android-v1.0.0 --prerelease=false --latest=false"
+expect "  never Latest" 0 grep -Eq '^gh release edit android-v1.0.0 --notes-file .* --prerelease=false --latest=false$' "$tmp/fake.log"
 expect "  then the APK replaced" 0 grep -Eq '^gh release upload android-v1.0.0 .* --clobber$' "$tmp/fake.log"
+expect "  notes written again" 0 grep -Eq '^gh release edit android-v1.0.0 --notes-file ' "$tmp/fake.log"
+expect "signed re-run over a debug-signed release" 0 publish_android android-v1.0.0 1 signed "ReminisLink-android-1.0.0-debug-signed.apk"
+expect "  the debug-signed APK deleted" 0 logged "gh release delete-asset android-v1.0.0 ReminisLink-android-1.0.0-debug-signed.apk --yes"
+expect "  after the signed upload" 0 test "$(grep -n 'release upload' "$tmp/fake.log" | cut -d: -f1)" -lt "$(grep -n 'delete-asset' "$tmp/fake.log" | cut -d: -f1)"
+expect "keyless re-run over a signed release: refused" 1 publish_android android-v1.0.0 1 debug-signed "ReminisLink-android-1.0.0.apk"
+expect "  nothing edited nor uploaded" 0 not_logged "release upload"
+expect "keyless re-run over a debug-signed release: allowed" 0 publish_android android-v1.0.0 1 debug-signed "ReminisLink-android-1.0.0-debug-signed.apk"
+expect "  nothing deleted" 0 not_logged "delete-asset"
 for tag in v1.0.1 ios-v1.0.1; do
 	expect "publish_android $tag: refused" 1 publish_android "$tag"
 	expect "  gh never called" 0 test ! -s "$tmp/fake.log"

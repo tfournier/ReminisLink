@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import okhttp3.Call
@@ -131,17 +132,49 @@ class ApiClient(
      * throws. `Last-Event-ID` is not sent: the pak ignores it and the app
      * reloads what it shows after each `hello`.
      */
-    suspend fun openEvents(): EventByteSource {
-        var call: Call? = null
-        val response = signedResponse(onCall = { call = it }, client = eventsHttp) {
-            request("GET", listOf("events"), signed = true, headers = mapOf("Accept" to "text/event-stream"))
+    suspend fun openEvents(): EventByteSource = coroutineScope {
+        // The call is cancelled as soon as this coroutine is (the app goes to the background,
+        // 35 s of silence), from before it is sent until the stream is handed over: an error
+        // answer whose body stalls never keeps the socket open.
+        val call = java.util.concurrent.atomic.AtomicReference<Call?>(null)
+        val handedOver = java.util.concurrent.atomic.AtomicBoolean(false)
+        val watcher = launch {
+            try {
+                awaitCancellation()
+            } finally {
+                if (!handedOver.get()) call.get()?.cancel()
+            }
         }
-        if (response.code != 200) throw serverError(response)
-        val body = response.body ?: run {
-            response.close()
-            throw ApiException.InvalidResponse("empty body")
+        try {
+            val response = signedResponse(onCall = { call.set(it) }, client = eventsHttp) {
+                request("GET", listOf("events"), signed = true, headers = mapOf("Accept" to "text/event-stream"))
+            }
+            if (response.code != 200) {
+                // The error body has no read timeout on this client: a blocked read is ended by
+                // cancelling the call after ERROR_BODY_TIMEOUT_MILLIS (its size is bounded by serverError).
+                val late = java.util.concurrent.atomic.AtomicBoolean(false)
+                val timer = launch {
+                    delay(ERROR_BODY_TIMEOUT_MILLIS)
+                    late.set(true)
+                    call.get()?.cancel()
+                }
+                val error = try {
+                    serverError(response)
+                } finally {
+                    timer.cancel()
+                }
+                if (late.get()) throw ApiException.Network(IOException("error answer of GET /events not read in time"))
+                throw error
+            }
+            val body = response.body ?: run {
+                response.close()
+                throw ApiException.InvalidResponse("empty body")
+            }
+            handedOver.set(true)
+            ResponseEventSource(response, body, call.get())
+        } finally {
+            watcher.cancel()
         }
-        return ResponseEventSource(response, body, call)
     }
 
     suspend fun systems(): List<GameSystem> = signedJson<SystemList>("GET", listOf("systems")).systems
@@ -490,6 +523,16 @@ class ApiClient(
         }
     }
 
+    /** The body of an error answer, at most [MAX_ERROR_BODY_BYTES] (a larger one is unreadable: null). */
+    private suspend fun errorText(response: Response): String? = withContext(Dispatchers.IO) {
+        val source = response.body?.source() ?: return@withContext null
+        try {
+            if (source.request(MAX_ERROR_BODY_BYTES + 1)) null else source.readUtf8()
+        } catch (e: IOException) {
+            throw ApiException.Network(e)
+        }
+    }
+
     private suspend inline fun <reified T> decode(response: Response, accept: Int): T = response.use {
         if (it.code != accept) throw serverError(it)
         val text = bodyText(it) ?: throw ApiException.InvalidResponse("empty body")
@@ -504,7 +547,7 @@ class ApiClient(
 
     private suspend fun serverError(response: Response): ApiException = response.use {
         val text = try {
-            bodyText(it).orEmpty()
+            errorText(it).orEmpty()
         } catch (_: ApiException.Network) {
             ""
         }
@@ -532,6 +575,12 @@ class ApiClient(
 
         /** Larger saves go through `POST /uploads` (target `save`). */
         const val MAX_SAVE_BODY_BYTES = 64L shl 20
+
+        /** An error answer is a small JSON envelope: a larger body is not read. */
+        const val MAX_ERROR_BODY_BYTES = 64L * 1024
+
+        /** How long the body of an error answer of `GET /events` may take to arrive. */
+        const val ERROR_BODY_TIMEOUT_MILLIS = 5_000L
         private val JSON = "application/json".toMediaType()
         private val PNG = "image/png".toMediaType()
         private val CONFIRM_EMPTY_TRASH = mapOf("X-RL-Confirm" to "empty-trash")

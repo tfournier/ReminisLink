@@ -490,9 +490,9 @@
     <string name="demo_cheat_name">Demo cheat %1$d</string>
     <string name="demo_mode">Demo mode</string>
     <string name="demo_banner_title">Demo Mode</string>
-    <string name="demo_banner_message">Made-up console and games. Nothing is sent or kept.</string>
+    <string name="demo_banner_message">Made-up console and games: nothing leaves this phone, and only the files you download are kept.</string>
     <string name="demo_quit">Quit</string>
     <string name="demo_quit_description">Quit the Demo</string>
     <string name="demo_try">Try Without a Console</string>
-    <string name="demo_try_footer">A demo console with made-up games, to try every feature. Nothing is sent or kept.</string>
+    <string name="demo_try_footer">A demo console with made-up games, to try every feature. Nothing leaves this phone; only the files you download are kept.</string>
 </resources>

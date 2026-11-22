@@ -51,14 +51,15 @@ val signWithDebugKey = findProperty("reminislink.signWithDebugKey") == "true"
 
 android {
     namespace = "link.reminis.app"
-    // compileSdk 36: required by the AndroidX versions in use; the app still
-    // targets API 35.
+    // compileSdk and targetSdk 36 (Android 16): Google Play requires API 36 for
+    // new apps since 31 August 2026. The app is edge-to-edge and uses
+    // AndroidX's back dispatcher (predictive back) already.
     compileSdk = 36
 
     defaultConfig {
         applicationId = "link.reminis.app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -96,7 +97,20 @@ android {
             // Reproducible builds (F-Droid): no VCS information in the APK.
             vcsInfo.include = false
         }
+        // The release build (R8, same rules) signed with the debug key, for the
+        // instrumented smoke test of the minified app (ReleaseSmokeTest):
+        // ./gradlew connectedMinifiedAndroidTest -Preminislink.testBuildType=minified
+        create("minified") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            // The entry points the smoke test calls stay (everything else is shrunk as in release).
+            proguardFiles("proguard-smoke.pro")
+            testProguardFiles("proguard-test.pro")
+        }
     }
+
+    testBuildType = (findProperty("reminislink.testBuildType") as String?) ?: "debug"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -152,4 +166,5 @@ dependencies {
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.okhttp.tls)
     debugImplementation(libs.compose.ui.test.manifest)
+    "minifiedImplementation"(libs.compose.ui.test.manifest)
 }

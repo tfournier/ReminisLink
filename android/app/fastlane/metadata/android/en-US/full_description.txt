@@ -39,7 +39,7 @@ The app refreshes on its own when the SD card changes, shows the battery live, a
 </ul>
 
 <p><b>Try it first</b><br>
-"Try Without a Console" opens a demo console with made-up games, to try every screen. Nothing is sent or kept.</p>
+"Try Without a Console" opens a demo console with made-up games, to try every screen. Nothing leaves the phone.</p>
 
 <p><b>Compatible handhelds</b><br>
 TrimUI Brick with NextUI. Experimental, looking for testers: TrimUI Smart Pro S, Anbernic H700 handhelds and Miyoo Flip with NextUI, and handhelds running Knulli.</p>

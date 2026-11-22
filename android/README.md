@@ -9,7 +9,7 @@ API contract is [protocol/openapi.yaml](../protocol/openapi.yaml).
 |---|---|
 | `core/` | Pure Kotlin/JVM: protocol models, signing, pairing, pinned TLS client, transfers, event stream (SSE), the demo mode's fake pak |
 | `app/` | The Compose app, Android Keystore identity, discovery (NSD), transfer service |
-| `fastlane/metadata/android/` | Store listing (F-Droid, Google Play): texts, changelogs, icon, screenshots |
+| `app/fastlane/metadata/android/` | Store listing (F-Droid, Google Play): texts, changelogs, icon, screenshots |
 | `scripts/` | `pak-e2e.sh` (tests against the real pak), `make-screenshots.sh` (store screenshots from the demo mode) |
 
 No proprietary Google dependency: the app builds and runs without Play
@@ -26,6 +26,8 @@ make android-build         # debug APK
 make android-release-apk   # release APK (R8), signed if the release key is configured, unsigned otherwise
 cd android && ./gradlew connectedDebugAndroidTest   # instrumented tests (emulator API 35)
 android/scripts/pak-e2e.sh                          # against the real headless pak (emulator running)
+cd android && ./gradlew connectedMinifiedAndroidTest -Preminislink.testBuildType=minified \
+  -Pandroid.testInstrumentationRunnerArguments.class=link.reminis.app.ReleaseSmokeTest   # smoke test of the R8 build
 android/scripts/make-screenshots.sh                 # store screenshots, en-US and fr-FR (emulator running)
 ```
 
@@ -46,7 +48,7 @@ from that file.
 
 1. Pick the number from the changes since the last Android release.
 2. Write the notes, English and French, in
-   `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` and
+   `app/fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` and
    `fr-FR/changelogs/<versionCode>.txt` (500 characters at most), and commit them.
 3. On `main`, clean tree: `make android-vX.Y.Z` (or `make android-vX.Y.Z-beta.N`).
    It writes `version.properties`, commits, tags and pushes.
