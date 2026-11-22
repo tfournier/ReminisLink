@@ -123,6 +123,16 @@ class AppContainer(context: Context) {
     /** Jobs of the consoles (patches, pak installations), polled by the screens that show them. */
     val jobs = JobTracker({ deviceId -> pairingIdentity(deviceId) }) { deviceId -> client(deviceId) }
 
+    /** Increment 7 (M9, M19): the sync of saves and states to this device. */
+    val sync: SyncManager = SyncManager(
+        appContext, scope,
+        client = { client(it) },
+        pairingIdentity = { pairingIdentity(it) },
+        consoleName = { consoleName(it) },
+        isDemo = { isDemo(it) },
+        demoRunning = { demo.value != null },
+    )
+
     /** The identity of the current pairing of a console (pin and pairing date), null when forgotten. */
     fun pairingIdentity(deviceId: String): Any? {
         demo.value?.let { if (it.deviceId == deviceId) return it.identity }
@@ -148,6 +158,8 @@ class AppContainer(context: Context) {
         // The real consoles are left alone while the demo runs (as on iOS): their transfers pause
         // and resume when the demo ends; discovery, probes and requests to them are off.
         transfers.holdForDemo { !isDemo(it) }
+        // The real consoles' syncs stop (they go on after the demo); the demo syncs to a temporary folder.
+        sync.startDemo()
         var started: link.reminis.core.demo.DemoConsole? = null
         val console = link.reminis.core.demo.DemoConsole(
             appContext.getString(R.string.demo_console_name),
@@ -172,6 +184,8 @@ class AppContainer(context: Context) {
         pakInstaller.dropConsole(console.deviceId)
         screenshotManagers.remove(console.deviceId)
         console.close()
+        // Its synced copies are erased with their temporary folder; the real consoles' syncs go on.
+        sync.endDemo(console.deviceId)
         // Exactly the transfers the demo paused, whatever their phase now; never one paused before it.
         transfers.releaseDemoHold()
     }
@@ -455,6 +469,7 @@ class AppContainer(context: Context) {
         jobs.dropConsole(console.deviceId)
         pakInstaller.dropConsole(console.deviceId)
         screenshotManagers.remove(console.deviceId)
+        sync.dropConsole(console.deviceId)
         // The event stream of the previous pairing stops (it also checks the identity itself).
         scope.launch { events.dropConsole(console.deviceId) }
     }
@@ -489,6 +504,7 @@ class AppContainer(context: Context) {
         transfers.dropConsole(deviceId)
         pakInstaller.dropConsole(deviceId)
         screenshotManagers.remove(deviceId)
+        sync.dropConsole(deviceId)
     }
 
     /**

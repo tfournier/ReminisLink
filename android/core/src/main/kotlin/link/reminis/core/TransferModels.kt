@@ -267,6 +267,16 @@ sealed interface DownloadSource {
         override val segments get() = listOf("games", gameId, "save")
     }
 
+    /** M9: `GET /games/{gameId}/save/rtc`, the clock file of the save. */
+    data class SaveClock(val gameId: String) : DownloadSource {
+        override val segments get() = listOf("games", gameId, "save", "rtc")
+    }
+
+    /** `GET /games/{gameId}/states/{slot}/thumbnail` (a PNG). */
+    data class StateThumbnail(val gameId: String, val slot: Int) : DownloadSource {
+        override val segments get() = listOf("games", gameId, "states", slot.toString(), "thumbnail")
+    }
+
     /** `GET /games/{gameId}/save/backups/{backupId}`. */
     data class SaveBackup(val gameId: String, val backupId: String) : DownloadSource {
         override val segments get() = listOf("games", gameId, "save", "backups", backupId)

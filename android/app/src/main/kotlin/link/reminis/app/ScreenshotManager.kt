@@ -329,7 +329,7 @@ class ScreenshotManager(
         const val SHARE_KEPT_MILLIS = 60 * 60 * 1000L
 
         /** Written in a share folder once its export is complete: its hour of retention starts then. */
-        private const val READY_MARKER = ".ready"
+        const val READY_MARKER = ".ready"
 
         /** A share folder whose export never completed (a process killed meanwhile) goes after a day. */
         private const val UNFINISHED_KEPT_MILLIS = 24 * 60 * 60 * 1000L

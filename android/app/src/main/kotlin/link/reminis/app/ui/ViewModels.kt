@@ -314,6 +314,9 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
     /** Only the last read publishes. */
     private var generation = 0
 
+    /** Whether the last read reached the console: the next success after a failure is a new connection. */
+    private var connected = false
+
     private val _trash = MutableStateFlow<link.reminis.core.TrashList?>(null)
 
     /** M23: the trash of the console, for the count of the Trash row and the part of the storage it takes. */
@@ -384,6 +387,7 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
                     is link.reminis.app.ConsoleChange.Library, is link.reminis.app.ConsoleChange.Screenshots -> loadTrash()
                     is link.reminis.app.ConsoleChange.Lost -> {
                         generation++
+                        connected = false
                         _status.value = Load.Failed(change.error)
                     }
                     else -> Unit
@@ -420,6 +424,9 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
             // first `401 disconnected` (seen by the error observer meanwhile) did to the epoch.
             if (!(explicit && result is Load.Loaded) && epoch != container.events.epoch(deviceId)) return@launch
             // Seen first, even by a quiet read: the console disconnected this phone, or closed ReminisLink.
+            if ((result as? Load.Failed)?.error.let { it as? ApiException.Server }?.code.let { it == link.reminis.core.ErrorCodes.DISCONNECTED || it == link.reminis.core.ErrorCodes.SHUTTING_DOWN }) {
+                connected = false
+            }
             when ((result as? Load.Failed)?.error.let { it as? ApiException.Server }?.code) {
                 link.reminis.core.ErrorCodes.DISCONNECTED -> {
                     _status.value = result
@@ -434,6 +441,9 @@ class DashboardViewModel(app: Application, private val deviceId: String) : Andro
             }
             if (quiet && result is Load.Failed && _status.value is Load.Loaded) return@launch
             _status.value = result
+            // Increment 7: a new connection to the console syncs its saves and states (when the setting is on).
+            if (result is Load.Loaded && !connected) container.sync.onConnected(deviceId)
+            connected = result is Load.Loaded
             if (result is Load.Loaded) loadTrash()
             // The console answers again: the transfers paused by a lost connection (or by the console closing) go on.
             if (result is Load.Loaded) container.transfers.resumePaused(deviceId)

@@ -295,6 +295,8 @@ class FilesRenameUiTest {
     fun errorAnswersCloseTheConnection() {
         ActivityScenario.launch(MainActivity::class.java).use {
             val demo = openDemo()
+            // The sync made at the connection (increment 7) ends first: its requests would see the 401 too.
+            waitFor("sync at connection") { context.container.sync.state(demo.deviceId).lastReport != null && !context.container.sync.state(demo.deviceId).isRunning }
             tap("tabFiles")
             waitFor("root") { hasTag("sd-Downloads") }
             // Any request of a screen: `401 disconnected` → the dashboard says it, with Reconnect.
@@ -598,9 +600,11 @@ class FilesRenameUiTest {
             waitFor("welcome") { hasTag("addConsole") && !hasTag("demoBanner") }
             assertNull(context.container.demo.value)
             tap("openSettings")
-            waitFor("settings") { hasTag("appVersion") }
+            waitFor("settings") { hasTag("settings") }
             val version = context.packageManager.getPackageInfo(context.packageName, 0).versionName!!
             assertTrue(version.isNotEmpty())
+            // Below the Save Sync section (increment 7).
+            compose.onNodeWithTag("settings").performScrollToNode(androidx.compose.ui.test.hasText(version))
             compose.onNodeWithText(version).assertExists()
         }
     }

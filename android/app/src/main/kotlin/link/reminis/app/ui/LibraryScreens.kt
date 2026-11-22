@@ -76,6 +76,8 @@ fun DashboardScreen(
     onTransfers: () -> Unit,
     /** M23: the storage opens the Files tab. */
     onFiles: () -> Unit = {},
+    /** Increment 7: the synced copies of this console. */
+    onSyncedSaves: () -> Unit = {},
     onForgotten: () -> Unit,
 ) {
     val app = LocalContext.current.applicationContext as Application
@@ -108,6 +110,7 @@ fun DashboardScreen(
                 Dashboard(
                     device, modifier, trash, activeTransfers, unpairError,
                     onTransfers, onScreenshots, onTrash, onFiles, onUnpair = { unpairing = true },
+                    deviceId = deviceId, onSyncedSaves = onSyncedSaves,
                 )
             }
         }
@@ -141,6 +144,8 @@ private fun Dashboard(
     onTrash: () -> Unit,
     onFiles: () -> Unit,
     onUnpair: () -> Unit,
+    deviceId: String,
+    onSyncedSaves: () -> Unit,
 ) {
     val context = LocalContext.current
     LazyColumn(modifier.fillMaxSize().testTag("dashboard")) {
@@ -193,6 +198,11 @@ private fun Dashboard(
                 HorizontalDivider()
                 Info(stringResource(R.string.connected_devices), device.connectedClients.joinToString(", ") { it.clientName })
             }
+        }
+        // Increment 7: the sync of saves and states to this device.
+        item(key = "sync") {
+            HorizontalDivider()
+            SyncSection(deviceId, onSyncedSaves)
         }
         item {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

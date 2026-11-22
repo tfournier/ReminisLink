@@ -89,6 +89,19 @@ object Routes {
     const val FILES = "console/{deviceId}/files?folderId={folderId}&title={title}"
     const val SETTINGS = "settings"
 
+    /**
+     * Increment 7: the synced copies (all consoles, one console, one game).
+     * The console is `console`, not `deviceId`: browsing the copies is not
+     * opening the console (no event stream, no connection).
+     */
+    const val SYNCED_CONSOLES = "synced"
+    const val SYNCED_SAVES = "synced/{console}?title={title}"
+    const val SYNCED_GAME = "synced/{console}/{gameId}?title={title}&system={system}"
+
+    fun syncedSaves(deviceId: String, title: String = "") = "synced/$deviceId?title=${android.net.Uri.encode(title)}"
+    fun syncedGame(deviceId: String, gameId: String, title: String, system: String) =
+        "synced/$deviceId/${android.net.Uri.encode(gameId)}?title=${android.net.Uri.encode(title)}&system=${android.net.Uri.encode(system)}"
+
     /** Browse by Console (iOS 06 §4.4): the systems, then a folder of a system. */
     const val SYSTEMS = "console/{deviceId}/systems"
     const val FOLDER = "console/{deviceId}/systems/{systemId}?folderId={folderId}&title={title}"
@@ -501,7 +514,45 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
             )
         }
         composable(Routes.SETTINGS) {
-            link.reminis.app.ui.SettingsScreen(onBack = { nav.popBackStack() })
+            link.reminis.app.ui.SettingsScreen(onBack = { nav.popBackStack() }, onSyncedSaves = { nav.navigate(Routes.SYNCED_CONSOLES) })
+        }
+        composable(Routes.SYNCED_CONSOLES) {
+            link.reminis.app.ui.SyncedConsolesScreen(
+                onBack = { nav.popBackStack() },
+                onOpen = { nav.navigate(Routes.syncedSaves(it.id, it.info.name)) },
+            )
+        }
+        composable(
+            Routes.SYNCED_SAVES,
+            arguments = listOf(
+                navArgument("console") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            val deviceId = entry.arguments?.getString("console").orEmpty()
+            link.reminis.app.ui.SyncedSavesScreen(
+                deviceId = deviceId,
+                title = entry.arguments?.getString("title").orEmpty(),
+                onBack = { nav.popBackStack() },
+                onOpenGame = { nav.navigate(Routes.syncedGame(deviceId, it.id, it.title, it.info.systemName)) },
+            )
+        }
+        composable(
+            Routes.SYNCED_GAME,
+            arguments = listOf(
+                navArgument("console") { type = NavType.StringType },
+                navArgument("gameId") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("system") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            link.reminis.app.ui.SyncedGameScreen(
+                deviceId = entry.arguments?.getString("console").orEmpty(),
+                gameId = entry.arguments?.getString("gameId").orEmpty(),
+                title = entry.arguments?.getString("title").orEmpty(),
+                systemName = entry.arguments?.getString("system").orEmpty(),
+                onBack = { nav.popBackStack() },
+            )
         }
         composable(Routes.ADD) {
             AddConsoleScreen(
@@ -536,6 +587,7 @@ private fun AppNavHost(nav: androidx.navigation.NavHostController, links: Pendin
                 onFiles = { nav.navigate(Routes.files(deviceId)) { tabOptions() } },
                 onScreenshots = { nav.navigate(Routes.screenshots(deviceId)) },
                 onTrash = { nav.navigate(Routes.trash(deviceId)) },
+                onSyncedSaves = { nav.navigate(Routes.syncedSaves(deviceId, container.consoleName(deviceId))) },
                 onForgotten = { nav.popBackStack(Routes.CONSOLES, inclusive = false) },
             )
         }

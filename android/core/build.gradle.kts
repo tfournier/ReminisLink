@@ -35,6 +35,21 @@ tasks.test {
     val vectors = rootProject.layout.projectDirectory.dir("../protocol/test-vectors").asFile
     systemProperty("reminislink.vectors", vectors.absolutePath)
     inputs.dir(vectors).withPropertyName("testVectors")
+    // AndroidApiTest: every JDK method this module calls must exist on Android 8 (API 26), the app's
+    // minSdk, per the API database of the installed Android SDK (Android lint does not check a JVM module).
+    val sdk = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+        ?: rootProject.file("local.properties").takeIf { it.isFile }?.readLines()
+            ?.firstOrNull { it.startsWith("sdk.dir=") }?.substringAfter("=")
+        ?: "${System.getProperty("user.home")}/Library/Android/sdk"
+    val apiDatabase = file("$sdk/platforms").listFiles().orEmpty()
+        .mapNotNull { dir -> dir.name.removePrefix("android-").toIntOrNull()?.let { it to File(dir, "data/api-versions.xml") } }
+        .filter { it.second.isFile }.maxByOrNull { it.first }?.second
+    apiDatabase?.let {
+        systemProperty("reminislink.apiVersions", it.absolutePath)
+        inputs.file(it).withPropertyName("androidApiDatabase")
+    }
+    systemProperty("reminislink.coreClasses", sourceSets.main.get().output.classesDirs.asPath)
+    systemProperty("reminislink.minSdk", "26")
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

@@ -480,7 +480,7 @@ private fun rememberGalleryActions(vm: ScreenshotActionsViewModel, onDemo: () ->
 }
 
 /** Opens the share sheet for copies of the share area, through the app's FileProvider (read access granted). */
-fun shareFiles(context: Context, files: List<File>) {
+fun shareFiles(context: Context, files: List<File>, mimeType: String = "image/*", chooserTitle: Int = R.string.screenshots_share_chooser) {
     if (files.isEmpty()) return
     val authority = "${context.packageName}.files"
     val uris = files.map { androidx.core.content.FileProvider.getUriForFile(context, authority, it) }
@@ -489,10 +489,10 @@ fun shareFiles(context: Context, files: List<File>) {
     } else {
         Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
     }
-    intent.type = "image/*"
+    intent.type = mimeType
     intent.clipData = ClipData.newRawUri(null, uris[0]).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    val chooser = Intent.createChooser(intent, context.getString(R.string.screenshots_share_chooser))
+    val chooser = Intent.createChooser(intent, context.getString(chooserTitle))
     if (context !is android.app.Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     context.startActivity(chooser)
 }
