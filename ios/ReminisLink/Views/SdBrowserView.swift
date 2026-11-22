@@ -185,7 +185,15 @@ struct SdFolderView: View {
     private func selectableRow(_ entry: SdEntry) -> some View {
         let selected = selection.contains(entry.sdEntryId)
         return Button {
-            if selected { selection.remove(entry.sdEntryId) } else { selection.insert(entry.sdEntryId) }
+            if selected {
+                selection.remove(entry.sdEntryId)
+            } else if selection.count >= SdTrashRequest.maxIds {
+                // One request, all or nothing (Codex review of M23).
+                actionError = .sdTooManySelected
+            } else {
+                selection.insert(entry.sdEntryId)
+                if actionError == .sdTooManySelected { actionError = nil }
+            }
         } label: {
             HStack {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")

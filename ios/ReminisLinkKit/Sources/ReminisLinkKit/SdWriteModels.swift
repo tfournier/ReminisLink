@@ -51,13 +51,45 @@ public struct SdFolderRequest: Encodable, Sendable, Equatable {
     }
 }
 
-/// `POST /sd/trash`: 1 to 100 entries in one trash entry.
-public struct SdTrashRequest: Codable, Sendable, Equatable {
-    public let sdEntryIds: [String]
+/// An entry of `POST /sd/trash`, with the version the app showed (its
+/// size, date and opaque version): the pak refuses it (`409
+/// details.changed`) when the entry on the card is no longer that one.
+public struct SdTrashItem: Encodable, Sendable, Equatable {
+    public let sdEntryId: String
+    public let sizeBytes: Int64?
+    public let modifiedAt: Date
+    public let version: String?
 
-    public init(sdEntryIds: [String]) { self.sdEntryIds = sdEntryIds }
+    public init(entry: SdEntry) {
+        sdEntryId = entry.sdEntryId
+        sizeBytes = entry.sizeBytes
+        modifiedAt = entry.modifiedAt
+        version = entry.version
+    }
 
-    /// The most identifiers of one request.
+    private enum CodingKeys: String, CodingKey { case sdEntryId, sizeBytes, modifiedAt, version }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sdEntryId, forKey: .sdEntryId)
+        // Required, null for a folder.
+        if let sizeBytes { try c.encode(sizeBytes, forKey: .sizeBytes) } else { try c.encodeNil(forKey: .sizeBytes) }
+        try c.encode(modifiedAt, forKey: .modifiedAt)
+        try c.encodeIfPresent(version, forKey: .version)
+    }
+}
+
+/// `POST /sd/trash`: 1 to 100 entries in one trash entry, all or nothing.
+public struct SdTrashRequest: Encodable, Sendable, Equatable {
+    public let items: [SdTrashItem]
+
+    public init(entries: [SdEntry]) {
+        var seen = Set<String>()
+        items = entries.filter { seen.insert($0.sdEntryId).inserted }.map(SdTrashItem.init(entry:))
+    }
+
+    /// The most entries of one request: the app never splits a selection
+    /// (one request stays all or nothing).
     public static let maxIds = 100
 }
 
@@ -105,6 +137,13 @@ extension ServerError {
     public var sdFreeName: String? {
         guard code == .conflict, case .string(let name)? = details["freeName"] else { return nil }
         return name
+    }
+
+    /// M23: the entries of `POST /sd/trash` that changed since they were
+    /// listed (`details.changed`), empty for another error.
+    public var sdChanged: [String] {
+        guard code == .conflict, case .array(let items)? = details["changed"] else { return [] }
+        return items.compactMap { if case .string(let s) = $0 { s } else { nil } }
     }
 
     /// M23: the taken places of a game rename (`details.conflicts`).

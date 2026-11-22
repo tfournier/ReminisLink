@@ -935,6 +935,16 @@
         }
       }
     },
+    "An item changed on the SD card since it was shown: nothing was moved. The folder was refreshed: check it, then try again." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un élément a changé sur la carte SD depuis son affichage : rien n’a été déplacé. Le dossier a été actualisé : vérifie-le, puis réessaie."
+          }
+        }
+      }
+    },
     "An item of this name is already in this folder." : {
       "localizations" : {
         "fr" : {
@@ -955,12 +965,12 @@
         }
       }
     },
-    "Another playlist uses the discs of this game: rename the game on a computer, or delete that playlist first." : {
+    "Another game shares the save, the states or the discs of this game: renaming it would take them from that game. Rename both on a computer." : {
       "localizations" : {
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Une autre playlist utilise les disques de ce jeu : renomme le jeu sur un ordinateur, ou supprime d’abord cette playlist."
+            "value" : "Un autre jeu partage la sauvegarde, les états ou les disques de ce jeu : le renommer les lui retirerait. Renomme les deux sur un ordinateur."
           }
         }
       }
@@ -5271,6 +5281,16 @@
         }
       }
     },
+    "Select at most 100 items at a time." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionne au plus 100 éléments à la fois."
+          }
+        }
+      }
+    },
     "Selects or deselects the screenshot." : {
       "localizations" : {
         "fr" : {
@@ -6172,6 +6192,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La console n’a listé que ses 20 000 premiers états."
+          }
+        }
+      }
+    },
+    "The console protects this folder: the file cannot be added there. Choose another folder in Files." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console protège ce dossier : le fichier ne peut pas y être ajouté. Choisis un autre dossier dans Fichiers."
           }
         }
       }

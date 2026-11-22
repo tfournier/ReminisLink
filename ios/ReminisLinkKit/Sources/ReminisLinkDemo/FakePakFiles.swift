@@ -222,14 +222,19 @@ extension FakePak {
     /// `POST /sd/trash`: all or nothing, in one entry.
     func trashSdEntries(body: Data) -> FakeResponse {
         guard let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
-              let ids = object["sdEntryIds"] as? [String], (1...SdTrashRequest.maxIds).contains(ids.count)
-        else { return .error(400, code: "invalid_request", message: "sdEntryIds must hold 1 to 100 identifiers") }
+              let items = object["items"] as? [[String: Any]], (1...SdTrashRequest.maxIds).contains(items.count)
+        else { return .error(400, code: "invalid_request", message: "items must hold 1 to 100 entries") }
         var seen = Set<String>()
         var paths: [String] = []
         var missing: [String] = []
         var refused: [String] = []
+        var changed: [String] = []
         var reason: String?
-        for id in ids where seen.insert(id).inserted {
+        for item in items {
+            guard let id = item["sdEntryId"] as? String, let stamp = item["modifiedAt"] as? String,
+                  let seenAt = ProtocolJSON.parseDate(stamp), item.keys.contains("sizeBytes")
+            else { return .error(400, code: "invalid_request", message: "Each item needs sdEntryId, sizeBytes and modifiedAt") }
+            guard seen.insert(id).inserted else { continue }
             guard let path = Self.sdPath(of: id) else { return .error(400, code: "invalid_id", message: "Invalid identifier") }
             guard node(at: path) != nil else {
                 missing.append(id)
@@ -240,6 +245,14 @@ extension FakePak {
                 refused.append(id)
                 continue
             }
+            // The version the app showed (Codex review of M23).
+            if let node = node(at: path) {
+                let size = (item["sizeBytes"] as? NSNumber)?.int64Value
+                if Int64(node.modifiedAt.timeIntervalSince1970) != Int64(seenAt.timeIntervalSince1970) || size != node.size {
+                    changed.append(id)
+                    continue
+                }
+            }
             paths.append(path)
         }
         if !missing.isEmpty {
@@ -247,6 +260,9 @@ extension FakePak {
         }
         if let reason {
             return .error(409, code: "conflict", message: "Protected place", details: ["protected": reason, "refused": refused])
+        }
+        if !changed.isEmpty {
+            return .error(409, code: "conflict", message: "Entry changed since it was listed", details: ["changed": changed])
         }
         // An entry inside another of the list moves with it.
         paths = paths.filter { p in !paths.contains { $0 != p && p.lowercased().hasPrefix($0.lowercased() + "/") } }

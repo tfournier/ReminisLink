@@ -115,6 +115,13 @@ struct UploadRow: View {
         (item.failure as? APIError)?.code == .conflict
     }
 
+    /// M23: the folder of an sd-file upload became protected (`409
+    /// details.protected`): no other name helps.
+    private var protection: SdProtection? {
+        if case .server(let server)? = item.failure as? APIError { return server.sdProtection }
+        return nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
@@ -191,6 +198,10 @@ struct UploadRow: View {
                 Text(resend.explanation)
             }
             Text(resend.explanation)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .failed where protection != nil:
+            Text("The console protects this folder: the file cannot be added there. Choose another folder in Files.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failed where isConflict:

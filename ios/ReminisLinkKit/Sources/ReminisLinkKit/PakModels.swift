@@ -153,13 +153,17 @@ public struct SdEntry: Codable, Sendable, Equatable, Hashable, Identifiable {
     public let deletable: Bool
     /// M23: why it is not deletable (``SdProtection``), nil when it is.
     public let protection: SdProtection?
+    /// M23: opaque, changes when the entry is replaced or modified (sent
+    /// back by `POST /sd/trash`); nil when the pak does not give it.
+    public let version: String?
 
     public var id: String { sdEntryId }
 
     public init(
         sdEntryId: String, name: String, kind: SdEntryKind, sizeBytes: Int64?, modifiedAt: Date,
-        deletable: Bool = false, protection: SdProtection? = nil
+        deletable: Bool = false, protection: SdProtection? = nil, version: String? = nil
     ) {
+        self.version = version
         self.sdEntryId = sdEntryId
         self.name = name
         self.kind = kind
@@ -170,7 +174,7 @@ public struct SdEntry: Codable, Sendable, Equatable, Hashable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sdEntryId, name, kind, sizeBytes, modifiedAt, deletable, protection
+        case sdEntryId, name, kind, sizeBytes, modifiedAt, deletable, protection, version
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,6 +186,7 @@ public struct SdEntry: Codable, Sendable, Equatable, Hashable, Identifiable {
         modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
         deletable = try c.decodeIfPresent(Bool.self, forKey: .deletable) ?? false
         protection = try c.decodeIfPresent(SdProtection.self, forKey: .protection)
+        version = try c.decodeIfPresent(String.self, forKey: .version)
     }
 
     public var isFolder: Bool { kind == .folder }

@@ -92,6 +92,13 @@ struct FilesAppTests {
         await #expect(throws: AppError.sdProtected(.root)) {
             try await session.trashSdEntries([SdEntry(sdEntryId: FakePak.sdEntryId("Roms"), name: "Roms", kind: .folder, sizeBytes: nil, modifiedAt: Date())])
         }
+        // Codex review of M23: an entry that changed since it was shown is
+        // refused, nothing moves; more than 100 is refused before sending.
+        let stale = SdEntry(sdEntryId: folder.sdEntryId, name: folder.name, kind: .folder, sizeBytes: nil,
+                            modifiedAt: folder.modifiedAt.addingTimeInterval(-120))
+        await #expect(throws: AppError.sdEntryChanged) { try await session.trashSdEntries([stale]) }
+        let many = (0...100).map { SdEntry(sdEntryId: "se_\($0)", name: "\($0)", kind: .file, sizeBytes: 1, modifiedAt: Date()) }
+        await #expect(throws: AppError.sdTooManySelected) { try await session.trashSdEntries(many) }
         let moved = try await session.trashSdEntries([folder])
         #expect(moved == 3)
         _ = await session.loadTrash()

@@ -24,6 +24,19 @@ struct SdWriteTests {
         #expect(!old.writable && !old.entries[0].deletable && old.entries[0].protection == nil)
     }
 
+    @Test func trashItemsCarryTheVersion() throws {
+        let date = try #require(ProtocolJSON.parseDate("2026-11-22T10:00:00Z"))
+        let file = SdEntry(sdEntryId: "se_a", name: "a", kind: .file, sizeBytes: 5, modifiedAt: date, version: "v1-x")
+        let folder = SdEntry(sdEntryId: "se_b", name: "b", kind: .folder, sizeBytes: nil, modifiedAt: date)
+        let json = try JSONSerialization.jsonObject(with: ProtocolJSON.encoder().encode(SdTrashRequest(entries: [file, folder, file]))) as? [String: Any]
+        let items = try #require(json?["items"] as? [[String: Any]])
+        #expect(items.count == 2)
+        #expect(items[0]["sizeBytes"] as? Int == 5 && items[0]["version"] as? String == "v1-x" && items[0]["modifiedAt"] as? String == "2026-11-22T10:00:00Z")
+        #expect(items[1]["sizeBytes"] is NSNull && items[1]["version"] == nil)
+        let decoded = try ProtocolJSON.decoder().decode(SdEntry.self, from: Data(#"{"sdEntryId":"se_a","name":"a","kind":"file","sizeBytes":1,"modifiedAt":"2026-11-22T10:00:00Z","version":"v1-y"}"#.utf8))
+        #expect(decoded.version == "v1-y")
+    }
+
     @Test func encodesTheRootAsNull() throws {
         let folder = try JSONSerialization.jsonObject(with: ProtocolJSON.encoder().encode(SdFolderRequest(parentId: nil, name: "A"))) as? [String: Any]
         #expect(folder?["parentId"] is NSNull && folder?["name"] as? String == "A")
@@ -117,9 +130,15 @@ struct SdWriteTests {
         #expect(try await client.browseSd(folderId: folder.sdEntryId).entries.map(\.name) == ["readme (2).txt", "readme.txt"])
 
         // To the trash, and back.
-        let protectedTrash = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(sdEntryIds: [roms.sdEntryId])) }
+        let protectedTrash = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(entries: [roms])) }
+        // A version the card no longer has: refused, nothing moves.
+        let stale = SdEntry(sdEntryId: folder.sdEntryId, name: folder.name, kind: .folder, sizeBytes: nil,
+                            modifiedAt: folder.modifiedAt.addingTimeInterval(-60))
+        let changed = await serverError { _ = try await client.trashSdEntries(SdTrashRequest(entries: [stale])) }
+        #expect(changed?.sdChanged == [folder.sdEntryId])
         #expect(protectedTrash?.sdProtection == .root)
-        let moved = try await client.trashSdEntries(SdTrashRequest(sdEntryIds: [folder.sdEntryId]))
+        let listed = try #require(try await client.browseSd(folderId: downloads.sdEntryId).entries.first { $0.name == "Notes" })
+        let moved = try await client.trashSdEntries(SdTrashRequest(entries: [listed]))
         #expect(moved.moved.count == 2)
         #expect(try await client.browseSd(folderId: downloads.sdEntryId).entries.contains { $0.name == "Notes" } == false)
         let entry = try #require(try await client.trash().entries.first)

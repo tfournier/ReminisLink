@@ -149,6 +149,11 @@ enum AppError: Error, Equatable {
     case sdProtected(SdProtection)
     /// M23: an item of this name is already in the folder.
     case sdNameTaken
+    /// M23: an item changed on the card since it was shown (`409
+    /// details.changed`): nothing moved, the folder is read again.
+    case sdEntryChanged
+    /// M23: more than 100 items selected for one move to the trash.
+    case sdTooManySelected
     /// M23: an item of the SD browser is gone (`404`): the folder is read
     /// again.
     case sdEntryGone
@@ -306,6 +311,10 @@ enum AppError: Error, Equatable {
             }
         case .sdNameTaken:
             String(localized: "An item of this name is already in this folder.")
+        case .sdEntryChanged:
+            String(localized: "An item changed on the SD card since it was shown: nothing was moved. The folder was refreshed: check it, then try again.")
+        case .sdTooManySelected:
+            String(localized: "Select at most 100 items at a time.")
         case .sdEntryGone:
             String(localized: "This item is no longer on the SD card. The folder was refreshed.")
         case .filesNeedNewerPak:
@@ -315,7 +324,7 @@ enum AppError: Error, Equatable {
                 ? String(localized: "This name is already taken on the console.")
                 : String(localized: "This name is already taken on the console: \(places.joined(separator: ", ")).")
         case .renameSharedDiscs:
-            String(localized: "Another playlist uses the discs of this game: rename the game on a computer, or delete that playlist first.")
+            String(localized: "Another game shares the save, the states or the discs of this game: renaming it would take them from that game. Rename both on a computer.")
         case .invalidGameName:
             String(localized: "The console does not accept this name.")
         case .gameNameProblem(let problem):
@@ -364,6 +373,7 @@ enum AppError: Error, Equatable {
         case .invalidPairingLink, .outdatedPak, .pairingLinkTooNew, .storage, .cancelled, .unreadablePicture: nil
         case .syncChecksumMismatch, .vault, .versionChanged, .gameFileChanged, .gameRemoved, .consoleClosed: nil
         case .sdProtected, .sdNameTaken, .sdEntryGone, .filesNeedNewerPak, .renameTaken, .renameSharedDiscs: nil
+        case .sdEntryChanged, .sdTooManySelected: nil
         case .invalidGameName, .gameNameProblem: nil
         case .invalidArchive, .archiveGameExists, .archiveEmpty, .archivesNeedNewerPak: nil
         case .pakRefused, .pakSelf, .notAPak, .needsNewerPak, .trashEntryGone, .trashReplaceRefused: nil
@@ -463,6 +473,7 @@ enum AppError: Error, Equatable {
         guard case .api(let api) = error else { return error }
         let server: ServerError? = if case .server(let s) = api { s } else { nil }
         if let protection = server?.sdProtection { return .sdProtected(protection) }
+        if let server, !server.sdChanged.isEmpty { return .sdEntryChanged }
         if server?.code == .conflict { return .sdNameTaken }
         let status: Int? = if case .unexpectedStatus(let s) = api { s } else { server?.status }
         if status == 405 || server?.isMissingRoute == true { return .filesNeedNewerPak }

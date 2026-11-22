@@ -17,23 +17,22 @@ extension ConsoleSession {
         }
     }
 
-    /// `POST /sd/trash`, by batches of at most 100: the entries go to the
-    /// trash of the console. Returns the number of files moved.
+    /// `POST /sd/trash`: the entries go to the trash of the console, in one
+    /// request (at most 100: the selection is limited, so the request stays
+    /// all or nothing), each with the version shown (size, date, version):
+    /// an entry changed since is refused (``AppError/sdEntryChanged``).
+    /// Returns the number of files moved.
     @discardableResult
     func trashSdEntries(_ entries: [SdEntry]) async throws -> Int {
-        var seen = Set<String>()
-        let ids = entries.map(\.sdEntryId).filter { seen.insert($0).inserted }
-        var moved = 0
+        let request = SdTrashRequest(entries: entries)
+        guard !request.items.isEmpty else { return 0 }
+        guard request.items.count <= SdTrashRequest.maxIds else { throw AppError.sdTooManySelected }
         defer { contentChanged() }
         do {
-            for start in stride(from: 0, to: ids.count, by: SdTrashRequest.maxIds) {
-                let batch = SdTrashRequest(sdEntryIds: Array(ids[start..<min(start + SdTrashRequest.maxIds, ids.count)]))
-                moved += try await perform { try await $0.trashSdEntries(batch) }.moved.count
-            }
+            return try await perform { try await $0.trashSdEntries(request) }.moved.count
         } catch {
             throw AppError.sdWrite(error)
         }
-        return moved
     }
 
     /// Queues files chosen on this device for a folder of the SD card
