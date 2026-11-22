@@ -212,7 +212,11 @@ class PakIntegrationTest {
             compose.onNodeWithTag("dashboard").assertExists()
             compose.onNodeWithTag("tabLibrary").performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("games").fetchSemanticsNodes().isNotEmpty() }
-            val games = compose.onNodeWithTag("games").onChildren()
+            // The game rows (the list also holds the count of games above them).
+            val gameRow = androidx.compose.ui.test.SemanticsMatcher("a game row") {
+                androidx.compose.ui.semantics.SemanticsProperties.TestTag in it.config && it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag].startsWith("game-")
+            }
+            val games = compose.onAllNodes(gameRow)
             assertTrue("the library is empty", games.fetchSemanticsNodes().isNotEmpty())
             games.onFirst().performClick()
             compose.waitUntil(30_000) { compose.onAllNodesWithTag("game").fetchSemanticsNodes().isNotEmpty() }
