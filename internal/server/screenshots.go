@@ -94,7 +94,7 @@ func (s *Server) screenshotError(w http.ResponseWriter, r *http.Request, err err
 		// Codex review of M22: the clients learn what stayed in the trash.
 		s.log.Error("screenshots: move to the trash failed midway", "error", err)
 		auth.WriteError(w, http.StatusInternalServerError, auth.CodeInternal, "Some screenshots could not be moved",
-			map[string]any{"kept": nonNilStrings(partial.Kept)})
+			map[string]any{"kept": nonNilStrings(partial.Kept), "held": partial.Held, "trashEntryId": partial.EntryID})
 	case errors.Is(err, screenshots.ErrInvalidID):
 		auth.WriteError(w, http.StatusBadRequest, CodeInvalidID, "Invalid identifier", nil)
 	case errors.As(err, &missing):

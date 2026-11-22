@@ -587,7 +587,8 @@ func jpegHeader(marker byte, w, h, comps, app int) []byte {
 // Codex review of M22: the memory a decode would take is bounded from the
 // header, before any allocation: a progressive 4:4:4 JPEG of 4096 x 4096
 // under every other limit is refused (its coefficients alone would take
-// 192 MiB), so is a baseline one of that size; one of 1920 x 1080 passes.
+// 192 MiB), so is a baseline one of that size; a sequential one of
+// 1920 x 1080 passes.
 func TestThumbnailBoundsTheDecodeCost(t *testing.T) {
 	for _, c := range []struct {
 		name     string
@@ -596,9 +597,13 @@ func TestThumbnailBoundsTheDecodeCost(t *testing.T) {
 		ok       bool
 	}{
 		{"progressive 4096", 0xC2, 4096, 4096, 3, false},
-		{"progressive 4:4:4 1920x1080", 0xC2, 1920, 1080, 3, true},
+		// Codex review round 3: 3 components are converted to RGBA too.
+		{"progressive 4:4:4 1920x1080", 0xC2, 1920, 1080, 3, false},
+		{"progressive gray 1920x1080", 0xC2, 1920, 1080, 1, true},
+		{"baseline 1920x1080", 0xC0, 1920, 1080, 3, true},
 		{"baseline 4096", 0xC0, 4096, 4096, 3, false},
-		{"baseline 4096x2048", 0xC0, 4096, 2048, 3, true},
+		{"baseline RGB 4096x2728", 0xC0, 4096, 2728, 3, false},
+		{"baseline 4096x2048", 0xC0, 4096, 2048, 3, false},
 		{"cmyk 2048", 0xC0, 2048, 2048, 4, true},
 		{"cmyk progressive 2048", 0xC2, 2048, 2048, 4, false},
 		{"too wide", 0xC0, 4097, 8, 1, false},
@@ -848,5 +853,49 @@ func TestTrashReportsWhatStayedInTheTrash(t *testing.T) {
 	entries, _, _ := e.trash.List()
 	if len(entries) != 1 || len(entries[0].Files) != 1 || entries[0].Files[0] != "Screenshots/"+a {
 		t.Fatalf("trash: %+v", entries)
+	}
+}
+
+// Codex review round 3: a folder moved by mistake whose place is taken
+// before it can go back stays in a held entry (listed, never purged
+// automatically), reported apart from the screenshots.
+func TestAFolderMovedByMistakeIsHeld(t *testing.T) {
+	e := newEnv(t)
+	name := "Starlight Courier.2026-11-21-18-30-00.png"
+	p := filepath.Join(e.dir, name)
+	e.trash.SetRename(func(oldpath, newpath string) error {
+		switch {
+		case oldpath == p:
+			// Swapped for a folder right before the rename.
+			if err := os.Remove(p); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(p, 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(p, "data.bin"), []byte("keep"), 0o644); err != nil {
+				return err
+			}
+		case newpath == p:
+			// Its place taken again before it goes back.
+			if err := os.WriteFile(p, []byte("new"), 0o644); err != nil {
+				return err
+			}
+			return os.ErrExist
+		}
+		return os.Rename(oldpath, newpath)
+	})
+	_, err := e.svc.Trash([]string{ID(name)})
+	var partial *PartialError
+	if !errors.As(err, &partial) || partial.Held != 1 || len(partial.Kept) != 0 || partial.EntryID == "" {
+		t.Fatalf("held: %v %+v", err, partial)
+	}
+	entries, _, _ := e.trash.List()
+	if len(entries) != 1 || !entries[0].Held || entries[0].ID != partial.EntryID {
+		t.Fatalf("trash %+v", entries)
+	}
+	data, err := os.ReadFile(filepath.Join(e.trash.Dir(), partial.EntryID, "Screenshots", name, "data.bin"))
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("folder content: %v", err)
 	}
 }

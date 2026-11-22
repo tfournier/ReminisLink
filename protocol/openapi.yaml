@@ -2980,9 +2980,10 @@ paths:
         ratio kept, never enlarged), made by the pak from the PNG or JPEG
         image (standard library decoders). The memory the decode would take
         is estimated from the header before any pixel is allocated (pixels,
-        16-bit and interlaced PNG, components and the coefficients of a
-        progressive JPEG) and bounded to 32 MiB (1920 × 1080 fits in every
-        format); one preview is decoded at a time. An image that cannot be
+        16-bit, interlaced and transparent PNG, components, RGBA conversion
+        and the coefficients of a progressive JPEG) and bounded to 32 MiB
+        (1920 × 1080 fits as a PNG or a sequential JPEG); one preview is
+        decoded at a time. An image that cannot be
         decoded, a BMP, one larger than 4096 × 4096 pixels or 32 MiB on the
         card, or over the decode budget gets `404 not_found`, even when the
         list said `hasThumbnail: true` (indicative); the app then shows a
@@ -3023,8 +3024,12 @@ paths:
         name) `404 not_found` with `details.missing` (its identifiers), and
         nothing is moved. Each file is checked again right before it moves
         and once moved (same device and inode, a regular file): a file or
-        folder put in its place since is never kept in the trash, it goes
-        back with the rest (`404`). On ext4 this is enforced by the check at
+        folder put in its place since goes back with the rest (`404`). Every
+        put back never replaces a file (the same no-replace rename as a
+        restore): when its place was taken meanwhile, the item stays in the
+        trash entry. Something moved by mistake that cannot go back makes
+        the entry `held` (listed, restorable, never purged automatically)
+        and is counted in `details.held`, never as a screenshot. On ext4 this is enforced by the check at
         the destination; on exFAT the pak's writes are serialized and a
         change made by another process between the checks and the rename is
         caught the same way. When a move fails after some screenshots moved
@@ -3055,7 +3060,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '500':
-          description: The move failed; `details.kept` lists the screenshots that stayed in the trash (empty when none is known to have).
+          description: The move failed; `details.kept` lists the screenshots that stayed in the trash (empty when none is known to have), `details.held` counts what was moved by mistake and kept in the held entry `details.trashEntryId`.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -3063,7 +3068,7 @@ paths:
                 error:
                   code: internal
                   message: Some screenshots could not be moved
-                  details: { kept: [sc_U2t5IEdhcmRlbiBRdWVzdC4yMDI2LTExLTIxLTE4LTMwLTAwLnBuZw] }
+                  details: { kept: [sc_U2t5IEdhcmRlbiBRdWVzdC4yMDI2LTExLTIxLTE4LTMwLTAwLnBuZw], held: 0, trashEntryId: tr_20261121T190000Z_e5f6 }
         '404':
           description: A screenshot does not exist; nothing was moved.
           content:
@@ -3697,6 +3702,9 @@ components:
           type: array
           items: { type: string }
         sizeBytes: { $ref: '#/components/schemas/Bytes' }
+        held:
+          type: boolean
+          description: 'M22: the entry holds something moved by mistake (a folder or another file put in the place of a checked screenshot) that could not go back; it is never purged automatically (`expiresAt` is then an estimate only) and can be restored or deleted. Absent means false.'
         expiresAt:
           $ref: '#/components/schemas/Timestamp'
           description: |

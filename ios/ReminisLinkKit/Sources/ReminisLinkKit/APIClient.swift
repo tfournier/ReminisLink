@@ -968,10 +968,14 @@ public actor APIClient {
     ) async throws -> (URL, HTTPURLResponse) {
         let trust = PinnedTrust(pin: pin)
         do {
-            let (location, response) = if progress != nil || maxBytes != nil {
-                try await PakDownloadDelegate.download(
+            let (location, response) = if let maxBytes {
+                // Byte-precise (Codex review of M22): never more than
+                // maxBytes on disk.
+                try await PakCappedFileDelegate.download(
                     request, session: session, trust: trust, maxBytes: maxBytes, onReceived: progress ?? { _, _ in }
                 )
+            } else if let progress {
+                try await PakDownloadDelegate.download(request, session: session, trust: trust, onReceived: progress)
             } else {
                 try await session.download(for: request, delegate: PakTaskDelegate(trust: trust))
             }
@@ -1235,6 +1239,124 @@ final class PakDownloadDelegate: PakTaskDelegate, URLSessionDownloadDelegate, @u
             finish(.failure(error))
         } else if let kept, let response = task.response {
             finish(.success((kept, response)))
+        } else {
+            finish(.failure(URLError(.cannotCreateFile)))
+        }
+    }
+}
+
+/// Task delegate of a download with a byte-precise limit (Codex review of
+/// M22): a data task whose chunks are appended to a file of the app's
+/// temporary directory. A `Content-Length` over the limit cancels the task
+/// before any byte of the body; a chunk that would take the file over the
+/// limit is not written: the task is cancelled, the file deleted, and the
+/// download fails with ``DownloadLimitExceeded``. Never more than
+/// `maxBytes` bytes are written.
+final class PakCappedFileDelegate: PakTaskDelegate, URLSessionDataDelegate, @unchecked Sendable {
+    private let maxBytes: Int64
+    private let onReceived: @Sendable (Int64, Int64?) -> Void
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private let file: URL
+    private var handle: FileHandle?
+    private var written: Int64 = 0
+    private var expected: Int64?
+    private var tooLarge = false
+    private var writeError: Error?
+
+    private init(trust: PinnedTrust, maxBytes: Int64, onReceived: @escaping @Sendable (Int64, Int64?) -> Void) throws {
+        self.maxBytes = maxBytes
+        self.onReceived = onReceived
+        file = FileManager.default.temporaryDirectory.appending(path: "rl-dl-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        handle = try FileHandle(forWritingTo: file)
+        super.init(trust: trust, onSent: nil)
+    }
+
+    static func download(
+        _ request: URLRequest, session: URLSession, trust: PinnedTrust, maxBytes: Int64,
+        onReceived: @escaping @Sendable (Int64, Int64?) -> Void
+    ) async throws -> (URL, URLResponse) {
+        let delegate = try PakCappedFileDelegate(trust: trust, maxBytes: maxBytes, onReceived: onReceived)
+        let task = session.dataTask(with: request)
+        task.delegate = delegate
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.lock.withLock { delegate.continuation = continuation }
+                if Task.isCancelled {
+                    task.cancel()
+                    delegate.finish(.failure(CancellationError()))
+                } else {
+                    task.resume()
+                }
+            }
+        } onCancel: {
+            task.cancel()
+            delegate.finish(.failure(CancellationError()))
+        }
+    }
+
+    private func finish(_ result: Result<(URL, URLResponse), Error>) {
+        let (continuation, handle) = lock.withLock { () -> (CheckedContinuation<(URL, URLResponse), Error>?, FileHandle?) in
+            defer { self.continuation = nil; self.handle = nil }
+            return (self.continuation, self.handle)
+        }
+        try? handle?.close()
+        if case .failure = result { try? FileManager.default.removeItem(at: file) }
+        continuation?.resume(with: result)
+    }
+
+    func urlSession(
+        _ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
+        let length = response.expectedContentLength
+        let allowed = lock.withLock { () -> Bool in
+            if length > maxBytes {
+                tooLarge = true
+                return false
+            }
+            expected = length > 0 ? length : nil
+            return true
+        }
+        completionHandler(allowed ? .allow : .cancel)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        let report = lock.withLock { () -> (Int64, Int64?)? in
+            guard !tooLarge, writeError == nil, let handle else { return nil }
+            guard written + Int64(data.count) <= maxBytes else {
+                tooLarge = true
+                return nil
+            }
+            do {
+                try handle.write(contentsOf: data)
+            } catch {
+                writeError = error
+                return nil
+            }
+            written += Int64(data.count)
+            return (written, expected)
+        }
+        if let report {
+            onReceived(report.0, report.1)
+        } else {
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let (tooLarge, writeError) = lock.withLock { (self.tooLarge, self.writeError) }
+        if tooLarge {
+            finish(.failure(DownloadLimitExceeded()))
+        } else if let writeError {
+            finish(.failure(writeError))
+        } else if let error {
+            finish(.failure(error))
+        } else if let response = task.response {
+            finish(.success((file, response)))
         } else {
             finish(.failure(URLError(.cannotCreateFile)))
         }

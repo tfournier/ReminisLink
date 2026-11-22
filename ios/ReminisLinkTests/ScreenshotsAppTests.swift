@@ -166,6 +166,31 @@ struct ScreenshotsAppTests {
         #expect(!ScreenshotManager.meansTooLarge(AppError.api(.network(.timedOut))))
     }
 
+    /// Codex review round 3: an out-of-space error thrown inside
+    /// `ConsoleSession.perform` (which converts errors) is still the "too
+    /// large, share it" message.
+    @Test func noRoomThroughPerformIsTooLarge() async throws {
+        let pak = makePak()
+        let app = try await pairedApp(pak)
+        let session = app.session(for: pak.deviceId)
+        await #expect {
+            _ = try await session.perform { _ in
+                try await ScreenshotManager.capped { () -> Int in
+                    throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteOutOfSpaceError)
+                }
+            }
+        } throws: { error in
+            (error as? AppError) == .screenshotTooLarge
+        }
+        await #expect {
+            _ = try await session.perform { _ in
+                try await ScreenshotManager.capped { () -> Int in throw URLError(.timedOut) }
+            }
+        } throws: { error in
+            (error as? AppError) != .screenshotTooLarge
+        }
+    }
+
     @Test func freeNamesIgnoreCase() {
         var taken: Set<String> = ["shot.png"]
         #expect(ScreenshotManager.freeName("SHOT.png", taken: &taken) == "SHOT (2).png")

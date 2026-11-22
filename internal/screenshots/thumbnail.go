@@ -25,8 +25,8 @@ const (
 	// MaxDecodeBytes bounds what decoding one image may allocate,
 	// estimated from its header before any pixel is (Codex review of
 	// M22: a Brick has about 1 GB shared with the OS): 1920 x 1080 fits
-	// in any format, a progressive JPEG included; a 4096 x 4096 PNG does
-	// not (64 MiB of pixels).
+	// as a PNG or a sequential JPEG; a 4096 x 4096 PNG and a progressive
+	// 1920 x 1080 JPEG with 3 components do not.
 	MaxDecodeBytes = 32 << 20
 	// headerWindow: the header of a JPEG (its frame, after the EXIF and
 	// other segments) must be in the first headerWindow bytes.
@@ -175,14 +175,17 @@ type jpegFrame struct {
 }
 
 // cost is what image/jpeg allocates: one byte per pixel and component for
-// the decoded image (CMYK and YCCK are converted to RGBA too), and for a
+// the decoded image, plus an RGBA image for 3 or 4 components (RGB, CMYK
+// and YCCK are converted while the planes are alive), and for a
 // progressive image the coefficients of every block (64 int32 per 8 x 8
 // block and component: 4 bytes per pixel and component).
 func (f jpegFrame) cost() int64 {
 	px := int64(f.width) * int64(f.height)
 	comps := int64(f.components)
 	cost := px * comps
-	if comps == 4 {
+	if comps >= 3 {
+		// An RGB (Adobe) or CMYK image is converted to RGBA while its
+		// planes are still alive (Codex review of M22).
 		cost += px * 4
 	}
 	if f.progressive {

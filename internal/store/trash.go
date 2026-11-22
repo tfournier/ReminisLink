@@ -76,11 +76,15 @@ var validReasons = map[string]bool{
 type PartialMoveError struct {
 	EntryID string
 	Kept    []string
-	Err     error
+	// Held: what a rename moved by mistake (not the file the caller
+	// checked) and could not go back: the entry is held (never purged
+	// automatically).
+	Held []string
+	Err  error
 }
 
 func (e *PartialMoveError) Error() string {
-	return e.Err.Error() + " (kept in the trash: " + strings.Join(e.Kept, ", ") + ")"
+	return e.Err.Error() + " (kept in the trash: " + strings.Join(append(append([]string{}, e.Kept...), e.Held...), ", ") + ")"
 }
 func (e *PartialMoveError) Unwrap() error { return e.Err }
 
@@ -122,6 +126,10 @@ type TrashEntry struct {
 	Files     []string  `json:"files"`
 	SizeBytes int64     `json:"sizeBytes"`
 	ExpiresAt time.Time `json:"expiresAt"`
+	// Held (M22): the entry holds something moved by mistake (a folder or
+	// another file put in the place of the checked one); never purged
+	// automatically, restorable.
+	Held bool `json:"held,omitempty"`
 }
 
 // entryFile is the content of entry.json.
@@ -160,6 +168,9 @@ type entryFile struct {
 	// moved these files: while that entry is still "done" (its restore
 	// never started), Recover puts them back.
 	RestoreOf string `json:"restoreOf,omitempty"`
+	// Held: see TrashEntry.Held. Such an entry has no Credit, so it is
+	// never purged automatically.
+	Held bool `json:"held,omitempty"`
 }
 
 // installRecord is an Install in entry.json, paths relative to the SD card.
@@ -186,7 +197,7 @@ func (e entryFile) public(now time.Time, credit *time.Duration) TrashEntry {
 		left = max(TrashRetention-age, 0)
 	}
 	return TrashEntry{
-		ID: e.ID, TrashedAt: e.TrashedAt, Reason: e.Reason, Label: e.Label,
+		Held: e.Held, ID: e.ID, TrashedAt: e.TrashedAt, Reason: e.Reason, Label: e.Label,
 		Files: files, SizeBytes: e.SizeBytes, ExpiresAt: now.Add(left).UTC().Truncate(time.Second),
 	}
 }
@@ -229,6 +240,10 @@ type Trash struct {
 	// renameExcl is the rename of a restore, which never replaces its
 	// destination (renameNoReplaceInSD; SetRename replaces it too).
 	renameExcl func(oldpath, newpath string) error
+	// renameBack is the rename of every put back (rollbacks of moves,
+	// restores and replacements, and the recovery): it never replaces
+	// either (renameNoReplaceInSD; SetRename replaces it too).
+	renameBack func(oldpath, newpath string) error
 	// caseFromFS: see SetCaseFromFS.
 	caseFromFS bool
 	// returnCheck and replaceSpec: see SetRestoreHooks.
@@ -253,6 +268,7 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 	// (M12 review).
 	t.rename = t.renameInSD
 	t.renameExcl = t.renameNoReplaceInSD
+	t.renameBack = t.renameNoReplaceInSD
 	// The journal is durable only once its folder is synced (and checked).
 	t.saveEntry = func(dir string, e entryFile) error {
 		return t.writeEntryConfined(dir, e, func(d string) error { return t.syncDir(d) })
@@ -265,7 +281,7 @@ func NewTrash(layout Layout, sdRoot string, now func() time.Time, log *slog.Logg
 func (t *Trash) SetRename(rename func(oldpath, newpath string) error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.rename, t.renameExcl = rename, rename
+	t.rename, t.renameExcl, t.renameBack = rename, rename, rename
 }
 
 // SetSyncDir replaces SyncDirChecked for the trash (tests of other
@@ -481,6 +497,8 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 		os.RemoveAll(entryDir) // only holds the entry file
 		return MoveResult{}, "", entryFile{}, err
 	}
+	// unexpected: what a rename moved that was not the checked file.
+	unexpected := map[string]bool{}
 	fail := func(moved []plannedMove, cause error) (MoveResult, string, entryFile, error) {
 		// Put back what was moved; the entry then only holds entry.json
 		// unless a file cannot go back (its place is taken): the entry
@@ -492,9 +510,23 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 		} else {
 			recount(entryDir, &e, left)
 			e.Installs = nil
+			pme := &PartialMoveError{EntryID: id, Err: cause}
+			for _, rel := range left {
+				if unexpected[rel] {
+					pme.Held = append(pme.Held, rel)
+				} else {
+					pme.Kept = append(pme.Kept, rel)
+				}
+			}
+			if len(pme.Held) > 0 {
+				// Moved by mistake and cannot go back: kept, listed and
+				// restorable, never purged automatically (Codex review of
+				// M22).
+				e.Held, e.Credit = true, nil
+			}
 			_ = t.saveEntry(entryDir, e)
-			t.log.Error("trash: files left in the trash after a failed move", "entry", id, "files", left)
-			return MoveResult{}, "", entryFile{}, &PartialMoveError{EntryID: id, Kept: left, Err: cause}
+			t.log.Error("trash: files left in the trash after a failed move", "entry", id, "files", left, "held", pme.Held)
+			return MoveResult{}, "", entryFile{}, pme
 		}
 		return MoveResult{}, "", entryFile{}, cause
 	}
@@ -521,6 +553,7 @@ func (t *Trash) moveLocked(reason, label string, items []MoveItem, installs []in
 				// (Codex review of M22).
 				if fi, lerr := os.Lstat(dst); lerr != nil || !fi.Mode().IsRegular() || !os.SameFile(fi, p.identity) {
 					err = fmt.Errorf("%w: %s", ErrChanged, p.rel)
+					unexpected[p.rel] = true
 					i++ // it moved: put back
 				}
 			}
@@ -674,7 +707,10 @@ func (t *Trash) restoreItem(src, dst string) error {
 	if err := t.mkdirInSD(filepath.Dir(dst)); err != nil {
 		return err
 	}
-	if err := t.rename(src, dst); err != nil {
+	// Never over a file that appeared after the check above (Codex review
+	// of M22): the rename that never replaces; a taken place keeps the
+	// item where it is (the caller keeps the entry).
+	if err := t.renameBack(src, dst); err != nil {
 		return err
 	}
 	if err := t.syncDir(filepath.Dir(dst)); err != nil {

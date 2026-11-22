@@ -89,6 +89,18 @@ struct ScreenshotModelTests {
         #expect(selection.isEmpty)
     }
 
+    @Test func readsAHeldTrashEntry() throws {
+        let entry = try ProtocolJSON.decoder().decode(TrashEntry.self, from: Data(#"""
+        {"id":"tr_1","trashedAt":"2026-11-21T19:00:00Z","reason":"delete-screenshot","label":"a.png","files":["Screenshots/a.png/data.bin"],
+         "sizeBytes":4,"expiresAt":"2026-12-21T19:00:00Z","held":true}
+        """#.utf8))
+        #expect(entry.held == true)
+        let old = try ProtocolJSON.decoder().decode(TrashEntry.self, from: Data(#"""
+        {"id":"tr_1","trashedAt":"2026-11-21T19:00:00Z","reason":"delete-game","label":"a","files":[],"sizeBytes":4,"expiresAt":"2026-12-21T19:00:00Z"}
+        """#.utf8))
+        #expect(old.held == nil)
+    }
+
     @Test func readsTheEvent() {
         #expect(PakEvent(SSEEvent(id: nil, type: "screenshots", data: "{}")) == .screenshots(EventScreenshots()))
         #expect(PakEvent(SSEEvent(id: nil, type: "screenshots", data: "nope")) == nil)
@@ -134,6 +146,13 @@ struct ScreenshotAPITests {
         #expect((try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.isEmpty ?? true)
         let file = try await client.downloadScreenshot(id: first.screenshotId, into: directory, maxBytes: 64 << 20)
         #expect(FileManager.default.fileExists(atPath: file.url.path))
+        // Exactly at the limit passes; one byte less does not.
+        let size = Int64(try Data(contentsOf: file.url).count)
+        let exact = try await client.downloadScreenshot(id: first.screenshotId, into: directory, maxBytes: size)
+        #expect(Int64(try Data(contentsOf: exact.url).count) == size)
+        await #expect(throws: DownloadLimitExceeded.self) {
+            _ = try await client.downloadScreenshot(id: first.screenshotId, into: directory, maxBytes: size - 1)
+        }
     }
 
     @Test func trashesInOneEntryAndRestores() async throws {

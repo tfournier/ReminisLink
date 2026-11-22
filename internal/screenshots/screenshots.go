@@ -484,6 +484,9 @@ func (s *Service) Trash(ids []string) (store.MoveResult, error) {
 		for _, rel := range partial.Kept {
 			pe.Kept = append(pe.Kept, ID(filepath.Base(filepath.FromSlash(rel))))
 		}
+		// Not screenshots: what was moved by mistake, in a held entry.
+		pe.Held = len(partial.Held)
+		pe.EntryID = partial.EntryID
 		return store.MoveResult{}, pe
 	}
 	if errors.Is(err, store.ErrChanged) {
@@ -506,6 +509,11 @@ type PartialError struct {
 	// Kept: the identifiers of the screenshots that stayed in the trash
 	// (empty when none is known to have).
 	Kept []string
+	// Held: how many items moved by mistake (a folder or another file put
+	// in the place of a screenshot) stayed in the trash entry EntryID,
+	// which is then never purged automatically. Not screenshots.
+	Held    int
+	EntryID string
 }
 
 func (e *PartialError) Error() string { return e.Err.Error() }

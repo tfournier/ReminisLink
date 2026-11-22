@@ -3037,6 +3037,16 @@
         }
       }
     },
+    "Kept until you delete it: it holds an item moved by mistake." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gardée jusqu’à ce que tu la supprimes : elle contient un élément déplacé par erreur."
+          }
+        }
+      }
+    },
     "Label" : {
       "localizations" : {
         "fr" : {

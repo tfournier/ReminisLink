@@ -124,10 +124,12 @@ final class ScreenshotManager {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file: DownloadedFile
         do {
-            file = try await session.perform {
-                try await $0.downloadScreenshot(
-                    id: screenshot.screenshotId, fallbackName: screenshot.name, into: directory, maxBytes: Self.maxPreviewBytes
-                )
+            file = try await session.perform { client in
+                try await Self.capped {
+                    try await client.downloadScreenshot(
+                        id: screenshot.screenshotId, fallbackName: screenshot.name, into: directory, maxBytes: Self.maxPreviewBytes
+                    )
+                }
             }
         } catch {
             // Larger than shown here (replaced since it was listed), or no
@@ -139,6 +141,19 @@ final class ScreenshotManager {
         return try await Task.detached(priority: .userInitiated) {
             try Self.downsampled(url, maxPixels: maxPixels)
         }.value
+    }
+
+    /// Runs a download inside `ConsoleSession.perform`, turning "too large"
+    /// and "no room left" into ``DownloadLimitExceeded`` before `perform`
+    /// converts the error to an ``AppError`` (which would drop the code of
+    /// an out-of-space error; Codex review of M22).
+    nonisolated static func capped<T: Sendable>(_ operation: () async throws -> T) async throws -> T {
+        do {
+            return try await operation()
+        } catch {
+            if meansTooLarge(error) { throw DownloadLimitExceeded() }
+            throw error
+        }
     }
 
     /// The download stopped at the limit, or the iPhone ran out of room.

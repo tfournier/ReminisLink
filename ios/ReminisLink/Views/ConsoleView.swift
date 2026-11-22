@@ -142,9 +142,16 @@ struct TrashView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(entry.displayLabel).font(.headline)
                             Text(entry.sizeBytes.byteString)
-                            Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            if entry.held == true {
+                                // M22: never purged automatically.
+                                Text("Kept until you delete it: it holds an item moved by mistake.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Expires no earlier than \(entry.expiresAt.formatted(date: .abbreviated, time: .omitted))")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())

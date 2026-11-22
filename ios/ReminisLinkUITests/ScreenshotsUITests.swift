@@ -111,6 +111,7 @@ final class ScreenshotsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(fr)", "-AppleLocale", "fr_FR"]
         app.launchEnvironment["RL_UITEST_MEMORY_STORE"] = "1"
+        app.launchEnvironment["RL_UITEST_WIDTH_LINKS"] = "1"
         app.launch()
         app.buttons["welcome.demo"].tapAfterWaiting(timeout: 10)
         XCTAssertTrue(app.buttons["demo.quit"].waitForExistence(timeout: 10), "not in the demo")
@@ -145,5 +146,18 @@ final class ScreenshotsUITests: XCTestCase {
         let all = NSPredicate(format: "label == %@", "\(cells.count) sélectionnée(s)")
         XCTAssertTrue(app.staticTexts.matching(all).firstMatch.waitForExistence(timeout: 5), "Select All did not select all")
         attachScreenshot(of: app, named: "screenshots-all-selected-fr")
+
+        // A narrow window (Codex review round 3; the debug width link of
+        // M15: the console screens take the compact width class).
+        XCUIDevice.shared.system.open(URL(string: "reminislink://uitest-width?class=compact")!)
+        _ = app.staticTexts["screenshots.count"].waitForExistence(timeout: 3)
+        let narrowCount = app.staticTexts["screenshots.count"]
+        let allText = "\(cells.count) sélectionnée(s)"
+        let allWidth = (allText as NSString).size(withAttributes: [.font: font]).width
+        XCTAssertGreaterThanOrEqual(narrowCount.frame.width + 1, allWidth, "the count is cut in a narrow window")
+        for id in ["screenshots.share", "screenshots.selectAll", "screenshots.photos", "screenshots.trash", "screenshots.select"] {
+            XCTAssertTrue(app.buttons[id].isHittable, "\(id) not reachable in a narrow window")
+        }
+        attachScreenshot(of: app, named: "screenshots-selection-fr-narrow")
     }
 }
