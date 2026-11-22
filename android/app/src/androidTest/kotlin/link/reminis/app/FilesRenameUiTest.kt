@@ -148,10 +148,18 @@ class FilesRenameUiTest {
             compose.onNodeWithTag("tabFiles").assertExists()
             it.onActivity { a -> a.onBackPressedDispatcher.onBackPressed() }
             waitFor("Downloads") { hasTag("sd-Hacks") }
-            tap("sdMenu-Hacks")
-            tap("sdTrashOne")
-            waitFor("folder confirmation") { hasText(context.getString(R.string.sd_trash_folders)) }
-            tap("sdTrashConfirm")
+            // The listing kept in the back stack may still show the folder as it was before the
+            // file left it: the console then refuses (`changed`) and the folder is read again.
+            repeat(3) {
+                if (!hasTag("sd-Hacks")) return@repeat
+                tap("sdMenu-Hacks")
+                tap("sdTrashOne")
+                waitFor("folder confirmation") { hasText(context.getString(R.string.sd_trash_folders)) }
+                tap("sdTrashConfirm")
+                waitFor("folder moved or refused") { !hasTag("sd-Hacks") || hasText(context.getString(R.string.sd_entry_changed)) }
+                compose.waitForIdle()
+                Thread.sleep(500)
+            }
             waitFor("folder moved") { !hasTag("sd-Hacks") }
             val entry = runBlocking { demo.client.trash() }.entries.first { it.label == "Hacks" }
             assertEquals("delete-file", entry.reason)

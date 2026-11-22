@@ -366,10 +366,15 @@ fun AppNavigation(
     Column(Modifier.fillMaxSize()) {
         if (demo != null) DemoBanner(onQuit = { quitDemo() }, modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars))
         val insets = if (demo != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(insets)) {
+        // Not a BoxWithConstraints: the nav host must be composed with this screen (a subcomposition
+        // would set its graph after the effects above navigate to an incoming link or share).
+        val windowWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+            androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp()
+        }
+        Box(Modifier.weight(1f).then(insets)) {
             val showTabs = tab != null && shownConsole != null && !tabBarHidden
             // A wide window gets a rail on the side (iOS M15: a top bar or a sidebar), a narrow one a bottom bar.
-            val rail = showTabs && maxWidth >= 600.dp
+            val rail = showTabs && windowWidth >= 600.dp
             androidx.compose.foundation.layout.Row(Modifier.fillMaxSize()) {
                 if (rail) ConsoleTabRail(tab!!, openTab)
                 Column(Modifier.weight(1f)) {
