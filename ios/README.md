@@ -23,7 +23,26 @@ cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulat
 # the same tests on an iPad (milestone M15); a name-only destination may not
 # resolve: take the id from `xcodebuild -showdestinations -scheme ReminisLink`
 cd ios && xcodebuild test -scheme ReminisLink -destination 'id=<iPad simulator id>'
+# the UI tests alone, on 2 clones of the simulator at once (as the CI)
+cd ios && xcodebuild test -scheme ReminisLink -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -only-testing:ReminisLinkUITests -parallel-testing-enabled YES -parallel-testing-worker-count 2
 ```
+
+The GitHub CI (`.github/workflows/ci.yml`) runs them in two jobs side by
+side, each on its own Mac: `ios` (`swift test`, `make release-checks`, then
+the app's unit tests, `-only-testing:ReminisLinkTests`) and `ios-ui` (the
+UI tests, on 2 clones of the simulator as above). A failed test is run
+again, up to 3 times in all (`-retry-tests-on-failure -test-iterations 3`).
+The app's release gate needs both jobs (`CI_JOBS_IOS` in the Makefile,
+`RL_CI_JOBS_IOS` in `ci_scripts/common.sh`).
+
+In parallel, xcodebuild gives each clone whole test classes. The UI tests in
+demo mode share nothing between classes: the fake pak runs in the app's
+process (no port, no network), its Keychain is in memory, its
+`UserDefaults` suite and folder are its own, and each clone has its own app
+container. The tests against a real pak (`TEST_RUNNER_RL_UITEST_PAIR_URL_*`,
+one pak and single-use pairing links) run one at a time: leave parallel
+testing off for them (the scheme's default).
 
 No Apple Developer account is needed for the simulator. To run on a device,
 set `DEVELOPMENT_TEAM` in `Config/Local.xcconfig` (see "Release" below).
@@ -197,8 +216,8 @@ set in Xcode):
   cannot match it); these checks are a second guard.
 - **Release gate** (`ci_post_clone.sh`, Release and Beta workflows): the
   build stops before the archive unless the GitHub CI (`ci.yml`, a push to
-  `main`; a run started by a tag never counts) passed the jobs `ios` and
-  `contract` on the commit built (`CI_COMMIT`), with the conclusion
+  `main`; a run started by a tag never counts) passed the jobs `ios`,
+  `ios-ui` and `contract` on the commit built (`CI_COMMIT`), with the conclusion
   `success` (skipped, neutral, cancelled, timed out... are failures; a job
   that already failed outweighs one still running). It reads the public
   GitHub API without a token, every page
