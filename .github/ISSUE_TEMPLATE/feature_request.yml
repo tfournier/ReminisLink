@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an idea for the pak or the iOS app.
+description: Suggest an idea for the pak or the app.
 labels: [enhancement]
 body:
   - type: textarea
@@ -13,4 +13,23 @@ body:
     id: part
     attributes:
       label: Which part?
-      options: [Pak (handheld), iOS app, Both, Website]
+      multiple: true
+      options:
+        - Pak (on the handheld)
+        - iPhone app
+        - iPad app
+        - Mac app
+        - Android app
+        - Website
+    validations:
+      required: true
+  - type: input
+    id: handheld
+    attributes:
+      label: Handheld and firmware (optional)
+      description: If the idea is about one handheld or firmware.
+      placeholder: "TrimUI Brick, NextUI"
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Mockups or screenshots (optional)

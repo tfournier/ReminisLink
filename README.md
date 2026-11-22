@@ -59,7 +59,7 @@ The experimental handhelds come with the next release of the pak (1.1). The app 
 
 ### Call for testers
 
-The experimental handhelds have never been tried on a real device. The pak is built for them and tested without them: the card layouts are rebuilt from the firmware source code, and the server runs in each system under emulation. The screen, the buttons and the Wi-Fi are untested. If you own one of these handhelds, please try ReminisLink and [open an issue](https://github.com/tfournier/ReminisLink/issues) with:
+The experimental handhelds have never been tried on a real device. The pak is built for them and tested without them: the card layouts are rebuilt from the firmware source code, and the server runs in each system under emulation. The screen, the buttons and the Wi-Fi are untested. If you own one of these handhelds, please try ReminisLink and fill in a [handheld test report](https://github.com/tfournier/ReminisLink/issues/new?template=handheld_test.yml) with:
 
 - your handheld, its firmware and the firmware version;
 - what works and what does not: the pak opens and shows the QR code, the app pairs, the library and the dashboard load, a game upload works, a save backup and restore work;

@@ -1,36 +1,124 @@
 name: Bug report
-description: Something does not work as expected in the pak or the iOS app.
+description: Something does not work as expected in the pak or in the app (iPhone, iPad, Mac, Android).
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. Please do not attach files you do not own, and never share the `tls/` folder of the handheld or a pairing link / QR code. Security problems: see SECURITY.md (do not open a public issue).
+        Thanks for the report.
+
+        Before you post:
+        - Never share the `tls/` folder of the handheld, a pairing link or a QR code.
+        - Do not attach files you do not own, such as ROMs.
+        - For a security problem, see SECURITY.md instead of opening a public issue.
   - type: dropdown
     id: part
     attributes:
       label: Where does it happen?
-      options: [Pak (handheld), iOS app, Both, Website]
+      multiple: true
+      options:
+        - Pak (on the handheld)
+        - iPhone app
+        - iPad app
+        - Mac app
+        - Android app
+        - Website
+    validations:
+      required: true
+  - type: dropdown
+    id: handheld
+    attributes:
+      label: Handheld
+      options:
+        - TrimUI Brick
+        - TrimUI Smart Pro S
+        - Anbernic RG28XX
+        - Anbernic RG34XX
+        - Anbernic RG35XX Plus / H / Pro / SP
+        - Anbernic RG40XX H / V
+        - Anbernic RG CubeXX
+        - Miyoo Flip
+        - Other (write it below)
+    validations:
+      required: true
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      options:
+        - NextUI
+        - Knulli
+        - Other (write it below)
     validations:
       required: true
   - type: input
-    id: versions
+    id: firmware-version
     attributes:
-      label: Versions
-      description: Pak version (Settings > Version and log), app version, handheld model and NextUI version.
-      placeholder: "pak v1.0.0, app 1.0.0, TrimUI Brick, NextUI-2026…"
+      label: Firmware version
+      description: "NextUI: the settings screen. Knulli: the System menu."
+      placeholder: "NextUI-20261115-0"
+    validations:
+      required: true
+  - type: input
+    id: pak-version
+    attributes:
+      label: Pak version
+      description: "On the handheld: ReminisLink > Settings > Version and log."
+      placeholder: "v1.1.0"
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: "In the app: Settings > About. Leave empty if only the pak is concerned."
+      placeholder: "1.1.0 (12)"
+  - type: input
+    id: phone
+    attributes:
+      label: Phone, tablet or Mac, and its system version
+      placeholder: "iPhone 15, iOS 26.1 / Pixel 8, Android 16 / MacBook Air M2, macOS 26.1"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the library
+        2. Open a game
+        3. Tap Rename…
     validations:
       required: true
   - type: textarea
-    id: what
+    id: expected
     attributes:
-      label: What happened?
-      description: What you did, what you expected and what happened instead.
+      label: What did you expect?
     validations:
       required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+      description: Include the exact error message if one appeared.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or video (optional)
+      description: Drag and drop images or a video here. Hide anything private first (names of your network, devices or files).
   - type: textarea
     id: log
     attributes:
-      label: Log (optional)
-      description: The relevant part of `/.userdata/tg5040/logs/ReminisLink.txt`. Read it first — it may contain device names, identifiers and local addresses.
+      label: Log of the pak (optional)
+      description: |
+        The relevant part of `ReminisLink.txt` or `ReminisLink.stderr.txt`. NextUI keeps them in `/.userdata/<platform>/logs/`, Knulli in `/userdata/system/logs/`.
+        Read the log first: it contains neither the pairing secret nor a private key, but it may show the names of your handheld, your devices and your Wi-Fi network.
       render: text
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often?
+      options:
+        - Every time
+        - Sometimes
+        - Once

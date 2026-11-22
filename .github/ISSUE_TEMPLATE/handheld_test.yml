@@ -1,0 +1,92 @@
+name: Handheld test report
+description: You tried ReminisLink on an experimental handheld (TrimUI Smart Pro S, Anbernic H700, Miyoo Flip, Knulli). Tell us how it went.
+labels: [handheld-test]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing! These handhelds have never been tried on a real device, so every report helps, including "everything works".
+
+        Before you start, back up your SD card.
+
+        Installation steps are in the README, under "Call for testers".
+  - type: dropdown
+    id: handheld
+    attributes:
+      label: Handheld
+      options:
+        - TrimUI Smart Pro S
+        - Anbernic RG28XX
+        - Anbernic RG34XX
+        - Anbernic RG35XX Plus / H / Pro / SP
+        - Anbernic RG40XX H / V
+        - Anbernic RG CubeXX
+        - Miyoo Flip
+        - TrimUI Brick
+        - Other (write it below)
+    validations:
+      required: true
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      options:
+        - NextUI
+        - Knulli
+    validations:
+      required: true
+  - type: input
+    id: firmware-version
+    attributes:
+      label: Firmware version
+      description: "NextUI: the settings screen. Knulli: the System menu."
+    validations:
+      required: true
+  - type: input
+    id: pak-version
+    attributes:
+      label: Pak version
+      description: "On the handheld: ReminisLink > Settings > Version and log."
+      placeholder: "v1.1.0-beta.1"
+    validations:
+      required: true
+  - type: input
+    id: app
+    attributes:
+      label: App, version and phone
+      description: "In the app: Settings > About."
+      placeholder: "iPhone app 1.1.0 (12), iOS 26.1 / Android app 1.0.0, Android 16"
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: What works?
+      description: Tick what worked. Explain anything that failed below.
+      options:
+        - label: The pak opens and shows the QR code; the buttons respond (A, Y, B); B closes the pak
+        - label: The app finds the handheld and pairs with the QR code
+        - label: The library shows the systems and games (with box art); the dashboard shows battery and Wi-Fi
+        - label: A game sent from the app launches on the handheld
+        - label: A save backup restored from the app brings the game back to that point
+        - label: A locked save state comes back after being overwritten in game
+        - label: A deleted test game goes to the ReminisLink trash and can be restored
+        - label: Screenshots taken on the handheld appear in the app
+  - type: textarea
+    id: problems
+    attributes:
+      label: What did not work?
+      description: What you did, what you expected and what happened. Add the exact error message if there was one.
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or photos (optional)
+      description: A photo of the handheld screen helps with display problems.
+  - type: textarea
+    id: log
+    attributes:
+      label: Log of the pak
+      description: |
+        `ReminisLink.txt` and `ReminisLink.stderr.txt`, from `/.userdata/<platform>/logs/` (NextUI) or `/userdata/system/logs/` (Knulli).
+        Read the logs before attaching them: they contain neither the pairing secret nor a private key, but they may show the names of your handheld and your Wi-Fi network.
+      render: text
