@@ -291,13 +291,13 @@ Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{e
 
 Le serveur reste disponible pendant un jeu et dans le menu de NextUI, sans ouvrir ReminisLink sur la console : par exemple modifier un code de triche depuis le téléphone pendant la partie. Projet de spec : [11](11-mode-arriere-plan.md) (à valider, décisions ouvertes au §12). Un code modifié ne s'applique qu'au prochain lancement du jeu (minarch ne relit pas le `.cht`).
 
-- Réglage du pak « Disponible pendant les jeux », désactivé par défaut ; hooks NextUI (`boot.d`, `post-launch.d`), jamais `auto.sh`.
-- Le serveur d'arrière-plan consulte et enregistre des cheats, rien d'autre (`409 background_mode`) : NextUI ne permet pas de retarder un lancement, toute autre écriture pourrait croiser minarch ou un autre pak ; cheats refusés pendant un autre pak (`409 console_busy`). Activité (menu, jeu, pak) lue dans `/proc`.
-- Un seul serveur à la fois (verrou, relève avec le pak au premier plan, cache de nonces passé au successeur, `shutdown` avec `restarting`).
-- Contrat d'abord (`mode`, `activity` dans `/device` signé et le flux, `409 background_mode` et `console_busy`, rien sur les jeux dans `/hello`), puis le pak, puis les apps iOS et Android.
+- Réglage du pak « Disponible pendant les jeux », désactivé par défaut ; hooks NextUI (`pre-launch.d`, `boot.d`, `post-launch.d`, `post-resume.d`), jamais `auto.sh`.
+- Tout est permis sauf ce qui est en cours d'utilisation (décision du 23/11/2026) : fichiers et émulateur du jeu en cours (`409 game_running`, ses cheats restent modifiables), l'app ouverte et les cheats pendant qu'elle tourne (`409 console_busy`). Transitions : hook `pre-launch.d` synchrone qui attend l'opération en cours, état relu dans `/proc` avant chaque étape, corbeille avant tout remplacement, téléchargement coupé si le fichier change.
+- Un seul serveur à la fois (verrou, relève avec le pak au premier plan, cache de nonces passé au successeur, requêtes signées avant un redémarrage forcé refusées, `shutdown` avec `restarting`).
+- Contrat d'abord (`mode`, `activity` dans `/device` signé et le flux, `409 game_running` et `console_busy`, rien sur les jeux dans `/hello`), puis le pak, puis les apps iOS et Android.
 - Revue de la spec sécurité (07).
 
-**Fait quand** : sur une Brick, le réglage actif, l'app trouve la console pendant un jeu et après une veille profonde, enregistre un code de triche du jeu en cours avec la notice, refuse proprement les autres écritures, et les mesures de 11 §9 sont tenues et publiées ; pak en version MINOR.
+**Fait quand** : sur une Brick, le réglage actif, l'app trouve la console pendant un jeu et après une veille profonde, enregistre un code de triche du jeu en cours avec la notice, refuse proprement ce qui touche le jeu en cours tout en permettant le reste (envoi d'un autre jeu, téléchargement d'une autre save), et les mesures de 11 §9 sont tenues et publiées ; pak en version MINOR.
 
 ## v1.2.0 (app iOS) — Revoir l'interface sur Mac (demandé par la personne le 22/11/2026)
 
