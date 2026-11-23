@@ -289,7 +289,7 @@ Réalisé (branche `m18-trash-restore`, à relire) : route `GET`/`POST /trash/{e
 
 ## M24 — ReminisLink pendant les jeux (proposé par la personne le 23/11/2026)
 
-Le serveur reste disponible pendant un jeu et dans le menu de NextUI, sans ouvrir ReminisLink sur la console : par exemple modifier un code de triche depuis le téléphone pendant la partie. Projet de spec : [11](11-mode-arriere-plan.md) (à valider, décisions ouvertes au §13). Un code modifié ne s'applique qu'au prochain lancement du jeu (minarch ne relit pas le `.cht`).
+Le serveur reste disponible pendant un jeu et dans le menu de NextUI, sans ouvrir ReminisLink sur la console : par exemple modifier un code de triche depuis le téléphone pendant la partie. Projet de spec : [11](11-mode-arriere-plan.md) (à valider, décisions ouvertes au §12). Un code modifié ne s'applique qu'au prochain lancement du jeu (minarch ne relit pas le `.cht`).
 
 - Réglage du pak « Disponible pendant les jeux », désactivé par défaut ; hooks NextUI (`boot.d`, `post-launch.d`), jamais `auto.sh`.
 - Le serveur d'arrière-plan consulte et enregistre des cheats, rien d'autre (`409 background_mode`) : NextUI ne permet pas de retarder un lancement, toute autre écriture pourrait croiser minarch ou un autre pak ; cheats refusés pendant un autre pak (`409 console_busy`). Activité (menu, jeu, pak) lue dans `/proc`.
