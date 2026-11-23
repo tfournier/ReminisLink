@@ -136,14 +136,18 @@ Checklist:
    shows `<b>`, `<i>` and line breaks, not `<p>`/`<ul>`: paste the text and
    replace the list items with "• " lines), icon `images/icon.png` (512 x
    512), screenshots `images/phoneScreenshots/` (made from the demo mode by
-   `android/scripts/make-screenshots.sh`), feature graphic 1024 x 500 (to
-   make: the icon on the gradient of the app icon, no text needed). Category:
-   Tools. Contact email and website <https://reminis.link>.
-4. **Privacy policy**: <https://reminis.link/privacy/>. **Before
-   submitting, add the Android app to it** (docs/privacy.md and `site/`
-   today describe the iPhone app only): the key in the Android Keystore,
-   the pairings and transfers kept on the phone, no backup (`allowBackup`
-   off), camera for the QR code, the notification of transfers.
+   `android/scripts/make-screenshots.sh`), feature graphic
+   `images/featureGraphic.png` (1024 x 500, no alpha, no text: the icon on
+   the gradient of the app icon; the same file in `en-US` and `fr-FR`, also
+   the name F-Droid reads). Category: Tools. Contact email and website
+   <https://reminis.link>.
+4. **Privacy policy**: <https://reminis.link/privacy/>. It covers the
+   Android app (docs/privacy.md and `site/`, sections "On your Android
+   device" and "Copies of your saves and save states (Android)"): the key
+   in the Android Keystore, the pairings and transfers kept on the phone, no
+   backup (`allowBackup` off), the synced saves (app storage or a folder the
+   user picks), camera for the QR code, the notification of transfers.
+   Check that the published page matches before submitting.
 5. **Data safety**. Read the current definitions first: *Provide information
    for Google Play's Data safety section*,
    <https://support.google.com/googleplay/android-developer/answer/10787469>
@@ -161,9 +165,19 @@ Checklist:
    | Files the user picks or shares (games, saves, states, cheats, patches, box art, pak archives) | the user's own handheld, on the local network, TLS pinned to its certificate | yes, on its SD card (that is the point) | never |
    | Pairing: a random client id (UUID), the public key, the client name (device model by default, editable), the platform (`android`) | the handheld | yes, in its list of devices | never |
    | Signed requests (time, nonce) | the handheld | the nonce for a few minutes (replay protection) | never |
+   | Synced saves and states, with their small manifests (`SyncManager`) | by default the app's private storage (`filesDir/SyncedSaves`, does not leave the phone); or a folder the user picks with the system folder picker (SAF, `SafVaultStore`), on the phone or at a cloud storage provider offered by the picker | yes, 10 versions per save and per state slot; a user-picked folder survives uninstallation | never by the app; a cloud provider only if the user picks one of its folders, under that provider's terms |
 
    Nothing goes to the developer, to Google or to any other service, and the
-   app has no analytics, crash reporting or advertising SDK.
+   app has no analytics, crash reporting or advertising SDK. The only data
+   that can leave the phone other than to the handheld is the copies of the
+   saves, and only when the user picks a cloud provider's folder for them:
+   the app writes to the folder through Android's Storage Access Framework,
+   and the provider, chosen by the user, uploads it. The app never opens a
+   connection to that provider. Treat this as a user-initiated transfer to
+   a destination the user chose (check the wording of the "Data sharing"
+   exceptions on the day of the submission); it changes neither answer set
+   below, but the privacy policy says it (section "Copies of your saves and
+   save states (Android)").
 
    Two honest answer sets:
 

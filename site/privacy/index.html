@@ -35,13 +35,13 @@
     <div class="page-title">
       <div class="wrap">
         <h1>Privacy Policy</h1>
-        <p>Last updated: <time datetime="2026-11-22">22 November 2026</time></p>
+        <p>Last updated: <time datetime="2026-11-23">23 November 2026</time></p>
       </div>
     </div>
 
     <div class="wrap">
       <article class="prose">
-        <p>ReminisLink is an app for iPhone, iPad, Mac (with Apple silicon) and Android that manages the games of your retro handheld over your local Wi-Fi network. Your data stays on your devices, on your handheld and, with the Apple app, in your own iCloud account (copies of your saves and save states in iCloud Drive, pairing in iCloud Keychain). ReminisLink on the handheld never connects to the internet: it only answers your devices on your local network.</p>
+        <p>ReminisLink is an app for iPhone, iPad, Mac (with Apple silicon) and Android that manages the games of your retro handheld over your local Wi-Fi network. Your data stays on your devices, on your handheld and, with the Apple app, in your own iCloud account (copies of your saves and save states in iCloud Drive, pairing in iCloud Keychain) or, with the Android app, in a folder you choose for the copies of your saves. ReminisLink on the handheld never connects to the internet: it only answers your devices on your local network.</p>
 
         <h2>What we collect</h2>
         <p><strong>Nothing.</strong> ReminisLink has no account, no server, no analytics, no advertising and no tracking. The Apple app uses no third-party SDK; the Android app uses no Google Play Services and only open-source libraries that work on the device (AndroidX, CameraX, OkHttp, ZXing, Tink). The developer receives no data about you or about how you use the app.</p>
@@ -84,7 +84,12 @@
           <li>A pairing link you scan, paste or open from another app, and the list of files shared from another app, are kept in memory only.</li>
           <li><strong>The demo mode</strong> (Try Without a Console) works with a made-up handheld kept in memory: it never uses the network, puts nothing in the Keystore or in the list of handhelds, and keeps nothing once you quit it. Files you pick to try a feature are copied and deleted like for a real transfer; a download is written to the document you choose.</li>
         </ul>
-        <p>The app opts out of Android backup and of device-to-device transfer: none of this goes to your Google account or to a new device. Each Android device therefore has its own identity and pairs with each handheld on its own. The Android app makes no copies of your saves and has no cloud sync. Uninstalling the app removes all of this, its Keystore keys included.</p>
+        <p>The app opts out of Android backup and of device-to-device transfer: none of this goes to your Google account or to a new device. Each Android device therefore has its own identity and pairs with each handheld on its own. Uninstalling the app removes all of this, its Keystore keys included, and the copies of your saves kept in its storage (see below).</p>
+
+        <h2>Copies of your saves and save states (Android)</h2>
+        <p>Like the Apple app, the Android app can copy the saves (with their clock files) and the save states (with their thumbnails) of your handhelds to your device: with the <strong>Sync Saves</strong> button of a handheld, and automatically when it connects (<strong>Sync Saves When Connecting</strong> in the settings of the app, on by default). Up to 10 versions of each save, and of each save state slot, are kept. Next to the copies, the same small files as on Apple devices record the identifier and name of the handheld, the identifier, name and system of the game, and for each version its number (and the slot, for a save state), the names, sizes and checksums of its files, the date of the copy and, when known, the date the save or save state last changed on the handheld. While a folder is being written, a file named <code>.rl-partial.json</code> lists the names and checksums of the files it will hold; it is removed once the folder is complete, and may stay behind if the writing is interrupted. The app remembers the sync setting and the folder you chose.</p>
+        <p>By default the copies go to <strong>the private storage of the app</strong> on this device, which other apps cannot read; they are deleted when you uninstall the app or clear its data. In the settings of the app (<strong>Save Sync</strong> &gt; <strong>Choose a Folder…</strong>), you can instead pick a folder with the Android folder picker: the app gets access to that folder only and writes the copies there, with the same layout as on Apple devices, where you can see, move or delete them with other apps. <strong>Uninstalling the app does not delete this folder or the copies in it.</strong> If you pick a folder of a cloud storage service offered by the picker, that service stores and syncs the copies under its own terms and privacy policy: the app itself sends nothing to any service, and the developer has no server and never receives these copies. Changing the place, or going back to <strong>Use the App’s Storage</strong>, moves and deletes nothing, and the app gives up its access to the previous folder. If the chosen folder can no longer be reached, the sync stops and copies nothing: the app never falls back to another place without telling you.</p>
+        <p>A version you <strong>Share</strong> is copied to a temporary area of the app and handed to the app you choose. In demo mode, the copies go to a temporary folder of the app, erased when you quit the demo, never to the app’s storage or to your folder.</p>
 
         <h2>Between the app and your handheld</h2>
         <p>ReminisLink talks only to handhelds on your local network, found with Bonjour (mDNS), over HTTPS (encrypted). The app accepts only the certificate whose public-key fingerprint is in the QR code you scanned.</p>
@@ -123,7 +128,7 @@
           <li><strong>Network access</strong> (granted at installation): to find your handheld with the system’s service discovery (NSD) and talk to it on your local network.</li>
           <li><strong>Camera</strong>: only to scan the QR code shown by your handheld, decoded on the device. No picture is taken or saved. You can paste the pairing link instead.</li>
           <li><strong>Notifications</strong> (Android 13 and later, asked when you send files): to show the progress of transfers, with the name of the file, while they run in the background. If you refuse, transfers still run.</li>
-          <li><strong>No storage permission</strong>: the app only reads the files you pick and writes the documents you create with the system dialogs.</li>
+          <li><strong>No storage permission</strong>: the app only reads the files you pick and writes the documents you create with the system dialogs, and the folder you choose for the copies of your saves.</li>
         </ul>
 
         <h2>Children</h2>
