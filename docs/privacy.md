@@ -316,6 +316,22 @@ On Android:
   writes the documents you create with the system dialogs, and the folder
   you choose for the copies of your saves.
 
+### Deleting your data
+
+Nothing is kept by the developer, so there is nothing to ask us to delete:
+everything is on your own devices, and you delete it yourself.
+
+- **The pairing** (identifier, public key, name): **Forget** the handheld in
+  the app, or on the handheld in **Settings > Devices > Forget**.
+- **Files on the handheld** (games, saves, states, cheats, box art): move
+  them to the trash from the app or the handheld, then empty the trash (or
+  let the 30 days pass).
+- **Copies of your saves and states**: delete them from their folder (iCloud
+  Drive, Files, or the Android folder you chose); copies in the app’s own
+  storage go away when you uninstall the app.
+- **Everything else on the phone** (identity, list of handhelds): uninstall
+  the app.
+
 ### Children
 
 ReminisLink collects no data from anyone, children included.
@@ -676,6 +692,23 @@ Sur Android :
 - **Aucune autorisation de stockage** : l’app ne lit que les fichiers que tu
   choisis et n’écrit que les documents que tu crées avec les fenêtres du
   système, et le dossier que tu choisis pour les copies de tes sauvegardes.
+
+### Supprimer tes données
+
+Le développeur ne garde rien : il n’y a donc rien à nous demander de
+supprimer. Tout est sur tes propres appareils, et tu le supprimes toi-même.
+
+- **L’appairage** (identifiant, clé publique, nom) : **Oublier** la console
+  dans l’app, ou sur la console dans **Réglages > Appareils > Oublier**.
+- **Les fichiers de la console** (jeux, sauvegardes, états, codes de triche,
+  jaquettes) : mets-les à la corbeille depuis l’app ou la console, puis vide
+  la corbeille (ou laisse passer les 30 jours).
+- **Les copies de tes sauvegardes et de tes états** : supprime-les de leur
+  dossier (iCloud Drive, Fichiers, ou le dossier Android que tu as choisi) ;
+  les copies gardées dans le stockage de l’app disparaissent quand tu la
+  désinstalles.
+- **Tout le reste sur le téléphone** (identité, liste des consoles) :
+  désinstalle l’app.
 
 ### Enfants
 
