@@ -20,7 +20,7 @@
 5. **Écran principal** (§7).
 6. **Fermeture** (B, ou signal SIGTERM/SIGINT) : refus des nouvelles requêtes (`503 shutting_down`), événement `shutdown` aux flux d'événements (M14, 1 s au plus pour les écrire), `sync`, retrait de l'annonce (sans attendre les requêtes ni les flux), attente des écritures en cours (10 s maximum), `sync`, sortie.
 
-Le pak NE DOIT PAS laisser de processus en arrière-plan après sa fermeture. Exception prévue par M24 (projet, [11](11-mode-arriere-plan.md) §3) : avec le réglage « Disponible pendant les jeux », seul le serveur d'arrière-plan reste, et un seul.
+Le pak NE DOIT PAS laisser de processus en arrière-plan après sa fermeture. Exception prévue par M24 (projet, [11](11-mode-arriere-plan.md) §6) : avec le réglage « Disponible pendant les jeux », seul le serveur d'arrière-plan reste, et un seul.
 
 **Mise en veille** (analyse du code, M0) :
 
