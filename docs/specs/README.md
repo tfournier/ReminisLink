@@ -15,6 +15,7 @@ Version 0.1 — 18/11/2026. Statut : brouillon validé sur le fond, à affiner p
 | 08 | [Tests et qualité](08-tests-qualite.md) | Stratégie de test, vecteurs partagés, mode desktop |
 | 09 | [Feuille de route](09-feuille-de-route.md) | Jalons M0 à M7 et critères d'acceptation |
 | 10 | [App Android](10-app-android.md) | M21 : ce qui est propre à Android (clé dans le Keystore, NSD, épinglage OkHttp, F-Droid) |
+| 11 | [ReminisLink pendant les jeux](11-mode-arriere-plan.md) | M24 (projet) : serveur en arrière-plan, hooks NextUI, règles d'écriture pendant un jeu |
 
 ## Vocabulaire
 
