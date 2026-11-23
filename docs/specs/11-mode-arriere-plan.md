@@ -19,7 +19,7 @@ Le mode arrière-plan garde un serveur disponible pendant le jeu et dans le menu
 | Ce qui tourne | Refusé, et seulement cela |
 |---|---|
 | Un jeu | Les fichiers de ce jeu (§4) : lire sa save, son `.rtc`, ses states, son state de reprise ou une archive qui les contient (minarch réécrit la save sur place, `minarch/ma_saves.c:75-105`, à l'ouverture du menu, avant la veille et en quittant, `minarch/ma_menu.c:1795`, `minarch/ma_menu.c:225`, `minarch/ma_core.c:164`) ; toute écriture sur ce jeu (remplacer, restaurer, supprimer, renommer, patcher, importer une archive, verrous, jaquette). Installer, mettre à jour ou supprimer l'émulateur du jeu (le pak de `Emus/` qui l'a lancé). Réponse : `409 game_running` |
-| Une autre app (pak) | Mettre à jour ou supprimer cette app ; enregistrer des cheats (Cheat Manager écrit les mêmes `.cht`). Réponse : `409 console_busy` |
+| Une autre app (pak) | Mettre à jour ou supprimer cette app. Réponse : `409 console_busy`. Aucune règle propre à une app connue (Cheat Manager ou autre) : ReminisLink ne sait pas ce qu'une app écrit, il les traite toutes de la même façon (personne, 23/11/2026) |
 | Le menu de NextUI | Rien |
 
 Exceptions, quoi qu'il tourne :
@@ -36,7 +36,17 @@ NextUI n'a pas de barrière de lancement qui échoue fermée : un hook `pre-laun
 2. **Si le hook manque ou arrive trop tard**, l'état réel est relu dans `/proc` (§4) sous le verrou d'écriture, avant chaque étape qui modifie la carte. Une opération qui trouve son jeu lancé en cours de route s'arrête avant l'étape suivante et se défait ou se reprend par son journal (comme après une coupure). Une étape déjà commencée se termine : chaque fichier est écrit de façon atomique et tout fichier remplacé est d'abord copié dans la corbeille (règle 1). minarch charge alors l'ancienne ou la nouvelle version entière ; au pire, il réécrit ensuite la save depuis sa mémoire, et la version remplacée reste dans la corbeille (la version envoyée reste sur le téléphone).
 3. **Un téléchargement en cours** (save, state, archive) quand son jeu est lancé : minarch n'écrit pas la save au chargement mais à l'ouverture du menu, avant la veille et en quittant. Le serveur relit la taille et la date du fichier **avant d'envoyer le dernier bloc** et coupe la connexion s'ils ont changé ou si le jeu a été lancé entre-temps : l'app reçoit moins d'octets que la longueur annoncée, signale l'échec et recommence plus tard. Une écriture de minarch pendant la lecture change la date : elle est donc vue avant la fin.
 
-Une app (pak) peut écrire n'importe où sur la carte : à part les cheats et l'app elle-même, ses écritures ne sont pas surveillées (choix de la personne : ne bloquer que ce qui est en cours d'utilisation). Ce que ReminisLink remplace va toujours d'abord dans la corbeille.
+Une app (pak) peut écrire n'importe où sur la carte, et ReminisLink ne sait pas où. Ses écritures ne sont ni bloquées ni surveillées ; ce que ReminisLink remplace va toujours d'abord dans la corbeille.
+
+### 2.2 Avertir quand un lancement croise une écriture
+
+Quand un jeu ou une app est lancé pendant qu'une opération de ReminisLink modifie la carte (envoi en cours de finalisation, restauration, patch, installation, enregistrement de cheats…), l'app du téléphone l'affiche. La console ne peut rien montrer : le serveur d'arrière-plan n'a pas d'écran et le hook ne peut pas retarder le lancement.
+
+- Le serveur ajoute à l'événement `activity` la liste des opérations en cours au moment du lancement (`overlapping`, avec leur nom lisible).
+- Jeu lancé : « *Nom du jeu* a été lancé pendant *l'opération*. » Si l'opération touchait ce jeu, elle a été arrêtée ou terminée par les protections du §2.1, et l'app dit laquelle (« La restauration de la sauvegarde a été annulée, rien n'a été perdu »).
+- App lancée : « Une app a été ouverte sur la console pendant *l'opération*. Si elle modifie les mêmes fichiers, vérifie le résultat. » L'opération continue ; les fichiers remplacés restent dans la corbeille.
+- Rien n'est affiché si aucune opération n'écrivait (une simple consultation ou un téléchargement d'un autre jeu).
+
 
 ## 3. Activation et hooks
 
@@ -57,7 +67,7 @@ Le serveur lit l'activité dans `/proc` (le hook `pre-launch.d` ne fait que l'an
 
 - `minarch.elf` vivant : **jeu** ; ses arguments (`/proc/<pid>/cmdline`, exacts, sans échappement) donnent le cœur et le chemin de la ROM (`skeleton/SYSTEM/tg5040/paks/Emus/GB.pak/launch.sh:14`). Le chemin est résolu en jeu par la bibliothèque, confiné (règle 2), sans la casse ; l'argument est le chemin d'origine (une ROM d'archive n'est extraite dans `/tmp/nextarch/<TAG>` qu'ensuite et sous condition, `minarch/ma_game.c:46` et suivantes, `163-178`) ; à la reprise d'un jeu multi-disque, NextUI lance le disque de la reprise (`nextui.c:1286-1311`) ; **[À VÉRIFIER]** sur la console pour ces cas et les raccourcis de M23. Les fichiers du jeu sont résolus et confinés comme toute requête (règle 2), sans la casse (exFAT), puis étendus à **tout** son ensemble : ROM et son archive, tous les disques d'un jeu multi-disque, la cible d'un raccourci, save, `.rtc`, states, state de reprise, verrous, copies et jaquette. Un chemin qui ne se résout pas : **tous les jeux de ce système** sont traités comme en cours d'utilisation (prudence).
 - `nextui.elf` vivant sans `minarch.elf` : **menu**.
-- Ni l'un ni l'autre : **app** (pak) ou transition (raccourci d'outil par `SHORTCUT.pak`, extinction). L'app est connue par le hook (`HOOK_EMU_PATH`) ou par le chemin de l'exécutable des processus ; inconnue, seuls les cheats sont refusés (§2).
+- Ni l'un ni l'autre : **app** (pak) ou transition (raccourci d'outil par `SHORTCUT.pak`, extinction). L'app est connue par le hook (`HOOK_EMU_PATH`) ou par le chemin de l'exécutable des processus ; inconnue, rien n'est refusé à part les opérations sur ce qui ne peut pas être identifié.
 
 L'activité décide de ce qui est refusé (§2) : en cas de doute, le serveur refuse plus, jamais moins.
 
@@ -96,6 +106,7 @@ Le même binaire tourne soit au premier plan (pak ouvert, écran gabagool, toute
 - `GET /device` (signé) : `mode` et `activity`, optionnels : `activity` vaut `{ state: menu | game | pak, gameId?, systemTag?, name? }` (`name` : le nom du jeu ; pour un pak, aucun nom n'est connu, l'app affiche « Une app est ouverte sur la console »).
 - Nouvel événement `activity` (même contenu) dans le flux signé à chaque changement.
 - `EventShutdown` : champ optionnel `restarting` (§5). Champs obligatoires et valeurs existants inchangés.
+- Événement `activity` : champ optionnel `overlapping` (opérations d'écriture en cours au lancement, §2.2).
 - Erreurs (03 §6) : `409 game_running` (`details.gameId`, ou `details.systemId` quand le jeu n'a pas pu être identifié) et `409 console_busy` (une app ouverte sur la console).
 - Réponse d'enregistrement des cheats : `appliesOnNextLaunch` optionnel (le jeu tourne).
 - Compatibilité : `ios-v1.1.0` traite un code inconnu comme une erreur générique (`ErrorCode.other`, `APIError.swift`), ignore les clés et événements inconnus ; l'app Android fait de même dans le code (`ui/Errors.kt`), à vérifier sur la première version publiée. `minClientVersion` et `apiVersion` inchangés. Une app ancienne voit des erreurs génériques sur les actions refusées (seulement sur le jeu ou l'app en cours) et revient à la liste à une relève : c'est acceptable pour une version **MINOR**, à confirmer en essayant les apps publiées (relève, veille, `409`) avant de fixer le numéro.
@@ -105,6 +116,7 @@ Le même binaire tourne soit au premier plan (pak ouvert, écran gabagool, toute
 - Tableau de bord : bandeau selon `activity` : « En jeu : *nom du jeu* » ou « Une app est ouverte sur la console ».
 - Jeu en cours : ses actions sont désactivées avec la raison (« Ce jeu tourne sur la console. Quitte-le pour modifier ou télécharger sa sauvegarde. ») ; ses cheats restent modifiables, avec la notice du §1. Tout le reste de l'app fonctionne normalement.
 - La sync des saves saute le jeu en cours et le reprend à l'événement `activity` qui annonce sa fin.
+- Avertissement du §2.2 quand un lancement croise une écriture.
 - Messages traduits pour `game_running` et `console_busy` ; un téléchargement coupé (§2.1, protection 3) est un échec ordinaire, à relancer. Relève : reconnexion silencieuse.
 - Aucun réglage dans l'app : le mode se règle sur la console.
 
@@ -142,6 +154,6 @@ Sur une TrimUI Brick (tg5040), serveur d'arrière-plan actif, sans app puis avec
 |---|---|---|
 | 1 | Sur quels réseaux le serveur d'arrière-plan écoute-t-il ? | **Tous** (validé le 23/11/2026) : la sécurité repose sur les signatures ; un réseau public voit le nom, l'identifiant, la version et le mode de la console, rien de plus |
 | 2 | Que permettre en arrière-plan ? | **Tout, sauf ce qui est en cours d'utilisation** (personne, 23/11/2026) : le jeu en cours (sauf ses cheats) et l'app ouverte ; §2 et ses protections pendant les transitions (§2.1) |
-| 3 | Cheats pendant qu'une autre app est ouverte (Cheat Manager peut modifier les mêmes fichiers) | **À valider** : les refuser (`console_busy`) tant qu'une app est ouverte, pour qu'une modification faite dans Cheat Manager et une autre faite depuis le téléphone ne s'écrasent pas |
+| 3 | Règles propres à une app (Cheat Manager et les `.cht`) | **Aucune** (personne, 23/11/2026) : toutes les apps sont traitées pareil, seule l'app ouverte est protégée ; à la place, un avertissement dans l'app du téléphone quand un lancement croise une écriture (§2.2) |
 | 4 | Réglage par défaut | **Désactivé** (validé le 23/11/2026) |
 | 5 | Après un arrêt forcé du serveur | **Couper plutôt que risquer** (personne, 23/11/2026) : le successeur refuse les requêtes signées avant son démarrage ; l'app recale son horloge et réessaie, sinon affiche une erreur de communication |
