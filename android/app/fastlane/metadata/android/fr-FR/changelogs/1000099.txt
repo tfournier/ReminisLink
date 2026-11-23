@@ -1,0 +1,10 @@
+Première version de ReminisLink pour Android :
+• Appairage par QR code, tableau de bord, bibliothèque
+• Envois et téléchargements qui reprennent, menu de partage
+• Sauvegardes et copies de secours, états et verrous, jaquette
+• Codes de triche, patchs IPS/BPS/UPS, apps de la console
+• Archives de jeu, captures d’écran de la console
+• Copies des sauvegardes et états sur le téléphone
+• Corbeille avec restauration, mises à jour en direct
+• Tablettes et pliables
+• Mode démo : essaie sans console
