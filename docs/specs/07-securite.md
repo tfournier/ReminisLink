@@ -8,7 +8,7 @@
 ## 2. Hypothèses
 
 - Le réseau est un Wi-Fi local, en général domestique, parfois public (hôtel, école).
-- Le pak n'écoute que lorsqu'il est ouvert, donc quelques minutes à la fois.
+- Le pak n'écoute que lorsqu'il est ouvert, donc quelques minutes à la fois. M24 (projet) : avec le mode arrière-plan, il écoute tant que la console est allumée ; revue dans [11 §11](11-mode-arriere-plan.md#11-sécurité-revue-de-07).
 - Une personne qui a la console ou la carte SD en main a déjà accès à tout. Ce cas est hors du modèle.
 
 ## 3. Menaces et mesures

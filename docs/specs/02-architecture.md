@@ -88,5 +88,5 @@ Le code de lecture et d'écriture des `.cht` de Cheat Manager (`internal/cheats`
 | Bonjour seulement | Seule méthode de découverte sans entitlement Apple spécial ; les IP changent |
 | mDNS intégré au binaire Go | Un répondeur intégré marche sur tous les OS. `avahi-daemon` 0.6.31 **tourne déjà** sur le firmware d'origine (lancé par `/etc/rc.d/S61avahi-daemon`, avec D-Bus par `S10dbus`, à l'écoute sur UDP 5353) ; essai du 19/11/2026 dans le rootfs v1.1.1 en conteneur linux/arm64 : le pak (`--headless`) s'annonce à côté d'avahi et un client mDNS le trouve avec son TXT complet, avahi reste actif. Reste à confirmer sur la vraie console en Wi-Fi, depuis l'iPhone **[À VÉRIFIER M0]** |
 | HTTP + HMAC, pas de TLS | Processeur modeste, réseau local, serveur ouvert seulement quand le pak l'est. La clé ne circule jamais. TLS pourra devenir une option |
-| Pak au premier plan | Aucune écriture concurrente avec l'émulateur, pas de consommation en arrière-plan |
+| Pak au premier plan | Aucune écriture concurrente avec l'émulateur, pas de consommation en arrière-plan. M24 (projet, [11](11-mode-arriere-plan.md)) : en option, un serveur d'arrière-plan pendant les jeux, qui permet tout sauf ce qui est en cours d'utilisation (fichiers du jeu en cours, app ouverte) |
 | Go | Comme Cheat Manager et Grout ; un binaire ARM64 unique |

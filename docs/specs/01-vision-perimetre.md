@@ -40,6 +40,8 @@ Téléchargement depuis un lien par la console (retiré le 20/11/2026 et écart�
 
 Ces points sont repris, ou non, après la v1 (voir [09](09-feuille-de-route.md)).
 
+En v1, le pak ne tourne que quand aucun jeu ne tourne. M24 (projet, [11](11-mode-arriere-plan.md)) ajoute en option un serveur d'arrière-plan pendant les jeux.
+
 ## Plateformes
 
 | Composant | v1 | Ensuite |
