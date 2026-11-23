@@ -21,9 +21,9 @@ RepoType: git
 Repo: https://github.com/tfournier/ReminisLink.git
 
 Builds:
-  - versionName: 0.1.0
-    versionCode: 10099
-    commit: android-v0.1.0
+  - versionName: 1.0.0
+    versionCode: 1000099
+    commit: android-v1.0.0
     # The store listing is android/app/fastlane: fdroidserver only reads a
     # nested fastlane folder whose parent is this subdir.
     subdir: android/app
@@ -41,14 +41,14 @@ Builds:
 # Reproducible build (optional, recommended): F-Droid builds the APK itself
 # and, when it matches the APK of the GitHub release byte for byte (apart
 # from the signature), publishes the developer-signed APK. Uncomment once the
-# release key exists; AllowedAPKSigningKeys is the SHA-256 of the signing
+# F-Droid build is known to match; AllowedAPKSigningKeys is the SHA-256 of the signing
 # certificate (apksigner verify --print-certs, "SHA-256 digest", lower case,
 # no colons).
 # Binaries: https://github.com/tfournier/ReminisLink/releases/download/android-v%v/ReminisLink-android-%v.apk
-# AllowedAPKSigningKeys: <sha256 of the release certificate>
+# AllowedAPKSigningKeys: e9ebbb6f9cd986f1ba2124d8d3c4804ec63723f0ae60d4672f5e88c4b8baa9e5
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^android-v[0-9]+\.[0-9]+\.[0-9]+$
 UpdateCheckData: android/version.properties|versionCode=(\d+)|.|versionName=(.+)
-CurrentVersion: 0.1.0
-CurrentVersionCode: 10099
+CurrentVersion: 1.0.0
+CurrentVersionCode: 1000099
