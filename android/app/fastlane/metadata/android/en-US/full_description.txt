@@ -14,6 +14,7 @@ ReminisLink lists the games found on the SD card of your handheld, but provides 
 <ul>
 <li>Download, replace, back up and restore saves; the current save is always copied first</li>
 <li>See every save state slot with its thumbnail, and lock a state: if it is overwritten or deleted, ReminisLink puts the locked copy back the next time it starts</li>
+<li>Copy the saves and save states of the handheld to your phone, or to a folder you choose, in one tap or at each connection, with up to 10 versions of each</li>
 </ul>
 
 <p><b>Cheats and patches</b></p>

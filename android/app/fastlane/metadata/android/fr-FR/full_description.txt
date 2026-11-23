@@ -14,6 +14,7 @@ ReminisLink liste les jeux présents sur la carte SD de ta console, mais ne four
 <ul>
 <li>Télécharge, remplace, copie et restaure tes sauvegardes ; la sauvegarde actuelle est toujours copiée avant</li>
 <li>Chaque emplacement d’état avec sa vignette, et le verrouillage d’un état : s’il est écrasé ou supprimé, ReminisLink remet la copie verrouillée à son prochain lancement</li>
+<li>Copie les sauvegardes et les états de la console sur ton téléphone, ou dans un dossier de ton choix, d’une touche ou à chaque connexion, avec jusqu’à 10 versions de chacun</li>
 </ul>
 
 <p><b>Codes de triche et patchs</b></p>
@@ -23,19 +24,19 @@ ReminisLink liste les jeux présents sur la carte SD de ta console, mais ne four
 </ul>
 
 <p><b>Les apps de la console</b><br>
-Vois les outils et émulateurs installés sur la console, installe-en un depuis un zip de ton téléphone, ou supprime-le.</p>
+Vois les outils et émulateurs de la console, installe-en un depuis un zip, ou supprime-le.</p>
 
 <p><b>Déplace un jeu, garde ses données</b><br>
-Exporte la sauvegarde, les états, les codes de triche et la jaquette d’un jeu (et le fichier du jeu, si tu veux) dans une seule archive sur ton téléphone, et importe-la sur la même console ou sur une autre. Tout ce que l’import remplace va d’abord dans la corbeille de la console.</p>
+Exporte la sauvegarde, les états, les codes de triche et la jaquette d’un jeu (et le jeu, si tu veux) dans une archive, et importe-la sur la même console ou une autre. Ce que l’import remplace va d’abord à la corbeille.</p>
 
 <p><b>Captures d’écran</b><br>
 Parcours les captures d’écran prises sur la console, jour par jour ; partage-les, enregistre-les dans ta galerie ou mets-les à la corbeille.</p>
 
 <p><b>Rien ne se perd</b><br>
-Les jeux supprimés, les fichiers remplacés et les jeux patchés sur place vont dans la corbeille de la console pendant 30 jours ; une sauvegarde remplacée est d’abord gardée dans les copies de secours. Restaure n’importe quoi depuis la corbeille : un jeu revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette, et rien sur la carte SD n’est jamais écrasé.</p>
+Les jeux supprimés, les fichiers remplacés et les jeux patchés sur place vont dans la corbeille de la console pendant 30 jours ; une sauvegarde remplacée est d’abord gardée dans les copies de secours. Un jeu restauré revient avec sa sauvegarde, ses états, ses codes de triche et sa jaquette, sans rien écraser.</p>
 
 <p><b>Toujours à jour</b><br>
-L’app se rafraîchit seule quand la carte SD change, affiche la batterie en direct, et revient à ta liste quand tu fermes ReminisLink sur la console. Les transferts continuent en arrière-plan et reprennent après une coupure.</p>
+L’app se rafraîchit seule quand la carte SD change et affiche la batterie en direct. Les transferts continuent en arrière-plan et reprennent après une coupure.</p>
 
 <p><b>Simple et privé</b></p>
 <ul>
@@ -48,7 +49,7 @@ L’app se rafraîchit seule quand la carte SD change, affiche la batterie en di
 « Essayer sans console » ouvre une console de démo avec des jeux inventés, pour essayer chaque écran. Rien ne quitte le téléphone.</p>
 
 <p><b>Téléphones, tablettes et pliables</b><br>
-Dans une fenêtre large, la bibliothèque et le jeu choisi s’affichent côte à côte ; toutes les orientations et tailles de fenêtre fonctionnent.</p>
+Dans une fenêtre large, la bibliothèque et le jeu choisi s’affichent côte à côte.</p>
 
 <p><b>Consoles compatibles</b><br>
 TrimUI Brick sous NextUI. En test, avec appel aux testeurs : TrimUI Smart Pro S, consoles Anbernic H700 et Miyoo Flip sous NextUI, et les consoles sous Knulli.</p>

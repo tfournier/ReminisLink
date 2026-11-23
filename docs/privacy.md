@@ -7,7 +7,7 @@ Published version / Version publiée : <https://reminis.link/privacy/> ·
 `site/fr/privacy/` identical / Garder ce fichier et les pages du site
 identiques.
 
-Last updated / Dernière mise à jour : 22 November 2026 / 22 novembre 2026
+Last updated / Dernière mise à jour : 23 November 2026 / 23 novembre 2026
 
 ---
 
@@ -19,8 +19,10 @@ ReminisLink is an app for iPhone, iPad, Mac (with Apple silicon) and Android
 that manages the games of your retro handheld over your local Wi-Fi network.
 Your data stays on your devices, on your handheld and, with the Apple app,
 in your own iCloud account (copies of your saves and save states in iCloud
-Drive, pairing in iCloud Keychain). ReminisLink on the handheld never
-connects to the internet: it only answers your devices on your local network.
+Drive, pairing in iCloud Keychain) or, with the Android app, in a folder you
+choose for the copies of your saves. ReminisLink on the handheld never
+connects to the internet: it only answers your devices on your local
+network.
 
 ### What we collect
 
@@ -182,9 +184,47 @@ cannot read:
 
 The app opts out of Android backup and of device-to-device transfer: none of
 this goes to your Google account or to a new device. Each Android device
-therefore has its own identity and pairs with each handheld on its own. The
-Android app makes no copies of your saves and has no cloud sync.
-Uninstalling the app removes all of this, its Keystore keys included.
+therefore has its own identity and pairs with each handheld on its own.
+Uninstalling the app removes all of this, its Keystore keys included, and
+the copies of your saves kept in its storage (see below).
+
+### Copies of your saves and save states (Android)
+
+Like the Apple app, the Android app can copy the saves (with their clock
+files) and the save states (with their thumbnails) of your handhelds to your
+device: with the **Sync Saves** button of a handheld, and automatically when
+it connects (**Sync Saves When Connecting** in the settings of the app, on
+by default). Up to 10 versions of each save, and of each save state slot,
+are kept. Next to the copies, the same small files as on Apple devices
+record the identifier and name of the handheld, the identifier, name and
+system of the game, and for each version its number (and the slot, for a
+save state), the names, sizes and checksums of its files, the date of the
+copy and, when known, the date the save or save state last changed on the
+handheld. While a folder is being written, a file named `.rl-partial.json`
+lists the names and checksums of the files it will hold; it is removed once
+the folder is complete, and may stay behind if the writing is interrupted.
+The app remembers the sync setting and the folder you chose.
+
+By default the copies go to **the private storage of the app** on this
+device, which other apps cannot read; they are deleted when you uninstall
+the app or clear its data. In the settings of the app (**Save Sync** >
+**Choose a Folder…**), you can instead pick a folder with the Android folder
+picker: the app gets access to that folder only and writes the copies there,
+with the same layout as on Apple devices, where you can see, move or delete
+them with other apps. **Uninstalling the app does not delete this folder or
+the copies in it.** If you pick a folder of a cloud storage service offered
+by the picker, that service stores and syncs the copies under its own terms
+and privacy policy: the app itself sends nothing to any service, and the
+developer has no server and never receives these copies. Changing the place,
+or going back to **Use the App’s Storage**, moves and deletes nothing, and
+the app gives up its access to the previous folder. If the chosen folder can
+no longer be reached, the sync stops and copies nothing: the app never falls
+back to another place without telling you.
+
+A version you **Share** is copied to a temporary area of the app and handed
+to the app you choose. In demo mode, the copies go to a temporary folder of
+the app, erased when you quit the demo, never to the app’s storage or to
+your folder.
 
 ### Between the app and your handheld
 
@@ -273,7 +313,8 @@ On Android:
   show the progress of transfers, with the name of the file, while they run
   in the background. If you refuse, transfers still run.
 - **No storage permission**: the app only reads the files you pick and
-  writes the documents you create with the system dialogs.
+  writes the documents you create with the system dialogs, and the folder
+  you choose for the copies of your saves.
 
 ### Children
 
@@ -306,9 +347,10 @@ ReminisLink est une app pour iPhone, iPad, Mac (à puce Apple) et Android qui
 gère les jeux de ta console rétro par ton réseau Wi-Fi local. Tes données
 restent sur tes appareils, sur ta console et, avec l’app Apple, dans ton
 propre compte iCloud (copies de tes sauvegardes et de tes états de jeu dans
-iCloud Drive, appairage dans le trousseau iCloud). ReminisLink sur la console
-ne se connecte jamais à internet : il ne répond qu’à tes appareils sur ton
-réseau local.
+iCloud Drive, appairage dans le trousseau iCloud) ou, avec l’app Android,
+dans un dossier que tu choisis pour les copies de tes sauvegardes.
+ReminisLink sur la console ne se connecte jamais à internet : il ne répond
+qu’à tes appareils sur ton réseau local.
 
 ### Ce que nous collectons
 
@@ -487,9 +529,53 @@ peuvent pas lire :
 L’app refuse la sauvegarde Android et le transfert d’appareil à appareil :
 rien de tout cela ne va dans ton compte Google ni sur un nouvel appareil.
 Chaque appareil Android a donc sa propre identité et s’appaire lui-même avec
-chaque console. L’app Android ne fait aucune copie de tes sauvegardes et n’a
-aucune synchronisation dans le cloud. Désinstaller l’app efface tout cela,
-ses clés du Keystore comprises.
+chaque console. Désinstaller l’app efface tout cela, ses clés du Keystore
+comprises, et les copies de tes sauvegardes gardées dans son stockage (voir
+plus bas).
+
+### Copies de tes sauvegardes et de tes états de jeu (Android)
+
+Comme l’app Apple, l’app Android peut copier les sauvegardes (avec leurs
+fichiers d’horloge) et les états de jeu (avec leurs vignettes) de tes
+consoles sur ton appareil : avec le bouton **Synchroniser les sauvegardes**
+d’une console, et automatiquement à chaque connexion (**Synchroniser les
+sauvegardes à la connexion** dans les réglages de l’app, activé par défaut).
+Jusqu’à 10 versions de chaque sauvegarde, et de chaque emplacement d’état de
+jeu, sont gardées. À côté des copies, les mêmes petits fichiers que sur les
+appareils Apple notent l’identifiant et le nom de la console, l’identifiant,
+le nom et le système du jeu, et pour chaque version son numéro (et
+l’emplacement, pour un état de jeu), le nom, la taille et la somme de
+contrôle de ses fichiers, la date de la copie et, si elle est connue, la
+date de dernière modification de la sauvegarde ou de l’état de jeu sur la
+console. Pendant l’écriture d’un dossier, un fichier `.rl-partial.json`
+liste le nom et la somme de contrôle des fichiers qu’il va contenir ; il est
+retiré une fois le dossier complet, et peut rester si l’écriture est
+interrompue. L’app retient le réglage de synchronisation et le dossier que
+tu as choisi.
+
+Par défaut, les copies vont dans **le stockage privé de l’app** sur cet
+appareil, que les autres apps ne peuvent pas lire ; elles sont supprimées
+quand tu désinstalles l’app ou effaces ses données. Dans les réglages de
+l’app (**Synchronisation des sauvegardes** > **Choisir un dossier…**), tu
+peux choisir à la place un dossier avec le sélecteur de dossiers d’Android :
+l’app n’a accès qu’à ce dossier et y écrit les copies, avec la même
+organisation que sur les appareils Apple, où tu peux les voir, les déplacer
+ou les supprimer avec d’autres apps. **Désinstaller l’app ne supprime ni ce
+dossier ni les copies qu’il contient.** Si tu choisis un dossier d’un
+service de stockage dans le cloud proposé par le sélecteur, ce service garde
+et synchronise les copies selon ses propres conditions et sa propre
+politique de confidentialité : l’app elle-même n’envoie rien à aucun
+service, et le développeur n’a aucun serveur et ne reçoit jamais ces copies.
+Changer d’emplacement, ou revenir à **Utiliser le stockage de l’app**, ne
+déplace et ne supprime rien, et l’app rend son accès à l’ancien dossier. Si
+le dossier choisi n’est plus accessible, la synchronisation s’arrête sans
+rien copier : l’app ne se replie jamais sur un autre emplacement sans te le
+dire.
+
+Une version que tu partages (**Partager**) est copiée dans une zone
+temporaire de l’app et donnée à l’app que tu choisis. En mode démo, les
+copies vont dans un dossier temporaire de l’app, effacé quand tu quittes la
+démo, jamais dans le stockage de l’app ni dans ton dossier.
 
 ### Entre l’app et ta console
 
@@ -589,7 +675,7 @@ Sur Android :
   transferts continuent.
 - **Aucune autorisation de stockage** : l’app ne lit que les fichiers que tu
   choisis et n’écrit que les documents que tu crées avec les fenêtres du
-  système.
+  système, et le dossier que tu choisis pour les copies de tes sauvegardes.
 
 ### Enfants
 
